@@ -24,6 +24,12 @@
 .DS_Store
 *.pem
 
+# datos reales -- nunca deben subirse al repo
+*.xlsx
+*.xls
+*.csv
+_scratch/
+
 # debug
 npm-debug.log*
 yarn-debug.log*

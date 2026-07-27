@@ -1,0 +1,10 @@
+*{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    background:var(--bg);color:var(--text);
+    -webkit-font-smoothing:antialiased;font-size:14px;
+  }
+  .app{display:flex;min-height:100vh}
+
+  .hidden{display:none!important}
