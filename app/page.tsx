@@ -1,20 +1,37 @@
 'use client';
 
-import { useState, type ChangeEvent } from 'react';
+import { useEffect, useState, type ChangeEvent } from 'react';
 import { read } from 'xlsx';
 import { readWorkbook } from '@/lib/parsing/workbookReader';
-import type { YearMonth } from '@/lib/parsing/types';
+import type { RawLoanRow, YearMonth } from '@/lib/parsing/types';
 import { classifyLoan } from '@/lib/domain/classifyLoan';
 import type { LoanRecord } from '@/lib/domain/types';
 import { buildReportTree } from '@/lib/aggregation/buildReportTree';
 import { deriveMonthRange, ymLabel } from '@/lib/aggregation/months';
 import type { Measure } from '@/lib/aggregation/types';
 import { exportToExcel } from '@/lib/export/exportToExcel';
+import { saveUpload } from '@/lib/supabase/saveUpload';
+import { loadCurrentReport } from '@/lib/supabase/loadCurrent';
 import { BRANCH_ORDER, type Branch } from '@/config/roster';
 import { METRICS } from '@/config/metrics';
 import SummaryCards from '@/components/report/SummaryCards';
 import PivotTable from '@/components/report/PivotTable';
 import Toolbar from '@/components/report/Toolbar';
+
+type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+
+/**
+ * Extrae un mensaje legible tanto de un Error nativo como de un error de
+ * Supabase/PostgREST (un objeto plano {code,message,details,hint}, no una
+ * instancia de Error) -- String(err) sobre ese objeto da '[object Object]'.
+ */
+function errorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === 'object' && 'message' in err && typeof err.message === 'string') {
+    return err.message;
+  }
+  return String(err);
+}
 
 /**
  * Port de defaultCollapsed() del legacy: al cargar un archivo, los headers
@@ -47,6 +64,50 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   // Indicador simple de "generando..." para el botón Descargar Excel (Etapa 9b).
   const [isExporting, setIsExporting] = useState(false);
+  // Indicador de saveUpload() en curso (Etapa 11) -- no bloquea el render.
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
+  // true mientras se consulta loadCurrentReport() al montar -- evita mostrar
+  // el emptyState de "sube tu archivo" antes de saber si hay algo guardado.
+  const [isLoadingInitial, setIsLoadingInitial] = useState(true);
+
+  // Deja el estado de filtros/colapso en su valor por defecto, tanto para un
+  // archivo recién cargado como para el reporte restaurado desde Supabase.
+  function applyLoadedReport(loanRecords: LoanRecord[], name: string) {
+    setRecords(loanRecords);
+    setFileName(name);
+    setView('main');
+    setMeasure('count');
+    setYear('all');
+    setStart(null);
+    setBranchFilter('all');
+    setCollapsed(defaultCollapsed());
+    setError(null);
+  }
+
+  // Al montar: si nadie cargó un archivo en esta sesión, restaurar el último
+  // reporte guardado en Supabase (is_current=true), si existe. No dispara
+  // saveUpload() de nuevo -- esos datos ya están guardados.
+  useEffect(() => {
+    if (records !== null) return;
+    let cancelled = false;
+    loadCurrentReport()
+      .then((current) => {
+        if (cancelled || !current) return;
+        applyLoadedReport(current.records, current.fileName);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(errorMessage(err));
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setIsLoadingInitial(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -58,21 +119,23 @@ export default function Home() {
         const result = ev.target?.result;
         if (!(result instanceof ArrayBuffer)) throw new Error('No se pudo leer el archivo.');
         const workbook = read(new Uint8Array(result), { type: 'array' });
-        const rawRows = readWorkbook(workbook);
+        const rawRows: RawLoanRow[] = readWorkbook(workbook);
         if (!rawRows.length) throw new Error('El archivo no tiene filas de datos');
         const loanRecords = rawRows.map(classifyLoan);
 
-        setRecords(loanRecords);
-        setFileName(file.name);
-        setView('main');
-        setMeasure('count');
-        setYear('all');
-        setStart(null);
-        setBranchFilter('all');
-        setCollapsed(defaultCollapsed());
-        setError(null);
+        applyLoadedReport(loanRecords, file.name);
+
+        // Guardar en Supabase sin bloquear el render -- el reporte ya se ve
+        // en pantalla independientemente de cómo salga esto.
+        setSaveStatus('saving');
+        saveUpload(loanRecords, rawRows, file.name)
+          .then(() => setSaveStatus('saved'))
+          .catch((err) => {
+            console.error('saveUpload failed', err);
+            setSaveStatus('error');
+          });
       } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
+        setError(errorMessage(err));
         setRecords(null);
         setFileName(null);
       }
@@ -115,7 +178,7 @@ export default function Home() {
         fileName: fileName ?? 'archivo',
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err));
     } finally {
       setIsExporting(false);
     }
@@ -252,6 +315,9 @@ export default function Home() {
                 )}
               </>
             )}
+            {saveStatus === 'saving' && <span className="pill">Guardando en la nube…</span>}
+            {saveStatus === 'saved' && <span className="pill">Guardado</span>}
+            {saveStatus === 'error' && <span className="pill warn">No se pudo guardar en la nube</span>}
             {error && <span className="pill warn">{error}</span>}
           </div>
         </div>
@@ -260,7 +326,21 @@ export default function Home() {
           <h1 className="title">Reporte de Actividad</h1>
           <div className="subtitle">File Creations · Credit Reports · Applications · Closings — por branch, loan officer y estrategia B2B</div>
 
-          {records === null && (
+          {records === null && isLoadingInitial && (
+            <div className="empty">
+              <div className="drop-ic">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path d="M14 3v5h5" />
+                  <path d="M14 3H6v18h12V8z" />
+                  <path d="M9 15h6M9 11h6" />
+                </svg>
+              </div>
+              <h2>Cargando reporte…</h2>
+              <p>Buscando el último reporte guardado.</p>
+            </div>
+          )}
+
+          {records === null && !isLoadingInitial && (
             <div id="emptyState" className="empty">
               <div className="drop-ic">
                 <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
