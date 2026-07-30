@@ -32,6 +32,8 @@ export interface PivotTableProps {
   resolvedLoans: ResolvedLoan[];
   rates: PullThroughRates;
   dateRange: DateRange;
+  /** Etapa F4f: branch -> nombre del Branch Manager (pipeline_forecast.branch_managers). Vacío si no cargó. */
+  branchManagers: Map<string, string>;
 }
 
 interface BranchRow {
@@ -119,8 +121,8 @@ function buildOrphanBranchRows(rows: BranchForecastRow[], resolvedLoans: Resolve
   const orphanFunded = resolvedLoans.filter(
     (loan) =>
       loan.status === 'funded' &&
-      loan.closeDate >= dateRange.startDate &&
-      loan.closeDate <= dateRange.endDate &&
+      loan.disbursementDate >= dateRange.startDate &&
+      loan.disbursementDate <= dateRange.endDate &&
       !knownKeys.has(loan.branch + '::' + loan.channel)
   );
 
@@ -227,8 +229,8 @@ function buildLoanDetailRows(branchForecastRow: BranchForecastRow, resolvedLoans
         loan.branch === branchForecastRow.branch &&
         loan.channel === branchForecastRow.channel &&
         loan.status === 'funded' &&
-        loan.closeDate >= dateRange.startDate &&
-        loan.closeDate <= dateRange.endDate
+        loan.disbursementDate >= dateRange.startDate &&
+        loan.disbursementDate <= dateRange.endDate
     )
     .map((loan) => ({
       sourceLoanId: loan.sourceLoanId,
@@ -238,7 +240,11 @@ function buildLoanDetailRows(branchForecastRow: BranchForecastRow, resolvedLoans
       amount: loan.amount,
       lastMilestone: 'Cerrado (Funded)',
       lastMilestoneDate: loan.milestoneDate,
-      estClosingDate: loan.closeDate,
+      // Etapa F4e: ResolvedLoan ya no trae Est. Closing Date por separado
+      // (el campo de fecha de cierre pasó a ser disbursementDate) -- para un
+      // préstamo cerrado, esta columna muestra su Disbursement Date. Ver
+      // riesgo señalado en la respuesta de F4e.
+      estClosingDate: loan.disbursementDate,
       branchTransferred: loan.branchTransferred,
     }));
 
@@ -322,7 +328,7 @@ function LoanDetailTable({ detailRows }: { detailRows: LoanDetailRow[] }) {
  * Transfer=1 muestra una nota visual junto a su Loan Number -- no cambia el
  * branch mostrado ni ningún cálculo.
  */
-export default function PivotTable({ rows, resolvedLoans, dateRange }: PivotTableProps) {
+export default function PivotTable({ rows, resolvedLoans, dateRange, branchManagers }: PivotTableProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const branchRows = buildBranchRows(rows, resolvedLoans, dateRange);
@@ -350,6 +356,7 @@ export default function PivotTable({ rows, resolvedLoans, dateRange }: PivotTabl
               <thead>
                 <tr className="mo-row">
                   <th className="lbl">Branch</th>
+                  <th style={{ textAlign: 'left' }}>Branch Manager</th>
                   <th>Closed</th>
                   <th>Total Pipeline</th>
                   <th>Healthy Pipeline</th>
@@ -360,6 +367,7 @@ export default function PivotTable({ rows, resolvedLoans, dateRange }: PivotTabl
                 {block.rows.map((row) => {
                   const key = row.branch + '::' + row.channel;
                   const isOpen = expanded.has(key);
+                  const managerName = branchManagers.get(row.branch) ?? '(sin asignar)';
                   return (
                     <Fragment key={key}>
                       <tr className="grp togg" onClick={() => toggle(key)}>
@@ -367,6 +375,7 @@ export default function PivotTable({ rows, resolvedLoans, dateRange }: PivotTabl
                           <span className="chev">{isOpen ? '▾' : '▸'}</span>
                           {row.branch}
                         </td>
+                        <td style={{ textAlign: 'left', color: 'var(--muted)' }}>{managerName}</td>
                         <td className="val">{fmtInt(row.closedCount)}</td>
                         <td className="val">{fmtInt(row.totalCount)}</td>
                         <td className="val">{fmtInt(row.healthyCount)}</td>
@@ -374,7 +383,7 @@ export default function PivotTable({ rows, resolvedLoans, dateRange }: PivotTabl
                       </tr>
                       {isOpen && (
                         <tr>
-                          <td colSpan={5} style={{ padding: '6px 8px', background: '#fafbfd' }}>
+                          <td colSpan={6} style={{ padding: '6px 8px', background: '#fafbfd' }}>
                             <LoanDetailTable detailRows={buildLoanDetailRows(row.branchForecastRow, resolvedLoans, dateRange)} />
                           </td>
                         </tr>
@@ -392,6 +401,7 @@ export default function PivotTable({ rows, resolvedLoans, dateRange }: PivotTabl
                 )}
                 <tr className="grp total">
                   <td className="lbl">Subtotal {block.channel}</td>
+                  <td></td>
                   <td className="val">{fmtInt(block.subtotal.closedCount)}</td>
                   <td className="val">{fmtInt(block.subtotal.totalCount)}</td>
                   <td className="val">{fmtInt(block.subtotal.healthyCount)}</td>

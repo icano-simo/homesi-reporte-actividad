@@ -43,13 +43,28 @@ export interface PipelineForecastSummary {
  * Separa los loans de una branch+channel en el universo total y el
  * subconjunto healthy (healthy === true; null y false quedan fuera de
  * "healthy" pero siguen contando para "total").
+ *
+ * Etapa F4f: además se filtra por `estClosingDate` dentro de `dateRange`
+ * (inclusive) -- un préstamo cuyo cierre esperado cae fuera del rango
+ * activo (ej. octubre cuando el rango es julio) no debe contar en el
+ * Forecast de ese rango. Un préstamo sin `estClosingDate` (null) se excluye
+ * también: no hay forma de confirmar que cae dentro del rango, así que no
+ * se cuenta -- ver Decisiones en la respuesta de F4f.
  */
 export function splitHealthyTotal(
   loans: PipelineLoan[],
   branch: string,
-  channel: PipelineLoan['channel']
+  channel: PipelineLoan['channel'],
+  dateRange: DateRange
 ): { total: PipelineLoan[]; healthy: PipelineLoan[] } {
-  const total = loans.filter((loan) => loan.branch === branch && loan.channel === channel);
+  const total = loans.filter(
+    (loan) =>
+      loan.branch === branch &&
+      loan.channel === channel &&
+      loan.estClosingDate !== null &&
+      loan.estClosingDate >= dateRange.startDate &&
+      loan.estClosingDate <= dateRange.endDate
+  );
   const healthy = total.filter((loan) => loan.healthy === true);
   return { total, healthy };
 }
@@ -108,9 +123,10 @@ export function buildPipelineForecast(
   loans: PipelineLoan[],
   branch: string,
   channel: PipelineLoan['channel'],
-  pullThroughRates: PullThroughRates
+  pullThroughRates: PullThroughRates,
+  dateRange: DateRange
 ): PipelineForecastSummary {
-  const { total, healthy } = splitHealthyTotal(loans, branch, channel);
+  const { total, healthy } = splitHealthyTotal(loans, branch, channel, dateRange);
 
   const bucketCounts = countByMilestoneBucket(total);
   const healthyBucketCounts = countByMilestoneBucket(healthy);
@@ -145,10 +161,12 @@ export interface DateRange {
  * status='funded' en ResolvedLoan) MÁS esa proyección. Confirmado contra el
  * Excel real (Pipeline_Review.xlsx, hoja Forecast).
  *
- * Etapa F4c: "cerraron" ahora se acota a un rango de Est. Closing Date
- * (ResolvedLoan.closeDate, ya poblado desde esa columna por el parser de
- * F1 -- ver confirmación en la respuesta de F4c). El rango es ajustable en
- * la UI; acá solo se filtra, no se decide el default.
+ * Etapa F4c: "cerraron" ahora se acota a un rango de fechas -- inicialmente
+ * Est. Closing Date; Etapa F4e cambió la fuente a ResolvedLoan.disbursementDate
+ * (Disbursement Date, confirmado como el campo correcto contra datos reales;
+ * cae a Est. Closing Date solo si el archivo no trae esa columna -- ver
+ * parser). El rango es ajustable en la UI; acá solo se filtra, no se decide
+ * el default.
  *
  * Los 'adverse' nunca se suman a nada acá -- ya se cayeron del pipeline, ni
  * siquiera se cuentan, solo se ignoran (igual que en page.tsx, que ya no los
@@ -159,9 +177,9 @@ export interface DateRange {
  * calcularon, y le suma encima los cerrados.
  *
  * IMPORTANTE: este conteo es una aproximación a partir de los datos de
- * Salesforce (Stage=Closed Won + Est. Closing Date en rango). No va a
- * coincidir exactamente con un Excel armado a mano, que suele tener ajustes
- * manuales que esta regla no puede replicar -- no es un bug si difiere.
+ * Salesforce (Stage=Closed Won + fecha en rango). No va a coincidir
+ * exactamente con un Excel armado a mano, que suele tener ajustes manuales
+ * que esta regla no puede replicar -- no es un bug si difiere.
  */
 export function calculateTotalForecastWithClosed(
   resolvedLoans: ResolvedLoan[],
@@ -169,7 +187,10 @@ export function calculateTotalForecastWithClosed(
   dateRange: DateRange
 ): TotalForecastWithClosed {
   const closedCount = resolvedLoans.filter(
-    (loan) => loan.status === 'funded' && loan.closeDate >= dateRange.startDate && loan.closeDate <= dateRange.endDate
+    (loan) =>
+      loan.status === 'funded' &&
+      loan.disbursementDate >= dateRange.startDate &&
+      loan.disbursementDate <= dateRange.endDate
   ).length;
   return {
     closedCount,

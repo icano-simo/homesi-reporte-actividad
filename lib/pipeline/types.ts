@@ -27,7 +27,13 @@ export type ResolvedLoan = {
   branch: string;
   channel: PipelineLoan['channel'];
   status: 'funded' | 'adverse';
-  closeDate: string;
+  /**
+   * Etapa F4e: 'YYYY-MM-DD' de "Disbursement Date" (campo correcto, confirmado
+   * con datos reales). Si el archivo no trae esa columna (reportes viejos),
+   * cae a Est. Closing Date como aproximación -- ver warning explícito que
+   * genera el parser en ese caso.
+   */
+  disbursementDate: string;
   amount: number;
   loanOfficer: string;
   /** Etapa F4d: mismo significado que en PipelineLoan. */

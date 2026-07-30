@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { createClient } from '@supabase/supabase-js';
 import {
   splitHealthyTotal,
   countByMilestoneBucket,
@@ -11,7 +12,7 @@ import {
   type DateRange,
 } from '@/lib/pipeline/aggregate';
 import type { PipelineLoan, ResolvedLoan } from '@/lib/pipeline/types';
-import SummaryCards from './SummaryCards';
+import SummaryCards, { type SummaryBlock } from './SummaryCards';
 import MilestoneCascade from './MilestoneCascade';
 import PivotTable, { type BranchForecastRow } from './PivotTable';
 import UploadButton, { PIPELINE_FILE_INPUT_ID } from './UploadButton';
@@ -92,6 +93,37 @@ export default function PipelinePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange);
+  const [branchManagers, setBranchManagers] = useState<Map<string, string>>(new Map());
+
+  // Etapa F4f: branch -> Branch Manager, desde pipeline_forecast.branch_managers
+  // (schema DISTINTO al de Actividad, 'activity_report' -- no se puede reusar
+  // el cliente de lib/supabase/client.ts, que está fijo a ese schema; se
+  // arma acá un cliente propio apuntando a 'pipeline_forecast'). Se carga
+  // una sola vez al montar, no depende del archivo subido. Si falla por
+  // cualquier motivo (env vars ausentes, tabla no encontrada, RLS, etc.) se
+  // deja el mapa vacío -- PivotTable ya maneja ese caso mostrando
+  // "(sin asignar)" por branch, nunca rompe la página.
+  useEffect(() => {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!supabaseUrl || !supabaseAnonKey) return;
+
+    const supabaseForecast = createClient(supabaseUrl, supabaseAnonKey, {
+      db: { schema: 'pipeline_forecast' },
+    });
+
+    supabaseForecast
+      .from('branch_managers')
+      .select('branch, manager_name')
+      .then(({ data, error }) => {
+        if (error || !data) return;
+        const map = new Map<string, string>();
+        for (const row of data as { branch: string; manager_name: string }[]) {
+          map.set(row.branch, row.manager_name);
+        }
+        setBranchManagers(map);
+      });
+  }, []);
 
   async function handleFileSelected(file: File) {
     setIsLoading(true);
@@ -125,7 +157,7 @@ export default function PipelinePage() {
       groups.set(loan.branch + '::' + loan.channel, { branch: loan.branch, channel: loan.channel });
     }
     for (const { branch, channel } of groups.values()) {
-      const { total, healthy } = splitHealthyTotal(data.openLoans, branch, channel);
+      const { total, healthy } = splitHealthyTotal(data.openLoans, branch, channel, dateRange);
       const bucketTotal = countByMilestoneBucket(total);
       const bucketHealthy = countByMilestoneBucket(healthy);
       const { forecastByBucket, forecastTotal } = calculateForecast(bucketHealthy, PULL_THROUGH_RATES);
@@ -166,6 +198,42 @@ export default function PipelinePage() {
   const { closedCount, totalForecast } = data
     ? calculateTotalForecastWithClosed(data.resolvedLoans, grandForecastTotal, dateRange)
     : { closedCount: 0, totalForecast: 0 };
+
+  // Etapa F4f: mismo cálculo que el combinado de arriba, pero recortado por
+  // canal -- branchRows y resolvedLoans ya vienen separados por channel, así
+  // que solo hace falta filtrar antes de sumar/llamar
+  // calculateTotalForecastWithClosed (misma función de F4b, sin tocarla).
+  function summarizeChannel(channel: PipelineLoan['channel'], label: string): SummaryBlock {
+    const channelRows = branchRows.filter((r) => r.channel === channel);
+    const totalCount = channelRows.reduce((sum, r) => sum + r.totalCount, 0);
+    const healthyCount = channelRows.reduce((sum, r) => sum + r.healthyCount, 0);
+    const forecastTotal = channelRows.reduce((sum, r) => sum + r.forecastTotal, 0);
+    const channelResolved = data ? data.resolvedLoans.filter((l) => l.channel === channel) : [];
+    const { closedCount: channelClosedCount, totalForecast: channelTotalForecast } = data
+      ? calculateTotalForecastWithClosed(channelResolved, forecastTotal, dateRange)
+      : { closedCount: 0, totalForecast: 0 };
+    return {
+      label,
+      totalCount,
+      healthyCount,
+      forecastTotal,
+      closedCount: channelClosedCount,
+      totalForecast: channelTotalForecast,
+    };
+  }
+
+  const summaryBlocks: SummaryBlock[] = [
+    summarizeChannel('Banked - Retail', 'Banked - Retail'),
+    summarizeChannel('Brokered', 'Brokered'),
+    {
+      label: 'Combinado',
+      totalCount: grandTotalCount,
+      healthyCount: grandHealthyCount,
+      forecastTotal: grandForecastTotal,
+      closedCount,
+      totalForecast,
+    },
+  ];
 
   // resolvedLoans (Funded/Adverse) no entran a ningún OTRO cálculo -- los
   // 'adverse' nunca se suman a nada; solo una línea informativa, sin tabla
@@ -234,14 +302,7 @@ export default function PipelinePage() {
 
         {data && (
           <>
-            <SummaryCards
-              totalCount={grandTotalCount}
-              healthyCount={grandHealthyCount}
-              forecastTotal={grandForecastTotal}
-              closedCount={closedCount}
-              totalForecast={totalForecast}
-              closedDateRangeLabel={dateRange.startDate + ' a ' + dateRange.endDate}
-            />
+            <SummaryCards blocks={summaryBlocks} closedDateRangeLabel={dateRange.startDate + ' a ' + dateRange.endDate} />
 
             <div className="cards-head" style={{ marginTop: '24px' }}>
               Cascada de pull-through (todo el pipeline)
@@ -257,9 +318,15 @@ export default function PipelinePage() {
             />
 
             <div className="cards-head" style={{ marginTop: '24px' }}>
-              Desglose por Branch + Loan Officer
+              Desglose por Branch
             </div>
-            <PivotTable rows={branchRows} resolvedLoans={data.resolvedLoans} rates={PULL_THROUGH_RATES} dateRange={dateRange} />
+            <PivotTable
+              rows={branchRows}
+              resolvedLoans={data.resolvedLoans}
+              rates={PULL_THROUGH_RATES}
+              dateRange={dateRange}
+              branchManagers={branchManagers}
+            />
 
             {resolvedSummary && <div className="foot-note">{resolvedSummary}</div>}
 

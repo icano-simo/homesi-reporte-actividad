@@ -22,12 +22,18 @@ function makeLoan(
     loanOfficer: 'TEST OFFICER',
     rawMilestone: milestone,
     rawHealthiness: healthy ? 'Healthy' : 'Unhealthy',
-    estClosingDate: null,
+    estClosingDate: '2026-08-15',
     borrowerName: 'TEST BORROWER',
     milestoneDate: null,
     branchTransferred: false,
   };
 }
+
+// Etapa F4f: splitHealthyTotal ahora filtra por estClosingDate dentro de un
+// DateRange -- este rango cubre el mes que ya usaban los fixtures de abajo
+// (closeMonth/estClosingDate '2026-08'), así que los resultados esperados
+// (comentados junto a cada caso) no cambian.
+const TEST_DATE_RANGE = { startDate: '2026-08-01', endDate: '2026-08-31' };
 
 function makeBucket(
   branch: string,
@@ -62,7 +68,7 @@ const rates = {
   Closing: 0.95,
 };
 
-const case1Result = buildPipelineForecast(case1Loans, CASE1_BRANCH, CASE1_CHANNEL, rates);
+const case1Result = buildPipelineForecast(case1Loans, CASE1_BRANCH, CASE1_CHANNEL, rates, TEST_DATE_RANGE);
 
 console.log('=== Caso 1: buildPipelineForecast (branch 716, Banked - Retail) ===');
 console.log(JSON.stringify(case1Result, null, 2));
@@ -84,7 +90,7 @@ const CASE2_CHANNEL: PipelineLoan['channel'] = 'Banked - Retail';
 
 const case2Loans: PipelineLoan[] = [...makeBucket(CASE2_BRANCH, CASE2_CHANNEL, 'Processing', 5, 3)];
 
-const case2Result = buildPipelineForecast(case2Loans, CASE2_BRANCH, CASE2_CHANNEL, rates);
+const case2Result = buildPipelineForecast(case2Loans, CASE2_BRANCH, CASE2_CHANNEL, rates, TEST_DATE_RANGE);
 
 const expectedCase2Processing = 3 * rates.Processing * rates.Underwriting * rates.Closing;
 
@@ -112,7 +118,7 @@ const case3Loans: PipelineLoan[] = [
   ...makeBucket(CASE3_BRANCH, CASE3_CHANNEL_BANKED, 'Closing', 2, 2),
 ];
 
-const case3Result = buildPipelineForecast(case3Loans, CASE3_BRANCH, CASE3_CHANNEL_BROKERED, rates);
+const case3Result = buildPipelineForecast(case3Loans, CASE3_BRANCH, CASE3_CHANNEL_BROKERED, rates, TEST_DATE_RANGE);
 
 const expectedCase3Closing = 4 * rates.Closing;
 

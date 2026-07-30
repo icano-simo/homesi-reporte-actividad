@@ -107,6 +107,7 @@ function resolveColumnIndexes(headerRow: unknown[]): Record<string, number> {
   const idx: Record<string, number> = {};
   for (const col of REQUIRED_COLUMNS) idx[col] = normalized.indexOf(col);
   idx['Close Month'] = normalized.indexOf('Close Month'); // solo existe en Formato A
+  idx['Disbursement Date'] = normalized.indexOf('Disbursement Date'); // Etapa F4e -- no en reportes viejos, ver fallback en classifyRow
 
   const missing = REQUIRED_COLUMNS.filter((col) => idx[col] === -1);
   if (missing.length) {
@@ -219,6 +220,8 @@ interface RawRow {
   /** Etapa F4d. */
   milestoneDateRaw: unknown;
   branchTransferRaw: unknown;
+  /** Etapa F4e -- undefined si el archivo no trae la columna (reportes viejos). */
+  disbursementDateRaw: unknown;
 }
 
 function readAmount(value: unknown): number {
@@ -275,6 +278,7 @@ function extractRowsFormatA(aoa: unknown[][], idx: Record<string, number>, heade
         closeMonthRaw: curCloseMonth,
         milestoneDateRaw: row[idx['Current Milestone Date']],
         branchTransferRaw: row[idx['Branch Transfer']],
+        disbursementDateRaw: row[idx['Disbursement Date']],
       });
     }
     i++;
@@ -305,6 +309,7 @@ function extractRowsFormatB(aoa: unknown[][], idx: Record<string, number>, heade
       closeMonthRaw: undefined,
       milestoneDateRaw: row[idx['Current Milestone Date']],
       branchTransferRaw: row[idx['Branch Transfer']],
+      disbursementDateRaw: row[idx['Disbursement Date']],
     });
   }
   return rows;
@@ -387,7 +392,8 @@ function classifyRow(
       branch: row.branch,
       channel,
       status: row.stage === 'Closed Won' ? 'funded' : 'adverse',
-      closeDate: toISODate(parseDateCell(row.estClosingDateRaw)) ?? '',
+      disbursementDate:
+        toISODate(parseDateCell(row.disbursementDateRaw)) ?? toISODate(parseDateCell(row.estClosingDateRaw)) ?? '',
       amount: row.amount,
       loanOfficer: row.loanOfficers,
       borrowerName,
@@ -429,6 +435,12 @@ export function parseSalesforcePipelineFile(buffer: Buffer): {
   const formatDetected = detectFormat(aoa);
   const headerRowIdx = findHeaderRowIndex(aoa);
   const idx = resolveColumnIndexes(aoa[headerRowIdx]);
+
+  if (idx['Disbursement Date'] === -1) {
+    warnings.push(
+      'Disbursement Date no disponible en este archivo, usando Est. Closing Date como aproximación -- fecha menos precisa.'
+    );
+  }
 
   const rawRows =
     formatDetected === 'A' ? extractRowsFormatA(aoa, idx, headerRowIdx) : extractRowsFormatB(aoa, idx, headerRowIdx);
