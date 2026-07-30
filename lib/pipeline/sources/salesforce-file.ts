@@ -108,6 +108,7 @@ function resolveColumnIndexes(headerRow: unknown[]): Record<string, number> {
   for (const col of REQUIRED_COLUMNS) idx[col] = normalized.indexOf(col);
   idx['Close Month'] = normalized.indexOf('Close Month'); // solo existe en Formato A
   idx['Disbursement Date'] = normalized.indexOf('Disbursement Date'); // Etapa F4e -- no en reportes viejos, ver fallback en classifyRow
+  idx['Loan Status'] = normalized.indexOf('Loan Status'); // Etapa F4i -- solo en reportes muy recientes
 
   const missing = REQUIRED_COLUMNS.filter((col) => idx[col] === -1);
   if (missing.length) {
@@ -222,6 +223,8 @@ interface RawRow {
   branchTransferRaw: unknown;
   /** Etapa F4e -- undefined si el archivo no trae la columna (reportes viejos). */
   disbursementDateRaw: unknown;
+  /** Etapa F4i -- undefined si el archivo no trae la columna (la mayoría de los reportes hoy). */
+  loanStatusRaw: unknown;
 }
 
 function readAmount(value: unknown): number {
@@ -279,6 +282,7 @@ function extractRowsFormatA(aoa: unknown[][], idx: Record<string, number>, heade
         milestoneDateRaw: row[idx['Current Milestone Date']],
         branchTransferRaw: row[idx['Branch Transfer']],
         disbursementDateRaw: row[idx['Disbursement Date']],
+        loanStatusRaw: row[idx['Loan Status']],
       });
     }
     i++;
@@ -310,6 +314,7 @@ function extractRowsFormatB(aoa: unknown[][], idx: Record<string, number>, heade
       milestoneDateRaw: row[idx['Current Milestone Date']],
       branchTransferRaw: row[idx['Branch Transfer']],
       disbursementDateRaw: row[idx['Disbursement Date']],
+      loanStatusRaw: row[idx['Loan Status']],
     });
   }
   return rows;
@@ -399,6 +404,8 @@ function classifyRow(
       borrowerName,
       milestoneDate,
       branchTransferred,
+      loanStatus: String(row.loanStatusRaw ?? ''),
+      estClosingDate: toISODate(parseDateCell(row.estClosingDateRaw)),
     };
     return { resolvedLoan };
   }
@@ -439,6 +446,12 @@ export function parseSalesforcePipelineFile(buffer: Buffer): {
   if (idx['Disbursement Date'] === -1) {
     warnings.push(
       'Disbursement Date no disponible en este archivo, usando Est. Closing Date como aproximación -- fecha menos precisa.'
+    );
+  }
+
+  if (idx['Loan Status'] === -1) {
+    warnings.push(
+      'Loan Status no disponible en este archivo -- la tabla de Adverse no podrá distinguir "Application withdrawn" y quedará vacía.'
     );
   }
 

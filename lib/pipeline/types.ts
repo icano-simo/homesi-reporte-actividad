@@ -40,4 +40,15 @@ export type ResolvedLoan = {
   borrowerName: string;
   milestoneDate: string | null;
   branchTransferred: boolean;
+  /**
+   * Etapa F4i: de la columna "Loan Status" -- solo presente en reportes muy
+   * recientes (no en Formato A ni en reportes B viejos). '' si el archivo no
+   * trae la columna. Distingue, dentro de Stage=Closed Lost, cuáles son
+   * realmente "Application withdrawn" -- el resto (Application denied, File
+   * Closed for incompleteness, etc.) sigue siendo status='adverse' para el
+   * resto de la app, pero no entra en la tabla de Adverse (ver AdverseTable).
+   */
+  loanStatus: string;
+  /** Etapa F4i: 'YYYY-MM-DD' de "Est. Closing Date" (mismo campo que ya usa Total/Healthy Pipeline desde F4f) -- null si no hay valor. */
+  estClosingDate: string | null;
 };

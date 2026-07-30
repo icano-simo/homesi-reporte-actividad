@@ -252,6 +252,25 @@ export default function PipelinePage() {
     },
   ];
 
+  // Etapa F4i: la tabla de Adverse no debe mostrar el histórico completo de
+  // Stage=Closed Lost -- confirmado con datos reales que el filtro correcto
+  // es Loan Status='Application withdrawn' (no todo Closed Lost: también
+  // incluye "Application denied", "File Closed for incompleteness", etc.,
+  // que no son lo que el negocio llama "Adverse" acá) Y Est. Closing Date
+  // dentro del rango activo (mismo campo/rango que ya usa Total/Healthy
+  // Pipeline desde F4f). Deliberadamente NO se filtra por Loan Folder --
+  // confirmado por el negocio que ese campo puede estar desactualizado.
+  const adverseInRange = data
+    ? data.resolvedLoans.filter(
+        (loan) =>
+          loan.status === 'adverse' &&
+          loan.loanStatus === 'Application withdrawn' &&
+          loan.estClosingDate !== null &&
+          loan.estClosingDate >= dateRange.startDate &&
+          loan.estClosingDate <= dateRange.endDate
+      )
+    : [];
+
   // resolvedLoans (Funded/Adverse) no entran a ningún OTRO cálculo -- los
   // 'adverse' nunca se suman a nada; solo una línea informativa, sin tabla
   // ni drill-down (eso es una etapa futura).
@@ -343,7 +362,7 @@ export default function PipelinePage() {
             <div className="cards-head" style={{ marginTop: '24px' }}>
               Adverse
             </div>
-            <AdverseTable resolvedLoans={data.resolvedLoans} />
+            <AdverseTable resolvedLoans={adverseInRange} dateRangeLabel={dateRange.startDate + ' a ' + dateRange.endDate} />
 
             {resolvedSummary && <div className="foot-note">{resolvedSummary}</div>}
 

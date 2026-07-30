@@ -4,7 +4,10 @@ import { useState } from 'react';
 import type { PipelineLoan, ResolvedLoan } from '@/lib/pipeline/types';
 
 export interface AdverseTableProps {
+  /** Etapa F4i: page.tsx ya filtra por status='adverse' + Loan Status='Application withdrawn' + rango de fechas antes de pasarlo -- acá solo se filtra por canal. */
   resolvedLoans: ResolvedLoan[];
+  /** Rango de fechas activo (Est. Closing Date), solo para mostrarlo en el header. */
+  dateRangeLabel?: string;
 }
 
 type ChannelFilter = 'all' | PipelineLoan['channel'];
@@ -14,13 +17,17 @@ function fmtAmount(n: number): string {
 }
 
 /**
- * Etapa F4h: tabla informativa de préstamos Adverse (Stage=Closed Lost).
- * Nunca cuentan para ningún cálculo de Forecast (regla desde F4b, sin
- * cambios acá) -- esta tabla solo los lista para consulta/auditoría, con
- * filtro por canal en el cliente (no vuelve a pedir datos, filtra sobre
- * `resolvedLoans` que ya vive en memoria desde el upload).
+ * Etapa F4h: tabla informativa de préstamos Adverse. Nunca cuentan para
+ * ningún cálculo de Forecast (regla desde F4b, sin cambios acá) -- esta
+ * tabla solo los lista para consulta/auditoría, con filtro por canal en el
+ * cliente (no vuelve a pedir datos).
+ *
+ * Etapa F4i: ya no es el histórico completo -- page.tsx filtra antes de
+ * pasarlo acá (status='adverse' + Loan Status='Application withdrawn' +
+ * Est. Closing Date dentro del rango activo). El filtro por canal de abajo
+ * es adicional, sobre ese subconjunto ya acotado al rango.
  */
-export default function AdverseTable({ resolvedLoans }: AdverseTableProps) {
+export default function AdverseTable({ resolvedLoans, dateRangeLabel }: AdverseTableProps) {
   const [channelFilter, setChannelFilter] = useState<ChannelFilter>('all');
 
   const adverseLoans = resolvedLoans.filter((loan) => loan.status === 'adverse');
@@ -30,9 +37,17 @@ export default function AdverseTable({ resolvedLoans }: AdverseTableProps) {
     <div className="tbl-card">
       <div
         className="cards-head"
-        style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+        style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px' }}
       >
-        <span>Adverse ({filtered.length.toLocaleString('en-US')})</span>
+        <span>
+          Adverse ({filtered.length.toLocaleString('en-US')}) -- rango activo
+          {dateRangeLabel && (
+            <span style={{ fontWeight: 400, color: 'var(--muted)', textTransform: 'none', letterSpacing: 0 }}>
+              {' '}
+              (Est. Closing Date {dateRangeLabel})
+            </span>
+          )}
+        </span>
         <select
           value={channelFilter}
           onChange={(e) => setChannelFilter(e.target.value as ChannelFilter)}
