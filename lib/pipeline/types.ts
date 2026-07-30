@@ -11,3 +11,17 @@ export type PipelineLoan = {
   rawHealthiness: string;
   estClosingDate: string | null;
 };
+
+/**
+ * Préstamo ya resuelto (Stage Closed Won / Closed Lost): solo para
+ * historial, no entra al cálculo de forecast de aggregate.ts.
+ */
+export type ResolvedLoan = {
+  sourceLoanId: string;
+  branch: string;
+  channel: PipelineLoan['channel'];
+  status: 'funded' | 'adverse';
+  closeDate: string;
+  amount: number;
+  loanOfficer: string;
+};
