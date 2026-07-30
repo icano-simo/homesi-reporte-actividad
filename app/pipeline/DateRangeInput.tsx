@@ -8,15 +8,17 @@ export interface DateRangeInputProps {
 }
 
 /**
- * Rango de fechas (Est. Closing Date) que decide qué préstamos cuentan como
- * "Cerrados" -- ver Decisiones en la respuesta de F4c. Cambiar cualquiera de
- * los dos inputs recalcula el Forecast en el navegador, sin volver a subir
- * el archivo (el estado ya parseado vive en page.tsx).
+ * Rango de fechas del Forecast -- ver Decisiones en la respuesta de F4c.
+ * Etapa F4g: renombrado de "Cerrados entre" porque desde F4f este rango ya
+ * no filtra solo Cerrados (Disbursement Date), también Total/Healthy
+ * Pipeline (Est. Closing Date). Cambiar cualquiera de los dos inputs
+ * recalcula el Forecast en el navegador, sin volver a subir el archivo (el
+ * estado ya parseado vive en page.tsx).
  */
 export default function DateRangeInput({ value, onChange }: DateRangeInputProps) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-      <span className="label-chip">Cerrados entre</span>
+      <span className="label-chip">Rango del Forecast</span>
       <input
         type="date"
         className="pill"

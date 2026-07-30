@@ -17,6 +17,7 @@ import MilestoneCascade from './MilestoneCascade';
 import PivotTable, { type BranchForecastRow } from './PivotTable';
 import UploadButton, { PIPELINE_FILE_INPUT_ID } from './UploadButton';
 import DateRangeInput from './DateRangeInput';
+import AdverseTable from './AdverseTable';
 
 /**
  * Etapa F4: mismos valores que DEMO_RATES (F3). El input editable en la UI
@@ -94,15 +95,19 @@ export default function PipelinePage() {
   const [error, setError] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange);
   const [branchManagers, setBranchManagers] = useState<Map<string, string>>(new Map());
+  const [knownBranches, setKnownBranches] = useState<Set<string>>(new Set());
 
-  // Etapa F4f: branch -> Branch Manager, desde pipeline_forecast.branch_managers
-  // (schema DISTINTO al de Actividad, 'activity_report' -- no se puede reusar
-  // el cliente de lib/supabase/client.ts, que está fijo a ese schema; se
-  // arma acá un cliente propio apuntando a 'pipeline_forecast'). Se carga
-  // una sola vez al montar, no depende del archivo subido. Si falla por
-  // cualquier motivo (env vars ausentes, tabla no encontrada, RLS, etc.) se
-  // deja el mapa vacío -- PivotTable ya maneja ese caso mostrando
-  // "(sin asignar)" por branch, nunca rompe la página.
+  // Etapa F4f: branch -> Branch Manager, desde pipeline_forecast.branch_managers.
+  // Etapa F4g: mismo cliente/efecto, se agrega pipeline_forecast.branches
+  // (roster de branches conocidos, columna `code`) -- se usa en PivotTable
+  // para no mostrar filas fantasma de branches sin actividad real en el
+  // rango. Ambas consultas van al mismo schema DISTINTO al de Actividad
+  // ('activity_report') -- no se puede reusar el cliente de
+  // lib/supabase/client.ts, que está fijo a ese schema; se arma acá un
+  // cliente propio apuntando a 'pipeline_forecast'. Se cargan una sola vez
+  // al montar, no dependen del archivo subido. Si cualquiera falla (env
+  // vars ausentes, tabla no encontrada, RLS, etc.) se deja su estado vacío
+  // -- PivotTable ya maneja ambos casos vacíos sin romper la página.
   useEffect(() => {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -122,6 +127,18 @@ export default function PipelinePage() {
           map.set(row.branch, row.manager_name);
         }
         setBranchManagers(map);
+      });
+
+    supabaseForecast
+      .from('branches')
+      .select('code')
+      .then(({ data, error }) => {
+        if (error || !data) return;
+        const codes = new Set<string>();
+        for (const row of data as { code: string }[]) {
+          codes.add(row.code);
+        }
+        setKnownBranches(codes);
       });
   }, []);
 
@@ -270,9 +287,6 @@ export default function PipelinePage() {
 
       <div className="content">
         <h1 className="title">Forecast — Pipeline</h1>
-        <div className="subtitle">
-          Pull-through por branch: cascada de milestone visible en cada paso, sin números sueltos sin desglose detrás.
-        </div>
 
         {!data && !isLoading && (
           <div className="empty">
@@ -284,10 +298,7 @@ export default function PipelinePage() {
               </svg>
             </div>
             <h2>Carga el reporte de pipeline</h2>
-            <p>
-              Sube el Excel exportado de Salesforce (Formato A &quot;agrupado&quot; con Report Builder, o Formato B
-              &quot;plano&quot; tipo Printable View). El formato se detecta solo.
-            </p>
+            <p>Sube el archivo de Salesforce (Excel). La app detecta el formato automáticamente.</p>
             <label className="btn primary" htmlFor={PIPELINE_FILE_INPUT_ID} style={{ display: 'inline-flex' }}>
               Seleccionar archivo
             </label>
@@ -326,7 +337,13 @@ export default function PipelinePage() {
               rates={PULL_THROUGH_RATES}
               dateRange={dateRange}
               branchManagers={branchManagers}
+              knownBranches={knownBranches}
             />
+
+            <div className="cards-head" style={{ marginTop: '24px' }}>
+              Adverse
+            </div>
+            <AdverseTable resolvedLoans={data.resolvedLoans} />
 
             {resolvedSummary && <div className="foot-note">{resolvedSummary}</div>}
 

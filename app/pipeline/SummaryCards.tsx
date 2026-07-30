@@ -34,6 +34,27 @@ function fmtForecast(n: number): string {
   return n.toLocaleString('en-US', { maximumFractionDigits: 1 });
 }
 
+/** Etapa F4h: Forecast final se muestra como entero -- ver nota en la respuesta de esta etapa. */
+function fmtRounded(n: number): string {
+  return Math.round(n).toLocaleString('en-US');
+}
+
+/** Etapa F4h: punto de color junto a "Healthy Pipeline", sin depender de ninguna librería de iconos. */
+function HealthyDot() {
+  return (
+    <span
+      style={{
+        display: 'inline-block',
+        width: '7px',
+        height: '7px',
+        borderRadius: '50%',
+        background: 'var(--green)',
+        marginRight: '5px',
+      }}
+    />
+  );
+}
+
 function SummaryBlockCards({ block, closedDateRangeLabel }: { block: SummaryBlock; closedDateRangeLabel?: string }) {
   const healthyPct = block.totalCount ? Math.round((block.healthyCount / block.totalCount) * 100) : 0;
 
@@ -41,29 +62,34 @@ function SummaryBlockCards({ block, closedDateRangeLabel }: { block: SummaryBloc
     <div className="cards-wrap" style={{ position: 'static' }}>
       <div className="cards-head">{block.label}</div>
       <div className="cards">
-        <div className="mcard" style={{ flex: '0 0 220px' }}>
+        <div className="mcard" style={{ flex: '0 0 200px' }}>
           <div className="m-name">Total Pipeline</div>
           <div style={{ fontSize: '28px', fontWeight: 800, color: 'var(--text)', lineHeight: 1.2 }}>{fmtInt(block.totalCount)}</div>
           <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>préstamos en Negotiation, en rango</div>
         </div>
-        <div className="mcard" style={{ flex: '0 0 220px' }}>
-          <div className="m-name">Healthy Pipeline</div>
+        <div className="mcard" style={{ flex: '0 0 200px' }}>
+          <div className="m-name">
+            <HealthyDot />
+            Healthy Pipeline
+          </div>
           <div style={{ fontSize: '28px', fontWeight: 800, color: 'var(--green)', lineHeight: 1.2 }}>{fmtInt(block.healthyCount)}</div>
           <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>{healthyPct}% del total</div>
         </div>
-        <div className="mcard" style={{ flex: '0 0 220px' }}>
+        <div className="mcard" style={{ flex: '0 0 200px' }}>
+          <div className="m-name">Cerrados</div>
+          <div style={{ fontSize: '28px', fontWeight: 800, color: 'var(--text)', lineHeight: 1.2 }}>{fmtInt(block.closedCount)}</div>
+          <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>
+            {closedDateRangeLabel ? 'Disbursement Date ' + closedDateRangeLabel : 'en el rango activo'}
+          </div>
+        </div>
+        <div className="mcard" style={{ flex: '0 0 200px' }}>
           <div className="m-name">Forecast</div>
           <div style={{ fontSize: '28px', fontWeight: 800, color: 'var(--accent)', lineHeight: 1.2 }}>
-            {fmtForecast(block.totalForecast)}
+            {fmtRounded(block.totalForecast)}
           </div>
           <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>
             {fmtInt(block.closedCount)} cerrados + {fmtForecast(block.forecastTotal)} proyección
           </div>
-          {closedDateRangeLabel && (
-            <div style={{ fontSize: '10px', color: 'var(--muted)', marginTop: '2px' }}>
-              Cerrados: Disbursement Date {closedDateRangeLabel}
-            </div>
-          )}
         </div>
       </div>
     </div>
@@ -75,6 +101,13 @@ function SummaryBlockCards({ block, closedDateRangeLabel }: { block: SummaryBloc
  * Brokered / Combinado) -- ver Decisiones en la respuesta de F4f. Mismo
  * sistema visual de siempre (.cards-wrap/.mcard/.m-name), solo repetido 3
  * veces con distintos datos.
+ *
+ * Etapa F4h: se agregó una 4ta tarjeta "Cerrados" por bloque (antes solo
+ * aparecía mezclado en el subtítulo de Forecast); el número de Forecast
+ * ahora se redondea a entero (Math.round) -- el subtítulo "X cerrados + Y
+ * proyección" se deja con su precisión original, es el desglose que
+ * justifica el número redondeado de arriba, igual criterio que
+ * MilestoneCascade con la cascada completa.
  */
 export default function SummaryCards({ blocks, closedDateRangeLabel }: SummaryCardsProps) {
   return (

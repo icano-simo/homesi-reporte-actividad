@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import type { BucketCounts, ForecastByBucket, PullThroughRates } from '@/lib/pipeline/aggregate';
 
 const BUCKET_ORDER: Array<keyof BucketCounts> = ['Started', 'Processing', 'Underwriting', 'Closing'];
@@ -46,6 +47,52 @@ function fmtForecast(n: number): string {
 }
 
 /**
+ * Etapa F4h: icono de línea simple por milestone, sin librería externa
+ * (lucide-react no estaba instalado -- ver Decisiones en la respuesta de
+ * esta etapa). Mismo estilo que el ícono de "drop" ya usado en el estado
+ * vacío de la página (stroke="currentColor", fill="none").
+ */
+const STAGE_ICON_PATHS: Record<keyof BucketCounts, ReactNode> = {
+  Started: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 8v4l2.5 2.5" />
+    </>
+  ),
+  Processing: (
+    <>
+      <path d="M21 12a9 9 0 1 1-3-6.7" />
+      <path d="M21 4v5h-5" />
+    </>
+  ),
+  Underwriting: (
+    <>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m21 21-4.3-4.3" />
+    </>
+  ),
+  Closing: <path d="M20 6 9 17l-5-5" />,
+};
+
+function StageIcon({ bucket }: { bucket: keyof BucketCounts }) {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ marginRight: '6px', flexShrink: 0, color: 'var(--muted)' }}
+    >
+      {STAGE_ICON_PATHS[bucket]}
+    </svg>
+  );
+}
+
+/**
  * Tabla de trazabilidad del pull-through: por cada bucket de milestone,
  * conteo Healthy vs Total, la tasa acumulada aplicada, y el Forecast que
  * produce. Nada queda oculto detrás del número final -- ese es el requisito
@@ -79,7 +126,10 @@ export default function MilestoneCascade({
             const cumulativeRate = CUMULATIVE_FACTORS[bucket].reduce((acc, key) => acc * rates[key], 1);
             return (
               <tr className="metric" key={bucket}>
-                <td className="lbl mname">{bucket}</td>
+                <td className="lbl mname" style={{ display: 'flex', alignItems: 'center' }}>
+                  <StageIcon bucket={bucket} />
+                  {bucket}
+                </td>
                 <td className="val">{fmtInt(bucketHealthy[bucket])}</td>
                 <td className="val">{fmtInt(bucketTotal[bucket])}</td>
                 <td className="val">{fmtPct(cumulativeRate)}</td>

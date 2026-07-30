@@ -34,6 +34,8 @@ export interface PivotTableProps {
   dateRange: DateRange;
   /** Etapa F4f: branch -> nombre del Branch Manager (pipeline_forecast.branch_managers). Vacío si no cargó. */
   branchManagers: Map<string, string>;
+  /** Etapa F4g: set de branch codes conocidos (pipeline_forecast.branches). Vacío si no cargó. */
+  knownBranches: Set<string>;
 }
 
 interface BranchRow {
@@ -91,12 +93,29 @@ function fmtInt(n: number): string {
   return n.toLocaleString('en-US');
 }
 
+/** Etapa F4h: Forecast se muestra como entero (Math.round) en esta tabla -- el cálculo interno no cambia, solo el display. */
 function fmtForecast(n: number): string {
-  return n.toLocaleString('en-US', { maximumFractionDigits: 2 });
+  return Math.round(n).toLocaleString('en-US');
 }
 
 function fmtAmount(n: number): string {
   return n.toLocaleString('en-US', { maximumFractionDigits: 0 });
+}
+
+/** Etapa F4h: mismo punto de color que SummaryCards, junto a Healthy Pipeline en cada fila. */
+function HealthyDot() {
+  return (
+    <span
+      style={{
+        display: 'inline-block',
+        width: '6px',
+        height: '6px',
+        borderRadius: '50%',
+        background: 'var(--green)',
+        marginRight: '5px',
+      }}
+    />
+  );
 }
 
 /**
@@ -166,8 +185,23 @@ function buildOrphanBranchRows(rows: BranchForecastRow[], resolvedLoans: Resolve
  * buildOrphanBranchRows para los branch+canal que solo tienen cerrados (ver
  * su comentario) -- juntos cubren el 100% de resolvedLoans, así que ya no
  * hace falta la fila genérica "Otros cerrados" del diseño anterior.
+ *
+ * Etapa F4g: antes de devolver, se oculta cualquier fila fantasma -- un
+ * branch que da CERO en Closed/Total Pipeline/Healthy Pipeline (ej. "150":
+ * tiene un préstamo abierto, pero su Est. Closing Date cae fuera del rango
+ * activo desde F4f, así que queda todo en cero) Y no está en el roster
+ * conocido (`knownBranches`, de pipeline_forecast.branches) no aporta
+ * información -- es ruido. El filtro se aplica sobre la lista YA combinada
+ * (matched + orphans), no solo dentro de buildOrphanBranchRows: "150" es una
+ * fila "matched" (tiene pipeline abierto), no una "orphan", así que
+ * filtrar solo adentro de buildOrphanBranchRows no la habría ocultado.
  */
-function buildBranchRows(rows: BranchForecastRow[], resolvedLoans: ResolvedLoan[], dateRange: DateRange): BranchRow[] {
+function buildBranchRows(
+  rows: BranchForecastRow[],
+  resolvedLoans: ResolvedLoan[],
+  dateRange: DateRange,
+  knownBranches: Set<string>
+): BranchRow[] {
   const matched = rows.map((branchForecastRow) => {
     const closedLoansForBranch = resolvedLoans.filter(
       (loan) => loan.branch === branchForecastRow.branch && loan.channel === branchForecastRow.channel
@@ -190,7 +224,11 @@ function buildBranchRows(rows: BranchForecastRow[], resolvedLoans: ResolvedLoan[
 
   const orphans = buildOrphanBranchRows(rows, resolvedLoans, dateRange);
 
-  return [...matched, ...orphans].sort((a, b) => a.branch.localeCompare(b.branch));
+  const visible = [...matched, ...orphans].filter(
+    (row) => row.totalCount > 0 || row.healthyCount > 0 || row.closedCount > 0 || knownBranches.has(row.branch)
+  );
+
+  return visible.sort((a, b) => a.branch.localeCompare(b.branch));
 }
 
 function buildChannelBlocks(branchRows: BranchRow[]): ChannelBlock[] {
@@ -328,10 +366,10 @@ function LoanDetailTable({ detailRows }: { detailRows: LoanDetailRow[] }) {
  * Transfer=1 muestra una nota visual junto a su Loan Number -- no cambia el
  * branch mostrado ni ningún cálculo.
  */
-export default function PivotTable({ rows, resolvedLoans, dateRange, branchManagers }: PivotTableProps) {
+export default function PivotTable({ rows, resolvedLoans, dateRange, branchManagers, knownBranches }: PivotTableProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  const branchRows = buildBranchRows(rows, resolvedLoans, dateRange);
+  const branchRows = buildBranchRows(rows, resolvedLoans, dateRange, knownBranches);
   const blocks = buildChannelBlocks(branchRows);
   const grandTotal = blocks.reduce((acc, block) => addSubtotal(acc, block.subtotal), EMPTY_SUBTOTAL);
 
@@ -378,7 +416,10 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
                         <td style={{ textAlign: 'left', color: 'var(--muted)' }}>{managerName}</td>
                         <td className="val">{fmtInt(row.closedCount)}</td>
                         <td className="val">{fmtInt(row.totalCount)}</td>
-                        <td className="val">{fmtInt(row.healthyCount)}</td>
+                        <td className="val">
+                          <HealthyDot />
+                          {fmtInt(row.healthyCount)}
+                        </td>
                         <td className="totcol">{fmtForecast(row.totalForecast)}</td>
                       </tr>
                       {isOpen && (
