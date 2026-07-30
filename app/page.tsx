@@ -211,198 +211,145 @@ export default function Home() {
   const showTotal = branchFilter === 'all';
 
   return (
-    <div className="app">
-      {/* Sidebar (decorativo, marca Homesí) */}
-      <aside className="sidebar">
-        <div className="logo">H</div>
-        <div className="nav-ic">
-          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <rect x="3" y="3" width="7" height="7" rx="1" />
-            <rect x="14" y="3" width="7" height="7" rx="1" />
-            <rect x="3" y="14" width="7" height="7" rx="1" />
-            <rect x="14" y="14" width="7" height="7" rx="1" />
-          </svg>
-        </div>
-        <div className="nav-ic active">
-          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path d="M3 3v18h18" />
-            <rect x="7" y="10" width="3" height="7" />
-            <rect x="12" y="6" width="3" height="11" />
-            <rect x="17" y="13" width="3" height="4" />
-          </svg>
-        </div>
-        <div className="nav-ic">
-          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path d="M3 17l6-6 4 4 8-8" />
-            <path d="M17 7h4v4" />
-          </svg>
-        </div>
-        <div className="nav-ic">
-          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <rect x="3" y="4" width="18" height="16" rx="2" />
-            <path d="M3 9h18M9 20V9" />
-          </svg>
-        </div>
-        <div className="nav-ic">
-          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <circle cx="12" cy="12" r="9" />
-            <path d="M3 12h18M12 3c2.5 3 2.5 15 0 18M12 3c-2.5 3-2.5 15 0 18" />
-          </svg>
-        </div>
-        <div className="nav-ic">
-          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path d="M12 20l7-4V8l-7-4-7 4v8z" />
-            <path d="M12 12l7-4M12 12v8M12 12L5 8" />
-          </svg>
-        </div>
-        <div className="nav-ic" style={{ marginTop: "auto", marginBottom: "14px" }}>
-          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <circle cx="12" cy="12" r="3" />
-            <path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 0 1-4 0v-.1A1.6 1.6 0 0 0 7 19.4l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.6 1.6 0 0 0 4.6 15H4.5a2 2 0 0 1 0-4h.1A1.6 1.6 0 0 0 6 8.3l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.6 1.6 0 0 0 11 4.6V4.5a2 2 0 0 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8v.1a1.6 1.6 0 0 0 1.5 1h.1a2 2 0 0 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z" />
-          </svg>
-        </div>
-      </aside>
+    <div className="main">
+      <div className="topbar">
+        <div className="toolbar-row">
+          <span className="label-chip">Datos</span>
+          <label className="btn primary" htmlFor="fileInput">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path d="M12 3v12M7 8l5-5 5 5M5 21h14" />
+            </svg>
+            Cargar archivo
+          </label>
+          <input type="file" id="fileInput" accept=".xlsx,.xls" onChange={handleFileChange} />
 
-      <div className="main">
-        <div className="topbar">
-          <div className="toolbar-row">
-            <span className="label-chip">Datos</span>
-            <label className="btn primary" htmlFor="fileInput">
-              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path d="M12 3v12M7 8l5-5 5 5M5 21h14" />
-              </svg>
-              Cargar archivo
-            </label>
-            <input type="file" id="fileInput" accept=".xlsx,.xls" onChange={handleFileChange} />
+          <span style={{ width: "1px", height: "26px", background: "var(--border)", margin: "0 4px" }}></span>
 
-            <span style={{ width: "1px", height: "26px", background: "var(--border)", margin: "0 4px" }}></span>
+          <span style={{ flex: "1" }}></span>
 
-            <span style={{ flex: "1" }}></span>
+          <button className="btn" id="btnSave" disabled title="Guarda el archivo cargado en este navegador (solo al abrir el HTML localmente)">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path d="M5 3h11l4 4v14H5z" />
+              <path d="M8 3v6h7M8 21v-6h8v6" />
+            </svg>
+            Guardar
+          </button>
+          <button className="btn ghost" id="btnExportJson" disabled>Exportar JSON</button>
+          <label className="btn ghost" htmlFor="jsonInput">Importar JSON</label>
+          <input type="file" id="jsonInput" accept=".json" />
+          <button
+            className="btn primary"
+            id="btnExcel"
+            disabled={!records || isExporting}
+            onClick={handleExportExcel}
+          >
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path d="M14 3v5h5" />
+              <path d="M14 3H6v18h12V8z" />
+              <path d="M9 13l3 4m0-4l-3 4" />
+            </svg>
+            {isExporting ? 'Generando…' : 'Descargar Excel'}
+          </button>
+        </div>
+        <div className="loaded-row" id="loadedRow">
+          {records && fileName && (
+            <>
+              <span className="pill">Archivo: {fileName}</span>
+              <span className="pill">Filas: {records.length.toLocaleString('en-US')}</span>
+              {monthRange?.minYM && monthRange?.maxYM && (
+                <span className="pill">
+                  Rango: {ymLabel(monthRange.minYM)} → {ymLabel(monthRange.maxYM)}
+                </span>
+              )}
+            </>
+          )}
+          {saveStatus === 'saving' && <span className="pill">Guardando en la nube…</span>}
+          {saveStatus === 'saved' && <span className="pill">Guardado</span>}
+          {saveStatus === 'error' && <span className="pill warn">No se pudo guardar en la nube</span>}
+          {error && <span className="pill warn">{error}</span>}
+        </div>
+      </div>
 
-            <button className="btn" id="btnSave" disabled title="Guarda el archivo cargado en este navegador (solo al abrir el HTML localmente)">
-              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path d="M5 3h11l4 4v14H5z" />
-                <path d="M8 3v6h7M8 21v-6h8v6" />
-              </svg>
-              Guardar
-            </button>
-            <button className="btn ghost" id="btnExportJson" disabled>Exportar JSON</button>
-            <label className="btn ghost" htmlFor="jsonInput">Importar JSON</label>
-            <input type="file" id="jsonInput" accept=".json" />
-            <button
-              className="btn primary"
-              id="btnExcel"
-              disabled={!records || isExporting}
-              onClick={handleExportExcel}
-            >
+      <div className="content">
+        <h1 className="title">Reporte de Actividad</h1>
+        <div className="subtitle">File Creations · Credit Reports · Applications · Closings — por branch, loan officer y estrategia B2B</div>
+
+        {records === null && isLoadingInitial && (
+          <div className="empty">
+            <div className="drop-ic">
               <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path d="M14 3v5h5" />
                 <path d="M14 3H6v18h12V8z" />
-                <path d="M9 13l3 4m0-4l-3 4" />
+                <path d="M9 15h6M9 11h6" />
               </svg>
-              {isExporting ? 'Generando…' : 'Descargar Excel'}
-            </button>
-          </div>
-          <div className="loaded-row" id="loadedRow">
-            {records && fileName && (
-              <>
-                <span className="pill">Archivo: {fileName}</span>
-                <span className="pill">Filas: {records.length.toLocaleString('en-US')}</span>
-                {monthRange?.minYM && monthRange?.maxYM && (
-                  <span className="pill">
-                    Rango: {ymLabel(monthRange.minYM)} → {ymLabel(monthRange.maxYM)}
-                  </span>
-                )}
-              </>
-            )}
-            {saveStatus === 'saving' && <span className="pill">Guardando en la nube…</span>}
-            {saveStatus === 'saved' && <span className="pill">Guardado</span>}
-            {saveStatus === 'error' && <span className="pill warn">No se pudo guardar en la nube</span>}
-            {error && <span className="pill warn">{error}</span>}
-          </div>
-        </div>
-
-        <div className="content">
-          <h1 className="title">Reporte de Actividad</h1>
-          <div className="subtitle">File Creations · Credit Reports · Applications · Closings — por branch, loan officer y estrategia B2B</div>
-
-          {records === null && isLoadingInitial && (
-            <div className="empty">
-              <div className="drop-ic">
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path d="M14 3v5h5" />
-                  <path d="M14 3H6v18h12V8z" />
-                  <path d="M9 15h6M9 11h6" />
-                </svg>
-              </div>
-              <h2>Cargando reporte…</h2>
-              <p>Buscando el último reporte guardado.</p>
             </div>
-          )}
+            <h2>Cargando reporte…</h2>
+            <p>Buscando el último reporte guardado.</p>
+          </div>
+        )}
 
-          {records === null && !isLoadingInitial && (
-            <div id="emptyState" className="empty">
-              <div className="drop-ic">
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path d="M14 3v5h5" />
-                  <path d="M14 3H6v18h12V8z" />
-                  <path d="M9 15h6M9 11h6" />
-                </svg>
-              </div>
-              <h2>Carga tu archivo de query</h2>
-              <p>Sube el <b>.xlsx</b> con las columnas del reporte (True OrgID, fileCreation, CreditReport, App_Date, loan_info_channel, milestones, loan_officer, B2B Loans, BD). La app calcula todo en tu navegador — nada sale de tu equipo.</p>
-              <label className="btn primary" htmlFor="fileInput" style={{ display: "inline-flex" }}>Seleccionar archivo</label>
+        {records === null && !isLoadingInitial && (
+          <div id="emptyState" className="empty">
+            <div className="drop-ic">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path d="M14 3v5h5" />
+                <path d="M14 3H6v18h12V8z" />
+                <path d="M9 15h6M9 11h6" />
+              </svg>
             </div>
-          )}
+            <h2>Carga tu archivo de query</h2>
+            <p>Sube el <b>.xlsx</b> con las columnas del reporte (True OrgID, fileCreation, CreditReport, App_Date, loan_info_channel, milestones, loan_officer, B2B Loans, BD). La app calcula todo en tu navegador — nada sale de tu equipo.</p>
+            <label className="btn primary" htmlFor="fileInput" style={{ display: "inline-flex" }}>Seleccionar archivo</label>
+          </div>
+        )}
 
-          {records !== null && tree && (
-            <div id="report">
-              <div className="cards-wrap">
-                <div className="cards-head">
-                  {(view === 'b2b' ? 'Totales B2B por mes' : 'Totales por mes') +
-                    (measure === 'amount' ? ' — Monto ($)' : '')}
-                </div>
-                <SummaryCards tree={tree} months={monthsShown} measure={measure} />
+        {records !== null && tree && (
+          <div id="report">
+            <div className="cards-wrap">
+              <div className="cards-head">
+                {(view === 'b2b' ? 'Totales B2B por mes' : 'Totales por mes') +
+                  (measure === 'amount' ? ' — Monto ($)' : '')}
               </div>
+              <SummaryCards tree={tree} months={monthsShown} measure={measure} />
+            </div>
 
-              <Toolbar
-                view={view}
-                onViewChange={setView}
+            <Toolbar
+              view={view}
+              onViewChange={setView}
+              measure={measure}
+              onMeasureChange={setMeasure}
+              branchFilter={branchFilter}
+              onBranchFilterChange={setBranchFilter}
+              year={year}
+              onYearChange={setYear}
+              start={start}
+              onStartChange={setStart}
+              availableBranches={availableBranches}
+              availableYears={availableYears}
+              months={allMonths}
+              onExpandAll={handleExpandAll}
+              onCollapseAll={handleCollapseAll}
+            />
+
+            <div className="tbl-card">
+              <PivotTable
+                tree={tree}
+                months={monthsShown}
                 measure={measure}
-                onMeasureChange={setMeasure}
-                branchFilter={branchFilter}
-                onBranchFilterChange={setBranchFilter}
-                year={year}
-                onYearChange={setYear}
-                start={start}
-                onStartChange={setStart}
-                availableBranches={availableBranches}
-                availableYears={availableYears}
-                months={allMonths}
-                onExpandAll={handleExpandAll}
-                onCollapseAll={handleCollapseAll}
+                showTotal={showTotal}
+                collapsed={collapsed}
+                onToggleCollapse={handleToggleCollapse}
+                view={view}
               />
-
-              <div className="tbl-card">
-                <PivotTable
-                  tree={tree}
-                  months={monthsShown}
-                  measure={measure}
-                  showTotal={showTotal}
-                  collapsed={collapsed}
-                  onToggleCollapse={handleToggleCollapse}
-                  view={view}
-                />
-              </div>
-
-              <div className="foot-note">
-                <b>Closings:</b> se cuenta la fecha de Funding si el canal es Banked-Retail, o de Completion si es Brokered.{' '}
-                <b>Branch:</b> se usa <i>True OrgID</i>; OrgIDs fuera del roster oficial se agrupan en “Branch Out of Division”.
-                Las fechas se leen en UTC para evitar corrimiento de mes.
-              </div>
             </div>
-          )}
-        </div>
+
+            <div className="foot-note">
+              <b>Closings:</b> se cuenta la fecha de Funding si el canal es Banked-Retail, o de Completion si es Brokered.{' '}
+              <b>Branch:</b> se usa <i>True OrgID</i>; OrgIDs fuera del roster oficial se agrupan en “Branch Out of Division”.
+              Las fechas se leen en UTC para evitar corrimiento de mes.
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
