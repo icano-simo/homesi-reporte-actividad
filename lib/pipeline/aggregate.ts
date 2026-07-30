@@ -1,4 +1,4 @@
-import type { PipelineLoan } from './types';
+import type { PipelineLoan, ResolvedLoan } from './types';
 
 // Esta regla es la más importante de todo el módulo: aggregate.ts nunca
 // importa nada de /lib/pipeline/sources/ -- solo recibe PipelineLoan[] ya
@@ -123,5 +123,57 @@ export function buildPipelineForecast(
     bucketCounts,
     forecastByBucket,
     forecastTotal,
+  };
+}
+
+export interface TotalForecastWithClosed {
+  closedCount: number;
+  pullThroughForecast: number;
+  totalForecast: number;
+}
+
+export interface DateRange {
+  /** 'YYYY-MM-DD', inclusive. */
+  startDate: string;
+  /** 'YYYY-MM-DD', inclusive. */
+  endDate: string;
+}
+
+/**
+ * Etapa F4b: el Forecast final del negocio no es solo la proyección de
+ * pull-through -- son los préstamos que YA cerraron (Stage=Closed Won,
+ * status='funded' en ResolvedLoan) MÁS esa proyección. Confirmado contra el
+ * Excel real (Pipeline_Review.xlsx, hoja Forecast).
+ *
+ * Etapa F4c: "cerraron" ahora se acota a un rango de Est. Closing Date
+ * (ResolvedLoan.closeDate, ya poblado desde esa columna por el parser de
+ * F1 -- ver confirmación en la respuesta de F4c). El rango es ajustable en
+ * la UI; acá solo se filtra, no se decide el default.
+ *
+ * Los 'adverse' nunca se suman a nada acá -- ya se cayeron del pipeline, ni
+ * siquiera se cuentan, solo se ignoran (igual que en page.tsx, que ya no los
+ * usaba para ningún cálculo desde F4).
+ *
+ * No toca ni reemplaza calculateForecast/countByMilestoneBucket/
+ * splitHealthyTotal -- recibe el forecastTotal que esas funciones ya
+ * calcularon, y le suma encima los cerrados.
+ *
+ * IMPORTANTE: este conteo es una aproximación a partir de los datos de
+ * Salesforce (Stage=Closed Won + Est. Closing Date en rango). No va a
+ * coincidir exactamente con un Excel armado a mano, que suele tener ajustes
+ * manuales que esta regla no puede replicar -- no es un bug si difiere.
+ */
+export function calculateTotalForecastWithClosed(
+  resolvedLoans: ResolvedLoan[],
+  forecastTotal: number,
+  dateRange: DateRange
+): TotalForecastWithClosed {
+  const closedCount = resolvedLoans.filter(
+    (loan) => loan.status === 'funded' && loan.closeDate >= dateRange.startDate && loan.closeDate <= dateRange.endDate
+  ).length;
+  return {
+    closedCount,
+    pullThroughForecast: forecastTotal,
+    totalForecast: closedCount + forecastTotal,
   };
 }

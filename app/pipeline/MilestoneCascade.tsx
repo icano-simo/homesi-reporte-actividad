@@ -21,8 +21,16 @@ export interface MilestoneCascadeProps {
   bucketTotal: BucketCounts;
   bucketHealthy: BucketCounts;
   forecastByBucket: ForecastByBucket;
+  /** Proyección por pull-through (sin cerrados) -- mismo significado de siempre, sin cambios. */
   forecastTotal: number;
   rates: PullThroughRates;
+  /**
+   * Etapa F4b, ambos opcionales para no romper ningún caller existente: si
+   * se proveen los dos, se agrega una fila "Cerrados (Funded)" y la fila de
+   * total pasa a mostrar Cerrados + Proyección en vez de solo forecastTotal.
+   */
+  closedCount?: number;
+  totalForecast?: number;
 }
 
 function fmtInt(n: number): string {
@@ -49,7 +57,11 @@ export default function MilestoneCascade({
   forecastByBucket,
   forecastTotal,
   rates,
+  closedCount,
+  totalForecast,
 }: MilestoneCascadeProps) {
+  const hasClosedBreakdown = closedCount !== undefined && totalForecast !== undefined;
+
   return (
     <div className="tbl-card">
       <table className="piv">
@@ -75,10 +87,17 @@ export default function MilestoneCascade({
               </tr>
             );
           })}
+          {hasClosedBreakdown && (
+            <tr className="metric">
+              <td className="lbl mname">Cerrados (Funded)</td>
+              <td className="val" colSpan={3}></td>
+              <td className="totcol">{fmtInt(closedCount as number)}</td>
+            </tr>
+          )}
           <tr className="grp total">
-            <td className="lbl">Forecast total</td>
+            <td className="lbl">{hasClosedBreakdown ? 'Total Forecast (Cerrados + Proyección)' : 'Forecast total'}</td>
             <td colSpan={3}></td>
-            <td className="totcol">{fmtForecast(forecastTotal)}</td>
+            <td className="totcol">{fmtForecast(hasClosedBreakdown ? (totalForecast as number) : forecastTotal)}</td>
           </tr>
         </tbody>
       </table>

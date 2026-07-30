@@ -3,7 +3,18 @@
 export interface SummaryCardsProps {
   totalCount: number;
   healthyCount: number;
+  /** Proyección por pull-through (sin cerrados) -- mismo significado de siempre, sin cambios. */
   forecastTotal: number;
+  /**
+   * Etapa F4b, ambos opcionales para no romper ningún caller existente: si
+   * se proveen los dos, la tarjeta "Forecast" muestra Cerrados + Proyección
+   * = Total en vez de solo la proyección. Si no, cae al comportamiento
+   * anterior (muestra forecastTotal solo).
+   */
+  closedCount?: number;
+  totalForecast?: number;
+  /** Etapa F4c: rango de Est. Closing Date usado para contar closedCount, solo para mostrarlo. */
+  closedDateRangeLabel?: string;
 }
 
 function fmtInt(n: number): string {
@@ -22,8 +33,17 @@ function fmtForecast(n: number): string {
  * Actividad (updateStick()); sin eso, dejarlo sticky podría solaparse con
  * los headers de las tablas de abajo.
  */
-export default function SummaryCards({ totalCount, healthyCount, forecastTotal }: SummaryCardsProps) {
+export default function SummaryCards({
+  totalCount,
+  healthyCount,
+  forecastTotal,
+  closedCount,
+  totalForecast,
+  closedDateRangeLabel,
+}: SummaryCardsProps) {
   const healthyPct = totalCount ? Math.round((healthyCount / totalCount) * 100) : 0;
+  const hasClosedBreakdown = closedCount !== undefined && totalForecast !== undefined;
+  const forecastHeadline = hasClosedBreakdown ? (totalForecast as number) : forecastTotal;
 
   return (
     <div className="cards-wrap" style={{ position: 'static' }}>
@@ -42,9 +62,18 @@ export default function SummaryCards({ totalCount, healthyCount, forecastTotal }
         <div className="mcard" style={{ flex: '0 0 220px' }}>
           <div className="m-name">Forecast</div>
           <div style={{ fontSize: '28px', fontWeight: 800, color: 'var(--accent)', lineHeight: 1.2 }}>
-            {fmtForecast(forecastTotal)}
+            {fmtForecast(forecastHeadline)}
           </div>
-          <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>cierres esperados (pull-through)</div>
+          <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>
+            {hasClosedBreakdown
+              ? fmtInt(closedCount as number) + ' cerrados + ' + fmtForecast(forecastTotal) + ' proyección'
+              : 'cierres esperados (pull-through)'}
+          </div>
+          {hasClosedBreakdown && closedDateRangeLabel && (
+            <div style={{ fontSize: '10px', color: 'var(--muted)', marginTop: '2px' }}>
+              Cerrados: Est. Closing Date {closedDateRangeLabel}
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -31,6 +31,9 @@ function makeLoan(
     rawMilestone: milestone,
     rawHealthiness: healthy ? 'On Track' : 'Delayed',
     estClosingDate: '2026-08-31',
+    borrowerName: 'Demo Borrower',
+    milestoneDate: '2026-08-01',
+    branchTransferred: false,
   };
 }
 

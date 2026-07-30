@@ -23,6 +23,9 @@ function makeLoan(
     rawMilestone: milestone,
     rawHealthiness: healthy ? 'Healthy' : 'Unhealthy',
     estClosingDate: null,
+    borrowerName: 'TEST BORROWER',
+    milestoneDate: null,
+    branchTransferred: false,
   };
 }
 

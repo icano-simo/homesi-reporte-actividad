@@ -17,6 +17,8 @@ const REQUIRED_COLUMNS = [
   'Stage',
   'Est. Closing Date',
   'Loan Folder',
+  'Current Milestone Date',
+  'Branch Transfer',
 ] as const;
 
 /** Current Milestone (Stage=Negotiation) -> bucket de PipelineLoan.milestone. */
@@ -166,6 +168,37 @@ function extractSourceLoanId(opportunityName: string, warnings: string[]): strin
   return opportunityName;
 }
 
+/**
+ * Etapa F4d: "Opportunity Name" trae "Nombre del prestatario - id" (verificado
+ * contra los 2 archivos reales: 796/796 filas matchean este patrón). Se
+ * separa el texto antes de " - <mismo id que ya extrae extractSourceLoanId>".
+ * Si no matchea, se usa el nombre completo y se deja warning -- no se
+ * inventa un nombre parcial.
+ */
+function extractBorrowerName(opportunityName: string, warnings: string[], sourceLoanId: string): string {
+  const match = opportunityName.match(/^(.*?)\s*-\s*\d{9,}$/);
+  if (match && match[1].trim()) return match[1].trim();
+  warnings.push(
+    'Loan ' +
+      sourceLoanId +
+      ': no se pudo separar el nombre del prestatario de "Opportunity Name" ("' +
+      opportunityName +
+      '"); se usó el nombre completo.'
+  );
+  return opportunityName;
+}
+
+/** "Branch Transfer" viene como boolean nativo en Formato A y como '0'/'1' en Formato B -- se normaliza acá. */
+function parseBranchTransfer(value: unknown): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value === 1;
+  if (typeof value === 'string') {
+    const v = value.trim().toLowerCase();
+    return v === '1' || v === 'true';
+  }
+  return false;
+}
+
 // ============================================================
 // Fila intermedia común a los dos formatos
 // ============================================================
@@ -183,6 +216,9 @@ interface RawRow {
   loanFolder: string;
   /** Solo Formato A -- el valor crudo de la columna "Close Month" (forward-filled). */
   closeMonthRaw: unknown;
+  /** Etapa F4d. */
+  milestoneDateRaw: unknown;
+  branchTransferRaw: unknown;
 }
 
 function readAmount(value: unknown): number {
@@ -237,6 +273,8 @@ function extractRowsFormatA(aoa: unknown[][], idx: Record<string, number>, heade
         estClosingDateRaw: row[idx['Est. Closing Date']],
         loanFolder: String(row[idx['Loan Folder']] ?? ''),
         closeMonthRaw: curCloseMonth,
+        milestoneDateRaw: row[idx['Current Milestone Date']],
+        branchTransferRaw: row[idx['Branch Transfer']],
       });
     }
     i++;
@@ -265,6 +303,8 @@ function extractRowsFormatB(aoa: unknown[][], idx: Record<string, number>, heade
       estClosingDateRaw: row[idx['Est. Closing Date']],
       loanFolder: String(row[idx['Loan Folder']] ?? ''),
       closeMonthRaw: undefined,
+      milestoneDateRaw: row[idx['Current Milestone Date']],
+      branchTransferRaw: row[idx['Branch Transfer']],
     });
   }
   return rows;
@@ -297,6 +337,9 @@ function classifyRow(
   warnings: string[]
 ): { openLoan?: PipelineLoan; resolvedLoan?: ResolvedLoan } {
   const sourceLoanId = extractSourceLoanId(row.opportunityName, warnings);
+  const borrowerName = extractBorrowerName(row.opportunityName, warnings, sourceLoanId);
+  const milestoneDate = toISODate(parseDateCell(row.milestoneDateRaw));
+  const branchTransferred = parseBranchTransfer(row.branchTransferRaw);
 
   if (row.loanFolder && !KNOWN_LOAN_FOLDERS.has(row.loanFolder)) {
     warnings.push(
@@ -331,6 +374,9 @@ function classifyRow(
       rawMilestone: row.currentMilestone,
       rawHealthiness: row.healthiness,
       estClosingDate: toISODate(parseDateCell(row.estClosingDateRaw)),
+      borrowerName,
+      milestoneDate,
+      branchTransferred,
     };
     return { openLoan };
   }
@@ -344,6 +390,9 @@ function classifyRow(
       closeDate: toISODate(parseDateCell(row.estClosingDateRaw)) ?? '',
       amount: row.amount,
       loanOfficer: row.loanOfficers,
+      borrowerName,
+      milestoneDate,
+      branchTransferred,
     };
     return { resolvedLoan };
   }

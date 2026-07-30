@@ -10,6 +10,12 @@ export type PipelineLoan = {
   rawMilestone: string;
   rawHealthiness: string;
   estClosingDate: string | null;
+  /** Etapa F4d: nombre del prestatario, separado de "Opportunity Name" (que trae "Nombre - id"). */
+  borrowerName: string;
+  /** Etapa F4d: 'YYYY-MM-DD' de "Current Milestone Date"; null si el archivo no trae valor. */
+  milestoneDate: string | null;
+  /** Etapa F4d: de la columna "Branch Transfer" (1/true -> true). Solo informativo, no afecta branch ni cálculos. */
+  branchTransferred: boolean;
 };
 
 /**
@@ -24,4 +30,8 @@ export type ResolvedLoan = {
   closeDate: string;
   amount: number;
   loanOfficer: string;
+  /** Etapa F4d: mismo significado que en PipelineLoan. */
+  borrowerName: string;
+  milestoneDate: string | null;
+  branchTransferred: boolean;
 };
