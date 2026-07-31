@@ -7,15 +7,17 @@ import type { RawLoanRow, YearMonth } from '@/lib/parsing/types';
 import { classifyLoan } from '@/lib/domain/classifyLoan';
 import type { LoanRecord } from '@/lib/domain/types';
 import { buildReportTree } from '@/lib/aggregation/buildReportTree';
+import { buildLoanOfficerTree } from '@/lib/aggregation/buildLoanOfficerTree';
 import { deriveMonthRange, ymLabel } from '@/lib/aggregation/months';
 import type { Measure } from '@/lib/aggregation/types';
 import { exportToExcel } from '@/lib/export/exportToExcel';
 import { saveUpload } from '@/lib/supabase/saveUpload';
 import { loadCurrentReport } from '@/lib/supabase/loadCurrent';
 import { BRANCH_ORDER, type Branch } from '@/config/roster';
-import { METRICS } from '@/config/metrics';
+import { METRICS, type MetricKey } from '@/config/metrics';
 import SummaryCards from '@/components/report/SummaryCards';
 import PivotTable from '@/components/report/PivotTable';
+import LoanOfficerTable from '@/components/report/LoanOfficerTable';
 import Toolbar from '@/components/report/Toolbar';
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
@@ -53,7 +55,9 @@ export default function Home() {
   // Estado equivalente al bloque STATE del legacy.
   const [records, setRecords] = useState<LoanRecord[] | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
-  const [view, setView] = useState<'main' | 'b2b'>('main');
+  const [view, setView] = useState<'main' | 'b2b' | 'loanOfficer'>('main');
+  // Etapa 12 (agregado): criterio de orden de la vista "Por Loan Officer" -- solo importa cuando view==='loanOfficer'.
+  const [sortBy, setSortBy] = useState<MetricKey | 'total'>('total');
   const [measure, setMeasure] = useState<Measure>('count');
   const [year, setYear] = useState<'all' | string>('all');
   const [start, setStart] = useState<YearMonth | null>(null);
@@ -76,6 +80,7 @@ export default function Home() {
     setRecords(loanRecords);
     setFileName(name);
     setView('main');
+    setSortBy('total');
     setMeasure('count');
     setYear('all');
     setStart(null);
@@ -160,10 +165,19 @@ export default function Home() {
 
   // Port de collapseAll del legacy: colapsa 'total' y cada header de branch
   // (lo que también oculta sus metric-groups, sin necesidad de listarlos).
+  // Etapa 12: en la vista "Por Loan Officer" no hay 'total' ni branches --
+  // colapsa cada Loan Officer visible en su lugar (mismo esquema de id
+  // 'lo::'+nombre que usa LoanOfficerTable).
   function handleCollapseAll() {
     const s = new Set<string>();
-    s.add('total');
-    for (const b of BRANCH_ORDER) s.add('br::' + b);
+    if (view === 'loanOfficer') {
+      if (loanOfficerTree) {
+        for (const officer of loanOfficerTree.officers) s.add('lo::' + officer.name);
+      }
+    } else {
+      s.add('total');
+      for (const b of BRANCH_ORDER) s.add('br::' + b);
+    }
     setCollapsed(s);
   }
 
@@ -195,16 +209,26 @@ export default function Home() {
     ? BRANCH_ORDER.filter((b) => records.some((r) => r.branch === b))
     : [];
 
+  // Etapa 12: SummaryCards siempre necesita un ReportTree válido (tree.total.maps),
+  // incluso en la vista "Por Loan Officer" -- ahí se le pasa 'main' como view
+  // (no hay restricción B2B en esa vista) solo para ese propósito; PivotTable
+  // no se renderiza con este tree cuando view==='loanOfficer' (ver JSX abajo).
   const tree = records
     ? buildReportTree({
         records,
         months: monthsShown,
         measure,
-        view,
+        view: view === 'loanOfficer' ? 'main' : view,
         branchFilter,
         drillBy: view === 'b2b' ? 'bd' : 'loanOfficer',
       })
     : null;
+
+  // Etapa 12: vista "Por Loan Officer" -- cruza todos los branches, no usa
+  // branchFilter ni el drillBy de arriba.
+  const loanOfficerTree =
+    records && view === 'loanOfficer' ? buildLoanOfficerTree({ records, months: monthsShown, measure }) : null;
+
   // Port de showTotal (BRANCHF==='all') del legacy: el nodo Total de
   // ReportTree existe siempre (no está filtrado por branch), así que hay
   // que ocultarlo explícitamente cuando hay un branch específico elegido.
@@ -308,6 +332,7 @@ export default function Home() {
             <div className="cards-wrap">
               <div className="cards-head">
                 {(view === 'b2b' ? 'Totales B2B por mes' : 'Totales por mes') +
+                  (view === 'loanOfficer' ? ' (todos los branches)' : '') +
                   (measure === 'amount' ? ' — Monto ($)' : '')}
               </div>
               <SummaryCards tree={tree} months={monthsShown} measure={measure} />
@@ -332,15 +357,27 @@ export default function Home() {
             />
 
             <div className="tbl-card">
-              <PivotTable
-                tree={tree}
-                months={monthsShown}
-                measure={measure}
-                showTotal={showTotal}
-                collapsed={collapsed}
-                onToggleCollapse={handleToggleCollapse}
-                view={view}
-              />
+              {view === 'loanOfficer' && loanOfficerTree ? (
+                <LoanOfficerTable
+                  tree={loanOfficerTree}
+                  months={monthsShown}
+                  measure={measure}
+                  collapsed={collapsed}
+                  onToggleCollapse={handleToggleCollapse}
+                  sortBy={sortBy}
+                  onSortByChange={setSortBy}
+                />
+              ) : (
+                <PivotTable
+                  tree={tree}
+                  months={monthsShown}
+                  measure={measure}
+                  showTotal={showTotal}
+                  collapsed={collapsed}
+                  onToggleCollapse={handleToggleCollapse}
+                  view={view === 'b2b' ? 'b2b' : 'main'}
+                />
+              )}
             </div>
 
             <div className="foot-note">

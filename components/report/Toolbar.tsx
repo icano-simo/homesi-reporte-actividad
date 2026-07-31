@@ -6,8 +6,8 @@ import type { Branch } from '@/config/roster';
 import { ymLabel } from '@/lib/aggregation/months';
 
 export interface ToolbarProps {
-  view: 'main' | 'b2b';
-  onViewChange: (view: 'main' | 'b2b') => void;
+  view: 'main' | 'b2b' | 'loanOfficer';
+  onViewChange: (view: 'main' | 'b2b' | 'loanOfficer') => void;
   measure: Measure;
   onMeasureChange: (measure: Measure) => void;
   branchFilter: Branch | 'all';
@@ -70,6 +70,9 @@ export default function Toolbar({
         <button className={view === 'b2b' ? 'on' : ''} onClick={() => onViewChange('b2b')}>
           B2B
         </button>
+        <button className={view === 'loanOfficer' ? 'on' : ''} onClick={() => onViewChange('loanOfficer')}>
+          Loan Officer
+        </button>
       </div>
 
       <span className="label-chip" style={{ marginLeft: '6px' }}>
@@ -86,20 +89,25 @@ export default function Toolbar({
 
       <span style={{ flex: '1' }}></span>
 
-      <span className="label-chip">Branch</span>
-      <select
-        className="yb"
-        style={{ cursor: 'pointer', maxWidth: '170px' }}
-        value={branchFilter}
-        onChange={(e) => onBranchFilterChange(e.target.value)}
-      >
-        <option value="all">Todos los branches</option>
-        {availableBranches.map((b) => (
-          <option key={b} value={b}>
-            {b}
-          </option>
-        ))}
-      </select>
+      {/* Etapa 12: la vista "Por Loan Officer" cruza todos los branches por diseño -- el filtro de Branch no aplica y se oculta. */}
+      {view !== 'loanOfficer' && (
+        <>
+          <span className="label-chip">Branch</span>
+          <select
+            className="yb"
+            style={{ cursor: 'pointer', maxWidth: '170px' }}
+            value={branchFilter}
+            onChange={(e) => onBranchFilterChange(e.target.value)}
+          >
+            <option value="all">Todos los branches</option>
+            {availableBranches.map((b) => (
+              <option key={b} value={b}>
+                {b}
+              </option>
+            ))}
+          </select>
+        </>
+      )}
 
       <span className="label-chip">Desde</span>
       <select
