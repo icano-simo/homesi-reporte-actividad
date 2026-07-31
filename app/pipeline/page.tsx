@@ -43,13 +43,16 @@ function formatDateLocal(d: Date): string {
 }
 
 /**
- * Etapa F4c: default = día 1 del mes anterior al mes actual, hasta el
- * último día del mes actual (usa la fecha real del sistema, no un valor
- * fijo). Ej. hoy=29 julio 2026 -> 1 junio 2026 a 31 julio 2026.
+ * Etapa F4c: default = día 1 del mes actual hasta el último día del mes
+ * actual (usa la fecha real del sistema, no un valor fijo). Ej. hoy=29
+ * julio 2026 -> 1 julio 2026 a 31 julio 2026.
+ *
+ * Etapa F5a: antes arrancaba en el mes ANTERIOR (2 meses de rango) -- se
+ * acota a solo el mes actual.
  */
 function getDefaultDateRange(): DateRange {
   const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const start = new Date(now.getFullYear(), now.getMonth(), 1);
   const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
   return { startDate: formatDateLocal(start), endDate: formatDateLocal(end) };
 }
@@ -67,7 +70,10 @@ interface ParseApiResponse {
   openLoans: PipelineLoan[];
   resolvedLoans: ResolvedLoan[];
   warnings: string[];
-  formatDetected: 'A' | 'B';
+  /** Ausente cuando los datos vienen restaurados de Supabase (F5a) en vez de recién parseados -- no se guarda el formato detectado en la BD. */
+  formatDetected?: 'A' | 'B';
+  /** F5a: si el archivo recién subido se pudo guardar en Supabase. Ausente cuando los datos vienen restaurados (ya estaban guardados). */
+  persisted?: boolean;
 }
 
 function errorMessage(err: unknown): string {
@@ -96,6 +102,40 @@ export default function PipelinePage() {
   const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange);
   const [branchManagers, setBranchManagers] = useState<Map<string, string>>(new Map());
   const [knownBranches, setKnownBranches] = useState<Set<string>>(new Set());
+  // Etapa F5a: true mientras se consulta /api/pipeline/latest al montar --
+  // evita mostrar el emptyState de "sube tu archivo" antes de saber si hay
+  // un snapshot guardado (mismo patrón que isLoadingInitial en app/page.tsx
+  // de Actividad).
+  const [isLoadingInitial, setIsLoadingInitial] = useState(true);
+
+  // Etapa F5a: si nadie subió un archivo en esta sesión (data===null),
+  // restaura el último snapshot activo desde Supabase -- para no perder el
+  // dato al recargar la página. No dispara una nueva inserción: esos datos
+  // ya están guardados.
+  useEffect(() => {
+    if (data !== null) return;
+    let cancelled = false;
+    fetch('/api/pipeline/latest')
+      .then((res) => res.json())
+      .then((body) => {
+        if (cancelled) return;
+        if (!body || !body.snapshot) return;
+        setData({ openLoans: body.openLoans, resolvedLoans: body.resolvedLoans, warnings: body.warnings ?? [] });
+        setFileName(body.snapshot.fileName);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(errorMessage(err));
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setIsLoadingInitial(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Etapa F4f: branch -> Branch Manager, desde pipeline_forecast.branch_managers.
   // Etapa F4g: mismo cliente/efecto, se agrega pipeline_forecast.branches
@@ -298,8 +338,10 @@ export default function PipelinePage() {
         </div>
         <div className="loaded-row">
           {fileName && <span className="pill">Archivo: {fileName}</span>}
-          {data && <span className="pill">Formato detectado: {data.formatDetected}</span>}
+          {data && data.formatDetected && <span className="pill">Formato detectado: {data.formatDetected}</span>}
           {data && <span className="pill">Préstamos abiertos: {data.openLoans.length.toLocaleString('en-US')}</span>}
+          {data && data.persisted === true && <span className="pill">Guardado en Supabase</span>}
+          {data && data.persisted === false && <span className="pill warn">No se pudo guardar en Supabase</span>}
           {error && <span className="pill warn">{error}</span>}
         </div>
       </div>
@@ -307,7 +349,14 @@ export default function PipelinePage() {
       <div className="content">
         <h1 className="title">Forecast — Pipeline</h1>
 
-        {!data && !isLoading && (
+        {!data && isLoadingInitial && (
+          <div className="empty">
+            <h2>Cargando…</h2>
+            <p>Buscando el último reporte guardado.</p>
+          </div>
+        )}
+
+        {!data && !isLoading && !isLoadingInitial && (
           <div className="empty">
             <div className="drop-ic">
               <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
