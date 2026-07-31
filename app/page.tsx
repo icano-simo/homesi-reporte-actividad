@@ -59,7 +59,7 @@ export default function Home() {
   // Etapa 12 (agregado): criterio de orden de la vista "Por Loan Officer" -- solo importa cuando view==='loanOfficer'.
   const [sortBy, setSortBy] = useState<MetricKey | 'total'>('total');
   const [measure, setMeasure] = useState<Measure>('count');
-  const [year, setYear] = useState<'all' | string>('all');
+  const [year, setYear] = useState<'all' | string>('2026');
   const [start, setStart] = useState<YearMonth | null>(null);
   const [branchFilter, setBranchFilter] = useState<Branch | 'all'>('all');
   const [collapsed, setCollapsed] = useState<Set<string>>(() => defaultCollapsed());
@@ -82,7 +82,7 @@ export default function Home() {
     setView('main');
     setSortBy('total');
     setMeasure('count');
-    setYear('all');
+    setYear('2026');
     setStart(null);
     setBranchFilter('all');
     setCollapsed(defaultCollapsed());
