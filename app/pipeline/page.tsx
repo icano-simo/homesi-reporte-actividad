@@ -7,9 +7,12 @@ import {
   countByMilestoneBucket,
   calculateForecast,
   calculateTotalForecastWithClosed,
+  getTargetMonth,
+  targetMonthRange,
   type BucketCounts,
   type PullThroughRates,
   type DateRange,
+  type TargetMonth,
 } from '@/lib/pipeline/aggregate';
 import type { PipelineLoan, ResolvedLoan } from '@/lib/pipeline/types';
 import SummaryCards, { type SummaryBlock } from './SummaryCards';
@@ -34,6 +37,27 @@ const PULL_THROUGH_RATES: PullThroughRates = {
 };
 
 const EMPTY_BUCKETS: BucketCounts = { Started: 0, Processing: 0, Underwriting: 0, Closing: 0 };
+
+const SPANISH_MONTHS = [
+  'enero',
+  'febrero',
+  'marzo',
+  'abril',
+  'mayo',
+  'junio',
+  'julio',
+  'agosto',
+  'septiembre',
+  'octubre',
+  'noviembre',
+  'diciembre',
+];
+
+/** Etapa F5c: "Agosto 2026" -- para la etiqueta visible del mes objetivo en SummaryCards. */
+function formatTargetMonthLabel(target: TargetMonth): string {
+  const name = SPANISH_MONTHS[target.month - 1];
+  return name.charAt(0).toUpperCase() + name.slice(1) + ' ' + target.year;
+}
 
 function formatDateLocal(d: Date): string {
   const y = d.getFullYear();
@@ -204,6 +228,14 @@ export default function PipelinePage() {
     }
   }
 
+  // Etapa F5c: el DateRange amplio que elige el usuario en DateRangeInput ya
+  // no se pasa directo a aggregate.ts -- se deriva de ahí un único "mes
+  // objetivo" (getTargetMonth), y Cerrados/Total/Healthy Pipeline usan ese
+  // mes, no el rango completo. El selector en sí no cambia de comportamiento.
+  const targetMonth = getTargetMonth(dateRange, new Date());
+  const targetRange = targetMonthRange(targetMonth);
+  const targetMonthLabel = formatTargetMonthLabel(targetMonth);
+
   // Cálculo derivado -- igual que en F3, pero sobre data.openLoans (real) en
   // vez de DEMO_LOANS. aggregate.ts (F2) no se modificó: se llaman sus
   // mismas funciones exportadas.
@@ -214,7 +246,7 @@ export default function PipelinePage() {
       groups.set(loan.branch + '::' + loan.channel, { branch: loan.branch, channel: loan.channel });
     }
     for (const { branch, channel } of groups.values()) {
-      const { total, healthy } = splitHealthyTotal(data.openLoans, branch, channel, dateRange);
+      const { total, healthy } = splitHealthyTotal(data.openLoans, branch, channel, targetRange.endDate);
       const bucketTotal = countByMilestoneBucket(total);
       const bucketHealthy = countByMilestoneBucket(healthy);
       const { forecastByBucket, forecastTotal } = calculateForecast(bucketHealthy, PULL_THROUGH_RATES);
@@ -253,7 +285,7 @@ export default function PipelinePage() {
   // nueva agregada a aggregate.ts en F4b; no toca ninguna de las 3 ya
   // aprobadas (splitHealthyTotal/countByMilestoneBucket/calculateForecast).
   const { closedCount, totalForecast } = data
-    ? calculateTotalForecastWithClosed(data.resolvedLoans, grandForecastTotal, dateRange)
+    ? calculateTotalForecastWithClosed(data.resolvedLoans, grandForecastTotal, targetRange)
     : { closedCount: 0, totalForecast: 0 };
 
   // Etapa F4f: mismo cálculo que el combinado de arriba, pero recortado por
@@ -267,7 +299,7 @@ export default function PipelinePage() {
     const forecastTotal = channelRows.reduce((sum, r) => sum + r.forecastTotal, 0);
     const channelResolved = data ? data.resolvedLoans.filter((l) => l.channel === channel) : [];
     const { closedCount: channelClosedCount, totalForecast: channelTotalForecast } = data
-      ? calculateTotalForecastWithClosed(channelResolved, forecastTotal, dateRange)
+      ? calculateTotalForecastWithClosed(channelResolved, forecastTotal, targetRange)
       : { closedCount: 0, totalForecast: 0 };
     return {
       label,
@@ -381,7 +413,7 @@ export default function PipelinePage() {
 
         {data && (
           <>
-            <SummaryCards blocks={summaryBlocks} closedDateRangeLabel={dateRange.startDate + ' a ' + dateRange.endDate} />
+            <SummaryCards blocks={summaryBlocks} targetMonthLabel={targetMonthLabel} />
 
             <div className="cards-head" style={{ marginTop: '24px' }}>
               Cascada de pull-through (todo el pipeline)
@@ -399,11 +431,16 @@ export default function PipelinePage() {
             <div className="cards-head" style={{ marginTop: '24px' }}>
               Desglose por Branch
             </div>
+            {/* Etapa F5c: PivotTable no se modifica (fuera de la lista de esta etapa)
+                -- se le sigue pasando su prop `dateRange` de siempre, pero ahora con
+                el rango del mes objetivo en vez del rango completo elegido por el
+                usuario, para que su columna "Closed" quede consistente con
+                SummaryCards/MilestoneCascade sin tocar el código de PivotTable.tsx. */}
             <PivotTable
               rows={branchRows}
               resolvedLoans={data.resolvedLoans}
               rates={PULL_THROUGH_RATES}
-              dateRange={dateRange}
+              dateRange={targetRange}
               branchManagers={branchManagers}
               knownBranches={knownBranches}
             />

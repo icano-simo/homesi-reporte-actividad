@@ -29,11 +29,12 @@ function makeLoan(
   };
 }
 
-// Etapa F4f: splitHealthyTotal ahora filtra por estClosingDate dentro de un
-// DateRange -- este rango cubre el mes que ya usaban los fixtures de abajo
-// (closeMonth/estClosingDate '2026-08'), así que los resultados esperados
-// (comentados junto a cada caso) no cambian.
-const TEST_DATE_RANGE = { startDate: '2026-08-01', endDate: '2026-08-31' };
+// Etapa F5c: splitHealthyTotal/buildPipelineForecast ahora reciben solo el
+// fin del mes objetivo (string), sin límite inferior -- este valor cubre el
+// mes que ya usaban los fixtures de abajo (closeMonth/estClosingDate
+// '2026-08'), así que los resultados esperados (comentados junto a cada
+// caso) no cambian.
+const TARGET_MONTH_END_DATE = '2026-08-31';
 
 function makeBucket(
   branch: string,
@@ -68,7 +69,7 @@ const rates = {
   Closing: 0.95,
 };
 
-const case1Result = buildPipelineForecast(case1Loans, CASE1_BRANCH, CASE1_CHANNEL, rates, TEST_DATE_RANGE);
+const case1Result = buildPipelineForecast(case1Loans, CASE1_BRANCH, CASE1_CHANNEL, rates, TARGET_MONTH_END_DATE);
 
 console.log('=== Caso 1: buildPipelineForecast (branch 716, Banked - Retail) ===');
 console.log(JSON.stringify(case1Result, null, 2));
@@ -90,7 +91,7 @@ const CASE2_CHANNEL: PipelineLoan['channel'] = 'Banked - Retail';
 
 const case2Loans: PipelineLoan[] = [...makeBucket(CASE2_BRANCH, CASE2_CHANNEL, 'Processing', 5, 3)];
 
-const case2Result = buildPipelineForecast(case2Loans, CASE2_BRANCH, CASE2_CHANNEL, rates, TEST_DATE_RANGE);
+const case2Result = buildPipelineForecast(case2Loans, CASE2_BRANCH, CASE2_CHANNEL, rates, TARGET_MONTH_END_DATE);
 
 const expectedCase2Processing = 3 * rates.Processing * rates.Underwriting * rates.Closing;
 
@@ -118,7 +119,7 @@ const case3Loans: PipelineLoan[] = [
   ...makeBucket(CASE3_BRANCH, CASE3_CHANNEL_BANKED, 'Closing', 2, 2),
 ];
 
-const case3Result = buildPipelineForecast(case3Loans, CASE3_BRANCH, CASE3_CHANNEL_BROKERED, rates, TEST_DATE_RANGE);
+const case3Result = buildPipelineForecast(case3Loans, CASE3_BRANCH, CASE3_CHANNEL_BROKERED, rates, TARGET_MONTH_END_DATE);
 
 const expectedCase3Closing = 4 * rates.Closing;
 

@@ -44,26 +44,28 @@ export interface PipelineForecastSummary {
  * subconjunto healthy (healthy === true; null y false quedan fuera de
  * "healthy" pero siguen contando para "total").
  *
- * Etapa F4f: además se filtra por `estClosingDate` dentro de `dateRange`
- * (inclusive) -- un préstamo cuyo cierre esperado cae fuera del rango
- * activo (ej. octubre cuando el rango es julio) no debe contar en el
- * Forecast de ese rango. Un préstamo sin `estClosingDate` (null) se excluye
- * también: no hay forma de confirmar que cae dentro del rango, así que no
- * se cuenta -- ver Decisiones en la respuesta de F4f.
+ * Etapa F4f: además se filtra por `estClosingDate`.
+ *
+ * Etapa F5c: el filtro pasó de "dentro del DateRange completo elegido por
+ * el usuario" a "estClosingDate <= fin del mes objetivo", SIN límite
+ * inferior -- un préstamo abierto con cierre estimado de un mes anterior
+ * sigue contando (todavía no cerró), solo se excluye si su cierre
+ * estimado es POSTERIOR al mes objetivo (ver getTargetMonth). Un préstamo
+ * sin `estClosingDate` (null) se sigue excluyendo: no hay forma de
+ * confirmar que no es posterior al mes objetivo.
  */
 export function splitHealthyTotal(
   loans: PipelineLoan[],
   branch: string,
   channel: PipelineLoan['channel'],
-  dateRange: DateRange
+  targetMonthEndDate: string
 ): { total: PipelineLoan[]; healthy: PipelineLoan[] } {
   const total = loans.filter(
     (loan) =>
       loan.branch === branch &&
       loan.channel === channel &&
       loan.estClosingDate !== null &&
-      loan.estClosingDate >= dateRange.startDate &&
-      loan.estClosingDate <= dateRange.endDate
+      loan.estClosingDate <= targetMonthEndDate
   );
   const healthy = total.filter((loan) => loan.healthy === true);
   return { total, healthy };
@@ -124,9 +126,9 @@ export function buildPipelineForecast(
   branch: string,
   channel: PipelineLoan['channel'],
   pullThroughRates: PullThroughRates,
-  dateRange: DateRange
+  targetMonthEndDate: string
 ): PipelineForecastSummary {
-  const { total, healthy } = splitHealthyTotal(loans, branch, channel, dateRange);
+  const { total, healthy } = splitHealthyTotal(loans, branch, channel, targetMonthEndDate);
 
   const bucketCounts = countByMilestoneBucket(total);
   const healthyBucketCounts = countByMilestoneBucket(healthy);
@@ -155,6 +157,54 @@ export interface DateRange {
   endDate: string;
 }
 
+export interface TargetMonth {
+  year: number;
+  /** 1-12. */
+  month: number;
+}
+
+function monthKeyOf(dateISO: string): string {
+  return dateISO.slice(0, 7);
+}
+
+function pad2(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+function toISODateLocal(d: Date): string {
+  return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+}
+
+/**
+ * Etapa F5c: deriva un único "mes objetivo" de negocio a partir del
+ * `dateRange` amplio que el usuario sigue eligiendo en la UI (el selector
+ * de rango no cambia). Si el mes calendario de `today` cae dentro del
+ * rango, el mes objetivo es el de `today`; si no, es el último mes que sí
+ * cae dentro del rango -- como el rango es contiguo, ese es simplemente el
+ * mes de `dateRange.endDate`. `today` es un parámetro explícito (no
+ * `new Date()` interno) para poder testear esta función aislada con
+ * cualquier fecha fija.
+ */
+export function getTargetMonth(dateRange: DateRange, today: Date): TargetMonth {
+  const todayKey = today.getFullYear() + '-' + pad2(today.getMonth() + 1);
+  const startKey = monthKeyOf(dateRange.startDate);
+  const endKey = monthKeyOf(dateRange.endDate);
+
+  if (todayKey >= startKey && todayKey <= endKey) {
+    return { year: today.getFullYear(), month: today.getMonth() + 1 };
+  }
+
+  const [endYear, endMonth] = endKey.split('-').map(Number);
+  return { year: endYear, month: endMonth };
+}
+
+/** Primer y último día del mes objetivo, como 'YYYY-MM-DD' -- lo que consumen calculateTotalForecastWithClosed (rango completo) y splitHealthyTotal (solo el endDate). */
+export function targetMonthRange(target: TargetMonth): DateRange {
+  const start = new Date(target.year, target.month - 1, 1);
+  const end = new Date(target.year, target.month, 0);
+  return { startDate: toISODateLocal(start), endDate: toISODateLocal(end) };
+}
+
 /**
  * Etapa F4b: el Forecast final del negocio no es solo la proyección de
  * pull-through -- son los préstamos que YA cerraron (Stage=Closed Won,
@@ -165,8 +215,13 @@ export interface DateRange {
  * Est. Closing Date; Etapa F4e cambió la fuente a ResolvedLoan.disbursementDate
  * (Disbursement Date, confirmado como el campo correcto contra datos reales;
  * cae a Est. Closing Date solo si el archivo no trae esa columna -- ver
- * parser). El rango es ajustable en la UI; acá solo se filtra, no se decide
- * el default.
+ * parser).
+ *
+ * Etapa F5c: el rango que se le pasa ya NO es el DateRange completo que
+ * elige el usuario -- es el rango del mes objetivo (ver getTargetMonth +
+ * targetMonthRange), un solo mes. La lógica de filtrado en sí no cambió
+ * (sigue siendo "disbursementDate dentro de [startDate, endDate]"), lo que
+ * cambió es qué le pasa el caller.
  *
  * Los 'adverse' nunca se suman a nada acá -- ya se cayeron del pipeline, ni
  * siquiera se cuentan, solo se ignoran (igual que en page.tsx, que ya no los
@@ -184,13 +239,13 @@ export interface DateRange {
 export function calculateTotalForecastWithClosed(
   resolvedLoans: ResolvedLoan[],
   forecastTotal: number,
-  dateRange: DateRange
+  targetRange: DateRange
 ): TotalForecastWithClosed {
   const closedCount = resolvedLoans.filter(
     (loan) =>
       loan.status === 'funded' &&
-      loan.disbursementDate >= dateRange.startDate &&
-      loan.disbursementDate <= dateRange.endDate
+      loan.disbursementDate >= targetRange.startDate &&
+      loan.disbursementDate <= targetRange.endDate
   ).length;
   return {
     closedCount,

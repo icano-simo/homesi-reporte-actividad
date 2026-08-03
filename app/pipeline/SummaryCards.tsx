@@ -22,8 +22,8 @@ export interface SummaryCardsProps {
    * un único render interno evita duplicar el JSX 3 veces.
    */
   blocks: SummaryBlock[];
-  /** Rango de fechas usado para "Cerrados" en los 3 bloques -- solo para mostrarlo. */
-  closedDateRangeLabel?: string;
+  /** Etapa F5c: mes objetivo (ej. "Agosto 2026") usado para Cerrados/Forecast en los 3 bloques -- solo para mostrarlo, ya no un rango de fechas. */
+  targetMonthLabel?: string;
 }
 
 function fmtInt(n: number): string {
@@ -55,7 +55,7 @@ function HealthyDot() {
   );
 }
 
-function SummaryBlockCards({ block, closedDateRangeLabel }: { block: SummaryBlock; closedDateRangeLabel?: string }) {
+function SummaryBlockCards({ block, targetMonthLabel }: { block: SummaryBlock; targetMonthLabel?: string }) {
   const healthyPct = block.totalCount ? Math.round((block.healthyCount / block.totalCount) * 100) : 0;
 
   return (
@@ -78,9 +78,7 @@ function SummaryBlockCards({ block, closedDateRangeLabel }: { block: SummaryBloc
         <div className="mcard" style={{ flex: '0 0 200px' }}>
           <div className="m-name">Cerrados</div>
           <div style={{ fontSize: '28px', fontWeight: 800, color: 'var(--text)', lineHeight: 1.2 }}>{fmtInt(block.closedCount)}</div>
-          <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>
-            {closedDateRangeLabel ? 'Disbursement Date ' + closedDateRangeLabel : 'en el rango activo'}
-          </div>
+          <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>{targetMonthLabel ?? 'en el mes objetivo'}</div>
         </div>
         <div className="mcard" style={{ flex: '0 0 200px' }}>
           <div className="m-name">Forecast</div>
@@ -90,6 +88,9 @@ function SummaryBlockCards({ block, closedDateRangeLabel }: { block: SummaryBloc
           <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>
             {fmtInt(block.closedCount)} cerrados + {fmtForecast(block.forecastTotal)} proyección
           </div>
+          {targetMonthLabel && (
+            <div style={{ fontSize: '10px', color: 'var(--muted)', marginTop: '2px' }}>{targetMonthLabel}</div>
+          )}
         </div>
       </div>
     </div>
@@ -109,12 +110,12 @@ function SummaryBlockCards({ block, closedDateRangeLabel }: { block: SummaryBloc
  * justifica el número redondeado de arriba, igual criterio que
  * MilestoneCascade con la cascada completa.
  */
-export default function SummaryCards({ blocks, closedDateRangeLabel }: SummaryCardsProps) {
+export default function SummaryCards({ blocks, targetMonthLabel }: SummaryCardsProps) {
   return (
     <>
       {blocks.map((block, i) => (
         <div key={block.label} style={i > 0 ? { marginTop: '16px' } : undefined}>
-          <SummaryBlockCards block={block} closedDateRangeLabel={closedDateRangeLabel} />
+          <SummaryBlockCards block={block} targetMonthLabel={targetMonthLabel} />
         </div>
       ))}
     </>
