@@ -40,7 +40,7 @@ export default function AdverseTable({ resolvedLoans, dateRangeLabel }: AdverseT
         style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px' }}
       >
         <span>
-          Adverse ({filtered.length.toLocaleString('en-US')}) -- rango activo
+          Adverse ({filtered.length.toLocaleString('en-US')}) -- active range
           {dateRangeLabel && (
             <span style={{ fontWeight: 400, color: 'var(--muted)', textTransform: 'none', letterSpacing: 0 }}>
               {' '}
@@ -62,7 +62,7 @@ export default function AdverseTable({ resolvedLoans, dateRangeLabel }: AdverseT
             cursor: 'pointer',
           }}
         >
-          <option value="all">Todos</option>
+          <option value="all">All</option>
           <option value="Banked - Retail">Banked - Retail</option>
           <option value="Brokered">Brokered</option>
         </select>
@@ -90,7 +90,7 @@ export default function AdverseTable({ resolvedLoans, dateRangeLabel }: AdverseT
           {!filtered.length && (
             <tr>
               <td style={{ color: 'var(--muted)', fontWeight: 500 }} colSpan={5}>
-                Sin préstamos adverse{channelFilter !== 'all' ? ' en este canal' : ''}.
+                No adverse loans{channelFilter !== 'all' ? ' in this channel' : ''}.
               </td>
             </tr>
           )}

@@ -8,17 +8,22 @@ export interface DateRangeInputProps {
 }
 
 /**
- * Rango de fechas del Forecast -- ver Decisiones en la respuesta de F4c.
+ * Rango de fechas de Pipeline -- ver Decisiones en la respuesta de F4c.
  * Etapa F4g: renombrado de "Cerrados entre" porque desde F4f este rango ya
  * no filtra solo Cerrados (Disbursement Date), también Total/Healthy
- * Pipeline (Est. Closing Date). Cambiar cualquiera de los dos inputs
- * recalcula el Forecast en el navegador, sin volver a subir el archivo (el
- * estado ya parseado vive en page.tsx).
+ * Pipeline (Est. Closing Date).
+ * Etapa F5e: Cerrados/Forecast pasaron a MonthSelector.tsx, un control
+ * independiente -- este rango solo controla Total/Healthy Pipeline y
+ * Adverse. Etapa F5d: label traducido a "Pipeline Range" (antes "Rango del
+ * Forecast" ya no era preciso desde F5e, y toda la UI pasa a inglés).
+ * Cambiar cualquiera de los dos inputs recalcula el Forecast en el
+ * navegador, sin volver a subir el archivo (el estado ya parseado vive en
+ * page.tsx).
  */
 export default function DateRangeInput({ value, onChange }: DateRangeInputProps) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-      <span className="label-chip">Rango del Forecast</span>
+      <span className="label-chip">Pipeline Range</span>
       <input
         type="date"
         className="pill"
@@ -26,7 +31,7 @@ export default function DateRangeInput({ value, onChange }: DateRangeInputProps)
         onChange={(e) => onChange({ startDate: e.target.value, endDate: value.endDate })}
         style={{ border: '1px solid var(--border)', cursor: 'pointer' }}
       />
-      <span style={{ color: 'var(--muted)', fontSize: '13px' }}>y</span>
+      <span style={{ color: 'var(--muted)', fontSize: '13px' }}>to</span>
       <input
         type="date"
         className="pill"

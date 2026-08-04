@@ -18,7 +18,7 @@ export interface MonthSelectorProps {
 export default function MonthSelector({ value, onChange }: MonthSelectorProps) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-      <span className="label-chip">Mes de Cerrados/Forecast</span>
+      <span className="label-chip">Forecast Month</span>
       <input
         type="month"
         className="pill"

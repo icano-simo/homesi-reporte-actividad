@@ -38,25 +38,25 @@ const PULL_THROUGH_RATES: PullThroughRates = {
 
 const EMPTY_BUCKETS: BucketCounts = { Started: 0, Processing: 0, Underwriting: 0, Closing: 0 };
 
-const SPANISH_MONTHS = [
-  'enero',
-  'febrero',
-  'marzo',
-  'abril',
-  'mayo',
-  'junio',
-  'julio',
-  'agosto',
-  'septiembre',
-  'octubre',
-  'noviembre',
-  'diciembre',
+const MONTH_NAMES = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
 ];
 
-/** Etapa F5c, sigue igual en F5e: "Agosto 2026" -- para la etiqueta visible del mes de Cerrados/Forecast en SummaryCards. */
+/** Etapa F5c, sigue igual en F5e: "August 2026" -- para la etiqueta visible del mes de Cerrados/Forecast en SummaryCards. Etapa F5d: nombres de mes traducidos a ingles (texto visible). */
 function formatForecastMonthLabel(target: TargetMonth): string {
-  const name = SPANISH_MONTHS[target.month - 1];
-  return name.charAt(0).toUpperCase() + name.slice(1) + ' ' + target.year;
+  const name = MONTH_NAMES[target.month - 1];
+  return name + ' ' + target.year;
 }
 
 /** Etapa F5e: 'YYYY-MM' (formato nativo de <input type="month">) -> {year, month} que espera targetMonthRange(). */
@@ -236,7 +236,7 @@ export default function PipelinePage() {
       const res = await fetch('/api/pipeline/parse', { method: 'POST', body: formData });
       const body = await res.json();
       if (!res.ok) {
-        throw new Error(typeof body?.error === 'string' ? body.error : 'No se pudo procesar el archivo.');
+        throw new Error(typeof body?.error === 'string' ? body.error : 'Could not process the file.');
       }
       setData(body as ParseApiResponse);
       setFileName(file.name);
@@ -337,7 +337,7 @@ export default function PipelinePage() {
     summarizeChannel('Banked - Retail', 'Banked - Retail'),
     summarizeChannel('Brokered', 'Brokered'),
     {
-      label: 'Combinado',
+      label: 'Combined',
       totalCount: grandTotalCount,
       healthyCount: grandHealthyCount,
       forecastTotal: grandForecastTotal,
@@ -373,30 +373,30 @@ export default function PipelinePage() {
     const funded = data.resolvedLoans.filter((l) => l.status === 'funded').length;
     const adverse = data.resolvedLoans.filter((l) => l.status === 'adverse').length;
     resolvedSummary =
-      'Además, ' +
+      'Additionally, ' +
       data.resolvedLoans.length.toLocaleString('en-US') +
-      ' préstamos ya resueltos (' +
+      ' loans already resolved (' +
       adverse.toLocaleString('en-US') +
       ' adverse, ' +
       funded.toLocaleString('en-US') +
-      ' funded) en este archivo -- no cuentan para el Forecast.';
+      ' funded) in this file -- they do not count toward the Forecast.';
   }
 
   return (
     <div className="main">
       <div className="topbar">
         <div className="toolbar-row">
-          <span className="label-chip">Datos</span>
+          <span className="label-chip">Data</span>
           <UploadButton onFileSelected={handleFileSelected} isLoading={isLoading} />
           <DateRangeInput value={pipelineDateRange} onChange={setPipelineDateRange} />
           <MonthSelector value={forecastMonth} onChange={setForecastMonth} />
         </div>
         <div className="loaded-row">
-          {fileName && <span className="pill">Archivo: {fileName}</span>}
-          {data && data.formatDetected && <span className="pill">Formato detectado: {data.formatDetected}</span>}
-          {data && <span className="pill">Préstamos abiertos: {data.openLoans.length.toLocaleString('en-US')}</span>}
-          {data && data.persisted === true && <span className="pill">Guardado en Supabase</span>}
-          {data && data.persisted === false && <span className="pill warn">No se pudo guardar en Supabase</span>}
+          {fileName && <span className="pill">File: {fileName}</span>}
+          {data && data.formatDetected && <span className="pill">Format detected: {data.formatDetected}</span>}
+          {data && <span className="pill">Open loans: {data.openLoans.length.toLocaleString('en-US')}</span>}
+          {data && data.persisted === true && <span className="pill">Saved to Supabase</span>}
+          {data && data.persisted === false && <span className="pill warn">Could not save to Supabase</span>}
           {error && <span className="pill warn">{error}</span>}
         </div>
       </div>
@@ -406,8 +406,8 @@ export default function PipelinePage() {
 
         {!data && isLoadingInitial && (
           <div className="empty">
-            <h2>Cargando…</h2>
-            <p>Buscando el último reporte guardado.</p>
+            <h2>Loading…</h2>
+            <p>Looking for the last saved report.</p>
           </div>
         )}
 
@@ -420,17 +420,17 @@ export default function PipelinePage() {
                 <path d="M9 15h6M9 11h6" />
               </svg>
             </div>
-            <h2>Carga el reporte de pipeline</h2>
-            <p>Sube el archivo de Salesforce (Excel). La app detecta el formato automáticamente.</p>
+            <h2>Load the pipeline report</h2>
+            <p>Upload the Salesforce file (Excel). The app detects the format automatically.</p>
             <label className="btn primary" htmlFor={PIPELINE_FILE_INPUT_ID} style={{ display: 'inline-flex' }}>
-              Seleccionar archivo
+              Select file
             </label>
           </div>
         )}
 
         {isLoading && (
           <div className="empty">
-            <h2>Procesando archivo…</h2>
+            <h2>Processing file…</h2>
           </div>
         )}
 
@@ -439,7 +439,7 @@ export default function PipelinePage() {
             <SummaryCards blocks={summaryBlocks} targetMonthLabel={forecastMonthLabel} />
 
             <div className="cards-head" style={{ marginTop: '24px' }}>
-              Cascada de pull-through (todo el pipeline)
+              Pull-through Cascade (entire pipeline)
             </div>
             <MilestoneCascade
               bucketTotal={grandBucketTotal}
@@ -452,7 +452,7 @@ export default function PipelinePage() {
             />
 
             <div className="cards-head" style={{ marginTop: '24px' }}>
-              Desglose por Branch
+              Branch Breakdown
             </div>
             {/* Etapa F5e: PivotTable no se modifica (fuera de la lista de esta etapa).
                 Todo lo que hace internamente con su prop `dateRange` es filtrar
@@ -475,7 +475,7 @@ export default function PipelinePage() {
             </div>
             <AdverseTable
               resolvedLoans={adverseInRange}
-              dateRangeLabel={pipelineDateRange.startDate + ' a ' + pipelineDateRange.endDate}
+              dateRangeLabel={pipelineDateRange.startDate + ' to ' + pipelineDateRange.endDate}
             />
 
             {resolvedSummary && <div className="foot-note">{resolvedSummary}</div>}
@@ -483,7 +483,7 @@ export default function PipelinePage() {
             {data.warnings.length > 0 && (
               <div className="foot-note">
                 <strong>
-                  Warnings del parser ({data.warnings.length}):
+                  Parser warnings ({data.warnings.length}):
                 </strong>
                 <ul style={{ margin: '6px 0 0', paddingLeft: '18px' }}>
                   {data.warnings.map((w, i) => (

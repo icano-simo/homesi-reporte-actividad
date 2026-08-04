@@ -246,7 +246,7 @@ function buildChannelBlocks(branchRows: BranchRow[]): ChannelBlock[] {
  * de branch, para que la lista sume igual que el número de arriba).
  * "Last Finished Milestone" de un cerrado no tiene una etiqueta granular
  * propia en ResolvedLoan (solo se agregaron los 3 campos que pidió esta
- * etapa) -- se muestra como "Cerrado (Funded)", derivado de `status`.
+ * etapa) -- se muestra como "Closed (Funded)", derivado de `status`.
  */
 function buildLoanDetailRows(branchForecastRow: BranchForecastRow, resolvedLoans: ResolvedLoan[], dateRange: DateRange): LoanDetailRow[] {
   const openRows: LoanDetailRow[] = branchForecastRow.loans.map((loan) => ({
@@ -276,7 +276,7 @@ function buildLoanDetailRows(branchForecastRow: BranchForecastRow, resolvedLoans
       loanOfficer: loan.loanOfficer,
       borrowerName: loan.borrowerName,
       amount: loan.amount,
-      lastMilestone: 'Cerrado (Funded)',
+      lastMilestone: 'Closed (Funded)',
       lastMilestoneDate: loan.milestoneDate,
       // Etapa F4e: ResolvedLoan ya no trae Est. Closing Date por separado
       // (el campo de fecha de cierre pasó a ser disbursementDate) -- para un
@@ -294,7 +294,7 @@ function buildLoanDetailRows(branchForecastRow: BranchForecastRow, resolvedLoans
 function BranchTransferBadge() {
   return (
     <span
-      title="Sucursal reasignada por licencia (Branch Transfer)"
+      title="Branch reassigned due to license (Branch Transfer)"
       style={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -349,7 +349,7 @@ function LoanDetailTable({ detailRows }: { detailRows: LoanDetailRow[] }) {
         {!detailRows.length && (
           <tr>
             <td style={{ color: 'var(--muted)', fontWeight: 500 }} colSpan={8}>
-              Sin préstamos.
+              No loans.
             </td>
           </tr>
         )}
@@ -405,7 +405,7 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
                 {block.rows.map((row) => {
                   const key = row.branch + '::' + row.channel;
                   const isOpen = expanded.has(key);
-                  const managerName = branchManagers.get(row.branch) ?? '(sin asignar)';
+                  const managerName = branchManagers.get(row.branch) ?? '(unassigned)';
                   return (
                     <Fragment key={key}>
                       <tr className="grp togg" onClick={() => toggle(key)}>
@@ -435,7 +435,7 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
                 {!block.rows.length && (
                   <tr>
                     <td className="lbl" style={{ color: 'var(--muted)', fontWeight: 500 }}>
-                      Sin datos de pipeline.
+                      No pipeline data.
                     </td>
                     <td colSpan={99}></td>
                   </tr>
@@ -458,7 +458,7 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
         <table className="piv">
           <tbody>
             <tr className="grp total">
-              <td className="lbl">Total combinado (Banked - Retail + Brokered)</td>
+              <td className="lbl">Combined Total (Banked - Retail + Brokered)</td>
               <td className="val">{fmtInt(grandTotal.closedCount)}</td>
               <td className="val">{fmtInt(grandTotal.totalCount)}</td>
               <td className="val">{fmtInt(grandTotal.healthyCount)}</td>

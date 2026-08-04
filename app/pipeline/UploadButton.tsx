@@ -30,7 +30,7 @@ export default function UploadButton({ onFileSelected, isLoading }: UploadButton
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path d="M12 3v12M7 8l5-5 5 5M5 21h14" />
         </svg>
-        {isLoading ? 'Cargando…' : 'Cargar archivo'}
+        {isLoading ? 'Loading…' : 'Upload file'}
       </label>
       <input
         type="file"

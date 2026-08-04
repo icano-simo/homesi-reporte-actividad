@@ -71,7 +71,7 @@ function SummaryBlockCards({ block, targetMonthLabel }: { block: SummaryBlock; t
         <div className="mcard" style={{ flex: '0 0 200px' }}>
           <div className="m-name">Total Pipeline</div>
           <div style={{ fontSize: '28px', fontWeight: 800, color: 'var(--text)', lineHeight: 1.2 }}>{fmtInt(block.totalCount)}</div>
-          <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>préstamos en Negotiation, en rango</div>
+          <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>loans in Negotiation, in range</div>
         </div>
         <div className="mcard" style={{ flex: '0 0 200px' }}>
           <div className="m-name">
@@ -79,12 +79,12 @@ function SummaryBlockCards({ block, targetMonthLabel }: { block: SummaryBlock; t
             Healthy Pipeline
           </div>
           <div style={{ fontSize: '28px', fontWeight: 800, color: 'var(--green)', lineHeight: 1.2 }}>{fmtInt(block.healthyCount)}</div>
-          <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>{healthyPct}% del total</div>
+          <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>{healthyPct}% of total</div>
         </div>
         <div className="mcard" style={{ flex: '0 0 200px' }}>
-          <div className="m-name">Cerrados</div>
+          <div className="m-name">Closed</div>
           <div style={{ fontSize: '28px', fontWeight: 800, color: 'var(--text)', lineHeight: 1.2 }}>{fmtInt(block.closedCount)}</div>
-          <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>{targetMonthLabel ?? 'en el mes objetivo'}</div>
+          <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>{targetMonthLabel ?? 'in target month'}</div>
         </div>
         <div className="mcard" style={{ flex: '0 0 200px' }}>
           <div className="m-name">Forecast</div>
@@ -92,7 +92,7 @@ function SummaryBlockCards({ block, targetMonthLabel }: { block: SummaryBlock; t
             {fmtRounded(block.totalForecast)}
           </div>
           <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>
-            {fmtInt(block.closedCount)} cerrados + {fmtForecast(block.forecastTotal)} proyección
+            {fmtInt(block.closedCount)} closed + {fmtForecast(block.forecastTotal)} projection
           </div>
           {targetMonthLabel && (
             <div style={{ fontSize: '10px', color: 'var(--muted)', marginTop: '2px' }}>{targetMonthLabel}</div>

@@ -117,7 +117,7 @@ export default function MilestoneCascade({
             <th className="lbl">Milestone</th>
             <th>Healthy</th>
             <th>Total</th>
-            <th>% aplicado</th>
+            <th>% applied</th>
             <th className="totcol">Forecast</th>
           </tr>
         </thead>
@@ -139,13 +139,13 @@ export default function MilestoneCascade({
           })}
           {hasClosedBreakdown && (
             <tr className="metric">
-              <td className="lbl mname">Cerrados (Funded)</td>
+              <td className="lbl mname">Closed (Funded)</td>
               <td className="val" colSpan={3}></td>
               <td className="totcol">{fmtInt(closedCount as number)}</td>
             </tr>
           )}
           <tr className="grp total">
-            <td className="lbl">{hasClosedBreakdown ? 'Total Forecast (Cerrados + Proyección)' : 'Forecast total'}</td>
+            <td className="lbl">{hasClosedBreakdown ? 'Total Forecast (Closed + Projection)' : 'Total Forecast'}</td>
             <td colSpan={3}></td>
             <td className="totcol">{fmtForecast(hasClosedBreakdown ? (totalForecast as number) : forecastTotal)}</td>
           </tr>
