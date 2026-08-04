@@ -406,6 +406,12 @@ function classifyRow(
       branchTransferred,
       loanStatus: String(row.loanStatusRaw ?? ''),
       estClosingDate: toISODate(parseDateCell(row.estClosingDateRaw)),
+      // Etapa F5g: mismo row.currentMilestone que ya usa openLoan.rawMilestone
+      // arriba -- la columna "Current Milestone" se lee igual sin importar el
+      // Stage, solo faltaba conservarla acá. Excepción puntual autorizada por
+      // el usuario a la lista de archivos de F5g (que no incluía este
+      // archivo) para poder exponer "Last Finished Milestone" en AdverseTable.
+      rawMilestone: row.currentMilestone,
     };
     return { resolvedLoan };
   }

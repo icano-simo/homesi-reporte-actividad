@@ -130,6 +130,12 @@ export async function GET() {
     // tabla pipeline_resolved_loans no tiene esas 2 columnas (ver
     // toResolvedLoanRow en /api/pipeline/parse) -- no se puede restaurar lo
     // que nunca se guardó, y ninguno de los 2 afecta ningún cálculo.
+    // Etapa F5g: rawMilestone se agregó a ResolvedLoan (fix mecánico de tipo,
+    // fuera de la lista de archivos de F5g, ver reporte de esa etapa) -- por
+    // el mismo motivo que milestoneDate/branchTransferred, pipeline_resolved_loans
+    // tampoco tiene una columna raw_milestone todavía, así que queda en '' al
+    // restaurar desde Supabase (Last Finished Milestone en AdverseTable
+    // aparece vacío después de un reload, no en la carga recién subida).
     const resolvedLoans: ResolvedLoan[] = resolvedRows.map((r) => ({
       sourceLoanId: r.source_loan_id,
       branch: r.branch,
@@ -143,6 +149,7 @@ export async function GET() {
       branchTransferred: false,
       loanStatus: r.loan_status,
       estClosingDate: r.est_closing_date,
+      rawMilestone: '',
     }));
 
     return NextResponse.json({

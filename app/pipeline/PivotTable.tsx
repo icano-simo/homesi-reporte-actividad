@@ -71,6 +71,16 @@ interface LoanDetailRow {
   lastMilestoneDate: string | null;
   estClosingDate: string | null;
   branchTransferred: boolean;
+  /**
+   * Etapa F5g: Healthiness real del préstamo -- 'Healthy' cuando el valor
+   * crudo es "On Track" o vacío (mismo criterio que classifyHealthy() en
+   * salesforce-file.ts), o el valor crudo tal cual ("Delayed", "Out of
+   * Scope", "Never", etc.) en cualquier otro caso. Solo aplica a préstamos
+   * abiertos -- ResolvedLoan no trae rawHealthiness (un préstamo ya cerrado
+   * no tiene un estado de salud vigente), así que las filas de cerrados
+   * muestran '—'.
+   */
+  healthStatus: string;
 }
 
 /** Orden fijo de los dos bloques, igual que el Excel de referencia. */
@@ -100,6 +110,12 @@ function fmtForecast(n: number): string {
 
 function fmtAmount(n: number): string {
   return n.toLocaleString('en-US', { maximumFractionDigits: 0 });
+}
+
+/** Etapa F5g: mismo criterio que classifyHealthy() en salesforce-file.ts ("On Track" o vacío -> healthy) -- acá se muestra la etiqueta en vez del boolean. */
+function healthStatusLabel(rawHealthiness: string): string {
+  const v = rawHealthiness.trim();
+  return v === '' || v === 'On Track' ? 'Healthy' : v;
 }
 
 /** Etapa F4h: mismo punto de color que SummaryCards, junto a Healthy Pipeline en cada fila. */
@@ -259,6 +275,7 @@ function buildLoanDetailRows(branchForecastRow: BranchForecastRow, resolvedLoans
     lastMilestoneDate: loan.milestoneDate,
     estClosingDate: loan.estClosingDate,
     branchTransferred: loan.branchTransferred,
+    healthStatus: healthStatusLabel(loan.rawHealthiness),
   }));
 
   const closedRows: LoanDetailRow[] = resolvedLoans
@@ -284,6 +301,7 @@ function buildLoanDetailRows(branchForecastRow: BranchForecastRow, resolvedLoans
       // riesgo señalado en la respuesta de F4e.
       estClosingDate: loan.disbursementDate,
       branchTransferred: loan.branchTransferred,
+      healthStatus: '—',
     }));
 
   return [...openRows, ...closedRows].sort(
@@ -328,6 +346,7 @@ function LoanDetailTable({ detailRows }: { detailRows: LoanDetailRow[] }) {
           <th style={{ textAlign: 'left' }}>Last Finished Milestone</th>
           <th style={{ textAlign: 'left' }}>Last Finished Milestone Date</th>
           <th style={{ textAlign: 'left' }}>Est. Closing Date</th>
+          <th style={{ textAlign: 'left' }}>Health Status</th>
         </tr>
       </thead>
       <tbody>
@@ -344,11 +363,12 @@ function LoanDetailTable({ detailRows }: { detailRows: LoanDetailRow[] }) {
             <td style={{ textAlign: 'left' }}>{d.lastMilestone}</td>
             <td style={{ textAlign: 'left' }}>{d.lastMilestoneDate ?? '—'}</td>
             <td style={{ textAlign: 'left' }}>{d.estClosingDate ?? '—'}</td>
+            <td style={{ textAlign: 'left' }}>{d.healthStatus}</td>
           </tr>
         ))}
         {!detailRows.length && (
           <tr>
-            <td style={{ color: 'var(--muted)', fontWeight: 500 }} colSpan={8}>
+            <td style={{ color: 'var(--muted)', fontWeight: 500 }} colSpan={9}>
               No loans.
             </td>
           </tr>

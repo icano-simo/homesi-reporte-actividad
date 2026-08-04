@@ -51,4 +51,11 @@ export type ResolvedLoan = {
   loanStatus: string;
   /** Etapa F4i: 'YYYY-MM-DD' de "Est. Closing Date" (mismo campo que ya usa Total/Healthy Pipeline desde F4f) -- null si no hay valor. */
   estClosingDate: string | null;
+  /**
+   * Etapa F5g: valor crudo de "Current Milestone" en el momento del cierre
+   * (mismo dato que ya lee el parser para PipelineLoan.rawMilestone -- solo
+   * faltaba exponerlo acá). Usado como "Last Finished Milestone" en
+   * AdverseTable. Ausente ('') si el archivo no trae la columna.
+   */
+  rawMilestone: string;
 };

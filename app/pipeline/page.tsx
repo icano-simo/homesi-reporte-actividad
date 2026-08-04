@@ -147,6 +147,12 @@ export default function PipelinePage() {
   const [forecastMonth, setForecastMonth] = useState<string>(getDefaultForecastMonth);
   const [branchManagers, setBranchManagers] = useState<Map<string, string>>(new Map());
   const [knownBranches, setKnownBranches] = useState<Set<string>>(new Set());
+  // Etapa F5g: source_loan_id -> fecha de primera detección como adverse
+  // (o null = "New this period"), desde /api/pipeline/adverse-history.
+  // Empieza vacío -- mientras un source_loan_id no tenga entrada, AdverseTable
+  // lo trata como "todavía no llegó la respuesta" (undefined en el lookup),
+  // no como "sin historial" (eso es el null explícito para cada préstamo).
+  const [firstSeenAsAdverse, setFirstSeenAsAdverse] = useState<Record<string, string | null>>({});
   // Etapa F5a: true mientras se consulta /api/pipeline/latest al montar --
   // evita mostrar el emptyState de "sube tu archivo" antes de saber si hay
   // un snapshot guardado (mismo patrón que isLoadingInitial en app/page.tsx
@@ -226,6 +232,30 @@ export default function PipelinePage() {
         setKnownBranches(codes);
       });
   }, []);
+
+  // Etapa F5g: se pide cada vez que `data` cambia (archivo recién subido o
+  // snapshot restaurado) -- el endpoint siempre responde sobre el snapshot
+  // activo, que es exactamente lo que hay en pantalla en cualquiera de los
+  // dos casos. Un fallo (Supabase caído, sin snapshot activo, etc.) deja el
+  // mapa vacío -- AdverseTable ya maneja ese estado mostrando '—' en vez de
+  // romper la página.
+  useEffect(() => {
+    if (!data) return;
+    let cancelled = false;
+    fetch('/api/pipeline/adverse-history')
+      .then((res) => res.json())
+      .then((body) => {
+        if (cancelled) return;
+        setFirstSeenAsAdverse(body?.firstSeen ?? {});
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setFirstSeenAsAdverse({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [data]);
 
   async function handleFileSelected(file: File) {
     setIsLoading(true);
@@ -476,6 +506,7 @@ export default function PipelinePage() {
             <AdverseTable
               resolvedLoans={adverseInRange}
               dateRangeLabel={pipelineDateRange.startDate + ' to ' + pipelineDateRange.endDate}
+              firstSeenAsAdverse={firstSeenAsAdverse}
             />
 
             {resolvedSummary && <div className="foot-note">{resolvedSummary}</div>}

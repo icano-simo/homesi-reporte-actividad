@@ -8,6 +8,14 @@ export interface AdverseTableProps {
   resolvedLoans: ResolvedLoan[];
   /** Rango de fechas activo (Est. Closing Date), solo para mostrarlo en el header. */
   dateRangeLabel?: string;
+  /**
+   * Etapa F5g: source_loan_id -> fecha 'YYYY-MM-DD' del snapshot más viejo
+   * donde ese préstamo ya aparecía como adverse (de /api/pipeline/adverse-history),
+   * o null si ese snapshot más viejo encontrado ES el activo (primera vez
+   * que se lo ve como adverse -> "New this period"). Ausente del mapa =
+   * todavía no llegó la respuesta del endpoint (no confundir con null).
+   */
+  firstSeenAsAdverse?: Record<string, string | null>;
 }
 
 type ChannelFilter = 'all' | PipelineLoan['channel'];
@@ -27,7 +35,7 @@ function fmtAmount(n: number): string {
  * Est. Closing Date dentro del rango activo). El filtro por canal de abajo
  * es adicional, sobre ese subconjunto ya acotado al rango.
  */
-export default function AdverseTable({ resolvedLoans, dateRangeLabel }: AdverseTableProps) {
+export default function AdverseTable({ resolvedLoans, dateRangeLabel, firstSeenAsAdverse }: AdverseTableProps) {
   const [channelFilter, setChannelFilter] = useState<ChannelFilter>('all');
 
   const adverseLoans = resolvedLoans.filter((loan) => loan.status === 'adverse');
@@ -75,21 +83,30 @@ export default function AdverseTable({ resolvedLoans, dateRangeLabel }: AdverseT
             <th style={{ textAlign: 'left' }}>Borrower Name</th>
             <th style={{ textAlign: 'left' }}>Loan Officer</th>
             <th>Amount</th>
+            <th style={{ textAlign: 'left' }}>Last Finished Milestone</th>
+            <th style={{ textAlign: 'left' }}>First Seen As Adverse</th>
           </tr>
         </thead>
         <tbody>
-          {filtered.map((loan) => (
-            <tr className="metric" key={loan.sourceLoanId}>
-              <td style={{ textAlign: 'left' }}>{loan.sourceLoanId}</td>
-              <td style={{ textAlign: 'left' }}>{loan.branch}</td>
-              <td style={{ textAlign: 'left' }}>{loan.borrowerName}</td>
-              <td style={{ textAlign: 'left' }}>{loan.loanOfficer}</td>
-              <td className="val">{fmtAmount(loan.amount)}</td>
-            </tr>
-          ))}
+          {filtered.map((loan) => {
+            const firstSeen = firstSeenAsAdverse?.[loan.sourceLoanId];
+            return (
+              <tr className="metric" key={loan.sourceLoanId}>
+                <td style={{ textAlign: 'left' }}>{loan.sourceLoanId}</td>
+                <td style={{ textAlign: 'left' }}>{loan.branch}</td>
+                <td style={{ textAlign: 'left' }}>{loan.borrowerName}</td>
+                <td style={{ textAlign: 'left' }}>{loan.loanOfficer}</td>
+                <td className="val">{fmtAmount(loan.amount)}</td>
+                <td style={{ textAlign: 'left' }}>{loan.rawMilestone || '—'}</td>
+                <td style={{ textAlign: 'left' }}>
+                  {firstSeen === undefined ? '—' : firstSeen === null ? 'New this period' : firstSeen}
+                </td>
+              </tr>
+            );
+          })}
           {!filtered.length && (
             <tr>
-              <td style={{ color: 'var(--muted)', fontWeight: 500 }} colSpan={5}>
+              <td style={{ color: 'var(--muted)', fontWeight: 500 }} colSpan={7}>
                 No adverse loans{channelFilter !== 'all' ? ' in this channel' : ''}.
               </td>
             </tr>
