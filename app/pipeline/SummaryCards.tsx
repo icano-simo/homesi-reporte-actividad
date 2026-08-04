@@ -22,7 +22,13 @@ export interface SummaryCardsProps {
    * un único render interno evita duplicar el JSX 3 veces.
    */
   blocks: SummaryBlock[];
-  /** Etapa F5c: mes objetivo (ej. "Agosto 2026") usado para Cerrados/Forecast en los 3 bloques -- solo para mostrarlo, ya no un rango de fechas. */
+  /**
+   * Etapa F5c: mes usado para Cerrados/Forecast en los 3 bloques (ej.
+   * "Agosto 2026") -- solo para mostrarlo, no un rango de fechas.
+   * Etapa F5e: ese mes ya no se deriva del DateRange de Pipeline -- viene
+   * de un selector de mes independiente (MonthSelector.tsx); el nombre del
+   * prop no cambió, solo de dónde sale el valor que page.tsx le pasa.
+   */
   targetMonthLabel?: string;
 }
 

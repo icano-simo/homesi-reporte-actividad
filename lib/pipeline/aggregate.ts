@@ -44,28 +44,31 @@ export interface PipelineForecastSummary {
  * subconjunto healthy (healthy === true; null y false quedan fuera de
  * "healthy" pero siguen contando para "total").
  *
- * Etapa F4f: además se filtra por `estClosingDate`.
+ * Etapa F4f: además se filtra por `estClosingDate` dentro de `dateRange`
+ * (inclusive, con límite inferior Y superior) -- un préstamo cuyo cierre
+ * esperado cae fuera del rango activo no debe contar. Un préstamo sin
+ * `estClosingDate` (null) se excluye también.
  *
- * Etapa F5c: el filtro pasó de "dentro del DateRange completo elegido por
- * el usuario" a "estClosingDate <= fin del mes objetivo", SIN límite
- * inferior -- un préstamo abierto con cierre estimado de un mes anterior
- * sigue contando (todavía no cerró), solo se excluye si su cierre
- * estimado es POSTERIOR al mes objetivo (ver getTargetMonth). Un préstamo
- * sin `estClosingDate` (null) se sigue excluyendo: no hay forma de
- * confirmar que no es posterior al mes objetivo.
+ * Etapa F5c había cambiado esto a "estClosingDate <= fin de un mes
+ * objetivo, sin límite inferior" -- Etapa F5e revierte ese cambio: Total/
+ * Healthy Pipeline vuelven a usar el DateRange completo (con mínimo),
+ * porque ahora Cerrados/Forecast tienen su PROPIO selector de mes,
+ * independiente (ver forecastMonth en page.tsx) -- ya no hace falta que
+ * Pipeline "tome prestado" un mes objetivo derivado de otro control.
  */
 export function splitHealthyTotal(
   loans: PipelineLoan[],
   branch: string,
   channel: PipelineLoan['channel'],
-  targetMonthEndDate: string
+  dateRange: DateRange
 ): { total: PipelineLoan[]; healthy: PipelineLoan[] } {
   const total = loans.filter(
     (loan) =>
       loan.branch === branch &&
       loan.channel === channel &&
       loan.estClosingDate !== null &&
-      loan.estClosingDate <= targetMonthEndDate
+      loan.estClosingDate >= dateRange.startDate &&
+      loan.estClosingDate <= dateRange.endDate
   );
   const healthy = total.filter((loan) => loan.healthy === true);
   return { total, healthy };
@@ -126,9 +129,9 @@ export function buildPipelineForecast(
   branch: string,
   channel: PipelineLoan['channel'],
   pullThroughRates: PullThroughRates,
-  targetMonthEndDate: string
+  dateRange: DateRange
 ): PipelineForecastSummary {
-  const { total, healthy } = splitHealthyTotal(loans, branch, channel, targetMonthEndDate);
+  const { total, healthy } = splitHealthyTotal(loans, branch, channel, dateRange);
 
   const bucketCounts = countByMilestoneBucket(total);
   const healthyBucketCounts = countByMilestoneBucket(healthy);
@@ -176,14 +179,18 @@ function toISODateLocal(d: Date): string {
 }
 
 /**
- * Etapa F5c: deriva un único "mes objetivo" de negocio a partir del
- * `dateRange` amplio que el usuario sigue eligiendo en la UI (el selector
- * de rango no cambia). Si el mes calendario de `today` cae dentro del
- * rango, el mes objetivo es el de `today`; si no, es el último mes que sí
- * cae dentro del rango -- como el rango es contiguo, ese es simplemente el
- * mes de `dateRange.endDate`. `today` es un parámetro explícito (no
- * `new Date()` interno) para poder testear esta función aislada con
- * cualquier fecha fija.
+ * Etapa F5c: deriva un único "mes objetivo" de negocio a partir de un
+ * `dateRange`. Si el mes calendario de `today` cae dentro del rango, el mes
+ * objetivo es el de `today`; si no, es el último mes que sí cae dentro del
+ * rango -- como el rango es contiguo, ese es simplemente el mes de
+ * `dateRange.endDate`. `today` es un parámetro explícito (no `new Date()`
+ * interno) para poder testear esta función aislada con cualquier fecha fija.
+ *
+ * Etapa F5e: page.tsx ya NO llama a esta función -- Cerrados/Forecast pasó
+ * a usar un selector de mes independiente (forecastMonth), no un mes
+ * derivado del DateRange de Pipeline. Se deja sin borrar (no rompe nada,
+ * sigue exportada y correcta) por si hace falta este mismo criterio de
+ * derivación en otro lado más adelante.
  */
 export function getTargetMonth(dateRange: DateRange, today: Date): TargetMonth {
   const todayKey = today.getFullYear() + '-' + pad2(today.getMonth() + 1);
@@ -217,11 +224,13 @@ export function targetMonthRange(target: TargetMonth): DateRange {
  * cae a Est. Closing Date solo si el archivo no trae esa columna -- ver
  * parser).
  *
- * Etapa F5c: el rango que se le pasa ya NO es el DateRange completo que
- * elige el usuario -- es el rango del mes objetivo (ver getTargetMonth +
- * targetMonthRange), un solo mes. La lógica de filtrado en sí no cambió
- * (sigue siendo "disbursementDate dentro de [startDate, endDate]"), lo que
- * cambió es qué le pasa el caller.
+ * Etapa F5c le había pasado el rango de un "mes objetivo" derivado del
+ * DateRange de Pipeline (ver getTargetMonth). Etapa F5e: ahora ese rango
+ * viene de un selector de mes NUEVO e independiente (forecastMonth en
+ * page.tsx) -- ya no tiene relación con el DateRange de Pipeline en
+ * absoluto. La lógica de filtrado en sí no cambió (sigue siendo
+ * "disbursementDate dentro de [startDate, endDate]"), solo qué le pasa el
+ * caller y de dónde sale ese rango.
  *
  * Los 'adverse' nunca se suman a nada acá -- ya se cayeron del pipeline, ni
  * siquiera se cuentan, solo se ignoran (igual que en page.tsx, que ya no los
@@ -239,13 +248,13 @@ export function targetMonthRange(target: TargetMonth): DateRange {
 export function calculateTotalForecastWithClosed(
   resolvedLoans: ResolvedLoan[],
   forecastTotal: number,
-  targetRange: DateRange
+  forecastMonthRange: DateRange
 ): TotalForecastWithClosed {
   const closedCount = resolvedLoans.filter(
     (loan) =>
       loan.status === 'funded' &&
-      loan.disbursementDate >= targetRange.startDate &&
-      loan.disbursementDate <= targetRange.endDate
+      loan.disbursementDate >= forecastMonthRange.startDate &&
+      loan.disbursementDate <= forecastMonthRange.endDate
   ).length;
   return {
     closedCount,

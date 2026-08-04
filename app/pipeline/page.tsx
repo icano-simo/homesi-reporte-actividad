@@ -7,7 +7,6 @@ import {
   countByMilestoneBucket,
   calculateForecast,
   calculateTotalForecastWithClosed,
-  getTargetMonth,
   targetMonthRange,
   type BucketCounts,
   type PullThroughRates,
@@ -20,6 +19,7 @@ import MilestoneCascade from './MilestoneCascade';
 import PivotTable, { type BranchForecastRow } from './PivotTable';
 import UploadButton, { PIPELINE_FILE_INPUT_ID } from './UploadButton';
 import DateRangeInput from './DateRangeInput';
+import MonthSelector from './MonthSelector';
 import AdverseTable from './AdverseTable';
 
 /**
@@ -53,10 +53,22 @@ const SPANISH_MONTHS = [
   'diciembre',
 ];
 
-/** Etapa F5c: "Agosto 2026" -- para la etiqueta visible del mes objetivo en SummaryCards. */
-function formatTargetMonthLabel(target: TargetMonth): string {
+/** Etapa F5c, sigue igual en F5e: "Agosto 2026" -- para la etiqueta visible del mes de Cerrados/Forecast en SummaryCards. */
+function formatForecastMonthLabel(target: TargetMonth): string {
   const name = SPANISH_MONTHS[target.month - 1];
   return name.charAt(0).toUpperCase() + name.slice(1) + ' ' + target.year;
+}
+
+/** Etapa F5e: 'YYYY-MM' (formato nativo de <input type="month">) -> {year, month} que espera targetMonthRange(). */
+function parseMonthInputValue(value: string): TargetMonth {
+  const [year, month] = value.split('-').map(Number);
+  return { year, month };
+}
+
+/** Etapa F5e: mes actual como 'YYYY-MM', default del nuevo MonthSelector (Cerrados/Forecast). */
+function getDefaultForecastMonth(): string {
+  const now = new Date();
+  return now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
 }
 
 function formatDateLocal(d: Date): string {
@@ -73,8 +85,12 @@ function formatDateLocal(d: Date): string {
  *
  * Etapa F5a: antes arrancaba en el mes ANTERIOR (2 meses de rango) -- se
  * acota a solo el mes actual.
+ *
+ * Etapa F5e: este rango ahora es SOLO para Total/Healthy Pipeline y
+ * Adverse -- Cerrados/Forecast usan forecastMonth (independiente, ver
+ * abajo), ya no derivan nada de este rango.
  */
-function getDefaultDateRange(): DateRange {
+function getDefaultPipelineDateRange(): DateRange {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), 1);
   const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
@@ -123,7 +139,12 @@ export default function PipelinePage() {
   const [fileName, setFileName] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange);
+  // Etapa F5e: dos controles independientes en vez de uno -- ver Decisiones
+  // en la respuesta de esta etapa. pipelineDateRange sigue siendo el mismo
+  // DateRange de siempre (Total/Healthy Pipeline + Adverse); forecastMonth
+  // es nuevo, un solo mes, solo para Cerrados/Forecast.
+  const [pipelineDateRange, setPipelineDateRange] = useState<DateRange>(getDefaultPipelineDateRange);
+  const [forecastMonth, setForecastMonth] = useState<string>(getDefaultForecastMonth);
   const [branchManagers, setBranchManagers] = useState<Map<string, string>>(new Map());
   const [knownBranches, setKnownBranches] = useState<Set<string>>(new Set());
   // Etapa F5a: true mientras se consulta /api/pipeline/latest al montar --
@@ -228,13 +249,14 @@ export default function PipelinePage() {
     }
   }
 
-  // Etapa F5c: el DateRange amplio que elige el usuario en DateRangeInput ya
-  // no se pasa directo a aggregate.ts -- se deriva de ahí un único "mes
-  // objetivo" (getTargetMonth), y Cerrados/Total/Healthy Pipeline usan ese
-  // mes, no el rango completo. El selector en sí no cambia de comportamiento.
-  const targetMonth = getTargetMonth(dateRange, new Date());
-  const targetRange = targetMonthRange(targetMonth);
-  const targetMonthLabel = formatTargetMonthLabel(targetMonth);
+  // Etapa F5e: forecastMonth ('YYYY-MM' del MonthSelector nuevo) es
+  // completamente independiente de pipelineDateRange -- ya no se deriva de
+  // él (eso era F5c, revertido). targetMonthRange() se reutiliza tal cual
+  // (aggregate.ts, sin tocar) para convertir el mes elegido en {startDate,
+  // endDate}.
+  const forecastMonthParsed = parseMonthInputValue(forecastMonth);
+  const forecastRange = targetMonthRange(forecastMonthParsed);
+  const forecastMonthLabel = formatForecastMonthLabel(forecastMonthParsed);
 
   // Cálculo derivado -- igual que en F3, pero sobre data.openLoans (real) en
   // vez de DEMO_LOANS. aggregate.ts (F2) no se modificó: se llaman sus
@@ -246,7 +268,7 @@ export default function PipelinePage() {
       groups.set(loan.branch + '::' + loan.channel, { branch: loan.branch, channel: loan.channel });
     }
     for (const { branch, channel } of groups.values()) {
-      const { total, healthy } = splitHealthyTotal(data.openLoans, branch, channel, targetRange.endDate);
+      const { total, healthy } = splitHealthyTotal(data.openLoans, branch, channel, pipelineDateRange);
       const bucketTotal = countByMilestoneBucket(total);
       const bucketHealthy = countByMilestoneBucket(healthy);
       const { forecastByBucket, forecastTotal } = calculateForecast(bucketHealthy, PULL_THROUGH_RATES);
@@ -285,7 +307,7 @@ export default function PipelinePage() {
   // nueva agregada a aggregate.ts en F4b; no toca ninguna de las 3 ya
   // aprobadas (splitHealthyTotal/countByMilestoneBucket/calculateForecast).
   const { closedCount, totalForecast } = data
-    ? calculateTotalForecastWithClosed(data.resolvedLoans, grandForecastTotal, targetRange)
+    ? calculateTotalForecastWithClosed(data.resolvedLoans, grandForecastTotal, forecastRange)
     : { closedCount: 0, totalForecast: 0 };
 
   // Etapa F4f: mismo cálculo que el combinado de arriba, pero recortado por
@@ -299,7 +321,7 @@ export default function PipelinePage() {
     const forecastTotal = channelRows.reduce((sum, r) => sum + r.forecastTotal, 0);
     const channelResolved = data ? data.resolvedLoans.filter((l) => l.channel === channel) : [];
     const { closedCount: channelClosedCount, totalForecast: channelTotalForecast } = data
-      ? calculateTotalForecastWithClosed(channelResolved, forecastTotal, targetRange)
+      ? calculateTotalForecastWithClosed(channelResolved, forecastTotal, forecastRange)
       : { closedCount: 0, totalForecast: 0 };
     return {
       label,
@@ -338,8 +360,8 @@ export default function PipelinePage() {
           loan.status === 'adverse' &&
           loan.loanStatus === 'Application withdrawn' &&
           loan.estClosingDate !== null &&
-          loan.estClosingDate >= dateRange.startDate &&
-          loan.estClosingDate <= dateRange.endDate
+          loan.estClosingDate >= pipelineDateRange.startDate &&
+          loan.estClosingDate <= pipelineDateRange.endDate
       )
     : [];
 
@@ -366,7 +388,8 @@ export default function PipelinePage() {
         <div className="toolbar-row">
           <span className="label-chip">Datos</span>
           <UploadButton onFileSelected={handleFileSelected} isLoading={isLoading} />
-          <DateRangeInput value={dateRange} onChange={setDateRange} />
+          <DateRangeInput value={pipelineDateRange} onChange={setPipelineDateRange} />
+          <MonthSelector value={forecastMonth} onChange={setForecastMonth} />
         </div>
         <div className="loaded-row">
           {fileName && <span className="pill">Archivo: {fileName}</span>}
@@ -413,7 +436,7 @@ export default function PipelinePage() {
 
         {data && (
           <>
-            <SummaryCards blocks={summaryBlocks} targetMonthLabel={targetMonthLabel} />
+            <SummaryCards blocks={summaryBlocks} targetMonthLabel={forecastMonthLabel} />
 
             <div className="cards-head" style={{ marginTop: '24px' }}>
               Cascada de pull-through (todo el pipeline)
@@ -431,16 +454,18 @@ export default function PipelinePage() {
             <div className="cards-head" style={{ marginTop: '24px' }}>
               Desglose por Branch
             </div>
-            {/* Etapa F5c: PivotTable no se modifica (fuera de la lista de esta etapa)
-                -- se le sigue pasando su prop `dateRange` de siempre, pero ahora con
-                el rango del mes objetivo en vez del rango completo elegido por el
-                usuario, para que su columna "Closed" quede consistente con
-                SummaryCards/MilestoneCascade sin tocar el código de PivotTable.tsx. */}
+            {/* Etapa F5e: PivotTable no se modifica (fuera de la lista de esta etapa).
+                Todo lo que hace internamente con su prop `dateRange` es filtrar
+                Cerrados (disbursementDate) -- Total/Healthy Pipeline de cada branch
+                le llegan ya calculados en `rows`. Por eso se le sigue pasando acá
+                el rango del selector de mes (forecastRange), no pipelineDateRange:
+                su columna "Closed" queda consistente con SummaryCards/
+                MilestoneCascade sin tocar el código de PivotTable.tsx. */}
             <PivotTable
               rows={branchRows}
               resolvedLoans={data.resolvedLoans}
               rates={PULL_THROUGH_RATES}
-              dateRange={targetRange}
+              dateRange={forecastRange}
               branchManagers={branchManagers}
               knownBranches={knownBranches}
             />
@@ -448,7 +473,10 @@ export default function PipelinePage() {
             <div className="cards-head" style={{ marginTop: '24px' }}>
               Adverse
             </div>
-            <AdverseTable resolvedLoans={adverseInRange} dateRangeLabel={dateRange.startDate + ' a ' + dateRange.endDate} />
+            <AdverseTable
+              resolvedLoans={adverseInRange}
+              dateRangeLabel={pipelineDateRange.startDate + ' a ' + pipelineDateRange.endDate}
+            />
 
             {resolvedSummary && <div className="foot-note">{resolvedSummary}</div>}
 
