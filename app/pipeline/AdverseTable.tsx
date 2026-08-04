@@ -4,7 +4,7 @@ import { useState } from 'react';
 import type { PipelineLoan, ResolvedLoan } from '@/lib/pipeline/types';
 
 export interface AdverseTableProps {
-  /** Etapa F4i: page.tsx ya filtra por status='adverse' + Loan Status='Application withdrawn' + rango de fechas antes de pasarlo -- acá solo se filtra por canal. */
+  /** Etapa F4i, ampliado en F5h: page.tsx ya filtra por status='adverse' + rango de fechas antes de pasarlo (F5h quitó el filtro adicional por Loan Status='Application withdrawn', ahora es cualquier motivo) -- acá solo se filtra por canal. */
   resolvedLoans: ResolvedLoan[];
   /** Rango de fechas activo (Est. Closing Date), solo para mostrarlo en el header. */
   dateRangeLabel?: string;
@@ -31,9 +31,15 @@ function fmtAmount(n: number): string {
  * cliente (no vuelve a pedir datos).
  *
  * Etapa F4i: ya no es el histórico completo -- page.tsx filtra antes de
- * pasarlo acá (status='adverse' + Loan Status='Application withdrawn' +
- * Est. Closing Date dentro del rango activo). El filtro por canal de abajo
- * es adicional, sobre ese subconjunto ya acotado al rango.
+ * pasarlo acá (status='adverse' + Est. Closing Date dentro del rango
+ * activo). El filtro por canal de abajo es adicional, sobre ese subconjunto
+ * ya acotado al rango.
+ *
+ * Etapa F5h: se quitó el filtro adicional por Loan Status='Application
+ * withdrawn' que tenía F4i -- excluía Adverse legítimos con otros motivos
+ * (Application denied, File Closed for incompleteness, Loan Status
+ * desincronizado, etc.). Ahora es cualquier préstamo con status='adverse'
+ * dentro del rango, sin importar el motivo.
  */
 export default function AdverseTable({ resolvedLoans, dateRangeLabel, firstSeenAsAdverse }: AdverseTableProps) {
   const [channelFilter, setChannelFilter] = useState<ChannelFilter>('all');

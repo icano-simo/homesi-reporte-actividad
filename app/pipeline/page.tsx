@@ -376,11 +376,13 @@ export default function PipelinePage() {
     },
   ];
 
-  // Etapa F4i: la tabla de Adverse no debe mostrar el histórico completo de
-  // Stage=Closed Lost -- confirmado con datos reales que el filtro correcto
-  // es Loan Status='Application withdrawn' (no todo Closed Lost: también
-  // incluye "Application denied", "File Closed for incompleteness", etc.,
-  // que no son lo que el negocio llama "Adverse" acá) Y Est. Closing Date
+  // Etapa F4i: filtro original -- status='adverse' Y Loan Status='Application
+  // withdrawn' Y Est. Closing Date dentro del rango activo.
+  // Etapa F5h: se confirmó con datos reales que ese filtro por Loan Status
+  // excluía Adverse legítimos con otros motivos (Application denied, File
+  // Closed for incompleteness, y hasta casos con Loan Status desincronizado
+  // tipo "Active Loan" a pesar de Stage=Closed Lost) -- se quita esa
+  // condición. El filtro queda solo status='adverse' Y Est. Closing Date
   // dentro del rango activo (mismo campo/rango que ya usa Total/Healthy
   // Pipeline desde F4f). Deliberadamente NO se filtra por Loan Folder --
   // confirmado por el negocio que ese campo puede estar desactualizado.
@@ -388,7 +390,6 @@ export default function PipelinePage() {
     ? data.resolvedLoans.filter(
         (loan) =>
           loan.status === 'adverse' &&
-          loan.loanStatus === 'Application withdrawn' &&
           loan.estClosingDate !== null &&
           loan.estClosingDate >= pipelineDateRange.startDate &&
           loan.estClosingDate <= pipelineDateRange.endDate
