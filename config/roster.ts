@@ -21,6 +21,7 @@ export const OFFICIAL_ROSTER: Branch[] = [
   '770',
   '771',
   '776',
+  '777',
   'AFFINITY',
 ];
 

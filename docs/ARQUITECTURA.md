@@ -127,7 +127,7 @@ Solo CL (First Lien) por ahora. Fuente única: el reporte que Alejandra/Isabella
 5. **Encompash como fuente alterna** (cuando Salesforce cae) — arquitectura lo permite en teoría (`sources/` es plug-in), pero requiere que Encompash tenga un campo `Healthiness`-equivalente o se defina qué hacer sin él; no hay archivo de Encompash con esa estructura todavía para probarlo.
 6. **`Loan Status`** se probó como posible filtro para aislar el pipeline "real" — descartado, no aísla nada en el export de Salesforce (a diferencia de en el Excel interno, donde sí lo hace).
 7. **`fixtures/pipeline-demo.ts`** sigue en el repo, ya no se usa desde `page.tsx` — candidato a limpieza, no autorizado a borrar todavía.
-
+8. **Mejora futura — alerta de préstamos "invisibles" entre Pipeline y Adverse.** Caso real encontrado (préstamo `776002059702`, agosto 2026): un `Stage = Closed Lost` puesto por error/sin autorización en Salesforce (sin pasar por Encompash) cae en un hueco — no cuenta como Pipeline (porque `Stage` no es `Negotiation`) ni aparece en la tabla de Adverse (porque `Loan Status` no es `Application withdrawn`, ya que el préstamo en realidad seguía activo). Queda invisible en la app hasta que alguien lo note por fuera. Alejandra corrigió el caso puntual en Salesforce y va a restringir permisos para que no se repita, pero como mejora futura: agregar una tabla/alerta tipo "Pendiente de revisión" para cualquier préstamo con `Stage = Closed Lost` cuyo `Loan Status` no sea `Application withdrawn` — para que quede visible en vez de perderse silenciosamente.
 ---
 
 ## Glosario rápido (para no repetir la investigación)
