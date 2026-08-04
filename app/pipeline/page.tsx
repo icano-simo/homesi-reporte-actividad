@@ -8,6 +8,9 @@ import {
   calculateForecast,
   calculateTotalForecastWithClosed,
   targetMonthRange,
+  countByBrokeredMilestoneBucket,
+  calculateBrokeredForecast,
+  BROKERED_PULL_THROUGH_RATES,
   type BucketCounts,
   type PullThroughRates,
   type DateRange,
@@ -15,7 +18,7 @@ import {
 } from '@/lib/pipeline/aggregate';
 import type { PipelineLoan, ResolvedLoan } from '@/lib/pipeline/types';
 import SummaryCards, { type SummaryBlock } from './SummaryCards';
-import MilestoneCascade from './MilestoneCascade';
+import MilestoneCascade, { type MilestoneCascadeRow } from './MilestoneCascade';
 import PivotTable, { type BranchForecastRow } from './PivotTable';
 import UploadButton, { PIPELINE_FILE_INPUT_ID } from './UploadButton';
 import DateRangeInput from './DateRangeInput';
@@ -301,7 +304,21 @@ export default function PipelinePage() {
       const { total, healthy } = splitHealthyTotal(data.openLoans, branch, channel, pipelineDateRange);
       const bucketTotal = countByMilestoneBucket(total);
       const bucketHealthy = countByMilestoneBucket(healthy);
-      const { forecastByBucket, forecastTotal } = calculateForecast(bucketHealthy, PULL_THROUGH_RATES);
+      const { forecastByBucket, forecastTotal: bankedFormulaForecastTotal } = calculateForecast(bucketHealthy, PULL_THROUGH_RATES);
+      // Etapa F5i: Brokered ya no usa la fórmula/tasas de Banked -- tiene su
+      // propia cascada de 4 etapas (ver aggregate.ts, confirmado con el
+      // usuario en la respuesta de esta etapa). bucketTotal/bucketHealthy/
+      // forecastByBucket de arriba quedan calculados con la fórmula de
+      // Banked solo por compatibilidad de tipos con BranchForecastRow
+      // (definido en PivotTable.tsx, fuera de la lista de archivos de F5i) --
+      // nadie los lee para una fila Brokered, PivotTable.tsx solo usa
+      // forecastTotal y loans de cada fila. El desglose real de Brokered
+      // (para su propia cascada) se recalcula aparte más abajo, a partir de
+      // `loans`, no de estos campos vestigiales.
+      const forecastTotal =
+        channel === 'Brokered'
+          ? calculateBrokeredForecast(countByBrokeredMilestoneBucket(healthy), BROKERED_PULL_THROUGH_RATES).forecastTotal
+          : bankedFormulaForecastTotal;
       branchRows.push({
         branch,
         channel,
@@ -318,10 +335,25 @@ export default function PipelinePage() {
 
   const grandTotalCount = branchRows.reduce((sum, r) => sum + r.totalCount, 0);
   const grandHealthyCount = branchRows.reduce((sum, r) => sum + r.healthyCount, 0);
+  // Ya correcto para los 2 canales: cada r.forecastTotal viene de la fórmula
+  // que le toca (Banked o Brokered, ver el loop de arriba), así que sumarlos
+  // acá sigue dando el total combinado real -- no hizo falta tocar esta
+  // línea en F5i.
   const grandForecastTotal = branchRows.reduce((sum, r) => sum + r.forecastTotal, 0);
-  const grandBucketTotal = branchRows.reduce((acc, r) => sumBuckets(acc, r.bucketTotal), EMPTY_BUCKETS);
-  const grandBucketHealthy = branchRows.reduce((acc, r) => sumBuckets(acc, r.bucketHealthy), EMPTY_BUCKETS);
-  const grandForecastByBucket = branchRows.reduce(
+
+  // Etapa F5i: antes esto agregaba bucketTotal/bucketHealthy/forecastByBucket
+  // de TODOS los branchRows (ambos canales) para alimentar una única cascada
+  // combinada -- ya no tiene sentido, Brokered tiene su propio esquema de
+  // buckets (FileCreation/AppDate/Processing/Submitted), incompatible con el
+  // de Banked (Started/Processing/Underwriting/Closing). Se acota a
+  // Banked-only acá; el desglose de Brokered se recalcula aparte, más abajo,
+  // desde `loans` (no desde bucketTotal/bucketHealthy/forecastByBucket de
+  // branchRows, que para una fila Brokered son vestigiales -- ver nota en el
+  // loop de arriba).
+  const bankedBranchRows = branchRows.filter((r) => r.channel === 'Banked - Retail');
+  const bankedBucketTotal = bankedBranchRows.reduce((acc, r) => sumBuckets(acc, r.bucketTotal), EMPTY_BUCKETS);
+  const bankedBucketHealthy = bankedBranchRows.reduce((acc, r) => sumBuckets(acc, r.bucketHealthy), EMPTY_BUCKETS);
+  const bankedForecastByBucket = bankedBranchRows.reduce(
     (acc, r) => ({
       Started: acc.Started + r.forecastByBucket.Started,
       Processing: acc.Processing + r.forecastByBucket.Processing,
@@ -329,6 +361,20 @@ export default function PipelinePage() {
       Closing: acc.Closing + r.forecastByBucket.Closing,
     }),
     { Started: 0, Processing: 0, Underwriting: 0, Closing: 0 }
+  );
+
+  // Etapa F5i: cascada propia de Brokered. `loans` de cada branchRow ya es
+  // `total` (openLoans de esa branch+channel, filtrado por
+  // pipelineDateRange, igual que usa Banked) -- se filtra healthy acá con el
+  // mismo criterio que splitHealthyTotal (healthy === true).
+  const brokeredBranchRows = branchRows.filter((r) => r.channel === 'Brokered');
+  const brokeredLoans = brokeredBranchRows.flatMap((r) => r.loans);
+  const brokeredHealthyLoans = brokeredLoans.filter((l) => l.healthy === true);
+  const brokeredBucketTotal = countByBrokeredMilestoneBucket(brokeredLoans);
+  const brokeredBucketHealthy = countByBrokeredMilestoneBucket(brokeredHealthyLoans);
+  const { forecastByBucket: brokeredForecastByBucket } = calculateBrokeredForecast(
+    brokeredBucketHealthy,
+    BROKERED_PULL_THROUGH_RATES
   );
 
   // Etapa F4b: el Forecast del negocio real es Cerrados (Funded) + la
@@ -363,9 +409,16 @@ export default function PipelinePage() {
     };
   }
 
+  // Etapa F5i: se capturan en variables (antes se llamaba inline dentro del
+  // array) para reusar closedCount/totalForecast/forecastTotal de cada canal
+  // en su propia cascada más abajo, sin volver a llamar
+  // calculateTotalForecastWithClosed una tercera vez.
+  const bankedSummary = summarizeChannel('Banked - Retail', 'Banked - Retail');
+  const brokeredSummary = summarizeChannel('Brokered', 'Brokered');
+
   const summaryBlocks: SummaryBlock[] = [
-    summarizeChannel('Banked - Retail', 'Banked - Retail'),
-    summarizeChannel('Brokered', 'Brokered'),
+    bankedSummary,
+    brokeredSummary,
     {
       label: 'Combined',
       totalCount: grandTotalCount,
@@ -373,6 +426,81 @@ export default function PipelinePage() {
       forecastTotal: grandForecastTotal,
       closedCount,
       totalForecast,
+    },
+  ];
+
+  // Etapa F5i: filas para las 2 cascadas -- MilestoneCascade ya no sabe de
+  // Banked/Brokered, solo dibuja lo que le pasen (ver MilestoneCascade.tsx).
+  // `rate` es la tasa PROPIA de cada etapa (no acumulada); el componente
+  // calcula la acumulada mostrada en "% applied" como producto de las tasas
+  // desde esa fila en adelante -- mismo cálculo que antes, ahora genérico.
+  const bankedCascadeRows: MilestoneCascadeRow[] = [
+    {
+      key: 'Started',
+      label: 'Started',
+      rate: PULL_THROUGH_RATES.Started,
+      healthy: bankedBucketHealthy.Started,
+      total: bankedBucketTotal.Started,
+      forecast: bankedForecastByBucket.Started,
+    },
+    {
+      key: 'Processing',
+      label: 'Processing',
+      rate: PULL_THROUGH_RATES.Processing,
+      healthy: bankedBucketHealthy.Processing,
+      total: bankedBucketTotal.Processing,
+      forecast: bankedForecastByBucket.Processing,
+    },
+    {
+      key: 'Underwriting',
+      label: 'Underwriting',
+      rate: PULL_THROUGH_RATES.Underwriting,
+      healthy: bankedBucketHealthy.Underwriting,
+      total: bankedBucketTotal.Underwriting,
+      forecast: bankedForecastByBucket.Underwriting,
+    },
+    {
+      key: 'Closing',
+      label: 'Closing',
+      rate: PULL_THROUGH_RATES.Closing,
+      healthy: bankedBucketHealthy.Closing,
+      total: bankedBucketTotal.Closing,
+      forecast: bankedForecastByBucket.Closing,
+    },
+  ];
+
+  const brokeredCascadeRows: MilestoneCascadeRow[] = [
+    {
+      key: 'FileCreation',
+      label: 'File Creation',
+      rate: BROKERED_PULL_THROUGH_RATES.FileCreation,
+      healthy: brokeredBucketHealthy.FileCreation,
+      total: brokeredBucketTotal.FileCreation,
+      forecast: brokeredForecastByBucket.FileCreation,
+    },
+    {
+      key: 'AppDate',
+      label: 'App Date',
+      rate: BROKERED_PULL_THROUGH_RATES.AppDate,
+      healthy: brokeredBucketHealthy.AppDate,
+      total: brokeredBucketTotal.AppDate,
+      forecast: brokeredForecastByBucket.AppDate,
+    },
+    {
+      key: 'Processing',
+      label: 'Processing',
+      rate: BROKERED_PULL_THROUGH_RATES.Processing,
+      healthy: brokeredBucketHealthy.Processing,
+      total: brokeredBucketTotal.Processing,
+      forecast: brokeredForecastByBucket.Processing,
+    },
+    {
+      key: 'Submitted',
+      label: 'Submitted',
+      rate: BROKERED_PULL_THROUGH_RATES.Submitted,
+      healthy: brokeredBucketHealthy.Submitted,
+      total: brokeredBucketTotal.Submitted,
+      forecast: brokeredForecastByBucket.Submitted,
     },
   ];
 
@@ -469,17 +597,27 @@ export default function PipelinePage() {
           <>
             <SummaryCards blocks={summaryBlocks} targetMonthLabel={forecastMonthLabel} />
 
+            {/* Etapa F5i: antes era UNA cascada combinada (ambos canales) --
+                Brokered tiene su propio esquema de buckets, incompatible con
+                el de Banked, así que se muestran 2 cascadas separadas. */}
             <div className="cards-head" style={{ marginTop: '24px' }}>
-              Pull-through Cascade (entire pipeline)
+              Pull-through Cascade — Banked - Retail
             </div>
             <MilestoneCascade
-              bucketTotal={grandBucketTotal}
-              bucketHealthy={grandBucketHealthy}
-              forecastByBucket={grandForecastByBucket}
-              forecastTotal={grandForecastTotal}
-              rates={PULL_THROUGH_RATES}
-              closedCount={closedCount}
-              totalForecast={totalForecast}
+              rows={bankedCascadeRows}
+              forecastTotal={bankedSummary.forecastTotal}
+              closedCount={bankedSummary.closedCount}
+              totalForecast={bankedSummary.totalForecast}
+            />
+
+            <div className="cards-head" style={{ marginTop: '24px' }}>
+              Pull-through Cascade — Brokered
+            </div>
+            <MilestoneCascade
+              rows={brokeredCascadeRows}
+              forecastTotal={brokeredSummary.forecastTotal}
+              closedCount={brokeredSummary.closedCount}
+              totalForecast={brokeredSummary.totalForecast}
             />
 
             <div className="cards-head" style={{ marginTop: '24px' }}>

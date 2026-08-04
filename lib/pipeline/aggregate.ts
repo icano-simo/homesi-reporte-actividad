@@ -262,3 +262,123 @@ export function calculateTotalForecastWithClosed(
     totalForecast: closedCount + forecastTotal,
   };
 }
+
+// ============================================================
+// Brokered: cascada de pull-through propia (Etapa F5i)
+// ============================================================
+//
+// Hasta F5h, Brokered pasaba por exactamente el mismo camino que Banked
+// (splitHealthyTotal -> countByMilestoneBucket -> calculateForecast, con
+// PULL_THROUGH_RATES de Banked) -- no existía ninguna fórmula "Cerrados +
+// Healthy al 100%" en el código (se verificó explícitamente en la
+// respuesta de esta etapa; la premisa del brief sobre el "antes" no
+// coincidía con lo que había, se avisó antes de tocar nada). Ahora
+// Brokered tiene su PROPIA cascada de 4 etapas, con tasas confirmadas por
+// un estudio de conversión histórico -- no comparte ningún tipo con el
+// bloque de Banked de arriba a propósito (misma cantidad de etapas, pero
+// nombres y significado distintos; forzarlas al mismo shape hubiera sido
+// más confuso que dos juegos de tipos separados).
+//
+// Mapeo de Current Milestone (PipelineLoan.rawMilestone, NO el `milestone`
+// ya bucketizado a la Banked que arma el parser) a bucket de Brokered --
+// confirmado con el usuario en la respuesta de F5i después de verificar
+// contra 2 archivos reales (_scratch/) que, en pipeline abierto
+// (Stage=Negotiation), Brokered solo usa 3 valores reales de Current
+// Milestone: "Started", "Processing", "Submittal". Los 5 nombres del
+// estudio (File Creation/App Date/Processing/Submitted/Completion) NO
+// aparecen tal cual en los datos -- el mapeo confirmado es:
+//   Started   -> bucket FileCreation (le faltan las 4 etapas)
+//   Processing -> bucket Processing   (le faltan Processing->Submitted y Submitted->Completion)
+//   Submittal  -> bucket Submitted    (le falta solo Submitted->Completion)
+// El bucket AppDate queda SIEMPRE en 0: ningún Current Milestone real
+// visto en los datos cae ahí (existe en la fórmula porque conceptualmente
+// es una etapa intermedia del estudio, no porque haya loans que lo usen
+// hoy). Un rawMilestone de un préstamo Brokered que no sea ninguno de los
+// 3 valores confirmados (ej. si algún archivo futuro trae "Initial
+// Decision" o "Clear To Close" en un préstamo Brokered -- no visto en la
+// muestra de 2 archivos) NO incrementa ningún bucket -- ver riesgo en la
+// respuesta de esta etapa.
+
+export interface BrokeredBucketCounts {
+  FileCreation: number;
+  AppDate: number;
+  Processing: number;
+  Submitted: number;
+}
+
+export interface BrokeredPullThroughRates {
+  /** File Creation -> App Date. */
+  FileCreation: number;
+  /** App Date -> Processing. */
+  AppDate: number;
+  /** Processing -> Submitted. */
+  Processing: number;
+  /** Submitted -> Completion. */
+  Submitted: number;
+}
+
+export interface BrokeredForecastByBucket {
+  FileCreation: number;
+  AppDate: number;
+  Processing: number;
+  Submitted: number;
+}
+
+export interface BrokeredForecastResult {
+  forecastByBucket: BrokeredForecastByBucket;
+  forecastTotal: number;
+}
+
+/** Tasas del estudio de conversión (brief de F5i, Loan Folder My Pipeline/Underwriting, últimos 3 meses) -- fijas, no editables desde la UI todavía (mismo estado que PULL_THROUGH_RATES de Banked, hoy hardcodeadas en page.tsx). */
+export const BROKERED_PULL_THROUGH_RATES: BrokeredPullThroughRates = {
+  FileCreation: 1.0,
+  AppDate: 0.875,
+  Processing: 0.286,
+  Submitted: 0.9,
+};
+
+const BROKERED_MILESTONE_BUCKET: Record<string, keyof BrokeredBucketCounts> = {
+  Started: 'FileCreation',
+  Processing: 'Processing',
+  Submittal: 'Submitted',
+};
+
+/**
+ * Clasifica loans de Brokered en los 4 buckets propios a partir de
+ * `rawMilestone` (Current Milestone crudo). Un rawMilestone fuera de
+ * BROKERED_MILESTONE_BUCKET no incrementa ningún bucket -- ver nota de
+ * riesgo arriba del bloque.
+ */
+export function countByBrokeredMilestoneBucket(loans: PipelineLoan[]): BrokeredBucketCounts {
+  const counts: BrokeredBucketCounts = { FileCreation: 0, AppDate: 0, Processing: 0, Submitted: 0 };
+  for (const loan of loans) {
+    const bucket = BROKERED_MILESTONE_BUCKET[loan.rawMilestone.trim()];
+    if (bucket) counts[bucket] += 1;
+  }
+  return counts;
+}
+
+/**
+ * Mismo patrón que calculateForecast() de Banked (ver arriba): cada bucket
+ * forecastea multiplicando su count por las tasas de todas las etapas que
+ * le faltan por pasar, incluida la suya. Submitted ya está en la última
+ * etapa antes de Completion, así que solo usa su propia tasa.
+ */
+export function calculateBrokeredForecast(
+  bucketCounts: BrokeredBucketCounts,
+  rates: BrokeredPullThroughRates
+): BrokeredForecastResult {
+  const { FileCreation, AppDate, Processing, Submitted } = rates;
+
+  const forecastByBucket: BrokeredForecastByBucket = {
+    FileCreation: bucketCounts.FileCreation * FileCreation * AppDate * Processing * Submitted,
+    AppDate: bucketCounts.AppDate * AppDate * Processing * Submitted,
+    Processing: bucketCounts.Processing * Processing * Submitted,
+    Submitted: bucketCounts.Submitted * Submitted,
+  };
+
+  const forecastTotal =
+    forecastByBucket.FileCreation + forecastByBucket.AppDate + forecastByBucket.Processing + forecastByBucket.Submitted;
+
+  return { forecastByBucket, forecastTotal };
+}
