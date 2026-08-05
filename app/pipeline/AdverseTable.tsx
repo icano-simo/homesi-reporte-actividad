@@ -4,10 +4,10 @@ import { useState } from 'react';
 import type { PipelineLoan, ResolvedLoan } from '@/lib/pipeline/types';
 
 export interface AdverseTableProps {
-  /** Etapa F4i, ampliado en F5h: page.tsx ya filtra por status='adverse' + rango de fechas antes de pasarlo (F5h quitó el filtro adicional por Loan Status='Application withdrawn', ahora es cualquier motivo) -- acá solo se filtra por canal. */
+  /** Etapa F4i, ampliado en F5h/F5j: page.tsx ya filtra por status='adverse' + firstSeenAsAdverse dentro de forecastMonth antes de pasarlo (F5h quitó el filtro por Loan Status; F5j cambió el campo/rango de fecha de Est. Closing Date+Pipeline Range a firstSeenAsAdverse+Forecast Month) -- acá solo se filtra por canal. */
   resolvedLoans: ResolvedLoan[];
-  /** Rango de fechas activo (Est. Closing Date), solo para mostrarlo en el header. */
-  dateRangeLabel?: string;
+  /** Etapa F5j: "August 2026" -- el Forecast Month activo (el mismo criterio de fecha que ya aplicó page.tsx al armar `resolvedLoans`), solo para mostrarlo en el header. Antes (F4i-F5h) era un rango de Pipeline Range/Est. Closing Date -- ya no. */
+  forecastMonthLabel?: string;
   /**
    * Etapa F5g: source_loan_id -> fecha 'YYYY-MM-DD' del snapshot más viejo
    * donde ese préstamo ya aparecía como adverse (de /api/pipeline/adverse-history),
@@ -40,8 +40,14 @@ function fmtAmount(n: number): string {
  * (Application denied, File Closed for incompleteness, Loan Status
  * desincronizado, etc.). Ahora es cualquier préstamo con status='adverse'
  * dentro del rango, sin importar el motivo.
+ *
+ * Etapa F5j: el campo/rango de fecha del filtro cambió -- ya no es Est.
+ * Closing Date dentro de Pipeline Range, es firstSeenAsAdverse (F5g) dentro
+ * de Forecast Month (mismo mes que ya usa Cerrados). `resolvedLoans` que
+ * llega acá ya viene acotado con ese criterio nuevo -- este componente no
+ * lo vuelve a aplicar, solo lo muestra.
  */
-export default function AdverseTable({ resolvedLoans, dateRangeLabel, firstSeenAsAdverse }: AdverseTableProps) {
+export default function AdverseTable({ resolvedLoans, forecastMonthLabel, firstSeenAsAdverse }: AdverseTableProps) {
   const [channelFilter, setChannelFilter] = useState<ChannelFilter>('all');
 
   const adverseLoans = resolvedLoans.filter((loan) => loan.status === 'adverse');
@@ -54,11 +60,11 @@ export default function AdverseTable({ resolvedLoans, dateRangeLabel, firstSeenA
         style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px' }}
       >
         <span>
-          Adverse ({filtered.length.toLocaleString('en-US')}) -- active range
-          {dateRangeLabel && (
+          Adverse ({filtered.length.toLocaleString('en-US')}) -- Forecast Month
+          {forecastMonthLabel && (
             <span style={{ fontWeight: 400, color: 'var(--muted)', textTransform: 'none', letterSpacing: 0 }}>
               {' '}
-              (Est. Closing Date {dateRangeLabel})
+              ({forecastMonthLabel})
             </span>
           )}
         </span>

@@ -91,13 +91,19 @@ function formatDateLocal(d: Date): string {
  * Etapa F5a: antes arrancaba en el mes ANTERIOR (2 meses de rango) -- se
  * acota a solo el mes actual.
  *
- * Etapa F5e: este rango ahora es SOLO para Total/Healthy Pipeline y
- * Adverse -- Cerrados/Forecast usan forecastMonth (independiente, ver
- * abajo), ya no derivan nada de este rango.
+ * Etapa F5e: este rango ahora es SOLO para Total/Healthy Pipeline --
+ * Cerrados/Forecast usan forecastMonth (independiente, ver abajo), ya no
+ * derivan nada de este rango. Etapa F5j: Adverse tampoco usa más este
+ * rango (pasó a forecastMonth también, ver adverseInRange).
+ *
+ * Etapa F5j: vuelve a ser un rango de 2 meses -- [1er día del mes
+ * ANTERIOR, último día del mes actual], confirmado explícito en el brief
+ * de esta etapa (no es un revert accidental de F5a). Ej. hoy=5 agosto
+ * 2026 -> 1 julio 2026 a 31 agosto 2026.
  */
 function getDefaultPipelineDateRange(): DateRange {
   const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), 1);
+  const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
   return { startDate: formatDateLocal(start), endDate: formatDateLocal(end) };
 }
@@ -168,6 +174,18 @@ export default function PipelinePage() {
   // dropdown de Topbar.tsx ('ALL' = todos, sin filtrar).
   const [activeTab, setActiveTab] = useState<TabType>('executive');
   const [selectedBranch, setSelectedBranch] = useState<string>('ALL');
+  // Etapa F5j: fecha del snapshot ACTIVO ('YYYY-MM-DD', UTC -- mismo criterio
+  // que pipeline_snapshots.snapshot_date en el backend: new Date().toISOString().slice(0,10)).
+  // Hace falta para resolver los préstamos "New this period"
+  // (firstSeenAsAdverse=null) dentro del filtro de Adverse -- ver
+  // adverseInRange. Ninguna de las 2 rutas (/api/pipeline/parse,
+  // /api/pipeline/latest) está en la lista de archivos de esta etapa, así
+  // que no se les agregó un campo nuevo: para una carga recién subida, la
+  // fecha del snapshot ES "ahora" (se crea en el mismo request, con
+  // new Date() del lado del servidor); para una restaurada,
+  // /api/pipeline/latest YA devuelve `uploadedAt` -- antes se descartaba,
+  // ahora se usa.
+  const [activeSnapshotDate, setActiveSnapshotDate] = useState<string | null>(null);
 
   // Etapa F5a: si nadie subió un archivo en esta sesión (data===null),
   // restaura el último snapshot activo desde Supabase -- para no perder el
@@ -183,6 +201,7 @@ export default function PipelinePage() {
         if (!body || !body.snapshot) return;
         setData({ openLoans: body.openLoans, resolvedLoans: body.resolvedLoans, warnings: body.warnings ?? [] });
         setFileName(body.snapshot.fileName);
+        setActiveSnapshotDate(typeof body.snapshot.uploadedAt === 'string' ? body.snapshot.uploadedAt.slice(0, 10) : null);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -280,10 +299,17 @@ export default function PipelinePage() {
       }
       setData(body as ParseApiResponse);
       setFileName(file.name);
+      // Etapa F5j: el snapshot se crea en este mismo request, del lado del
+      // servidor, con new Date().toISOString().slice(0,10) -- usar "ahora"
+      // acá es la fecha real, no una aproximación (parse/route.ts no está
+      // en la lista de archivos de esta etapa, así que no devuelve la fecha
+      // de vuelta; no hace falta, ya la sabemos).
+      setActiveSnapshotDate(new Date().toISOString().slice(0, 10));
     } catch (err) {
       setError(errorMessage(err));
       setData(null);
       setFileName(null);
+      setActiveSnapshotDate(null);
     } finally {
       setIsLoading(false);
     }
@@ -507,23 +533,35 @@ export default function PipelinePage() {
   ];
 
   // Etapa F4i: filtro original -- status='adverse' Y Loan Status='Application
-  // withdrawn' Y Est. Closing Date dentro del rango activo.
+  // withdrawn' Y Est. Closing Date dentro del rango activo (Pipeline Range).
   // Etapa F5h: se confirmó con datos reales que ese filtro por Loan Status
   // excluía Adverse legítimos con otros motivos (Application denied, File
   // Closed for incompleteness, y hasta casos con Loan Status desincronizado
   // tipo "Active Loan" a pesar de Stage=Closed Lost) -- se quita esa
   // condición. El filtro queda solo status='adverse' Y Est. Closing Date
-  // dentro del rango activo (mismo campo/rango que ya usa Total/Healthy
-  // Pipeline desde F4f). Deliberadamente NO se filtra por Loan Folder --
-  // confirmado por el negocio que ese campo puede estar desactualizado.
+  // dentro del rango activo.
+  //
+  // Etapa F5j: se reemplaza también el campo/rango de fecha -- deja de ser
+  // Est. Closing Date dentro de Pipeline Range, pasa a ser
+  // firstSeenAsAdverse (F5g, /api/pipeline/adverse-history) dentro de
+  // forecastMonth -- mismo patrón narrativo que Cerrados ("lo que pasó este
+  // mes"). Cambiar Pipeline Range ya NO mueve el conteo de Adverse; cambiar
+  // Forecast Month sí. Un préstamo con firstSeenAsAdverse=null ("New this
+  // period") se incluye si el snapshot ACTIVO (activeSnapshotDate, ver
+  // arriba) cae dentro de forecastMonth -- por definición, "nuevo en este
+  // período" se detectó recién en la carga actual, así que su fecha de
+  // detección real es la fecha de esa carga. firstSeenAsAdverse=undefined
+  // (todavía no respondió el endpoint) se excluye -- no hay forma de saber
+  // si cae en el mes elegido, mismo criterio conservador que ya usa
+  // AdverseTable para no mostrar datos a medio cargar.
   const adverseInRange = data
-    ? filteredResolvedLoans.filter(
-        (loan) =>
-          loan.status === 'adverse' &&
-          loan.estClosingDate !== null &&
-          loan.estClosingDate >= pipelineDateRange.startDate &&
-          loan.estClosingDate <= pipelineDateRange.endDate
-      )
+    ? filteredResolvedLoans.filter((loan) => {
+        if (loan.status !== 'adverse') return false;
+        const firstSeen = firstSeenAsAdverse[loan.sourceLoanId];
+        if (firstSeen === undefined) return false;
+        const effectiveDate = firstSeen ?? activeSnapshotDate;
+        return effectiveDate !== null && effectiveDate >= forecastRange.startDate && effectiveDate <= forecastRange.endDate;
+      })
     : [];
 
   // resolvedLoans (Funded/Adverse) no entran a ningún OTRO cálculo -- los
@@ -642,7 +680,7 @@ export default function PipelinePage() {
             {activeTab === 'adverse' && (
               <AdverseTable
                 resolvedLoans={adverseInRange}
-                dateRangeLabel={pipelineDateRange.startDate + ' to ' + pipelineDateRange.endDate}
+                forecastMonthLabel={forecastMonthLabel}
                 firstSeenAsAdverse={firstSeenAsAdverse}
               />
             )}
