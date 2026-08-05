@@ -83,7 +83,7 @@ export default function AdverseTable({ resolvedLoans, dateRangeLabel, firstSeenA
       </div>
       <table className="piv">
         <thead>
-          <tr className="mo-row">
+          <tr className="mo-row adverse-header">
             <th style={{ textAlign: 'left' }}>Loan Number</th>
             <th style={{ textAlign: 'left' }}>Branch</th>
             <th style={{ textAlign: 'left' }}>Borrower Name</th>
@@ -102,7 +102,23 @@ export default function AdverseTable({ resolvedLoans, dateRangeLabel, firstSeenA
                 <td style={{ textAlign: 'left' }}>{loan.branch}</td>
                 <td style={{ textAlign: 'left' }}>{loan.borrowerName}</td>
                 <td style={{ textAlign: 'left' }}>{loan.loanOfficer}</td>
-                <td className="val">{fmtAmount(loan.amount)}</td>
+                <td className="val">
+                  {loan.amount >= 300000 ? (
+                    <span
+                      style={{
+                        background: '#fef2f2',
+                        color: 'var(--red)',
+                        fontWeight: 700,
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                      }}
+                    >
+                      {fmtAmount(loan.amount)}
+                    </span>
+                  ) : (
+                    fmtAmount(loan.amount)
+                  )}
+                </td>
                 <td style={{ textAlign: 'left' }}>{loan.rawMilestone || '—'}</td>
                 <td style={{ textAlign: 'left' }}>
                   {firstSeen === undefined ? '—' : firstSeen === null ? 'New this period' : firstSeen}

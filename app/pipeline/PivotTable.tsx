@@ -387,104 +387,98 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
   }
 
   return (
-    <>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px' }}>
-        {blocks.map((block) => (
-          <div className="tbl-card" style={{ flex: '1 1 480px', minWidth: 0, overflowX: 'auto' }} key={block.channel}>
-            <div className="cards-head" style={{ padding: '10px 12px 0' }}>
-              {block.channel}
-            </div>
-            <table className="piv">
-              <thead>
-                <tr className="mo-row">
-                  <th className="lbl">Branch</th>
-                  <th style={{ textAlign: 'left' }}>Branch Manager</th>
-                  <th>Closed</th>
-                  <th>Total Pipeline</th>
-                  <th>Healthy Pipeline</th>
-                  <th className="totcol">Forecast</th>
-                </tr>
-              </thead>
-              <tbody>
-                {block.rows.map((row) => {
-                  const key = row.branch + '::' + row.channel;
-                  const isOpen = expanded.has(key);
-                  const managerName = branchManagers.get(row.branch) ?? '(unassigned)';
-                  return (
-                    <Fragment key={key}>
-                      <tr className="grp togg" onClick={() => toggle(key)}>
-                        <td className="lbl">
-                          <span className={`chev${isOpen ? ' open' : ''}`}>
-                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
-                              <path d="M9 6l6 6-6 6" />
-                            </svg>
-                          </span>
-                          {row.branch}
+    <div className="tbl-card">
+      <table className="piv">
+        <thead>
+          <tr className="mo-row">
+            <th className="lbl">Branch</th>
+            <th style={{ textAlign: 'left' }}>Branch Manager</th>
+            <th>Closed</th>
+            <th>Total Pipeline</th>
+            <th>Healthy Pipeline</th>
+            <th className="totcol">Forecast</th>
+          </tr>
+        </thead>
+        <tbody>
+          {blocks.map((block) => (
+            <Fragment key={block.channel}>
+              <tr className="grp d1">
+                <td className="lbl" colSpan={6}>
+                  {block.channel}
+                </td>
+              </tr>
+              {block.rows.map((row) => {
+                const key = row.branch + '::' + row.channel;
+                const isOpen = expanded.has(key);
+                const managerName = branchManagers.get(row.branch) ?? '(unassigned)';
+                return (
+                  <Fragment key={key}>
+                    <tr className="grp togg" onClick={() => toggle(key)}>
+                      <td className="lbl">
+                        <span className={`chev${isOpen ? ' open' : ''}`}>
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                            <path d="M9 6l6 6-6 6" />
+                          </svg>
+                        </span>
+                        {row.branch}
+                      </td>
+                      <td style={{ textAlign: 'left', color: 'var(--muted)' }}>{managerName}</td>
+                      <td className="val">{fmtInt(row.closedCount)}</td>
+                      <td className="val">{fmtInt(row.totalCount)}</td>
+                      <td className="val">
+                        <HealthyDot />
+                        {fmtInt(row.healthyCount)}
+                      </td>
+                      <td className="totcol">{fmtForecast(row.totalForecast)}</td>
+                    </tr>
+                    {isOpen && (
+                      <tr>
+                        <td colSpan={6} style={{ padding: '0' }}>
+                          <div
+                            style={{
+                              background: '#f8fafc',
+                              borderLeft: '4px solid var(--accent)',
+                              padding: '12px 16px',
+                              margin: '4px 0 8px 8px',
+                              borderRadius: '0 6px 6px 0',
+                            }}
+                          >
+                            <LoanDetailTable detailRows={buildLoanDetailRows(row.branchForecastRow, resolvedLoans, dateRange)} />
+                          </div>
                         </td>
-                        <td style={{ textAlign: 'left', color: 'var(--muted)' }}>{managerName}</td>
-                        <td className="val">{fmtInt(row.closedCount)}</td>
-                        <td className="val">{fmtInt(row.totalCount)}</td>
-                        <td className="val">
-                          <HealthyDot />
-                          {fmtInt(row.healthyCount)}
-                        </td>
-                        <td className="totcol">{fmtForecast(row.totalForecast)}</td>
                       </tr>
-                      {isOpen && (
-                        <tr>
-                          <td colSpan={6} style={{ padding: '0' }}>
-                            <div
-                              style={{
-                                background: '#f8fafc',
-                                borderLeft: '4px solid var(--accent)',
-                                padding: '12px 16px',
-                                margin: '4px 0 8px 8px',
-                                borderRadius: '0 6px 6px 0',
-                              }}
-                            >
-                              <LoanDetailTable detailRows={buildLoanDetailRows(row.branchForecastRow, resolvedLoans, dateRange)} />
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
-                  );
-                })}
-                {!block.rows.length && (
-                  <tr>
-                    <td className="lbl" style={{ color: 'var(--muted)', fontWeight: 500 }}>
-                      No pipeline data.
-                    </td>
-                    <td colSpan={99}></td>
-                  </tr>
-                )}
-                <tr className="grp total total-forecast">
-                  <td className="lbl">Subtotal {block.channel}</td>
-                  <td></td>
-                  <td className="val">{fmtInt(block.subtotal.closedCount)}</td>
-                  <td className="val">{fmtInt(block.subtotal.totalCount)}</td>
-                  <td className="val">{fmtInt(block.subtotal.healthyCount)}</td>
-                  <td className="totcol">{fmtForecast(block.subtotal.totalForecast)}</td>
+                    )}
+                  </Fragment>
+                );
+              })}
+              {!block.rows.length && (
+                <tr>
+                  <td className="lbl" style={{ color: 'var(--muted)', fontWeight: 500 }}>
+                    No pipeline data.
+                  </td>
+                  <td colSpan={99}></td>
                 </tr>
-              </tbody>
-            </table>
-          </div>
-        ))}
-      </div>
-
-      <div className="tbl-card" style={{ marginTop: '16px' }}>
-        <table className="piv">
-          <tbody>
-            <tr className="grp total total-forecast">
-              <td className="lbl">Combined Total (Banked - Retail + Brokered)</td>
-              <td className="val">{fmtInt(grandTotal.closedCount)}</td>
-              <td className="val">{fmtInt(grandTotal.totalCount)}</td>
-              <td className="val">{fmtInt(grandTotal.healthyCount)}</td>
-              <td className="totcol">{fmtForecast(grandTotal.totalForecast)}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </>
+              )}
+              <tr className="grp total total-forecast">
+                <td className="lbl">Subtotal {block.channel}</td>
+                <td></td>
+                <td className="val">{fmtInt(block.subtotal.closedCount)}</td>
+                <td className="val">{fmtInt(block.subtotal.totalCount)}</td>
+                <td className="val">{fmtInt(block.subtotal.healthyCount)}</td>
+                <td className="totcol">{fmtForecast(block.subtotal.totalForecast)}</td>
+              </tr>
+            </Fragment>
+          ))}
+          <tr className="grp total total-forecast">
+            <td className="lbl">Combined Total (Banked - Retail + Brokered)</td>
+            <td></td>
+            <td className="val">{fmtInt(grandTotal.closedCount)}</td>
+            <td className="val">{fmtInt(grandTotal.totalCount)}</td>
+            <td className="val">{fmtInt(grandTotal.healthyCount)}</td>
+            <td className="totcol">{fmtForecast(grandTotal.totalForecast)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   );
 }

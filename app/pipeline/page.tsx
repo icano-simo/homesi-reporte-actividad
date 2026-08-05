@@ -19,12 +19,13 @@ import {
 } from '@/lib/pipeline/aggregate';
 import type { PipelineLoan, ResolvedLoan } from '@/lib/pipeline/types';
 import SummaryCards, { type SummaryBlock } from './SummaryCards';
-import MilestoneCascade, { type MilestoneCascadeRow } from './MilestoneCascade';
+import type { MilestoneCascadeRow } from './MilestoneCascade';
 import PivotTable, { type BranchForecastRow } from './PivotTable';
-import UploadButton, { PIPELINE_FILE_INPUT_ID } from './UploadButton';
-import DateRangeInput from './DateRangeInput';
-import MonthSelector from './MonthSelector';
+import { PIPELINE_FILE_INPUT_ID } from './UploadButton';
 import AdverseTable from './AdverseTable';
+import Topbar from './Topbar';
+import TabNavigation, { type TabType } from './TabNavigation';
+import TabMilestoneMatrix from './TabMilestoneMatrix';
 
 /**
  * Etapa F4: mismos valores que DEMO_RATES (F3). El input editable en la UI
@@ -162,6 +163,11 @@ export default function PipelinePage() {
   // un snapshot guardado (mismo patrón que isLoadingInitial en app/page.tsx
   // de Actividad).
   const [isLoadingInitial, setIsLoadingInitial] = useState(true);
+  // Etapa F6h: estado nuevo del rediseño -- qué tab está activo (Executive/
+  // Matrix/Adverse, TabNavigation.tsx) y qué branch está seleccionado en el
+  // dropdown de Topbar.tsx ('ALL' = todos, sin filtrar).
+  const [activeTab, setActiveTab] = useState<TabType>('executive');
+  const [selectedBranch, setSelectedBranch] = useState<string>('ALL');
 
   // Etapa F5a: si nadie subió un archivo en esta sesión (data===null),
   // restaura el último snapshot activo desde Supabase -- para no perder el
@@ -334,13 +340,21 @@ export default function PipelinePage() {
     }
   }
 
-  const grandTotalCount = branchRows.reduce((sum, r) => sum + r.totalCount, 0);
-  const grandHealthyCount = branchRows.reduce((sum, r) => sum + r.healthyCount, 0);
+  // Etapa F6h, extendido en ajuste posterior: filtro de branch para TODA la
+  // página (banner, Executive, Matrix, Adverse) -- no solo Executive como se
+  // había interpretado en F6h. filteredBranchRows/filteredResolvedLoans son
+  // la única fuente que usa el resto de los cálculos de acá para abajo.
+  const filteredBranchRows = selectedBranch === 'ALL' ? branchRows : branchRows.filter((r) => r.branch === selectedBranch);
+  const filteredResolvedLoans =
+    selectedBranch === 'ALL' ? (data?.resolvedLoans ?? []) : (data?.resolvedLoans ?? []).filter((l) => l.branch === selectedBranch);
+
+  const grandTotalCount = filteredBranchRows.reduce((sum, r) => sum + r.totalCount, 0);
+  const grandHealthyCount = filteredBranchRows.reduce((sum, r) => sum + r.healthyCount, 0);
   // Ya correcto para los 2 canales: cada r.forecastTotal viene de la fórmula
   // que le toca (Banked o Brokered, ver el loop de arriba), así que sumarlos
   // acá sigue dando el total combinado real -- no hizo falta tocar esta
   // línea en F5i.
-  const grandForecastTotal = branchRows.reduce((sum, r) => sum + r.forecastTotal, 0);
+  const grandForecastTotal = filteredBranchRows.reduce((sum, r) => sum + r.forecastTotal, 0);
 
   // Etapa F5i: antes esto agregaba bucketTotal/bucketHealthy/forecastByBucket
   // de TODOS los branchRows (ambos canales) para alimentar una única cascada
@@ -351,7 +365,7 @@ export default function PipelinePage() {
   // desde `loans` (no desde bucketTotal/bucketHealthy/forecastByBucket de
   // branchRows, que para una fila Brokered son vestigiales -- ver nota en el
   // loop de arriba).
-  const bankedBranchRows = branchRows.filter((r) => r.channel === 'Banked - Retail');
+  const bankedBranchRows = filteredBranchRows.filter((r) => r.channel === 'Banked - Retail');
   const bankedBucketTotal = bankedBranchRows.reduce((acc, r) => sumBuckets(acc, r.bucketTotal), EMPTY_BUCKETS);
   const bankedBucketHealthy = bankedBranchRows.reduce((acc, r) => sumBuckets(acc, r.bucketHealthy), EMPTY_BUCKETS);
   const bankedForecastByBucket = bankedBranchRows.reduce(
@@ -368,7 +382,7 @@ export default function PipelinePage() {
   // `total` (openLoans de esa branch+channel, filtrado por
   // pipelineDateRange, igual que usa Banked) -- se filtra healthy acá con el
   // mismo criterio que splitHealthyTotal (healthy === true).
-  const brokeredBranchRows = branchRows.filter((r) => r.channel === 'Brokered');
+  const brokeredBranchRows = filteredBranchRows.filter((r) => r.channel === 'Brokered');
   const brokeredLoans = brokeredBranchRows.flatMap((r) => r.loans);
   const brokeredHealthyLoans = brokeredLoans.filter((l) => l.healthy === true);
   const brokeredBucketTotal = countByBrokeredMilestoneBucket(brokeredLoans);
@@ -384,7 +398,7 @@ export default function PipelinePage() {
   // nueva agregada a aggregate.ts en F4b; no toca ninguna de las 3 ya
   // aprobadas (splitHealthyTotal/countByMilestoneBucket/calculateForecast).
   const { closedCount, totalForecast } = data
-    ? calculateTotalForecastWithClosed(data.resolvedLoans, grandForecastTotal, forecastRange)
+    ? calculateTotalForecastWithClosed(filteredResolvedLoans, grandForecastTotal, forecastRange)
     : { closedCount: 0, totalForecast: 0 };
 
   // Etapa F4f: mismo cálculo que el combinado de arriba, pero recortado por
@@ -392,11 +406,11 @@ export default function PipelinePage() {
   // que solo hace falta filtrar antes de sumar/llamar
   // calculateTotalForecastWithClosed (misma función de F4b, sin tocarla).
   function summarizeChannel(channel: PipelineLoan['channel'], label: string): SummaryBlock {
-    const channelRows = branchRows.filter((r) => r.channel === channel);
+    const channelRows = filteredBranchRows.filter((r) => r.channel === channel);
     const totalCount = channelRows.reduce((sum, r) => sum + r.totalCount, 0);
     const healthyCount = channelRows.reduce((sum, r) => sum + r.healthyCount, 0);
     const forecastTotal = channelRows.reduce((sum, r) => sum + r.forecastTotal, 0);
-    const channelResolved = data ? data.resolvedLoans.filter((l) => l.channel === channel) : [];
+    const channelResolved = filteredResolvedLoans.filter((l) => l.channel === channel);
     const { closedCount: channelClosedCount, totalForecast: channelTotalForecast } = data
       ? calculateTotalForecastWithClosed(channelResolved, forecastTotal, forecastRange)
       : { closedCount: 0, totalForecast: 0 };
@@ -416,19 +430,6 @@ export default function PipelinePage() {
   // calculateTotalForecastWithClosed una tercera vez.
   const bankedSummary = summarizeChannel('Banked - Retail', 'Banked - Retail');
   const brokeredSummary = summarizeChannel('Brokered', 'Brokered');
-
-  const summaryBlocks: SummaryBlock[] = [
-    bankedSummary,
-    brokeredSummary,
-    {
-      label: 'Combined',
-      totalCount: grandTotalCount,
-      healthyCount: grandHealthyCount,
-      forecastTotal: grandForecastTotal,
-      closedCount,
-      totalForecast,
-    },
-  ];
 
   // Etapa F5i: filas para las 2 cascadas -- MilestoneCascade ya no sabe de
   // Banked/Brokered, solo dibuja lo que le pasen (ver MilestoneCascade.tsx).
@@ -516,7 +517,7 @@ export default function PipelinePage() {
   // Pipeline desde F4f). Deliberadamente NO se filtra por Loan Folder --
   // confirmado por el negocio que ese campo puede estar desactualizado.
   const adverseInRange = data
-    ? data.resolvedLoans.filter(
+    ? filteredResolvedLoans.filter(
         (loan) =>
           loan.status === 'adverse' &&
           loan.estClosingDate !== null &&
@@ -529,12 +530,12 @@ export default function PipelinePage() {
   // 'adverse' nunca se suman a nada; solo una línea informativa, sin tabla
   // ni drill-down (eso es una etapa futura).
   let resolvedSummary: string | null = null;
-  if (data && data.resolvedLoans.length > 0) {
-    const funded = data.resolvedLoans.filter((l) => l.status === 'funded').length;
-    const adverse = data.resolvedLoans.filter((l) => l.status === 'adverse').length;
+  if (data && filteredResolvedLoans.length > 0) {
+    const funded = filteredResolvedLoans.filter((l) => l.status === 'funded').length;
+    const adverse = filteredResolvedLoans.filter((l) => l.status === 'adverse').length;
     resolvedSummary =
       'Additionally, ' +
-      data.resolvedLoans.length.toLocaleString('en-US') +
+      filteredResolvedLoans.length.toLocaleString('en-US') +
       ' loans already resolved (' +
       adverse.toLocaleString('en-US') +
       ' adverse, ' +
@@ -544,23 +545,21 @@ export default function PipelinePage() {
 
   return (
     <div className="main">
-      <div className="topbar">
-        <div className="toolbar-row">
-          <span className="label-chip">Data</span>
-          <UploadButton onFileSelected={handleFileSelected} isLoading={isLoading} />
-          <DateRangeInput value={pipelineDateRange} onChange={setPipelineDateRange} />
-          <MonthSelector value={forecastMonth} onChange={setForecastMonth} />
-        </div>
-        <div className="loaded-row">
-          {fileName && <span className="pill">File: {fileName}</span>}
-          {data && data.formatDetected && <span className="pill">Format detected: {data.formatDetected}</span>}
-          {data && <span className="pill">Open loans: {data.openLoans.length.toLocaleString('en-US')}</span>}
-          {data && data.persisted === true && <span className="pill">Saved to Supabase</span>}
-          {data && data.persisted === false && <span className="pill warn">Could not save to Supabase</span>}
-          {error && <span className="pill warn">{error}</span>}
-        </div>
-      </div>
-
+      <Topbar
+        onFileSelected={handleFileSelected}
+        isLoading={isLoading}
+        fileName={fileName}
+        pipelineDateRange={pipelineDateRange}
+        onPipelineDateRangeChange={setPipelineDateRange}
+        forecastMonth={forecastMonth}
+        onForecastMonthChange={setForecastMonth}
+        availableBranches={[...new Set(branchRows.map((r) => r.branch))].sort()}
+        selectedBranch={selectedBranch}
+        onSelectBranch={setSelectedBranch}
+        error={error}
+        formatDetected={data?.formatDetected}
+        saveStatus={data?.persisted === true ? 'saved' : data?.persisted === false ? 'error' : 'idle'}
+      />
       <div className="content">
         <h1 className="title">Forecast — Pipeline</h1>
 
@@ -596,58 +595,57 @@ export default function PipelinePage() {
 
         {data && (
           <>
-            <SummaryCards blocks={summaryBlocks} targetMonthLabel={forecastMonthLabel} />
-
-            {/* Etapa F5i: antes era UNA cascada combinada (ambos canales) --
-                Brokered tiene su propio esquema de buckets, incompatible con
-                el de Banked, así que se muestran 2 cascadas separadas. */}
-            <div className="cards-head" style={{ marginTop: '24px' }}>
-              Pull-through Cascade — Banked - Retail
-            </div>
-            <MilestoneCascade
-              rows={bankedCascadeRows}
-              forecastTotal={bankedSummary.forecastTotal}
-              closedCount={bankedSummary.closedCount}
-              totalForecast={bankedSummary.totalForecast}
+            <SummaryCards
+              combined={{
+                label: 'Combined',
+                totalCount: grandTotalCount,
+                healthyCount: grandHealthyCount,
+                forecastTotal: grandForecastTotal,
+                closedCount,
+                totalForecast,
+              }}
+              banked={bankedSummary}
+              brokered={brokeredSummary}
+              targetMonthLabel={forecastMonthLabel}
             />
 
-            <div className="cards-head" style={{ marginTop: '24px' }}>
-              Pull-through Cascade — Brokered
-            </div>
-            <MilestoneCascade
-              rows={brokeredCascadeRows}
-              forecastTotal={brokeredSummary.forecastTotal}
-              closedCount={brokeredSummary.closedCount}
-              totalForecast={brokeredSummary.totalForecast}
-            />
+            <TabNavigation activeTab={activeTab} onTabChange={setActiveTab} adverseCount={adverseInRange.length} />
 
-            <div className="cards-head" style={{ marginTop: '24px' }}>
-              Branch Breakdown
-            </div>
-            {/* Etapa F5e: PivotTable no se modifica (fuera de la lista de esta etapa).
+            {/* Etapa F5e: PivotTable no se modifica (fuera de la lista de esa etapa).
                 Todo lo que hace internamente con su prop `dateRange` es filtrar
                 Cerrados (disbursementDate) -- Total/Healthy Pipeline de cada branch
                 le llegan ya calculados en `rows`. Por eso se le sigue pasando acá
                 el rango del selector de mes (forecastRange), no pipelineDateRange:
                 su columna "Closed" queda consistente con SummaryCards/
                 MilestoneCascade sin tocar el código de PivotTable.tsx. */}
-            <PivotTable
-              rows={branchRows}
-              resolvedLoans={data.resolvedLoans}
-              rates={PULL_THROUGH_RATES}
-              dateRange={forecastRange}
-              branchManagers={branchManagers}
-              knownBranches={knownBranches}
-            />
+            {activeTab === 'executive' && (
+              <PivotTable
+                rows={filteredBranchRows}
+                resolvedLoans={filteredResolvedLoans}
+                rates={PULL_THROUGH_RATES}
+                dateRange={forecastRange}
+                branchManagers={branchManagers}
+                knownBranches={knownBranches}
+              />
+            )}
 
-            <div className="cards-head" style={{ marginTop: '24px' }}>
-              Adverse
-            </div>
-            <AdverseTable
-              resolvedLoans={adverseInRange}
-              dateRangeLabel={pipelineDateRange.startDate + ' to ' + pipelineDateRange.endDate}
-              firstSeenAsAdverse={firstSeenAsAdverse}
-            />
+            {activeTab === 'matrix' && (
+              <TabMilestoneMatrix
+                bankedRows={bankedCascadeRows}
+                brokeredRows={brokeredCascadeRows}
+                bankedRates={PULL_THROUGH_RATES}
+                brokeredRates={BROKERED_PULL_THROUGH_RATES}
+                rows={filteredBranchRows}
+              />
+            )}
+
+            {activeTab === 'adverse' && (
+              <AdverseTable
+                resolvedLoans={adverseInRange}
+                dateRangeLabel={pipelineDateRange.startDate + ' to ' + pipelineDateRange.endDate}
+                firstSeenAsAdverse={firstSeenAsAdverse}
+              />
+            )}
 
             {resolvedSummary && <div className="foot-note">{resolvedSummary}</div>}
 

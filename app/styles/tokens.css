@@ -25,4 +25,8 @@
     /* Forecast (app/pipeline/): chip de "Transferred" en PivotTable -- no existía ningún tono ambar en la paleta, se agrega acá (mismo criterio tint+texto que --accent-soft/--accent y --green-tint/--green). */
     --amber:#fef3c7;
     --amber-text:#92400e;
+    /* Etapa F6a: fundaciones de color del rediseño visual de Forecast (app/pipeline/) -- todavía sin uso, se consumen en etapas futuras. */
+    --canvas:#FCFCFA;
+    --coral:#FF4040;
+    --sky:#A6DEFF;
   }

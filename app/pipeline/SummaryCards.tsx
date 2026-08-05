@@ -12,32 +12,28 @@ export interface SummaryBlock {
   totalForecast: number;
 }
 
+/**
+ * Etapa F6c: antes eran 3 bloques repetidos (Banked/Brokered/Combinado, cada
+ * uno con sus propias 4 tarjetas) -- ahora es UN solo banner de 4 tarjetas
+ * con los números combinados; banked/brokered ya no se repiten como bloques
+ * completos, solo aportan su totalForecast al desglose chico de la tarjeta
+ * Forecast. page.tsx todavía no arma estas 3 props (eso es F6h) -- este
+ * componente solo declara el contrato nuevo.
+ */
 export interface SummaryCardsProps {
+  combined: SummaryBlock;
+  banked: SummaryBlock;
+  brokered: SummaryBlock;
   /**
-   * Etapa F4f: antes esto era un solo set de props (un bloque combinado).
-   * Ahora son 3 bloques -- Banked, Brokered, Combinado -- que page.tsx arma
-   * y pasa como array, en vez de triplicar los props sueltos. Se decidió
-   * así (en vez de 3 componentes separados) porque los 3 bloques son
-   * exactamente la misma tarjeta repetida con distintos números; un array +
-   * un único render interno evita duplicar el JSX 3 veces.
-   */
-  blocks: SummaryBlock[];
-  /**
-   * Etapa F5c: mes usado para Cerrados/Forecast en los 3 bloques (ej.
-   * "Agosto 2026") -- solo para mostrarlo, no un rango de fechas.
-   * Etapa F5e: ese mes ya no se deriva del DateRange de Pipeline -- viene
-   * de un selector de mes independiente (MonthSelector.tsx); el nombre del
-   * prop no cambió, solo de dónde sale el valor que page.tsx le pasa.
+   * Etapa F5c: mes usado para Cerrados/Forecast (ej. "Agosto 2026") -- solo
+   * para mostrarlo, no un rango de fechas. Etapa F5e: viene de un selector
+   * de mes independiente (MonthSelector.tsx).
    */
   targetMonthLabel?: string;
 }
 
 function fmtInt(n: number): string {
   return n.toLocaleString('en-US');
-}
-
-function fmtForecast(n: number): string {
-  return n.toLocaleString('en-US', { maximumFractionDigits: 1 });
 }
 
 /** Etapa F4h: Forecast final se muestra como entero -- ver nota en la respuesta de esta etapa. */
@@ -61,24 +57,39 @@ function HealthyDot() {
   );
 }
 
-function SummaryBlockCards({ block, targetMonthLabel }: { block: SummaryBlock; targetMonthLabel?: string }) {
-  const healthyPct = block.totalCount ? Math.round((block.healthyCount / block.totalCount) * 100) : 0;
+/**
+ * Banner de resumen del Forecast -- 4 tarjetas (Total Pipeline / Healthy
+ * Pipeline / Closed / Forecast) sobre los números COMBINADOS (banked +
+ * brokered), en vez de las 3 filas de bloques repetidos de antes. Mismo
+ * sistema visual de siempre (.cards-wrap/.mcard/.m-name) más el grid de 4
+ * columnas .hero-banner agregado en F6a.
+ *
+ * La tarjeta Forecast conserva el tratamiento visual de la ronda anterior
+ * (fondo/borde distintivo, valor a 34px) -- no se reinventa acá, solo
+ * cambia su subtítulo: antes mostraba "X closed + Y projection", ahora
+ * muestra el desglose Banked/Brokered del Forecast combinado.
+ */
+export default function SummaryCards({ combined, banked, brokered, targetMonthLabel }: SummaryCardsProps) {
+  const healthyPct = combined.totalCount ? Math.round((combined.healthyCount / combined.totalCount) * 100) : 0;
 
   return (
     <div className="cards-wrap" style={{ position: 'static' }}>
-      <div className="cards-head">{block.label}</div>
-      <div className="cards">
-        <div className="mcard" style={{ flex: '0 0 200px' }}>
+      <div className="hero-banner">
+        <div className="mcard">
           <div className="m-name">Total Pipeline</div>
-          <div style={{ fontSize: '28px', fontWeight: 800, color: 'var(--text)', lineHeight: 1.2 }}>{fmtInt(block.totalCount)}</div>
+          <div style={{ fontSize: '28px', fontWeight: 800, color: 'var(--text)', lineHeight: 1.2 }}>
+            {fmtInt(combined.totalCount)}
+          </div>
           <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>loans in Negotiation, in range</div>
         </div>
-        <div className="mcard" style={{ flex: '0 0 200px' }}>
+        <div className="mcard">
           <div className="m-name">
             <HealthyDot />
             Healthy Pipeline
           </div>
-          <div style={{ fontSize: '28px', fontWeight: 800, color: 'var(--green)', lineHeight: 1.2 }}>{fmtInt(block.healthyCount)}</div>
+          <div style={{ fontSize: '28px', fontWeight: 800, color: 'var(--green)', lineHeight: 1.2 }}>
+            {fmtInt(combined.healthyCount)}
+          </div>
           <div style={{ marginTop: '6px' }}>
             <span
               style={{
@@ -94,52 +105,26 @@ function SummaryBlockCards({ block, targetMonthLabel }: { block: SummaryBlock; t
             </span>
           </div>
         </div>
-        <div className="mcard" style={{ flex: '0 0 200px' }}>
+        <div className="mcard">
           <div className="m-name">Closed</div>
-          <div style={{ fontSize: '28px', fontWeight: 800, color: 'var(--text)', lineHeight: 1.2 }}>{fmtInt(block.closedCount)}</div>
+          <div style={{ fontSize: '28px', fontWeight: 800, color: 'var(--text)', lineHeight: 1.2 }}>
+            {fmtInt(combined.closedCount)}
+          </div>
           <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>{targetMonthLabel ?? 'in target month'}</div>
         </div>
         <div
           className="mcard"
-          style={{ flex: '0 0 200px', background: 'var(--accent-soft)', border: '1px solid var(--accent-border)' }}
+          style={{ background: 'var(--accent-soft)', border: '1px solid var(--accent-border)' }}
         >
           <div className="m-name">Forecast</div>
           <div style={{ fontSize: '34px', fontWeight: 800, color: 'var(--accent)', lineHeight: 1.2 }}>
-            {fmtRounded(block.totalForecast)}
+            {fmtRounded(combined.totalForecast)}
           </div>
-          <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>
-            {fmtInt(block.closedCount)} closed + {fmtForecast(block.forecastTotal)} projection
+          <div className="sub-breakdown">
+            Banked: {banked.totalForecast.toFixed(1)} | Brokered: {brokered.totalForecast.toFixed(1)}
           </div>
-          {targetMonthLabel && (
-            <div style={{ fontSize: '10px', color: 'var(--muted)', marginTop: '2px' }}>{targetMonthLabel}</div>
-          )}
         </div>
       </div>
     </div>
-  );
-}
-
-/**
- * Tarjetas de resumen del Forecast, en 3 bloques (Banked - Retail /
- * Brokered / Combinado) -- ver Decisiones en la respuesta de F4f. Mismo
- * sistema visual de siempre (.cards-wrap/.mcard/.m-name), solo repetido 3
- * veces con distintos datos.
- *
- * Etapa F4h: se agregó una 4ta tarjeta "Cerrados" por bloque (antes solo
- * aparecía mezclado en el subtítulo de Forecast); el número de Forecast
- * ahora se redondea a entero (Math.round) -- el subtítulo "X cerrados + Y
- * proyección" se deja con su precisión original, es el desglose que
- * justifica el número redondeado de arriba, igual criterio que
- * MilestoneCascade con la cascada completa.
- */
-export default function SummaryCards({ blocks, targetMonthLabel }: SummaryCardsProps) {
-  return (
-    <>
-      {blocks.map((block, i) => (
-        <div key={block.label} style={i > 0 ? { marginTop: '16px' } : undefined}>
-          <SummaryBlockCards block={block} targetMonthLabel={targetMonthLabel} />
-        </div>
-      ))}
-    </>
   );
 }
