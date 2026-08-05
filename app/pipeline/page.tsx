@@ -1,5 +1,6 @@
 'use client';
 
+import './styles/forecast-visual.css';
 import { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import {

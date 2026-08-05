@@ -22,4 +22,7 @@
     --tag-aff:#d97706;
     --tag-bd:#db2777;
     --shadow:0 1px 3px rgba(16,24,40,.06),0 1px 2px rgba(16,24,40,.04);
+    /* Forecast (app/pipeline/): chip de "Transferred" en PivotTable -- no existía ningún tono ambar en la paleta, se agrega acá (mismo criterio tint+texto que --accent-soft/--accent y --green-tint/--green). */
+    --amber:#fef3c7;
+    --amber-text:#92400e;
   }

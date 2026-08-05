@@ -1,0 +1,48 @@
+/*
+ * Estilos puramente visuales del módulo Forecast (SummaryCards, MilestoneCascade,
+ * PivotTable) -- no calculan ni muestran ningún valor, solo apariencia.
+ * Archivo separado de legacy-components.css a propósito: ese archivo es
+ * compartido con el módulo Actividad (via globals.css) y no se toca acá.
+ * Se importa SOLO desde app/pipeline/page.tsx, nunca desde globals.css.
+ */
+
+.chev {
+  display: inline-block;
+  transition: transform 0.15s ease;
+}
+.chev.open {
+  transform: rotate(90deg);
+}
+
+/*
+ * legacy-components.css define tr.grp.total td{background:var(--navy);color:#fff}
+ * y tr.grp.total td.lbl{background:var(--navy);color:#fff} (líneas 107-108) --
+ * ambas con más especificidad que .grp.total-forecast td.lbl (esta clase no
+ * incluye el elemento "tr", y la primera versión de esta regla nunca apuntaba
+ * a los <td> normales, solo a td.lbl, así que el resto de la fila seguía
+ * navy). Se apunta a "td" en vez de la <tr> (el background de la <tr> nunca
+ * se ve, lo tapa el background de cada <td>) y se fuerza con !important
+ * porque no se puede tocar legacy-components.css para bajarle la
+ * especificidad a su regla.
+ */
+.grp.total-forecast td {
+  background-color: #f8fafc !important;
+  color: var(--navy) !important;
+}
+.grp.total-forecast {
+  border-top: 2px solid var(--navy);
+  font-weight: 700;
+}
+
+.branch-transfer-chip {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: help;
+  background: var(--amber);
+  color: var(--amber-text);
+}

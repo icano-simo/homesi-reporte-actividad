@@ -79,16 +79,32 @@ function SummaryBlockCards({ block, targetMonthLabel }: { block: SummaryBlock; t
             Healthy Pipeline
           </div>
           <div style={{ fontSize: '28px', fontWeight: 800, color: 'var(--green)', lineHeight: 1.2 }}>{fmtInt(block.healthyCount)}</div>
-          <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>{healthyPct}% of total</div>
+          <div style={{ marginTop: '6px' }}>
+            <span
+              style={{
+                background: 'var(--green-tint)',
+                color: 'var(--green)',
+                borderRadius: '9999px',
+                padding: '2px 8px',
+                fontSize: '11px',
+                fontWeight: 700,
+              }}
+            >
+              {healthyPct}% of total
+            </span>
+          </div>
         </div>
         <div className="mcard" style={{ flex: '0 0 200px' }}>
           <div className="m-name">Closed</div>
           <div style={{ fontSize: '28px', fontWeight: 800, color: 'var(--text)', lineHeight: 1.2 }}>{fmtInt(block.closedCount)}</div>
           <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>{targetMonthLabel ?? 'in target month'}</div>
         </div>
-        <div className="mcard" style={{ flex: '0 0 200px' }}>
+        <div
+          className="mcard"
+          style={{ flex: '0 0 200px', background: 'var(--accent-soft)', border: '1px solid var(--accent-border)' }}
+        >
           <div className="m-name">Forecast</div>
-          <div style={{ fontSize: '28px', fontWeight: 800, color: 'var(--accent)', lineHeight: 1.2 }}>
+          <div style={{ fontSize: '34px', fontWeight: 800, color: 'var(--accent)', lineHeight: 1.2 }}>
             {fmtRounded(block.totalForecast)}
           </div>
           <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>

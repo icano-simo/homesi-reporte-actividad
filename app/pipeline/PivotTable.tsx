@@ -311,24 +311,8 @@ function buildLoanDetailRows(branchForecastRow: BranchForecastRow, resolvedLoans
 
 function BranchTransferBadge() {
   return (
-    <span
-      title="Branch reassigned due to license (Branch Transfer)"
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        width: '14px',
-        height: '14px',
-        marginLeft: '5px',
-        borderRadius: '50%',
-        background: 'var(--accent)',
-        color: '#fff',
-        fontSize: '9px',
-        fontWeight: 700,
-        cursor: 'help',
-      }}
-    >
-      ⇄
+    <span className="branch-transfer-chip" title="Branch reassigned due to license (Branch Transfer)">
+      Transferred
     </span>
   );
 }
@@ -430,7 +414,11 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
                     <Fragment key={key}>
                       <tr className="grp togg" onClick={() => toggle(key)}>
                         <td className="lbl">
-                          <span className="chev">{isOpen ? '▾' : '▸'}</span>
+                          <span className={`chev${isOpen ? ' open' : ''}`}>
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                              <path d="M9 6l6 6-6 6" />
+                            </svg>
+                          </span>
                           {row.branch}
                         </td>
                         <td style={{ textAlign: 'left', color: 'var(--muted)' }}>{managerName}</td>
@@ -444,8 +432,18 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
                       </tr>
                       {isOpen && (
                         <tr>
-                          <td colSpan={6} style={{ padding: '6px 8px', background: '#fafbfd' }}>
-                            <LoanDetailTable detailRows={buildLoanDetailRows(row.branchForecastRow, resolvedLoans, dateRange)} />
+                          <td colSpan={6} style={{ padding: '0' }}>
+                            <div
+                              style={{
+                                background: '#f8fafc',
+                                borderLeft: '4px solid var(--accent)',
+                                padding: '12px 16px',
+                                margin: '4px 0 8px 8px',
+                                borderRadius: '0 6px 6px 0',
+                              }}
+                            >
+                              <LoanDetailTable detailRows={buildLoanDetailRows(row.branchForecastRow, resolvedLoans, dateRange)} />
+                            </div>
                           </td>
                         </tr>
                       )}
@@ -460,7 +458,7 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
                     <td colSpan={99}></td>
                   </tr>
                 )}
-                <tr className="grp total">
+                <tr className="grp total total-forecast">
                   <td className="lbl">Subtotal {block.channel}</td>
                   <td></td>
                   <td className="val">{fmtInt(block.subtotal.closedCount)}</td>
@@ -477,7 +475,7 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
       <div className="tbl-card" style={{ marginTop: '16px' }}>
         <table className="piv">
           <tbody>
-            <tr className="grp total">
+            <tr className="grp total total-forecast">
               <td className="lbl">Combined Total (Banked - Retail + Brokered)</td>
               <td className="val">{fmtInt(grandTotal.closedCount)}</td>
               <td className="val">{fmtInt(grandTotal.totalCount)}</td>

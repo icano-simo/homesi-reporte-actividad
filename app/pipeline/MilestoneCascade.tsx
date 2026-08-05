@@ -145,7 +145,14 @@ export default function MilestoneCascade({ rows, forecastTotal, closedCount, tot
                 </td>
                 <td className="val">{fmtInt(row.healthy)}</td>
                 <td className="val">{fmtInt(row.total)}</td>
-                <td className="val">{fmtPct(cumulativeRate)}</td>
+                <td className="val">
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', justifyContent: 'flex-end' }}>
+                    <div style={{ width: '40px', height: '5px', background: 'var(--border)', borderRadius: '3px', overflow: 'hidden' }}>
+                      <div style={{ width: `${(cumulativeRate * 100).toFixed(1)}%`, height: '100%', background: 'var(--accent)' }} />
+                    </div>
+                    <span>{fmtPct(cumulativeRate)}</span>
+                  </div>
+                </td>
                 <td className="totcol">{fmtForecast(row.forecast)}</td>
               </tr>
             );
@@ -157,7 +164,7 @@ export default function MilestoneCascade({ rows, forecastTotal, closedCount, tot
               <td className="totcol">{fmtInt(closedCount as number)}</td>
             </tr>
           )}
-          <tr className="grp total">
+          <tr className="grp total total-forecast">
             <td className="lbl">{hasClosedBreakdown ? 'Total Forecast (Closed + Projection)' : 'Total Forecast'}</td>
             <td colSpan={3}></td>
             <td className="totcol">{fmtForecast(hasClosedBreakdown ? (totalForecast as number) : forecastTotal)}</td>
