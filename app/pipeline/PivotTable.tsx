@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useState } from 'react';
+import { useState } from 'react';
 import type { PipelineLoan, ResolvedLoan } from '@/lib/pipeline/types';
 import {
   calculateTotalForecastWithClosed,
@@ -9,6 +9,7 @@ import {
   type PullThroughRates,
   type DateRange,
 } from '@/lib/pipeline/aggregate';
+import LoanDetailModal, { type LoanDetailModalLoan } from './LoanDetailModal';
 
 /**
  * Sigue siendo lo que page.tsx arma por branch+channel (usado también para
@@ -112,10 +113,39 @@ function fmtAmount(n: number): string {
   return n.toLocaleString('en-US', { maximumFractionDigits: 0 });
 }
 
-/** Etapa F5g: mismo criterio que classifyHealthy() en salesforce-file.ts ("On Track" o vacío -> healthy) -- acá se muestra la etiqueta en vez del boolean. */
-function healthStatusLabel(rawHealthiness: string): string {
+/**
+ * Etapa F5g: mismo criterio que classifyHealthy() en salesforce-file.ts
+ * ("On Track" o vacío -> healthy) -- acá se muestra la etiqueta en vez del
+ * boolean. NO se toca classifyHealthy() ni el campo `healthy` -- esto es
+ * puramente para texto/color visible, nunca alimenta ningún cálculo de
+ * Healthy Pipeline. Exportada para que LoanDetailModal.tsx la reuse en vez
+ * de duplicar la clasificación string -> label.
+ */
+export function healthStatusLabel(rawHealthiness: string): string {
   const v = rawHealthiness.trim();
   return v === '' || v === 'On Track' ? 'Healthy' : v;
+}
+
+/**
+ * Color del badge de salud, a partir del label YA resuelto por
+ * healthStatusLabel() -- no vuelve a comparar contra el string crudo, solo
+ * mapea label -> color. "Never" usa el mismo rojo/fondo que ya usa
+ * AdverseTable.tsx para el badge de monto >= $300k (mismo hex #fef2f2,
+ * no hay token --red-tint en tokens.css); el resto reusa tokens
+ * existentes, ninguno nuevo.
+ */
+export function healthStatusColor(label: string): { background: string; color: string } {
+  switch (label) {
+    case 'Healthy':
+      return { background: 'var(--green-tint)', color: 'var(--green)' };
+    case 'Delayed':
+      return { background: 'var(--amber)', color: 'var(--amber-text)' };
+    case 'Never':
+      return { background: '#fef2f2', color: 'var(--red)' };
+    default:
+      // 'Out of Scope' y cualquier otro valor futuro no contemplado -- gris neutro.
+      return { background: 'var(--border-soft)', color: 'var(--muted)' };
+  }
 }
 
 /** Etapa F4h: mismo punto de color que SummaryCards, junto a Healthy Pipeline en cada fila. */
@@ -255,6 +285,53 @@ function buildChannelBlocks(branchRows: BranchRow[]): ChannelBlock[] {
   });
 }
 
+interface CombinedBranchRow {
+  branch: string;
+  closedCount: number;
+  totalCount: number;
+  healthyCount: number;
+  totalForecast: number;
+}
+
+/**
+ * Ajuste posterior a F6e: agrupa branchRows (ya suma Banked+Brokered por
+ * fila vía buildBranchRows, sin tocar) por branch -- para la sección
+ * "Combined Total by Branch" de abajo. No es un cálculo nuevo, es la misma
+ * suma que ya hace addSubtotal/grandTotal, solo reagrupada por branch en
+ * vez de por canal.
+ */
+function buildCombinedByBranch(branchRows: BranchRow[]): CombinedBranchRow[] {
+  const map = new Map<string, CombinedBranchRow>();
+  for (const row of branchRows) {
+    const existing = map.get(row.branch);
+    if (existing) {
+      existing.closedCount += row.closedCount;
+      existing.totalCount += row.totalCount;
+      existing.healthyCount += row.healthyCount;
+      existing.totalForecast += row.totalForecast;
+    } else {
+      map.set(row.branch, {
+        branch: row.branch,
+        closedCount: row.closedCount,
+        totalCount: row.totalCount,
+        healthyCount: row.healthyCount,
+        totalForecast: row.totalForecast,
+      });
+    }
+  }
+  return [...map.values()].sort((a, b) => a.branch.localeCompare(b.branch));
+}
+
+function toModalLoan(loan: PipelineLoan): LoanDetailModalLoan {
+  return {
+    sourceLoanId: loan.sourceLoanId,
+    borrowerName: loan.borrowerName,
+    amount: loan.amount,
+    rawMilestone: loan.rawMilestone,
+    rawHealthiness: loan.rawHealthiness,
+  };
+}
+
 /**
  * Detalle de préstamos individuales de un branch+canal: los abiertos
  * (pipeline en Negotiation) más los ya cerrados (funded, dentro del rango
@@ -263,6 +340,11 @@ function buildChannelBlocks(branchRows: BranchRow[]): ChannelBlock[] {
  * "Last Finished Milestone" de un cerrado no tiene una etiqueta granular
  * propia en ResolvedLoan (solo se agregaron los 3 campos que pidió esta
  * etapa) -- se muestra como "Closed (Funded)", derivado de `status`.
+ *
+ * Ajuste posterior a F6e: esta función y LoanDetailTable (abajo) ya no se
+ * usan -- el drill-down inline por fila se reemplazó por LoanDetailModal.tsx
+ * (modal centrado, abierto por celda clickeada: Total Pipeline/Healthy
+ * Pipeline/Closed). Se dejan sin borrar a propósito, tal como se pidió.
  */
 function buildLoanDetailRows(branchForecastRow: BranchForecastRow, resolvedLoans: ResolvedLoan[], dateRange: DateRange): LoanDetailRow[] {
   const openRows: LoanDetailRow[] = branchForecastRow.loans.map((loan) => ({
@@ -363,130 +445,219 @@ function LoanDetailTable({ detailRows }: { detailRows: LoanDetailRow[] }) {
 }
 
 /**
- * Desglose por Branch, en dos bloques por canal -- ver Decisiones en la
- * respuesta de esta etapa (F4d, rediseño). Cada branch está colapsado por
- * default; al expandir se ve la lista de préstamos individuales (abiertos +
- * cerrados que cuentan en el rango activo). Un préstamo con Branch
- * Transfer=1 muestra una nota visual junto a su Loan Number -- no cambia el
- * branch mostrado ni ningún cálculo.
+ * Desglose por Branch -- ajuste posterior a F6e: vuelve a ser 2 tablas
+ * lado a lado (Banked - Retail / Brokered) en vez de una sola tabla con
+ * sub-headers, según último pedido confirmado. Sin acordeón: cada celda
+ * numérica (Closed/Total Pipeline/Healthy Pipeline) abre un modal
+ * (LoanDetailModal.tsx) con la lista de préstamos correspondiente, en vez
+ * de expandir una fila inline. Forecast NO es clickeable -- ver nota en
+ * el componente sobre esa decisión.
+ *
+ * Combined Total ahora vive en una 3ra tabla, agrupada por branch (suma
+ * Banked+Brokered) -- se eligió una tabla aparte en vez de una columna
+ * extra dentro de cada una de las 2 tablas porque Banked y Brokered no
+ * necesariamente tienen el mismo set de branches (uno puede tener un
+ * branch que el otro no); una columna "Combined" adentro de cada tabla
+ * hubiera tenido que buscar el valor del OTRO canal para ese branch,
+ * rompiendo la separación limpia "esta tabla = este canal, nada más".
  */
 export default function PivotTable({ rows, resolvedLoans, dateRange, branchManagers, knownBranches }: PivotTableProps) {
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [modal, setModal] = useState<{ title: string; loans: LoanDetailModalLoan[] } | null>(null);
 
   const branchRows = buildBranchRows(rows, resolvedLoans, dateRange, knownBranches);
   const blocks = buildChannelBlocks(branchRows);
   const grandTotal = blocks.reduce((acc, block) => addSubtotal(acc, block.subtotal), EMPTY_SUBTOTAL);
+  const combinedByBranch = buildCombinedByBranch(branchRows);
 
-  function toggle(key: string) {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
+  function openTotalPipelineModal(row: BranchRow) {
+    setModal({
+      title: `Total Pipeline — ${row.branch} (${row.channel})`,
+      loans: row.branchForecastRow.loans.map(toModalLoan),
+    });
+  }
+
+  function openHealthyPipelineModal(row: BranchRow) {
+    setModal({
+      title: `Healthy Pipeline — ${row.branch} (${row.channel})`,
+      loans: row.branchForecastRow.loans.filter((l) => l.healthy === true).map(toModalLoan),
+    });
+  }
+
+  // Etapa F4i en adelante: mismo filtro que ya usa buildBranchRows para
+  // "Closed" de esta fila (status='funded' + branch+channel exactos +
+  // disbursementDate en dateRange) -- se repite acá en vez de reusar
+  // branchForecastRow (que no guarda la lista de cerrados, solo el count).
+  function openClosedModal(row: BranchRow) {
+    const closedLoans = resolvedLoans.filter(
+      (loan) =>
+        loan.status === 'funded' &&
+        loan.branch === row.branch &&
+        loan.channel === row.channel &&
+        loan.disbursementDate >= dateRange.startDate &&
+        loan.disbursementDate <= dateRange.endDate
+    );
+    setModal({
+      title: `Closed — ${row.branch} (${row.channel})`,
+      loans: closedLoans.map((loan) => ({
+        sourceLoanId: loan.sourceLoanId,
+        borrowerName: loan.borrowerName,
+        amount: loan.amount,
+        // Etapa F5g agregó rawMilestone a ResolvedLoan (el valor real al
+        // momento del cierre) -- se usa acá en vez del literal fijo
+        // 'Closed (Funded)' que usaba el viejo LoanDetailTable, con ese
+        // string como fallback solo si el archivo no trae la columna.
+        rawMilestone: loan.rawMilestone || 'Closed (Funded)',
+        // ResolvedLoan no tiene rawHealthiness en su tipo -- un préstamo ya
+        // cerrado no tiene un estado de salud vigente. Se omite el campo en
+        // vez de mandar un string inventado; LoanDetailModal.tsx muestra
+        // '—' cuando rawHealthiness es undefined.
+      })),
     });
   }
 
   return (
-    <div className="tbl-card">
-      <table className="piv">
-        <colgroup>
-          <col className="branch-col" />
-          <col className="manager-col" />
-          <col />
-          <col />
-          <col />
-          <col />
-        </colgroup>
-        <thead>
-          <tr className="mo-row">
-            <th className="lbl">Branch</th>
-            <th style={{ textAlign: 'left' }}>Branch Manager</th>
-            <th>Closed</th>
-            <th>Total Pipeline</th>
-            <th>Healthy Pipeline</th>
-            <th className="totcol">Forecast</th>
-          </tr>
-        </thead>
-        <tbody>
-          {blocks.map((block) => (
-            <Fragment key={block.channel}>
-              <tr className="grp d1">
-                <td className="lbl" colSpan={6}>
-                  {block.channel}
+    <>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+        {blocks.map((block) => (
+          <div className="tbl-card" style={{ minWidth: 0, overflowX: 'auto' }} key={block.channel}>
+            <div className="cards-head" style={{ padding: '10px 12px 0' }}>
+              {block.channel}
+            </div>
+            <table className="piv">
+              <colgroup>
+                <col className="branch-col" />
+                <col className="manager-col" />
+                <col />
+                <col />
+                <col />
+                <col />
+              </colgroup>
+              <thead>
+                <tr className="mo-row">
+                  <th className="lbl">Branch</th>
+                  <th style={{ textAlign: 'left' }}>Branch Manager</th>
+                  <th>Closed</th>
+                  <th>Total Pipeline</th>
+                  <th>Healthy Pipeline</th>
+                  <th className="totcol">Forecast</th>
+                </tr>
+              </thead>
+              <tbody>
+                {block.rows.map((row) => {
+                  const managerName = branchManagers.get(row.branch) ?? '(unassigned)';
+                  return (
+                    <tr className="metric" key={row.branch + '::' + row.channel}>
+                      <td className="lbl">{row.branch}</td>
+                      <td style={{ textAlign: 'left', color: 'var(--muted)' }}>{managerName}</td>
+                      <td className="val">
+                        <button type="button" className="cell-trigger" onClick={() => openClosedModal(row)}>
+                          {fmtInt(row.closedCount)}
+                        </button>
+                      </td>
+                      <td className="val">
+                        <button type="button" className="cell-trigger" onClick={() => openTotalPipelineModal(row)}>
+                          {fmtInt(row.totalCount)}
+                        </button>
+                      </td>
+                      <td className="val">
+                        <button type="button" className="cell-trigger" onClick={() => openHealthyPipelineModal(row)}>
+                          <HealthyDot />
+                          {fmtInt(row.healthyCount)}
+                        </button>
+                      </td>
+                      <td className="totcol">
+                        <span className="forecast-pill">{fmtForecast(row.totalForecast)}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!block.rows.length && (
+                  <tr>
+                    <td className="lbl" style={{ color: 'var(--muted)', fontWeight: 500 }} colSpan={6}>
+                      No pipeline data.
+                    </td>
+                  </tr>
+                )}
+                <tr className="grp total total-forecast">
+                  <td className="lbl">Subtotal {block.channel}</td>
+                  <td></td>
+                  <td className="val">{fmtInt(block.subtotal.closedCount)}</td>
+                  <td className="val">{fmtInt(block.subtotal.totalCount)}</td>
+                  <td className="val">{fmtInt(block.subtotal.healthyCount)}</td>
+                  <td className="totcol">{fmtForecast(block.subtotal.totalForecast)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        ))}
+      </div>
+
+      <div className="tbl-card" style={{ marginTop: '16px' }}>
+        <div className="cards-head" style={{ padding: '10px 12px 0' }}>
+          Combined Total by Branch
+        </div>
+        <table className="piv">
+          <colgroup>
+            <col className="branch-col" />
+            <col className="manager-col" />
+            <col />
+            <col />
+            <col />
+            <col />
+          </colgroup>
+          <thead>
+            <tr className="mo-row">
+              <th className="lbl">Branch</th>
+              <th style={{ textAlign: 'left' }}>Branch Manager</th>
+              <th>Closed</th>
+              <th>Total Pipeline</th>
+              <th>Healthy Pipeline</th>
+              <th className="totcol">Forecast</th>
+            </tr>
+          </thead>
+          <tbody>
+            {combinedByBranch.map((row) => {
+              const managerName = branchManagers.get(row.branch) ?? '(unassigned)';
+              return (
+                <tr className="metric" key={row.branch}>
+                  <td className="lbl">{row.branch}</td>
+                  <td style={{ textAlign: 'left', color: 'var(--muted)' }}>{managerName}</td>
+                  <td className="val">{fmtInt(row.closedCount)}</td>
+                  <td className="val">{fmtInt(row.totalCount)}</td>
+                  <td className="val">
+                    <HealthyDot />
+                    {fmtInt(row.healthyCount)}
+                  </td>
+                  <td className="totcol">
+                    <span className="forecast-pill">{fmtForecast(row.totalForecast)}</span>
+                  </td>
+                </tr>
+              );
+            })}
+            {!combinedByBranch.length && (
+              <tr>
+                <td className="lbl" style={{ color: 'var(--muted)', fontWeight: 500 }} colSpan={6}>
+                  No pipeline data.
                 </td>
               </tr>
-              {block.rows.map((row) => {
-                const key = row.branch + '::' + row.channel;
-                const isOpen = expanded.has(key);
-                const managerName = branchManagers.get(row.branch) ?? '(unassigned)';
-                return (
-                  <Fragment key={key}>
-                    <tr className="grp togg" onClick={() => toggle(key)}>
-                      <td className="lbl">
-                        <span className={`chev${isOpen ? ' open' : ''}`}>
-                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
-                            <path d="M9 6l6 6-6 6" />
-                          </svg>
-                        </span>
-                        {row.branch}
-                      </td>
-                      <td style={{ textAlign: 'left', color: 'var(--muted)' }}>{managerName}</td>
-                      <td className="val">{fmtInt(row.closedCount)}</td>
-                      <td className="val">{fmtInt(row.totalCount)}</td>
-                      <td className="val">
-                        <HealthyDot />
-                        {fmtInt(row.healthyCount)}
-                      </td>
-                      <td className="totcol">{fmtForecast(row.totalForecast)}</td>
-                    </tr>
-                    {isOpen && (
-                      <tr>
-                        <td colSpan={6} style={{ padding: '0' }}>
-                          <div
-                            style={{
-                              background: '#f8fafc',
-                              borderLeft: '4px solid var(--accent)',
-                              padding: '12px 16px',
-                              margin: '4px 0 8px 8px',
-                              borderRadius: '0 6px 6px 0',
-                            }}
-                          >
-                            <LoanDetailTable detailRows={buildLoanDetailRows(row.branchForecastRow, resolvedLoans, dateRange)} />
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
-                );
-              })}
-              {!block.rows.length && (
-                <tr>
-                  <td className="lbl" style={{ color: 'var(--muted)', fontWeight: 500 }}>
-                    No pipeline data.
-                  </td>
-                  <td colSpan={99}></td>
-                </tr>
-              )}
-              <tr className="grp total total-forecast">
-                <td className="lbl">Subtotal {block.channel}</td>
-                <td></td>
-                <td className="val">{fmtInt(block.subtotal.closedCount)}</td>
-                <td className="val">{fmtInt(block.subtotal.totalCount)}</td>
-                <td className="val">{fmtInt(block.subtotal.healthyCount)}</td>
-                <td className="totcol">{fmtForecast(block.subtotal.totalForecast)}</td>
-              </tr>
-            </Fragment>
-          ))}
-          <tr className="grp total total-forecast">
-            <td className="lbl">Combined Total (Banked - Retail + Brokered)</td>
-            <td></td>
-            <td className="val">{fmtInt(grandTotal.closedCount)}</td>
-            <td className="val">{fmtInt(grandTotal.totalCount)}</td>
-            <td className="val">{fmtInt(grandTotal.healthyCount)}</td>
-            <td className="totcol">{fmtForecast(grandTotal.totalForecast)}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+            )}
+            <tr className="grp total total-forecast">
+              <td className="lbl">Combined Total (Banked - Retail + Brokered)</td>
+              <td></td>
+              <td className="val">{fmtInt(grandTotal.closedCount)}</td>
+              <td className="val">{fmtInt(grandTotal.totalCount)}</td>
+              <td className="val">{fmtInt(grandTotal.healthyCount)}</td>
+              <td className="totcol">{fmtForecast(grandTotal.totalForecast)}</td>
+            </tr>
+          </tbody>
+        </table>
+        <p style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '8px' }}>
+          Forecast subtotals are rounded independently per channel; the Combined Total is calculated from the underlying decimal
+          values before rounding, so it may differ by a small margin from the sum of the rounded subtotals shown above.
+        </p>
+      </div>
+
+      <LoanDetailModal isOpen={modal !== null} onClose={() => setModal(null)} title={modal?.title ?? ''} loans={modal?.loans ?? []} />
+    </>
   );
 }
