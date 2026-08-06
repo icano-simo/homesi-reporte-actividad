@@ -598,7 +598,7 @@ export default function PipelinePage() {
         formatDetected={data?.formatDetected}
         saveStatus={data?.persisted === true ? 'saved' : data?.persisted === false ? 'error' : 'idle'}
       />
-      <div className="content">
+      <div className="content forecast-container">
         <h1 className="title">Forecast — Pipeline</h1>
 
         {!data && isLoadingInitial && (

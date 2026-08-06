@@ -128,3 +128,33 @@
   color: var(--muted);
   margin-top: 6px;
 }
+
+/*
+ * Ajuste visual posterior: contiene el ancho del contenido en pantallas
+ * anchas -- el Topbar (fuera de este contenedor, sin tocar) sigue
+ * full-width; solo lo que va DENTRO de <div className="content"> se centra
+ * a 1440px con márgenes laterales.
+ */
+.forecast-container {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 0 24px 24px;
+}
+
+/* Anchos fijos para Branch/Branch Manager en la tabla Executive (PivotTable) -- Closed/Total Pipeline/Healthy Pipeline/Forecast se reparten el resto sin ancho fijo. */
+.piv col.branch-col {
+  width: 140px;
+}
+.piv col.manager-col {
+  width: 160px;
+}
+
+/* Cascada compacta (MilestoneCascade) -- menos padding vertical/horizontal por celda. */
+.cascade-compact td,
+.cascade-compact th {
+  padding: 8px 12px !important;
+}
+/* Track (fondo) de la barra de "% applied" -- celeste de marca en vez del gris genérico anterior. El relleno (el ancho variable) sigue usando var(--accent) sin cambios, ver MilestoneCascade.tsx. */
+.cascade-compact .progress-track {
+  background: var(--sky);
+}

@@ -124,7 +124,7 @@ export default function MilestoneCascade({ rows, forecastTotal, closedCount, tot
 
   return (
     <div className="tbl-card">
-      <table className="piv">
+      <table className="piv cascade-compact">
         <thead>
           <tr className="mo-row">
             <th className="lbl">Milestone</th>
@@ -147,7 +147,7 @@ export default function MilestoneCascade({ rows, forecastTotal, closedCount, tot
                 <td className="val">{fmtInt(row.total)}</td>
                 <td className="val">
                   <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', justifyContent: 'flex-end' }}>
-                    <div style={{ width: '40px', height: '5px', background: 'var(--border)', borderRadius: '3px', overflow: 'hidden' }}>
+                    <div className="progress-track" style={{ width: '40px', height: '5px', borderRadius: '3px', overflow: 'hidden' }}>
                       <div style={{ width: `${(cumulativeRate * 100).toFixed(1)}%`, height: '100%', background: 'var(--accent)' }} />
                     </div>
                     <span>{fmtPct(cumulativeRate)}</span>

@@ -62,11 +62,28 @@ Solo CL (First Lien) por ahora. Fuente única: el reporte que Alejandra/Isabella
   types.ts                 -- PipelineLoan, ResolvedLoan (contrato de datos)
   sources/salesforce-file.ts -- parser (detecta Formato A "agrupado" o B "plano")
   aggregate.ts              -- Healthy/Total split, buckets de milestone, cascada de pull-through
-                               (NUNCA importa nada de sources/ — regla no negociable)
+                               de Banked Y de Brokered (cada canal con su propio esquema de
+                               buckets/tasas desde F5i, ver Riesgos) -- NUNCA importa nada de
+                               sources/, regla no negociable
 /app/pipeline/
-  page.tsx, SummaryCards.tsx, MilestoneCascade.tsx, PivotTable.tsx,
-  DateRangeInput.tsx, UploadButton.tsx, AdverseTable.tsx (en curso)
-/app/api/pipeline/upload/route.ts  -- parseo server-side (el parser usa Buffer de Node)
+  page.tsx                -- orquesta todo el cálculo derivado + el estado (filtros, tab activo)
+  Topbar.tsx               (F6) -- upload + date range + forecast month + dropdown de branch global
+  TabNavigation.tsx        (F6) -- shell de 3 tabs: Executive/Matrix/Adverse
+  SummaryCards.tsx         -- banner de 4 tarjetas combinado (contrato de props cambió en F6, ver abajo)
+  MilestoneCascade.tsx     -- tabla de cascada de pull-through, genérica desde F5i (ya no sabe
+                              de Banked/Brokered, solo dibuja las rows que le pasen)
+  PivotTable.tsx           -- Executive Branch Forecast (JSX reempaquetado en F6, lógica de
+                              agregación intacta, ver abajo)
+  TabMilestoneMatrix.tsx    (F6) -- Milestone Pipeline Matrix: matriz Branch x Milestone +
+                              cascada + cuadro de Pull-Through Rates, todo filtrable por canal
+  AdverseTable.tsx         -- tabla de Adverse & Risk Loans
+  DateRangeInput.tsx, MonthSelector.tsx, UploadButton.tsx -- controles reusados dentro de Topbar
+  styles/forecast-visual.css (F5d en adelante) -- CSS exclusivo de Forecast, ver sección propia abajo
+/app/api/pipeline/
+  parse/route.ts            -- parseo server-side (el parser usa Buffer de Node) + persistencia en Supabase
+  latest/route.ts           -- restaura el último snapshot activo al abrir la página
+  retention/route.ts        -- cron diario, retención de 90 días de snapshots
+  adverse-history/route.ts  -- fecha de primera detección de cada préstamo como adverse
 /components/Sidebar.tsx  -- compartido con Actividad, extraído del markup decorativo del HTML original
 ```
 
@@ -118,6 +135,37 @@ Solo CL (First Lien) por ahora. Fuente única: el reporte que Alejandra/Isabella
 | F4g | Branches sin actividad real y fuera del roster ya no generan fila fantasma; etiqueta "Rango del Forecast" |
 | F4h | (en curso) tarjeta de Cerrados visible, tabla de Adverse filtrable por canal, Forecast redondeado a entero en tarjetas/tabla (la cascada de milestone conserva decimales, para auditoría), mejoras visuales con SVG inline (no se instaló `lucide-react` para no tocar `package.json` fuera de la lista de la etapa) |
 
+*(Etapas F5a-F5i: persistencia en Supabase, retención de 90 días, filtro de Adverse ampliado a cualquier motivo, y la cascada de pull-through propia de Brokered -- no documentadas en detalle en esta tabla, ver Riesgos abajo para lo que sigue abierto de esas etapas.)*
+
+### Rediseño visual (Etapa F6)
+
+Reorganización visual completa de la UI de Forecast -- **sin ningún cambio de cálculo**, `aggregate.ts` intacto en todo el proceso. Componentes nuevos:
+
+- **`Topbar.tsx`** -- agrupa upload + date range + forecast month (controles que ya existían, reusados tal cual) + un dropdown de branch nuevo (`selectedBranch`), el filtro global de la página.
+- **`TabNavigation.tsx`** -- shell de 3 tabs: Executive Branch Forecast / Milestone Pipeline Matrix / Adverse & Risk Loans. Antes todo vivía apilado en una sola pantalla.
+- **`TabMilestoneMatrix.tsx`** -- matriz Branch x Milestone (toggle Total/Healthy) + la cascada de pull-through existente (`MilestoneCascade`, sin tocar) + el cuadro de Pull-Through Rates, todo filtrable por canal (Banked - Retail / Brokered, sin tercera opción combinada -- cada canal tiene su propio esquema de buckets).
+
+**`SummaryCards.tsx` cambió de contrato de props**: antes recibía `blocks: SummaryBlock[]` (3 bloques repetidos -- Banked/Brokered/Combinado, cada uno con sus propias 4 tarjetas). Ahora recibe `combined`/`banked`/`brokered` por separado y renderiza UN solo banner de 4 tarjetas con los números combinados; Banked/Brokered solo aportan un desglose chico en el subtítulo de la tarjeta Forecast (`Banked: X | Brokered: Y`).
+
+**`PivotTable.tsx` no cambió su lógica de agregación** (`buildBranchRows`, `buildChannelBlocks`, `addSubtotal`, `buildOrphanBranchRows` -- todas intactas) -- solo su JSX de retorno: antes eran 2 `<table>` lado a lado (una por canal) + una 3ra tabla aparte para Combined Total; ahora es una sola `<table>` con filas de sub-header por canal (`.grp.d1`) y las 3 filas de total (2 subtotales + Combined Total) como filas normales de esa misma tabla, bajo un único `<thead>`.
+
+**Filtro de branch global**: `selectedBranch` (Topbar) ahora filtra las 4 secciones de la página -- banner, Executive, Matrix y Adverse -- no solo Executive como se pensó en un primer momento. La fuente única son `filteredBranchRows`/`filteredResolvedLoans` en `page.tsx` (derivadas de `branchRows`/`data.resolvedLoans` + `selectedBranch`); todo cálculo derivado de ahí para abajo (banner, `summarizeChannel`, las 2 cascadas de Matrix, `adverseInRange`, `resolvedSummary`) usa esas 2 variables, nunca los sets completos sin filtrar.
+
+#### `forecast-visual.css` (`app/pipeline/styles/`)
+
+CSS exclusivo de Forecast -- importado SOLO desde `app/pipeline/page.tsx`, nunca desde `globals.css`. `legacy-components.css` (compartido con Actividad) sigue **sin ninguna modificación** desde el inicio del proyecto -- confirmado en cada etapa de F6.
+
+Clases agregadas en F6 (sobre las que ya existían desde F5d -- `.chev`, `.branch-transfer-chip`):
+- `.tab-nav` / `.tab-btn` / `.tab-btn.active` -- shell de `TabNavigation.tsx`
+- `.channel-segment` -- selector de canal y toggle Total/Healthy en `TabMilestoneMatrix.tsx`
+- `.hero-banner` -- grid de 4 columnas del banner de `SummaryCards.tsx`
+- `.adverse-header` -- header navy de `AdverseTable.tsx`, con `!important` -- necesario para ganarle a `table.piv thead .mo-row th` de `legacy-components.css` (el `background`/`color` de un `<th>` nunca hereda de un style inline en su `<tr>` padre, sin importar especificidad)
+- `.grp.total-forecast` -- fondo claro + borde superior navy en filas de total (`MilestoneCascade`/`PivotTable`), también con `!important` por el mismo motivo (`tr.grp.total td{background:var(--navy)...}` de `legacy-components.css` gana si no se fuerza)
+
+#### `tokens.css`
+
+Agregadas `--canvas`, `--coral`, `--sky` (paleta de marca, fundaciones agregadas en F6a) -- ninguna variable existente se tocó (`--navy` intacto). Las 3 quedan **sin ningún consumidor todavía** -- ningún componente las usa; quedaron ahí como fundación para una etapa visual futura.
+
 ### Riesgos y pendientes abiertos
 
 1. **`pipeline_forecast.branches`/`branch_managers` dan `permission denied` con la anon key** — falta correr `GRANT` en Supabase (SQL ya entregado, pendiente de ejecutar). Mientras tanto, Branch Manager muestra "(sin asignar)" en todos lados sin romperse.
@@ -127,7 +175,11 @@ Solo CL (First Lien) por ahora. Fuente única: el reporte que Alejandra/Isabella
 5. **Encompash como fuente alterna** (cuando Salesforce cae) — arquitectura lo permite en teoría (`sources/` es plug-in), pero requiere que Encompash tenga un campo `Healthiness`-equivalente o se defina qué hacer sin él; no hay archivo de Encompash con esa estructura todavía para probarlo.
 6. **`Loan Status`** se probó como posible filtro para aislar el pipeline "real" — descartado, no aísla nada en el export de Salesforce (a diferencia de en el Excel interno, donde sí lo hace).
 7. **`fixtures/pipeline-demo.ts`** sigue en el repo, ya no se usa desde `page.tsx` — candidato a limpieza, no autorizado a borrar todavía.
-8. **Mejora futura — alerta de préstamos "invisibles" entre Pipeline y Adverse.** Caso real encontrado (préstamo `776002059702`, agosto 2026): un `Stage = Closed Lost` puesto por error/sin autorización en Salesforce (sin pasar por Encompash) cae en un hueco — no cuenta como Pipeline (porque `Stage` no es `Negotiation`) ni aparece en la tabla de Adverse (porque `Loan Status` no es `Application withdrawn`, ya que el préstamo en realidad seguía activo). Queda invisible en la app hasta que alguien lo note por fuera. Alejandra corrigió el caso puntual en Salesforce y va a restringir permisos para que no se repita, pero como mejora futura: agregar una tabla/alerta tipo "Pendiente de revisión" para cualquier préstamo con `Stage = Closed Lost` cuyo `Loan Status` no sea `Application withdrawn` — para que quede visible en vez de perderse silenciosamente.
+8. **[Histórico, F4i] Préstamo "invisible" entre Pipeline y Adverse — el motivo ya no aplica desde F5h.** Caso real encontrado (préstamo `776002059702`, agosto 2026): bajo el criterio original de F4i (`status='adverse'` Y `Loan Status='Application withdrawn'` Y Est. Closing Date en rango), un `Stage = Closed Lost` puesto por error/sin autorización en Salesforce (sin pasar por Encompash) caía en un hueco — no contaba como Pipeline (porque `Stage` no era `Negotiation`) ni aparecía en la tabla de Adverse, porque su `Loan Status` no era `Application withdrawn` (el préstamo en realidad seguía activo en Salesforce). Alejandra corrigió el caso puntual en Salesforce y restringió permisos para que no se repita.
+
+   **Criterio actual (desde F5h)**: Adverse filtra solo por `status='adverse'` Y Est. Closing Date dentro del rango activo — ya no se filtra por `Loan Status` ni por `Loan Folder` (deliberadamente, confirmado por el negocio que ese campo puede estar desactualizado). El filtro por `Loan Status='Application withdrawn'` fue el diseño original de F4i; se descartó en F5h porque excluía Adverse legítimos con otros motivos (Application denied, File Closed for incompleteness, y hasta casos con `Loan Status` desincronizado tipo "Active Loan" a pesar de `Stage=Closed Lost`). Con el criterio de hoy, un caso como el de arriba ya aparecería en Adverse sin necesidad de ninguna alerta extra.
+9. **`BranchForecastRow.bucketTotal`/`.bucketHealthy` son vestigiales para Brokered — riesgo activo para cualquier componente nuevo.** Ese tipo (definido en `PivotTable.tsx`) está tipado fijo a `BucketCounts`, el esquema de Banked (`Started`/`Processing`/`Underwriting`/`Closing`). `page.tsx` los calcula con `countByMilestoneBucket()` sin importar el canal, así que para una fila de canal Brokered esos 2 campos quedan con las keys y los valores de la clasificación de Banked — **no** los reales de Brokered (`FileCreation`/`AppDate`/`Processing`/`Submitted`). No es un bug nuevo (viene desde F5i, documentado ahí), pero cobra importancia recién ahora que `TabMilestoneMatrix.tsx` (F6) necesitó datos de bucket por branch: cualquier componente que lea `bucketTotal`/`bucketHealthy` directo de una fila Brokered va a mostrar datos incorrectos con etiquetas de Banked. **La forma correcta**: recalcular desde `row.loans` con `countByBrokeredMilestoneBucket()` (`aggregate.ts`, ya exportada) -- ver `bucketsForRow()` en `TabMilestoneMatrix.tsx` para el patrón ya implementado. Arreglarlo de raíz (que `BranchForecastRow` tenga un shape específico por canal) requeriría tocar `PivotTable.tsx`, fuera de alcance hasta ahora.
+10. **`BANKED_MATRIX_COLUMNS` (`TabMilestoneMatrix.tsx`) está acoplado a mano con `MILESTONE_BUCKET` (`lib/pipeline/sources/salesforce-file.ts`) — sin ninguna referencia en código que los mantenga sincronizados.** Ajuste posterior a F6: la matriz Branch x Milestone desagrega el bucket `Underwriting` de Banked (que colapsa `Submittal`/`Initial Decision`/`Resubmittal`) en 3 columnas de vista, contando a mano sobre `rawMilestone` de cada préstamo (`bankedRawMilestoneCount()`) -- el cálculo de pull-through no cambió, sigue usando `bucketTotal.Underwriting`/`bucketHealthy.Underwriting` con la tasa combinada. El array `BANKED_MATRIX_COLUMNS = ['Started', 'Processing', 'Submittal', 'Initial Decision', 'Resubmittal', 'Closing']` está copiado a mano de `MILESTONE_BUCKET` -- si el parser agrega/quita un valor de `Current Milestone` dentro de Underwriting, `BANKED_MATRIX_COLUMNS` queda desactualizado en silencio (no rompe el build, solo deja de mostrar/cuenta mal una columna). No se resolvió leyendo dinámicamente de `MILESTONE_BUCKET` porque `sources/salesforce-file.ts` estaba fuera de la lista de archivos permitidos en esa etapa.
 ---
 
 ## Glosario rápido (para no repetir la investigación)

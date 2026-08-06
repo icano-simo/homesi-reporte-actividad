@@ -23,6 +23,47 @@ export interface TabMilestoneMatrixProps {
 type Channel = 'banked' | 'brokered';
 type MetricView = 'total' | 'healthy';
 
+/**
+ * Ajuste post-F6f: los 3 valores crudos de Current Milestone que
+ * MILESTONE_BUCKET (lib/pipeline/sources/salesforce-file.ts) colapsa en el
+ * bucket único 'Underwriting' de Banked. Se desagregan acá SOLO para la
+ * vista de la matriz -- el cálculo de pull-through no cambia, sigue
+ * usando la tasa combinada de Underwriting sobre el conteo total de las 3
+ * juntas (row.bucketTotal.Underwriting/row.bucketHealthy.Underwriting,
+ * intactos, alimentan MilestoneCascade exactamente igual que antes).
+ */
+const UNDERWRITING_RAW_MILESTONES = ['Submittal', 'Initial Decision', 'Resubmittal'] as const;
+
+function isUnderwritingRawMilestone(key: string): key is (typeof UNDERWRITING_RAW_MILESTONES)[number] {
+  return (UNDERWRITING_RAW_MILESTONES as readonly string[]).includes(key);
+}
+
+/**
+ * Columnas fijas de la matriz para Banked -- NO Object.keys(bankedRates)
+ * (esa solo tiene las 4 keys de pull-through: Started/Processing/
+ * Underwriting/Closing, no las 6 de esta vista). Started/Processing/
+ * Closing siguen siendo 1 columna = 1 bucket real de countByMilestoneBucket,
+ * sin cambios; Underwriting se reemplaza acá por sus 3 Current Milestone
+ * crudos. Brokered sigue usando Object.keys(brokeredRates) tal cual (ver
+ * `milestoneKeys` más abajo), sus 4 buckets ya están completos y correctos.
+ */
+const BANKED_MATRIX_COLUMNS: string[] = ['Started', 'Processing', ...UNDERWRITING_RAW_MILESTONES, 'Closing'];
+
+/**
+ * Cuenta a mano desde row.loans cuántos préstamos Banked tienen ese
+ * rawMilestone exacto (.trim(), mismo criterio de comparación que usa
+ * MILESTONE_BUCKET en el parser) -- countByMilestoneBucket ya los colapsó
+ * en un solo bucket 'Underwriting', así que para desagregarlos en la vista
+ * hace falta volver al dato crudo. Un préstamo con un rawMilestone fuera de
+ * MILESTONE_BUCKET ya fue descartado por el parser (con warning) antes de
+ * llegar acá -- no aparece en ninguna columna, mismo comportamiento que
+ * tenía el bucket 'Underwriting' combinado.
+ */
+function bankedRawMilestoneCount(row: BranchForecastRow, rawMilestone: string, metricView: MetricView): number {
+  const loans = metricView === 'total' ? row.loans : row.loans.filter((l) => l.healthy === true);
+  return loans.filter((l) => l.rawMilestone.trim() === rawMilestone).length;
+}
+
 /** Suma los forecast ya calculados por fila -- MilestoneCascadeProps.forecastTotal es obligatorio y no viene como prop separado acá, así que se deriva de las mismas rows que se muestran (mismo total que ya suman internamente esas rows, no es un cálculo nuevo). */
 function sumForecast(rows: MilestoneCascadeRow[]): number {
   return rows.reduce((sum, r) => sum + r.forecast, 0);
@@ -98,13 +139,14 @@ export default function TabMilestoneMatrix({ bankedRows, brokeredRows, bankedRat
 
   const channelValue: BranchForecastRow['channel'] = channel === 'banked' ? 'Banked - Retail' : 'Brokered';
   const filteredByChannel = rows.filter((r) => r.channel === channelValue);
-  // Mismo criterio que el cuadro de Pull-Through Rates de abajo: las keys de
-  // milestone salen de `rates` (ya viene por canal, real, sin lista fija) en
-  // vez de "el primer bucketTotal disponible" -- así la matriz sigue
-  // mostrando las columnas correctas incluso si ese canal no tiene ningún
-  // branch en `filteredByChannel` (ej. filtraste a un branch que solo tiene
-  // préstamos Banked, y elegís ver Brokered).
-  const milestoneKeys = Object.keys(rates);
+  // Ajuste post-F6f: Banked usa las 6 columnas fijas (Underwriting
+  // desagregado en vista, ver BANKED_MATRIX_COLUMNS) -- Brokered sigue
+  // igual que antes, las keys de `rates` (ya viene por canal, real, sin
+  // lista fija), así la matriz sigue mostrando las columnas correctas
+  // incluso si ese canal no tiene ningún branch en `filteredByChannel` (ej.
+  // filtraste a un branch que solo tiene préstamos Banked, y elegís ver
+  // Brokered).
+  const milestoneKeys = channel === 'banked' ? BANKED_MATRIX_COLUMNS : Object.keys(rates);
 
   return (
     <div>
@@ -146,7 +188,9 @@ export default function TabMilestoneMatrix({ bankedRows, brokeredRows, bankedRat
                 <td className="lbl">{row.branch}</td>
                 {milestoneKeys.map((k) => (
                   <td className="val" key={k}>
-                    {bucketValue(active, k)}
+                    {channel === 'banked' && isUnderwritingRawMilestone(k)
+                      ? bankedRawMilestoneCount(row, k, metricView)
+                      : bucketValue(active, k)}
                   </td>
                 ))}
               </tr>

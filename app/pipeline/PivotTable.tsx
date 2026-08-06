@@ -389,6 +389,14 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
   return (
     <div className="tbl-card">
       <table className="piv">
+        <colgroup>
+          <col className="branch-col" />
+          <col className="manager-col" />
+          <col />
+          <col />
+          <col />
+          <col />
+        </colgroup>
         <thead>
           <tr className="mo-row">
             <th className="lbl">Branch</th>
