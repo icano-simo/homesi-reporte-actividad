@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import type { PipelineLoan } from '@/lib/pipeline/types';
 import {
   countByBrokeredMilestoneBucket,
   type PullThroughRates,
@@ -10,6 +11,7 @@ import {
 } from '@/lib/pipeline/aggregate';
 import MilestoneCascade, { type MilestoneCascadeRow } from './MilestoneCascade';
 import type { BranchForecastRow } from './PivotTable';
+import LoanDetailModal, { type LoanDetailModalLoan } from './LoanDetailModal';
 
 export interface TabMilestoneMatrixProps {
   bankedRows: MilestoneCascadeRow[];
@@ -49,19 +51,66 @@ function isUnderwritingRawMilestone(key: string): key is (typeof UNDERWRITING_RA
  */
 const BANKED_MATRIX_COLUMNS: string[] = ['Started', 'Processing', ...UNDERWRITING_RAW_MILESTONES, 'Closing'];
 
+/** Mismo filtro Total/Healthy que ya aplicaban bankedRawMilestoneCount/bucketsForRow -- extraído para reusarlo también en el filtro por celda del modal (ajuste posterior), en vez de repetir el ternario en cada función nueva. */
+function applyMetricFilter(loans: PipelineLoan[], metricView: MetricView): PipelineLoan[] {
+  return metricView === 'total' ? loans : loans.filter((l) => l.healthy === true);
+}
+
 /**
- * Cuenta a mano desde row.loans cuántos préstamos Banked tienen ese
- * rawMilestone exacto (.trim(), mismo criterio de comparación que usa
- * MILESTONE_BUCKET en el parser) -- countByMilestoneBucket ya los colapsó
- * en un solo bucket 'Underwriting', así que para desagregarlos en la vista
- * hace falta volver al dato crudo. Un préstamo con un rawMilestone fuera de
- * MILESTONE_BUCKET ya fue descartado por el parser (con warning) antes de
- * llegar acá -- no aparece en ninguna columna, mismo comportamiento que
- * tenía el bucket 'Underwriting' combinado.
+ * Lista (no solo conteo) de préstamos Banked con ese rawMilestone exacto
+ * (.trim(), mismo criterio de comparación que usa MILESTONE_BUCKET en el
+ * parser) -- countByMilestoneBucket ya los colapsó en un solo bucket
+ * 'Underwriting', así que para desagregarlos en la vista hace falta volver
+ * al dato crudo. Un préstamo con un rawMilestone fuera de MILESTONE_BUCKET
+ * ya fue descartado por el parser (con warning) antes de llegar acá -- no
+ * aparece en ninguna columna, mismo comportamiento que tenía el bucket
+ * 'Underwriting' combinado.
  */
+function bankedRawMilestoneLoans(row: BranchForecastRow, rawMilestone: string, metricView: MetricView): PipelineLoan[] {
+  return applyMetricFilter(row.loans, metricView).filter((l) => l.rawMilestone.trim() === rawMilestone);
+}
+
+/** Ajuste posterior: bankedRawMilestoneCount ahora reusa bankedRawMilestoneLoans en vez de duplicar el filtro -- mismo resultado de siempre, solo se le agregó una función hermana que devuelve la lista completa para el modal. */
 function bankedRawMilestoneCount(row: BranchForecastRow, rawMilestone: string, metricView: MetricView): number {
-  const loans = metricView === 'total' ? row.loans : row.loans.filter((l) => l.healthy === true);
-  return loans.filter((l) => l.rawMilestone.trim() === rawMilestone).length;
+  return bankedRawMilestoneLoans(row, rawMilestone, metricView).length;
+}
+
+/** Started/Processing/Closing de Banked -- estos 3 SÍ están bucketizados 1:1 en `loan.milestone` (a diferencia de Underwriting, que colapsa 3 rawMilestone distintos), así que el filtro es directo contra ese campo, sin necesidad de rawMilestone. */
+function bankedBucketLoans(row: BranchForecastRow, milestone: string, metricView: MetricView): PipelineLoan[] {
+  return applyMetricFilter(row.loans, metricView).filter((l) => l.milestone === milestone);
+}
+
+/**
+ * Espejo local de BROKERED_MILESTONE_BUCKET (lib/pipeline/aggregate.ts,
+ * NO exportada -- countByBrokeredMilestoneBucket() solo devuelve conteos
+ * agregados, no permite filtrar préstamos individuales, y aggregate.ts
+ * está fuera de la lista de archivos de este ajuste). Valores verificados
+ * contra el código real de aggregate.ts antes de escribir esto:
+ * Started->FileCreation, Processing->Processing, Submittal->Submitted.
+ * 'AppDate' no tiene ningún rawMilestone real que mapee ahí -- la columna
+ * siempre da 0, mismo criterio ya documentado para BANKED_MATRIX_COLUMNS
+ * (ver riesgo 10 en docs/ARQUITECTURA.md). Si aggregate.ts cambia ese
+ * mapeo el día de mañana, esta copia queda desactualizada en silencio --
+ * mismo riesgo ya aceptado ahí, no uno nuevo.
+ */
+const BROKERED_COLUMN_TO_RAW_MILESTONE: Partial<Record<string, string>> = {
+  FileCreation: 'Started',
+  Processing: 'Processing',
+  Submitted: 'Submittal',
+};
+
+function brokeredColumnLoans(row: BranchForecastRow, columnKey: string, metricView: MetricView): PipelineLoan[] {
+  const rawMilestone = BROKERED_COLUMN_TO_RAW_MILESTONE[columnKey];
+  if (!rawMilestone) return [];
+  return applyMetricFilter(row.loans, metricView).filter((l) => l.rawMilestone.trim() === rawMilestone);
+}
+
+/** Dispatcher único para el click de celda -- decide qué filtro aplicar según canal/columna, sin que el JSX tenga que saber los detalles de cada caso. */
+function cellLoans(row: BranchForecastRow, channel: Channel, key: string, metricView: MetricView): PipelineLoan[] {
+  if (channel === 'banked') {
+    return isUnderwritingRawMilestone(key) ? bankedRawMilestoneLoans(row, key, metricView) : bankedBucketLoans(row, key, metricView);
+  }
+  return brokeredColumnLoans(row, key, metricView);
 }
 
 /** Suma los forecast ya calculados por fila -- MilestoneCascadeProps.forecastTotal es obligatorio y no viene como prop separado acá, así que se deriva de las mismas rows que se muestran (mismo total que ya suman internamente esas rows, no es un cálculo nuevo). */
@@ -133,6 +182,28 @@ function bucketValue(bucket: BucketCounts | BrokeredBucketCounts, key: string): 
 export default function TabMilestoneMatrix({ bankedRows, brokeredRows, bankedRates, brokeredRates, rows }: TabMilestoneMatrixProps) {
   const [channel, setChannel] = useState<Channel>('banked');
   const [metricView, setMetricView] = useState<MetricView>('total');
+  const [modal, setModal] = useState<{ title: string; loans: LoanDetailModalLoan[] } | null>(null);
+
+  // Ajuste posterior: click en una celda de la matriz -- arma el mismo
+  // filtro que ya usa esa celda para contar (cellLoans), pero devolviendo
+  // la lista completa en vez del número, para LoanDetailModal (mismo
+  // componente ya usado en PivotTable.tsx, sin crear una versión nueva).
+  // rawHealthiness siempre está presente acá (son PipelineLoan, pipeline
+  // abierto -- a diferencia de las filas "Closed" de PivotTable, que vienen
+  // de ResolvedLoan y no tienen ese campo).
+  function openCellModal(row: BranchForecastRow, key: string) {
+    const loans = cellLoans(row, channel, key, metricView);
+    setModal({
+      title: `Branch ${row.branch} — ${labelFromKey(key)} (${loans.length} Loans)`,
+      loans: loans.map((loan) => ({
+        sourceLoanId: loan.sourceLoanId,
+        borrowerName: loan.borrowerName,
+        amount: loan.amount,
+        rawMilestone: loan.rawMilestone,
+        rawHealthiness: loan.rawHealthiness,
+      })),
+    });
+  }
 
   const cascadeRows = channel === 'banked' ? bankedRows : brokeredRows;
   const rates = channel === 'banked' ? bankedRates : brokeredRates;
@@ -186,13 +257,19 @@ export default function TabMilestoneMatrix({ bankedRows, brokeredRows, bankedRat
             return (
               <tr className="metric" key={row.branch}>
                 <td className="lbl">{row.branch}</td>
-                {milestoneKeys.map((k) => (
-                  <td className="val" key={k}>
-                    {channel === 'banked' && isUnderwritingRawMilestone(k)
+                {milestoneKeys.map((k) => {
+                  const value =
+                    channel === 'banked' && isUnderwritingRawMilestone(k)
                       ? bankedRawMilestoneCount(row, k, metricView)
-                      : bucketValue(active, k)}
-                  </td>
-                ))}
+                      : bucketValue(active, k);
+                  return (
+                    <td className="val" key={k}>
+                      <button type="button" className="cell-trigger" onClick={() => openCellModal(row, k)}>
+                        {value}
+                      </button>
+                    </td>
+                  );
+                })}
               </tr>
             );
           })}
@@ -243,6 +320,8 @@ export default function TabMilestoneMatrix({ bankedRows, brokeredRows, bankedRat
           </div>
         ))}
       </div>
+
+      <LoanDetailModal isOpen={modal !== null} onClose={() => setModal(null)} title={modal?.title ?? ''} loans={modal?.loans ?? []} />
     </div>
   );
 }
