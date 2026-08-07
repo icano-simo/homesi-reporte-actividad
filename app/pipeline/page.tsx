@@ -186,6 +186,10 @@ export default function PipelinePage() {
   // /api/pipeline/latest YA devuelve `uploadedAt` -- antes se descartaba,
   // ahora se usa.
   const [activeSnapshotDate, setActiveSnapshotDate] = useState<string | null>(null);
+  // Etapa F5k: true mientras se genera/descarga el Excel -- evita doble
+  // click y le da feedback visual al botón (mismo patrón que isLoading del
+  // upload).
+  const [isExporting, setIsExporting] = useState(false);
 
   // Etapa F5a: si nadie subió un archivo en esta sesión (data===null),
   // restaura el último snapshot activo desde Supabase -- para no perder el
@@ -564,6 +568,87 @@ export default function PipelinePage() {
       })
     : [];
 
+  // Etapa F5k: mismo filtro que calculateTotalForecastWithClosed() aplica
+  // internamente para closedCount (aggregate.ts, sin tocar) -- se repite
+  // acá para tener la LISTA de préstamos, no solo el número (closedCount
+  // ya lo consumía SummaryCards/PivotTable, pero ningún lugar guardaba los
+  // objetos). No es un criterio nuevo, es el mismo ya aprobado en F4b/F5j.
+  const closedInRange = filteredResolvedLoans.filter(
+    (loan) =>
+      loan.status === 'funded' &&
+      loan.disbursementDate >= forecastRange.startDate &&
+      loan.disbursementDate <= forecastRange.endDate
+  );
+
+  // Etapa F5k: "Total Pipeline" en pantalla es la suma de totalCount de
+  // cada branchRow -- acá se junta la lista real de préstamos detrás de
+  // ese número (mismos objetos que ya usa PivotTable.tsx vía
+  // branchForecastRow.loans, ya filtrados por Pipeline Range).
+  const openLoansInRange = filteredBranchRows.flatMap((r) => r.loans);
+
+  /**
+   * Etapa F5k: los 3 grupos (abiertos/cerrados/adverse) mezclados en un
+   * solo array para el export a Excel -- "Last Meeting" según el tipo de
+   * préstamo: rawHealthiness tal cual para abiertos (SIN pasar por
+   * healthStatusLabel -- acá se quiere el valor crudo, no "Healthy"
+   * normalizado), "Funded"/"Adverse" literal para los otros 2 grupos.
+   */
+  const exportRows = [
+    ...openLoansInRange.map((loan) => ({
+      loanChannel: loan.channel,
+      loanNumber: loan.sourceLoanId,
+      borrowerName: loan.borrowerName,
+      branch: loan.branch,
+      loanOfficer: loan.loanOfficer,
+      lastMeeting: loan.rawHealthiness,
+    })),
+    ...closedInRange.map((loan) => ({
+      loanChannel: loan.channel,
+      loanNumber: loan.sourceLoanId,
+      borrowerName: loan.borrowerName,
+      branch: loan.branch,
+      loanOfficer: loan.loanOfficer,
+      lastMeeting: 'Funded',
+    })),
+    ...adverseInRange.map((loan) => ({
+      loanChannel: loan.channel,
+      loanNumber: loan.sourceLoanId,
+      borrowerName: loan.borrowerName,
+      branch: loan.branch,
+      loanOfficer: loan.loanOfficer,
+      lastMeeting: 'Adverse',
+    })),
+  ];
+
+  async function handleExport() {
+    setIsExporting(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/pipeline/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows: exportRows }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(typeof body?.error === 'string' ? body.error : 'Could not generate the Excel file.');
+      }
+      const blob = await res.blob();
+      const contentDisposition = res.headers.get('Content-Disposition') ?? '';
+      const match = contentDisposition.match(/filename="([^"]+)"/);
+      const downloadName = match ? match[1] : 'Forecast_Pipeline.xlsx';
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = downloadName;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
   // resolvedLoans (Funded/Adverse) no entran a ningún OTRO cálculo -- los
   // 'adverse' nunca se suman a nada; solo una línea informativa, sin tabla
   // ni drill-down (eso es una etapa futura).
@@ -599,7 +684,19 @@ export default function PipelinePage() {
         saveStatus={data?.persisted === true ? 'saved' : data?.persisted === false ? 'error' : 'idle'}
       />
       <div className="content forecast-container">
-        <h1 className="title">Forecast — Pipeline</h1>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+          <h1 className="title">Forecast — Pipeline</h1>
+          {/* Etapa F5k: el brief pedía este botón "junto a Upload file", que
+              vive dentro de Topbar.tsx -- fuera de la lista de archivos
+              permitidos en esta etapa (solo /app/api/pipeline/export/route.ts
+              y este archivo). Se ubica acá, junto al título, en vez de tocar
+              Topbar.tsx sin autorización -- ver Riesgos en la respuesta. */}
+          {data && (
+            <button type="button" className="btn primary" onClick={handleExport} disabled={isExporting}>
+              {isExporting ? 'Generating…' : 'Download Excel'}
+            </button>
+          )}
+        </div>
 
         {!data && isLoadingInitial && (
           <div className="empty">
