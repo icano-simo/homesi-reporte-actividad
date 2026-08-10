@@ -1,0 +1,884 @@
+/*
+ * ============================================================================
+ * COMPONENTES COMPARTIDOS — Commercial Activity + Forecast & Pipeline
+ * ============================================================================
+ *
+ * Etapa UX1 (overhaul Service Hub).
+ *
+ * ORIGEN: este archivo era `legacy-components.css` (port 1:1 del CSS del HTML
+ * monolítico original). Se renombró a `components.css` porque ya no es un
+ * port legado: quedó reescrito contra el Brand Book 2025. El import vive solo
+ * en app/globals.css.
+ *
+ * QUÉ SE MANTUVO Y QUÉ NO (para quien revise el diff):
+ *  - Se BORRARON las reglas del sidebar (.sidebar/.logo/.nav-ic) — el rail
+ *    vertical navy se eliminó por completo (spec §1.1), junto con
+ *    components/Sidebar.tsx.
+ *  - Se CONSERVARON todos los demás nombres de clase (.btn, .seg, .pill,
+ *    .mcard, table.piv, tr.grp, .val.zero, .totcol...) aunque su apariencia
+ *    cambie por completo. Motivo: son consumidos por ~12 componentes; migrar
+ *    nombres además de estilos habría mezclado dos refactors en un solo diff.
+ *  - Se AGREGARON los patrones nuevos que pide el spec: .kpi-strip / .kpi-card
+ *    (§3A), .control-bar (§3B), .badge-* (§3C), .drawer-* (§5).
+ *  - `.main` / `.content` ya no crean su propio scroll (antes:
+ *    height:100vh;overflow:hidden + .content{overflow:auto}). Ahora el scroll
+ *    es del documento — requisito para que el header sticky del Service Hub
+ *    funcione. El ancho lo contiene .hub-container (shell.css).
+ */
+
+/* ===========================================================================
+ * 1. Estructura de página
+ * ======================================================================== */
+
+/*
+ * `.main`, `.content`, `h1.title` y `.subtitle` se BORRARON en la etapa UX1:
+ * eran el andamiaje del layout con sidebar (columna flexible con scroll
+ * propio) y sus títulos. Hoy el layout lo arma shell.css (.hub-canvas /
+ * .hub-container) y los títulos usan .page-head__title / .page-head__subtitle.
+ * Se verificó con grep que ningún .tsx los referencia.
+ */
+
+.foot-note {
+  color: var(--slate-400);
+  font-size: 11.5px;
+  margin-top: 14px;
+  line-height: 1.55;
+}
+
+/* ===========================================================================
+ * 2. Botones y controles
+ * ======================================================================== */
+
+.btn {
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  border-radius: var(--radius-full);
+  padding: 8px 16px;
+  border: 1px solid var(--slate-200);
+  background: #fff;
+  color: var(--navy);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+  white-space: nowrap;
+  box-shadow: var(--shadow-xs);
+}
+.btn:hover {
+  background: var(--slate-50);
+  border-color: var(--slate-300);
+}
+.btn svg {
+  width: 15px;
+  height: 15px;
+}
+.btn.primary {
+  background: var(--navy);
+  border-color: var(--navy);
+  color: #fff;
+}
+.btn.primary:hover {
+  background: #002a63;
+  border-color: #002a63;
+}
+/*
+ * CTA de marca ('Warm Embrace'). Se reserva para la acción principal e
+ * irreversible de cada vista (subir archivo) — el resto de los botones son
+ * navy, para que el coral no se vuelva ruido. Ver nota sobre --accent en
+ * tokens.css.
+ */
+.btn.cta {
+  background: var(--coral);
+  border-color: var(--coral);
+  color: #fff;
+}
+.btn.cta:hover {
+  background: #e63636;
+  border-color: #e63636;
+}
+.btn.ghost {
+  background: transparent;
+  box-shadow: none;
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+input[type='file'] {
+  display: none;
+}
+
+/* Botón terciario, sin caja (Expand all / Collapse all). */
+.mini-btn {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--navy);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.mini-btn:hover {
+  background: var(--accent-soft);
+}
+.mini-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* Rótulo corto delante de un control. */
+.label-chip {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  color: var(--slate-400);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* ---- Segmented control (pill switch) ---- */
+
+.seg {
+  display: inline-flex;
+  background: var(--slate-100);
+  border-radius: var(--radius-full);
+  padding: 3px;
+  gap: 2px;
+}
+.seg button {
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--slate-500);
+  padding: 6px 14px;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+  white-space: nowrap;
+}
+.seg button:hover {
+  color: var(--navy);
+}
+.seg button.on {
+  background: var(--navy);
+  color: #fff;
+}
+.seg button.on:hover {
+  color: #fff;
+}
+
+/* ---- Inputs / selects redondeados ---- */
+
+.field {
+  font-family: inherit;
+  background: #fff;
+  border: 1px solid var(--slate-200);
+  color: var(--navy);
+  border-radius: var(--radius-full);
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  box-shadow: var(--shadow-xs);
+  cursor: pointer;
+  max-width: 100%;
+}
+.field:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 1px;
+}
+select.field {
+  padding-right: 10px;
+}
+
+/*
+ * `.yb` / `.yr` (botones de año y <select> del toolbar legado) se BORRARON en
+ * la etapa UX1: todos sus consumidores pasaron a `.field`. `.yr` en particular
+ * solo existía como wrapper obligatorio para que `.yb` recibiera estilo —
+ * exactamente el tipo de acoplamiento que el spec pide eliminar.
+ */
+
+/* ---- Pills informativas (nombre de archivo, estado de guardado…) ---- */
+
+.pill {
+  background: var(--accent-soft);
+  color: var(--navy);
+  border: 1px solid var(--accent-border);
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pill.warn {
+  background: var(--rose-50);
+  border-color: var(--rose-200);
+  color: var(--rose-700);
+}
+.pill.ok {
+  background: var(--emerald-50);
+  border-color: var(--emerald-200);
+  color: var(--emerald-700);
+}
+
+/* ===========================================================================
+ * 3. Barra de control / filtros (spec §3B)
+ * ======================================================================== */
+
+/*
+ * Tarjeta blanca única que consolida todos los controles de una vista, en
+ * lugar de la franja gris `.topbar` a todo el ancho del layout viejo.
+ */
+.control-bar {
+  background: #fff;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+  margin-bottom: 20px;
+  box-shadow: var(--shadow-xs);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+/* Grupo de controles relacionados dentro de la barra. */
+.control-group {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+/* Segunda línea de la barra: pills de estado (archivo cargado, errores…). */
+.control-bar__status {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.control-bar__status:empty {
+  display: none;
+}
+
+/*
+ * `.topbar`, `.toolbar-row` y `.loaded-row` (la franja gris a todo el ancho
+ * del layout viejo) se BORRARON en la etapa UX1: los reemplazan `.control-bar`,
+ * `.control-group` y `.control-bar__status`.
+ */
+
+/* Fila de controles sobre una tabla (orden/búsqueda de Loan Officer). */
+.table-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+/* ===========================================================================
+ * 4. Tarjetas
+ * ======================================================================== */
+
+.mcard {
+  background: #fff;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  padding: 12px 14px;
+  box-shadow: var(--shadow-xs);
+  transition: border-color 0.15s ease;
+  min-width: 0;
+}
+.mcard:hover {
+  border-color: var(--sky);
+}
+.mcard .m-name {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  color: var(--slate-400);
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+}
+
+/* ---- KPI strip mensual (spec §3A): 8 tarjetas horizontales ---- */
+
+.kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+/* Con más de 8 meses visibles las tarjetas siguen a una segunda fila, nunca
+   generan scroll horizontal del canvas (regla dura del spec §6). */
+@media (max-width: 1240px) {
+  .kpi-strip {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@media (max-width: 680px) {
+  .kpi-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.kpi-card__month {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--slate-400);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 8px;
+}
+.kpi-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+}
+.kpi-row__label {
+  font-size: 11px;
+  color: var(--slate-500);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.kpi-row__right {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.kpi-row__value {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--navy);
+}
+
+/* ---- Banner ejecutivo de 4 tarjetas (Forecast, spec §4A) ---- */
+
+.hero-banner {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+@media (max-width: 900px) {
+  .hero-banner {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Variantes de fondo/borde de las tarjetas del banner ejecutivo (spec §4A). */
+.mcard--emerald {
+  background: rgba(236, 253, 245, 0.5); /* emerald-50/50 */
+  border-color: rgba(167, 243, 208, 0.6); /* emerald-200/60 */
+}
+.mcard--sky {
+  background: rgba(166, 222, 255, 0.15); /* 'Light Sky' @15% */
+  border-color: rgba(166, 222, 255, 0.4);
+}
+.mcard--emerald:hover,
+.mcard--sky:hover {
+  border-color: var(--sky);
+}
+
+/* Número hero de una tarjeta del banner. Inter en font-bold — 'Articulat CF'
+   (primera opción del spec) no está disponible; ver nota en app/layout.tsx. */
+.kpi-hero__value {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--navy);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+.kpi-hero__value--lg {
+  font-size: 32px;
+}
+.kpi-hero__value--emerald {
+  color: var(--emerald-700);
+}
+.kpi-hero__sub {
+  font-size: 11px;
+  color: var(--slate-500);
+  margin-top: 6px;
+}
+
+/* ===========================================================================
+ * 5. Badges (spec §3A trend badges, §3C Closed, §4E montos de riesgo)
+ * ======================================================================== */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border-radius: var(--radius-sm);
+  padding: 1px 5px;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.badge svg {
+  width: 9px;
+  height: 9px;
+}
+.badge--up {
+  background: var(--emerald-50);
+  color: var(--emerald-700);
+}
+.badge--down {
+  background: var(--rose-50);
+  color: var(--rose-700);
+}
+.badge--flat {
+  background: var(--slate-100);
+  color: var(--slate-500);
+}
+.badge--neutral {
+  background: var(--slate-100);
+  color: var(--slate-500);
+}
+/* Variante pill (bordes completamente redondeados) para % y forecast. */
+.badge--pill {
+  border-radius: var(--radius-full);
+  padding: 3px 10px;
+  font-size: 11px;
+}
+.badge--emerald {
+  background: var(--emerald-50);
+  color: var(--emerald-800);
+}
+.badge--rose {
+  background: var(--rose-50);
+  color: var(--rose-700);
+}
+.badge--amber {
+  background: var(--amber-50);
+  color: var(--amber-700);
+}
+.badge--sky {
+  background: var(--accent-soft);
+  color: var(--navy);
+}
+
+/* Punto de color junto a "Healthy Pipeline". */
+.dot-healthy {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--emerald-700);
+  margin-right: 5px;
+  flex-shrink: 0;
+}
+
+/* ===========================================================================
+ * 6. Tablas (spec §3C — densidad ejecutiva)
+ * ======================================================================== */
+
+.tbl-card {
+  background: #fff;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+  overflow: hidden;
+}
+/* Cabecera interna de una tarjeta-tabla (título + control a la derecha). */
+.tbl-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--slate-200);
+}
+.tbl-card__title {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--navy);
+}
+/* Envoltorio de scroll: si una tabla no entra, scrollea ELLA, nunca el body. */
+.tbl-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+table.piv {
+  border-collapse: collapse;
+  width: 100%;
+}
+table.piv th,
+table.piv td {
+  padding: 7px 14px;
+  text-align: right;
+  white-space: nowrap;
+  font-size: 12px;
+  border-bottom: 1px solid var(--slate-100);
+}
+
+/* Header claro (el navy oscuro del legado se eliminó). */
+table.piv thead .mo-row th {
+  background: rgba(241, 245, 249, 0.8);
+  color: var(--navy);
+  font-weight: 700;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--slate-200);
+  position: sticky;
+  top: var(--header-h);
+  z-index: 5;
+}
+/* Fila de años (Actividad): rótulo fino por encima del header de meses. */
+table.piv thead .yr-row th {
+  background: #fff;
+  color: var(--slate-400);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: center;
+  border-bottom: none;
+  padding: 6px 14px 2px;
+}
+
+/* Primera columna congelada. */
+table.piv th.lbl,
+table.piv td.lbl {
+  text-align: left;
+  position: sticky;
+  left: 0;
+  background: #fff;
+  z-index: 2;
+  min-width: 220px;
+  border-right: 1px solid var(--slate-200);
+  font-weight: 700;
+  color: var(--navy);
+}
+table.piv thead th.lbl {
+  background: var(--slate-100);
+  z-index: 6;
+}
+
+/* Columna de total. */
+table.piv td.totcol,
+table.piv th.totcol {
+  border-left: 1px solid var(--slate-200);
+  font-weight: 700;
+  background: var(--slate-50);
+}
+
+/* ---- Filas de datos: zebra + crosshair hover ---- */
+
+tr.metric td {
+  color: var(--slate-800);
+  transition: background 0.12s ease;
+}
+tr.metric:nth-child(odd) td {
+  background: rgba(248, 250, 252, 0.5);
+}
+tr.metric:nth-child(odd) td.lbl {
+  background: #f9fbfd;
+}
+tr.metric:hover td,
+tr.metric:hover td.lbl {
+  background: rgba(166, 222, 255, 0.2); /* 'Light Sky' @20% */
+}
+tr.metric td.mname {
+  color: var(--slate-600);
+  font-weight: 500;
+}
+
+/* Valores numéricos. */
+table.piv td.val {
+  text-align: right;
+  font-weight: 500;
+  color: var(--slate-800);
+}
+/* Ceros y vacíos, deliberadamente apagados (spec §3C). */
+table.piv td.val.zero {
+  color: var(--slate-300);
+  font-weight: 400;
+}
+/* Métrica 'Closed' destacada en verde suave (spec §3C). */
+table.piv td.val.cl {
+  color: var(--emerald-700);
+  font-weight: 700;
+}
+
+/* ---- Filas de grupo / subtotal ---- */
+
+tr.grp td,
+tr.grp td.lbl {
+  background: var(--slate-50);
+  font-weight: 700;
+  color: var(--navy);
+  border-bottom: 1px solid var(--slate-200);
+}
+tr.grp.total td,
+tr.grp.total td.lbl {
+  background: var(--accent-soft);
+  color: var(--navy);
+  border-top: 2px solid var(--navy);
+}
+tr.grp.d1 td,
+tr.grp.d1 td.lbl {
+  background: var(--slate-100);
+}
+tr.togg {
+  cursor: pointer;
+}
+tr.grp.togg:hover td,
+tr.grp.togg:hover td.lbl {
+  background: rgba(166, 222, 255, 0.28);
+}
+
+/* Filas de métrica agrupada / detalle. */
+tr.mrow td,
+tr.mrow td.lbl,
+tr.mrow td.mname {
+  background: #fbfcfe;
+  font-weight: 600;
+  color: var(--slate-700);
+}
+tr.mrow:hover td,
+tr.mrow:hover td.lbl {
+  background: rgba(166, 222, 255, 0.2);
+}
+tr.drow td {
+  color: var(--slate-500);
+}
+tr.drow td.lbl {
+  font-weight: 500;
+  color: var(--slate-700);
+}
+tr.drow td.val {
+  color: var(--slate-800);
+}
+
+/* Chevron y sangría del árbol. */
+.chev {
+  display: inline-flex;
+  align-items: center;
+  width: 14px;
+  color: var(--slate-400);
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+.chev svg {
+  width: 12px;
+  height: 12px;
+  transition: transform 0.15s ease;
+}
+.chev.open svg {
+  transform: rotate(90deg);
+}
+tr.mrow .chev {
+  color: var(--navy);
+}
+.indent {
+  display: inline-block;
+}
+
+/*
+ * Celda numérica clickeable: abre el flyout de auditoría (spec §5).
+ * Reemplaza al drill-down inline por acordeón.
+ */
+.cell-trigger {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  padding: 3px 10px;
+  border-radius: var(--radius-sm);
+  transition: background 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  font-weight: 700;
+}
+.cell-trigger:hover {
+  background: rgba(166, 222, 255, 0.3);
+  color: var(--navy);
+}
+/* Celda en cero: sin affordance de click, apagada (spec §4D.2). */
+.cell-trigger.is-zero {
+  color: var(--slate-300);
+  font-weight: 400;
+  cursor: default;
+}
+.cell-trigger.is-zero:hover {
+  background: transparent;
+}
+
+/* ===========================================================================
+ * 7. Estado vacío
+ * ======================================================================== */
+
+.empty {
+  background: #fff;
+  border: 1.5px dashed var(--slate-300);
+  border-radius: var(--radius-lg);
+  padding: 56px 30px;
+  text-align: center;
+  max-width: 560px;
+  margin: 26px auto;
+}
+.empty h2 {
+  font-family: var(--font-display);
+  margin: 14px 0 6px;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--navy);
+}
+.empty p {
+  color: var(--slate-500);
+  font-size: 13px;
+  margin: 0 auto 20px;
+  max-width: 420px;
+  line-height: 1.55;
+}
+.drop-ic {
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-lg);
+  background: var(--accent-soft);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--navy);
+}
+.drop-ic svg {
+  width: 24px;
+  height: 24px;
+}
+
+/* ===========================================================================
+ * 8. Flyout de auditoría (spec §5) — drawer lateral derecho
+ * ======================================================================== */
+
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.4); /* slate-900/40 */
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  z-index: 100;
+}
+
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 520px;
+  max-width: 100vw;
+  background: #fff;
+  border-left: 1px solid var(--slate-200);
+  box-shadow: var(--shadow-lg);
+  z-index: 101;
+  display: flex;
+  flex-direction: column;
+  animation: drawer-in 0.22s ease-out;
+}
+@keyframes drawer-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .drawer {
+    animation: none;
+  }
+}
+
+.drawer__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid var(--slate-200);
+}
+.drawer__eyebrow {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+  margin-bottom: 4px;
+}
+.drawer__title {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--navy);
+  line-height: 1.35;
+  margin: 0;
+}
+.drawer__close {
+  border: 1px solid var(--slate-200);
+  background: #fff;
+  cursor: pointer;
+  color: var(--slate-500);
+  padding: 6px;
+  border-radius: var(--radius-full);
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.drawer__close:hover {
+  background: var(--slate-50);
+  color: var(--navy);
+}
+.drawer__close svg {
+  width: 15px;
+  height: 15px;
+}
+.drawer__body {
+  overflow-y: auto;
+  padding: 8px 0 24px;
+  flex: 1;
+}
+/* Dentro del drawer la tabla es más angosta: header no sticky-al-viewport. */
+.drawer__body table.piv thead .mo-row th {
+  position: static;
+}
+.drawer__body table.piv th,
+.drawer__body table.piv td {
+  padding: 7px 12px;
+}
+.drawer__body table.piv th.lbl,
+.drawer__body table.piv td.lbl {
+  min-width: 0;
+}
+
+/*
+ * `.toast` se BORRÓ en la etapa UX1: venía del HTML legado y ningún componente
+ * React lo llegó a usar (la app comunica estado con `.pill` / `.pill.warn`).
+ */

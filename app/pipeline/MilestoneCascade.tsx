@@ -105,7 +105,7 @@ function StageIcon({ position }: { position: number }) {
       strokeWidth={1.8}
       strokeLinecap="round"
       strokeLinejoin="round"
-      style={{ marginRight: '6px', flexShrink: 0, color: 'var(--muted)' }}
+      style={{ marginRight: '6px', flexShrink: 0, color: 'var(--slate-400)' }}
     >
       {stageIconPath(position)}
     </svg>
@@ -124,6 +124,7 @@ export default function MilestoneCascade({ rows, forecastTotal, closedCount, tot
 
   return (
     <div className="tbl-card">
+      <div className="tbl-scroll">
       <table className="piv cascade-compact">
         <thead>
           <tr className="mo-row">
@@ -148,7 +149,7 @@ export default function MilestoneCascade({ rows, forecastTotal, closedCount, tot
                 <td className="val">
                   <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', justifyContent: 'flex-end' }}>
                     <div className="progress-track" style={{ width: '40px', height: '5px', borderRadius: '3px', overflow: 'hidden' }}>
-                      <div style={{ width: `${(cumulativeRate * 100).toFixed(1)}%`, height: '100%', background: 'var(--accent)' }} />
+                      <div style={{ width: `${(cumulativeRate * 100).toFixed(1)}%`, height: '100%', background: 'var(--navy)' }} />
                     </div>
                     <span>{fmtPct(cumulativeRate)}</span>
                   </div>
@@ -164,13 +165,18 @@ export default function MilestoneCascade({ rows, forecastTotal, closedCount, tot
               <td className="totcol">{fmtInt(closedCount as number)}</td>
             </tr>
           )}
-          <tr className="grp total total-forecast">
+          {/* Etapa UX1: se quitó la clase `total-forecast`, que existía solo
+              para revertir con !important el fondo navy sólido que el CSS
+              legado le ponía a `tr.grp.total`. Ese fondo ya no existe: la fila
+              de total es clara con borde navy superior por defecto. */}
+          <tr className="grp total">
             <td className="lbl">{hasClosedBreakdown ? 'Total Forecast (Closed + Projection)' : 'Total Forecast'}</td>
             <td colSpan={3}></td>
             <td className="totcol">{fmtForecast(hasClosedBreakdown ? (totalForecast as number) : forecastTotal)}</td>
           </tr>
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

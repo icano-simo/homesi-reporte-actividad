@@ -15,6 +15,7 @@ import { saveUpload } from '@/lib/supabase/saveUpload';
 import { loadCurrentReport } from '@/lib/supabase/loadCurrent';
 import { BRANCH_ORDER, type Branch } from '@/config/roster';
 import { METRICS, type MetricKey } from '@/config/metrics';
+import { UploadIcon, DownloadIcon, FileSheetIcon } from '@/components/ui/icons';
 import SummaryCards from '@/components/report/SummaryCards';
 import PivotTable from '@/components/report/PivotTable';
 import LoanOfficerTable from '@/components/report/LoanOfficerTable';
@@ -234,140 +235,130 @@ export default function Home() {
   // que ocultarlo explícitamente cuando hay un branch específico elegido.
   const showTotal = branchFilter === 'all';
 
+  // Rótulo del KPI strip: describe qué vista/medida están activas.
+  const kpiStripLabel =
+    (view === 'b2b' ? 'Monthly Totals — B2B' : 'Monthly Totals') +
+    (view === 'loanOfficer' ? ' (all branches)' : '') +
+    (measure === 'amount' ? ' — Volume ($)' : '');
+
   return (
-    <div className="main">
-      <div className="topbar">
-        <div className="toolbar-row">
-          <span className="label-chip">Datos</span>
-          <label className="btn primary" htmlFor="fileInput">
-            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path d="M12 3v12M7 8l5-5 5 5M5 21h14" />
-            </svg>
-            Cargar archivo
+    <div className="hub-container">
+      <div className="page-head">
+        <div>
+          <h1 className="page-head__title">Commercial Activity Report</h1>
+          <p className="page-head__subtitle">
+            File Creations · Credit Reports · App Date · Closings — by branch, loan officer and B2B strategy
+          </p>
+        </div>
+        <div className="control-group">
+          {/* CTA de marca: la carga de archivo es la acción principal de la vista. */}
+          <label className="btn cta" htmlFor="fileInput">
+            <UploadIcon />
+            Upload file
           </label>
           <input type="file" id="fileInput" accept=".xlsx,.xls" onChange={handleFileChange} />
-
-          <span style={{ width: "1px", height: "26px", background: "var(--border)", margin: "0 4px" }}></span>
-
-          <span style={{ flex: "1" }}></span>
-
-          <button className="btn" id="btnSave" disabled title="Guarda el archivo cargado en este navegador (solo al abrir el HTML localmente)">
-            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path d="M5 3h11l4 4v14H5z" />
-              <path d="M8 3v6h7M8 21v-6h8v6" />
-            </svg>
-            Guardar
+          <button className="btn primary" disabled={!records || isExporting} onClick={handleExportExcel}>
+            <DownloadIcon />
+            {isExporting ? 'Generating…' : 'Download Excel'}
           </button>
-          <button className="btn ghost" id="btnExportJson" disabled>Exportar JSON</button>
-          <label className="btn ghost" htmlFor="jsonInput">Importar JSON</label>
-          <input type="file" id="jsonInput" accept=".json" />
-          <button
-            className="btn primary"
-            id="btnExcel"
-            disabled={!records || isExporting}
-            onClick={handleExportExcel}
-          >
-            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path d="M14 3v5h5" />
-              <path d="M14 3H6v18h12V8z" />
-              <path d="M9 13l3 4m0-4l-3 4" />
-            </svg>
-            {isExporting ? 'Generando…' : 'Descargar Excel'}
-          </button>
-        </div>
-        <div className="loaded-row" id="loadedRow">
-          {records && fileName && (
-            <>
-              <span className="pill">Archivo: {fileName}</span>
-              <span className="pill">Filas: {records.length.toLocaleString('en-US')}</span>
-              {monthRange?.minYM && monthRange?.maxYM && (
-                <span className="pill">
-                  Rango: {ymLabel(monthRange.minYM)} → {ymLabel(monthRange.maxYM)}
-                </span>
-              )}
-            </>
-          )}
-          {saveStatus === 'saving' && <span className="pill">Guardando en la nube…</span>}
-          {saveStatus === 'saved' && <span className="pill">Guardado</span>}
-          {saveStatus === 'error' && <span className="pill warn">No se pudo guardar en la nube</span>}
-          {error && <span className="pill warn">{error}</span>}
         </div>
       </div>
 
-      <div className="content">
-        <h1 className="title">Reporte de Actividad</h1>
-        <div className="subtitle">File Creations · Credit Reports · Applications · Closings — por branch, loan officer y estrategia B2B</div>
-
-        {records === null && isLoadingInitial && (
-          <div className="empty">
-            <div className="drop-ic">
-              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path d="M14 3v5h5" />
-                <path d="M14 3H6v18h12V8z" />
-                <path d="M9 15h6M9 11h6" />
-              </svg>
-            </div>
-            <h2>Cargando reporte…</h2>
-            <p>Buscando el último reporte guardado.</p>
-          </div>
+      {/*
+       * Etapa UX1: se eliminaron 3 botones muertos que venían del HTML legado
+       * ("Guardar", "Exportar JSON", "Importar JSON") -- los tres estaban
+       * `disabled` y sin ningún handler desde la migración a Next. Ocupaban la
+       * mitad de la barra superior sin hacer nada.
+       */}
+      <div className="control-bar__status" style={{ marginBottom: '20px' }}>
+        {records && fileName && (
+          <>
+            <span className="pill">File: {fileName}</span>
+            <span className="pill">Rows: {records.length.toLocaleString('en-US')}</span>
+            {monthRange?.minYM && monthRange?.maxYM && (
+              <span className="pill">
+                Range: {ymLabel(monthRange.minYM)} → {ymLabel(monthRange.maxYM)}
+              </span>
+            )}
+          </>
         )}
+        {saveStatus === 'saving' && <span className="pill">Saving to the cloud…</span>}
+        {saveStatus === 'saved' && <span className="pill ok">Saved</span>}
+        {saveStatus === 'error' && <span className="pill warn">Could not save to the cloud</span>}
+        {error && <span className="pill warn">{error}</span>}
+      </div>
 
-        {records === null && !isLoadingInitial && (
-          <div id="emptyState" className="empty">
-            <div className="drop-ic">
-              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path d="M14 3v5h5" />
-                <path d="M14 3H6v18h12V8z" />
-                <path d="M9 15h6M9 11h6" />
-              </svg>
-            </div>
-            <h2>Carga tu archivo de query</h2>
-            <p>Sube el <b>.xlsx</b> con las columnas del reporte (True OrgID, fileCreation, CreditReport, App_Date, loan_info_channel, milestones, loan_officer, B2B Loans, BD). La app calcula todo en tu navegador — nada sale de tu equipo.</p>
-            <label className="btn primary" htmlFor="fileInput" style={{ display: "inline-flex" }}>Seleccionar archivo</label>
+      {records === null && isLoadingInitial && (
+        <div className="empty">
+          <div className="drop-ic">
+            <FileSheetIcon size={24} />
           </div>
-        )}
+          <h2>Loading report…</h2>
+          <p>Looking for the last saved report.</p>
+        </div>
+      )}
 
-        {records !== null && tree && (
-          <div id="report">
-            <div className="cards-wrap">
-              <div className="cards-head">
-                {(view === 'b2b' ? 'Totales B2B por mes' : 'Totales por mes') +
-                  (view === 'loanOfficer' ? ' (todos los branches)' : '') +
-                  (measure === 'amount' ? ' — Monto ($)' : '')}
-              </div>
-              <SummaryCards tree={tree} months={monthsShown} measure={measure} />
-            </div>
+      {records === null && !isLoadingInitial && (
+        <div id="emptyState" className="empty">
+          <div className="drop-ic">
+            <FileSheetIcon size={24} />
+          </div>
+          <h2>Upload your query file</h2>
+          <p>
+            Upload the <b>.xlsx</b> with the report columns (True OrgID, fileCreation, CreditReport, App_Date,
+            loan_info_channel, milestones, loan_officer, B2B Loans, BD). Everything is computed in your browser — no data
+            leaves your machine.
+          </p>
+          <label className="btn cta" htmlFor="fileInput" style={{ display: 'inline-flex' }}>
+            <UploadIcon />
+            Select file
+          </label>
+        </div>
+      )}
 
-            <Toolbar
-              view={view}
-              onViewChange={setView}
+      {records !== null && tree && (
+        <div id="report">
+          <div className="section-label">{kpiStripLabel}</div>
+          <SummaryCards tree={tree} months={monthsShown} measure={measure} />
+
+          <Toolbar
+            view={view}
+            onViewChange={setView}
+            measure={measure}
+            onMeasureChange={setMeasure}
+            branchFilter={branchFilter}
+            onBranchFilterChange={setBranchFilter}
+            year={year}
+            onYearChange={setYear}
+            start={start}
+            onStartChange={setStart}
+            availableBranches={availableBranches}
+            availableYears={availableYears}
+            months={allMonths}
+            onExpandAll={handleExpandAll}
+            onCollapseAll={handleCollapseAll}
+          />
+
+          {/*
+           * Cada tabla trae su propia tarjeta: LoanOfficerTable además tiene
+           * controles propios (orden/búsqueda) que NO deben quedar dentro del
+           * contenedor de scroll horizontal, así que arma su propio wrapper.
+           * .tbl-scroll: si la tabla no entra, scrollea ELLA, nunca el body
+           * (spec §6).
+           */}
+          {view === 'loanOfficer' && loanOfficerTree ? (
+            <LoanOfficerTable
+              tree={loanOfficerTree}
+              months={monthsShown}
               measure={measure}
-              onMeasureChange={setMeasure}
-              branchFilter={branchFilter}
-              onBranchFilterChange={setBranchFilter}
-              year={year}
-              onYearChange={setYear}
-              start={start}
-              onStartChange={setStart}
-              availableBranches={availableBranches}
-              availableYears={availableYears}
-              months={allMonths}
-              onExpandAll={handleExpandAll}
-              onCollapseAll={handleCollapseAll}
+              collapsed={collapsed}
+              onToggleCollapse={handleToggleCollapse}
+              sortBy={sortBy}
+              onSortByChange={setSortBy}
             />
-
+          ) : (
             <div className="tbl-card">
-              {view === 'loanOfficer' && loanOfficerTree ? (
-                <LoanOfficerTable
-                  tree={loanOfficerTree}
-                  months={monthsShown}
-                  measure={measure}
-                  collapsed={collapsed}
-                  onToggleCollapse={handleToggleCollapse}
-                  sortBy={sortBy}
-                  onSortByChange={setSortBy}
-                />
-              ) : (
+              <div className="tbl-scroll">
                 <PivotTable
                   tree={tree}
                   months={monthsShown}
@@ -377,17 +368,17 @@ export default function Home() {
                   onToggleCollapse={handleToggleCollapse}
                   view={view === 'b2b' ? 'b2b' : 'main'}
                 />
-              )}
+              </div>
             </div>
+          )}
 
-            <div className="foot-note">
-              <b>Closings:</b> se cuenta la fecha de Funding si el canal es Banked-Retail, o de Completion si es Brokered.{' '}
-              <b>Branch:</b> se usa <i>True OrgID</i>; OrgIDs fuera del roster oficial se agrupan en “Branch Out of Division”.
-              Las fechas se leen en UTC para evitar corrimiento de mes.
-            </div>
+          <div className="foot-note">
+            <b>Closings:</b> the Funding date is used for Banked-Retail, or the Completion date for Brokered.{' '}
+            <b>Branch:</b> <i>True OrgID</i> is used; OrgIDs outside the official roster are grouped under “Branch Out of
+            Division”. Dates are read in UTC to avoid month drift.
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,3 +1,13 @@
+/*
+ * Orden de import intencional: tokens -> reset -> shell -> componentes.
+ * Etapa UX1: `legacy-components.css` se renombró a `components.css` (ver la
+ * cabecera de ese archivo) y se agregó `shell.css` (header Service Hub +
+ * canvas contenido a 1440px).
+ *
+ * `app/pipeline/styles/forecast-visual.css` NO se importa acá a propósito:
+ * es exclusivo del módulo Forecast y se importa desde app/pipeline/page.tsx.
+ */
 @import "./styles/tokens.css";
 @import "./styles/base.css";
-@import "./styles/legacy-components.css";
+@import "./styles/shell.css";
+@import "./styles/components.css";

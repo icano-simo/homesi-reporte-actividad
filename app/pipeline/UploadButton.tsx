@@ -1,6 +1,7 @@
 'use client';
 
 import type { ChangeEvent } from 'react';
+import { UploadIcon } from '@/components/ui/icons';
 
 export interface UploadButtonProps {
   onFileSelected: (file: File) => void;
@@ -26,10 +27,10 @@ export default function UploadButton({ onFileSelected, isLoading }: UploadButton
 
   return (
     <>
-      <label className="btn primary" htmlFor={PIPELINE_FILE_INPUT_ID}>
-        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path d="M12 3v12M7 8l5-5 5 5M5 21h14" />
-        </svg>
+      {/* Etapa UX1: CTA de marca ('Warm Embrace') + icono del set compartido,
+          en vez de `.btn primary` con un <svg> copiado inline. */}
+      <label className="btn cta" htmlFor={PIPELINE_FILE_INPUT_ID}>
+        <UploadIcon />
         {isLoading ? 'Loading…' : 'Upload file'}
       </label>
       <input

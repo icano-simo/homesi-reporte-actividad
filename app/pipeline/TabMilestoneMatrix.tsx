@@ -11,7 +11,7 @@ import {
 } from '@/lib/pipeline/aggregate';
 import MilestoneCascade, { type MilestoneCascadeRow } from './MilestoneCascade';
 import type { BranchForecastRow } from './PivotTable';
-import LoanDetailModal, { type LoanDetailModalLoan } from './LoanDetailModal';
+import LoanDetailDrawer, { type LoanDetailDrawerLoan } from './LoanDetailDrawer';
 
 export interface TabMilestoneMatrixProps {
   bankedRows: MilestoneCascadeRow[];
@@ -182,25 +182,29 @@ function bucketValue(bucket: BucketCounts | BrokeredBucketCounts, key: string): 
 export default function TabMilestoneMatrix({ bankedRows, brokeredRows, bankedRates, brokeredRates, rows }: TabMilestoneMatrixProps) {
   const [channel, setChannel] = useState<Channel>('banked');
   const [metricView, setMetricView] = useState<MetricView>('total');
-  const [modal, setModal] = useState<{ title: string; loans: LoanDetailModalLoan[] } | null>(null);
+  const [drawer, setDrawer] = useState<{ context: string; metric: string; loans: LoanDetailDrawerLoan[] } | null>(null);
 
-  // Ajuste posterior: click en una celda de la matriz -- arma el mismo
-  // filtro que ya usa esa celda para contar (cellLoans), pero devolviendo
-  // la lista completa en vez del número, para LoanDetailModal (mismo
-  // componente ya usado en PivotTable.tsx, sin crear una versión nueva).
-  // rawHealthiness siempre está presente acá (son PipelineLoan, pipeline
-  // abierto -- a diferencia de las filas "Closed" de PivotTable, que vienen
-  // de ResolvedLoan y no tienen ese campo).
-  function openCellModal(row: BranchForecastRow, key: string) {
+  // Click en una celda de la matriz: arma el mismo filtro que ya usa esa celda
+  // para contar (cellLoans), pero devolviendo la lista completa en vez del
+  // número. rawHealthiness siempre está presente acá (son PipelineLoan,
+  // pipeline abierto -- a diferencia de las filas "Closed" de PivotTable, que
+  // vienen de ResolvedLoan y no tienen ese campo).
+  //
+  // Etapa UX1: abre el flyout lateral (LoanDetailDrawer) en vez del modal
+  // centrado, y el título se parte en contexto + métrica.
+  function openCellDrawer(row: BranchForecastRow, key: string) {
     const loans = cellLoans(row, channel, key, metricView);
-    setModal({
-      title: `Branch ${row.branch} — ${labelFromKey(key)} (${loans.length} Loans)`,
+    setDrawer({
+      context: `Branch ${row.branch} — ${channel === 'banked' ? 'Banked - Retail' : 'Brokered'}`,
+      metric: labelFromKey(key),
       loans: loans.map((loan) => ({
         sourceLoanId: loan.sourceLoanId,
         borrowerName: loan.borrowerName,
+        loanOfficer: loan.loanOfficer,
         amount: loan.amount,
         rawMilestone: loan.rawMilestone,
         rawHealthiness: loan.rawHealthiness,
+        branchTransferred: loan.branchTransferred,
       })),
     });
   }
@@ -221,107 +225,133 @@ export default function TabMilestoneMatrix({ bankedRows, brokeredRows, bankedRat
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
-        <div className="channel-segment">
-          <button className={channel === 'banked' ? 'on' : ''} onClick={() => setChannel('banked')}>
-            Banked - Retail
-          </button>
-          <button className={channel === 'brokered' ? 'on' : ''} onClick={() => setChannel('brokered')}>
-            Brokered
-          </button>
+      {/* Spec §4D.1: selector de canal (Banked por defecto) + selector de métrica. */}
+      <div className="control-bar">
+        <div className="control-group">
+          <span className="label-chip">Channel</span>
+          <div className="seg">
+            <button className={channel === 'banked' ? 'on' : ''} onClick={() => setChannel('banked')}>
+              Banked - Retail
+            </button>
+            <button className={channel === 'brokered' ? 'on' : ''} onClick={() => setChannel('brokered')}>
+              Brokered
+            </button>
+          </div>
         </div>
-        <div className="channel-segment">
-          <button className={metricView === 'total' ? 'on' : ''} onClick={() => setMetricView('total')}>
-            Total
-          </button>
-          <button className={metricView === 'healthy' ? 'on' : ''} onClick={() => setMetricView('healthy')}>
-            Healthy
-          </button>
+        <div className="control-group">
+          <span className="label-chip">Metric</span>
+          <div className="seg">
+            <button className={metricView === 'total' ? 'on' : ''} onClick={() => setMetricView('total')}>
+              Total Pipeline
+            </button>
+            <button className={metricView === 'healthy' ? 'on' : ''} onClick={() => setMetricView('healthy')}>
+              Healthy Pipeline
+            </button>
+          </div>
         </div>
       </div>
 
-      <div className="cards-head">Branch x Milestone Breakdown</div>
-      <table className="piv">
-        <thead>
-          <tr className="mo-row">
-            <th className="lbl">Branch</th>
-            {milestoneKeys.map((k) => (
-              <th key={k}>{labelFromKey(k)}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {filteredByChannel.map((row) => {
-            const { total, healthy } = bucketsForRow(row, channel);
-            const active = metricView === 'total' ? total : healthy;
-            return (
-              <tr className="metric" key={row.branch}>
-                <td className="lbl">{row.branch}</td>
-                {milestoneKeys.map((k) => {
-                  const value =
-                    channel === 'banked' && isUnderwritingRawMilestone(k)
-                      ? bankedRawMilestoneCount(row, k, metricView)
-                      : bucketValue(active, k);
-                  return (
-                    <td className="val" key={k}>
-                      <button type="button" className="cell-trigger" onClick={() => openCellModal(row, k)}>
-                        {value}
-                      </button>
-                    </td>
-                  );
-                })}
+      <div className="tbl-card">
+        <div className="tbl-card__head">
+          <span className="tbl-card__title">Branch × Milestone Breakdown</span>
+          <span className="badge badge--pill badge--sky">
+            {metricView === 'total' ? 'Total Pipeline' : 'Healthy Pipeline'}
+          </span>
+        </div>
+        <div className="tbl-scroll">
+          <table className="piv">
+            <thead>
+              <tr className="mo-row">
+                <th className="lbl">Branch</th>
+                {milestoneKeys.map((k) => (
+                  <th key={k}>{labelFromKey(k)}</th>
+                ))}
               </tr>
-            );
-          })}
-          {!filteredByChannel.length && (
-            <tr>
-              <td className="lbl" style={{ color: 'var(--muted)', fontWeight: 500 }} colSpan={milestoneKeys.length + 1}>
-                No branches for this channel.
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+            </thead>
+            <tbody>
+              {filteredByChannel.map((row) => {
+                const { total, healthy } = bucketsForRow(row, channel);
+                const active = metricView === 'total' ? total : healthy;
+                return (
+                  <tr className="metric" key={row.branch}>
+                    <td className="lbl">{row.branch}</td>
+                    {milestoneKeys.map((k) => {
+                      const value =
+                        channel === 'banked' && isUnderwritingRawMilestone(k)
+                          ? bankedRawMilestoneCount(row, k, metricView)
+                          : bucketValue(active, k);
+                      return (
+                        <td className="val" key={k}>
+                          {/* Spec §4D.2: el 0 va apagado y sin affordance de
+                              click (no hay préstamos que auditar detrás). */}
+                          {value === 0 ? (
+                            <span className="cell-trigger is-zero">0</span>
+                          ) : (
+                            <button type="button" className="cell-trigger" onClick={() => openCellDrawer(row, k)}>
+                              {value}
+                            </button>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+              {!filteredByChannel.length && (
+                <tr>
+                  <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={milestoneKeys.length + 1}>
+                    No branches for this channel.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
-      <div className="cards-head" style={{ marginTop: '24px' }}>
+      <div className="section-label" style={{ marginTop: '24px' }}>
         Pull-through Cascade
       </div>
       <MilestoneCascade rows={cascadeRows} forecastTotal={sumForecast(cascadeRows)} />
 
-      {/* Ajuste post-F6f: MilestoneCascade acá sigue en modo "sin desglose de
-          cerrados" (no se le pasan closedCount/totalForecast) -- su "Total
-          Forecast" es solo la proyección de pull-through, un número distinto
-          al Forecast del banner/Executive (que sí suma cerrados). Se aclara
-          con texto en vez de cambiar qué le pasamos al componente. */}
-      <p style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '12px', marginBottom: '16px' }}>
+      {/* MilestoneCascade acá sigue en modo "sin desglose de cerrados" (no se le
+          pasan closedCount/totalForecast) -- su "Total Forecast" es solo la
+          proyección de pull-through, un número distinto al Forecast del
+          banner/Executive (que sí suma cerrados). Se aclara con texto en vez de
+          cambiar qué le pasamos al componente. */}
+      <p className="foot-note">
         This total reflects pull-through projection only and does not include already-closed loans. See Executive Branch
         Forecast for the combined figure (closed + projection).
       </p>
 
-      <div className="cards-head" style={{ marginTop: '20px' }}>
-        Pull-Through Rates
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Object.keys(rates).length}, 1fr)`, gap: '12px' }}>
-        {/*
-         * PullThroughRates/BrokeredPullThroughRates (aggregate.ts, sin tocar) no
-         * declaran index signature -- Object.entries(rates) igual compila (su
-         * firma no la exige), pero el array resultante queda tipado [string,
-         * unknown][] en vez de [string, number][]. Se angosta acá, en el punto
-         * exacto donde se itera -- no se le miente a TS sobre la forma de
-         * `rates` completo, solo sobre la forma de este array puntual. Si
-         * PullThroughRates ganara un campo no numérico el día de mañana, esto
-         * rompe en el iterado (acá), no se arrastra a asunciones sobre todo el
-         * objeto.
-         */}
-        {(Object.entries(rates) as [string, number][]).map(([key, rate]) => (
-          <div className="mcard" key={key}>
-            <div className="m-name">{labelFromKey(key)}</div>
-            <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--text)', lineHeight: 1.2 }}>{fmtPct(rate)}</div>
-          </div>
-        ))}
+      {/* Spec §4D.3: tarjeta de Pull-Through Rates al pie del tab. */}
+      <div className="tbl-card" style={{ marginTop: '24px', padding: '16px' }}>
+        <div className="section-label">Pull-Through Rates — {channel === 'banked' ? 'Banked - Retail' : 'Brokered'}</div>
+        <div className="pt-rate-grid">
+          {/*
+           * PullThroughRates/BrokeredPullThroughRates (aggregate.ts, sin tocar) no
+           * declaran index signature -- Object.entries(rates) igual compila (su
+           * firma no la exige), pero el array resultante queda tipado [string,
+           * unknown][] en vez de [string, number][]. Se angosta acá, en el punto
+           * exacto donde se itera -- no se le miente a TS sobre la forma de
+           * `rates` completo, solo sobre la de este array puntual.
+           */}
+          {(Object.entries(rates) as [string, number][]).map(([key, rate]) => (
+            <div className="pt-rate" key={key}>
+              <span className="pt-rate__label">{labelFromKey(key)}</span>
+              <span className="badge badge--pill badge--emerald">{fmtPct(rate)}</span>
+            </div>
+          ))}
+        </div>
       </div>
 
-      <LoanDetailModal isOpen={modal !== null} onClose={() => setModal(null)} title={modal?.title ?? ''} loans={modal?.loans ?? []} />
+      <LoanDetailDrawer
+        isOpen={drawer !== null}
+        onClose={() => setDrawer(null)}
+        context={drawer?.context ?? ''}
+        metric={drawer?.metric ?? ''}
+        loans={drawer?.loans ?? []}
+      />
     </div>
   );
 }

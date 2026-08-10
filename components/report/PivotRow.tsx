@@ -4,6 +4,7 @@ import type { MetricMap, Measure } from '@/lib/aggregation/types';
 import type { YearMonth } from '@/lib/parsing/types';
 import { fmtVal } from '@/lib/aggregation/format';
 import { sumMonths } from '@/lib/aggregation/sumMonths';
+import { ChevronRightIcon } from '@/components/ui/icons';
 
 export interface PivotRowProps {
   label: string;
@@ -47,12 +48,18 @@ export default function PivotRow({
     >
       <td className="lbl mname">
         <span className="indent" style={{ width: indentPx + 'px' }}></span>
-        {canToggle && <span className="chev">{collapsed ? '▸' : '▾'}</span>}
+        {/* Etapa UX1: chevron SVG (rotado por CSS con .chev.open) en vez de
+            los caracteres "▸"/"▾" -- spec §2, "Zero Emojis". */}
+        {canToggle && (
+          <span className={'chev' + (collapsed ? '' : ' open')}>
+            <ChevronRightIcon size={12} />
+          </span>
+        )}
         {label}
       </td>
       {months.map((ym) => {
         const value = map[ym] || 0;
-        const cellClass = 'val ' + (isClosedMetric && value ? 'cl' : '') + (value ? '' : ' zero');
+        const cellClass = ['val', isClosedMetric && value ? 'cl' : '', value ? '' : 'zero'].filter(Boolean).join(' ');
         return (
           <td key={ym} className={cellClass}>
             {fmtVal(value, measure)}

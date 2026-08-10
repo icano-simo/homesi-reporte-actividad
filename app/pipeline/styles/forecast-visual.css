@@ -1,240 +1,152 @@
 /*
- * Estilos puramente visuales del módulo Forecast (SummaryCards, MilestoneCascade,
- * PivotTable) -- no calculan ni muestran ningún valor, solo apariencia.
- * Archivo separado de legacy-components.css a propósito: ese archivo es
- * compartido con el módulo Actividad (via globals.css) y no se toca acá.
+ * ============================================================================
+ * ESTILOS EXCLUSIVOS DEL MÓDULO FORECAST
+ * ============================================================================
+ *
  * Se importa SOLO desde app/pipeline/page.tsx, nunca desde globals.css.
+ * Todo lo que sea compartido con Commercial Activity vive en
+ * app/styles/components.css.
+ *
+ * Etapa UX1 — LIMPIEZA IMPORTANTE. Este archivo tenía 5 reglas que existían
+ * únicamente para pelear con `legacy-components.css` a fuerza de `!important`
+ * (los comentarios originales explicaban en detalle cada batalla de
+ * especificidad). Ese archivo ya no existe — se reescribió como
+ * `components.css` con la paleta de marca — así que esas reglas quedaron sin
+ * objeto y se borraron:
+ *
+ *   .grp.total-forecast td   -> `tr.grp.total` ya es claro con borde navy.
+ *   .adverse-header th       -> el header de tabla ya es claro para todas.
+ *   .tab-nav / .tab-btn      -> se conservan, pero sin duplicar tokens.
+ *   .channel-segment         -> reemplazado por `.seg` (control compartido).
+ *   .modal-overlay/.modal-box/.modal-header/.modal-close/.modal-body
+ *                            -> el modal centrado se reemplazó por el flyout
+ *                               lateral `.drawer-*` (components.css, spec §5).
+ *   .cell-trigger/.forecast-pill
+ *                            -> promovidos a components.css: los usa también
+ *                               Commercial Activity / el sistema de badges.
  */
 
-.chev {
-  display: inline-block;
-  transition: transform 0.15s ease;
-}
-.chev.open {
-  transform: rotate(90deg);
-}
+/* ---------------------------------------------------------------------------
+ * Sub-navegación de tabs (spec §4B)
+ * ------------------------------------------------------------------------ */
 
-/*
- * legacy-components.css define tr.grp.total td{background:var(--navy);color:#fff}
- * y tr.grp.total td.lbl{background:var(--navy);color:#fff} (líneas 107-108) --
- * ambas con más especificidad que .grp.total-forecast td.lbl (esta clase no
- * incluye el elemento "tr", y la primera versión de esta regla nunca apuntaba
- * a los <td> normales, solo a td.lbl, así que el resto de la fila seguía
- * navy). Se apunta a "td" en vez de la <tr> (el background de la <tr> nunca
- * se ve, lo tapa el background de cada <td>) y se fuerza con !important
- * porque no se puede tocar legacy-components.css para bajarle la
- * especificidad a su regla.
- */
-.grp.total-forecast td {
-  background-color: #f8fafc !important;
-  color: var(--navy) !important;
-}
-.grp.total-forecast {
-  border-top: 2px solid var(--navy);
-  font-weight: 700;
-}
-
-/*
- * Etapa F6g/fix posterior: el style inline en el <tr> (background/color) no
- * tenía ningún efecto -- legacy-components.css:100 define
- * "table.piv thead .mo-row th{background:#f8fafc;color:var(--muted);...}"
- * apuntando directo al <th>, no al <tr>. background/color no son
- * propiedades heredadas en CSS, así que un style inline en el padre nunca
- * llega a los hijos sin importar la especificidad -- cada <th> pinta su
- * propio fondo encima. No hace falta ningún !important compitiendo para que
- * esto pase (a diferencia de .grp.total-forecast): alcanza con que la regla
- * apunte al elemento correcto (th) y el inline style, al equivocado (tr).
- * Se mueve a esta clase, apuntando a "th" con !important (mismo motivo que
- * .grp.total-forecast: no se puede tocar legacy-components.css para bajarle
- * la especificidad a su regla).
- */
-.adverse-header th {
-  background: var(--navy) !important;
-  color: #fff !important;
-}
-
-.branch-transfer-chip {
-  display: inline-flex;
-  align-items: center;
-  margin-left: 6px;
-  padding: 1px 6px;
-  border-radius: 4px;
-  font-size: 10px;
-  font-weight: 700;
-  cursor: help;
-  background: var(--amber);
-  color: var(--amber-text);
-}
-
-/*
- * Etapa F6a: fundaciones CSS del rediseño visual de Forecast -- todavía sin
- * JSX que las use (ninguna .tsx crea ni importa nada en esta etapa). Quedan
- * acá listas para que una etapa futura arme los componentes de tabs/segmented
- * control/hero banner sobre estas clases.
- */
 .tab-nav {
   display: flex;
   gap: 8px;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 12px;
-  margin-bottom: 16px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--slate-200);
+  padding-bottom: 14px;
+  margin-bottom: 20px;
 }
+
 .tab-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 10px 18px;
-  border-radius: 999px;
-  font-size: 13px;
+  gap: 7px;
+  padding: 9px 18px;
+  border-radius: var(--radius-full);
+  font-family: inherit;
+  font-size: 12px;
   font-weight: 700;
   cursor: pointer;
-  border: 1px solid var(--border);
+  border: 1px solid var(--slate-200);
   background: #fff;
-  color: var(--muted);
+  color: var(--slate-600);
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  white-space: nowrap;
+}
+.tab-btn:hover {
+  color: var(--navy);
+  border-color: var(--slate-300);
 }
 .tab-btn.active {
   background: var(--navy);
   color: #fff;
   border-color: var(--navy);
 }
-.channel-segment {
-  display: inline-flex;
-  padding: 3px;
-  background: #eef1f5;
-  border-radius: 999px;
-  gap: 2px;
-}
-.channel-segment button {
-  border: none;
-  background: transparent;
-  font-size: 12px;
-  font-weight: 700;
-  padding: 6px 14px;
-  border-radius: 999px;
-  cursor: pointer;
-  color: var(--muted);
-}
-.channel-segment button.on {
-  background: var(--navy);
+.tab-btn.active:hover {
   color: #fff;
 }
-.hero-banner {
+.tab-btn svg {
+  flex-shrink: 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * TAB 1 — Executive Branch Forecast (spec §4C)
+ * ------------------------------------------------------------------------ */
+
+/* Grilla de 2 columnas: Banked - Retail | Brokered, lado a lado. */
+.channel-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
 }
-.hero-banner .sub-breakdown {
-  font-size: 11px;
-  color: var(--muted);
-  margin-top: 6px;
-}
-
-/*
- * Ajuste visual posterior: contiene el ancho del contenido en pantallas
- * anchas -- el Topbar (fuera de este contenedor, sin tocar) sigue
- * full-width; solo lo que va DENTRO de <div className="content"> se centra
- * a 1440px con márgenes laterales.
- */
-.forecast-container {
-  max-width: 1440px;
-  margin: 0 auto;
-  padding: 0 24px 24px;
+@media (max-width: 1100px) {
+  .channel-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
-/* Anchos fijos para Branch/Branch Manager en la tabla Executive (PivotTable) -- Closed/Total Pipeline/Healthy Pipeline/Forecast se reparten el resto sin ancho fijo. */
+/* Anchos fijos de Branch/Branch Manager -- Closed/Total/Healthy/Forecast se
+   reparten el resto sin ancho fijo. */
 .piv col.branch-col {
-  width: 140px;
+  width: 110px;
 }
 .piv col.manager-col {
-  width: 160px;
+  width: 150px;
 }
 
-/* Cascada compacta (MilestoneCascade) -- menos padding vertical/horizontal por celda. */
+/* ---------------------------------------------------------------------------
+ * TAB 2 — Milestone Pipeline Matrix (spec §4D)
+ * ------------------------------------------------------------------------ */
+
+/* Cascada compacta (MilestoneCascade): menos padding por celda que una tabla
+   de datos normal, porque son solo 4-5 filas. */
 .cascade-compact td,
 .cascade-compact th {
-  padding: 8px 12px !important;
+  padding: 9px 14px;
 }
-/* Track (fondo) de la barra de "% applied" -- celeste de marca en vez del gris genérico anterior. El relleno (el ancho variable) sigue usando var(--accent) sin cambios, ver MilestoneCascade.tsx. */
+/* Track (fondo) de la barra de "% applied" -- celeste de marca. El relleno
+   (ancho variable) es navy, ver MilestoneCascade.tsx. */
 .cascade-compact .progress-track {
   background: var(--sky);
 }
 
-/*
- * Modal de detalle de préstamos (reemplaza el drill-down inline de
- * PivotTable.tsx) -- no existía ningún patrón de overlay/modal en el
- * proyecto (revisado antes de escribir esto), así que se arma acá.
- * color-mix() en vez de un rgba() nuevo -- toma var(--navy) con opacidad
- * sin tener que declarar un color aparte.
- */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: color-mix(in srgb, var(--navy) 60%, transparent);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  z-index: 1000;
+/* Cuadro de Pull-Through Rates, al pie del tab (spec §4D.3). */
+.pt-rate-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
 }
-.modal-box {
-  background: #fff;
-  border-radius: 10px;
-  box-shadow: var(--shadow);
-  width: 100%;
-  max-width: 720px;
-  max-height: 80vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.modal-header {
+.pt-rate {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 18px;
-  border-bottom: 1px solid var(--border);
-  font-weight: 700;
-  font-size: 14px;
+  gap: 10px;
+  background: var(--slate-50);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
 }
-.modal-close {
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  font-size: 20px;
-  line-height: 1;
-  color: var(--muted);
-  padding: 2px 8px;
-  border-radius: 6px;
-}
-.modal-close:hover {
-  background: var(--border-soft);
-}
-.modal-body {
-  overflow-y: auto;
-  padding: 12px 18px 18px;
+.pt-rate__label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--slate-600);
 }
 
-/* Celda numérica clickeable (Closed/Total Pipeline/Healthy Pipeline en PivotTable) -- "hover:bg-[#A6DEFF]/30" traducido a CSS normal, var(--sky) con opacidad via color-mix(). */
-.cell-trigger {
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  font: inherit;
-  color: inherit;
-  padding: 3px 10px;
-  border-radius: 6px;
-  transition: background 0.15s ease;
-}
-.cell-trigger:hover {
-  background: color-mix(in srgb, var(--sky) 30%, transparent);
-}
+/* ---------------------------------------------------------------------------
+ * Chip informativo de préstamo transferido de branch
+ * ------------------------------------------------------------------------ */
 
-/* Píldora verde pastel para el valor de Forecast en PivotTable -- mismos tokens que ya usa el badge de Healthy Pipeline en SummaryCards.tsx. */
-.forecast-pill {
-  display: inline-block;
-  background: var(--green-tint);
-  color: var(--green);
-  border-radius: 9999px;
-  padding: 3px 12px;
+.branch-transfer-chip {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 10px;
   font-weight: 700;
+  cursor: help;
+  background: var(--amber);
+  color: var(--amber-text);
 }

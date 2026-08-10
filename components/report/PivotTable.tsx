@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import type { ReportTree, ReportTreeBranch, ReportTreeMetricGroup, Measure } from '@/lib/aggregation/types';
 import type { YearMonth } from '@/lib/parsing/types';
 import { METRICS, MONTH_NAMES } from '@/config/metrics';
+import { ChevronRightIcon } from '@/components/ui/icons';
 import PivotRow from './PivotRow';
 
 export interface PivotTableProps {
@@ -57,7 +58,10 @@ function GroupHeaderRow({
     <tr className={'grp togg ' + depthClass} onClick={() => onToggleCollapse(id)}>
       <td className="lbl">
         <span className="indent" style={{ width: '0px' }}></span>
-        <span className="chev">{collapsed ? '▸' : '▾'}</span>
+        {/* Etapa UX1: chevron SVG en vez de "▸"/"▾" (spec §2). */}
+        <span className={'chev' + (collapsed ? '' : ' open')}>
+          <ChevronRightIcon size={12} />
+        </span>
         {label}
       </td>
       <td colSpan={99}></td>
@@ -188,7 +192,7 @@ export default function PivotTable({ tree, months, measure, showTotal, collapsed
           <th className="totcol"></th>
         </tr>
         <tr className="mo-row">
-          <th className="lbl">{'Branch / Métrica / ' + drillLabel}</th>
+          <th className="lbl">{'Branch / Metric / ' + drillLabel}</th>
           {months.map((ym) => (
             <th key={ym}>{monthAbbrev(ym)}</th>
           ))}
@@ -234,8 +238,8 @@ export default function PivotTable({ tree, months, measure, showTotal, collapsed
 
         {!tree.branches.length && (
           <tr>
-            <td className="lbl" style={{ color: 'var(--muted)', fontWeight: 500 }}>
-              Ningún branch con actividad en el período seleccionado.
+            <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }}>
+              No branch with activity in the selected period.
             </td>
             <td colSpan={99}></td>
           </tr>

@@ -22,22 +22,22 @@ export interface DateRangeInputProps {
  */
 export default function DateRangeInput({ value, onChange }: DateRangeInputProps) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+    // Etapa UX1: los inputs pasan de `.pill` + borde inline a la clase
+    // compartida `.field` (components.css), la misma de todos los filtros.
+    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
       <span className="label-chip">Pipeline Range</span>
       <input
         type="date"
-        className="pill"
+        className="field"
         value={value.startDate}
         onChange={(e) => onChange({ startDate: e.target.value, endDate: value.endDate })}
-        style={{ border: '1px solid var(--border)', cursor: 'pointer' }}
       />
-      <span style={{ color: 'var(--muted)', fontSize: '13px' }}>to</span>
+      <span style={{ color: 'var(--slate-400)', fontSize: '12px' }}>to</span>
       <input
         type="date"
-        className="pill"
+        className="field"
         value={value.endDate}
         onChange={(e) => onChange({ startDate: value.startDate, endDate: e.target.value })}
-        style={{ border: '1px solid var(--border)', cursor: 'pointer' }}
       />
     </div>
   );

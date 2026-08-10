@@ -17,19 +17,22 @@ export interface TopbarProps {
   /** 'ALL' o un branch code. */
   selectedBranch: string;
   onSelectBranch: (branch: string) => void;
-  /** Ajuste post-F6h: estas 3 se mostraban antes de F6h en el loaded-row de page.tsx directamente -- se perdieron al mover ese bloque acá adentro, se restauran como props. */
   error?: string | null;
   formatDetected?: 'A' | 'B';
   saveStatus?: 'idle' | 'saving' | 'saved' | 'error';
 }
 
 /**
- * Etapa F6b: barra superior del rediseño de Forecast -- compone los 3
- * controles que ya existían (UploadButton/DateRangeInput/MonthSelector, sin
- * tocar su lógica interna) más el selector de Branch nuevo. Componente
- * aislado todavía: page.tsx NO lo importa en esta etapa (eso es F6h) --
- * `selectedBranch`/`onSelectBranch` solo se exponen como props, el filtrado
- * real por branch se implementa en esa etapa futura.
+ * Barra de control de Forecast: compone los 3 controles que ya existían
+ * (UploadButton / DateRangeInput / MonthSelector, sin tocar su lógica) más el
+ * selector de Branch global.
+ *
+ * Etapa UX1: dejó de ser la franja gris `.topbar` a todo el ancho del layout
+ * viejo -- ahora es la tarjeta blanca `.control-bar` (spec §3B) dentro del
+ * contenedor de 1440px, con dos grupos (datos a la izquierda, filtros a la
+ * derecha) y las pills de estado en una línea propia abajo. El <select> de
+ * branch usa la clase compartida `.field` en vez del alias `.yb` envuelto en
+ * `.yr`, que era un workaround del CSS legado.
  */
 export default function Topbar({
   onFileSelected,
@@ -47,39 +50,33 @@ export default function Topbar({
   saveStatus,
 }: TopbarProps) {
   return (
-    <div className="topbar">
-      <div className="toolbar-row">
+    <div className="control-bar">
+      <div className="control-group">
         <span className="label-chip">Data</span>
         <UploadButton onFileSelected={onFileSelected} isLoading={isLoading} />
+      </div>
+
+      <div className="control-group">
         <DateRangeInput value={pipelineDateRange} onChange={onPipelineDateRangeChange} />
         <MonthSelector value={forecastMonth} onChange={onForecastMonthChange} />
         <span className="label-chip" style={{ marginLeft: '6px' }}>
           Branch
         </span>
-        {/* .yb solo tiene estilo como descendiente de .yr (ver legacy-components.css)
-            -- se envuelve el <select> en ese wrapper en vez de usar .yb suelto
-            (que quedaría sin ningún estilo aplicado) o crear una clase nueva. */}
-        <span className="yr">
-          <select
-            value={selectedBranch}
-            onChange={(e) => onSelectBranch(e.target.value)}
-            className="yb"
-            style={{ cursor: 'pointer' }}
-          >
-            <option value="ALL">All Branches (Combined)</option>
-            {availableBranches.map((b) => (
-              <option key={b} value={b}>
-                Branch {b}
-              </option>
-            ))}
-          </select>
-        </span>
+        <select className="field" value={selectedBranch} onChange={(e) => onSelectBranch(e.target.value)}>
+          <option value="ALL">All Branches (Combined)</option>
+          {availableBranches.map((b) => (
+            <option key={b} value={b}>
+              Branch {b}
+            </option>
+          ))}
+        </select>
       </div>
-      <div className="loaded-row">
+
+      <div className="control-bar__status">
         {fileName && <span className="pill">File: {fileName}</span>}
         {formatDetected && <span className="pill">Format detected: {formatDetected}</span>}
         {saveStatus === 'saving' && <span className="pill">Saving to Supabase…</span>}
-        {saveStatus === 'saved' && <span className="pill">Saved to Supabase</span>}
+        {saveStatus === 'saved' && <span className="pill ok">Saved to Supabase</span>}
         {saveStatus === 'error' && <span className="pill warn">Could not save to Supabase</span>}
         {error && <span className="pill warn">{error}</span>}
       </div>

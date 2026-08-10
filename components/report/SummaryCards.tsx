@@ -4,6 +4,7 @@ import type { ReportTree, Measure, MetricMap } from '@/lib/aggregation/types';
 import type { YearMonth } from '@/lib/parsing/types';
 import { METRICS, MONTH_NAMES, type MetricKey } from '@/config/metrics';
 import { fmtVal } from '@/lib/aggregation/format';
+import { ArrowUpIcon, ArrowDownIcon, MinusIcon } from '@/components/ui/icons';
 
 export interface SummaryCardsProps {
   tree: ReportTree;
@@ -35,55 +36,66 @@ interface TrendProps {
   measure: Measure;
 }
 
-/** Port de trendIcon() del legacy. */
+/**
+ * Badge de tendencia contra el mes anterior.
+ *
+ * Etapa UX1: antes eran los caracteres tipográficos "▲"/"▼"/"–" pintados de
+ * verde/rojo saturado. El spec (§2 "Zero Emojis" y §3A) pide iconos SVG
+ * dentro de un badge de fondo suave -- emerald para subida, rose para bajada,
+ * slate para variación nula. La LÓGICA de comparación es el mismo port de
+ * trendIcon() del legado: se compara contra el mes anterior real del mapa, no
+ * contra el mes anterior mostrado en pantalla.
+ */
 function Trend({ metricKey, ym, current, maps, firstYM, measure }: TrendProps) {
-  if (ym <= firstYM) return <span className="trend none"></span>;
+  // Sin mes previo con el que comparar: no se dibuja nada (antes se ocupaba
+  // el espacio con visibility:hidden; el grid ya no lo necesita).
+  if (ym <= firstYM) return null;
 
   const prevYM = prevMonth(ym);
   const prev = maps[metricKey][prevYM] || 0;
   const prevLabel = monthName(prevYM).slice(0, 3);
+  const comparison = ' vs ' + prevLabel + ' (' + fmtVal(prev, measure) + ')';
 
   if (current > prev) {
     return (
-      <span className="trend up" title={'↑ vs ' + prevLabel + ' (' + fmtVal(prev, measure) + ')'}>
-        ▲
+      <span className="badge badge--up" title={'Up' + comparison}>
+        <ArrowUpIcon size={9} />
       </span>
     );
   }
   if (current < prev) {
     return (
-      <span className="trend down" title={'↓ vs ' + prevLabel + ' (' + fmtVal(prev, measure) + ')'}>
-        ▼
+      <span className="badge badge--down" title={'Down' + comparison}>
+        <ArrowDownIcon size={9} />
       </span>
     );
   }
   return (
-    <span className="trend flat" title={'= vs ' + prevLabel + ' (' + fmtVal(prev, measure) + ')'}>
-      –
+    <span className="badge badge--flat" title={'Flat' + comparison}>
+      <MinusIcon size={9} />
     </span>
   );
 }
 
 /**
- * Port de renderCards() del legacy: una tarjeta .mcard por mes con las 4
- * métricas y su flecha de tendencia contra el mes anterior.
+ * Monthly Totals: una tarjeta por mes con las 4 métricas y su tendencia
+ * contra el mes anterior.
  *
- * Simplificación por el contrato de props de esta etapa (sin `view` ni
- * `branchFilter`): usa siempre tree.total.maps, igual que buildView(). El
- * legacy recalculaba renderCards() con sus propios recs filtrados por
- * branch, así que al filtrar por un branch específico sus tarjetas podían
- * diferir del total de la tabla -- eso queda para la Etapa 7, cuando este
- * componente reciba props de filtro reales.
+ * Etapa UX1 (spec §3A): pasó de una fila con scroll horizontal
+ * (`.cards` + `overflow-x:auto` + tarjetas de ancho fijo) a una grilla de 8
+ * columnas (`.kpi-strip`) que envuelve a una segunda fila cuando hay más de
+ * 8 meses visibles. El scroll horizontal era justamente lo que prohíbe el
+ * spec §6.
+ *
+ * Sin cambios de cálculo: sigue leyendo tree.total.maps, igual que antes.
  */
 export default function SummaryCards({ tree, months, measure }: SummaryCardsProps) {
   const maps = tree.total.maps;
 
   if (!months.length) {
     return (
-      <div className="cards">
-        <div style={{ color: 'var(--muted)', fontSize: '13px', padding: '8px' }}>
-          Sin meses para el año seleccionado.
-        </div>
+      <div className="mcard" style={{ color: 'var(--slate-500)', fontSize: '13px' }}>
+        No months available for the selected year.
       </div>
     );
   }
@@ -91,19 +103,19 @@ export default function SummaryCards({ tree, months, measure }: SummaryCardsProp
   const firstYM = months[0];
 
   return (
-    <div className="cards">
+    <div className="kpi-strip">
       {months.map((ym) => (
         <div className="mcard" key={ym}>
-          <div className="m-name">
+          <div className="kpi-card__month">
             {monthName(ym)} {ym.split('-')[0]}
           </div>
           {METRICS.map(({ key, label }) => {
             const value = maps[key][ym] || 0;
             return (
-              <div className="m-row" key={key}>
-                <span className="m-lab">{label}</span>
-                <span className="m-right">
-                  <span className={'m-val ' + key}>{fmtVal(value, measure)}</span>
+              <div className="kpi-row" key={key}>
+                <span className="kpi-row__label">{label}</span>
+                <span className="kpi-row__right">
+                  <span className="kpi-row__value">{fmtVal(value, measure)}</span>
                   <Trend metricKey={key} ym={ym} current={value} maps={maps} firstYM={firstYM} measure={measure} />
                 </span>
               </div>

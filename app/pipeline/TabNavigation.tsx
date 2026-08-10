@@ -1,5 +1,8 @@
 'use client';
 
+import type { ReactNode } from 'react';
+import { BuildingIcon, GridIcon, AlertTriangleIcon } from '@/components/ui/icons';
+
 export type TabType = 'executive' | 'matrix' | 'adverse';
 
 export interface TabNavigationProps {
@@ -9,30 +12,49 @@ export interface TabNavigationProps {
 }
 
 /**
- * Etapa F6d: shell de navegación por tabs del rediseño de Forecast -- solo
- * los 3 botones, sin el contenido de cada tab todavía (eso es F6e/F6f/F6g).
- * Usa .tab-nav/.tab-btn/.tab-btn.active (forecast-visual.css, agregadas en
- * F6a) y .pill.warn (legacy-components.css, ya existía) para el contador de
- * Adverse -- ningún CSS nuevo en esta etapa. Componente aislado todavía:
- * page.tsx no lo importa (eso es F6h).
+ * Etapa UX1: los 3 tabs dejan de estar hardcodeados como 3 <button> casi
+ * idénticos y pasan a una tabla de datos -- agregar un cuarto tab ahora es una
+ * línea acá. `badge` decide si ese tab lleva un contador (hoy solo Adverse).
+ */
+interface TabDefinition {
+  id: TabType;
+  label: string;
+  icon: ReactNode;
+  badge?: 'adverseCount';
+}
+
+const TABS: TabDefinition[] = [
+  { id: 'executive', label: 'Executive Branch Forecast', icon: <BuildingIcon size={14} /> },
+  { id: 'matrix', label: 'Milestone Pipeline Matrix', icon: <GridIcon size={14} /> },
+  { id: 'adverse', label: 'Adverse & Risk Loans', icon: <AlertTriangleIcon size={14} />, badge: 'adverseCount' },
+];
+
+/**
+ * Sub-navegación de Forecast (spec §4B): 3 pill tabs bajo el banner de KPIs.
+ * Mismo comportamiento de F6d; cambia el tratamiento visual (pills del sistema
+ * `.tab-btn`, iconos SVG en vez de texto pelado) y el contador de Adverse pasa
+ * a un `.badge` en vez de una `.pill.warn` con estilos inline.
  */
 export default function TabNavigation({ activeTab, onTabChange, adverseCount }: TabNavigationProps) {
   return (
-    <nav className="tab-nav">
-      <button className={`tab-btn ${activeTab === 'executive' ? 'active' : ''}`} onClick={() => onTabChange('executive')}>
-        Executive Branch Forecast
-      </button>
-      <button className={`tab-btn ${activeTab === 'matrix' ? 'active' : ''}`} onClick={() => onTabChange('matrix')}>
-        Milestone Pipeline Matrix
-      </button>
-      <button className={`tab-btn ${activeTab === 'adverse' ? 'active' : ''}`} onClick={() => onTabChange('adverse')}>
-        Adverse & Risk Loans
-        {adverseCount > 0 && (
-          <span className="pill warn" style={{ fontSize: '10px', padding: '2px 8px', marginLeft: '2px' }}>
-            {adverseCount}
-          </span>
-        )}
-      </button>
+    <nav className="tab-nav" aria-label="Forecast sections">
+      {TABS.map((tab) => {
+        const isActive = activeTab === tab.id;
+        const showBadge = tab.badge === 'adverseCount' && adverseCount > 0;
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            className={'tab-btn' + (isActive ? ' active' : '')}
+            onClick={() => onTabChange(tab.id)}
+            aria-pressed={isActive}
+          >
+            {tab.icon}
+            {tab.label}
+            {showBadge && <span className="badge badge--rose">{adverseCount}</span>}
+          </button>
+        );
+      })}
     </nav>
   );
 }

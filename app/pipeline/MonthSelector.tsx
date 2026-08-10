@@ -17,15 +17,11 @@ export interface MonthSelectorProps {
  */
 export default function MonthSelector({ value, onChange }: MonthSelectorProps) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+    // Etapa UX1: mismo cambio que DateRangeInput -- `.pill` + borde inline
+    // reemplazados por la clase compartida `.field`.
+    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
       <span className="label-chip">Forecast Month</span>
-      <input
-        type="month"
-        className="pill"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        style={{ border: '1px solid var(--border)', cursor: 'pointer' }}
-      />
+      <input type="month" className="field" value={value} onChange={(e) => onChange(e.target.value)} />
     </div>
   );
 }

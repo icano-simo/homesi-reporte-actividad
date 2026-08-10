@@ -26,6 +26,7 @@ import AdverseTable from './AdverseTable';
 import Topbar from './Topbar';
 import TabNavigation, { type TabType } from './TabNavigation';
 import TabMilestoneMatrix from './TabMilestoneMatrix';
+import { DownloadIcon, FileSheetIcon, UploadIcon } from '@/components/ui/icons';
 
 /**
  * Etapa F4: mismos valores que DEMO_RATES (F3). El input editable en la UI
@@ -667,7 +668,25 @@ export default function PipelinePage() {
   }
 
   return (
-    <div className="main">
+    <div className="hub-container">
+      <div className="page-head">
+        <div>
+          <h1 className="page-head__title">Forecast &amp; Pipeline</h1>
+          <p className="page-head__subtitle">
+            Executive branch forecast, milestone pipeline matrix and adverse loans — {forecastMonthLabel}
+          </p>
+        </div>
+        {data && (
+          <button type="button" className="btn primary" onClick={handleExport} disabled={isExporting}>
+            <DownloadIcon />
+            {isExporting ? 'Generating…' : 'Download Excel'}
+          </button>
+        )}
+      </div>
+
+      {/* Etapa UX1: el Topbar dejó de ser una franja a todo el ancho por encima
+          del contenido -- ahora es la tarjeta de control (spec §3B) dentro del
+          mismo contenedor de 1440px que el resto de la vista. */}
       <Topbar
         onFileSelected={handleFileSelected}
         isLoading={isLoading}
@@ -683,122 +702,101 @@ export default function PipelinePage() {
         formatDetected={data?.formatDetected}
         saveStatus={data?.persisted === true ? 'saved' : data?.persisted === false ? 'error' : 'idle'}
       />
-      <div className="content forecast-container">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
-          <h1 className="title">Forecast — Pipeline</h1>
-          {/* Etapa F5k: el brief pedía este botón "junto a Upload file", que
-              vive dentro de Topbar.tsx -- fuera de la lista de archivos
-              permitidos en esta etapa (solo /app/api/pipeline/export/route.ts
-              y este archivo). Se ubica acá, junto al título, en vez de tocar
-              Topbar.tsx sin autorización -- ver Riesgos en la respuesta. */}
-          {data && (
-            <button type="button" className="btn primary" onClick={handleExport} disabled={isExporting}>
-              {isExporting ? 'Generating…' : 'Download Excel'}
-            </button>
-          )}
+
+      {!data && isLoadingInitial && (
+        <div className="empty">
+          <h2>Loading…</h2>
+          <p>Looking for the last saved report.</p>
         </div>
+      )}
 
-        {!data && isLoadingInitial && (
-          <div className="empty">
-            <h2>Loading…</h2>
-            <p>Looking for the last saved report.</p>
+      {!data && !isLoading && !isLoadingInitial && (
+        <div className="empty">
+          <div className="drop-ic">
+            <FileSheetIcon size={24} />
           </div>
-        )}
+          <h2>Load the pipeline report</h2>
+          <p>Upload the Salesforce file (Excel). The app detects the format automatically.</p>
+          <label className="btn cta" htmlFor={PIPELINE_FILE_INPUT_ID} style={{ display: 'inline-flex' }}>
+            <UploadIcon />
+            Select file
+          </label>
+        </div>
+      )}
 
-        {!data && !isLoading && !isLoadingInitial && (
-          <div className="empty">
-            <div className="drop-ic">
-              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path d="M14 3v5h5" />
-                <path d="M14 3H6v18h12V8z" />
-                <path d="M9 15h6M9 11h6" />
-              </svg>
-            </div>
-            <h2>Load the pipeline report</h2>
-            <p>Upload the Salesforce file (Excel). The app detects the format automatically.</p>
-            <label className="btn primary" htmlFor={PIPELINE_FILE_INPUT_ID} style={{ display: 'inline-flex' }}>
-              Select file
-            </label>
-          </div>
-        )}
+      {isLoading && (
+        <div className="empty">
+          <h2>Processing file…</h2>
+        </div>
+      )}
 
-        {isLoading && (
-          <div className="empty">
-            <h2>Processing file…</h2>
-          </div>
-        )}
+      {data && (
+        <>
+          <SummaryCards
+            combined={{
+              label: 'Combined',
+              totalCount: grandTotalCount,
+              healthyCount: grandHealthyCount,
+              forecastTotal: grandForecastTotal,
+              closedCount,
+              totalForecast,
+            }}
+            banked={bankedSummary}
+            brokered={brokeredSummary}
+            targetMonthLabel={forecastMonthLabel}
+          />
 
-        {data && (
-          <>
-            <SummaryCards
-              combined={{
-                label: 'Combined',
-                totalCount: grandTotalCount,
-                healthyCount: grandHealthyCount,
-                forecastTotal: grandForecastTotal,
-                closedCount,
-                totalForecast,
-              }}
-              banked={bankedSummary}
-              brokered={brokeredSummary}
-              targetMonthLabel={forecastMonthLabel}
+          <TabNavigation activeTab={activeTab} onTabChange={setActiveTab} adverseCount={adverseInRange.length} />
+
+          {/* Etapa F5e: todo lo que PivotTable hace internamente con su prop
+              `dateRange` es filtrar Cerrados (disbursementDate) -- Total/Healthy
+              Pipeline de cada branch le llegan ya calculados en `rows`. Por eso
+              se le pasa el rango del selector de mes (forecastRange), no
+              pipelineDateRange: su columna "Closed" queda consistente con
+              SummaryCards/MilestoneCascade. */}
+          {activeTab === 'executive' && (
+            <PivotTable
+              rows={filteredBranchRows}
+              resolvedLoans={filteredResolvedLoans}
+              rates={PULL_THROUGH_RATES}
+              dateRange={forecastRange}
+              branchManagers={branchManagers}
+              knownBranches={knownBranches}
             />
+          )}
 
-            <TabNavigation activeTab={activeTab} onTabChange={setActiveTab} adverseCount={adverseInRange.length} />
+          {activeTab === 'matrix' && (
+            <TabMilestoneMatrix
+              bankedRows={bankedCascadeRows}
+              brokeredRows={brokeredCascadeRows}
+              bankedRates={PULL_THROUGH_RATES}
+              brokeredRates={BROKERED_PULL_THROUGH_RATES}
+              rows={filteredBranchRows}
+            />
+          )}
 
-            {/* Etapa F5e: PivotTable no se modifica (fuera de la lista de esa etapa).
-                Todo lo que hace internamente con su prop `dateRange` es filtrar
-                Cerrados (disbursementDate) -- Total/Healthy Pipeline de cada branch
-                le llegan ya calculados en `rows`. Por eso se le sigue pasando acá
-                el rango del selector de mes (forecastRange), no pipelineDateRange:
-                su columna "Closed" queda consistente con SummaryCards/
-                MilestoneCascade sin tocar el código de PivotTable.tsx. */}
-            {activeTab === 'executive' && (
-              <PivotTable
-                rows={filteredBranchRows}
-                resolvedLoans={filteredResolvedLoans}
-                rates={PULL_THROUGH_RATES}
-                dateRange={forecastRange}
-                branchManagers={branchManagers}
-                knownBranches={knownBranches}
-              />
-            )}
+          {activeTab === 'adverse' && (
+            <AdverseTable
+              resolvedLoans={adverseInRange}
+              forecastMonthLabel={forecastMonthLabel}
+              firstSeenAsAdverse={firstSeenAsAdverse}
+            />
+          )}
 
-            {activeTab === 'matrix' && (
-              <TabMilestoneMatrix
-                bankedRows={bankedCascadeRows}
-                brokeredRows={brokeredCascadeRows}
-                bankedRates={PULL_THROUGH_RATES}
-                brokeredRates={BROKERED_PULL_THROUGH_RATES}
-                rows={filteredBranchRows}
-              />
-            )}
+          {resolvedSummary && <div className="foot-note">{resolvedSummary}</div>}
 
-            {activeTab === 'adverse' && (
-              <AdverseTable
-                resolvedLoans={adverseInRange}
-                forecastMonthLabel={forecastMonthLabel}
-                firstSeenAsAdverse={firstSeenAsAdverse}
-              />
-            )}
-
-            {resolvedSummary && <div className="foot-note">{resolvedSummary}</div>}
-
-            {data.warnings.length > 0 && (
-              <div className="foot-note">
-                <strong>
-                  Parser warnings ({data.warnings.length}):
-                </strong>
-                <ul style={{ margin: '6px 0 0', paddingLeft: '18px' }}>
-                  {data.warnings.map((w, i) => (
-                    <li key={i}>{w}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </>
-        )}
-      </div>
+          {data.warnings.length > 0 && (
+            <div className="foot-note">
+              <strong>Parser warnings ({data.warnings.length}):</strong>
+              <ul style={{ margin: '6px 0 0', paddingLeft: '18px' }}>
+                {data.warnings.map((w, i) => (
+                  <li key={i}>{w}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

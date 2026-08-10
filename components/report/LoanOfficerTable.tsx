@@ -5,6 +5,7 @@ import type { YearMonth } from '@/lib/parsing/types';
 import type { Measure } from '@/lib/aggregation/types';
 import type { LoanOfficerTree, LoanOfficerTreeItem } from '@/lib/aggregation/buildLoanOfficerTree';
 import { METRICS, MONTH_NAMES, type MetricKey } from '@/config/metrics';
+import { ChevronRightIcon } from '@/components/ui/icons';
 import PivotRow from './PivotRow';
 
 export interface LoanOfficerTableProps {
@@ -91,7 +92,10 @@ function OfficerRows({
       <tr className="grp togg d1" onClick={() => onToggleCollapse(officerId)}>
         <td className="lbl">
           <span className="indent" style={{ width: '0px' }}></span>
-          <span className="chev">{officerCollapsed ? '▸' : '▾'}</span>
+          {/* Etapa UX1: chevron SVG en vez de "▸"/"▾" (spec §2). */}
+          <span className={'chev' + (officerCollapsed ? '' : ' open')}>
+            <ChevronRightIcon size={12} />
+          </span>
           {officer.name}
         </td>
         <td colSpan={99}></td>
@@ -146,23 +150,13 @@ export default function LoanOfficerTable({
 
   return (
     <>
-      <div className="table-tools" style={{ marginBottom: '10px' }}>
-        <span className="label-chip">Ordenar por</span>
-        <select
-          value={sortBy}
-          onChange={(e) => onSortByChange(e.target.value as MetricKey | 'total')}
-          style={{
-            fontSize: '12px',
-            fontWeight: 600,
-            color: 'var(--muted)',
-            border: '1px solid var(--border)',
-            background: '#fff',
-            borderRadius: '7px',
-            padding: '5px 10px',
-            cursor: 'pointer',
-          }}
-        >
-          <option value="total">Actividad total</option>
+      {/* Etapa UX1: los estilos inline de estos 2 controles se reemplazaron por
+          la clase compartida `.field` (components.css) -- misma apariencia que
+          los filtros del Toolbar, en un solo lugar. */}
+      <div className="table-tools">
+        <span className="label-chip">Sort by</span>
+        <select className="field" value={sortBy} onChange={(e) => onSortByChange(e.target.value as MetricKey | 'total')}>
+          <option value="total">Total activity</option>
           {METRICS.map(({ key, label }) => (
             <option key={key} value={key}>
               {label}
@@ -171,71 +165,70 @@ export default function LoanOfficerTable({
         </select>
 
         <span className="label-chip" style={{ marginLeft: '6px' }}>
-          Buscar
+          Search
         </span>
         <input
           type="text"
+          className="field"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Nombre del Loan Officer…"
-          style={{
-            fontSize: '12px',
-            color: 'var(--text)',
-            border: '1px solid var(--border)',
-            background: '#fff',
-            borderRadius: '7px',
-            padding: '5px 10px',
-            minWidth: '220px',
-          }}
+          placeholder="Loan Officer name…"
+          style={{ minWidth: '220px', cursor: 'text' }}
         />
       </div>
 
-      <table className="piv" id="pivotLoanOfficer">
-        <thead>
-          <tr className="yr-row">
-            <th className="lbl"></th>
-            <YearHeaderCells months={months} />
-            <th className="totcol"></th>
-          </tr>
-          <tr className="mo-row">
-            <th className="lbl">Loan Officer</th>
-            {months.map((ym) => (
-              <th key={ym}>{monthAbbrev(ym)}</th>
-            ))}
-            <th className="totcol">Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          {visibleOfficers.map((officer) => (
-            <OfficerRows
-              key={officer.name}
-              officer={officer}
-              months={months}
-              measure={measure}
-              collapsed={collapsed}
-              onToggleCollapse={onToggleCollapse}
-            />
-          ))}
+      {/* Etapa UX1: la tabla trae su propia tarjeta + contenedor de scroll, para
+          que los controles de arriba queden FUERA del scroll horizontal. */}
+      <div className="tbl-card">
+        <div className="tbl-scroll">
+          <table className="piv" id="pivotLoanOfficer">
+            <thead>
+              <tr className="yr-row">
+                <th className="lbl"></th>
+                <YearHeaderCells months={months} />
+                <th className="totcol"></th>
+              </tr>
+              <tr className="mo-row">
+                <th className="lbl">Loan Officer</th>
+                {months.map((ym) => (
+                  <th key={ym}>{monthAbbrev(ym)}</th>
+                ))}
+                <th className="totcol">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleOfficers.map((officer) => (
+                <OfficerRows
+                  key={officer.name}
+                  officer={officer}
+                  months={months}
+                  measure={measure}
+                  collapsed={collapsed}
+                  onToggleCollapse={onToggleCollapse}
+                />
+              ))}
 
-          {!sortedOfficers.length && (
-            <tr>
-              <td className="lbl" style={{ color: 'var(--muted)', fontWeight: 500 }}>
-                Ningún Loan Officer con actividad en el período seleccionado.
-              </td>
-              <td colSpan={99}></td>
-            </tr>
-          )}
+              {!sortedOfficers.length && (
+                <tr>
+                  <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }}>
+                    No Loan Officer with activity in the selected period.
+                  </td>
+                  <td colSpan={99}></td>
+                </tr>
+              )}
 
-          {sortedOfficers.length > 0 && !visibleOfficers.length && (
-            <tr>
-              <td className="lbl" style={{ color: 'var(--muted)', fontWeight: 500 }}>
-                Ningún Loan Officer coincide con la búsqueda.
-              </td>
-              <td colSpan={99}></td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+              {sortedOfficers.length > 0 && !visibleOfficers.length && (
+                <tr>
+                  <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }}>
+                    No Loan Officer matches the search.
+                  </td>
+                  <td colSpan={99}></td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </>
   );
 }
