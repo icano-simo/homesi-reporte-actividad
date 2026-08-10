@@ -555,12 +555,12 @@ table.piv td {
    * columna vecina. 8px vertical mantiene la altura ejecutiva; 16px horizontal
    * da el aire lateral que faltaba.
    *
-   * El costo de subir el padding horizontal con table-layout:fixed es que el
-   * espacio de CONTENIDO de cada columna se achica (el padding va dentro del
-   * ancho de la columna). Se compensa con un min-width en la tabla -- ver
-   * forecast-visual.css.
+   * Etapa UX6: se ajusta a 6px 10px. Con el canvas más angosto (1380) los 16px
+   * laterales se comían demasiado espacio de contenido -- el padding va DENTRO
+   * del ancho de la columna con table-layout:fixed. Sigue habiendo aire, pero
+   * entran más branches sin scroll.
    */
-  padding: 8px 16px;
+  padding: 6px 10px;
   text-align: right;
   white-space: nowrap;
   font-size: 12px;
@@ -601,9 +601,9 @@ table.piv thead .mo-row th {
   font-size: 10.5px;
   text-transform: uppercase;
   letter-spacing: 0.07em;
-  /* Etapa UX5: mismo padding horizontal que las celdas de datos, para que la
-     columna se lea como una franja continua de arriba a abajo. */
-  padding: 9px 16px;
+  /* Mismo padding horizontal que las celdas de datos, para que la columna se
+     lea como una franja continua de arriba a abajo. */
+  padding: 8px 10px;
   border-bottom: 2px solid var(--slate-200);
   vertical-align: bottom;
   /*
@@ -979,18 +979,14 @@ tr.mrow .chev {
  * interno que se eliminó explícitamente al volver del flyout al modal. Acá
  * manda esa regla: las 6 columnas entran enteras en la caja.
  *
- * Por el mismo motivo conserva un padding horizontal más ajustado que el de
- * las tablas de página: 16px por lado en 6 columnas se comerían 192px de los
- * 768 disponibles.
+ * (Desde UX6 el padding base ya es 6px 10px, así que el modal no necesita un
+ * override propio: hereda el mismo ritmo que el resto.)
  */
 .modal-body table.piv th.lbl,
 .modal-body table.piv td.lbl {
   min-width: 0;
 }
-.modal-body table.piv th,
-.modal-body table.piv td {
-  padding: 8px 10px;
-}
+
 
 /*
  * `.toast` se BORRÓ en la etapa UX1: venía del HTML legado y ningún componente

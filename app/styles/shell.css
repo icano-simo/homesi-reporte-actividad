@@ -13,7 +13,7 @@
  *
  * Regla de contención (spec §1.2): el header ocupa el 100% del ancho, pero
  * TODO el contenido interior — el del header incluido — se centra dentro de
- * `--container-max` (1440px). Ninguna tabla/tarjeta llega al borde de la
+ * `--container-max` (1380px). Ninguna tabla/tarjeta llega al borde de la
  * pantalla en monitores anchos.
  */
 
@@ -137,12 +137,15 @@
 
 /*
  * El contenedor real de cada vista. Equivale al
- * `max-w-[1440px] mx-auto px-6 py-6` del spec.
+ * `max-w-[1380px] mx-auto px-8 py-8` del spec.
  */
 .hub-container {
   max-width: var(--container-max);
   margin: 0 auto;
-  padding: 24px 24px 64px;
+  /* Etapa UX6: 32px laterales (antes 24) -- más aire entre el contenido y el
+     borde de la ventana. Coincide con el padding de `.hub-header__inner`, así
+     que logo y contenido quedan a la misma línea vertical. */
+  padding: 32px 32px 64px;
 }
 
 /* ---------------------------------------------------------------------------

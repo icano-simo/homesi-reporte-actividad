@@ -116,12 +116,12 @@
   width: 16%;
 }
 /*
- * Etapa UX5: mismo criterio de ancho mínimo que las tablas ejecutivas. El peor
- * caso es Banked con 6 columnas de milestone (84%/6 = 14% cada una), o sea
- * 90px / 0.14 = 643px -> 650px.
+ * Mismo criterio de ancho mínimo que las tablas ejecutivas (y mismo ajuste de
+ * UX6 a 620px, ver la nota larga más abajo). El peor caso es Banked con 6
+ * columnas de milestone: 84%/6 = 14% cada una.
  */
 .piv--matrix {
-  min-width: 650px;
+  min-width: 620px;
 }
 
 /*
@@ -169,19 +169,20 @@
  * Se traduce al único lugar donde sí funciona -- el ancho mínimo de la TABLA,
  * despejando desde el porcentaje de cada columna:
  *     Branch Manager   180px / 0.32 = 562px
- *     cada métrica      90px / 0.14 = 643px   <- manda esta
- * Se usa 650px. Por encima de eso las proporciones se respetan y todos los
- * mínimos se cumplen; por debajo, `.tbl-scroll` scrollea.
+ *     cada métrica      90px / 0.14 = 643px
  *
- * CONSECUENCIA A TENER EN CUENTA: las 2 tablas de canal ocupan media pantalla
- * cada una, así que con el canvas de 1440px miden ~686px y entran holgadas,
- * pero por debajo de ~1366px de viewport aparece la barra horizontal. Es el
- * intercambio que el propio brief acepta al pedir `overflow-x-auto` (§3): se
- * prioriza que los nombres y los números respiren por sobre no tener scroll
- * nunca, que era el criterio de la etapa anterior.
+ * ETAPA UX6 -- SE BAJA DE 650 A 620px. Al angostar el canvas (1380 con 32px de
+ * padding) cada tabla de canal pasa a medir 648px:
+ *     (1380 - 64 - 20 de gap) / 2 = 648
+ * Con 650 de mínimo aparecía barra horizontal en un viewport de 1440 POR 2
+ * PÍXELES -- una regresión visible causada por combinar los dos pedidos. Con
+ * 620 no scrollea, y a ese ancho real la columna de métrica mide 648 x 0.14 =
+ * 90.7px, o sea que el mínimo de 90px del brief anterior se cumple igual sin
+ * forzarlo. El mínimo sólo entra en juego en viewports más chicos, donde el
+ * piso pasa a ser 87px por columna.
  */
 .piv--exec {
-  min-width: 650px;
+  min-width: 620px;
 }
 
 /*

@@ -475,6 +475,29 @@ barra horizontal**. Es exactamente el intercambio que el brief acepta al pedir `
 (§3): se prioriza que nombres y números respiren por sobre "cero scrollbars", que era el
 criterio del hotfix UX2. Si en algún momento se prefiere lo contrario, se baja el `min-width`.
 
+### Etapa UX6 — canvas más angosto y celdas más ajustadas
+
+- **Canvas de 1440 → 1380px** con 32px de padding lateral (antes 24). `--container-max` lo
+  consumen tanto `.hub-container` como `.hub-header__inner`, así que el logo del header sigue
+  alineado con el contenido de la página.
+- **Padding de celda de vuelta a `6px 10px`** (UX5 lo había subido a `8px 16px`). Con el canvas
+  más angosto, 16px laterales se comían demasiado espacio de contenido — el padding va *dentro*
+  del ancho de la columna con `table-layout: fixed`. El override propio del modal se eliminó:
+  ahora hereda el mismo ritmo que el resto.
+- **Alineación**: las 4 columnas de métrica centradas en encabezado, datos y fila de total;
+  Branch y Branch Manager a la izquierda. Verificado sobre el HTML renderizado, celda por celda.
+
+#### El `min-width` había que recalcularlo, no sólo copiarlo
+
+Los dos pedidos de esta etapa interactúan y nadie lo había notado. Al angostar el canvas, cada
+tabla de canal pasa a medir `(1380 − 64 − 20 de gap) / 2 = 648px`, y el `min-width: 650px` que
+venía de UX5 **metía barra horizontal en un viewport de 1440 por 2 píxeles**. Se bajó a
+**620px**.
+
+A 648px reales la columna de métrica mide `648 × 0.14 = 90.7px`, así que el mínimo de 90px que
+pedía el brief anterior se cumple igual sin forzarlo; el `min-width` sólo entra en juego en
+viewports más chicos, donde el piso pasa a ser 87px por columna.
+
 ### Riesgo/pendiente que deja esta etapa
 
 12. **`config/metrics.ts` es fuente única de labels para UI *y* export a Excel.** Al cambiar

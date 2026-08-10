@@ -90,6 +90,11 @@
   --font-display: var(--font-barlow), var(--font-inter), -apple-system, 'Segoe UI', sans-serif;
 
   /* ---- Layout ------------------------------------------------------------ */
-  --container-max: 1440px;
+  /*
+   * Etapa UX6: baja de 1440 a 1380 para que la app no toque los bordes de la
+   * pantalla. Lo consumen `.hub-container` y `.hub-header__inner`, así que el
+   * logo del header queda alineado con el contenido de la página.
+   */
+  --container-max: 1380px;
   --header-h: 60px;
 }
