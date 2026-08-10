@@ -53,18 +53,15 @@
 }
 
 /*
- * Etapa UX1b: el lockup es el JPG oficial del Brand Book (ver HomesiLogo.tsx).
- * Reemplazó a `.hub-brand__wordmark` y al bloque `.hub-brand__powered*`, que
- * recreaban en texto lo que la imagen oficial ya trae.
- *
- * El archivo tiene fondo blanco sólido y el header es blanco al 95%: para que
- * no se recorte como un rectángulo visible sobre el blur, se mezcla con
- * `mix-blend-mode: multiply` — el blanco del JPG desaparece y solo quedan el
- * coral y el navy del logo.
+ * HOTFIX UX2: se quitó `mix-blend-mode: multiply`. No servía para nada — este
+ * header tiene `backdrop-filter`, que aísla el stacking context y hace que el
+ * blend se resuelva dentro del grupo en vez de contra el fondo real, así que
+ * el rectángulo blanco del JPG quedaba visible igual. El logo ahora es un PNG
+ * con transparencia real (ver HomesiLogo.tsx), que no depende de ningún truco
+ * de composición.
  */
 .hub-brand__logo {
   display: block;
-  mix-blend-mode: multiply;
 }
 
 /* Divisor + título de módulo. */

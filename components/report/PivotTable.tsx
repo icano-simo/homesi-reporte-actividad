@@ -184,7 +184,7 @@ export default function PivotTable({ tree, months, measure, showTotal, collapsed
   const totalLabel = view === 'b2b' ? 'Total (B2B)' : 'Total';
 
   return (
-    <table className="piv" id="pivot">
+    <table className="piv piv--tree" id="pivot">
       <thead>
         <tr className="yr-row">
           <th className="lbl"></th>

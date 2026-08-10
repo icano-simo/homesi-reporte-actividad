@@ -323,6 +323,55 @@ Cambios:
 Resultado: `/` responde **200 sin ninguna variable de entorno**, con la UI completa; lo único que
 queda inactivo es la persistencia en la nube.
 
+### Hotfix UX2 — regresiones de layout de UX1
+
+Cuatro problemas reportados sobre la versión desplegada. **El diagnóstico del brief no
+coincidía con el código en dos de los cuatro casos**; se corrigió la causa real, no la
+descrita.
+
+**1. Rectángulo blanco alrededor del logo.** El brief proponía `mix-blend-mode: multiply` —
+que era exactamente lo que ya estaba puesto y no funcionaba. Causa real: `.hub-header` usa
+`backdrop-filter: blur()`, que **crea un stacking context aislado**, así que el blend se
+resuelve dentro de ese grupo y nunca contra el fondo real. Ningún ajuste de blend lo iba a
+arreglar. Solución: PNG con transparencia real, generado desde el JPG oficial con `sharp`
+(script en el scratchpad, reproducible):
+
+- Flood fill 4-conexo desde el borde para el fondo exterior.
+- Los blancos **encerrados** se clasifican por el color que los rodea: rodeados de coral →
+  blanco de diseño (la "S" de Supreme Lending, los chevrons del mark) → **se conservan**;
+  el resto → contraformas de letra → se abren. Un knockout global de blanco habría borrado
+  también los blancos de diseño.
+- Los `.jpg` originales quedan en `public/brand/` como fuente de verdad; los `.png` son los
+  derivados que consume la app. `app/icon.png` se regeneró desde el mark transparente.
+
+**2. Header de tabla solapando las filas.** El brief culpaba a `position: absolute` y a
+transforms en los `th` — **no existía ninguno de los dos** (verificado con grep). Causa real:
+`position: sticky; top: var(--header-h)` en el `th`, donde `--header-h` era un valor fijo
+adivinado (60px), y el `th` quedaba pegado dentro de `.tbl-scroll` (`overflow-x:auto`) y
+`.tbl-card` (`overflow:hidden`) en vez de respecto del viewport — así que flotaba sobre el
+`tbody` de su propia tarjeta. El fondo `rgba(...,0.8)` translúcido dejaba ver las filas por
+debajo, que es el síntoma exacto reportado. Se quitó el sticky del `thead` y el fondo pasó a
+opaco. El `position: sticky` de la primera columna (`.lbl`, congelado horizontal) **se
+conserva**: ese sí funciona y sigue haciendo falta en las tablas de árbol.
+
+**3. Scrollbars horizontales / densidad.** Tres causas acumuladas:
+
+- Padding de celda `7px 14px` → `6px 10px`.
+- `min-width: 220px` en la primera columna: en las 2 tablas de canal, que ocupan media
+  pantalla cada una, 220px para mostrar "707" dejaban sin espacio a las otras 5 columnas.
+  Bajó a 110px; las tablas de árbol de Commercial Activity, que sí necesitan ancho, lo piden
+  con la clase nueva `.piv--tree`.
+- Anchos de columna en px → **porcentajes**, más `table-layout: fixed`. Ahora la tabla mide
+  exactamente el 100% de su contenedor por construcción y el texto que no entra se recorta
+  con ellipsis (con el valor completo en el `title`), en vez de ensanchar la tabla. Los 5
+  `colgroup` suman 100% exacto, verificado.
+
+**4. Modal de auditoría.** El flyout lateral de 520px introducido en UX1 dejaba las 6
+columnas apretadas y con scroll horizontal propio. Vuelve a ser un **modal centrado**
+(`max-width: 768px`, `max-height: 85vh`), con las 6 columnas dimensionadas en % para que
+entren sin scroll. `LoanDetailDrawer.tsx` → `LoanDetailModal.tsx`; las clases `.drawer*` se
+reemplazaron por `.modal*` y no queda ninguna referencia al flyout en el código.
+
 ### Riesgo/pendiente que deja esta etapa
 
 12. **`config/metrics.ts` es fuente única de labels para UI *y* export a Excel.** Al cambiar

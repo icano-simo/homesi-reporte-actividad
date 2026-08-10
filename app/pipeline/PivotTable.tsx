@@ -9,12 +9,12 @@ import {
   type PullThroughRates,
   type DateRange,
 } from '@/lib/pipeline/aggregate';
-import LoanDetailDrawer, { type LoanDetailDrawerLoan } from './LoanDetailDrawer';
+import LoanDetailModal, { type LoanDetailModalLoan } from './LoanDetailModal';
 
 /**
  * Lo que page.tsx arma por branch+channel (usado también para la cascada
  * agregada de MilestoneCascade). PivotTable solo lee `loans` de acá para
- * alimentar el flyout de auditoría; no toca aggregate.ts.
+ * alimentar el modal de auditoría; no toca aggregate.ts.
  */
 export interface BranchForecastRow {
   branch: string;
@@ -62,11 +62,11 @@ interface ChannelBlock {
   subtotal: BlockSubtotal;
 }
 
-/** Estado del flyout de auditoría: qué celda se clickeó y qué préstamos hay detrás. */
-interface DrawerState {
+/** Estado del modal de auditoría: qué celda se clickeó y qué préstamos hay detrás. */
+interface ModalState {
   context: string;
   metric: string;
-  loans: LoanDetailDrawerLoan[];
+  loans: LoanDetailModalLoan[];
 }
 
 /** Orden fijo de los dos bloques, igual que el Excel de referencia. */
@@ -106,7 +106,7 @@ function fmtForecast(n: number): string {
  *
  * Se sintetiza una fila de Branch con pipeline abierto en cero para cualquier
  * branch+canal que solo tenga cerrados -- aparece como una fila normal,
- * auditables sus cerrados desde el flyout (no una fila genérica "Otros").
+ * auditables sus cerrados desde el modal (no una fila genérica "Otros").
  */
 function buildOrphanBranchRows(rows: BranchForecastRow[], resolvedLoans: ResolvedLoan[], dateRange: DateRange): BranchRow[] {
   const knownKeys = new Set(rows.map((r) => r.branch + '::' + r.channel));
@@ -239,7 +239,7 @@ function buildCombinedByBranch(branchRows: BranchRow[]): CombinedBranchRow[] {
   return [...map.values()].sort((a, b) => a.branch.localeCompare(b.branch));
 }
 
-function openLoanToDrawerLoan(loan: PipelineLoan): LoanDetailDrawerLoan {
+function openLoanToModalLoan(loan: PipelineLoan): LoanDetailModalLoan {
   return {
     sourceLoanId: loan.sourceLoanId,
     borrowerName: loan.borrowerName,
@@ -255,9 +255,9 @@ function openLoanToDrawerLoan(loan: PipelineLoan): LoanDetailDrawerLoan {
  * Etapa F5g agregó rawMilestone a ResolvedLoan (el valor real al momento del
  * cierre) -- se usa acá, con 'Closed (Funded)' como fallback si el archivo no
  * trae la columna. rawHealthiness se OMITE a propósito: un préstamo ya cerrado
- * no tiene un estado de salud vigente, y el flyout muestra '—' cuando falta.
+ * no tiene un estado de salud vigente, y el modal muestra '—' cuando falta.
  */
-function closedLoanToDrawerLoan(loan: ResolvedLoan): LoanDetailDrawerLoan {
+function closedLoanToModalLoan(loan: ResolvedLoan): LoanDetailModalLoan {
   return {
     sourceLoanId: loan.sourceLoanId,
     borrowerName: loan.borrowerName,
@@ -289,7 +289,11 @@ function BranchDataRow({
   return (
     <tr className="metric">
       <td className="lbl">{row.branch}</td>
-      <td style={{ textAlign: 'left', color: 'var(--slate-500)' }}>{managerName}</td>
+      {/* HOTFIX UX2: con la columna en % un nombre largo se recorta con
+          ellipsis, así que el valor completo va en el title. */}
+      <td style={{ textAlign: 'left', color: 'var(--slate-500)' }} title={managerName}>
+        {managerName}
+      </td>
       <td className="val">
         <CountCell value={row.closedCount} onClick={() => onOpenClosed(row)} />
       </td>
@@ -308,7 +312,7 @@ function BranchDataRow({
 }
 
 /**
- * Celda numérica que abre el flyout de auditoría. En cero no es clickeable y
+ * Celda numérica que abre el modal de auditoría. En cero no es clickeable y
  * se muestra apagada (spec §3C/§4D.2): no hay nada que auditar detrás de un 0,
  * y ofrecer el click igual solo produce paneles vacíos.
  */
@@ -329,7 +333,7 @@ function CountCell({ value, onClick, withHealthyDot }: { value: number; onClick:
  *
  * Dos tablas lado a lado (Banked - Retail / Brokered) + una tercera con el
  * Combined Total agrupado por branch. Sin acordeones: cada celda numérica
- * abre el flyout lateral (LoanDetailDrawer) con la lista real de préstamos
+ * abre el modal centrado (LoanDetailModal) con la lista real de préstamos
  * detrás de ese número. Forecast NO es clickeable -- es un valor calculado
  * (cerrados + proyección de pull-through), no un conjunto de préstamos.
  *
@@ -341,35 +345,35 @@ function CountCell({ value, onClick, withHealthyDot }: { value: number; onClick:
  *
  * Etapa UX1: se eliminaron `buildLoanDetailRows()` y `LoanDetailTable`, que
  * estaban muertos desde que el drill-down inline se reemplazó por el modal
- * (y ahora por el flyout). Si hiciera falta recuperarlos, están en el
+ * (y ahora por el modal). Si hiciera falta recuperarlos, están en el
  * historial de git de este archivo.
  */
 export default function PivotTable({ rows, resolvedLoans, dateRange, branchManagers, knownBranches }: PivotTableProps) {
-  const [drawer, setDrawer] = useState<DrawerState | null>(null);
+  const [modal, setModal] = useState<ModalState | null>(null);
 
   const branchRows = buildBranchRows(rows, resolvedLoans, dateRange, knownBranches);
   const blocks = buildChannelBlocks(branchRows);
   const grandTotal = blocks.reduce((acc, block) => addSubtotal(acc, block.subtotal), EMPTY_SUBTOTAL);
   const combinedByBranch = buildCombinedByBranch(branchRows);
 
-  /** Contexto que se muestra como "eyebrow" del flyout. */
+  /** Contexto que se muestra como "eyebrow" del modal. */
   function contextFor(row: BranchRow): string {
     return `Branch ${row.branch} — ${row.channel}`;
   }
 
   function openTotalPipeline(row: BranchRow) {
-    setDrawer({
+    setModal({
       context: contextFor(row),
       metric: 'Total Pipeline',
-      loans: row.branchForecastRow.loans.map(openLoanToDrawerLoan),
+      loans: row.branchForecastRow.loans.map(openLoanToModalLoan),
     });
   }
 
   function openHealthyPipeline(row: BranchRow) {
-    setDrawer({
+    setModal({
       context: contextFor(row),
       metric: 'Healthy Pipeline',
-      loans: row.branchForecastRow.loans.filter((l) => l.healthy === true).map(openLoanToDrawerLoan),
+      loans: row.branchForecastRow.loans.filter((l) => l.healthy === true).map(openLoanToModalLoan),
     });
   }
 
@@ -386,10 +390,10 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
         loan.disbursementDate >= dateRange.startDate &&
         loan.disbursementDate <= dateRange.endDate
     );
-    setDrawer({
+    setModal({
       context: contextFor(row),
       metric: 'Closed',
-      loans: closedLoans.map(closedLoanToDrawerLoan),
+      loans: closedLoans.map(closedLoanToModalLoan),
     });
   }
 
@@ -405,13 +409,16 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
             </div>
             <div className="tbl-scroll">
               <table className="piv">
+                {/* HOTFIX UX2: anchos explícitos en % (ver forecast-visual.css) --
+                    con table-layout:fixed el navegador los respeta y la tabla
+                    nunca desborda su contenedor. */}
                 <colgroup>
                   <col className="branch-col" />
                   <col className="manager-col" />
-                  <col />
-                  <col />
-                  <col />
-                  <col />
+                  <col className="metric-col" />
+                  <col className="metric-col" />
+                  <col className="metric-col" />
+                  <col className="metric-col" />
                 </colgroup>
                 <thead>
                   <tr className="mo-row">
@@ -465,10 +472,10 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
             <colgroup>
               <col className="branch-col" />
               <col className="manager-col" />
-              <col />
-              <col />
-              <col />
-              <col />
+              <col className="metric-col" />
+              <col className="metric-col" />
+              <col className="metric-col" />
+              <col className="metric-col" />
             </colgroup>
             <thead>
               <tr className="mo-row">
@@ -484,7 +491,7 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
               {combinedByBranch.map((row) => (
                 <tr className="metric" key={row.branch}>
                   <td className="lbl">{row.branch}</td>
-                  <td style={{ textAlign: 'left', color: 'var(--slate-500)' }}>
+                  <td style={{ textAlign: 'left', color: 'var(--slate-500)' }} title={branchManagers.get(row.branch) ?? UNASSIGNED_MANAGER}>
                     {branchManagers.get(row.branch) ?? UNASSIGNED_MANAGER}
                   </td>
                   <td className="val">{fmtInt(row.closedCount)}</td>
@@ -524,12 +531,12 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
         above.
       </p>
 
-      <LoanDetailDrawer
-        isOpen={drawer !== null}
-        onClose={() => setDrawer(null)}
-        context={drawer?.context ?? ''}
-        metric={drawer?.metric ?? ''}
-        loans={drawer?.loans ?? []}
+      <LoanDetailModal
+        isOpen={modal !== null}
+        onClose={() => setModal(null)}
+        context={modal?.context ?? ''}
+        metric={modal?.metric ?? ''}
+        loans={modal?.loans ?? []}
       />
     </>
   );

@@ -78,6 +78,16 @@ export default function AdverseTable({ resolvedLoans, forecastMonthLabel, firstS
       </div>
       <div className="tbl-scroll">
         <table className="piv">
+          {/* HOTFIX UX2: 7 columnas con ancho explicito -- suma 100%. */}
+          <colgroup>
+            <col style={{ width: '15%' }} />
+            <col style={{ width: '9%' }} />
+            <col style={{ width: '18%' }} />
+            <col style={{ width: '18%' }} />
+            <col style={{ width: '12%' }} />
+            <col style={{ width: '15%' }} />
+            <col style={{ width: '13%' }} />
+          </colgroup>
           <thead>
             {/* Etapa UX1: se quitó `.adverse-header` (header navy sólido con
                 !important). El spec §3C fija un header claro para TODAS las

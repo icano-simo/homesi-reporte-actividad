@@ -87,24 +87,48 @@
   }
 }
 
-/* Anchos fijos de Branch/Branch Manager -- Closed/Total/Healthy/Forecast se
-   reparten el resto sin ancho fijo. */
+/*
+ * HOTFIX UX2: anchos en PORCENTAJE, no en px.
+ *
+ * Antes eran 110px/150px fijos. En las 2 tablas de canal, que ocupan media
+ * pantalla cada una, esos px no se adaptan al ancho disponible: en un monitor
+ * angosto se comen casi todo el espacio y las 4 columnas de métrica no entran,
+ * lo que forzaba el scrollbar horizontal. En porcentaje, la tabla siempre
+ * ocupa exactamente el 100% del contenedor, sin desbordar.
+ *
+ * Suma: 13 + 27 + 15*4 = 100%.
+ */
 .piv col.branch-col {
-  width: 110px;
+  width: 13%;
 }
 .piv col.manager-col {
-  width: 150px;
+  width: 27%;
+}
+.piv col.metric-col {
+  width: 15%;
+}
+
+/* Matriz Branch x Milestone: la primera columna fija y el resto repartido en
+   partes iguales, sea cual sea la cantidad de milestones del canal activo. */
+.piv col.matrix-branch-col {
+  width: 16%;
 }
 
 /* ---------------------------------------------------------------------------
  * TAB 2 — Milestone Pipeline Matrix (spec §4D)
  * ------------------------------------------------------------------------ */
 
-/* Cascada compacta (MilestoneCascade): menos padding por celda que una tabla
-   de datos normal, porque son solo 4-5 filas. */
+/* Cascada (MilestoneCascade): son sólo 4-5 filas, así que puede respirar un
+   poco más que una tabla de datos larga -- pero sin volver al padding
+   generoso de antes del HOTFIX UX2. */
 .cascade-compact td,
 .cascade-compact th {
-  padding: 9px 14px;
+  padding: 8px 12px;
+}
+/* La cascada tiene pocas columnas y una etiqueta de milestone corta: no
+   necesita ancho fijo ni recorte. */
+.cascade-compact {
+  table-layout: auto;
 }
 /* Track (fondo) de la barra de "% applied" -- celeste de marca. El relleno
    (ancho variable) es navy, ver MilestoneCascade.tsx. */

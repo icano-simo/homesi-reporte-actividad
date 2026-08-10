@@ -181,7 +181,7 @@ export default function LoanOfficerTable({
           que los controles de arriba queden FUERA del scroll horizontal. */}
       <div className="tbl-card">
         <div className="tbl-scroll">
-          <table className="piv" id="pivotLoanOfficer">
+          <table className="piv piv--tree" id="pivotLoanOfficer">
             <thead>
               <tr className="yr-row">
                 <th className="lbl"></th>

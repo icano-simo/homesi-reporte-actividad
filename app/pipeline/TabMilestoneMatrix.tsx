@@ -11,7 +11,7 @@ import {
 } from '@/lib/pipeline/aggregate';
 import MilestoneCascade, { type MilestoneCascadeRow } from './MilestoneCascade';
 import type { BranchForecastRow } from './PivotTable';
-import LoanDetailDrawer, { type LoanDetailDrawerLoan } from './LoanDetailDrawer';
+import LoanDetailModal, { type LoanDetailModalLoan } from './LoanDetailModal';
 
 export interface TabMilestoneMatrixProps {
   bankedRows: MilestoneCascadeRow[];
@@ -182,7 +182,7 @@ function bucketValue(bucket: BucketCounts | BrokeredBucketCounts, key: string): 
 export default function TabMilestoneMatrix({ bankedRows, brokeredRows, bankedRates, brokeredRates, rows }: TabMilestoneMatrixProps) {
   const [channel, setChannel] = useState<Channel>('banked');
   const [metricView, setMetricView] = useState<MetricView>('total');
-  const [drawer, setDrawer] = useState<{ context: string; metric: string; loans: LoanDetailDrawerLoan[] } | null>(null);
+  const [modal, setModal] = useState<{ context: string; metric: string; loans: LoanDetailModalLoan[] } | null>(null);
 
   // Click en una celda de la matriz: arma el mismo filtro que ya usa esa celda
   // para contar (cellLoans), pero devolviendo la lista completa en vez del
@@ -190,11 +190,11 @@ export default function TabMilestoneMatrix({ bankedRows, brokeredRows, bankedRat
   // pipeline abierto -- a diferencia de las filas "Closed" de PivotTable, que
   // vienen de ResolvedLoan y no tienen ese campo).
   //
-  // Etapa UX1: abre el flyout lateral (LoanDetailDrawer) en vez del modal
+  // Etapa UX1: abre el modal centrado (LoanDetailModal) en vez del modal
   // centrado, y el título se parte en contexto + métrica.
-  function openCellDrawer(row: BranchForecastRow, key: string) {
+  function openCellModal(row: BranchForecastRow, key: string) {
     const loans = cellLoans(row, channel, key, metricView);
-    setDrawer({
+    setModal({
       context: `Branch ${row.branch} — ${channel === 'banked' ? 'Banked - Retail' : 'Brokered'}`,
       metric: labelFromKey(key),
       loans: loans.map((loan) => ({
@@ -260,6 +260,15 @@ export default function TabMilestoneMatrix({ bankedRows, brokeredRows, bankedRat
         </div>
         <div className="tbl-scroll">
           <table className="piv">
+            {/* HOTFIX UX2: primera columna fija en %, el resto repartido en
+                partes iguales segun cuantos milestones tenga el canal activo --
+                asi la matriz llena el ancho exacto sin desbordar. */}
+            <colgroup>
+              <col className="matrix-branch-col" />
+              {milestoneKeys.map((k) => (
+                <col key={k} style={{ width: `${(84 / milestoneKeys.length).toFixed(2)}%` }} />
+              ))}
+            </colgroup>
             <thead>
               <tr className="mo-row">
                 <th className="lbl">Branch</th>
@@ -287,7 +296,7 @@ export default function TabMilestoneMatrix({ bankedRows, brokeredRows, bankedRat
                           {value === 0 ? (
                             <span className="cell-trigger is-zero">0</span>
                           ) : (
-                            <button type="button" className="cell-trigger" onClick={() => openCellDrawer(row, k)}>
+                            <button type="button" className="cell-trigger" onClick={() => openCellModal(row, k)}>
                               {value}
                             </button>
                           )}
@@ -345,12 +354,12 @@ export default function TabMilestoneMatrix({ bankedRows, brokeredRows, bankedRat
         </div>
       </div>
 
-      <LoanDetailDrawer
-        isOpen={drawer !== null}
-        onClose={() => setDrawer(null)}
-        context={drawer?.context ?? ''}
-        metric={drawer?.metric ?? ''}
-        loans={drawer?.loans ?? []}
+      <LoanDetailModal
+        isOpen={modal !== null}
+        onClose={() => setModal(null)}
+        context={modal?.context ?? ''}
+        metric={modal?.metric ?? ''}
+        loans={modal?.loans ?? []}
       />
     </div>
   );

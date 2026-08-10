@@ -19,7 +19,7 @@
  *    cambie por completo. Motivo: son consumidos por ~12 componentes; migrar
  *    nombres además de estilos habría mezclado dos refactors en un solo diff.
  *  - Se AGREGARON los patrones nuevos que pide el spec: .kpi-strip / .kpi-card
- *    (§3A), .control-bar (§3B), .badge-* (§3C), .drawer-* (§5).
+ *    (§3A), .control-bar (§3B), .badge-* (§3C), .modal-* (drill-down).
  *  - `.main` / `.content` ya no crean su propio scroll (antes:
  *    height:100vh;overflow:hidden + .content{overflow:auto}). Ahora el scroll
  *    es del documento — requisito para que el header sticky del Service Hub
@@ -528,29 +528,53 @@ select.field {
 table.piv {
   border-collapse: collapse;
   width: 100%;
+  /*
+   * HOTFIX UX2: `table-layout: fixed` hace que el navegador respete los anchos
+   * del <colgroup> en vez de calcularlos a partir del contenido. Sin esto, un
+   * nombre largo de Branch Manager ensancha la columna y desborda la tabla
+   * (que es lo que forzaba los scrollbars horizontales).
+   */
+  table-layout: fixed;
 }
 table.piv th,
 table.piv td {
-  padding: 7px 14px;
+  /* HOTFIX UX2: densidad ejecutiva -- antes 7px 14px. */
+  padding: 6px 10px;
   text-align: right;
   white-space: nowrap;
   font-size: 12px;
   border-bottom: 1px solid var(--slate-100);
+  /* Con table-layout:fixed el texto que no entra se recorta con puntos
+     suspensivos en vez de desbordar la celda. */
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* Header claro (el navy oscuro del legado se eliminó). */
+/*
+ * Header claro.
+ *
+ * HOTFIX UX2 — SE QUITÓ `position: sticky` DE LOS <th>. Era la causa del
+ * header solapando las filas:
+ *   1. `top: var(--header-h)` era un valor fijo adivinado (60px) que no
+ *      coincide con la altura real del header en todos los anchos.
+ *   2. El <th> quedaba pegado dentro de `.tbl-scroll` (que crea contexto de
+ *      scroll con `overflow-x:auto`) y de `.tbl-card` (`overflow:hidden`), no
+ *      respecto del viewport — así que flotaba sobre el <tbody> de su propia
+ *      tarjeta.
+ *   3. El fondo era `rgba(...,0.8)`: al superponerse, las filas se veían por
+ *      debajo, que es exactamente el síntoma reportado.
+ * Ahora el thead es una fila normal, opaca, arriba del tbody.
+ */
 table.piv thead .mo-row th {
-  background: rgba(241, 245, 249, 0.8);
+  background: var(--slate-100);
   color: var(--navy);
   font-weight: 700;
   font-size: 10.5px;
   text-transform: uppercase;
   letter-spacing: 0.07em;
-  padding: 11px 14px;
+  padding: 8px 10px;
   border-bottom: 1px solid var(--slate-200);
-  position: sticky;
-  top: var(--header-h);
-  z-index: 5;
+  vertical-align: bottom;
 }
 /* Fila de años (Actividad): rótulo fino por encima del header de meses. */
 table.piv thead .yr-row th {
@@ -565,7 +589,16 @@ table.piv thead .yr-row th {
   padding: 6px 14px 2px;
 }
 
-/* Primera columna congelada. */
+/*
+ * Primera columna congelada.
+ *
+ * HOTFIX UX2: `min-width: 220px` se bajó a 110px. Ese mínimo era el segundo
+ * motivo de los scrollbars: en las 2 tablas de canal, que viven en media
+ * pantalla cada una, 220px de columna Branch (que sólo muestra "707") dejaban
+ * sin espacio a las 5 columnas restantes. Las vistas que sí necesitan una
+ * primera columna ancha (el árbol Branch/Métrica/Loan Officer de Commercial
+ * Activity) la piden explícitamente con `.piv--tree`, más abajo.
+ */
 table.piv th.lbl,
 table.piv td.lbl {
   text-align: left;
@@ -573,14 +606,27 @@ table.piv td.lbl {
   left: 0;
   background: #fff;
   z-index: 2;
-  min-width: 220px;
+  min-width: 110px;
   border-right: 1px solid var(--slate-200);
   font-weight: 700;
   color: var(--navy);
 }
 table.piv thead th.lbl {
   background: var(--slate-100);
-  z-index: 6;
+}
+
+/*
+ * Tablas de árbol (Commercial Activity): la primera columna lleva jerarquía
+ * anidada con sangría, así que necesita ancho real y no puede recortarse.
+ */
+table.piv--tree {
+  table-layout: auto;
+}
+table.piv--tree th.lbl,
+table.piv--tree td.lbl {
+  min-width: 240px;
+  overflow: visible;
+  text-overflow: clip;
 }
 
 /* Columna de total. */
@@ -704,7 +750,7 @@ tr.mrow .chev {
 }
 
 /*
- * Celda numérica clickeable: abre el flyout de auditoría (spec §5).
+ * Celda numérica clickeable: abre el modal de auditoría.
  * Reemplaza al drill-down inline por acordeón.
  */
 .cell-trigger {
@@ -777,56 +823,67 @@ tr.mrow .chev {
 }
 
 /* ===========================================================================
- * 8. Flyout de auditoría (spec §5) — drawer lateral derecho
+ * 8. Modal de auditoría (drill-down)
  * ======================================================================== */
 
-.drawer-overlay {
+/*
+ * HOTFIX UX2: reemplaza al flyout lateral (`.drawer*`) por un modal CENTRADO.
+ * El panel de 520px pegado a la derecha dejaba las 6 columnas de la tabla de
+ * auditoría apretadas y con scroll horizontal propio.
+ */
+
+.modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.4); /* slate-900/40 */
+  z-index: 100;
+  background: rgba(15, 23, 42, 0.5); /* slate-900/50 */
   -webkit-backdrop-filter: blur(2px);
   backdrop-filter: blur(2px);
-  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
 }
 
-.drawer {
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 520px;
-  max-width: 100vw;
+.modal-box {
   background: #fff;
-  border-left: 1px solid var(--slate-200);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
-  z-index: 101;
+  width: 100%;
+  max-width: 768px;
+  max-height: 85vh;
   display: flex;
   flex-direction: column;
-  animation: drawer-in 0.22s ease-out;
+  overflow: hidden;
+  animation: modal-in 0.16s ease-out;
 }
-@keyframes drawer-in {
+@keyframes modal-in {
   from {
-    transform: translateX(100%);
+    opacity: 0;
+    transform: scale(0.95);
   }
   to {
-    transform: translateX(0);
+    opacity: 1;
+    transform: scale(1);
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .drawer {
+  .modal-box {
     animation: none;
   }
 }
 
-.drawer__header {
+.modal-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  padding: 20px 24px 16px;
+  padding: 16px 20px;
   border-bottom: 1px solid var(--slate-200);
+  flex-shrink: 0;
 }
-.drawer__eyebrow {
+.modal-eyebrow {
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.09em;
@@ -834,15 +891,19 @@ tr.mrow .chev {
   color: var(--slate-400);
   margin-bottom: 4px;
 }
-.drawer__title {
+.modal-title {
   font-family: var(--font-display);
   font-size: 15px;
   font-weight: 700;
   color: var(--navy);
   line-height: 1.35;
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
-.drawer__close {
+.modal-close {
   border: 1px solid var(--slate-200);
   background: #fff;
   cursor: pointer;
@@ -852,29 +913,19 @@ tr.mrow .chev {
   display: inline-flex;
   flex-shrink: 0;
 }
-.drawer__close:hover {
+.modal-close:hover {
   background: var(--slate-50);
   color: var(--navy);
 }
-.drawer__close svg {
-  width: 15px;
-  height: 15px;
-}
-.drawer__body {
+.modal-body {
   overflow-y: auto;
-  padding: 8px 0 24px;
+  overflow-x: hidden; /* las columnas ya vienen dimensionadas en % */
+  padding: 4px 0 8px;
   flex: 1;
 }
-/* Dentro del drawer la tabla es más angosta: header no sticky-al-viewport. */
-.drawer__body table.piv thead .mo-row th {
-  position: static;
-}
-.drawer__body table.piv th,
-.drawer__body table.piv td {
-  padding: 7px 12px;
-}
-.drawer__body table.piv th.lbl,
-.drawer__body table.piv td.lbl {
+/* Dentro del modal la primera columna no necesita ancho mínimo propio. */
+.modal-body table.piv th.lbl,
+.modal-body table.piv td.lbl {
   min-width: 0;
 }
 
