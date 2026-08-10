@@ -19,8 +19,9 @@
  *   .tab-nav / .tab-btn      -> se conservan, pero sin duplicar tokens.
  *   .channel-segment         -> reemplazado por `.seg` (control compartido).
  *   .modal-overlay/.modal-box/.modal-header/.modal-close/.modal-body
- *                            -> el modal centrado se reemplazó por el flyout
- *                               lateral `.drawer-*` (components.css, spec §5).
+ *                            -> el drill-down vive ahora en components.css.
+ *                               (UX1 lo pasó a flyout lateral y UX2 lo devolvió
+ *                               a modal centrado; en ambos casos, compartido.)
  *   .cell-trigger/.forecast-pill
  *                            -> promovidos a components.css: los usa también
  *                               Commercial Activity / el sistema de badges.
@@ -114,6 +115,23 @@
 .piv col.matrix-branch-col {
   width: 16%;
 }
+/*
+ * Etapa UX5: mismo criterio de ancho mínimo que las tablas ejecutivas. El peor
+ * caso es Banked con 6 columnas de milestone (84%/6 = 14% cada una), o sea
+ * 90px / 0.14 = 643px -> 650px.
+ */
+.piv--matrix {
+  min-width: 650px;
+}
+
+/*
+ * Adverse: las columnas de texto son Borrower Name y Loan Officer, ambas al
+ * 18% -- 180px / 0.18 = 1000px. Es una tabla a todo el ancho del canvas
+ * (~1392px con 1440), así que no scrollea salvo en pantallas chicas.
+ */
+.piv--adverse {
+  min-width: 1000px;
+}
 
 /* ---------------------------------------------------------------------------
  * TAB 1 — Jerarquía visual por grupo de métrica (etapa UX3)
@@ -140,6 +158,48 @@
  * --serían ~7px de tipografía--, así que envuelven a 2 líneas en vez de
  * recortarse. `white-space: normal` ya vive en la regla base del thead.)
  * ------------------------------------------------------------------------ */
+
+/*
+ * --- Ancho mínimo (etapa UX5) ---
+ *
+ * El brief pedía `min-w-[180px]` en Branch Manager y `min-w-[90px]` en las
+ * métricas. Puesto en el `td` NO HACE NADA: con `table-layout: fixed` el
+ * navegador reparte según el <colgroup> y descarta los mínimos de celda.
+ *
+ * Se traduce al único lugar donde sí funciona -- el ancho mínimo de la TABLA,
+ * despejando desde el porcentaje de cada columna:
+ *     Branch Manager   180px / 0.32 = 562px
+ *     cada métrica      90px / 0.14 = 643px   <- manda esta
+ * Se usa 650px. Por encima de eso las proporciones se respetan y todos los
+ * mínimos se cumplen; por debajo, `.tbl-scroll` scrollea.
+ *
+ * CONSECUENCIA A TENER EN CUENTA: las 2 tablas de canal ocupan media pantalla
+ * cada una, así que con el canvas de 1440px miden ~686px y entran holgadas,
+ * pero por debajo de ~1366px de viewport aparece la barra horizontal. Es el
+ * intercambio que el propio brief acepta al pedir `overflow-x-auto` (§3): se
+ * prioriza que los nombres y los números respiren por sobre no tener scroll
+ * nunca, que era el criterio de la etapa anterior.
+ */
+.piv--exec {
+  min-width: 650px;
+}
+
+/*
+ * Métricas centradas: las 4 columnas renderizan badges/píldoras/botones, no
+ * números pelados, así que centrar la forma dentro de la columna se lee mejor
+ * que pegarla al borde derecho. Los dígitos siguen alineados entre filas por
+ * `font-variant-numeric: tabular-nums`. Las tablas con números crudos
+ * (Commercial Activity, cascada) conservan la alineación a la derecha, que es
+ * lo correcto para comparar magnitudes de distinta cantidad de dígitos.
+ */
+.piv--exec th.col-closed,
+.piv--exec th.col-pipeline,
+.piv--exec th.col-forecast,
+.piv--exec td.col-closed,
+.piv--exec td.col-pipeline,
+.piv--exec td.col-forecast {
+  text-align: center;
+}
 
 /* --- Encabezado: claro, con acento pastel por grupo --- */
 .piv--exec thead .mo-row th.col-closed {

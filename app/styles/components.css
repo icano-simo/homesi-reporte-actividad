@@ -519,15 +519,26 @@ select.field {
   text-transform: uppercase;
   color: var(--navy);
 }
-/* Envoltorio de scroll: si una tabla no entra, scrollea ELLA, nunca el body. */
+/*
+ * Envoltorio de scroll: si una tabla no entra, scrollea ELLA, nunca el body.
+ * `width:100%` para que la tabla se expanda a todo el espacio disponible
+ * cuando sobra, y sólo aparezca la barra cuando falta.
+ */
 .tbl-scroll {
   overflow-x: auto;
+  width: 100%;
   max-width: 100%;
 }
 
 table.piv {
   border-collapse: collapse;
   width: 100%;
+  /*
+   * Explícito además del global de base.css: es un requisito duro de estas
+   * tablas (los dígitos tienen que alinearse verticalmente entre filas), no
+   * una preferencia heredada que alguien pueda quitar sin darse cuenta.
+   */
+  font-variant-numeric: tabular-nums;
   /*
    * HOTFIX UX2: `table-layout: fixed` hace que el navegador respete los anchos
    * del <colgroup> en vez de calcularlos a partir del contenido. Sin esto, un
@@ -538,8 +549,18 @@ table.piv {
 }
 table.piv th,
 table.piv td {
-  /* HOTFIX UX2: densidad ejecutiva -- antes 7px 14px. */
-  padding: 6px 10px;
+  /*
+   * Etapa UX5: densidad 2D balanceada. Venía de 6px 10px, que bajaba bien el
+   * alto de fila pero dejaba los números pegados al borde de la celda y a la
+   * columna vecina. 8px vertical mantiene la altura ejecutiva; 16px horizontal
+   * da el aire lateral que faltaba.
+   *
+   * El costo de subir el padding horizontal con table-layout:fixed es que el
+   * espacio de CONTENIDO de cada columna se achica (el padding va dentro del
+   * ancho de la columna). Se compensa con un min-width en la tabla -- ver
+   * forecast-visual.css.
+   */
+  padding: 8px 16px;
   text-align: right;
   white-space: nowrap;
   font-size: 12px;
@@ -580,7 +601,9 @@ table.piv thead .mo-row th {
   font-size: 10.5px;
   text-transform: uppercase;
   letter-spacing: 0.07em;
-  padding: 10px 12px;
+  /* Etapa UX5: mismo padding horizontal que las celdas de datos, para que la
+     columna se lea como una franja continua de arriba a abajo. */
+  padding: 9px 16px;
   border-bottom: 2px solid var(--slate-200);
   vertical-align: bottom;
   /*
@@ -947,10 +970,26 @@ tr.mrow .chev {
   padding: 4px 0 8px;
   flex: 1;
 }
-/* Dentro del modal la primera columna no necesita ancho mínimo propio. */
+/*
+ * Dentro del modal la primera columna no necesita ancho mínimo propio.
+ *
+ * Etapa UX5: el modal queda FUERA del min-width de 1000px que se aplicó a las
+ * tablas de la página. Su caja mide como mucho 768px, así que exigir 180px en
+ * Loan Officer (19% -> 947px de tabla) reintroduciría el scroll horizontal
+ * interno que se eliminó explícitamente al volver del flyout al modal. Acá
+ * manda esa regla: las 6 columnas entran enteras en la caja.
+ *
+ * Por el mismo motivo conserva un padding horizontal más ajustado que el de
+ * las tablas de página: 16px por lado en 6 columnas se comerían 192px de los
+ * 768 disponibles.
+ */
 .modal-body table.piv th.lbl,
 .modal-body table.piv td.lbl {
   min-width: 0;
+}
+.modal-body table.piv th,
+.modal-body table.piv td {
+  padding: 8px 10px;
 }
 
 /*

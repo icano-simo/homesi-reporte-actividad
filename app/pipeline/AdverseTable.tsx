@@ -77,8 +77,8 @@ export default function AdverseTable({ resolvedLoans, forecastMonthLabel, firstS
         </select>
       </div>
       <div className="tbl-scroll">
-        <table className="piv">
-          {/* HOTFIX UX2: 7 columnas con ancho explicito -- suma 100%. */}
+        <table className="piv piv--adverse">
+          {/* 7 columnas con ancho explícito -- suma 100%. */}
           <colgroup>
             <col style={{ width: '15%' }} />
             <col style={{ width: '9%' }} />

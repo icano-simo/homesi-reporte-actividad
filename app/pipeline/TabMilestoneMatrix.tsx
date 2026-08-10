@@ -259,8 +259,8 @@ export default function TabMilestoneMatrix({ bankedRows, brokeredRows, bankedRat
           </span>
         </div>
         <div className="tbl-scroll">
-          <table className="piv">
-            {/* HOTFIX UX2: primera columna fija en %, el resto repartido en
+          <table className="piv piv--matrix">
+            {/* Primera columna fija en %, el resto repartido en
                 partes iguales segun cuantos milestones tenga el canal activo --
                 asi la matriz llena el ancho exacto sin desbordar. */}
             <colgroup>

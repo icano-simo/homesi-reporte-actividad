@@ -438,6 +438,43 @@ Navy sigue usándose donde sí corresponde y no se tocó: estados activos de bot
 relleno de las barras de pull-through de la cascada, que necesita contraste contra su track
 celeste.
 
+### Etapa UX5 — densidad 2D balanceada
+
+El alto de fila había bajado bien, pero el espaciado horizontal quedó corto: los números
+tocaban el borde de la celda y la columna vecina.
+
+- **Padding de celda `8px 16px`** (venía de `6px 10px`), encabezados a `9px 16px` para que la
+  columna se lea como una franja continua. El modal de auditoría conserva `8px 10px`: su caja
+  mide 768px y 16px por lado en 6 columnas se comerían 192px.
+- **`font-variant-numeric: tabular-nums` explícito en `table.piv`**, además del global de
+  `base.css` — es un requisito duro de estas tablas, no una preferencia heredada que alguien
+  pueda quitar sin notarlo.
+- **Métricas centradas** en las 3 tablas ejecutivas: las 4 columnas renderizan badges,
+  píldoras y botones, no números pelados, así que centrar la forma se lee mejor que pegarla al
+  borde. Commercial Activity y la cascada conservan alineación a la derecha, que es lo correcto
+  para comparar números crudos de distinta cantidad de dígitos.
+
+#### El `min-width` del brief no funcionaba donde lo pedía
+
+Pedía `min-w-[180px]` en Branch Manager y `min-w-[90px]` en las métricas, puestos en la celda.
+Con `table-layout: fixed` **el navegador ignora los mínimos de celda**: reparte según el
+`<colgroup>` y nada más. Se tradujo al único lugar donde sí tiene efecto, el ancho mínimo de la
+**tabla**, despejando desde el porcentaje de cada columna:
+
+| Columna | % | mínimo pedido | ancho de tabla implicado |
+|---|---|---|---|
+| Branch Manager | 32% | 180px | 562px |
+| cada métrica | 14% | 90px | **643px** ← manda |
+
+`min-width: 650px` en `.piv--exec` y `.piv--matrix`; `1000px` en `.piv--adverse` (sus columnas
+de texto están al 18%, y es una tabla a todo el ancho del canvas).
+
+**Consecuencia deliberada**: las 2 tablas de canal ocupan media pantalla cada una — con canvas
+de 1440px miden ~686px y entran holgadas, pero **por debajo de ~1366px de viewport aparece
+barra horizontal**. Es exactamente el intercambio que el brief acepta al pedir `overflow-x-auto`
+(§3): se prioriza que nombres y números respiren por sobre "cero scrollbars", que era el
+criterio del hotfix UX2. Si en algún momento se prefiere lo contrario, se baja el `min-width`.
+
 ### Riesgo/pendiente que deja esta etapa
 
 12. **`config/metrics.ts` es fuente única de labels para UI *y* export a Excel.** Al cambiar
