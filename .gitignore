@@ -38,6 +38,9 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# ...excepto la plantilla sin credenciales, que sí se versiona para que
+# cualquiera pueda levantar el proyecto sabiendo qué variables hacen falta.
+!.env.example
 
 # vercel
 .vercel

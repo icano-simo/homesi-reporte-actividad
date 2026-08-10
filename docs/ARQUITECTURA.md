@@ -183,6 +183,160 @@ Agregadas `--canvas`, `--coral`, `--sky` (paleta de marca, fundaciones agregadas
 11. **`BROKERED_COLUMN_TO_RAW_MILESTONE` (`TabMilestoneMatrix.tsx`) es el mismo tipo de acoplamiento manual que el riesgo 10, pero contra `BROKERED_MILESTONE_BUCKET` (`lib/pipeline/aggregate.ts`, constante privada del módulo, no exportada).** Ajuste posterior: al hacerse clickeable cada celda de la matriz (para abrir `LoanDetailModal` con la lista real de préstamos de esa columna), hizo falta filtrar préstamos individuales de Brokered por `rawMilestone` -- `countByBrokeredMilestoneBucket()` (sí exportada) solo devuelve conteos agregados, no permite filtrar por préstamo. Como `aggregate.ts` estaba fuera de la lista de archivos permitidos en esa tarea (no se podía exportar `BROKERED_MILESTONE_BUCKET` ni agregar una función de filtro ahí), se copió el mapeo a mano en `TabMilestoneMatrix.tsx`, verificado línea por línea contra el código real antes de escribirlo: `Started->FileCreation`, `Processing->Processing`, `Submittal->Submitted` (`AppDate` no tiene ningún `rawMilestone` real que mapee ahí, columna siempre en 0). Mismo riesgo que el ítem 10: si `BROKERED_MILESTONE_BUCKET` cambia en `aggregate.ts`, esta copia queda desactualizada en silencio.
 ---
 
+## Etapa UX1 — Overhaul UI/UX "Service Hub" (ambos módulos)
+
+Rediseño transversal contra el **HOMESÍ Brand Book 2025**. Toca los dos módulos a la vez.
+**Ningún cambio de cálculo**: `lib/aggregation/*`, `lib/pipeline/*`, `lib/domain/*`, `lib/parsing/*`
+y `lib/export/*` quedaron intactos salvo los *labels* de `config/metrics.ts` (texto visible).
+
+### Decisiones de fondo
+
+1. **No se instaló Tailwind.** El brief estaba escrito en clases de Tailwind, pero el proyecto
+   nunca lo tuvo. Se tradujo el spec a CSS con tokens — misma convención que ya seguía
+   `forecast-visual.css` desde F5d. Alternativa descartada: instalar Tailwind v4 obligaba a
+   migrar el CSS de los ~14 componentes y a convivir con dos sistemas durante la transición.
+2. **No se instaló `lucide-react`.** Se transcribieron los ~14 paths de iconos que la app
+   realmente usa a `components/ui/icons.tsx` (Lucide es ISC). Mantiene la decisión ya tomada
+   en F4h y evita un paquete completo en el bundle por 14 iconos.
+3. **`Articulat CF`** (primera opción del brief para los KPI hero) no está en Google Fonts ni
+   hay licencia en el repo → se usa la segunda opción que el propio brief autoriza: Inter bold.
+4. **Sin drill-down en Commercial Activity.** El brief pedía flyout de auditoría al click en
+   *cualquier* celda numérica de las dos vistas, con columnas `Loan Number` / `Borrower Name` /
+   `Amount`. `LoanRecord` (módulo Actividad) **no guarda** número de préstamo ni prestatario —
+   solo branch, loan officer, BD, montos y meses. Confirmado con Isa: el flyout queda solo en
+   Forecast, donde el dato de préstamo individual sí existe; Actividad mantiene su
+   expand/collapse por Loan Officer.
+
+### Arquitectura de estilos (nueva)
+
+```
+app/styles/tokens.css      -- paleta de marca + escala slate/emerald/rose + radios/sombras/fuentes
+app/styles/base.css        -- reset, body, tabular-nums global
+app/styles/shell.css       -- (NUEVO) header Service Hub + canvas + contenedor 1440px
+app/styles/components.css  -- (ex legacy-components.css) botones, pills, tarjetas, tablas, drawer
+app/pipeline/styles/forecast-visual.css -- solo lo exclusivo de Forecast
+```
+
+`globals.css` importa los 4 primeros en ese orden; `forecast-visual.css` se sigue importando
+solo desde `app/pipeline/page.tsx`.
+
+**`tokens.css` se limpió a fondo**: se eliminaron los alias genéricos del legado (`--bg`,
+`--card`, `--text`, `--muted`, `--muted-2`, `--border`, `--border-soft`, `--accent`, `--green`,
+`--green-tint`, `--red`, `--navy-row`, `--shadow`, `--sidebar`, `--sidebar-icon` y los cinco
+`--tag-*`). Describían los mismos colores con dos nombres distintos que la escala nueva — la
+receta para que la paleta se desincronice. Cada uso se migró al token concreto
+(`--navy`, `--slate-*`, `--emerald-*`, `--rose-*`), verificado con un cruce
+"tokens definidos vs. tokens usados" sobre todo el repo.
+
+### Archivos borrados
+
+| Archivo | Motivo |
+|---|---|
+| `components/Sidebar.tsx` | El rail vertical navy se elimina (spec §1.1). De sus 6 iconos, 4 eran decorativos sin destino. |
+| `app/styles/legacy-components.css` | Renombrado a `components.css` y reescrito contra el Brand Book. |
+| `app/pipeline/LoanDetailModal.tsx` | Reemplazado por `LoanDetailDrawer.tsx` (flyout lateral, spec §5). |
+| `app/page.module.css` | Sobrante del template de Next: ningún archivo lo importaba. |
+
+También se borró **código muerto**: `buildLoanDetailRows()` + `LoanDetailTable` de
+`app/pipeline/PivotTable.tsx` (sin uso desde que el drill-down inline pasó a modal; están en el
+historial de git de ese archivo si hicieran falta) y los 3 botones deshabilitados sin handler
+de `app/page.tsx` ("Guardar", "Exportar JSON", "Importar JSON").
+
+### Archivos nuevos
+
+| Archivo | Rol |
+|---|---|
+| `components/layout/ServiceHubHeader.tsx` | Top bar sticky con los 2 tabs de módulo. Se monta una sola vez en `app/layout.tsx`; el tab activo se deriva de `usePathname()`. |
+| `components/layout/HomesiLogo.tsx` | Renderiza el lockup oficial de marca (ver "Assets de marca" abajo). |
+| `components/ui/icons.tsx` | Set de iconos compartido (ver decisión 2). |
+| `app/styles/shell.css` | Layout global del Service Hub. |
+| `app/pipeline/healthStatus.ts` | `healthStatusLabel()` + `healthStatusVariant()`. **Cierra el import circular** `PivotTable ⇄ LoanDetailModal` que estaba documentado como pendiente en el propio código. `healthStatusColor()` (devolvía `{background,color}` para estilo inline) pasó a `healthStatusVariant()`, que devuelve el nombre de la clase de badge: el color vive en CSS, no en el JSX. |
+| `app/pipeline/LoanDetailDrawer.tsx` | Flyout de auditoría (spec §5). Agrega la columna `Loan Officer` que pedía el spec y recupera el chip "Transferred", que había quedado sin renderizar en ningún lado. |
+
+### Cambios por vista
+
+**Commercial Activity** — KPI strip de 8 tarjetas en grilla (antes: fila con scroll horizontal,
+justo lo que prohíbe el spec §6); tendencias como badge SVG emerald/rose en vez de "▲/▼"
+coloreados; toolbar consolidado en una tarjeta blanca con pills + selects redondeados
+(el filtro de Año pasó de fila de botones a `<select>`); tabla con header claro, primera
+columna congelada, zebra y hover 'Light Sky'. Todo el texto a inglés.
+
+**Forecast & Pipeline** — banner de 4 tarjetas ejecutivas con variantes emerald/sky;
+`Topbar` dejó de ser franja a todo el ancho y es ahora la tarjeta de control; matriz
+Branch × Milestone dentro de tarjeta, con ceros apagados y no clickeables; Pull-Through Rates
+en su propia tarjeta al pie del Tab 2; header navy de `AdverseTable` reemplazado por el header
+claro estándar; el modal centrado pasó a flyout lateral.
+
+**Iconografía**: se eliminaron todos los caracteres usados como icono
+("▸", "▾", "▲", "▼", "–", "×") en favor de SVG (spec §2, "Zero Emojis").
+
+### Assets de marca (`public/brand/`)
+
+Entregados por Isa y usados **tal cual, sin recortar ni redibujar**:
+
+| Archivo en repo | Original | Tamaño | Uso |
+|---|---|---|---|
+| `public/brand/homesi-lockup.jpg` | `HOMESI_Logo1_Color.jpg` | 1089×187 | Lockup del header. Ya incluye ícono + logotipo "HOMESÍ" + "Powered By" + logo de Supreme Lending. |
+| `public/brand/homesi-mark.jpg` | `We are HOMESI - Brand Book (1).jpg` | 1920×1080 | Mark suelto (círculo coral + casa). Fuente del favicon. |
+
+Detalles a tener en cuenta:
+
+- Se renderiza con `next/image` + `priority` (está en el viewport inicial de todas las rutas).
+- Los dos JPG tienen **fondo blanco sólido**; el header es blanco al 95% con blur. Para que el
+  logo no se recorte como un rectángulo visible se aplica `mix-blend-mode: multiply` en
+  `.hub-brand__logo` — el blanco desaparece y solo quedan el coral y el navy. Si algún día
+  llega el logo en SVG o PNG con transparencia, esa regla se puede borrar.
+- El CSS responsive ajusta **ancho y alto juntos** (151×26 bajo 900px), respetando la
+  proporción real 1089×187: `next/image` avisa en dev si el CSS modifica solo una de las dos.
+- `app/icon.png` (256×256) es el **único derivado**: se generó con `sharp` recortando el margen
+  blanco de `homesi-mark.jpg` (queda 1038×1039, prácticamente cuadrado) y escalando. Reemplaza
+  al `app/favicon.ico` por defecto del template de Next, que se borró.
+- Como el lockup oficial ya trae el "Powered By Supreme Lending", se eliminaron
+  `hub-brand__wordmark` y el bloque `hub-brand__powered*` del header: recreaban en texto algo
+  que la imagen ya contiene, y mantener las dos versiones garantizaba que dejaran de coincidir.
+
+### Configuración: la app ya no muere sin `.env.local`
+
+Encontrado al probar el rediseño en local. `lib/supabase/client.ts` creaba el cliente en el
+top-level del módulo y hacía `throw` ahí mismo si faltaban las env vars. Como `app/page.tsx`
+importa ese archivo (vía `saveUpload`), el throw ocurría durante la **evaluación del módulo**:
+sin `.env.local`, Commercial Activity devolvía un **500 con pantalla en blanco** antes de
+renderizar una línea de UI. Forecast no tenía el problema porque su cliente
+(schema `pipeline_forecast`) ya se construía con guarda dentro de un `useEffect` — una asimetría
+entre los dos módulos que nadie había notado.
+
+Cambios:
+
+- `client.ts` pasa de `export const supabase` a `getSupabaseClient()` (cliente cacheado, chequeo
+  al primer uso) + `isSupabaseConfigured()`. El tipo se deriva con `ReturnType<typeof ...>`
+  porque `SupabaseClient` a secas asume el schema `'public'`.
+- `saveUpload()` resuelve el cliente adentro: si faltan las vars, la promesa rechaza y el
+  `.catch` que **ya existía** en `app/page.tsx` lo muestra como pill roja. El error sigue siendo
+  igual de ruidoso, pero por el canal correcto.
+- `loadCurrentReport()` devuelve `null` si no hay configuración: al abrir la página, "no hay
+  nada guardado" es el estado correcto, no un error que valga la pena mostrar.
+- Se agregó **`.env.example`** versionado (con una excepción `!.env.example` en `.gitignore`,
+  que ignora `.env*`) y se reescribió el `README.md`, que hasta ahora era el boilerplate intacto
+  de `create-next-app` — incluso afirmaba que el proyecto usa la fuente Geist. Ese vacío de
+  documentación es la razón por la que el requisito de `.env.local` no estaba en ningún lado.
+
+Resultado: `/` responde **200 sin ninguna variable de entorno**, con la UI completa; lo único que
+queda inactivo es la persistencia en la nube.
+
+### Riesgo/pendiente que deja esta etapa
+
+12. **`config/metrics.ts` es fuente única de labels para UI *y* export a Excel.** Al cambiar
+    `'Credit_Report'` → `'Credit Reports'` y `'App date'` → `'App Date'` también cambian los
+    rótulos de fila del `.xlsx` generado. Fue deliberado (un solo juego de nombres), pero si
+    algún consumidor aguas abajo parsea esos textos, hay que avisarle.
+13. **`next build` no se ejecutó en esta etapa.** Verificación hecha: `tsc --noEmit` limpio,
+    `eslint` limpio, y smoke test real con `next dev` — `/` y `/pipeline` devuelven 200, las
+    dos fuentes (Inter + Barlow) se inyectan en `<html>`, no queda ninguna referencia al
+    sidebar en el HTML renderizado, y el lockup se sirve OK a través del optimizador de
+    imágenes (`/_next/image?url=/brand/homesi-lockup.jpg`).
+
+---
+
 ## Glosario rápido (para no repetir la investigación)
 
 - **CL / SL** en nombres de archivo = residuo histórico de cuando existían dos empresas (City Lending / Supreme Lending); hoy solo existe Supreme Lending, no hay distinción de marca activa.

@@ -1,4 +1,4 @@
-import { supabase } from './client';
+import { getSupabaseClient } from './client';
 import type { LoanRecord } from '@/lib/domain/types';
 import type { RawLoanRow } from '@/lib/parsing/types';
 
@@ -16,6 +16,11 @@ const INSERT_BATCH_SIZE = 500;
  * un indicador en vez de silenciarlo por completo.
  */
 export async function saveUpload(records: LoanRecord[], rawRows: RawLoanRow[], fileName: string): Promise<void> {
+  // Etapa UX1b: el cliente se resuelve acá adentro, no al importar el módulo
+  // (ver la nota larga en client.ts). Si faltan las env vars, esto lanza y el
+  // rechazo llega al `.catch` de app/page.tsx como cualquier otro fallo.
+  const supabase = getSupabaseClient();
+
   // 1. Solo puede haber UN batch con is_current=true a la vez.
   const { error: clearCurrentError } = await supabase
     .from('upload_batches')

@@ -1,36 +1,91 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# HOMESÍ — Analytics Portal
 
-## Getting Started
+Portal de reportería con dos módulos, bajo una misma barra de navegación (Service Hub):
 
-First, run the development server:
+- **Commercial Activity** (`/`) — File Creations, Credit Reports, App Date y Closings por branch,
+  loan officer y estrategia B2B.
+- **Forecast & Pipeline** (`/pipeline`) — forecast ejecutivo por branch, matriz Branch × Milestone
+  y préstamos adversos.
+
+La arquitectura completa (módulos, reglas de negocio, historial de etapas, riesgos abiertos) está
+en **[`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md)** — leer eso antes de tocar código.
+
+---
+
+## Puesta en marcha
 
 ```bash
+npm install
+cp .env.example .env.local   # cmd.exe: copy .env.example .env.local
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Abrir <http://localhost:3000>.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Variables de entorno
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Las dos variables de [`.env.example`](.env.example) salen de Supabase → proyecto `simoOS-prod`
+(equipo SimoLogic) → **Settings → API**:
 
-## Learn More
+| Variable | Dónde sale |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | "Project URL" |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | "Project API keys" → `anon public` |
 
-To learn more about Next.js, take a look at the following resources:
+`.env.local` está en `.gitignore` y **nunca** se comitea.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+**Sin credenciales la app igual levanta y se puede ver completa**: lo único que no funciona es la
+persistencia en la nube (restaurar el último reporte al abrir, y guardar un archivo recién subido).
+Al intentar guardar aparece un aviso explícito en pantalla; no se rompe nada más. Para trabajar en
+la UI alcanza con subir un `.xlsx` a mano — todo el cálculo corre en el navegador.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+---
 
-## Deploy on Vercel
+## Comandos
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+| Comando | Qué hace |
+|---|---|
+| `npm run dev` | Servidor de desarrollo |
+| `npm run build` | Build de producción |
+| `npm run start` | Sirve el build |
+| `npm run lint` | ESLint |
+| `npx tsc --noEmit` | Chequeo de tipos (no está en `package.json`, pero conviene correrlo antes de un commit) |
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+---
+
+## Mapa del repo
+
+```
+app/
+  page.tsx                -- vista Commercial Activity
+  pipeline/               -- vista Forecast & Pipeline (componentes + estilos propios)
+  api/pipeline/           -- parseo server-side, snapshots, retención, export
+  layout.tsx              -- shell: header Service Hub + canvas
+  styles/                 -- tokens -> base -> shell -> components (ver abajo)
+components/
+  layout/                 -- header y logo de marca
+  report/                 -- tablas y controles de Commercial Activity
+  ui/icons.tsx            -- set de iconos SVG compartido
+lib/
+  parsing/   domain/   aggregation/   export/   -- Commercial Activity
+  pipeline/                                     -- Forecast (contrato de datos + cálculo)
+  supabase/                                     -- persistencia (schema activity_report)
+config/                   -- roster de branches, métricas, columnas requeridas
+public/brand/             -- assets oficiales de marca
+docs/ARQUITECTURA.md      -- documento vivo del proyecto
+```
+
+### Estilos
+
+CSS plano con custom properties, **sin Tailwind** (decisión documentada en `docs/ARQUITECTURA.md`,
+etapa UX1). El orden de import está en `app/globals.css` y no es arbitrario:
+
+1. `styles/tokens.css` — paleta del Brand Book 2025 + escalas + radios/sombras/fuentes
+2. `styles/base.css` — reset y tipografía base
+3. `styles/shell.css` — header Service Hub, canvas y contenedor de 1440px
+4. `styles/components.css` — botones, pills, tarjetas, tablas, flyout
+
+`app/pipeline/styles/forecast-visual.css` es exclusivo de Forecast y se importa **solo** desde
+`app/pipeline/page.tsx`.
+
+Regla práctica: si un color no está en `tokens.css`, no se usa. Nada de hex sueltos en el JSX.

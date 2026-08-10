@@ -1,4 +1,4 @@
-import { supabase } from './client';
+import { getSupabaseClient, isSupabaseConfigured } from './client';
 import type { LoanRecord } from '@/lib/domain/types';
 
 const PAGE_SIZE = 1000;
@@ -33,6 +33,15 @@ export interface CurrentReport {
  * en pruebas (~4300 filas) se vería truncado silenciosamente sin esto.
  */
 export async function loadCurrentReport(): Promise<CurrentReport | null> {
+  // Etapa UX1b: sin Supabase configurado no hay nada que restaurar, y no es un
+  // error que valga la pena mostrarle al usuario al abrir la página -- el
+  // estado válido es "no hay reporte guardado" (null), igual que cuando la
+  // base está vacía. El aviso ruidoso queda para saveUpload(), que sí es una
+  // acción que la persona pidió explícitamente y que no se va a completar.
+  if (!isSupabaseConfigured()) return null;
+
+  const supabase = getSupabaseClient();
+
   const { data: batch, error: batchError } = await supabase
     .from('upload_batches')
     .select('id, source_file_name, uploaded_at')
