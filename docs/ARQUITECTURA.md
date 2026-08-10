@@ -372,6 +372,72 @@ columnas apretadas y con scroll horizontal propio. Vuelve a ser un **modal centr
 entren sin scroll. `LoanDetailDrawer.tsx` → `LoanDetailModal.tsx`; las clases `.drawer*` se
 reemplazaron por `.modal*` y no queda ninguna referencia al flyout en el código.
 
+### Etapa UX3 — jerarquía visual por grupo de métrica (Tab 1)
+
+Las 3 tablas ejecutivas (Banked - Retail / Brokered / Combined Total by Branch) mezclaban en
+una grilla plana métricas de naturaleza distinta: lo **ya logrado** (Closed), lo **en curso**
+(Total y Healthy Pipeline) y la **proyección** (Forecast). Sin señal visual había que volver al
+encabezado en cada fila.
+
+**Markup.** El `<colgroup>` y el `<thead>` estaban duplicados literalmente en los dos bloques de
+JSX; con 3 clases nuevas por celda esa duplicación se volvía cara, así que se extrajeron
+`ExecColgroup`, `ExecHead` y `ExecTotalRow` — un solo lugar donde cambiar anchos, rótulos o
+agrupación. Cada columna lleva su clase de grupo (`col-closed` / `col-pipeline` /
+`col-forecast`) y `group-start` marca dónde va el divisor vertical. Todo cuelga de `.piv--exec`
+para no afectar la matriz, la cascada ni Adverse.
+
+**Tratamiento visual.** Encabezado navy sólido; Closed en badge navy sobre gris (y apagado en
+cero, que no es un logro que destacar); las dos columnas de pipeline con un tinte de fondo que
+las agrupa; Forecast siempre en píldora verde. La fila de total cierra en navy repitiendo el
+tratamiento de cada columna, para que se lea como resumen de lo de arriba.
+
+Anchos: 12 / 32 / 14 × 4 = **100%**. Branch cede 1 punto y Branch Manager gana 5 — es la
+columna que de verdad los necesita.
+
+#### Dos contradicciones del brief, resueltas a propósito
+
+1. **Encabezado navy sólido vs. fondos claros por columna.** El brief pedía las dos cosas para
+   las mismas celdas: barra navy con texto blanco (§3) y, a la vez, fondo navy al 5% en Closed
+   y verde al 60% en Forecast (§2). No pueden convivir. Se priorizó §3 (regla global del
+   encabezado) y la distinción por columna se resolvió con el **color del texto**, que sí
+   funciona sobre navy: Forecast en verde claro, Closed en blanco puro, pipeline en blanco
+   atenuado.
+2. **"Una sola línea" con columnas de 14%.** En las tablas de canal (media pantalla) 14% son
+   ~90px; "HEALTHY PIPELINE" en mayúsculas necesitaría ~7px de tipografía para entrar en una
+   línea. El objetivo real era que **no se recorten**, así que el encabezado envuelve a dos
+   líneas (`white-space: normal`, sin ellipsis en el `thead`). Verificado: los 6 rótulos
+   aparecen completos en el HTML de las 3 tablas.
+
+#### Inconsistencia que dejó abierta — resuelta en UX4
+
+El encabezado navy aplicaba sólo a esas 3 tablas, que era el alcance del brief, y dejaba dos
+estilos de encabezado conviviendo dentro de Forecast. Se señaló como decisión de diseño
+pendiente y se resolvió en la etapa siguiente.
+
+### Etapa UX4 — tema claro unificado en todas las tablas
+
+Decisión del negocio: **ningún fondo oscuro en encabezados de tabla**. Revierte la barra navy
+de UX3 y unifica el criterio en toda la app.
+
+- **Una sola regla base** (`table.piv thead .mo-row th`, en `components.css`) para las 7 tablas:
+  Commercial Activity (árbol y Loan Officer), las 3 ejecutivas, la matriz, la cascada y Adverse.
+  `slate-100/80`, borde inferior de 2px, texto navy en mayúsculas.
+- **La agrupación por métrica ya no usa bloques de color**, sino tintes pastel y bordes
+  sutiles: Closed en texto navy con divisor a la derecha, las dos de Pipeline con fondo
+  `slate-50/60`, Forecast con tinte `emerald-50` y esquinas superiores redondeadas.
+- **El envolver-antes-que-truncar pasó a la regla base**: `white-space: normal` en el `thead`,
+  con el `overflow:hidden` de las celdas de datos revertido. Ninguna cabecera queda cortada en
+  ninguna tabla, no sólo en las ejecutivas.
+- **La fila de total también pasó a claro.** El brief hablaba sólo de encabezados, pero dejar un
+  pie navy sólido debajo de un encabezado claro contradecía el criterio declarado y hacía que la
+  fila de cierre pesara más que los datos. Se distingue por peso tipográfico y borde superior,
+  no por fondo oscuro.
+
+Navy sigue usándose donde sí corresponde y no se tocó: estados activos de botones y tabs
+(`.btn.primary`, `.seg button.on`, `.tab-btn.active` — el spec de marca los fija así) y el
+relleno de las barras de pull-through de la cascada, que necesita contraste contra su track
+celeste.
+
 ### Riesgo/pendiente que deja esta etapa
 
 12. **`config/metrics.ts` es fuente única de labels para UI *y* export a Excel.** Al cambiar

@@ -268,6 +268,82 @@ function closedLoanToModalLoan(loan: ResolvedLoan): LoanDetailModalLoan {
   };
 }
 
+/*
+ * ===========================================================================
+ * ESTRUCTURA COMPARTIDA POR LAS 3 TABLAS EJECUTIVAS
+ * ===========================================================================
+ * Banked - Retail, Brokered y Combined Total by Branch tienen exactamente las
+ * mismas 6 columnas. Antes el <colgroup> y el <thead> estaban duplicados
+ * literalmente en los dos bloques de JSX; con la jerarquía de columnas nueva
+ * (etapa UX3) esa duplicación pasaba a ser de 3 clases por celda, así que se
+ * extraen acá: un solo lugar donde cambiar anchos, rótulos o agrupación.
+ *
+ * Las clases `col-*` marcan a qué GRUPO DE MÉTRICA pertenece cada columna
+ * (Closed / Pipeline / Forecast) y son las que el CSS usa para tintarlas.
+ * `group-start` dibuja el divisor vertical al inicio de cada grupo.
+ */
+function ExecColgroup() {
+  return (
+    <colgroup>
+      <col className="branch-col" />
+      <col className="manager-col" />
+      <col className="metric-col" />
+      <col className="metric-col" />
+      <col className="metric-col" />
+      <col className="metric-col" />
+    </colgroup>
+  );
+}
+
+function ExecHead() {
+  return (
+    <thead>
+      <tr className="mo-row">
+        <th className="lbl">Branch</th>
+        <th className="th-left">Branch Manager</th>
+        <th className="col-closed group-start">Closed</th>
+        <th className="col-pipeline group-start">Total Pipeline</th>
+        <th className="col-pipeline">Healthy Pipeline</th>
+        <th className="totcol col-forecast group-start">Forecast</th>
+      </tr>
+    </thead>
+  );
+}
+
+/**
+ * Fila de subtotal / total. Los valores repiten el tratamiento visual de su
+ * columna (badge de Closed, píldora de Forecast) para que la fila de cierre se
+ * lea como el resumen de lo de arriba y no como otra tabla.
+ */
+function ExecTotalRow({ label, subtotal }: { label: string; subtotal: BlockSubtotal }) {
+  return (
+    <tr className="grp total">
+      <td className="lbl">{label}</td>
+      <td></td>
+      <td className="val col-closed group-start">
+        <ClosedValue value={subtotal.closedCount} />
+      </td>
+      <td className="val col-pipeline group-start">{fmtInt(subtotal.totalCount)}</td>
+      <td className="val col-pipeline">
+        <span className="dot-healthy" />
+        {fmtInt(subtotal.healthyCount)}
+      </td>
+      <td className="totcol col-forecast group-start">
+        <span className="badge badge--pill badge--emerald">{fmtForecast(subtotal.totalForecast)}</span>
+      </td>
+    </tr>
+  );
+}
+
+/**
+ * Valor de la columna Closed cuando NO es clickeable (filas de total). En cero
+ * se apaga; con valor va en badge, igual que las celdas de datos.
+ */
+function ClosedValue({ value }: { value: number }) {
+  if (value === 0) return <span className="closed-badge is-zero">0</span>;
+  return <span className="closed-badge">{fmtInt(value)}</span>;
+}
+
 /**
  * Fila de branch de una de las dos tablas de canal. Se extrajo como componente
  * propio (Etapa UX1) porque su JSX era idéntico salvo los handlers -- antes
@@ -291,20 +367,20 @@ function BranchDataRow({
       <td className="lbl">{row.branch}</td>
       {/* HOTFIX UX2: con la columna en % un nombre largo se recorta con
           ellipsis, así que el valor completo va en el title. */}
-      <td style={{ textAlign: 'left', color: 'var(--slate-500)' }} title={managerName}>
+      <td className="th-left manager-cell" title={managerName}>
         {managerName}
       </td>
-      <td className="val">
-        <CountCell value={row.closedCount} onClick={() => onOpenClosed(row)} />
+      <td className="val col-closed group-start">
+        <CountCell value={row.closedCount} onClick={() => onOpenClosed(row)} variant="closed" />
       </td>
-      <td className="val">
+      <td className="val col-pipeline group-start">
         <CountCell value={row.totalCount} onClick={() => onOpenTotal(row)} />
       </td>
-      <td className="val">
+      <td className="val col-pipeline">
         <CountCell value={row.healthyCount} onClick={() => onOpenHealthy(row)} withHealthyDot />
       </td>
-      <td className="totcol">
-        {/* Spec §4C.3: sin barras de progreso -- el Forecast va en un badge verde suave. */}
+      <td className="totcol col-forecast group-start">
+        {/* Sin barras de progreso: el Forecast va siempre en píldora verde. */}
         <span className="badge badge--pill badge--emerald">{fmtForecast(row.totalForecast)}</span>
       </td>
     </tr>
@@ -316,12 +392,24 @@ function BranchDataRow({
  * se muestra apagada (spec §3C/§4D.2): no hay nada que auditar detrás de un 0,
  * y ofrecer el click igual solo produce paneles vacíos.
  */
-function CountCell({ value, onClick, withHealthyDot }: { value: number; onClick: () => void; withHealthyDot?: boolean }) {
+function CountCell({
+  value,
+  onClick,
+  withHealthyDot,
+  variant,
+}: {
+  value: number;
+  onClick: () => void;
+  withHealthyDot?: boolean;
+  /** 'closed' pinta el valor como badge de logro (fondo slate, navy bold). */
+  variant?: 'closed';
+}) {
+  const base = variant === 'closed' ? 'cell-trigger cell-trigger--closed' : 'cell-trigger';
   if (value === 0) {
-    return <span className="cell-trigger is-zero">0</span>;
+    return <span className={base + ' is-zero'}>0</span>;
   }
   return (
-    <button type="button" className="cell-trigger" onClick={onClick}>
+    <button type="button" className={base} onClick={onClick}>
       {withHealthyDot && <span className="dot-healthy" />}
       {fmtInt(value)}
     </button>
@@ -408,28 +496,9 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
               <span className="badge badge--pill badge--sky">{fmtInt(block.subtotal.totalCount)} in pipeline</span>
             </div>
             <div className="tbl-scroll">
-              <table className="piv">
-                {/* HOTFIX UX2: anchos explícitos en % (ver forecast-visual.css) --
-                    con table-layout:fixed el navegador los respeta y la tabla
-                    nunca desborda su contenedor. */}
-                <colgroup>
-                  <col className="branch-col" />
-                  <col className="manager-col" />
-                  <col className="metric-col" />
-                  <col className="metric-col" />
-                  <col className="metric-col" />
-                  <col className="metric-col" />
-                </colgroup>
-                <thead>
-                  <tr className="mo-row">
-                    <th className="lbl">Branch</th>
-                    <th style={{ textAlign: 'left' }}>Branch Manager</th>
-                    <th>Closed</th>
-                    <th>Total Pipeline</th>
-                    <th>Healthy Pipeline</th>
-                    <th className="totcol">Forecast</th>
-                  </tr>
-                </thead>
+              <table className="piv piv--exec">
+                <ExecColgroup />
+                <ExecHead />
                 <tbody>
                   {block.rows.map((row) => (
                     <BranchDataRow
@@ -448,14 +517,7 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
                       </td>
                     </tr>
                   )}
-                  <tr className="grp total">
-                    <td className="lbl">Subtotal {block.channel}</td>
-                    <td></td>
-                    <td className="val">{fmtInt(block.subtotal.closedCount)}</td>
-                    <td className="val">{fmtInt(block.subtotal.totalCount)}</td>
-                    <td className="val">{fmtInt(block.subtotal.healthyCount)}</td>
-                    <td className="totcol">{fmtForecast(block.subtotal.totalForecast)}</td>
-                  </tr>
+                  <ExecTotalRow label={'Subtotal ' + block.channel} subtotal={block.subtotal} />
                 </tbody>
               </table>
             </div>
@@ -468,39 +530,25 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
           <span className="tbl-card__title">Combined Total by Branch</span>
         </div>
         <div className="tbl-scroll">
-          <table className="piv">
-            <colgroup>
-              <col className="branch-col" />
-              <col className="manager-col" />
-              <col className="metric-col" />
-              <col className="metric-col" />
-              <col className="metric-col" />
-              <col className="metric-col" />
-            </colgroup>
-            <thead>
-              <tr className="mo-row">
-                <th className="lbl">Branch</th>
-                <th style={{ textAlign: 'left' }}>Branch Manager</th>
-                <th>Closed</th>
-                <th>Total Pipeline</th>
-                <th>Healthy Pipeline</th>
-                <th className="totcol">Forecast</th>
-              </tr>
-            </thead>
+          <table className="piv piv--exec">
+            <ExecColgroup />
+            <ExecHead />
             <tbody>
               {combinedByBranch.map((row) => (
                 <tr className="metric" key={row.branch}>
                   <td className="lbl">{row.branch}</td>
-                  <td style={{ textAlign: 'left', color: 'var(--slate-500)' }} title={branchManagers.get(row.branch) ?? UNASSIGNED_MANAGER}>
+                  <td className="th-left manager-cell" title={branchManagers.get(row.branch) ?? UNASSIGNED_MANAGER}>
                     {branchManagers.get(row.branch) ?? UNASSIGNED_MANAGER}
                   </td>
-                  <td className="val">{fmtInt(row.closedCount)}</td>
-                  <td className="val">{fmtInt(row.totalCount)}</td>
-                  <td className="val">
+                  <td className="val col-closed group-start">
+                    <ClosedValue value={row.closedCount} />
+                  </td>
+                  <td className="val col-pipeline group-start">{fmtInt(row.totalCount)}</td>
+                  <td className="val col-pipeline">
                     <span className="dot-healthy" />
                     {fmtInt(row.healthyCount)}
                   </td>
-                  <td className="totcol">
+                  <td className="totcol col-forecast group-start">
                     <span className="badge badge--pill badge--emerald">{fmtForecast(row.totalForecast)}</span>
                   </td>
                 </tr>
@@ -512,14 +560,7 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
                   </td>
                 </tr>
               )}
-              <tr className="grp total">
-                <td className="lbl">Combined Total (Banked - Retail + Brokered)</td>
-                <td></td>
-                <td className="val">{fmtInt(grandTotal.closedCount)}</td>
-                <td className="val">{fmtInt(grandTotal.totalCount)}</td>
-                <td className="val">{fmtInt(grandTotal.healthyCount)}</td>
-                <td className="totcol">{fmtForecast(grandTotal.totalForecast)}</td>
-              </tr>
+              <ExecTotalRow label="Combined Total (Banked - Retail + Brokered)" subtotal={grandTotal} />
             </tbody>
           </table>
         </div>

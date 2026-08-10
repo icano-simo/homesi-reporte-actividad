@@ -566,15 +566,33 @@ table.piv td {
  * Ahora el thead es una fila normal, opaca, arriba del tbody.
  */
 table.piv thead .mo-row th {
-  background: var(--slate-100);
+  /*
+   * Etapa UX4: tema claro unificado para TODAS las tablas de la app
+   * (Commercial Activity, Executive, Matrix, Cascade, Adverse). Antes de esta
+   * etapa el header ejecutivo era una barra navy sólida y el resto claro:
+   * cambiar de tab mostraba dos estilos distintos. Ahora hay una sola regla
+   * base, y las variantes por grupo de métrica (forecast-visual.css) son
+   * tintes pastel POR ENCIMA de este claro, nunca bloques oscuros.
+   */
+  background: rgba(241, 245, 249, 0.8); /* slate-100/80 */
   color: var(--navy);
   font-weight: 700;
   font-size: 10.5px;
   text-transform: uppercase;
   letter-spacing: 0.07em;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--slate-200);
+  padding: 10px 12px;
+  border-bottom: 2px solid var(--slate-200);
   vertical-align: bottom;
+  /*
+   * Los rótulos largos ("HEALTHY PIPELINE") envuelven a 2 líneas en vez de
+   * recortarse con ellipsis -- la regla general de `table.piv th` activa
+   * overflow:hidden para las celdas de datos, y acá se revierte. Ninguna
+   * cabecera queda truncada en ninguna tabla.
+   */
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1.25;
 }
 /* Fila de años (Actividad): rótulo fino por encima del header de meses. */
 table.piv thead .yr-row th {
@@ -611,6 +629,12 @@ table.piv td.lbl {
   font-weight: 700;
   color: var(--navy);
 }
+/*
+ * La primera columna del thead es sticky, así que necesita fondo PROPIO y
+ * OPACO: si heredara el slate-100/80 translúcido de la fila, al scrollear
+ * horizontalmente dejaría ver las columnas pasando por debajo. Se usa el
+ * slate-100 sólido, que a simple vista es el mismo tono sobre fondo blanco.
+ */
 table.piv thead th.lbl {
   background: var(--slate-100);
 }

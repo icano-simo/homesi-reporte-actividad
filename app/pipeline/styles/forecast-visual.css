@@ -88,7 +88,7 @@
 }
 
 /*
- * HOTFIX UX2: anchos en PORCENTAJE, no en px.
+ * Anchos en PORCENTAJE, no en px (desde el hotfix UX2).
  *
  * Antes eran 110px/150px fijos. En las 2 tablas de canal, que ocupan media
  * pantalla cada una, esos px no se adaptan al ancho disponible: en un monitor
@@ -96,22 +96,143 @@
  * lo que forzaba el scrollbar horizontal. En porcentaje, la tabla siempre
  * ocupa exactamente el 100% del contenedor, sin desbordar.
  *
- * Suma: 13 + 27 + 15*4 = 100%.
+ * Etapa UX3: 12 / 32 / 14 x4 = 100%. Branch cede 1 punto y Branch Manager gana
+ * 5, que es la columna que de verdad los necesita (nombre y apellido completos).
  */
 .piv col.branch-col {
-  width: 13%;
+  width: 12%;
 }
 .piv col.manager-col {
-  width: 27%;
+  width: 32%;
 }
 .piv col.metric-col {
-  width: 15%;
+  width: 14%;
 }
 
 /* Matriz Branch x Milestone: la primera columna fija y el resto repartido en
    partes iguales, sea cual sea la cantidad de milestones del canal activo. */
 .piv col.matrix-branch-col {
   width: 16%;
+}
+
+/* ---------------------------------------------------------------------------
+ * TAB 1 — Jerarquía visual por grupo de métrica (etapa UX3)
+ * ---------------------------------------------------------------------------
+ *
+ * Las 3 tablas ejecutivas (Banked / Brokered / Combined) mezclan métricas de
+ * naturaleza distinta en una sola grilla plana: lo YA LOGRADO (Closed), lo EN
+ * CURSO (Total y Healthy Pipeline) y la PROYECCIÓN (Forecast). Sin señal
+ * visual, leerlas obliga a ir al encabezado en cada fila.
+ *
+ * Cada columna lleva una clase de grupo (`col-closed` / `col-pipeline` /
+ * `col-forecast`) y `group-start` marca dónde empieza cada grupo, que es donde
+ * va el divisor vertical. Todo cuelga de `.piv--exec` para no tocar la matriz,
+ * la cascada ni Adverse.
+ *
+ * ETAPA UX4 — TEMA CLARO. La versión anterior usaba una barra navy sólida con
+ * texto blanco. Se reemplazó por completo: el encabezado hereda el claro
+ * unificado de components.css y la distinción entre grupos se hace con TINTES
+ * PASTEL y BORDES SUTILES, no con bloques oscuros. Sin fondos oscuros en
+ * ninguna tabla de la app.
+ *
+ * (Se conserva de UX3 la decisión sobre el ancho de los rótulos: "TOTAL
+ * PIPELINE" y "HEALTHY PIPELINE" no entran en una línea en columnas de 14%
+ * --serían ~7px de tipografía--, así que envuelven a 2 líneas en vez de
+ * recortarse. `white-space: normal` ya vive en la regla base del thead.)
+ * ------------------------------------------------------------------------ */
+
+/* --- Encabezado: claro, con acento pastel por grupo --- */
+.piv--exec thead .mo-row th.col-closed {
+  color: var(--navy);
+  font-weight: 700;
+}
+.piv--exec thead .mo-row th.col-pipeline {
+  background: rgba(248, 250, 252, 0.6); /* slate-50/60 */
+  color: var(--slate-700);
+}
+.piv--exec thead .mo-row th.col-forecast {
+  background: var(--emerald-50);
+  color: var(--emerald-800);
+  font-weight: 700;
+  border-top-left-radius: var(--radius-md);
+  border-top-right-radius: var(--radius-md);
+}
+/* Divisor vertical al inicio de cada grupo de métrica. */
+.piv--exec thead .mo-row th.group-start {
+  border-left: 1px solid var(--slate-200);
+}
+
+/* --- Cuerpo: tinte por grupo --- */
+
+/*
+ * Columnas de pipeline: fondo micro-tintado que las agrupa. Va con
+ * `!important` deliberado y acotado: la regla de zebra de components.css
+ * (`tr.metric:nth-child(odd) td`) tiene mayor especificidad por el
+ * pseudo-selector, y acá el tinte de columna debe ganarle en las dos bandas
+ * para que la columna se lea como una franja continua.
+ */
+.piv--exec tbody td.col-pipeline {
+  background: rgba(248, 250, 252, 0.75) !important;
+}
+.piv--exec tbody tr.metric:hover td.col-pipeline {
+  background: rgba(166, 222, 255, 0.2) !important;
+}
+.piv--exec td.group-start {
+  border-left: 1px solid var(--slate-200);
+}
+.piv--exec .th-left {
+  text-align: left;
+}
+.piv--exec .manager-cell {
+  color: var(--slate-500);
+}
+
+/* Badge de la columna Closed: lo ya logrado, en navy sobre gris. */
+.closed-badge,
+.cell-trigger--closed {
+  background: rgba(226, 232, 240, 0.7); /* slate-200/70 */
+  color: var(--navy);
+  font-weight: 700;
+  border-radius: var(--radius-sm);
+  padding: 2px 9px;
+  display: inline-block;
+}
+.cell-trigger--closed:hover {
+  background: var(--sky);
+  color: var(--navy);
+}
+/* En cero no hay logro que destacar: sin badge y apagado. */
+.closed-badge.is-zero,
+.cell-trigger--closed.is-zero {
+  background: transparent;
+  color: var(--slate-300);
+  font-weight: 400;
+}
+
+/*
+ * --- Fila de total ---
+ *
+ * Etapa UX4: también pasa a claro. El brief de esta etapa habla de headers,
+ * pero dejar un pie navy sólido debajo de un encabezado claro contradice el
+ * criterio declarado ("light, fresh, non-heavy") y hacía que la fila de cierre
+ * pesara más que los datos. Se distingue por PESO y BORDE, no por fondo
+ * oscuro: gris claro, texto navy, y un borde superior que la separa.
+ */
+.piv--exec tbody tr.grp.total td,
+.piv--exec tbody tr.grp.total td.lbl {
+  background: var(--slate-100);
+  color: var(--navy);
+  font-weight: 700;
+  border-top: 2px solid var(--slate-300);
+  padding-top: 9px;
+  padding-bottom: 9px;
+}
+.piv--exec tbody tr.grp.total td.col-pipeline {
+  /* Gana al !important del tinte de columna de arriba. */
+  background: var(--slate-100) !important;
+}
+.piv--exec tbody tr.grp.total td.group-start {
+  border-left: 1px solid var(--slate-300);
 }
 
 /* ---------------------------------------------------------------------------
