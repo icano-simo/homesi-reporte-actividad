@@ -82,7 +82,6 @@ Solo CL (First Lien) por ahora. Fuente única: el reporte que Alejandra/Isabella
 /app/api/pipeline/
   parse/route.ts            -- parseo server-side (el parser usa Buffer de Node) + persistencia en Supabase
   latest/route.ts           -- restaura el último snapshot activo al abrir la página
-  retention/route.ts        -- cron diario, retención de 90 días de snapshots
   adverse-history/route.ts  -- fecha de primera detección de cada préstamo como adverse
 /components/Sidebar.tsx  -- compartido con Actividad, extraído del markup decorativo del HTML original
 ```
