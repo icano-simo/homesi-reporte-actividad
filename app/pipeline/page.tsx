@@ -559,13 +559,22 @@ export default function PipelinePage() {
   // (todavía no respondió el endpoint) se excluye -- no hay forma de saber
   // si cae en el mes elegido, mismo criterio conservador que ya usa
   // AdverseTable para no mostrar datos a medio cargar.
+  // Etapa F5m: 2 condiciones adicionales, por canal, ENCIMA del filtro de
+  // arriba (no lo reemplazan). Brokered: se excluyen los que quedaron en
+  // Loan Folder="Current Prospects" (típicamente prospectos que nunca
+  // llegaron a originarse de verdad, no "adverse" en el sentido de la
+  // tabla). Banked - Retail: solo se cuentan los que SÍ tienen Est. Closing
+  // Date -- se excluyen los que están vacíos/null.
   const adverseInRange = data
     ? filteredResolvedLoans.filter((loan) => {
         if (loan.status !== 'adverse') return false;
         const firstSeen = firstSeenAsAdverse[loan.sourceLoanId];
         if (firstSeen === undefined) return false;
         const effectiveDate = firstSeen ?? activeSnapshotDate;
-        return effectiveDate !== null && effectiveDate >= forecastRange.startDate && effectiveDate <= forecastRange.endDate;
+        if (effectiveDate === null || effectiveDate < forecastRange.startDate || effectiveDate > forecastRange.endDate) return false;
+        if (loan.channel === 'Brokered' && loan.rawLoanFolder === 'Current Prospects') return false;
+        if (loan.channel === 'Banked - Retail' && !loan.estClosingDate) return false;
+        return true;
       })
     : [];
 

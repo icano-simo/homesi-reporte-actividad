@@ -412,6 +412,10 @@ function classifyRow(
       // el usuario a la lista de archivos de F5g (que no incluía este
       // archivo) para poder exponer "Last Finished Milestone" en AdverseTable.
       rawMilestone: row.currentMilestone,
+      // Etapa F5m: mismo row.loanFolder que ya se lee para el warning de
+      // valores inesperados (línea ~354) -- solo faltaba conservarlo acá.
+      // Este archivo SÍ está en la lista de F5m, a diferencia de F5g.
+      rawLoanFolder: row.loanFolder,
     };
     return { resolvedLoan };
   }

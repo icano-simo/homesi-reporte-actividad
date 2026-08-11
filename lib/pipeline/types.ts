@@ -58,4 +58,12 @@ export type ResolvedLoan = {
    * AdverseTable. Ausente ('') si el archivo no trae la columna.
    */
   rawMilestone: string;
+  /**
+   * Etapa F5m: valor crudo de "Loan Folder" (mismo dato que ya lee el
+   * parser para el warning de valores inesperados desde F1 -- solo faltaba
+   * exponerlo acá). Usado para excluir Brokered en "Current Prospects" del
+   * filtro de Adverse (AdverseTable/page.tsx). Ausente ('') si el archivo
+   * no trae la columna.
+   */
+  rawLoanFolder: string;
 };

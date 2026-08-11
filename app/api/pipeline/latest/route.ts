@@ -50,6 +50,7 @@ interface ResolvedLoanRow {
   borrower_name: string;
   loan_status: string;
   est_closing_date: string | null;
+  raw_loan_folder: string;
 }
 
 /**
@@ -105,7 +106,7 @@ export async function GET() {
     );
     const resolvedRows = await fetchAllPages<ResolvedLoanRow>(
       'pipeline_resolved_loans',
-      'source_loan_id, branch, channel, status, disbursement_date, amount, loan_officer, borrower_name, loan_status, est_closing_date',
+      'source_loan_id, branch, channel, status, disbursement_date, amount, loan_officer, borrower_name, loan_status, est_closing_date, raw_loan_folder',
       snapshotId
     );
 
@@ -136,6 +137,12 @@ export async function GET() {
     // tampoco tiene una columna raw_milestone todavía, así que queda en '' al
     // restaurar desde Supabase (Last Finished Milestone en AdverseTable
     // aparece vacío después de un reload, no en la carga recién subida).
+    // Etapa F5n: raw_loan_folder ya se guarda y se lee de verdad (columna
+    // agregada por SQL) -- ya NO queda hardcodeado en '', a diferencia de
+    // rawMilestone (sigue sin columna raw_milestone, ver comentario arriba).
+    // La regla de "excluir Brokered en Current Prospects" (F5m) ahora sí
+    // funciona también para datos restaurados desde Supabase, no solo en la
+    // carga recién subida.
     const resolvedLoans: ResolvedLoan[] = resolvedRows.map((r) => ({
       sourceLoanId: r.source_loan_id,
       branch: r.branch,
@@ -150,6 +157,7 @@ export async function GET() {
       loanStatus: r.loan_status,
       estClosingDate: r.est_closing_date,
       rawMilestone: '',
+      rawLoanFolder: r.raw_loan_folder,
     }));
 
     return NextResponse.json({

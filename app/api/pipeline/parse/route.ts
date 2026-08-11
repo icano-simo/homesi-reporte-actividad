@@ -96,6 +96,11 @@ function toResolvedLoanRow(loan: ResolvedLoan, snapshotId: number) {
     borrower_name: loan.borrowerName,
     loan_status: loan.loanStatus,
     est_closing_date: loan.estClosingDate,
+    // Etapa F5n: raw_loan_folder ya existe en pipeline_resolved_loans (columna
+    // agregada por SQL fuera de esta etapa) -- a diferencia de raw_milestone,
+    // milestone_date y branch_transferred (ver comentario arriba), esta sí
+    // se puede guardar.
+    raw_loan_folder: loan.rawLoanFolder,
   };
 }
 
