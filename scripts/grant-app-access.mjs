@@ -52,6 +52,17 @@ const argv = process.argv.slice(2);
 const DRY = argv.includes('--dry-run');
 const REVOKE = argv.includes('--revoke');
 const LIST = argv.includes('--list');
+/**
+ * Acota `--list` a quienes deben cambiar su contraseña temporal
+ * (`app_metadata.must_change_password`) Y tienen acceso a la app consultada:
+ * exactamente el conjunto al que el gate va a mandar a /change-password la
+ * próxima vez que entre. Sirve para avisarles ANTES de desplegar.
+ *
+ * Va en `--list` y no en `--dry-run` porque son cosas distintas: --dry-run
+ * simula ESCRITURAS de allowed_apps, y este flag no se escribe desde acá --
+ * lo pone quien crea la cuenta y lo baja /api/auth/complete-password-change.
+ */
+const PENDING_PASSWORD = argv.includes('--pending-password');
 
 const appIdx = argv.indexOf('--app');
 const APP = appIdx >= 0 ? argv[appIdx + 1] : DEFAULT_APP;
@@ -87,7 +98,7 @@ if (appIdx >= 0 && !APP) {
 if (!LIST && emails.length === 0) {
   console.error('Uso: node scripts/grant-app-access.mjs [--app <nombre>] [--revoke] [--dry-run] <correo> [correo...]');
   console.error('     node scripts/grant-app-access.mjs --file <archivo con un correo por linea>');
-  console.error('     node scripts/grant-app-access.mjs --list');
+  console.error('     node scripts/grant-app-access.mjs --list [--pending-password]');
   process.exit(1);
 }
 
@@ -134,112 +145,140 @@ const byEmail = new Map(users.map((u) => [(u.email ?? '').toLowerCase(), u]));
 
 // ── --list: quién tiene acceso hoy, sin tocar nada ──────────────────────────
 if (LIST) {
+  const appsOf = (u) => (Array.isArray(u.app_metadata?.allowed_apps) ? u.app_metadata.allowed_apps : null);
+  const hasApp = (u) => (appsOf(u) ?? []).includes(APP);
+  const mustChange = (u) => u.app_metadata?.must_change_password === true;
+
+  // --pending-password: sólo los que el gate va a frenar en /change-password.
+  const rows = users
+    .filter((u) => (PENDING_PASSWORD ? mustChange(u) && hasApp(u) : true))
+    .sort((a, b) => (a.email ?? '').localeCompare(b.email ?? ''));
+
   console.log(`usuarios: ${users.length}    app consultada: ${APP}`);
+  if (PENDING_PASSWORD) {
+    console.log('filtro   : con must_change_password=true Y acceso a esta app');
+  }
   console.log('');
-  console.log('acceso  correo                                    allowed_apps');
-  for (const u of users.sort((a, b) => (a.email ?? '').localeCompare(b.email ?? ''))) {
-    const apps = u.app_metadata?.allowed_apps;
-    const has = Array.isArray(apps) && apps.includes(APP);
+  console.log('acceso  contrasena  correo                                    allowed_apps');
+  for (const u of rows) {
+    const apps = appsOf(u);
     console.log(
-      `  ${has ? 'SI ' : 'no '}   ${(u.email ?? '?').padEnd(40)}  ` +
-        (Array.isArray(apps) ? JSON.stringify(apps) : '(sin campo)')
+      `  ${hasApp(u) ? 'SI ' : 'no '}   ` +
+        `${mustChange(u) ? 'CAMBIO    ' : '-         '} ` +
+        `${(u.email ?? '?').padEnd(40)}  ` +
+        (apps ? JSON.stringify(apps) : '(sin campo)')
     );
   }
-  process.exit(0);
+
+  const afectados = users.filter((u) => mustChange(u) && hasApp(u));
+  console.log('');
+  console.log(`mostrados                          : ${rows.length}`);
+  console.log(`con must_change_password=true       : ${users.filter(mustChange).length}`);
+  console.log(`... y ademas acceso a ${APP}: ${afectados.length}`);
+  console.log('');
+  console.log('Los de la ultima linea son los que, al desplegar, van a ser enviados a');
+  console.log('/change-password la proxima vez que entren. El resto no nota nada.');
 }
 
-console.log(`app: ${APP}    accion: ${REVOKE ? 'REVOCAR' : 'otorgar'}${DRY ? '    (DRY RUN)' : ''}`);
-console.log('');
+// Sólo el modo escritura. Antes esto se evitaba con un process.exit(0) dentro
+// del bloque --list; en Windows eso abortaba con "Assertion failed" al cerrar
+// handles que el cliente de Supabase todavía tenía abiertos, y parecía que el
+// comando había fallado cuando en realidad ya había impreso todo bien.
+if (!LIST) {
+  console.log(`app: ${APP}    accion: ${REVOKE ? 'REVOCAR' : 'otorgar'}${DRY ? '    (DRY RUN)' : ''}`);
+  console.log('');
 
-let done = 0;      // escrituras CONFIRMADAS contra la base
-let simulated = 0; // solo --dry-run: lo que se habria hecho
-let unchanged = 0;
-let missing = 0;
-let failed = 0;
+  let done = 0;      // escrituras CONFIRMADAS contra la base
+  let simulated = 0; // solo --dry-run: lo que se habria hecho
+  let unchanged = 0;
+  let missing = 0;
+  let failed = 0;
 
-for (const raw of emails) {
-  const email = raw.toLowerCase();
-  const u = byEmail.get(email);
+  for (const raw of emails) {
+    const email = raw.toLowerCase();
+    const u = byEmail.get(email);
 
-  if (!u) {
-    console.log(`  NO EXISTE  ${raw}`);
-    missing++;
-    continue;
+    if (!u) {
+      console.log(`  NO EXISTE  ${raw}`);
+      missing++;
+      continue;
+    }
+
+    const current = Array.isArray(u.app_metadata?.allowed_apps) ? u.app_metadata.allowed_apps : [];
+    const has = current.includes(APP);
+
+    if (REVOKE ? !has : has) {
+      console.log(`  sin cambio ${raw}  -> ${JSON.stringify(current)}`);
+      unchanged++;
+      continue;
+    }
+
+    // Union / diferencia, nunca un reemplazo completo: el acceso de alguien a
+    // Homesí o a las otras apps del portal tiene que sobrevivir a un cambio acá.
+    const next = REVOKE ? current.filter((a) => a !== APP) : [...current, APP];
+
+    if (DRY) {
+      // Contador SEPARADO. Antes esto incrementaba `done`, y el resumen lo
+      // imprimia bajo la etiqueta "aplicados": un --dry-run informaba
+      // "aplicados: 15" sin haber escrito una sola fila. El bug venia heredado
+      // del script original de homesi-pl.
+      console.log(`  ${REVOKE ? 'revocaria' : 'otorgaria'} ${raw}  ${JSON.stringify(current)} -> ${JSON.stringify(next)}`);
+      simulated++;
+      continue;
+    }
+
+    // Spread del app_metadata existente para no borrar otros claims (por ejemplo
+    // must_change_password, que usa homesi-pl) -- pero SIN `provider` ni
+    // `providers`: son claims reservados que administra GoTrue, y devolverselos
+    // en una escritura es una causa conocida de que la actualizacion se descarte
+    // en silencio.
+    const safeMetadata = { ...(u.app_metadata ?? {}) };
+    delete safeMetadata.provider;
+    delete safeMetadata.providers;
+
+    const { error } = await admin.auth.admin.updateUserById(u.id, {
+      app_metadata: { ...safeMetadata, allowed_apps: next },
+    });
+
+    if (error) {
+      console.log(`  FALLO      ${raw}: ${error.message}`);
+      failed++;
+      continue;
+    }
+
+    // VERIFICACION: se relee el usuario de la base en vez de confiar en que la
+    // API no devolvio error. Antes se contaba como aplicado apenas `error` era
+    // null; si la escritura no persistia, el script informaba exito igual. Ahora
+    // "aplicados" significa "confirmado en la base", que es lo unico util.
+    const { data: check, error: checkError } = await admin.auth.admin.getUserById(u.id);
+    const persisted = Array.isArray(check?.user?.app_metadata?.allowed_apps)
+      ? check.user.app_metadata.allowed_apps
+      : [];
+    const ok = REVOKE ? !persisted.includes(APP) : persisted.includes(APP);
+
+    if (checkError) {
+      console.log(`  ??         ${raw}: escrito, pero no se pudo verificar (${checkError.message})`);
+      failed++;
+    } else if (!ok) {
+      console.log(`  NO PERSISTIO ${raw}: la API no dio error pero la base quedo en ${JSON.stringify(persisted)}`);
+      failed++;
+    } else {
+      console.log(`  ${REVOKE ? 'revocado ' : 'otorgado '} ${raw}  -> ${JSON.stringify(persisted)}`);
+      done++;
+    }
   }
 
-  const current = Array.isArray(u.app_metadata?.allowed_apps) ? u.app_metadata.allowed_apps : [];
-  const has = current.includes(APP);
-
-  if (REVOKE ? !has : has) {
-    console.log(`  sin cambio ${raw}  -> ${JSON.stringify(current)}`);
-    unchanged++;
-    continue;
-  }
-
-  // Union / diferencia, nunca un reemplazo completo: el acceso de alguien a
-  // Homesí o a las otras apps del portal tiene que sobrevivir a un cambio acá.
-  const next = REVOKE ? current.filter((a) => a !== APP) : [...current, APP];
-
+  console.log('');
   if (DRY) {
-    // Contador SEPARADO. Antes esto incrementaba `done`, y el resumen lo
-    // imprimia bajo la etiqueta "aplicados": un --dry-run informaba
-    // "aplicados: 15" sin haber escrito una sola fila. El bug venia heredado
-    // del script original de homesi-pl.
-    console.log(`  ${REVOKE ? 'revocaria' : 'otorgaria'} ${raw}  ${JSON.stringify(current)} -> ${JSON.stringify(next)}`);
-    simulated++;
-    continue;
-  }
-
-  // Spread del app_metadata existente para no borrar otros claims (por ejemplo
-  // must_change_password, que usa homesi-pl) -- pero SIN `provider` ni
-  // `providers`: son claims reservados que administra GoTrue, y devolverselos
-  // en una escritura es una causa conocida de que la actualizacion se descarte
-  // en silencio.
-  const safeMetadata = { ...(u.app_metadata ?? {}) };
-  delete safeMetadata.provider;
-  delete safeMetadata.providers;
-
-  const { error } = await admin.auth.admin.updateUserById(u.id, {
-    app_metadata: { ...safeMetadata, allowed_apps: next },
-  });
-
-  if (error) {
-    console.log(`  FALLO      ${raw}: ${error.message}`);
-    failed++;
-    continue;
-  }
-
-  // VERIFICACION: se relee el usuario de la base en vez de confiar en que la
-  // API no devolvio error. Antes se contaba como aplicado apenas `error` era
-  // null; si la escritura no persistia, el script informaba exito igual. Ahora
-  // "aplicados" significa "confirmado en la base", que es lo unico util.
-  const { data: check, error: checkError } = await admin.auth.admin.getUserById(u.id);
-  const persisted = Array.isArray(check?.user?.app_metadata?.allowed_apps)
-    ? check.user.app_metadata.allowed_apps
-    : [];
-  const ok = REVOKE ? !persisted.includes(APP) : persisted.includes(APP);
-
-  if (checkError) {
-    console.log(`  ??         ${raw}: escrito, pero no se pudo verificar (${checkError.message})`);
-    failed++;
-  } else if (!ok) {
-    console.log(`  NO PERSISTIO ${raw}: la API no dio error pero la base quedo en ${JSON.stringify(persisted)}`);
-    failed++;
+    console.log(`SIMULADOS  : ${simulated}   <-- DRY RUN: no se escribio nada en la base`);
   } else {
-    console.log(`  ${REVOKE ? 'revocado ' : 'otorgado '} ${raw}  -> ${JSON.stringify(persisted)}`);
-    done++;
+    console.log(`aplicados  : ${done}   (releidos de la base, no solo "la API no fallo")`);
   }
-}
+  console.log(`sin cambio : ${unchanged}`);
+  console.log(`no existen : ${missing}`);
+  console.log(`fallidos   : ${failed}`);
+  console.log('');
+  console.log('Nota: app_metadata viaja dentro del token. Quien tenga sesion abierta no vera');
+  console.log('el cambio hasta que su token se refresque (hasta 1 hora) o vuelva a entrar.');
 
-console.log('');
-if (DRY) {
-  console.log(`SIMULADOS  : ${simulated}   <-- DRY RUN: no se escribio nada en la base`);
-} else {
-  console.log(`aplicados  : ${done}   (releidos de la base, no solo "la API no fallo")`);
 }
-console.log(`sin cambio : ${unchanged}`);
-console.log(`no existen : ${missing}`);
-console.log(`fallidos   : ${failed}`);
-console.log('');
-console.log('Nota: app_metadata viaja dentro del token. Quien tenga sesion abierta no vera');
-console.log('el cambio hasta que su token se refresque (hasta 1 hora) o vuelva a entrar.');
