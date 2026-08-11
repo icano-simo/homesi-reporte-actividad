@@ -2,7 +2,6 @@
 
 import './styles/forecast-visual.css';
 import { useEffect, useState } from 'react';
-import { createClient } from '@supabase/supabase-js';
 import {
   splitHealthyTotal,
   countByMilestoneBucket,
@@ -26,6 +25,7 @@ import AdverseTable from './AdverseTable';
 import Topbar from './Topbar';
 import TabNavigation, { type TabType } from './TabNavigation';
 import TabMilestoneMatrix from './TabMilestoneMatrix';
+import { getForecastDb, isSupabaseConfigured } from '@/lib/supabase/client';
 import { DownloadIcon, FileSheetIcon, UploadIcon } from '@/components/ui/icons';
 
 /**
@@ -223,24 +223,23 @@ export default function PipelinePage() {
   }, []);
 
   // Etapa F4f: branch -> Branch Manager, desde pipeline_forecast.branch_managers.
-  // Etapa F4g: mismo cliente/efecto, se agrega pipeline_forecast.branches
-  // (roster de branches conocidos, columna `code`) -- se usa en PivotTable
-  // para no mostrar filas fantasma de branches sin actividad real en el
-  // rango. Ambas consultas van al mismo schema DISTINTO al de Actividad
-  // ('activity_report') -- no se puede reusar el cliente de
-  // lib/supabase/client.ts, que está fijo a ese schema; se arma acá un
-  // cliente propio apuntando a 'pipeline_forecast'. Se cargan una sola vez
-  // al montar, no dependen del archivo subido. Si cualquiera falla (env
-  // vars ausentes, tabla no encontrada, RLS, etc.) se deja su estado vacío
-  // -- PivotTable ya maneja ambos casos vacíos sin romper la página.
+  // Etapa F4g: mismo efecto, se agrega pipeline_forecast.branches (roster de
+  // branches conocidos, columna `code`) -- se usa en PivotTable para no
+  // mostrar filas fantasma de branches sin actividad real en el rango. Se
+  // cargan una sola vez al montar, no dependen del archivo subido. Si
+  // cualquiera falla (env vars ausentes, tabla no encontrada, RLS, etc.) se
+  // deja su estado vacío -- PivotTable ya maneja ambos casos sin romper la
+  // página.
+  //
+  // Etapa AUTH1: antes se creaba acá un cliente de Supabase propio, porque el
+  // de lib/supabase/client.ts está fijo al schema 'activity_report'. Con
+  // autenticación eso pasó a ser un problema: dos instancias compitiendo por
+  // la misma sesión, y el riesgo de que ésta quedara sin token y RLS la
+  // rechazara. `getForecastDb()` apunta el MISMO cliente (con sesión) al otro
+  // schema.
   useEffect(() => {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (!supabaseUrl || !supabaseAnonKey) return;
-
-    const supabaseForecast = createClient(supabaseUrl, supabaseAnonKey, {
-      db: { schema: 'pipeline_forecast' },
-    });
+    if (!isSupabaseConfigured()) return;
+    const supabaseForecast = getForecastDb();
 
     supabaseForecast
       .from('branch_managers')

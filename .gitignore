@@ -29,6 +29,10 @@
 *.xls
 *.csv
 _scratch/
+# listas de correos para scripts/grant-app-access.mjs --file: son datos
+# personales de empleados, no tienen por que quedar en el historial de git.
+correos*.txt
+*.emails.txt
 
 # debug
 npm-debug.log*

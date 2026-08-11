@@ -497,6 +497,104 @@ A 648px reales la columna de métrica mide `648 × 0.14 = 90.7px`, así que el m
 pedía el brief anterior se cumple igual sin forzarlo; el `min-width` sólo entra en juego en
 viewports más chicos, donde el piso pasa a ser 87px por columna.
 
+---
+
+## Etapa AUTH1 — login con Supabase Auth
+
+Se cerró la seguridad a nivel de base en `simoOS-prod`: permisos de `anon` revocados en
+`activity_report` y `pipeline_forecast`, RLS activo en las 8 tablas, y políticas que exigen
+**sesión autenticada + `"commercial_activity"` en `app_metadata.allowed_apps`**. La app usaba la
+anon key sin sesión, así que toda lectura/escritura pasó a fallar.
+
+Patrón tomado del repo hermano **homesi-pl** (rama `feature/user-authentication`): mismo
+proyecto de Supabase, mismos usuarios, mismo criterio de permiso por app. No se creó ningún
+sistema de auth propio.
+
+### Decisión de dónde vive el gate
+
+Se eligió **`proxy.ts`** (middleware) por encima de un guard en el layout raíz:
+
+1. Toda ruta pasa por ahí, así que las páginas quedan protegidas **por existir**. Un guard en el
+   layout sólo cubre lo que ese layout envuelve, y no cubre las API routes.
+2. Corre **antes** de renderizar. Un guard de cliente pinta la página, corre el efecto y recién
+   ahí redirige — un parpadeo de contenido para quien no debería verlo.
+3. Es el único punto que puede **refrescar el token**, porque necesita escribir cookies en la
+   respuesta.
+
+Eso obliga a que la sesión viva en **cookies** y no en localStorage (el servidor no ve
+localStorage), y por eso el cliente pasó de `createClient` a `createBrowserClient`
+(`@supabase/ssr`, dependencia nueva — la misma que usa homesi-pl).
+
+Se llama `proxy.ts` porque Next 16 renombró la convención; soporta las dos
+(`PROXY_FILENAME`/`MIDDLEWARE_FILENAME`, verificado en `next@16.2.12`).
+
+### Un solo cliente para los dos schemas
+
+`app/pipeline/page.tsx` creaba su propio cliente para `pipeline_forecast`, porque
+`lib/supabase/client.ts` está fijo a `activity_report`. Con autenticación eso pasó a ser un
+problema real: dos instancias de GoTrue compitiendo por la misma sesión. Se resolvió con
+`getForecastDb()`, que apunta el **mismo** cliente al otro schema vía `.schema()`.
+
+El JWT viaja solo: `signInWithPassword` deja la sesión en ese cliente y supabase-js adjunta el
+access token en cada request. Si el login se hiciera con otra instancia, la app seguiría
+consultando como `anon`.
+
+### API routes
+
+Las 3 que llama el navegador (`/parse`, `/latest`, `/adverse-history`) pasaron a construir su
+cliente desde las **cookies de la request** (`lib/supabase/server.ts`), o sea con la sesión de
+quien llamó. Al ser same-origin la cookie llega sola: no hizo falta `service_role` ni pasar el
+token a mano.
+
+### El cron de retención se movió a `pg_cron` (resuelto)
+
+`/api/pipeline/retention` era un cron de Vercel: corría sin navegador, sin cookies y sin
+usuario, así que ningún cliente basado en sesión podía funcionar ahí. Con RLS activo sus
+UPDATE/DELETE habrían fallado y la retención de 90 días habría dejado de ejecutarse en silencio.
+
+De las tres salidas posibles se eligió **mover la tarea a `pg_cron` dentro de Supabase**: corre
+en la base, no pasa por PostgREST, y por lo tanto RLS no interviene — sin meter ninguna
+`service_role` key en las variables de entorno del proyecto.
+
+**Se eliminaron del repo** `app/api/pipeline/retention/` y `vercel.json` (sólo contenía esa
+entrada de cron), y `CRON_SECRET` dejó de usarse.
+
+El SQL está versionado en **`docs/sql/2026-08-retention-pg-cron.sql`**, idempotente y listo para
+ejecutar en el SQL Editor. Puntos que no son obvios y quedaron documentados ahí:
+
+- **La función NO vive en `pipeline_forecast`.** Ese schema está expuesto a PostgREST, así que
+  toda función que viva ahí queda publicada como endpoint RPC. Siendo `SECURITY DEFINER`, eso
+  sería justo el agujero que se acaba de cerrar. Va en un schema `maintenance` que no se expone,
+  y además se le revoca `EXECUTE` a `public`/`anon`/`authenticated` — Postgres lo otorga a
+  PUBLIC por defecto en toda función nueva.
+- **`set search_path = ''`** con todos los nombres calificados: sin eso, en una función
+  `SECURITY DEFINER` quien la llame puede anteponer un schema propio y secuestrar un nombre.
+- **Equivalencias exactas con el endpoint**: primero/último snapshot del mes por `min(id)`/
+  `max(id)` (orden de inserción, no `snapshot_date`, porque puede haber varias cargas el mismo
+  día); `is_month_end` nunca se marca para el mes en curso; fechas en UTC; se marca antes de
+  borrar para que lo recién marcado quede protegido; el borrado exige `= false` estricto (una
+  fila con NULL nunca se borra, igual que el `.eq(campo, false)` de PostgREST); y los hijos se
+  borran antes que el padre, sin depender de `ON DELETE CASCADE`.
+- **Mismo horario**: `0 9 * * *`. Vercel Cron y pg_cron en Supabase corren los dos en UTC.
+
+### Fuera de alcance, deliberadamente
+
+- **`must_change_password`**: homesi-pl lo implementa, pero completarlo requiere una API route
+  con `service_role` para bajar el flag. Si en el proyecto compartido hay usuarios con ese flag,
+  esta app los deja entrar sin forzar el cambio.
+- **Permisos por rol dentro de la app** (fase 2).
+
+### Estilo de las pantallas de auth
+
+Port visual de `app/login/page.tsx` y `app/no-access/page.tsx` de homesi-pl. El original usa
+Tailwind y este repo no, así que cada utilidad se tradujo a su valor real en
+`app/styles/auth.css` (la tabla de equivalencias está en la cabecera de ese archivo).
+
+**No hay conflicto de paleta**: `--navy`, `--coral` y `--canvas` de `tokens.css` ya eran
+exactamente `#001A40` / `#FF4040` / `#FCFCFA`, los mismos hex que usa homesi-pl. El logo sí
+difiere a favor de esta app: acá es un PNG con transparencia real
+(`public/brand/homesi-lockup.png`), mientras homesi-pl usa el JPG con fondo blanco.
+
 ### Riesgo/pendiente que deja esta etapa
 
 12. **`config/metrics.ts` es fuente única de labels para UI *y* export a Excel.** Al cambiar

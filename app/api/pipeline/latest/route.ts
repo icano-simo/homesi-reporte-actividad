@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { getServerClient } from '@/lib/supabase/server';
 import type { PipelineLoan, ResolvedLoan } from '@/lib/pipeline/types';
 
 export const runtime = 'nodejs';
@@ -15,11 +15,17 @@ function errorMessage(err: unknown): string {
   return String(err);
 }
 
-function getSupabaseForecast() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!supabaseUrl || !supabaseAnonKey) return null;
-  return createClient(supabaseUrl, supabaseAnonKey, { db: { schema: 'pipeline_forecast' } });
+/**
+ * Etapa AUTH1: pasa a construirse desde las COOKIES de la request, o sea con
+ * la sesión del usuario que hizo la llamada. Antes usaba la anon key sin
+ * autenticar, y desde que se activó RLS en `pipeline_forecast` eso no lee ni
+ * escribe nada. Como esta ruta la llama el navegador (same-origin), la cookie
+ * de sesión llega sola -- no hace falta `service_role` ni pasar el token a
+ * mano. Devuelve null si faltan las env vars, igual que antes.
+ */
+async function getSupabaseForecast() {
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) return null;
+  return getServerClient('pipeline_forecast');
 }
 
 interface PipelineLoanRow {
@@ -60,7 +66,7 @@ interface ResolvedLoanRow {
  * todavía no hay nada guardado -- no es una condición de error.
  */
 export async function GET() {
-  const supabase = getSupabaseForecast();
+  const supabase = await getSupabaseForecast();
   if (!supabase) {
     return NextResponse.json({ snapshot: null });
   }
