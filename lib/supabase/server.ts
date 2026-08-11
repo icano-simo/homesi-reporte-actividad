@@ -37,7 +37,7 @@ const MISSING_ENV_MESSAGE =
  * refresco del token lo hace el gate (`proxy.ts`), que sí puede escribir en la
  * respuesta. Sin ese no-op, `@supabase/ssr` avisa por consola en cada llamada.
  */
-export async function getServerClient(schema: 'activity_report' | 'pipeline_forecast') {
+export async function getServerClient(schema?: 'activity_report' | 'pipeline_forecast') {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!supabaseUrl || !supabaseAnonKey) {
@@ -47,7 +47,10 @@ export async function getServerClient(schema: 'activity_report' | 'pipeline_fore
   const cookieStore = await cookies();
 
   return createServerClient(supabaseUrl, supabaseAnonKey, {
-    db: { schema },
+    // Sin schema cuando sólo se necesita `auth` (por ejemplo para resolver quién
+    // llama): el schema de datos es irrelevante ahí y pedirlo obligaría a elegir
+    // uno al azar.
+    ...(schema ? { db: { schema } } : {}),
     cookies: {
       getAll() {
         return cookieStore.getAll();

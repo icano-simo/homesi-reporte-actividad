@@ -1,7 +1,14 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createMiddlewareClient, withAuthCookies } from '@/lib/supabase/middleware';
 import { hasAppAccess } from '@/lib/auth/appAccess';
-import { LOGIN_PATH, NO_ACCESS_PATH, DEFAULT_LANDING, matchesRoute } from '@/lib/auth/routes';
+import {
+  LOGIN_PATH,
+  NO_ACCESS_PATH,
+  CHANGE_PASSWORD_PATH,
+  DEFAULT_LANDING,
+  PASSWORD_CHANGE_ROUTES,
+  matchesRoute,
+} from '@/lib/auth/routes';
 
 /**
  * ============================================================================
@@ -31,9 +38,9 @@ import { LOGIN_PATH, NO_ACCESS_PATH, DEFAULT_LANDING, matchesRoute } from '@/lib
  * convención (soporta las dos, `PROXY_FILENAME`/`MIDDLEWARE_FILENAME`).
  * Mismo punto de ejecución, misma semántica.
  *
- * NO se implementa acá el flujo `must_change_password` que sí tiene homesi-pl:
- * completarlo requiere una API route con `service_role` para bajar el flag, y
- * eso quedó explícitamente fuera de alcance. Ver docs/ARQUITECTURA.md.
+ * Etapa AUTH2: se agrega el chequeo de `must_change_password`, DESPUÉS del de
+ * `allowed_apps`. El orden es deliberado: obligar a alguien a elegir contraseña
+ * nueva para una app que después no va a poder abrir es trabajo inútil.
  */
 
 /** Alcanzable sin sesión. Todo lo demás la exige. */
@@ -78,6 +85,7 @@ export async function proxy(request: NextRequest) {
   const isApi = pathname.startsWith('/api/');
   const isPublic = matchesRoute(pathname, PUBLIC_ROUTES);
   const isNoAccess = matchesRoute(pathname, NO_ACCESS_ROUTES);
+  const isPasswordChange = matchesRoute(pathname, PASSWORD_CHANGE_ROUTES);
 
   // ── Sin sesión ───────────────────────────────────────────────────────────
   if (!user) {
@@ -108,6 +116,38 @@ export async function proxy(request: NextRequest) {
     }
     const url = request.nextUrl.clone();
     url.pathname = NO_ACCESS_PATH;
+    url.search = '';
+    return withAuthCookies(response(), NextResponse.redirect(url));
+  }
+
+  // ── Con sesión y acceso, pero todavía con contraseña temporal ────────────
+  // El flag vive en app_metadata, que sólo escribe el service_role, así que el
+  // usuario no puede bajárselo desde el navegador para saltearse el cambio.
+  //
+  // `isPasswordChange` cubre la página Y la API route que libera el flag: sin
+  // esa exención, /change-password se redirigiría a sí misma en bucle y la
+  // llamada que la desbloquea nunca podría salir, dejando a la persona
+  // encerrada de forma permanente.
+  const mustChangePassword = user.app_metadata?.must_change_password === true;
+
+  if (mustChangePassword && !isPasswordChange) {
+    if (isApi) {
+      return withAuthCookies(
+        response(),
+        NextResponse.json({ error: 'Password change required' }, { status: 403 })
+      );
+    }
+    const url = request.nextUrl.clone();
+    url.pathname = CHANGE_PASSWORD_PATH;
+    url.search = '';
+    return withAuthCookies(response(), NextResponse.redirect(url));
+  }
+
+  // Quien ya NO debe cambiar la contraseña no tiene nada que hacer en esa
+  // página -- si no, quedaría accesible para siempre desde el historial.
+  if (!mustChangePassword && matchesRoute(pathname, [CHANGE_PASSWORD_PATH])) {
+    const url = request.nextUrl.clone();
+    url.pathname = DEFAULT_LANDING;
     url.search = '';
     return withAuthCookies(response(), NextResponse.redirect(url));
   }

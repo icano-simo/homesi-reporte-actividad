@@ -125,6 +125,26 @@
   color: var(--rose-700);
 }
 
+/* ---- /change-password: encabezado alineado a la izquierda ---- */
+/*
+ * Distinto de `.auth-title`/`.auth-text`, que van centrados en /no-access: acá
+ * el texto encabeza un formulario, y centrarlo sobre campos alineados a la
+ * izquierda se lee torcido.
+ */
+.auth-heading {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--navy);
+  margin: 0;
+}
+.auth-subtitle {
+  margin: 4px 0 24px;
+  font-size: 14px;
+  color: var(--slate-500);
+  line-height: 1.5;
+}
+
 /* ---- /no-access ---- */
 
 .auth-icon {

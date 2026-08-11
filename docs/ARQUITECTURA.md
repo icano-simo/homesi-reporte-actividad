@@ -579,10 +579,79 @@ ejecutar en el SQL Editor. Puntos que no son obvios y quedaron documentados ahí
 
 ### Fuera de alcance, deliberadamente
 
-- **`must_change_password`**: homesi-pl lo implementa, pero completarlo requiere una API route
-  con `service_role` para bajar el flag. Si en el proyecto compartido hay usuarios con ese flag,
-  esta app los deja entrar sin forzar el cambio.
 - **Permisos por rol dentro de la app** (fase 2).
+
+*(`must_change_password` estaba acá como fuera de alcance; se implementó en AUTH2, abajo.)*
+
+---
+
+## Etapa AUTH2 — cambio obligatorio de contraseña
+
+Mismo patrón que homesi-pl: quien entra con una contraseña temporal no puede usar la app hasta
+elegir la suya. El flag es `app_metadata.must_change_password`.
+
+### Por qué hizo falta romper una regla previa
+
+`app_metadata` sólo lo escribe el `service_role` — que es exactamente por qué el flag vive ahí:
+si estuviera en `user_metadata`, cualquiera se lo bajaría desde el navegador y se saltearía el
+cambio. La contrapartida es que **liberarlo exige privilegios que el cliente no tiene**.
+
+Hasta AUTH1 la app no usaba `service_role` en ningún lado, y `.env.example` decía explícitamente
+"NUNCA en las variables de entorno de Vercel". **Eso cambió**: `SUPABASE_SERVICE_ROLE_KEY` ahora
+es obligatoria en producción. Sin ella, quien tenga contraseña temporal la cambia pero no se
+desbloquea, y queda girando en `/change-password`.
+
+La excepción está acotada a un solo archivo (`lib/supabase/admin.ts`), importado por una sola
+ruta. Verificado en 4 niveles antes de habilitarla en Vercel — el decisivo: el valor de la clave
+aparece en **0 de 38** archivos de `.next/static`, que es lo que se sirve al navegador.
+
+### Piezas
+
+| Archivo | Rol |
+|---|---|
+| `app/change-password/page.tsx` | Formulario. Port visual de homesi-pl a `auth.css`. |
+| `app/api/auth/complete-password-change/route.ts` | Baja el flag con `service_role`. |
+| `lib/supabase/admin.ts` | **Único** punto de la app con `service_role`. |
+| `lib/auth/session.ts` | Resuelve quién llama, desde la cookie y con la anon key. |
+
+### Dos pasos, y el orden importa
+
+1. La contraseña la cambia **la propia sesión** del usuario (`auth.updateUser`).
+2. El flag lo baja **la API route**, con `service_role`.
+
+Si el paso 2 falla, la contraseña ya quedó cambiada y la persona sigue bloqueada: puede
+reintentar y el paso 1 vuelve a aplicarse. Es la dirección segura en la que fallar; lo inverso
+—liberar el flag y que el cambio no se aplique— dejaría a alguien adentro con la temporal.
+
+El usuario **siempre** se resuelve desde la cookie de sesión, nunca del body: si no, cualquiera
+con sesión podría limpiarle el flag a otra cuenta. La ruta además relee tras escribir, para no
+reportar éxito si el flag quedó puesto, y excluye `provider`/`providers` del `app_metadata` que
+reenvía (mismo problema que se corrigió en `grant-app-access.mjs`).
+
+### El gate
+
+El chequeo va **después** de `allowed_apps`: obligar a alguien a elegir contraseña para una app
+que después no va a poder abrir es trabajo inútil. `PASSWORD_CHANGE_ROUTES` exime a la página
+**y a la API route** — sin esa segunda exención, la llamada que desbloquea nunca podría salir y
+la persona quedaría encerrada de forma permanente.
+
+Ajuste hecho durante la verificación: el chequeo estaba después de la regla "tenés acceso, andá
+a la landing", así que `/no-access` daba 2 saltos. Se movió más arriba; ahora es 1.
+
+### Detalle que conviene recordar
+
+El gate usa `getUser()`, que **valida contra Supabase**, así que lee `app_metadata` fresco de la
+base y no del token viejo. El `refreshSession()` de la página es para mantener consistente el
+token del cliente, no un requisito para que el gate funcione.
+
+### Estado del proyecto compartido al implementarlo
+
+6 usuarios ya tenían `must_change_password: true` (heredado de cómo homesi-pl crea cuentas), y
+**5 de ellos con `commercial_activity`**: son los que quedan forzados a cambiar contraseña al
+desplegar. No es un efecto secundario del código, es el dato preexistente — pero conviene
+avisarles antes, sobre todo si ya cambiaron su contraseña en Homesí y el flag quedó sin limpiar.
+
+### Riesgo/pendiente que deja esta etapa
 
 ### Estilo de las pantallas de auth
 
