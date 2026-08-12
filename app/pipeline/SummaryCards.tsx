@@ -83,9 +83,26 @@ export default function SummaryCards({ combined, banked, brokered, targetMonthLa
       <div className="mcard mcard--sky">
         <div className="m-name">Total Forecast</div>
         <div className="kpi-hero__value kpi-hero__value--lg">{fmtRounded(combined.totalForecast)}</div>
+        {/*
+         * Etapa F5j, Cambio 4: se saca el .toFixed(1) -- el forecast se
+         * muestra siempre entero, en los 2 canales. `banked.totalForecast`/
+         * `brokered.totalForecast` ya llegan como la suma de forecastTotal
+         * ya redondeado por branch (page.tsx, summarizeChannel) más el
+         * closedCount de ese canal (entero) -- son enteros de por sí acá,
+         * fmtRounded() solo cubre el caso de que algún llamador futuro pase
+         * un decimal.
+         */}
         <div className="kpi-hero__sub">
-          Banked: {banked.totalForecast.toFixed(1)} | Brokered: {brokered.totalForecast.toFixed(1)}
+          Banked: {fmtRounded(banked.totalForecast)} | Brokered: {fmtRounded(brokered.totalForecast)}
         </div>
+        {/*
+         * Etapa F5j, Cambio 5: con Brokered fuera de la cascada de
+         * pull-through y operando sobre el Total (no Healthy), hace falta
+         * una aclaración corta de qué significa "Brokered" acá -- discreta
+         * (texto chico, gris), no un titular. Ver `.kpi-hero__note` en
+         * forecast-visual.css.
+         */}
+        <div className="kpi-hero__note">Brokered applies a flat 40% pull-through rate on its open pipeline (Total).</div>
       </div>
     </div>
   );

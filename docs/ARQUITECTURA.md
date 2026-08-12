@@ -180,6 +180,79 @@ Agregadas `--canvas`, `--coral`, `--sky` (paleta de marca, fundaciones agregadas
 9. **`BranchForecastRow.bucketTotal`/`.bucketHealthy` son vestigiales para Brokered — riesgo activo para cualquier componente nuevo.** Ese tipo (definido en `PivotTable.tsx`) está tipado fijo a `BucketCounts`, el esquema de Banked (`Started`/`Processing`/`Underwriting`/`Closing`). `page.tsx` los calcula con `countByMilestoneBucket()` sin importar el canal, así que para una fila de canal Brokered esos 2 campos quedan con las keys y los valores de la clasificación de Banked — **no** los reales de Brokered (`FileCreation`/`AppDate`/`Processing`/`Submitted`). No es un bug nuevo (viene desde F5i, documentado ahí), pero cobra importancia recién ahora que `TabMilestoneMatrix.tsx` (F6) necesitó datos de bucket por branch: cualquier componente que lea `bucketTotal`/`bucketHealthy` directo de una fila Brokered va a mostrar datos incorrectos con etiquetas de Banked. **La forma correcta**: recalcular desde `row.loans` con `countByBrokeredMilestoneBucket()` (`aggregate.ts`, ya exportada) -- ver `bucketsForRow()` en `TabMilestoneMatrix.tsx` para el patrón ya implementado. Arreglarlo de raíz (que `BranchForecastRow` tenga un shape específico por canal) requeriría tocar `PivotTable.tsx`, fuera de alcance hasta ahora.
 10. **`BANKED_MATRIX_COLUMNS` (`TabMilestoneMatrix.tsx`) está acoplado a mano con `MILESTONE_BUCKET` (`lib/pipeline/sources/salesforce-file.ts`) — sin ninguna referencia en código que los mantenga sincronizados.** Ajuste posterior a F6: la matriz Branch x Milestone desagrega el bucket `Underwriting` de Banked (que colapsa `Submittal`/`Initial Decision`/`Resubmittal`) en 3 columnas de vista, contando a mano sobre `rawMilestone` de cada préstamo (`bankedRawMilestoneCount()`) -- el cálculo de pull-through no cambió, sigue usando `bucketTotal.Underwriting`/`bucketHealthy.Underwriting` con la tasa combinada. El array `BANKED_MATRIX_COLUMNS = ['Started', 'Processing', 'Submittal', 'Initial Decision', 'Resubmittal', 'Closing']` está copiado a mano de `MILESTONE_BUCKET` -- si el parser agrega/quita un valor de `Current Milestone` dentro de Underwriting, `BANKED_MATRIX_COLUMNS` queda desactualizado en silencio (no rompe el build, solo deja de mostrar/cuenta mal una columna). No se resolvió leyendo dinámicamente de `MILESTONE_BUCKET` porque `sources/salesforce-file.ts` estaba fuera de la lista de archivos permitidos en esa etapa.
 11. **`BROKERED_COLUMN_TO_RAW_MILESTONE` (`TabMilestoneMatrix.tsx`) es el mismo tipo de acoplamiento manual que el riesgo 10, pero contra `BROKERED_MILESTONE_BUCKET` (`lib/pipeline/aggregate.ts`, constante privada del módulo, no exportada).** Ajuste posterior: al hacerse clickeable cada celda de la matriz (para abrir `LoanDetailModal` con la lista real de préstamos de esa columna), hizo falta filtrar préstamos individuales de Brokered por `rawMilestone` -- `countByBrokeredMilestoneBucket()` (sí exportada) solo devuelve conteos agregados, no permite filtrar por préstamo. Como `aggregate.ts` estaba fuera de la lista de archivos permitidos en esa tarea (no se podía exportar `BROKERED_MILESTONE_BUCKET` ni agregar una función de filtro ahí), se copió el mapeo a mano en `TabMilestoneMatrix.tsx`, verificado línea por línea contra el código real antes de escribirlo: `Started->FileCreation`, `Processing->Processing`, `Submittal->Submitted` (`AppDate` no tiene ningún `rawMilestone` real que mapee ahí, columna siempre en 0). Mismo riesgo que el ítem 10: si `BROKERED_MILESTONE_BUCKET` cambia en `aggregate.ts`, esta copia queda desactualizada en silencio.
+
+### Etapa F5j — pull-through plano del 40% para Brokered (Banked sin cambios)
+
+El commit `ad86013` había desactivado la cascada propia de Brokered (F5i) dejando
+`forecastTotal = healthy.length` -- un paso intermedio, no la regla final. F5j la reemplaza:
+para Brokered, **Pull-through = 40% plano sobre el Total de préstamos abiertos** (no sobre
+Healthy -- cambio de población además de tasa), en toda la app. `Forecast Brokered = round(Total
+× 0.40) + Closed Brokered`. **Banked no se tocó**: misma cascada de siempre
+(`calculateForecast` + `PULL_THROUGH_RATES` sobre Healthy), verificado que el valor calculado
+(decimal) es idéntico antes/después -- ver "Redondeo" abajo para lo único que sí cambia en
+Banked (el display).
+
+- **`BROKERED_FLAT_PULL_THROUGH_RATE = 0.4`** (`lib/pipeline/aggregate.ts`), constante nombrada,
+  junto a `BROKERED_PULL_THROUGH_RATES`. `BROKERED_PULL_THROUGH_RATES` y
+  `calculateBrokeredForecast()` quedan **código muerto** (marcado en comentario, no borrado --
+  así lo pidió el brief, para no ampliar el radio del cambio). **`countByBrokeredMilestoneBucket()`
+  NO es código muerto** -- pese a que el brief la mencionaba junto a las otras dos, sigue
+  activa en dos lugares: `page.tsx` (conteos Total/Healthy que muestra la cascada) y
+  `TabMilestoneMatrix.tsx` (`bucketsForRow()`, la matriz Branch × Milestone). Se dejó sin
+  marcar, con esta nota en vez de la marca que pedía el brief literalmente.
+
+- **Redondeo (Cambio 4, "en toda la app"):** se redondea por fila y se suma ya redondeado, no al
+  revés -- así las columnas visibles siempre cuadran. Se implementó en un solo punto de
+  `page.tsx` (donde se arma `forecastTotal` por branch, y donde se arma `brokeredForecastByBucket`
+  por milestone-bucket para la cascada), sin tocar `PivotTable.tsx` ni `MilestoneCascade.tsx`
+  (ninguno de los 2 está en el alcance de esta etapa): como el `closedCount` que suman esos 2
+  componentes ya es entero, `round(closedCount + x) === closedCount + round(x)` para cualquier
+  `x` -- adelantar el redondeo en `page.tsx` no cambia ninguna celda individual, solo hace que
+  los subtotales/totales hereden "sumar filas ya enteras" sin tocar esos archivos. Confirmado
+  con Isabella antes de aplicarlo a Banked: esto es redondeo de **display**, no de cálculo -- el
+  valor calculado de Banked (con decimales) es idéntico antes y después, ver la tabla de
+  verificación abajo.
+
+- **Truco del `rate` en la cascada de Brokered (`MilestoneCascadeRow`, `page.tsx`):**
+  `MilestoneCascade.tsx` (fuera de alcance) calcula la columna "% applied" como el producto de
+  `rate` desde esa fila hasta el final -- un modelo de embudo secuencial que ya no aplica. Con
+  las 4 filas en `0.4` literal, esa columna mostraría `40%×40%×40%×40%=2.56%` en File Creation
+  en vez de 40%, un número activamente incorrecto. Se pone `rate=1` en las primeras 3 filas y
+  `rate=0.4` solo en la última (Submitted) -- el producto acumulado desde cualquier fila da
+  exactamente 0.4, así que las 4 muestran "40.0% applied" correctamente sin tocar
+  `MilestoneCascade.tsx`. El cuadro de Pull-Through Rates al pie del tab (`brokeredRates`, prop
+  de `TabMilestoneMatrix`) es un valor **distinto** y sí es 0.4 literal en las 4 -- ese cuadro
+  muestra la tasa cruda, no un acumulado, y por eso repite "40.0%" cuatro veces (ver
+  "Pendiente/propuesta" abajo).
+
+- **Hallazgo de coherencia entre pestañas (reportado, no ajustado para que cierre):** Executive
+  Branch Forecast redondea por **branch**; Milestone Pipeline Matrix redondea por **milestone
+  bucket** -- dos particiones distintas del mismo total, con arrastre de redondeo distinto.
+  Verificado contra el snapshot activo del 2026-08-12 (id 28, 19 préstamos Brokered abiertos):
+  el subtotal de PT de Executive da **6**, el "Total Forecast" (solo PT) de Matrix da **8** --
+  **no coinciden**. El Forecast final de Executive (PT + Closed = 6+2 = 8) coincide
+  numéricamente con el de Matrix (8) en este snapshot puntual, pero es una coincidencia, no una
+  correspondencia real: Matrix nunca suma Closed a su "Total Forecast" (foot-note ya existente,
+  sin cambios en F5j: *"does not include already-closed loans"*), así que ambos "8" salen de
+  cuentas distintas (6+2 vs 8+0). Esta asimetría de partición-de-redondeo ya existía en
+  potencia desde que Brokered tiene su propia cascada (F5i); F5j la hace visible porque el
+  brief pide redondear cada partición por separado. No se decidió cuál "gana" -- queda para que
+  el negocio lo resuelva con los números reales delante.
+
+- **`SummaryCards.tsx` -- el texto que el brief F5j daba por existente
+  (`Forecast = On Track Loans after PT + Closed`) no está en esta rama** (esa redacción
+  pertenece a una etapa posterior de UX que corrió en paralelo, no fusionada acá todavía). Se
+  aplicó el espíritu del pedido sobre el texto real de esta rama (`Banked: X | Brokered: Y`):
+  se sacó el `.toFixed(1)` (enteros, Cambio 4) y se agregó una nota nueva y discreta
+  (`.kpi-hero__note`, `forecast-visual.css`) aclarando el 40% plano de Brokered.
+
+**Pendiente/propuesta, no decidida acá:** el cuadro de Pull-Through Rates de Brokered
+(`TabMilestoneMatrix.tsx`) va a mostrar "40.0%" cuatro veces (File Creation/App Date/
+Processing/Submitted) -- técnicamente correcto pero repetitivo, porque ese cuadro fue diseñado
+para una tasa distinta por etapa. Una alternativa: para Brokered, reemplazar la grilla de 4
+tarjetas por una sola línea ("Flat pull-through: 40% on open pipeline (Total)"). No implementado
+-- el brief pide proponerlo, no decidirlo.
+
 ---
 
 ## Etapa UX1 — Overhaul UI/UX "Service Hub" (ambos módulos)

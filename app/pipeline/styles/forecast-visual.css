@@ -341,6 +341,22 @@
 }
 
 /* ---------------------------------------------------------------------------
+ * TAB 1 — nota de metodología en la tarjeta Total Forecast (Etapa F5j)
+ * ---------------------------------------------------------------------------
+ * Aclara que Brokered aplica un 40% plano sobre el Total (no la cascada por
+ * etapa de Banked). Va deliberadamente MÁS CHICA que `.kpi-hero__sub`
+ * (11px, components.css) -- es una aclaración de letra chica, no un
+ * titular. `.mcard`/`.kpi-hero__*` son compartidas con Commercial Activity;
+ * esta clase es nueva y vive solo acá, no las toca.
+ * ------------------------------------------------------------------------ */
+.kpi-hero__note {
+  font-size: 10px;
+  color: var(--slate-400);
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+/* ---------------------------------------------------------------------------
  * Chip informativo de préstamo transferido de branch
  * ------------------------------------------------------------------------ */
 

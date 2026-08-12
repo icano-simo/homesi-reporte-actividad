@@ -329,7 +329,26 @@ export interface BrokeredForecastResult {
   forecastTotal: number;
 }
 
-/** Tasas del estudio de conversión (brief de F5i, Loan Folder My Pipeline/Underwriting, últimos 3 meses) -- fijas, no editables desde la UI todavía (mismo estado que PULL_THROUGH_RATES de Banked, hoy hardcodeadas en page.tsx). */
+/**
+ * Etapa F5j (2026-08-12): tasa plana de pull-through para Brokered, acordada
+ * con el negocio -- reemplaza a BROKERED_PULL_THROUGH_RATES (la cascada de 4
+ * etapas por milestone queda desactivada, ver nota de código muerto debajo).
+ * Se aplica sobre el TOTAL de préstamos abiertos de Brokered, NO sobre
+ * Healthy -- a diferencia de la cascada vieja (y a diferencia de Banked, que
+ * sigue su propia cascada de siempre sobre Healthy, sin ningún cambio acá).
+ * Forecast Brokered = round(totalCount * BROKERED_FLAT_PULL_THROUGH_RATE) +
+ * Closed Brokered (ver page.tsx).
+ */
+export const BROKERED_FLAT_PULL_THROUGH_RATE = 0.4;
+
+/**
+ * Código muerto desde la Etapa F5j -- Brokered ya no usa una tasa distinta
+ * por milestone (ver BROKERED_FLAT_PULL_THROUGH_RATE arriba). Se deja sin
+ * borrar a propósito (así lo pidió el brief de F5j): borrarla ahora habría
+ * ampliado el radio de este cambio sin necesidad. Pendiente de limpieza en
+ * una etapa futura si se confirma que no hace falta volver a la cascada por
+ * etapa.
+ */
 export const BROKERED_PULL_THROUGH_RATES: BrokeredPullThroughRates = {
   FileCreation: 1.0,
   AppDate: 0.875,
@@ -359,6 +378,11 @@ export function countByBrokeredMilestoneBucket(loans: PipelineLoan[]): BrokeredB
 }
 
 /**
+ * Código muerto desde la Etapa F5j -- Brokered ya no usa esta cascada por
+ * etapa (ver BROKERED_FLAT_PULL_THROUGH_RATE arriba y el comentario de
+ * código muerto sobre BROKERED_PULL_THROUGH_RATES). Se deja sin borrar a
+ * propósito, mismo motivo. Pendiente de limpieza futura.
+ *
  * Mismo patrón que calculateForecast() de Banked (ver arriba): cada bucket
  * forecastea multiplicando su count por las tasas de todas las etapas que
  * le faltan por pasar, incluida la suya. Submitted ya está en la última
