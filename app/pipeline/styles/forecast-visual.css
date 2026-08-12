@@ -341,6 +341,75 @@
 }
 
 /* ---------------------------------------------------------------------------
+ * TAB 1 — Desglose Banked/Brokered en el banner de KPIs (etapa UX7)
+ * ---------------------------------------------------------------------------
+ *
+ * Fila de 2 columnas (Banked | Brokered) que se agrega debajo del número
+ * combinado de cada una de las 4 tarjetas de `.hero-banner`. Nuevo, propio de
+ * este módulo -- no toca `.mcard`/`.kpi-hero__*` de components.css, que sigue
+ * siendo compartido con Commercial Activity.
+ * ------------------------------------------------------------------------ */
+
+.kpi-hero__split {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  margin-top: 6px;
+}
+.kpi-hero__split-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.kpi-hero__split-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.kpi-hero__split-label {
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--slate-500);
+}
+.kpi-hero__split-divider {
+  width: 1px;
+  align-self: stretch;
+  background: var(--slate-200);
+  flex-shrink: 0;
+}
+
+/*
+ * Total Forecast: el brief pide el desglose "más grande y prominente" que en
+ * las otras 3 tarjetas -- explícitamente más grande que `.kpi-hero__sub`
+ * (11px, components.css). Se escala solo el valor y la etiqueta dentro de
+ * `.kpi-hero__split--lg`, sin tocar la regla base de arriba.
+ */
+.kpi-hero__split--lg .kpi-hero__split-value {
+  font-size: 19px;
+  font-weight: 800;
+}
+.kpi-hero__split--lg .kpi-hero__split-label {
+  font-size: 10.5px;
+}
+
+/* Móvil (~380px, spec UX7): con `.hero-banner` ya en 2 columnas, lado a lado
+   no entra sin apretar -- se apila verticalmente y se oculta el divisor. */
+@media (max-width: 480px) {
+  .kpi-hero__split {
+    flex-direction: column;
+    gap: 4px;
+  }
+  .kpi-hero__split-divider {
+    display: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
  * Chip informativo de préstamo transferido de branch
  * ------------------------------------------------------------------------ */
 

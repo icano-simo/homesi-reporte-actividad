@@ -678,6 +678,37 @@ difiere a favor de esta app: acá es un PNG con transparencia real
 
 ---
 
+## Etapa UX7 — desglose Banked/Brokered en el banner de KPIs
+
+Cambio puramente de presentación en las 4 tarjetas del banner ejecutivo de Forecast &
+Pipeline (`Total Pipeline` / `Healthy Pipeline` / `Closed` / `Total Forecast`). Ningún
+cálculo nuevo: `SummaryCards.tsx` ya recibía `banked`/`brokered` como props (`SummaryBlock`
+completo) desde F5i, pero solo consumía `totalForecast` de cada uno para el subtítulo de la
+última tarjeta. Los otros seis valores (`totalCount`/`healthyCount`/`closedCount` de cada
+canal) estaban disponibles y sin usar.
+
+- Se agregó `ChannelSplit`, un subcomponente local a `SummaryCards.tsx` que renderiza
+  "Banked | Brokered" debajo del número combinado de cada tarjeta.
+- Clases nuevas en `app/pipeline/styles/forecast-visual.css`
+  (`.kpi-hero__split*`): no se tocó `.mcard`/`.kpi-hero__*`/`components.css`, que siguen
+  siendo compartidos con Commercial Activity.
+- **Asimetría deliberada de redondeo**: las 3 primeras tarjetas son conteos enteros
+  (`fmtInt`) y el desglose siempre suma exacto al combinado. `Total Forecast` es
+  fraccionario y conserva 1 decimal en el desglose (`toFixed(1)`), aunque el número grande
+  se muestre redondeado (`fmtRounded`) — por eso puede leerse `38.1 + 4.3 = 42.4` con un
+  titular de `42`. Redondear cada canal a entero generaría casos donde las partes no sumen
+  el total mostrado.
+- `Total Forecast` además: desglose con tipografía más grande
+  (`.kpi-hero__split--lg`, 19px vs. los 11px de `.kpi-hero__sub`) y subtítulo nuevo fijo:
+  `Forecast = On Track Loans after PT + Closed`.
+- Responsive: a 480px o menos el desglose pasa de lado-a-lado a apilado
+  (`.kpi-hero__split` en columna, divisor oculto) — `.hero-banner` ya colapsaba a 2 columnas
+  a los 900px definidos en `components.css`, sin cambios ahí.
+- `page.tsx`, `lib/**` y `components.css` quedaron sin modificar; `summarizeChannel()` (F4f)
+  sigue siendo la única fuente de estos números.
+
+---
+
 ## Glosario rápido (para no repetir la investigación)
 
 - **CL / SL** en nombres de archivo = residuo histórico de cuando existían dos empresas (City Lending / Supreme Lending); hoy solo existe Supreme Lending, no hay distinción de marca activa.
