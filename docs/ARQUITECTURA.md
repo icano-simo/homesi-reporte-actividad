@@ -784,6 +784,79 @@ es fuente única). Fuera de alcance de esta etapa a propósito.
 
 ---
 
+## Etapa S1 — escritura atómica de snapshot + `data_as_of`
+
+Cimiento para el histórico diario del Executive Branch Forecast (S2/S3, no en esta etapa).
+Arregla dos defectos verificados contra producción, no supuestos:
+
+1. **Escritura no transaccional.** `app/api/pipeline/parse/route.ts` insertaba el snapshot y
+   después los hijos en tandas de 500, sin transacción. El rol `authenticator` tiene
+   `statement_timeout=8s`. El snapshot **13** en producción quedó con 80 filas en
+   `pipeline_loans` y **0** en `pipeline_resolved_loans` (el resto trae 711-754) — y aun así
+   `is_active=true`: alguien vio un pipeline sin cerrados sin ninguna advertencia.
+2. **`snapshot_date` era la fecha de subida, no la del dato.** `new Date().toISOString().slice(0,10)`.
+   Los snapshots **9 y 11** (subidos el 2026-08-03) son el mismo export
+   `Forecast - Pipeline Report-2026-07-30-...` que el snapshot 6 — datos del 30 de julio
+   archivados como si fueran del 3 de agosto.
+
+### `lib/pipeline/dataAsOf.ts` — nuevo
+
+`parseDataAsOf(fileName)` extrae de `file_name` el instante en que Salesforce generó el
+export, en vez de usar la fecha de subida. Dos formatos, **cada uno en una zona horaria
+distinta**:
+
+- Formato A, `report<13 dígitos>.xls`: los dígitos son epoch **ms UTC** — directo.
+- Formato B, `Forecast - Pipeline Report-YYYY-MM-DD-HH-MM-SS.xlsx` (con sufijo opcional
+  ` (1)`, ` (2)`...): el sello es hora **local America/Chicago**, hay que convertirlo a UTC.
+  Sin instalar una librería de zonas horarias (America/Chicago no tiene offset fijo: CDT=-5 en
+  verano, CST=-6 en invierno) — se resuelve por búsqueda determinista: se prueban los 2
+  offsets posibles y se usa el que, formateado de vuelta a hora de Chicago con
+  `Intl.DateTimeFormat`, reproduce exactamente el sello local del nombre de archivo.
+
+Regla dura: formato no reconocido, o fecha fuera de rango (anterior a 2020-01-01 o posterior a
+`ahora + 24h`), devuelve `{ dataAsOf: null, source: 'unknown' }` — **nunca** cae a `new Date()`
+como fallback silencioso, que es exactamente el bug que esta etapa arregla. `dataAsOf === null`
+y `source === 'unknown'` van siempre juntos.
+
+Verificado en `scripts/test-dataAsOf.ts` (mismo patrón que `test-aggregate.ts`/`test-parser.ts`,
+no hay test runner en el proyecto — confirmado en `package.json` antes de asumirlo) contra los 8
+casos reales de producción del brief S1 + 1 sintético de invierno (CST, sin archivo real todavía
+para ese caso). Los 10 pasan.
+
+### `app/api/pipeline/parse/route.ts` — reescrito
+
+El bloque de persistencia (`update is_active=false` → `insert` en `pipeline_snapshots` →
+`insertInBatches` ×2, sin transacción) se reemplaza por una sola llamada a la función SQL
+`pipeline_forecast.save_pipeline_snapshot()` — ya aplicada y verificada en la base por fuera de
+esta etapa (firma confirmada contra `pg_proc` antes de escribir el código: coincide exacto con
+el contrato del brief, `SECURITY INVOKER`). Garantías que la función asume, y que por eso no se
+replican en TS: todo en una transacción, `snapshot_date` derivado de `data_as_of` en
+America/Chicago, `snapshot_id` asignado por la función (los mapeadores `toPipelineLoanRow`/
+`toResolvedLoanRow` dejan de recibirlo).
+
+**Compuerta de activación** — el arreglo puntual del snapshot 13:
+`shouldActivate = openLoans.length > 0 && resolvedLoans.length > 0`. Si alguna mitad vino
+vacía, el snapshot se guarda igual (`p_activate=false`, no se pierde el trabajo) pero no se
+activa, con un warning explícito y `needsReview: true` en la respuesta — visible en vez de
+silencioso. Un `dataAsOf` nulo también agrega warning, pero **no** bloquea la activación: es un
+nombre de archivo no estándar, no un archivo roto. Un fallo de persistencia sigue sin romper la
+respuesta (mismo comportamiento de antes): el usuario ya tiene el archivo parseado esta sesión,
+el error va a `warnings` con `errorMessage(err)`.
+
+### Verificación — qué se hizo y qué se delegó
+
+`tsc`/`eslint` limpios. La tabla de los 9 casos reales (+1 sintético) de `parseDataAsOf` corrió
+completa (ver arriba). La firma de la RPC se confirmó leyendo `pg_proc` en `simoOS-prod` — sin
+escribir nada — antes de dar por buena la Tarea 2.
+
+**No se hizo desde este entorno, a pedido explícito:** ninguna escritura de prueba contra
+producción. La carga real contra la rama (punto 3 del brief) queda **delegada** — la corre
+Isabella en localhost con datos reales. La prueba negativa (punto 4, `shouldActivate=false`)
+también queda **delegada** — la corre el revisor por SQL directo, con limpieza posterior. Esta
+etapa no cierra sin esos dos resultados; los reporta quien los corra.
+
+---
+
 ## Glosario rápido (para no repetir la investigación)
 
 - **CL / SL** en nombres de archivo = residuo histórico de cuando existían dos empresas (City Lending / Supreme Lending); hoy solo existe Supreme Lending, no hay distinción de marca activa.
