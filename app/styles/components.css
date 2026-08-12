@@ -348,34 +348,72 @@ select.field {
 .kpi-row {
   display: flex;
   justify-content: space-between;
-  /* Bug AC1: era `center`. Con la etiqueta pudiendo ocupar 2 líneas (ver
-     `.kpi-row__label` abajo), centrar el valor+badge contra todo el bloque de
-     texto los desalineaba hacia abajo -- `flex-start` los deja a la altura de
-     la primera línea de la etiqueta, que es donde el ojo los espera. */
+  /*
+   * Bug AC1b: se mantiene `flex-start` (AC1 lo cambió desde `center` cuando
+   * la etiqueta pasó a poder ocupar 2 líneas). Con el ajuste de abajo, "Credit
+   * Reports" entra en 1 línea en casi todo el rango de 8 columnas, así que
+   * para el caso común `flex-start` y `center` se ven IDÉNTICOS (una sola
+   * línea no tiene eje transversal que alinear distinto). Solo importan en el
+   * remanente ~1241-1279px donde ni reduciendo fuente/gap/badge entra en 1
+   * línea (ver nota de `.kpi-row__label`) -- ahí, comparado visualmente,
+   * `flex-start` deja el valor+badge a la altura de la primera línea ("File" /
+   * "128 ↑"), que se lee más prolijo que `center`, que los deja flotando entre
+   * las 2 líneas sin alinearse con ninguna. Se elige por ese caso residual,
+   * sin costo en el caso común.
+   */
   align-items: flex-start;
-  gap: 6px;
+  /*
+   * Bug AC1b: era 6px. Bajado junto con el font-size de abajo para ganar los
+   * px que le faltaban a "Credit Reports" en el corte de 8 columnas -- ver esa
+   * nota para el detalle de cuánto aporta cada palanca. En las tarjetas de 4 y
+   * 2 columnas `justify-content:space-between` ya deja mucho más aire que este
+   * mínimo, así que ahí no se nota.
+   */
+  gap: 2px;
   padding: 2px 0;
 }
 .kpi-row__label {
-  font-size: 11px;
+  /*
+   * Bug AC1b: bajado de 11px. AC1 sacó el `ellipsis` para que el nombre
+   * completo nunca se corte, pero eso hizo que "File Creations"/"Credit
+   * Reports" envolvieran a 2 líneas en el layout de 8 columnas
+   * (`.kpi-strip` a >1240px, ver esa media query), y las tarjetas quedaban
+   * altas y desparejas entre sí.
+   *
+   * Medido con Playwright + la fuente Inter real contra el ancho de tarjeta
+   * de ese layout ((ancho de columna − 28px de padding de `.mcard`), con
+   * "Credit Reports" + valor de 3 dígitos + badge de tendencia, el caso más
+   * apretado): achicar SOLO la fuente no alcanza en ningún tamaño legible --
+   * ni a 9px. Hace falta combinar las 3 palancas (fuente, gap de arriba,
+   * badge de abajo) para que entre en 1 línea desde 1280px en adelante
+   * (1280×800/1366×768, las resoluciones de esta franja más comunes en la
+   * práctica).
+   *
+   * Quedó un remanente real: entre el corte a 4 columnas (1240px) y ~1279px
+   * (una franja de ~39px de viewport) NINGUNA combinación razonable de fuente
+   * + gap + badge logra que "Credit Reports" entre en 1 línea -- ni sacando
+   * el badge por completo. Forzarlo exigiría una fuente de ~7-8px, ilegible
+   * (texto gris sobre blanco). Se acepta que en esa franja angosta envuelva a
+   * 2 líneas: es la red de seguridad que dejó AC1 (sin `ellipsis`, nunca se
+   * corta, en el peor caso envuelve), no el comportamiento esperado. Es un
+   * viewport bastante inusual para llegar navegando (justo arriba del quiebre
+   * a 4 columnas) -- si en la práctica resulta ser más frecuente de lo
+   * esperado, la palanca que queda es correr el quiebre de `.kpi-strip` de
+   * 1240px a algo mayor, pero eso es `.kpi-strip`, fuera del alcance de este
+   * ajuste (solo reglas `.kpi-row*`).
+   */
+  font-size: 9.5px;
   color: var(--slate-500);
   font-weight: 500;
   line-height: 1.35;
-  /*
-   * Bug AC1: el nombre completo tiene que verse siempre. Antes
-   * `white-space: nowrap` + `overflow: hidden` + `text-overflow: ellipsis`
-   * cortaban la etiqueta ("File Creatio...") en cuanto el badge de tendencia
-   * ocupaba sus ~20px -- visible en todos los meses salvo el primero (el
-   * único sin badge, ver <Trend> en SummaryCards.tsx). Se saca el corte y se
-   * deja que la etiqueta ocupe 2 líneas cuando no entra en una; el ancho por
-   * tarjeta ya viene acotado por `.kpi-strip`, así que no hace falta fijar un
-   * `min-width` -- el flex-shrink por defecto (1) alcanza para que envuelva.
-   */
+  /* Se mantiene sin `white-space` fijo (AC1): puede envolver si hace falta
+     en vez de cortarse -- ver el remanente de arriba. */
 }
 .kpi-row__right {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  /* Bug AC1b: era 4px, mismo motivo que el gap de `.kpi-row`. */
+  gap: 2px;
   flex-shrink: 0;
   /* Alinea la primera línea del valor con la primera línea de la etiqueta
      (line-height distinto entre 11px y 12px sin esto quedaban a destiempo). */
@@ -385,6 +423,23 @@ select.field {
   font-size: 12px;
   font-weight: 700;
   color: var(--navy);
+}
+/*
+ * Bug AC1b: badge de tendencia levemente más chico, SOLO dentro de las
+ * tarjetas de Monthly Totals -- `.badge` es la clase base compartida por
+ * pills de todo tipo en toda la app (incluido el banner de Forecast), así
+ * que no se toca esa regla; esto es una sobreescritura más específica
+ * (`.kpi-row__right .badge`), invisible fuera de `.kpi-strip`. Era la
+ * palanca que faltaba: reducir fuente + gap sin esto no alcanzaba a que
+ * "Credit Reports" entrara en 1 línea a ningún tamaño legible (ver nota de
+ * `.kpi-row__label`).
+ */
+.kpi-row__right .badge {
+  padding: 1px 2px;
+}
+.kpi-row__right .badge svg {
+  width: 8px;
+  height: 8px;
 }
 
 /* ---- Banner ejecutivo de 4 tarjetas (Forecast, spec §4A) ---- */

@@ -784,6 +784,60 @@ es fuente única). Fuera de alcance de esta etapa a propósito.
 
 ---
 
+## Etapa AC1b — etiquetas de métrica en una sola línea
+
+Ajuste sobre AC1: sacar el `ellipsis` evitó el corte, pero "File Creations"/"Credit Reports"
+pasaron a envolver a 2 líneas en el layout de 8 columnas (`.kpi-strip` a >1240px), y las
+tarjetas quedaban altas y desparejas entre sí. Se pidió que entraran en 1 línea sin
+reintroducir el corte. Solo `app/styles/components.css` (reglas `.kpi-row*`).
+
+**Medición, no ajuste a ojo.** Se armó un harness con los 4 CSS reales del repo + la fuente
+Inter real (descargada de Google Fonts, variable, para que el `font-weight` de label/valor
+interpolara igual que en producción) y se corrió con Playwright contra el ancho de tarjeta
+real de cada corte. El ancho de columna en el layout de 8 columnas **no es constante**: la
+franja más angosta no es a 1920px ni 1440px (ahí `.hub-container` ya tocó su `max-width` de
+1380px) sino **justo arriba de 1240px** (donde el viewport todavía manda el ancho del
+contenedor) — a 1241px cada tarjeta mide ~137px, contra ~154px a 1380px+. Medir en el ancho
+"cómodo" hubiera dado una falsa sensación de que alcanzaba con bajar la fuente.
+
+**Resultado de la medición:** con "Credit Reports" + un valor de 3 dígitos + el badge de
+tendencia (el caso más apretado), bajar SOLO el `font-size` no alcanza en ningún tamaño
+legible, ni a 9px. Hace falta combinar las 3 palancas que sugería el pedido:
+
+- `.kpi-row__label`: `font-size` 11px → 9.5px.
+- `.kpi-row` y `.kpi-row__right`: `gap` 6px/4px → 2px/2px.
+- Badge de tendencia, un poco más chico (`padding` 1px 5px → 1px 2px, ícono 9px → 8px) —
+  pero **no** tocando `.badge` (compartida por toda la app, incluido el banner de Forecast):
+  la reducción va en un override más específico, `.kpi-row__right .badge`, invisible fuera de
+  `.kpi-strip`.
+
+Con esa combinación, "Credit Reports" entra en 1 línea desde **1280px** en adelante — cubre
+1280×800/1366×768/1440×900 y cualquier ancho mayor, que es donde vive la enorme mayoría del
+tráfico de escritorio real.
+
+**Remanente, reportado en vez de forzado.** Entre el quiebre a 4 columnas (1240px) y ~1279px
+— una franja de ~39px de viewport, justo arriba del corte — ninguna combinación razonable de
+fuente/gap/badge logra que "Credit Reports" entre en 1 línea *si además* su valor llega a 3
+dígitos en ese mes: ni sacando el badge por completo alcanza (verificado). Forzarlo exigiría
+una fuente de ~7-8px, ilegible para texto gris sobre blanco. Se dejó así a propósito: en esa
+franja angosta (poco común de encontrar navegando, al estar pegada al quiebre) puede envolver
+a 2 líneas — es la red de seguridad que dejó AC1 (sin `ellipsis`, nunca se corta), no el
+comportamiento esperado. Si en producción resulta ser más frecuente de lo esperado, la palanca
+que queda es correr el quiebre de `.kpi-strip` de 1240px a un valor mayor, pero eso es
+`.kpi-strip`, fuera del alcance declarado de este ajuste (solo `.kpi-row*`).
+
+**`align-items` de `.kpi-row`: se mantiene `flex-start`.** AC1 lo había cambiado desde
+`center` para el caso de 2 líneas. Con 1 línea como caso común, `flex-start` y `center` se ven
+IDÉNTICOS (no hay eje transversal que alinear distinto) — sin costo por mantenerlo. Comparado
+visualmente en el remanente de 2 líneas de arriba, `flex-start` alinea el valor+badge con la
+primera línea de la etiqueta ("File" / "128 ↑"), que se lee más prolijo que `center`, que los
+deja flotando entre las 2 líneas sin calzar con ninguna.
+
+`.mcard` y `.badge` (compartidas con Forecast) no se tocaron — confirmado visualmente que el
+banner de `/pipeline` no cambió.
+
+---
+
 ## Glosario rápido (para no repetir la investigación)
 
 - **CL / SL** en nombres de archivo = residuo histórico de cuando existían dos empresas (City Lending / Supreme Lending); hoy solo existe Supreme Lending, no hay distinción de marca activa.
