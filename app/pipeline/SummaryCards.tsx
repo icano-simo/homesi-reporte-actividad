@@ -38,10 +38,9 @@ function loansLabel(n: number): string {
 }
 
 /**
- * Desglose Banked/Brokered de una tarjeta del banner (etapa UX7). Los conteos
- * de las 3 primeras tarjetas son enteros y suman exacto al combinado; el
- * Forecast de la 4ta es fraccionario (ver `size="lg"` más abajo, que además
- * recibe valores ya formateados a 1 decimal por el caller).
+ * Desglose Banked/Brokered de una tarjeta del banner (etapa UX7). Las 4
+ * tarjetas son conteos/forecast enteros y suman exacto al combinado (ver
+ * `size="lg"` más abajo, para la variante más grande de Total Forecast).
  */
 function ChannelSplit({
   bankedValue,
@@ -83,12 +82,15 @@ function ChannelSplit({
  * Etapa UX7 -- desglose por canal:
  *  - Las 3 primeras tarjetas son conteos enteros: `fmtInt` alcanza y el
  *    desglose siempre suma exacto al combinado.
- *  - Total Forecast es fraccionario. A propósito se conserva 1 decimal en el
- *    desglose (`toFixed(1)`, igual que antes de esta etapa) aunque el número
- *    grande combinado se redondee con `fmtRounded` -- por eso Banked+Brokered
- *    puede leerse como 38.1+4.3=42.4 mientras el titular dice 42. No es un
- *    bug: redondear cada canal a entero produciría casos donde 38+4 no dé el
- *    42 mostrado arriba. No "arreglar" esto sin volver a leer el brief UX7.
+ *  - Total Forecast era fraccionario en UX7: se conservaba 1 decimal en el
+ *    desglose (`toFixed(1)`) porque redondear cada canal por separado podía
+ *    no sumar el total mostrado (38.1+4.3=42.4 vs. un titular de 42).
+ *
+ * Etapa F5j -- ya no hace falta el decimal: `page.tsx` ahora redondea
+ * `forecastTotal` por fila de branch ANTES de sumar (para los 2 canales,
+ * ver esa nota ahí), así que todo lo que llega acá ya es entero por
+ * construcción y Banked+Brokered siempre suma el titular exacto. `fmtRounded`
+ * en el desglose es solo una red de seguridad, no el mecanismo real.
  *
  * Sin cambios de cálculo: los 3 bloques llegan ya calculados desde page.tsx.
  */
@@ -126,12 +128,29 @@ export default function SummaryCards({ combined, banked, brokered, targetMonthLa
       <div className="mcard mcard--sky">
         <div className="m-name">Total Forecast</div>
         <div className="kpi-hero__value kpi-hero__value--lg">{fmtRounded(combined.totalForecast)}</div>
-        <ChannelSplit
-          bankedValue={banked.totalForecast.toFixed(1)}
-          brokeredValue={brokered.totalForecast.toFixed(1)}
-          size="lg"
-        />
+        {/*
+         * Etapa F5j, Cambio 4: se saca el .toFixed(1) -- el forecast se
+         * muestra siempre entero, en los 2 canales. Desde F5j/F5j-b,
+         * `banked.totalForecast`/`brokered.totalForecast` ya llegan como la
+         * suma de forecastTotal ya redondeado por branch (page.tsx,
+         * summarizeChannel) más el closedCount de ese canal (entero) -- son
+         * enteros de por sí acá, `fmtRounded()` solo cubre el caso de que
+         * algún llamador futuro pase un decimal. Reemplaza la asimetría de
+         * redondeo de UX7 (1 decimal acá, entero en el resto): con la regla
+         * de F5j ("redondear por fila y sumar, no al revés") ya no hace
+         * falta -- ambos canales llegan enteros por construcción, no por un
+         * .toFixed(1) que ocultaba el redondeo.
+         */}
+        <ChannelSplit bankedValue={fmtRounded(banked.totalForecast)} brokeredValue={fmtRounded(brokered.totalForecast)} size="lg" />
         <div className="kpi-hero__sub">Forecast = On Track Loans after PT + Closed</div>
+        {/*
+         * Etapa F5j, Cambio 5: con Brokered fuera de la cascada de
+         * pull-through y operando sobre el Total (no Healthy), hace falta
+         * una aclaración corta de qué significa "Brokered" acá -- discreta
+         * (texto chico, gris), no un titular. Ver `.kpi-hero__note` en
+         * forecast-visual.css.
+         */}
+        <div className="kpi-hero__note">Brokered applies a flat 40% pull-through rate on its open pipeline (Total).</div>
       </div>
     </div>
   );

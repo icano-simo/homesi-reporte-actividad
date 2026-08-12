@@ -9,10 +9,12 @@ import {
   calculateTotalForecastWithClosed,
   targetMonthRange,
   countByBrokeredMilestoneBucket,
-  calculateBrokeredForecast,
-  BROKERED_PULL_THROUGH_RATES,
+  BROKERED_FLAT_PULL_THROUGH_RATE,
+  apportionByWeight,
   type BucketCounts,
   type PullThroughRates,
+  type BrokeredPullThroughRates,
+  type BrokeredForecastByBucket,
   type DateRange,
   type TargetMonth,
 } from '@/lib/pipeline/aggregate';
@@ -342,20 +344,36 @@ export default function PipelinePage() {
       const bucketTotal = countByMilestoneBucket(total);
       const bucketHealthy = countByMilestoneBucket(healthy);
       const { forecastByBucket, forecastTotal: bankedFormulaForecastTotal } = calculateForecast(bucketHealthy, PULL_THROUGH_RATES);
-      // Etapa F5i: Brokered ya no usa la fórmula/tasas de Banked -- tiene su
-      // propia cascada de 4 etapas (ver aggregate.ts, confirmado con el
-      // usuario en la respuesta de esta etapa). bucketTotal/bucketHealthy/
-      // forecastByBucket de arriba quedan calculados con la fórmula de
-      // Banked solo por compatibilidad de tipos con BranchForecastRow
-      // (definido en PivotTable.tsx, fuera de la lista de archivos de F5i) --
-      // nadie los lee para una fila Brokered, PivotTable.tsx solo usa
-      // forecastTotal y loans de cada fila. El desglose real de Brokered
-      // (para su propia cascada) se recalcula aparte más abajo, a partir de
-      // `loans`, no de estos campos vestigiales.
+      // Etapa F5j: Brokered ya no usa Healthy ni una cascada por etapa --
+      // pull-through PLANO del 40% (BROKERED_FLAT_PULL_THROUGH_RATE,
+      // aggregate.ts) sobre el TOTAL de préstamos abiertos de esa branch
+      // (no sobre Healthy: cambio de población, no solo de tasa). Banked
+      // sigue exactamente igual: bankedFormulaForecastTotal es la cascada de
+      // siempre (calculateForecast + PULL_THROUGH_RATES) sobre Healthy, sin
+      // tocar. bucketTotal/bucketHealthy/forecastByBucket de arriba quedan
+      // calculados con la fórmula de Banked solo por compatibilidad de tipos
+      // con BranchForecastRow (PivotTable.tsx) -- nadie los lee para una
+      // fila Brokered; el desglose real de Brokered para su propia cascada
+      // se recalcula aparte más abajo, a partir de `loans`.
+      //
+      // Redondeo (Cambio 4 del brief F5j): se redondea ACÁ, por fila de
+      // branch, para los 2 canales -- no al mostrar. `forecastTotal` de acá
+      // en más solo se usa para sumar/mostrar (grandForecastTotal,
+      // summarizeChannel, y el `forecastTotal` que recibe PivotTable.tsx por
+      // fila) -- nunca para otra decisión de negocio -- así que adelantar el
+      // redondeo acá hace que todo lo que sume esto herede "sumar filas ya
+      // enteras" sin tocar esos archivos. Como closedCount siempre es entero,
+      // round(closedCount + x) === closedCount + round(x) para cualquier x:
+      // el valor que ve cada fila individual (PivotTable) quedó IDÉNTICO a
+      // antes; lo único que cambia es que el subtotal/total ya no arrastra
+      // decimales antes de redondear una sola vez al final. El valor
+      // CALCULADO de Banked (bankedFormulaForecastTotal, con decimales) no
+      // se toca en absoluto -- Math.round() acá es solo el punto de display,
+      // no una nueva fórmula.
       const forecastTotal =
         channel === 'Brokered'
-          ? calculateBrokeredForecast(countByBrokeredMilestoneBucket(healthy), BROKERED_PULL_THROUGH_RATES).forecastTotal
-          : bankedFormulaForecastTotal;
+          ? Math.round(total.length * BROKERED_FLAT_PULL_THROUGH_RATE)
+          : Math.round(bankedFormulaForecastTotal);
       branchRows.push({
         branch,
         channel,
@@ -417,10 +435,18 @@ export default function PipelinePage() {
   const brokeredHealthyLoans = brokeredLoans.filter((l) => l.healthy === true);
   const brokeredBucketTotal = countByBrokeredMilestoneBucket(brokeredLoans);
   const brokeredBucketHealthy = countByBrokeredMilestoneBucket(brokeredHealthyLoans);
-  const { forecastByBucket: brokeredForecastByBucket } = calculateBrokeredForecast(
-    brokeredBucketHealthy,
-    BROKERED_PULL_THROUGH_RATES
-  );
+  // brokeredBucketHealthy se sigue calculando arriba porque la cascada de
+  // Matrix igual muestra esa columna (Healthy, informativa) -- no porque
+  // siga siendo la base de ningún cálculo de forecast.
+  //
+  // Etapa F5j-b: `brokeredForecastByBucket` YA NO se calcula acá (era
+  // Math.round(bucketTotal.X * 0.4) por bucket, independiente del cálculo
+  // por branch de más abajo) -- eso es justo lo que hacía que Executive y
+  // Matrix mostraran 2 números distintos para el mismo Brokered (6 vs 8 con
+  // el snapshot activo del 2026-08-12, mismos 19 préstamos, solo cambiaba
+  // cómo se agrupaban antes de redondear). Se recalcula más abajo, DESPUÉS
+  // de `brokeredSummary`, repartiendo (no recalculando) su
+  // `forecastTotal` -- ver esa nota para el detalle.
 
   // Etapa F4b: el Forecast del negocio real es Cerrados (Funded) + la
   // proyección de pull-through que ya calculaba aggregate.ts -- no la
@@ -461,11 +487,47 @@ export default function PipelinePage() {
   const bankedSummary = summarizeChannel('Banked - Retail', 'Banked - Retail');
   const brokeredSummary = summarizeChannel('Brokered', 'Brokered');
 
+  // Etapa F5j-b: `brokeredSummary.forecastTotal` (arriba) ya es la suma de
+  // `forecastTotal` redondeado POR BRANCH de cada fila de Brokered -- la
+  // única fuente de verdad para su forecast, en cualquier vista. Acá se
+  // REPARTE ese total fijo entre los 4 buckets de milestone, en proporción
+  // a su conteo Total (apportionByWeight, aggregate.ts) -- nunca se lo
+  // vuelve a calcular multiplicando por 0.4. Por construcción, la suma de
+  // las 4 partes es EXACTAMENTE brokeredSummary.forecastTotal, siempre, con
+  // cualquier dato -- ya no puede volver a divergir de Executive porque no
+  // hay 2 cálculos independientes, hay 1 cálculo y 1 reparto de su
+  // resultado.
+  const [brokeredFileCreationForecast, brokeredAppDateForecast, brokeredProcessingForecast, brokeredSubmittedForecast] =
+    apportionByWeight(brokeredSummary.forecastTotal, [
+      brokeredBucketTotal.FileCreation,
+      brokeredBucketTotal.AppDate,
+      brokeredBucketTotal.Processing,
+      brokeredBucketTotal.Submitted,
+    ]);
+  const brokeredForecastByBucket: BrokeredForecastByBucket = {
+    FileCreation: brokeredFileCreationForecast,
+    AppDate: brokeredAppDateForecast,
+    Processing: brokeredProcessingForecast,
+    Submitted: brokeredSubmittedForecast,
+  };
+
   // Etapa F5i: filas para las 2 cascadas -- MilestoneCascade ya no sabe de
   // Banked/Brokered, solo dibuja lo que le pasen (ver MilestoneCascade.tsx).
   // `rate` es la tasa PROPIA de cada etapa (no acumulada); el componente
   // calcula la acumulada mostrada en "% applied" como producto de las tasas
   // desde esa fila en adelante -- mismo cálculo que antes, ahora genérico.
+  //
+  // Etapa F5j, Cambio 4 (Banked): `forecast` de cada fila se redondea acá,
+  // en el punto de armado -- MilestoneCascade.tsx no está en el alcance de
+  // este ajuste, así que no se le puede pedir que redondee al mostrar. El
+  // valor CALCULADO (bankedForecastByBucket.*, con decimales, cascada de
+  // PULL_THROUGH_RATES sobre Healthy) no cambia ni un decimal -- Math.round()
+  // acá es puramente de display, igual que el de `forecastTotal` más arriba.
+  // Confirmado con Isabella antes de tocar esto (ver reporte de F5j): "no
+  // tocar Banked" es sobre la lógica (tasas/fórmula/población/cascada), no
+  // sobre el redondeo de display, y dejarlo sin redondear acá haría que
+  // Banked mostrara decimales en esta pestaña mientras Executive (y
+  // Brokered en esta misma tabla) muestran enteros.
   const bankedCascadeRows: MilestoneCascadeRow[] = [
     {
       key: 'Started',
@@ -473,7 +535,7 @@ export default function PipelinePage() {
       rate: PULL_THROUGH_RATES.Started,
       healthy: bankedBucketHealthy.Started,
       total: bankedBucketTotal.Started,
-      forecast: bankedForecastByBucket.Started,
+      forecast: Math.round(bankedForecastByBucket.Started),
     },
     {
       key: 'Processing',
@@ -481,7 +543,7 @@ export default function PipelinePage() {
       rate: PULL_THROUGH_RATES.Processing,
       healthy: bankedBucketHealthy.Processing,
       total: bankedBucketTotal.Processing,
-      forecast: bankedForecastByBucket.Processing,
+      forecast: Math.round(bankedForecastByBucket.Processing),
     },
     {
       key: 'Underwriting',
@@ -489,7 +551,7 @@ export default function PipelinePage() {
       rate: PULL_THROUGH_RATES.Underwriting,
       healthy: bankedBucketHealthy.Underwriting,
       total: bankedBucketTotal.Underwriting,
-      forecast: bankedForecastByBucket.Underwriting,
+      forecast: Math.round(bankedForecastByBucket.Underwriting),
     },
     {
       key: 'Closing',
@@ -497,15 +559,37 @@ export default function PipelinePage() {
       rate: PULL_THROUGH_RATES.Closing,
       healthy: bankedBucketHealthy.Closing,
       total: bankedBucketTotal.Closing,
-      forecast: bankedForecastByBucket.Closing,
+      forecast: Math.round(bankedForecastByBucket.Closing),
     },
   ];
 
+  // Etapa F5j, Cambio 3: las 4 filas de Brokered usan el mismo 40% plano, no
+  // una tasa distinta por milestone -- BROKERED_FLAT_PULL_THROUGH_RATE
+  // (aggregate.ts), no BROKERED_PULL_THROUGH_RATES (código muerto, ver ahí).
+  // `forecast` ya viene redondeado por bucket desde brokeredForecastByBucket
+  // (arriba), coherente con Banked en esta misma tabla (Cambio 4).
+  //
+  // `rate` de cada fila NO es 0.4 en las 4 -- es 1 en las primeras 3 y 0.4
+  // solo en la última (Submitted). Motivo: MilestoneCascade.tsx (fuera del
+  // alcance de este ajuste) calcula la columna "% applied" como el PRODUCTO
+  // de `rate` desde esa fila hasta el final (rows.slice(i).reduce(...)) --
+  // ese cálculo asume un embudo secuencial (cada etapa tiene que pasar por
+  // las siguientes), que es exactamente el modelo que dejamos de usar. Con
+  // las 4 filas en 0.4 literal, esa columna mostraría 40%×40%×40%×40%=2.56%
+  // para File Creation en vez de 40% -- un número activamente incorrecto
+  // para un modelo de tasa plana, no una simplificación aceptable. Poniendo
+  // 1 en las primeras 3 y 0.4 solo en la última, el producto acumulado desde
+  // CUALQUIER fila da exactamente 0.4 (1×1×1×0.4 = 1×1×0.4 = 1×0.4 = 0.4):
+  // las 4 filas muestran correctamente "40.0% applied" sin tocar la fórmula
+  // de MilestoneCascade.tsx. Ver el reporte de F5j para el detalle numérico.
+  // El cuadro de Pull-Through Rates al pie del tab (brokeredRates, más abajo)
+  // es un valor DISTINTO y sí muestra 0.4 literal en las 4 -- ver esa
+  // variable para el motivo.
   const brokeredCascadeRows: MilestoneCascadeRow[] = [
     {
       key: 'FileCreation',
       label: 'File Creation',
-      rate: BROKERED_PULL_THROUGH_RATES.FileCreation,
+      rate: 1,
       healthy: brokeredBucketHealthy.FileCreation,
       total: brokeredBucketTotal.FileCreation,
       forecast: brokeredForecastByBucket.FileCreation,
@@ -513,7 +597,7 @@ export default function PipelinePage() {
     {
       key: 'AppDate',
       label: 'App Date',
-      rate: BROKERED_PULL_THROUGH_RATES.AppDate,
+      rate: 1,
       healthy: brokeredBucketHealthy.AppDate,
       total: brokeredBucketTotal.AppDate,
       forecast: brokeredForecastByBucket.AppDate,
@@ -521,7 +605,7 @@ export default function PipelinePage() {
     {
       key: 'Processing',
       label: 'Processing',
-      rate: BROKERED_PULL_THROUGH_RATES.Processing,
+      rate: 1,
       healthy: brokeredBucketHealthy.Processing,
       total: brokeredBucketTotal.Processing,
       forecast: brokeredForecastByBucket.Processing,
@@ -529,12 +613,28 @@ export default function PipelinePage() {
     {
       key: 'Submitted',
       label: 'Submitted',
-      rate: BROKERED_PULL_THROUGH_RATES.Submitted,
+      rate: BROKERED_FLAT_PULL_THROUGH_RATE,
       healthy: brokeredBucketHealthy.Submitted,
       total: brokeredBucketTotal.Submitted,
       forecast: brokeredForecastByBucket.Submitted,
     },
   ];
+
+  // Etapa F5j: rates que ve el cuadro "Pull-Through Rates" al pie del tab
+  // (TabMilestoneMatrix.tsx, Object.entries(rates) -- una fila por key). A
+  // diferencia de `rate` en brokeredCascadeRows (arriba, con el truco 1/1/1/
+  // 0.4 para que "% applied" se muestre bien), acá el valor SÍ es 0.4
+  // literal en las 4 -- este cuadro muestra la tasa cruda de cada etapa, no
+  // un acumulado, así que no hay nada que compensar. Se repite 40% cuatro
+  // veces a propósito (ver el reporte de F5j: se propone ahí una
+  // presentación alternativa para cuando Brokered es el canal activo, sin
+  // decidirla acá).
+  const brokeredFlatRatesDisplay: BrokeredPullThroughRates = {
+    FileCreation: BROKERED_FLAT_PULL_THROUGH_RATE,
+    AppDate: BROKERED_FLAT_PULL_THROUGH_RATE,
+    Processing: BROKERED_FLAT_PULL_THROUGH_RATE,
+    Submitted: BROKERED_FLAT_PULL_THROUGH_RATE,
+  };
 
   // Etapa F4i: filtro original -- status='adverse' Y Loan Status='Application
   // withdrawn' Y Est. Closing Date dentro del rango activo (Pipeline Range).
@@ -778,8 +878,10 @@ export default function PipelinePage() {
               bankedRows={bankedCascadeRows}
               brokeredRows={brokeredCascadeRows}
               bankedRates={PULL_THROUGH_RATES}
-              brokeredRates={BROKERED_PULL_THROUGH_RATES}
+              brokeredRates={brokeredFlatRatesDisplay}
               rows={filteredBranchRows}
+              brokeredClosedCount={brokeredSummary.closedCount}
+              brokeredTotalForecast={brokeredSummary.totalForecast}
             />
           )}
 
