@@ -348,7 +348,11 @@ select.field {
 .kpi-row {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  /* Bug AC1: era `center`. Con la etiqueta pudiendo ocupar 2 líneas (ver
+     `.kpi-row__label` abajo), centrar el valor+badge contra todo el bloque de
+     texto los desalineaba hacia abajo -- `flex-start` los deja a la altura de
+     la primera línea de la etiqueta, que es donde el ojo los espera. */
+  align-items: flex-start;
   gap: 6px;
   padding: 2px 0;
 }
@@ -356,15 +360,26 @@ select.field {
   font-size: 11px;
   color: var(--slate-500);
   font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.35;
+  /*
+   * Bug AC1: el nombre completo tiene que verse siempre. Antes
+   * `white-space: nowrap` + `overflow: hidden` + `text-overflow: ellipsis`
+   * cortaban la etiqueta ("File Creatio...") en cuanto el badge de tendencia
+   * ocupaba sus ~20px -- visible en todos los meses salvo el primero (el
+   * único sin badge, ver <Trend> en SummaryCards.tsx). Se saca el corte y se
+   * deja que la etiqueta ocupe 2 líneas cuando no entra en una; el ancho por
+   * tarjeta ya viene acotado por `.kpi-strip`, así que no hace falta fijar un
+   * `min-width` -- el flex-shrink por defecto (1) alcanza para que envuelva.
+   */
 }
 .kpi-row__right {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
+  /* Alinea la primera línea del valor con la primera línea de la etiqueta
+     (line-height distinto entre 11px y 12px sin esto quedaban a destiempo). */
+  padding-top: 1px;
 }
 .kpi-row__value {
   font-size: 12px;

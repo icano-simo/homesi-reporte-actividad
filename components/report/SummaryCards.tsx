@@ -3,6 +3,7 @@
 import type { ReportTree, Measure, MetricMap } from '@/lib/aggregation/types';
 import type { YearMonth } from '@/lib/parsing/types';
 import { METRICS, MONTH_NAMES, type MetricKey } from '@/config/metrics';
+import type { Branch } from '@/config/roster';
 import { fmtVal } from '@/lib/aggregation/format';
 import { ArrowUpIcon, ArrowDownIcon, MinusIcon } from '@/components/ui/icons';
 
@@ -10,6 +11,33 @@ export interface SummaryCardsProps {
   tree: ReportTree;
   months: YearMonth[];
   measure: Measure;
+  /**
+   * Bug AC1: `tree.total.maps` no está filtrado por branch (alimenta también
+   * la fila Total del pivot y el Excel exportado, así que no se le puede
+   * cambiar la semántica -- ver buildReportTree.ts). Con un branch específico
+   * elegido, page.tsx pasa ese branch acá para que las tarjetas lean su serie
+   * en vez de la global. `undefined`/`'all'` = comportamiento de siempre.
+   */
+  branchFilter?: Branch | 'all';
+}
+
+/**
+ * Bug AC1: arma el `Record<MetricKey, MetricMap>` que consume la tarjeta.
+ * `tree.branches[].metricGroups` ya trae esa forma por branch (misma fuente
+ * que usa PivotTable para sus filas), así que no hay cálculo nuevo acá, solo
+ * reindexar por metric key.
+ *
+ * Un branch elegido sin actividad en el rango de meses visible no aparece en
+ * `tree.branches` (buildReportTree lo descarta si su total da cero) -- se
+ * devuelven mapas vacíos, que renderizan como 0 en todos los meses. Es el
+ * resultado correcto para ese caso, no una caída al total global.
+ */
+function resolveMaps(tree: ReportTree, branchFilter: Branch | 'all' | undefined): Record<MetricKey, MetricMap> {
+  if (!branchFilter || branchFilter === 'all') return tree.total.maps;
+  const branch = tree.branches.find((b) => b.branch === branchFilter);
+  const groups = branch?.metricGroups ?? [];
+  const byMetric = new Map(groups.map((g) => [g.metric, g.total]));
+  return Object.fromEntries(METRICS.map(({ key }) => [key, byMetric.get(key) ?? {}])) as Record<MetricKey, MetricMap>;
 }
 
 function monthName(ym: YearMonth): string {
@@ -87,10 +115,13 @@ function Trend({ metricKey, ym, current, maps, firstYM, measure }: TrendProps) {
  * 8 meses visibles. El scroll horizontal era justamente lo que prohíbe el
  * spec §6.
  *
- * Sin cambios de cálculo: sigue leyendo tree.total.maps, igual que antes.
+ * Etapa AC1: con un branch específico elegido, lee la serie de ese branch
+ * (`resolveMaps`) en vez del total global sin filtrar -- ver el comentario de
+ * `branchFilter` en `SummaryCardsProps`. Sin cambios de cálculo: los números
+ * por branch ya estaban en `tree.branches`, calculados por buildReportTree.
  */
-export default function SummaryCards({ tree, months, measure }: SummaryCardsProps) {
-  const maps = tree.total.maps;
+export default function SummaryCards({ tree, months, measure, branchFilter }: SummaryCardsProps) {
+  const maps = resolveMaps(tree, branchFilter);
 
   if (!months.length) {
     return (

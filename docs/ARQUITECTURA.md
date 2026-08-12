@@ -709,6 +709,81 @@ canal) estaban disponibles y sin usar.
 
 ---
 
+## Etapa AC1 — tarjetas de resumen por branch + etiquetas completas (Commercial Activity)
+
+Dos bugs de Commercial Activity, sin tocar `lib/aggregation/buildReportTree.ts` ni
+`lib/export/**`.
+
+### Bug 1 — las tarjetas ("Monthly Totals") no reaccionaban al filtro de Branch
+
+Causa: `SummaryCards.tsx` leía `tree.total.maps`, y ese nodo de `ReportTree` se calcula
+sobre *todos* los records sin filtrar por `branchFilter` — a propósito, porque también
+alimenta la fila Total del pivot y los totales del Excel exportado
+(`lib/export/sheetBuilders.ts`). Cambiarle la semántica a `tree.total` era la trampa obvia
+y quedó fuera de alcance a propósito.
+
+Arreglo, todo en el lado de lectura:
+
+- `SummaryCards` suma una prop opcional `branchFilter?: Branch | 'all'` y una función interna
+  `resolveMaps(tree, branchFilter)` que, con un branch específico, arma el
+  `Record<MetricKey, MetricMap>` a partir de `tree.branches[].metricGroups` (la misma fuente
+  que ya usa `PivotTable` para sus filas) en vez de `tree.total.maps`. Sin cálculo nuevo: solo
+  reindexa una estructura que `buildReportTree` ya entrega.
+- Un branch sin actividad en el rango de meses visible no aparece en `tree.branches`
+  (`buildReportTree` lo descarta cuando su total da cero) — `resolveMaps` devuelve mapas
+  vacíos en ese caso, que renderizan como 0 en todas las métricas. Es el resultado correcto
+  para "branch sin datos en este rango", no una caída silenciosa al total global.
+- `app/page.tsx` pasa `branchFilter={view === 'loanOfficer' ? 'all' : branchFilter}`. La
+  vista "Por Loan Officer" cruza todos los branches a propósito (el Toolbar oculta ahí el
+  selector de Branch, ver comentario en `Toolbar.tsx`) pero el `branchFilter` en estado puede
+  seguir apuntando a un branch elegido en una vista anterior — se neutraliza en el único
+  call site en vez de enseñarle a `SummaryCards` sobre la vista activa.
+- Los badges de `<Trend>` no se tocaron: ya recibían el mismo objeto `maps` que arma
+  `resolveMaps`, así que las flechas de tendencia siguen automáticamente la serie del branch
+  elegido en vez de la global.
+
+Verificado con un dataset chico de 2 branches x 2 meses corrido contra `buildReportTree` real
+(sin fixture de producción disponible en este entorno): con un branch específico, la tarjeta
+coincide mes a mes con `branch.metricGroups[].total` (la misma fuente que alimenta la fila de
+ese branch en el pivot); con `'all'` vuelve al combinado; un branch sin actividad da ceros; y
+la vista Loan Officer ignora el `branchFilter` residual.
+
+### Bug 2 — etiquetas de métrica cortadas ("File Creatio...", "Credit Rep...")
+
+Causa: `.kpi-row__label` tenía `white-space: nowrap` + `overflow: hidden` +
+`text-overflow: ellipsis`, y `.kpi-row__right` (valor + badge) tiene `flex-shrink: 0` — la
+etiqueta era la única que podía encogerse, así que absorbía el recorte. Se notaba en todos
+los meses salvo el primero, porque `<Trend>` no dibuja badge cuando no hay mes anterior con
+el que comparar, y esos ~20px de más alcanzaban para no cortar.
+
+Arreglo (`app/styles/components.css`, reglas `.kpi-row*` — confirmado por grep que sólo las
+usa `components/report/SummaryCards.tsx`; Forecast usa sus propias `.kpi-hero__*`/
+`.hero-banner`, sin relación):
+
+- Se sacaron las 3 propiedades de recorte. Sin `overflow: hidden` ni `text-overflow`, el
+  navegador no tiene forma de truncar aunque el texto no entre en una línea — se garantiza
+  estructuralmente que el nombre completo siempre se ve, en vez de depender de que alcance el
+  ancho justo en cada fuente/breakpoint.
+- `.kpi-row` pasa de `align-items: center` a `flex-start`: con la etiqueta pudiendo ocupar 2
+  líneas, centrar el valor+badge contra todo el bloque de texto los desalineaba hacia abajo.
+  `.kpi-row__right` suma `padding-top: 1px` para calzar con la primera línea pese a la
+  diferencia de `line-height` entre el label (11px) y el valor (12px).
+- `.mcard` (compartida con Forecast) no se tocó. Confirmado visualmente que el banner de
+  `/pipeline` no cambió: mismo screenshot de `.hero-banner` antes y después de este cambio.
+
+Verificado con Playwright headless contra los 3 cortes de `.kpi-strip` (>1240px → 8
+columnas, 1240px → 4, 680px → 2) y además forzando 12 columnas para ver el wrap en el caso
+más apretado posible: en ningún ancho aparece texto cortado, y el valor+badge quedan alineados
+con la primera línea de la etiqueta incluso cuando ésta ocupa dos.
+
+### Pendiente explícito, no resuelto acá
+
+Falta confirmar con el negocio si además hay que renombrar la métrica `App Date` a
+`Applications` (afecta también los rótulos de fila del Excel exportado, `config/metrics.ts`
+es fuente única). Fuera de alcance de esta etapa a propósito.
+
+---
+
 ## Glosario rápido (para no repetir la investigación)
 
 - **CL / SL** en nombres de archivo = residuo histórico de cuando existían dos empresas (City Lending / Supreme Lending); hoy solo existe Supreme Lending, no hay distinción de marca activa.
