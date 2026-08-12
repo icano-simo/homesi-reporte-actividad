@@ -225,19 +225,14 @@ Banked (el display).
   muestra la tasa cruda, no un acumulado, y por eso repite "40.0%" cuatro veces (ver
   "Pendiente/propuesta" abajo).
 
-- **Hallazgo de coherencia entre pestañas (reportado, no ajustado para que cierre):** Executive
-  Branch Forecast redondea por **branch**; Milestone Pipeline Matrix redondea por **milestone
-  bucket** -- dos particiones distintas del mismo total, con arrastre de redondeo distinto.
-  Verificado contra el snapshot activo del 2026-08-12 (id 28, 19 préstamos Brokered abiertos):
-  el subtotal de PT de Executive da **6**, el "Total Forecast" (solo PT) de Matrix da **8** --
-  **no coinciden**. El Forecast final de Executive (PT + Closed = 6+2 = 8) coincide
-  numéricamente con el de Matrix (8) en este snapshot puntual, pero es una coincidencia, no una
-  correspondencia real: Matrix nunca suma Closed a su "Total Forecast" (foot-note ya existente,
-  sin cambios en F5j: *"does not include already-closed loans"*), así que ambos "8" salen de
-  cuentas distintas (6+2 vs 8+0). Esta asimetría de partición-de-redondeo ya existía en
-  potencia desde que Brokered tiene su propia cascada (F5i); F5j la hace visible porque el
-  brief pide redondear cada partición por separado. No se decidió cuál "gana" -- queda para que
-  el negocio lo resuelva con los números reales delante.
+- **Hallazgo de coherencia entre pestañas -- resuelto en F5j-b, ver esa sección abajo.**
+  Executive Branch Forecast redondeaba por **branch**; Milestone Pipeline Matrix redondeaba por
+  **milestone bucket** -- dos particiones distintas del mismo total, con arrastre de redondeo
+  distinto. Verificado contra el snapshot activo del 2026-08-12 (id 28, 19 préstamos Brokered
+  abiertos): el subtotal de PT de Executive daba **6**, el de Matrix **8** -- no coincidían. El
+  Forecast final (con Closed) coincidía en ese snapshot puntual por coincidencia numérica, no
+  por corresponder a la misma cuenta (Matrix nunca sumaba Closed). Reportado sin ajustar para
+  que cerrara -- la corrección de fondo es F5j-b.
 
 - **`SummaryCards.tsx` -- el texto que el brief F5j daba por existente
   (`Forecast = On Track Loans after PT + Closed`) no está en esta rama** (esa redacción
@@ -252,6 +247,43 @@ Processing/Submitted) -- técnicamente correcto pero repetitivo, porque ese cuad
 para una tasa distinta por etapa. Una alternativa: para Brokered, reemplazar la grilla de 4
 tarjetas por una sola línea ("Flat pull-through: 40% on open pipeline (Total)"). No implementado
 -- el brief pide proponerlo, no decidirlo.
+
+### Etapa F5j-b — una sola partición manda para el forecast de Brokered
+
+F5j (arriba) redondeaba el forecast de Brokered en 2 lugares independientes -- por branch
+(Executive) y por milestone-bucket (Matrix) -- y cada partición arrastra el redondeo distinto:
+no es un bug de una fórmula puntual, es aritmética (redondear-y-sumar da resultados distintos
+según cómo se agrupen las filas antes de sumar). Este ajuste elimina la posibilidad de que
+diverjan, en vez de solo reportarlo.
+
+**La regla:** el total por branch (`page.tsx`, ya redondeado por fila) es la **única fuente de
+verdad** para el forecast de Brokered. Ninguna otra vista lo recalcula -- si necesita un
+desglose, **reparte** ese total fijo, nunca lo vuelve a calcular multiplicando por 0.4.
+
+- **`apportionByWeight(total, weights)`** (`lib/pipeline/aggregate.ts`, nueva) -- reparte un
+  entero ya fijado entre N categorías en proporción a un peso, garantizando por construcción que
+  la suma de las partes sea exactamente el total recibido. Método de mayor resto (Hamilton
+  apportionment): piso de la porción proporcional exacta por categoría, y el resto entero que
+  falta se reparte de a 1 empezando por las categorías con mayor parte fraccionaria descartada.
+  Determinista. `page.tsx` la usa para repartir `brokeredSummary.forecastTotal` (el total por
+  branch) entre los 4 buckets de milestone, en proporción a su conteo Total -- ya no se calcula
+  `Math.round(bucketTotal.X * 0.4)` por bucket, que era la causa raíz de la divergencia.
+- **`TabMilestoneMatrix.tsx`** ahora recibe `brokeredClosedCount`/`brokeredTotalForecast` (props
+  nuevas, ambas obligatorias) y se las pasa a `MilestoneCascade` **solo cuando el canal activo es
+  Brokered** -- ese componente ya traía el mecanismo (`closedCount`/`totalForecast` opcionales,
+  agrega una fila "Closed (Funded)" y cambia el rótulo de la fila de total a "Total Forecast
+  (Closed + Projection)") sin que hiciera falta tocarlo. Banked sigue sin pasarlos, sin cambios:
+  su cascada sigue mostrando solo la proyección.
+- El foot-note debajo de la cascada de Matrix ahora es distinto por canal: Banked conserva el
+  texto de siempre ("does not include already-closed loans"); Brokered dice explícito que su
+  total ya incluye Closed y coincide con Executive -- el texto viejo dejó de ser cierto para ese
+  canal.
+
+**Verificado, no asumido** (snapshot activo id 28, 2026-08-12, y un caso sintético adversarial
+de 11 branches con 1 préstamo cada uno, todos en el mismo milestone-bucket -- el peor caso
+posible para la divergencia vieja): en ambos, Executive y Matrix dan ahora el mismo número
+(8 y 8; 0 y 0 en el caso adversarial, donde antes daba 0 contra 4). Banked verificado idéntico
+antes/después, cálculo y display.
 
 ---
 

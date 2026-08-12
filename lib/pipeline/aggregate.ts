@@ -406,3 +406,59 @@ export function calculateBrokeredForecast(
 
   return { forecastByBucket, forecastTotal };
 }
+
+// ============================================================
+// Etapa F5j-b: reparto de un total ya fijado (Brokered)
+// ============================================================
+//
+// F5j (primera pasada) redondeaba el forecast de Brokered en 2 lugares
+// independientes -- por branch (Executive) y por milestone-bucket (Matrix)
+// -- y cada partición arrastra el redondeo distinto (mismos 19 préstamos:
+// 6 por branch, 8 por bucket; verificado contra el snapshot activo). No era
+// un bug de una fórmula puntual: es aritmética, redondear-y-sumar da
+// resultados distintos según cómo se agrupen las filas antes de sumar.
+//
+// La regla que lo resuelve: el total por branch es la ÚNICA fuente de
+// verdad para el forecast de Brokered (page.tsx lo calcula una sola vez,
+// ahí). Cualquier otra vista que necesite un desglose (Matrix, por
+// milestone) tiene que REPARTIR ese total ya fijado, nunca recalcularlo.
+
+/**
+ * Reparte un total entero ya fijado entre N categorías, en proporción a un
+ * peso por categoría, garantizando que la suma de las partes sea
+ * EXACTAMENTE el total recibido -- nunca se lo recalcula a partir de las
+ * partes. Método de mayor resto (Hamilton apportionment, el mismo que usan
+ * varios sistemas electorales para repartir bancas): cada categoría recibe
+ * el piso de su porción proporcional exacta; el resto entero que falta para
+ * llegar al total se reparte de a 1, empezando por las categorías con mayor
+ * parte fraccionaria descartada. Determinista para el mismo input.
+ *
+ * Sin pesos (`weights` todos 0): si `total` también es 0, todas las partes
+ * quedan en 0 (el caso normal, ninguna categoría tiene préstamos). Si
+ * `total` no es 0 sin ningún peso -- no debería pasar en la práctica, pero
+ * ante ese dato inconsistente se lo lleva completo la primera categoría en
+ * vez de perderlo en silencio (la suma tiene que seguir dando `total`).
+ */
+export function apportionByWeight(total: number, weights: number[]): number[] {
+  const weightSum = weights.reduce((a, b) => a + b, 0);
+  if (weightSum <= 0) {
+    const parts = weights.map(() => 0);
+    if (total !== 0 && parts.length > 0) parts[0] = total;
+    return parts;
+  }
+
+  const exact = weights.map((w) => (total * w) / weightSum);
+  const floors = exact.map(Math.floor);
+  let remainder = total - floors.reduce((a, b) => a + b, 0);
+
+  const byRemainderDesc = floors
+    .map((_, i) => i)
+    .sort((a, b) => exact[b] - floors[b] - (exact[a] - floors[a]));
+
+  const parts = [...floors];
+  for (let k = 0; k < byRemainderDesc.length && remainder > 0; k++) {
+    parts[byRemainderDesc[k]] += 1;
+    remainder -= 1;
+  }
+  return parts;
+}

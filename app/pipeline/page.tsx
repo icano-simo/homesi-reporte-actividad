@@ -10,6 +10,7 @@ import {
   targetMonthRange,
   countByBrokeredMilestoneBucket,
   BROKERED_FLAT_PULL_THROUGH_RATE,
+  apportionByWeight,
   type BucketCounts,
   type PullThroughRates,
   type BrokeredPullThroughRates,
@@ -434,21 +435,18 @@ export default function PipelinePage() {
   const brokeredHealthyLoans = brokeredLoans.filter((l) => l.healthy === true);
   const brokeredBucketTotal = countByBrokeredMilestoneBucket(brokeredLoans);
   const brokeredBucketHealthy = countByBrokeredMilestoneBucket(brokeredHealthyLoans);
-  // Etapa F5j: ya no hay cascada de pull-through por etapa para Brokered
-  // (calculateBrokeredForecast/BROKERED_PULL_THROUGH_RATES quedan sin uso,
-  // ver el comentario de código muerto en aggregate.ts) -- cada bucket
-  // aplica el mismo 40% plano sobre su propio Total, no sobre Healthy
-  // (brokeredBucketHealthy se sigue calculando arriba porque la cascada
-  // igual muestra esa columna, solo dejó de ser la base del cálculo).
-  // Redondeado por bucket (Cambio 4) para que la fila "Total Forecast" de
-  // esta cascada (sumForecast() en TabMilestoneMatrix.tsx) sea la suma de
-  // 4 números ya enteros, no del decimal.
-  const brokeredForecastByBucket: BrokeredForecastByBucket = {
-    FileCreation: Math.round(brokeredBucketTotal.FileCreation * BROKERED_FLAT_PULL_THROUGH_RATE),
-    AppDate: Math.round(brokeredBucketTotal.AppDate * BROKERED_FLAT_PULL_THROUGH_RATE),
-    Processing: Math.round(brokeredBucketTotal.Processing * BROKERED_FLAT_PULL_THROUGH_RATE),
-    Submitted: Math.round(brokeredBucketTotal.Submitted * BROKERED_FLAT_PULL_THROUGH_RATE),
-  };
+  // brokeredBucketHealthy se sigue calculando arriba porque la cascada de
+  // Matrix igual muestra esa columna (Healthy, informativa) -- no porque
+  // siga siendo la base de ningún cálculo de forecast.
+  //
+  // Etapa F5j-b: `brokeredForecastByBucket` YA NO se calcula acá (era
+  // Math.round(bucketTotal.X * 0.4) por bucket, independiente del cálculo
+  // por branch de más abajo) -- eso es justo lo que hacía que Executive y
+  // Matrix mostraran 2 números distintos para el mismo Brokered (6 vs 8 con
+  // el snapshot activo del 2026-08-12, mismos 19 préstamos, solo cambiaba
+  // cómo se agrupaban antes de redondear). Se recalcula más abajo, DESPUÉS
+  // de `brokeredSummary`, repartiendo (no recalculando) su
+  // `forecastTotal` -- ver esa nota para el detalle.
 
   // Etapa F4b: el Forecast del negocio real es Cerrados (Funded) + la
   // proyección de pull-through que ya calculaba aggregate.ts -- no la
@@ -488,6 +486,30 @@ export default function PipelinePage() {
   // calculateTotalForecastWithClosed una tercera vez.
   const bankedSummary = summarizeChannel('Banked - Retail', 'Banked - Retail');
   const brokeredSummary = summarizeChannel('Brokered', 'Brokered');
+
+  // Etapa F5j-b: `brokeredSummary.forecastTotal` (arriba) ya es la suma de
+  // `forecastTotal` redondeado POR BRANCH de cada fila de Brokered -- la
+  // única fuente de verdad para su forecast, en cualquier vista. Acá se
+  // REPARTE ese total fijo entre los 4 buckets de milestone, en proporción
+  // a su conteo Total (apportionByWeight, aggregate.ts) -- nunca se lo
+  // vuelve a calcular multiplicando por 0.4. Por construcción, la suma de
+  // las 4 partes es EXACTAMENTE brokeredSummary.forecastTotal, siempre, con
+  // cualquier dato -- ya no puede volver a divergir de Executive porque no
+  // hay 2 cálculos independientes, hay 1 cálculo y 1 reparto de su
+  // resultado.
+  const [brokeredFileCreationForecast, brokeredAppDateForecast, brokeredProcessingForecast, brokeredSubmittedForecast] =
+    apportionByWeight(brokeredSummary.forecastTotal, [
+      brokeredBucketTotal.FileCreation,
+      brokeredBucketTotal.AppDate,
+      brokeredBucketTotal.Processing,
+      brokeredBucketTotal.Submitted,
+    ]);
+  const brokeredForecastByBucket: BrokeredForecastByBucket = {
+    FileCreation: brokeredFileCreationForecast,
+    AppDate: brokeredAppDateForecast,
+    Processing: brokeredProcessingForecast,
+    Submitted: brokeredSubmittedForecast,
+  };
 
   // Etapa F5i: filas para las 2 cascadas -- MilestoneCascade ya no sabe de
   // Banked/Brokered, solo dibuja lo que le pasen (ver MilestoneCascade.tsx).
@@ -858,6 +880,8 @@ export default function PipelinePage() {
               bankedRates={PULL_THROUGH_RATES}
               brokeredRates={brokeredFlatRatesDisplay}
               rows={filteredBranchRows}
+              brokeredClosedCount={brokeredSummary.closedCount}
+              brokeredTotalForecast={brokeredSummary.totalForecast}
             />
           )}
 

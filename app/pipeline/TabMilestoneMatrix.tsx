@@ -20,6 +20,15 @@ export interface TabMilestoneMatrixProps {
   brokeredRates: BrokeredPullThroughRates;
   /** Ajuste post-F6f: filas por branch (mismo tipo/mismo dato que ya recibe PivotTable) -- alimenta la matriz Branch x Milestone nueva. */
   rows: BranchForecastRow[];
+  /**
+   * Etapa F5j-b: Closed y Total Forecast de Brokered YA calculados por
+   * branch en page.tsx (la misma fuente que Executive Branch Forecast) --
+   * se le pasan a MilestoneCascade para que su fila de total sea ese mismo
+   * número, no uno recalculado acá. Banked no usa estos 2 props: su cascada
+   * sigue mostrando solo la proyección (sin Closed), sin cambios.
+   */
+  brokeredClosedCount: number;
+  brokeredTotalForecast: number;
 }
 
 type Channel = 'banked' | 'brokered';
@@ -179,7 +188,15 @@ function bucketValue(bucket: BucketCounts | BrokeredBucketCounts, key: string): 
  * Reusa MilestoneCascade tal cual (rows ya vienen armadas desde afuera, F6h
  * decide cómo) -- no se reimplementa la tabla.
  */
-export default function TabMilestoneMatrix({ bankedRows, brokeredRows, bankedRates, brokeredRates, rows }: TabMilestoneMatrixProps) {
+export default function TabMilestoneMatrix({
+  bankedRows,
+  brokeredRows,
+  bankedRates,
+  brokeredRates,
+  rows,
+  brokeredClosedCount,
+  brokeredTotalForecast,
+}: TabMilestoneMatrixProps) {
   const [channel, setChannel] = useState<Channel>('banked');
   const [metricView, setMetricView] = useState<MetricView>('total');
   const [modal, setModal] = useState<{ context: string; metric: string; loans: LoanDetailModalLoan[] } | null>(null);
@@ -321,16 +338,32 @@ export default function TabMilestoneMatrix({ bankedRows, brokeredRows, bankedRat
       <div className="section-label" style={{ marginTop: '24px' }}>
         Pull-through Cascade
       </div>
-      <MilestoneCascade rows={cascadeRows} forecastTotal={sumForecast(cascadeRows)} />
+      {/*
+       * Etapa F5j-b: Brokered SÍ recibe closedCount/totalForecast (a
+       * diferencia de Banked, que sigue sin pasarlos, sin cambios) -- así su
+       * fila de total pasa a ser "Closed + Projection" y muestra EXACTAMENTE
+       * el mismo número que el Forecast de Brokered en Executive Branch
+       * Forecast (misma fuente: brokeredSummary en page.tsx), en vez de
+       * recalcular su propia proyección con otra partición de redondeo. Ver
+       * docs/ARQUITECTURA.md, Etapa F5j-b, para por qué hacía falta esto.
+       */}
+      <MilestoneCascade
+        rows={cascadeRows}
+        forecastTotal={sumForecast(cascadeRows)}
+        closedCount={channel === 'brokered' ? brokeredClosedCount : undefined}
+        totalForecast={channel === 'brokered' ? brokeredTotalForecast : undefined}
+      />
 
-      {/* MilestoneCascade acá sigue en modo "sin desglose de cerrados" (no se le
-          pasan closedCount/totalForecast) -- su "Total Forecast" es solo la
-          proyección de pull-through, un número distinto al Forecast del
-          banner/Executive (que sí suma cerrados). Se aclara con texto en vez de
-          cambiar qué le pasamos al componente. */}
+      {/* Banked: MilestoneCascade sigue en modo "sin desglose de cerrados" --
+          su "Total Forecast" es solo la proyección de pull-through, sin
+          cambios de F5j-b. Brokered: desde F5j-b el total de esta cascada YA
+          incluye Closed y coincide con Executive -- el texto de abajo lo
+          dice explícito en vez de repetir la aclaración vieja, que para
+          Brokered dejó de ser cierta. */}
       <p className="foot-note">
-        This total reflects pull-through projection only and does not include already-closed loans. See Executive Branch
-        Forecast for the combined figure (closed + projection).
+        {channel === 'banked'
+          ? 'This total reflects pull-through projection only and does not include already-closed loans. See Executive Branch Forecast for the combined figure (closed + projection).'
+          : 'This total already includes Closed loans (Closed + Projection) and matches the Brokered figure shown in Executive Branch Forecast.'}
       </p>
 
       {/* Spec §4D.3: tarjeta de Pull-Through Rates al pie del tab. */}
