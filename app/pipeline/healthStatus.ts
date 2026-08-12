@@ -29,7 +29,7 @@ export type HealthBadgeVariant = 'badge--emerald' | 'badge--amber' | 'badge--ros
  */
 export function healthStatusLabel(rawHealthiness: string): string {
   const v = rawHealthiness.trim();
-  return v === '' || v === 'On Track' ? 'Healthy' : v;
+  return v === '' ? 'Healthy' : v;
 }
 
 /**
@@ -44,6 +44,7 @@ export function healthStatusLabel(rawHealthiness: string): string {
 export function healthStatusVariant(label: string): HealthBadgeVariant {
   switch (label) {
     case 'Healthy':
+    case 'On Track':
       return 'badge--emerald';
     case 'Delayed':
       return 'badge--amber';
