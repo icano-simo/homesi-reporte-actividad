@@ -4,6 +4,9 @@ import { excelValueToYearMonth } from './excelDate';
 import type { RawLoanRow } from './types';
 
 const TOTAL_LOAN_AMOUNT_COLUMN = OPTIONAL_COLUMNS[0];
+const LOAN_PROGRAM_COLUMN = OPTIONAL_COLUMNS[1];
+const LOAN_FOLDER_NAME_COLUMN = OPTIONAL_COLUMNS[2];
+const AFFINITY_COLUMN = OPTIONAL_COLUMNS[3];
 
 function toRawString(value: unknown): string {
   return String(value === null || value === undefined ? '' : value).trim();
@@ -61,6 +64,9 @@ export function readWorkbook(workbook: WorkBook): RawLoanRow[] {
     columnIndex[column] = header.indexOf(column);
   });
   const totalLoanAmountIndex = header.indexOf(TOTAL_LOAN_AMOUNT_COLUMN);
+  const loanProgramIndex = header.indexOf(LOAN_PROGRAM_COLUMN);
+  const loanFolderNameIndex = header.indexOf(LOAN_FOLDER_NAME_COLUMN);
+  const affinityIndex = header.indexOf(AFFINITY_COLUMN);
 
   const result: RawLoanRow[] = [];
   for (let i = 1; i < rows.length; i++) {
@@ -75,6 +81,12 @@ export function readWorkbook(workbook: WorkBook): RawLoanRow[] {
         typeof raw === 'number' ? raw : parseFloat(String(raw).replace(/[^0-9.-]/g, '')) || 0;
     }
 
+    // Igual patrón que totalLoanAmount arriba: '' si el archivo no trae la
+    // columna (índice -1), sin transformar el valor si sí la trae.
+    const loanProgram = loanProgramIndex >= 0 ? toRawString(row[loanProgramIndex]) : '';
+    const loanFolderName = loanFolderNameIndex >= 0 ? toRawString(row[loanFolderNameIndex]) : '';
+    const affinity = affinityIndex >= 0 ? toRawString(row[affinityIndex]) : '';
+
     result.push({
       trueOrgId: toRawString(cell('True OrgID')),
       loanOfficer: toRawString(cell('loan_officer')),
@@ -87,6 +99,10 @@ export function readWorkbook(workbook: WorkBook): RawLoanRow[] {
       fundingMonth: excelValueToYearMonth(cell('Milestone Date - Funding')),
       completionMonth: excelValueToYearMonth(cell('Milestone Date - Completion')),
       totalLoanAmount,
+      loanNumber: toRawString(cell('loan_number')),
+      loanProgram,
+      loanFolderName,
+      affinity,
     });
   }
 

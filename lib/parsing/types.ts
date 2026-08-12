@@ -29,4 +29,12 @@ export interface RawLoanRow {
   completionMonth: YearMonth | null;
   /** Columna 'Total Loan Amount'; 0 si la columna está ausente o no es numérica. */
   totalLoanAmount: number;
+  /** Columna 'loan_number', valor crudo -- id único de préstamo (required). */
+  loanNumber: string;
+  /** Columna 'Loan Program' (optional), valor crudo. '' si el archivo no la trae. */
+  loanProgram: string;
+  /** Columna 'Loan Folder Name' (optional), valor crudo. '' si el archivo no la trae. */
+  loanFolderName: string;
+  /** Columna 'Affinity' (optional), valor crudo. '' si el archivo no la trae. */
+  affinity: string;
 }

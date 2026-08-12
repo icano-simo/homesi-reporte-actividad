@@ -27,10 +27,18 @@ export function classifyLoan(raw: RawLoanRow): LoanRecord {
     loanOfficer: loanOfficer ? loanOfficer.toUpperCase() : '(blank)',
     bd: bd ? bd : '(blank)',
     isB2B: raw.b2bLoans.trim() === 'B2B',
+    // Mismo valor crudo (sin trim ni normalizar) que se usó arriba para
+    // decidir closingMonth -- se expone tal cual, ver comentario en types.ts.
+    loanInfoChannel: raw.loanInfoChannel,
     fileCreationMonth: raw.fileCreationMonth,
     creditReportMonth: raw.creditReportMonth,
     appDateMonth: raw.appDateMonth,
     closingMonth,
     totalLoanAmount: raw.totalLoanAmount,
+    // Los 4 campos de abajo van tal cual, sin transformar (ver RawLoanRow).
+    loanNumber: raw.loanNumber,
+    loanProgram: raw.loanProgram,
+    loanFolderName: raw.loanFolderName,
+    affinity: raw.affinity,
   };
 }
