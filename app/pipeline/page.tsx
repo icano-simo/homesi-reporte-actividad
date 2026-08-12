@@ -352,10 +352,8 @@ export default function PipelinePage() {
       // forecastTotal y loans de cada fila. El desglose real de Brokered
       // (para su propia cascada) se recalcula aparte más abajo, a partir de
       // `loans`, no de estos campos vestigiales.
-      const forecastTotal =
-        channel === 'Brokered'
-          ? calculateBrokeredForecast(countByBrokeredMilestoneBucket(healthy), BROKERED_PULL_THROUGH_RATES).forecastTotal
-          : bankedFormulaForecastTotal;
+      // Desactivado por pedido: Brokered vuelve a forecastTotal = closedCount + healthyCount (sin cascada de pull-through, se asume que todo Healthy cierra).
+      const forecastTotal = channel === 'Brokered' ? healthy.length : bankedFormulaForecastTotal;
       branchRows.push({
         branch,
         channel,
