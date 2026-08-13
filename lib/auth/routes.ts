@@ -5,9 +5,10 @@
  *
  * Etapa AUTH1 — ARCHIVO NUEVO.
  *
- * Estas constantes las consumen TRES lugares que tienen que estar de acuerdo:
+ * Estas constantes las consumen estos lugares, que tienen que estar de acuerdo:
  *   - `proxy.ts`                             decide a dónde redirigir
  *   - `app/login/page.tsx`                   decide a dónde entrar
+ *   - `app/change-password/page.tsx`         decide a dónde entrar tras cambiarla
  *   - `components/layout/ServiceHubHeader`   decide si dibujarse o no
  *
  * Si vivieran duplicadas, cambiar una ruta y olvidar otra produce justo el bug
@@ -20,8 +21,13 @@ export const CHANGE_PASSWORD_PATH = '/change-password';
 /** La ruta que libera el flag `must_change_password` (necesita service_role). */
 export const COMPLETE_PASSWORD_CHANGE_PATH = '/api/auth/complete-password-change';
 
-/** A dónde va una sesión válida y con acceso: Commercial Activity. */
-export const DEFAULT_LANDING = '/';
+/**
+ * Etapa UX11: a dónde va una sesión válida y con acceso -- Forecast & Pipeline,
+ * no Commercial Activity. Solo cambia el destino de entrada; Commercial
+ * Activity sigue viviendo en `/` y sigue siendo alcanzable desde su botón en
+ * `ServiceHubHeader` (que apunta a `/` de forma literal, no a esta constante).
+ */
+export const DEFAULT_LANDING = '/pipeline';
 
 /**
  * Rutas del flujo de autenticación. No forman parte de la app en sí, así que

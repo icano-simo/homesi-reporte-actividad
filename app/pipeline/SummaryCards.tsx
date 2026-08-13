@@ -17,10 +17,13 @@ export interface SummaryCardsProps {
   banked: SummaryBlock;
   brokered: SummaryBlock;
   /**
-   * Mes usado para Cerrados/Forecast (ej. "August 2026") -- solo para
-   * mostrarlo, no un rango de fechas. Viene del MonthSelector.
+   * Etapa UX9: reemplaza `targetMonthLabel` como subtítulo de la tarjeta
+   * Closed -- suma de `bucketTotal.Closing` (page.tsx) de todas las filas de
+   * branch, ya existente (no es un cálculo nuevo), pasada acá para mostrar
+   * cuántos préstamos del pipeline abierto están en milestone Clear to
+   * Close/Closing (ya posicionados para cerrar pronto).
    */
-  targetMonthLabel?: string;
+  projectedToCloseSoon: number;
 }
 
 function fmtInt(n: number): string {
@@ -94,7 +97,7 @@ function ChannelSplit({
  *
  * Sin cambios de cálculo: los 3 bloques llegan ya calculados desde page.tsx.
  */
-export default function SummaryCards({ combined, banked, brokered, targetMonthLabel }: SummaryCardsProps) {
+export default function SummaryCards({ combined, banked, brokered, projectedToCloseSoon }: SummaryCardsProps) {
   const healthyPct = combined.totalCount ? Math.round((combined.healthyCount / combined.totalCount) * 100) : 0;
 
   return (
@@ -122,7 +125,15 @@ export default function SummaryCards({ combined, banked, brokered, targetMonthLa
         <div className="m-name">Closed</div>
         <div className="kpi-hero__value">{loansLabel(combined.closedCount)}</div>
         <ChannelSplit bankedValue={fmtInt(banked.closedCount)} brokeredValue={fmtInt(brokered.closedCount)} />
-        <div className="kpi-hero__sub">{targetMonthLabel ?? 'In target month'}</div>
+        {/* Etapa F5k: "(CTC)" agregado -- aclara que son los préstamos en
+            milestone Clear to Close, sin que el usuario tenga que adivinar
+            la sigla. Etapa UX10: color `--ctc-dot` (forecast-visual.css,
+            misma variable que el punto en PivotTable.tsx) -- se lee como la
+            misma cosa en los dos lugares, y no se pueden desincronizar
+            porque ambos leen la misma variable. */}
+        <div className="kpi-hero__sub kpi-hero__sub--ctc">
+          {loansLabel(projectedToCloseSoon)} Projected to close soon (CTC)
+        </div>
       </div>
 
       <div className="mcard mcard--sky">
@@ -142,15 +153,14 @@ export default function SummaryCards({ combined, banked, brokered, targetMonthLa
          * .toFixed(1) que ocultaba el redondeo.
          */}
         <ChannelSplit bankedValue={fmtRounded(banked.totalForecast)} brokeredValue={fmtRounded(brokered.totalForecast)} size="lg" />
-        <div className="kpi-hero__sub">Forecast = On Track Loans after PT + Closed</div>
         {/*
-         * Etapa F5j, Cambio 5: con Brokered fuera de la cascada de
-         * pull-through y operando sobre el Total (no Healthy), hace falta
-         * una aclaración corta de qué significa "Brokered" acá -- discreta
-         * (texto chico, gris), no un titular. Ver `.kpi-hero__note` en
-         * forecast-visual.css.
+         * Etapa UX9: se achica el subtítulo (`kpi-hero__sub--sm`, ver
+         * forecast-visual.css) y se saca la aclaración del 40% de Brokered
+         * (vivía acá desde F5j) -- esa nota solo aplica a un canal, no a esta
+         * tarjeta que resume ambos, así que se movió debajo de la tabla
+         * Brokered en PivotTable.tsx (Etapa UX9).
          */}
-        <div className="kpi-hero__note">Brokered applies a flat 40% pull-through rate on its open pipeline (Total).</div>
+        <div className="kpi-hero__sub kpi-hero__sub--sm">Forecast = On Track Loans after PT + Closed</div>
       </div>
     </div>
   );

@@ -22,7 +22,8 @@ export interface TabMilestoneMatrixProps {
   rows: BranchForecastRow[];
   /**
    * Etapa F5j-b: Closed y Total Forecast de Brokered YA calculados por
-   * branch en page.tsx (la misma fuente que Executive Branch Forecast) --
+   * branch en page.tsx (la misma fuente que la tab Projected Forecast,
+   * antes "Executive Branch Forecast" -- renombrada en UX9) --
    * se le pasan a MilestoneCascade para que su fila de total sea ese mismo
    * número, no uno recalculado acá. Banked no usa estos 2 props: su cascada
    * sigue mostrando solo la proyección (sin Closed), sin cambios.
@@ -44,6 +45,9 @@ type MetricView = 'total' | 'healthy';
  * intactos, alimentan MilestoneCascade exactamente igual que antes).
  */
 const UNDERWRITING_RAW_MILESTONES = ['Submittal', 'Initial Decision', 'Resubmittal'] as const;
+
+/** Etapa UX8: ancho fijo (%) de la columna de total por fila en la matriz Branch x Milestone -- ver colgroup más abajo. */
+const MATRIX_TOTAL_COL_PERCENT = 12;
 
 function isUnderwritingRawMilestone(key: string): key is (typeof UNDERWRITING_RAW_MILESTONES)[number] {
   return (UNDERWRITING_RAW_MILESTONES as readonly string[]).includes(key);
@@ -131,8 +135,17 @@ function fmtPct(rate: number): string {
   return (rate * 100).toFixed(1) + '%';
 }
 
-/** "FileCreation" -> "File Creation" -- transformación genérica por regex, no una lista de nombres hardcodeados (funciona igual para las keys de Banked o de Brokered, cualquiera sea el set real). */
+/**
+ * "FileCreation" -> "File Creation" -- transformación genérica por regex, no
+ * una lista de nombres hardcodeados (funciona igual para las keys de Banked o
+ * de Brokered, cualquiera sea el set real). Etapa UX9: 'Closing' es la única
+ * excepción explícita -- el rótulo visible pasa a ser "Clear to Close" (acá y
+ * en el título del modal de celda, que reusa esta misma función), pero la key
+ * `Closing` de BucketCounts (aggregate.ts) y toda la lógica que la usa NO
+ * cambian, solo este texto de display.
+ */
 function labelFromKey(key: string): string {
+  if (key === 'Closing') return 'Clear to Close';
   return key.replace(/([a-z])([A-Z])/g, '$1 $2');
 }
 
@@ -171,7 +184,9 @@ function bucketValue(bucket: BucketCounts | BrokeredBucketCounts, key: string): 
 }
 
 /**
- * Etapa F6f: tab "Milestone Pipeline Matrix" -- selector de canal (Banked -
+ * Etapa F6f: tab "Pipeline by Milestone" (renombrado en UX8, era "Milestone
+ * Pipeline Matrix" -- el nombre del archivo/componente no cambió, solo el
+ * texto visible en TabNavigation.tsx) -- selector de canal (Banked -
  * Retail / Brokered, sin tercera opción combinada, a propósito: cada canal
  * tiene su propia cascada con buckets/tasas incompatibles entre sí, ver
  * aggregate.ts) + toggle Total/Healthy + cuadro de Pull-Through Rates con
@@ -240,6 +255,29 @@ export default function TabMilestoneMatrix({
   // Brokered).
   const milestoneKeys = channel === 'banked' ? BANKED_MATRIX_COLUMNS : Object.keys(rates);
 
+  // Etapa UX9: se saca el cálculo por fila del .map() del JSX (antes vivía
+  // inline dentro del <tbody>) para poder derivar columnTotals/grandTotal sin
+  // recalcular rowValues una segunda vez. Mismo resultado de siempre por fila
+  // -- rowTotal sigue siendo la suma de rowValues, no row.totalCount/
+  // healthyCount (mismo motivo ya documentado abajo, en el comentario
+  // original: para Brokered esos 2 números pueden diferir de lo mostrado).
+  const rowsWithValues = filteredByChannel.map((row) => {
+    const { total, healthy } = bucketsForRow(row, channel);
+    const active = metricView === 'total' ? total : healthy;
+    const values = milestoneKeys.map((k) =>
+      channel === 'banked' && isUnderwritingRawMilestone(k) ? bankedRawMilestoneCount(row, k, metricView) : bucketValue(active, k)
+    );
+    const rowTotal = values.reduce((sum, v) => sum + v, 0);
+    return { row, values, rowTotal };
+  });
+  // Etapa UX9: totales por columna, agregados a la matriz junto con el total
+  // por fila (UX8). La celda esquina (grandTotal) es matemáticamente igual a
+  // la suma de columnTotals (por construcción) y a la suma de rowTotal de
+  // cada fila (asociatividad de la suma sobre la misma grilla) -- reconciliado
+  // también con datos reales en el reporte de esta etapa, no solo asumido.
+  const columnTotals = milestoneKeys.map((_, i) => rowsWithValues.reduce((sum, r) => sum + r.values[i], 0));
+  const grandTotal = columnTotals.reduce((sum, v) => sum + v, 0);
+
   return (
     <div>
       {/* Spec §4D.1: selector de canal (Banked por defecto) + selector de métrica. */}
@@ -279,12 +317,16 @@ export default function TabMilestoneMatrix({
           <table className="piv piv--matrix">
             {/* Primera columna fija en %, el resto repartido en
                 partes iguales segun cuantos milestones tenga el canal activo --
-                asi la matriz llena el ancho exacto sin desbordar. */}
+                asi la matriz llena el ancho exacto sin desbordar.
+                Etapa UX8: se resta el % de la columna Total (fija, 12%) del
+                presupuesto de 84% que antes se repartían solo los milestones,
+                así la tabla sigue sin desbordar con una columna más. */}
             <colgroup>
               <col className="matrix-branch-col" />
               {milestoneKeys.map((k) => (
-                <col key={k} style={{ width: `${(84 / milestoneKeys.length).toFixed(2)}%` }} />
+                <col key={k} style={{ width: `${((84 - MATRIX_TOTAL_COL_PERCENT) / milestoneKeys.length).toFixed(2)}%` }} />
               ))}
+              <col style={{ width: `${MATRIX_TOTAL_COL_PERCENT}%` }} />
             </colgroup>
             <thead>
               <tr className="mo-row">
@@ -292,42 +334,59 @@ export default function TabMilestoneMatrix({
                 {milestoneKeys.map((k) => (
                   <th key={k}>{labelFromKey(k)}</th>
                 ))}
+                {/* Etapa UX8: columna de total por fila -- `totcol` es la
+                    misma clase que ya usa PivotTable.tsx para su columna de
+                    total (borde izquierdo + fondo distinto + bold), así se
+                    lee como "total" con el mismo lenguaje visual del resto
+                    de la app, no como un milestone más. */}
+                <th className="totcol">Total</th>
               </tr>
             </thead>
             <tbody>
-              {filteredByChannel.map((row) => {
-                const { total, healthy } = bucketsForRow(row, channel);
-                const active = metricView === 'total' ? total : healthy;
-                return (
-                  <tr className="metric" key={row.branch}>
-                    <td className="lbl">{row.branch}</td>
-                    {milestoneKeys.map((k) => {
-                      const value =
-                        channel === 'banked' && isUnderwritingRawMilestone(k)
-                          ? bankedRawMilestoneCount(row, k, metricView)
-                          : bucketValue(active, k);
-                      return (
-                        <td className="val" key={k}>
-                          {/* Spec §4D.2: el 0 va apagado y sin affordance de
-                              click (no hay préstamos que auditar detrás). */}
-                          {value === 0 ? (
-                            <span className="cell-trigger is-zero">0</span>
-                          ) : (
-                            <button type="button" className="cell-trigger" onClick={() => openCellModal(row, k)}>
-                              {value}
-                            </button>
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                );
-              })}
+              {rowsWithValues.map(({ row, values, rowTotal }) => (
+                <tr className="metric" key={row.branch}>
+                  <td className="lbl">{row.branch}</td>
+                  {milestoneKeys.map((k, i) => {
+                    const value = values[i];
+                    return (
+                      <td className="val" key={k}>
+                        {/* Spec §4D.2: el 0 va apagado y sin affordance de
+                            click (no hay préstamos que auditar detrás). */}
+                        {value === 0 ? (
+                          <span className="cell-trigger is-zero">0</span>
+                        ) : (
+                          <button type="button" className="cell-trigger" onClick={() => openCellModal(row, k)}>
+                            {value}
+                          </button>
+                        )}
+                      </td>
+                    );
+                  })}
+                  {/* No es clickeable -- es la suma de las celdas de al
+                      lado, no una lista de préstamos propia que auditar
+                      (cada milestone individual ya es auditable). */}
+                  <td className="val totcol">{rowTotal}</td>
+                </tr>
+              ))}
               {!filteredByChannel.length && (
                 <tr>
-                  <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={milestoneKeys.length + 1}>
+                  <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={milestoneKeys.length + 2}>
                     No branches for this channel.
                   </td>
+                </tr>
+              )}
+              {/* Etapa UX9: fila de totales por columna, además del total por
+                  fila (UX8). `tr.grp.total td` ya está estilado de forma
+                  genérica en components.css -- se reusa sin CSS nuevo. */}
+              {!!filteredByChannel.length && (
+                <tr className="grp total">
+                  <td className="lbl">Total</td>
+                  {columnTotals.map((v, i) => (
+                    <td className="val" key={milestoneKeys[i]}>
+                      {v}
+                    </td>
+                  ))}
+                  <td className="val totcol">{grandTotal}</td>
                 </tr>
               )}
             </tbody>
@@ -362,8 +421,8 @@ export default function TabMilestoneMatrix({
           Brokered dejó de ser cierta. */}
       <p className="foot-note">
         {channel === 'banked'
-          ? 'This total reflects pull-through projection only and does not include already-closed loans. See Executive Branch Forecast for the combined figure (closed + projection).'
-          : 'This total already includes Closed loans (Closed + Projection) and matches the Brokered figure shown in Executive Branch Forecast.'}
+          ? 'This total reflects pull-through projection only and does not include already-closed loans. See Projected Forecast for the combined figure (closed + projection).'
+          : 'This total already includes Closed loans (Closed + Projection) and matches the Brokered figure shown in Projected Forecast.'}
       </p>
 
       {/* Spec §4D.3: tarjeta de Pull-Through Rates al pie del tab. */}
