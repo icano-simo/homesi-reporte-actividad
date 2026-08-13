@@ -1380,6 +1380,108 @@ confirmado también con una fila sintética de 3 dígitos ("123"): comparte el m
 que el resto. Los números de la columna quedan en línea recta por su borde derecho, el criterio
 pedido.
 
+---
+
+## Etapa BP1 — Módulo Business Plan OS (esqueleto navegable)
+
+Tercer módulo: **Branch Portfolio → Branch → Loan Officer**. Esta etapa construye la navegación y
+la resolución de identidades. El motor de triage **no** está implementado, a propósito.
+
+### El problema real que resuelve: la misma persona con tres nombres
+
+Cada fuente llama distinto a la misma persona, y `org.employee_alias` es la única autoridad:
+
+| roster (canónico) | salesforce (Forecast) | slquery (Commercial Activity) |
+|---|---|---|
+| Ana Zegarra (Peña) | Ana Milena Zegarra | ANA ZEGARRA |
+| Gian Laino | Giancarlo Laino | GIAN LAINO |
+| July Castro | Julymar Castro | JULYMAR MAR CASTRO |
+
+**Nunca se comparan nombres con `===` ni con heurísticas de similitud.** No es una regla teórica:
+en los datos conviven **Juseth Castro** y **July Castro**, dos personas distintas que cualquier
+"fuzzy match" fundiría en una. La tabla las mantiene separadas porque alguien lo decidió a mano;
+verificado que sus métricas no se mezclan (July: avg 0.67 / 3 abiertos; Juseth: avg 1.33 / 14
+funded).
+
+`lib/business-plan/aliasIndex.ts` hace búsqueda por clave exacta contra esa tabla. La única
+normalización que aplica (trim + mayúsculas) absorbe espaciado y capitalización entre el parser y
+el alias cargado — **no** decide identidad. Si llegara a colapsar dos alias que apuntan a personas
+distintas, el índice lo detecta y lo reporta en vez de elegir uno en silencio.
+
+### Casos del roster que el código soporta explícitamente
+
+- **Un branch con dos Branch Managers**: el 716 tiene Pier Laino + Nelson Calderón. Nunca se
+  asume uno solo.
+- **BM de varios branches y sin ser LO**: Pier Laino es BM de 710 y 716 y no aparece en ningún
+  directorio de LOs — los LOs salen de `employee_branch` con `role_in_branch='LO'`, y él no tiene
+  ninguna fila con ese rol.
+- **Producing BM**: aparece en las dos listas, y es correcto.
+- **LOs sin producción**: Rene Perez Jr (733), Sandro Villavicencio (760) y Shon Lamberty (724)
+  aparecen con ceros. Sólo tienen alias `roster`, así que ninguna fuente les atribuye nada.
+
+### Navegación: páginas, cero modales
+
+Tres rutas reales, con breadcrumb de `<Link>`s funcionales:
+
+```
+/business-plan                      Branch Portfolio
+/business-plan/branch/[code]        Branch Portfolio > 703 (Ana Zegarra (Peña))
+/business-plan/lo/[employeeKey]     Branch Portfolio > 703 > Matthew Gomez Bruckner
+```
+
+`branch_code` **no siempre es numérico**: hay `Affinity` y `Branch Out of Division` (con
+espacios). Se codifica y decodifica; las tres variantes responden 200.
+
+**`isActive` del header** pasó de `pathname === tab.href` a comparación por sub-camino. No se
+podía usar `startsWith` a secas: `/` es prefijo de todo y habría dejado Commercial Activity activo
+en cualquier ruta. La raíz se compara exacta; el resto contra `href + '/'`, así un futuro
+`/pipeline-x` no enciende el tab de `/pipeline`.
+
+### Supuesto que hay que confirmar
+
+**La ventana del promedio de cierres.** El brief pide "últimos 3 meses" sin decir si el mes en
+curso entra. Se **excluye**: se usan los 3 meses calendario completos anteriores. Incluirlo haría
+que el mismo LO pareciera peor evaluado un día 3 que un día 28, y ese promedio alimenta el GAP. La
+ventana usada se muestra en el pie de cada pantalla.
+
+### Lo que NO se decidió
+
+`lib/business-plan/triage.ts` no implementa ninguna fórmula, y explica por qué: la banda del GAP
+fraccionario no está definida, la condición de qualifiers es redundante como está escrita (falta
+saber si era **O**), los multiplicadores no existen y el ejemplo del negocio se contradice.
+
+Hoy **todos** los LOs son `not_evaluable`, y es correcto: `org.employee_benchmark` todavía no
+existe. Sin benchmark no hay nada que comparar — **no hay default a 2.0**.
+
+### Benchmark
+
+`docs/sql/2026-08-org-employee-benchmark.sql`, **entregado sin ejecutar**. Versionado por
+`(employee_key, effective_from)` para poder responder con qué número se evaluó a alguien en el
+pasado. La app tolera que la tabla no exista: lo detecta y lo dice en el pie de pantalla.
+
+### Hallazgos de datos para quien mantiene `org`
+
+- **21 nombres de `salesforce` sin alias ni exclusión.** `source_name_excluded` tiene 35 de
+  slquery y sólo 1 de salesforce. Entre los no mapeados hay LOs del roster (Aileen Perez, Claudia
+  Velasco, Jose Zamora, Isabel Wagner, Ludwig Aguillon, Sergio Vermejo) y "Adriana Szczech", que
+  sí está mapeada del lado slquery. La app los ignora sin romperse y los lista en el pie.
+- **210 filas con loan officer vacío** (`'(blank)'`, centinela de nuestro propio parser). Se
+  cuentan aparte para no enterrar los nombres que sí hay que clasificar.
+- **`Affinity` no tiene LOs ni BM** en el roster, aunque es branch de división.
+
+### Alcance respetado
+
+No se tocó `app/page.tsx`, `app/pipeline/**`, `lib/pipeline/**`, `lib/aggregation/**`,
+`lib/domain/**`, `lib/parsing/**`, `components/report/**`, `app/styles/components.css`, `proxy.ts`
+ni `lib/auth/**`. El CSS del módulo vive en `app/business-plan/styles/bp-visual.css`, importado
+sólo desde sus páginas.
+
+De `app/styles/tokens.css` sólo se **completó la escala ámbar**: ya existían `--amber-50` y
+`--amber-700` (de UX1, para el chip "Transferred"); se agregaron 100/200/500/800 para el estado
+intermedio de triage, sin tocar los dos que ya estaban en uso.
+
+---
+
 - **CL / SL** en nombres de archivo = residuo histórico de cuando existían dos empresas (City Lending / Supreme Lending); hoy solo existe Supreme Lending, no hay distinción de marca activa.
 - **Healthy / Delayed / Out of Scope / Never / Adverse** — estados de un préstamo en pipeline. Adverse = terminal (rechazado). Never = provisional, "ya sabemos que no va a cerrar pero Encompash no lo refleja aún" — se trata igual que Adverse para el forecast.
 - **Loan Folder** ≠ milestone — es una carpeta operativa (Current Prospects, My Pipeline, Underwriting, Brokered, Funded, Adverse Loans), no la secuencia de avance del préstamo.

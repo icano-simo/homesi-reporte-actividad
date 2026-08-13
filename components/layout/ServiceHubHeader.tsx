@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 import BrandLockup from './HomesiLogo';
-import { BarChartIcon, TrendingUpIcon } from '@/components/ui/icons';
+import { BarChartIcon, TrendingUpIcon, TargetIcon } from '@/components/ui/icons';
 import { isAuthRoute } from '@/lib/auth/routes';
 import UserMenu from './UserMenu';
 
@@ -33,7 +33,24 @@ interface NavTab {
 const NAV_TABS: NavTab[] = [
   { href: '/', label: 'Commercial Activity', icon: <BarChartIcon /> },
   { href: '/pipeline', label: 'Forecast & Pipeline', icon: <TrendingUpIcon /> },
+  { href: '/business-plan', label: 'Business Plan', icon: <TargetIcon /> },
 ];
+
+/**
+ * Etapa BP1: antes era `pathname === tab.href`, comparación exacta. Business
+ * Plan tiene rutas anidadas (/business-plan/branch/703, /business-plan/lo/12)
+ * y con la comparación exacta el tab quedaba apagado apenas se bajaba un nivel.
+ *
+ * No se puede reemplazar por un `startsWith` a secas: '/' es prefijo de TODO,
+ * así que Commercial Activity quedaría activo en cualquier ruta de la app. Por
+ * eso la raíz se trata como caso aparte, con igualdad exacta, y el resto por
+ * sub-camino -- comparando contra `href + '/'` para que un futuro '/pipeline-x'
+ * no encienda el tab de '/pipeline'.
+ */
+function isTabActive(pathname: string, href: string): boolean {
+  if (href === '/') return pathname === '/';
+  return pathname === href || pathname.startsWith(href + '/');
+}
 
 /** Título de módulo del header. Constante nombrada para no repetir el string. */
 const MODULE_TITLE = 'Analytics Portal';
@@ -64,7 +81,7 @@ export default function ServiceHubHeader() {
 
         <nav className="hub-nav" aria-label={MODULE_TITLE}>
           {NAV_TABS.map((tab) => {
-            const isActive = pathname === tab.href;
+            const isActive = isTabActive(pathname, tab.href);
             return (
               <Link
                 key={tab.href}

@@ -1,0 +1,335 @@
+/*
+ * ============================================================================
+ * ESTILOS EXCLUSIVOS DEL MÓDULO BUSINESS PLAN OS
+ * ============================================================================
+ *
+ * Etapa BP1 — ARCHIVO NUEVO.
+ *
+ * Se importa SÓLO desde las páginas de `app/business-plan/`, nunca desde
+ * globals.css. Mismo patrón que `app/pipeline/styles/forecast-visual.css`.
+ *
+ * `app/styles/components.css` NO se toca: es compartido con Commercial Activity
+ * y Forecast, y ya hubo incidentes. Lo que haga falta ajustar de ahí se
+ * sobrescribe desde este archivo, acotado por el prefijo `.bp-`.
+ *
+ * COLORES: todo sale de `app/styles/tokens.css`. Ni un hex literal. El brief de
+ * negocio mencionaba #0F172A y #DC2626, que NO son los colores de esta app --
+ * la paleta real es el Brand Book HomeSí 2025 (navy #001A40, coral #FF4040,
+ * sky #A6DEFF, canvas #FCFCFA).
+ *
+ * TABLAS: se reutiliza el lenguaje visual ya resuelto en `table.piv`
+ * (components.css) -- densidad, encabezado en mayúscula con letter-spacing,
+ * numéricas a la derecha, primera columna congelada. Acá sólo se agrega lo
+ * propio del módulo: filas clickeables, badges de triage y las tarjetas.
+ */
+
+/* ---------------------------------------------------------------------------
+ * Breadcrumb
+ * ------------------------------------------------------------------------ */
+
+.bp-crumbs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  margin-bottom: 14px;
+}
+.bp-crumbs a {
+  color: var(--slate-500);
+  text-decoration: none;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  padding: 2px 4px;
+}
+.bp-crumbs a:hover {
+  color: var(--navy);
+  background: var(--accent-soft);
+}
+/* El último segmento es texto plano: ya estás ahí, no es un destino. */
+.bp-crumbs__current {
+  color: var(--navy);
+  font-weight: 700;
+  padding: 2px 4px;
+}
+.bp-crumbs__sep {
+  color: var(--slate-300);
+}
+
+/* ---------------------------------------------------------------------------
+ * Tarjetas de resumen — mismo lenguaje que el banner de Forecast
+ * ------------------------------------------------------------------------ */
+
+.bp-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+@media (max-width: 900px) {
+  .bp-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.bp-kpi__value {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--navy);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+.bp-kpi__value--risk {
+  color: var(--rose-700);
+}
+.bp-kpi__value--ok {
+  color: var(--emerald-700);
+}
+.bp-kpi__sub {
+  font-size: 11px;
+  color: var(--slate-500);
+  margin-top: 6px;
+}
+
+/* ---------------------------------------------------------------------------
+ * Badges de triage
+ * ------------------------------------------------------------------------ */
+
+.bp-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: var(--radius-full);
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.bp-badge--ok {
+  background: var(--emerald-50);
+  color: var(--emerald-800);
+}
+/* El intermedio: la escala ámbar se completó en tokens.css para esto. */
+.bp-badge--warn {
+  background: var(--amber-50);
+  color: var(--amber-800);
+}
+.bp-badge--risk {
+  background: var(--rose-50);
+  color: var(--rose-700);
+}
+.bp-badge--muted {
+  background: var(--slate-100);
+  color: var(--slate-500);
+}
+
+/* Chip de rol (Producing BM, LO, tier...). */
+.bp-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+  padding: 1px 7px;
+  font-size: 10.5px;
+  font-weight: 700;
+  background: var(--accent-soft);
+  color: var(--navy);
+  margin-left: 6px;
+}
+
+/* ---------------------------------------------------------------------------
+ * Aviso de motor de triage pendiente
+ * ------------------------------------------------------------------------ */
+
+.bp-pending {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px dashed var(--amber-200);
+  background: var(--amber-50);
+  color: var(--amber-800);
+  border-radius: var(--radius-lg);
+  padding: 12px 16px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  margin-bottom: 20px;
+}
+.bp-pending svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.bp-pending strong {
+  font-weight: 800;
+}
+
+/* Bloque maquetado pero sin cálculo: se ve que está pendiente, no roto. */
+.bp-placeholder {
+  border: 1px dashed var(--slate-300);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  background: var(--slate-50);
+}
+.bp-placeholder__tag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--amber-800);
+  background: var(--amber-100);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  margin-bottom: 10px;
+}
+
+/* ---------------------------------------------------------------------------
+ * Filas clickeables — navegan a una PÁGINA, no abren un modal
+ * ------------------------------------------------------------------------ */
+
+.bp-row-link {
+  cursor: pointer;
+}
+.bp-row-link:hover td,
+.bp-row-link:hover td.lbl {
+  background: rgba(166, 222, 255, 0.28);
+}
+/* El foco tiene que verse: estas filas se navegan también con teclado. */
+.bp-row-link:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: -2px;
+}
+.bp-row-link td.lbl {
+  color: var(--navy);
+  font-weight: 700;
+}
+
+/* Anchos de las tablas del módulo. */
+.bp-table--branches col.bp-col-branch {
+  width: 14%;
+}
+.bp-table--branches col.bp-col-manager {
+  width: 34%;
+}
+.bp-table--branches col.bp-col-metric {
+  width: 17%;
+}
+
+.bp-table--los col.bp-col-name {
+  width: 26%;
+}
+.bp-table--los col.bp-col-metric {
+  width: 12%;
+}
+.bp-table--los col.bp-col-state {
+  width: 14%;
+}
+
+/* ---------------------------------------------------------------------------
+ * Perfil del LO (Pantalla 3)
+ * ------------------------------------------------------------------------ */
+
+.bp-profile {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  background: #fff;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+  padding: 20px;
+  margin-bottom: 20px;
+}
+.bp-profile__id {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+.bp-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--navy);
+  color: #fff;
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+.bp-profile__name {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--navy);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+.bp-profile__meta {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  color: var(--slate-500);
+  line-height: 1.5;
+}
+/* Contenedor de veredicto, arriba a la derecha. */
+.bp-verdict {
+  text-align: right;
+  min-width: 200px;
+}
+.bp-verdict__line {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  color: var(--slate-500);
+  max-width: 280px;
+}
+
+/* Grilla de métricas del LO. */
+.bp-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.bp-metric {
+  background: #fff;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+  padding: 14px;
+}
+.bp-metric__label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+  margin-bottom: 6px;
+}
+.bp-metric__value {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--navy);
+  line-height: 1.2;
+}
+.bp-metric__value--muted {
+  color: var(--slate-300);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* Pie de diagnóstico: qué se leyó y con qué ventana. */
+.bp-diagnostics {
+  margin-top: 18px;
+  font-size: 11px;
+  color: var(--slate-400);
+  line-height: 1.6;
+}
+.bp-diagnostics code {
+  font-family: inherit;
+  color: var(--slate-500);
+  font-weight: 600;
+}
