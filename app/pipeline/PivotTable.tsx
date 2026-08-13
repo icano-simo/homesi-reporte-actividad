@@ -402,7 +402,14 @@ function ExecTotalRow({ label, subtotal }: { label: string; subtotal: BlockSubto
         <ClosedValue value={subtotal.closedCount} />
       </td>
       <td className="val col-forecast">
-        {fmtForecast(subtotal.projectedToClose)}
+        {/* El subtotal nunca pinta el punto (va como "N CTC" en CtcSubtotalNote,
+            abajo) -- pero reserva el mismo espacio que las filas de arriba
+            (count=0 fijo, no subtotal.closingCount) para que su número quede
+            en la misma línea vertical que ellas. */}
+        <span className="ctc-cell">
+          <CtcDot count={0} />
+          {fmtForecast(subtotal.projectedToClose)}
+        </span>
         <CtcSubtotalNote count={subtotal.closingCount} />
       </td>
       <td className="totcol col-forecast">
@@ -421,10 +428,24 @@ function ExecTotalRow({ label, subtotal }: { label: string; subtotal: BlockSubto
  * verde siga significando "va bien" en toda la app (antes era un tono nuevo,
  * navy, elegido justamente para no chocar con Healthy -- ya no hace falta
  * distinguirlos porque Healthy perdió su punto en este mismo ajuste).
+ *
+ * Ajuste posterior: SIEMPRE se renderiza el punto (con `count > 0` solo
+ * decide si se pinta o queda transparente, vía `.ctc-dot--empty`), en vez de
+ * `return null` cuando count es 0. Antes, el elemento faltaba por completo en
+ * las filas sin CTC, así que esas filas medían menos que las filas con punto
+ * -- centrado dentro de la celda, eso desplazaba el número entre unas filas y
+ * otras (el 5 de Affinity no quedaba alineado con el 1 de 707). Reservando
+ * siempre el mismo espacio, pintado o no, el ancho de cada fila es idéntico
+ * y los números quedan en línea. Va ANTES del número (no después): "● 1", no
+ * "1 ●".
  */
 function CtcDot({ count }: { count: number }) {
-  if (count <= 0) return null;
-  return <span className="ctc-dot" title={count + ' loan' + (count === 1 ? '' : 's') + ' in Clear to Close'} />;
+  return (
+    <span
+      className={'ctc-dot' + (count > 0 ? '' : ' ctc-dot--empty')}
+      title={count > 0 ? count + ' loan' + (count === 1 ? '' : 's') + ' in Clear to Close' : undefined}
+    />
+  );
 }
 
 /**
@@ -488,8 +509,8 @@ function BranchDataRow({
           préstamos concreta que auditar. */}
       <td className="val col-forecast">
         <span className="ctc-cell">
-          {fmtForecast(row.projectedToClose)}
           <CtcDot count={row.closingCount} />
+          {fmtForecast(row.projectedToClose)}
         </span>
       </td>
       <td className="totcol col-forecast">
@@ -666,8 +687,8 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
                   </td>
                   <td className="val col-forecast">
                     <span className="ctc-cell">
-                      {fmtForecast(row.projectedToClose)}
                       <CtcDot count={row.closingCount} />
+                      {fmtForecast(row.projectedToClose)}
                     </span>
                   </td>
                   <td className="totcol col-forecast">

@@ -1358,9 +1358,27 @@ close soon (CTC)"). El punto de la tabla y el texto de la tarjeta se leen en el 
 `git diff --name-only main` para esta etapa: solo `app/pipeline/PivotTable.tsx` y
 `app/pipeline/styles/forecast-visual.css` -- `SummaryCards.tsx` no necesitó tocarse.
 
----
+### Ajuste posterior — orden y alineación del punto
 
-## Glosario rápido (para no repetir la investigación)
+Dos correcciones sobre la Parte 2, mismas 12 branches y mismo dataset:
+
+1. **Orden:** el punto pasa a ir ANTES del número ("● 1", no "1 ●") -- en `PivotTable.tsx`,
+   `<CtcDot>` ahora es el primer hijo de `.ctc-cell`, no el último.
+2. **Alineación:** `CtcDot` dejó de hacer `return null` cuando `count` es 0 -- ahora siempre
+   renderiza el `<span>` (con la clase `ctc-dot--empty`, transparente, cuando no corresponde
+   pintarlo). Antes, al faltar el elemento por completo en las filas sin CTC, esas filas medían
+   menos que las filas con punto, y el centrado de la celda desplazaba el número entre unas y
+   otras -- el 5 de Affinity no coincidía con el 1 de 707. El subtotal reserva el mismo espacio
+   con un punto siempre vacío (`<CtcDot count={0} />`, no `subtotal.closingCount`), para que su
+   número quede en la misma línea que las filas de arriba.
+
+**Verificado con `getBoundingClientRect()` sobre la tabla real (no a ojo):** las 12 filas de
+branch comparten exactamente el mismo borde izquierdo Y derecho del número (`left`/`right`
+idénticos, con o sin punto pintado). El subtotal ("32", 2 dígitos) comparte el mismo borde
+DERECHO que las 12 filas (borde izquierdo distinto, esperable por tener un dígito más) --
+confirmado también con una fila sintética de 3 dígitos ("123"): comparte el mismo borde derecho
+que el resto. Los números de la columna quedan en línea recta por su borde derecho, el criterio
+pedido.
 
 - **CL / SL** en nombres de archivo = residuo histórico de cuando existían dos empresas (City Lending / Supreme Lending); hoy solo existe Supreme Lending, no hay distinción de marca activa.
 - **Healthy / Delayed / Out of Scope / Never / Adverse** — estados de un préstamo en pipeline. Adverse = terminal (rechazado). Never = provisional, "ya sabemos que no va a cerrar pero Encompash no lo refleja aún" — se trata igual que Adverse para el forecast.

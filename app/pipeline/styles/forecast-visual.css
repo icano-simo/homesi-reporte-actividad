@@ -339,9 +339,19 @@
   --ctc-dot: var(--emerald-700);
 }
 /*
- * Envoltorio inline-flex del número + el punto -- así el punto queda
- * centrado verticalmente con el número (no debajo, como en F5k/UX10) sin
- * pelear con el `text-align:center` que ya tiene la celda.
+ * Envoltorio inline-flex del punto + el número -- el punto va PRIMERO (a la
+ * izquierda del número), centrado verticalmente con él (no debajo, como en
+ * F5k/UX10) sin pelear con el `text-align:center` que ya tiene la celda.
+ *
+ * Ajuste posterior: `.ctc-dot` se renderiza SIEMPRE (PivotTable.tsx ya no
+ * hace `return null` cuando count es 0) -- solo cambia si se pinta
+ * (`.ctc-dot--empty` lo deja transparente). Reservar el espacio siempre,
+ * pintado o no, es lo que evita que las filas sin CTC midan menos que las
+ * filas con punto: antes, centrado dentro de la celda, esa diferencia de
+ * ancho desplazaba el número entre una fila y otra. El subtotal reserva el
+ * mismo espacio con un punto siempre vacío (`<CtcDot count={0} />` fijo en
+ * PivotTable.tsx), así su número queda en la misma línea que las filas de
+ * arriba.
  */
 .ctc-cell {
   display: inline-flex;
@@ -355,6 +365,9 @@
   border-radius: 50%;
   background: var(--ctc-dot);
   flex-shrink: 0;
+}
+.ctc-dot--empty {
+  background: transparent;
 }
 /*
  * Fila de subtotal: no lleva punto (ver PivotTable.tsx, CtcSubtotalNote) --
