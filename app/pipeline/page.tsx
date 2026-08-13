@@ -403,6 +403,14 @@ export default function PipelinePage() {
   // acá sigue dando el total combinado real -- no hizo falta tocar esta
   // línea en F5i.
   const grandForecastTotal = filteredBranchRows.reduce((sum, r) => sum + r.forecastTotal, 0);
+  // Etapa UX9: "Projected to close soon" en la tarjeta Closed -- suma de
+  // bucketTotal.Closing de cada branchRow, ya existente (countByMilestoneBucket,
+  // ver el loop de arriba), sin cálculo nuevo. Para Brokered, bucketTotal es
+  // vestigial (formula de Banked sobre milestones que Brokered no usa), pero
+  // eso significa que su Closing da 0 en la práctica -- verificado: ningún
+  // rawMilestone real de Brokered mapea al bucket Closing de Banked -- así
+  // que sumar sobre los 2 canales sin filtrar por channel es seguro.
+  const projectedToCloseSoon = filteredBranchRows.reduce((sum, r) => sum + r.bucketTotal.Closing, 0);
 
   // Etapa F5i: antes esto agregaba bucketTotal/bucketHealthy/forecastByBucket
   // de TODOS los branchRows (ambos canales) para alimentar una única cascada
@@ -781,7 +789,7 @@ export default function PipelinePage() {
         <div>
           <h1 className="page-head__title">Forecast &amp; Pipeline</h1>
           <p className="page-head__subtitle">
-            Executive branch forecast, milestone pipeline matrix and adverse loans — {forecastMonthLabel}
+            Projected forecast, milestone pipeline matrix and adverse loans — {forecastMonthLabel}
           </p>
         </div>
         {data && (
@@ -851,7 +859,7 @@ export default function PipelinePage() {
             }}
             banked={bankedSummary}
             brokered={brokeredSummary}
-            targetMonthLabel={forecastMonthLabel}
+            projectedToCloseSoon={projectedToCloseSoon}
           />
 
           <TabNavigation activeTab={activeTab} onTabChange={setActiveTab} adverseCount={adverseInRange.length} />

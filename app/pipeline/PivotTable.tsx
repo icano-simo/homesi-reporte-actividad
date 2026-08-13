@@ -319,25 +319,15 @@ function ExecColgroup() {
 }
 
 /**
- * Etapa UX8: 2 filas de `<thead>` -- la primera agrupa Closed + Projected to
- * Close + Forecast bajo una única barra "Forecast" (colSpan=3), la segunda
- * tiene los rótulos reales de columna. Las 4 columnas de la izquierda
- * (Branch/Branch Manager/Total Pipeline/Healthy Pipeline) no tienen nada que
- * agrupar todavía, así que su celda en la fila de grupo va vacía -- ocupan su
- * lugar en el <colgroup> pero no dibujan texto ni tinte.
+ * Etapa UX8: agregó una fila de agrupación arriba ("Forecast" con colSpan=3).
+ * Etapa UX9: se quita -- los tintes de color (`col-pipeline`/`col-forecast`,
+ * ya aplicados a esta misma fila de rótulos) ya identifican el grupo sin
+ * necesidad de una segunda fila de `<thead>`; sacarla libera altura y
+ * simplifica el encabezado a una sola fila, como las demás tablas de la app.
  */
 function ExecHead() {
   return (
     <thead>
-      <tr className="mo-row exec-group-row">
-        <th className="lbl" />
-        <th className="th-left" />
-        <th className="col-pipeline group-start" />
-        <th className="col-pipeline" />
-        <th className="col-forecast group-start forecast-group-label" colSpan={3}>
-          Forecast
-        </th>
-      </tr>
       <tr className="mo-row">
         <th className="lbl">Branch</th>
         <th className="th-left">Branch Manager</th>
@@ -369,8 +359,12 @@ function ExecHead() {
 function ExecTotalRow({ label, subtotal }: { label: string; subtotal: BlockSubtotal }) {
   return (
     <tr className="grp total">
-      <td className="lbl">{label}</td>
-      <td></td>
+      {/* Etapa UX9: colSpan=2 sobre Branch+Branch Manager -- antes el label
+          ("Subtotal Brokered", "Combined Total (Banked - Retail + Brokered)")
+          se recortaba contra el ancho angosto de la sola columna Branch. */}
+      <td className="lbl" colSpan={2}>
+        {label}
+      </td>
       <td className="val col-pipeline group-start">{fmtInt(subtotal.totalCount)}</td>
       <td className="val col-pipeline">
         <span className="dot-healthy" />
@@ -473,7 +467,8 @@ function CountCell({
 }
 
 /**
- * TAB 1 — Executive Branch Forecast (spec §4C).
+ * TAB 1 — Projected Forecast (spec §4C; antes "Executive Branch Forecast",
+ * renombrada en Etapa UX9 -- el id interno de la tab ('executive') no cambió).
  *
  * Dos tablas lado a lado (Banked - Retail / Brokered) + una tercera con el
  * Combined Total agrupado por branch. Sin acordeones: cada celda numérica
@@ -577,6 +572,14 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
                 </tbody>
               </table>
             </div>
+            {/* Etapa UX9: nota reubicada acá desde el card "Total Forecast" --
+                el 40% flat pull-through solo aplica a Brokered, no tenía
+                sentido mostrarla en una tarjeta que resume ambos canales. */}
+            {block.channel === 'Brokered' && (
+              <p className="foot-note" style={{ padding: '0 16px 14px' }}>
+                Brokered applies a flat 40% pull-through rate on its open pipeline (Total).
+              </p>
+            )}
           </div>
         ))}
       </div>

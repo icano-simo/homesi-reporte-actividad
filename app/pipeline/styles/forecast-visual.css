@@ -73,7 +73,8 @@
 }
 
 /* ---------------------------------------------------------------------------
- * TAB 1 — Executive Branch Forecast (spec §4C)
+ * TAB 1 — Projected Forecast (spec §4C; antes "Executive Branch Forecast",
+ * renombrada en Etapa UX9)
  * ------------------------------------------------------------------------ */
 
 /* Grilla de 2 columnas: Banked - Retail | Brokered, lado a lado. */
@@ -104,15 +105,21 @@
  * Pipeline/Forecast como quinta columna de métrica, moviéndose adentro del
  * grupo Forecast -- ver PivotTable.tsx). Branch/Manager quedan igual
  * (12/32); 100-12-32=56, /5 = 11.2% cada métrica.
+ *
+ * Etapa UX9: Branch Manager venía siendo la columna más ancha de la tabla Y
+ * la que hoy recorta texto ("RANCH MANAGER" visible en pantalla) -- se achica
+ * de 32% a 18%, redistribuyendo esos 14 puntos entre las 5 columnas de
+ * métrica (11.2 -> 14% cada una) para no cambiar el ancho total de la tabla.
+ * 12 (branch) + 18 (manager) + 14x5 (métricas) = 100%.
  */
 .piv col.branch-col {
   width: 12%;
 }
 .piv col.manager-col {
-  width: 32%;
+  width: 18%;
 }
 .piv col.metric-col {
-  width: 11.2%;
+  width: 14%;
 }
 
 /* Matriz Branch x Milestone: la primera columna fija y el resto repartido en
@@ -196,9 +203,18 @@
  * permanente), y "Projected to Close" ya envuelve a 2 líneas en el header sin
  * problema (`white-space: normal` en la regla base del thead). Verificado con
  * capturas a 900/1200/1440px en el reporte de esta etapa.
+ *
+ * ETAPA UX9 -- SE BAJA A 500px. El brief pide "sin scroll" en 1150/1250/1350/
+ * 1440px, no solo 1440 como antes. El caso más angosto es 1150: cada tabla de
+ * canal mide (1150 - 64 - 20) / 2 = 533px reales -- un mínimo de 670px forzaba
+ * scroll horizontal permanente ahí, no ocasional. Con manager-col en 18% y
+ * metric-col en 14% (ver arriba), 500px de mínimo da 90px a Branch Manager y
+ * 70px a cada métrica -- suficiente para los badges/píldoras con
+ * `table-layout: fixed`. Verificado sin scrollbar en los 4 anchos que pide el
+ * brief (1150/1250/1350/1440px) en las 3 tablas ejecutivas, ver reporte.
  */
 .piv--exec {
-  min-width: 670px;
+  min-width: 500px;
 }
 
 /*
@@ -238,6 +254,12 @@
  * celda del grupo (`group-start`, Closed) y de la última (`totcol`,
  * Forecast); la del medio (Projected to Close) queda en ángulo recto, así el
  * fondo emerald-50 se lee como una sola franja.
+ *
+ * Etapa UX9: se quitó la fila de agrupación "Forecast" que iba arriba de esta
+ * (ver PivotTable.tsx) -- esta regla sigue aplicando igual sobre la única
+ * fila de `<thead>` que queda: el tinte emerald-50 + estas esquinas
+ * redondeadas ya identifican el grupo por sí solos, sin necesidad de una
+ * segunda fila con una barra de texto encima.
  */
 .piv--exec thead .mo-row th.col-forecast.group-start {
   border-top-left-radius: var(--radius-md);
@@ -248,28 +270,6 @@
 /* Divisor vertical al inicio de cada grupo de métrica. */
 .piv--exec thead .mo-row th.group-start {
   border-left: 1px solid var(--slate-200);
-}
-
-/*
- * Etapa UX8: fila de agrupación por encima de los rótulos reales -- "Forecast"
- * abarcando Closed + Projected to Close + Forecast (colSpan=3). Las celdas
- * vacías (Branch/Branch Manager/Total Pipeline/Healthy Pipeline, que todavía
- * no tienen nada que agrupar) van sin fondo ni texto -- solo ocupan su lugar
- * en el <colgroup>. Sin `border-bottom` propio para no duplicar la línea
- * gruesa que ya pone la fila de rótulos reales debajo.
- */
-.piv--exec thead tr.exec-group-row th {
-  border-bottom: none;
-  padding-bottom: 2px;
-}
-.piv--exec thead tr.exec-group-row th.forecast-group-label {
-  background: var(--emerald-50);
-  color: var(--emerald-800);
-  font-weight: 700;
-  font-size: 10px;
-  text-align: center;
-  border-top-left-radius: var(--radius-md);
-  border-top-right-radius: var(--radius-md);
 }
 
 /* --- Cuerpo: tinte por grupo --- */
@@ -459,19 +459,34 @@
 }
 
 /* ---------------------------------------------------------------------------
- * TAB 1 — nota de metodología en la tarjeta Total Forecast (Etapa F5j)
+ * TAB 1 — tarjeta Total Forecast: subtítulo chico + centrado de las 4
+ * tarjetas del banner (Etapa UX9)
  * ---------------------------------------------------------------------------
- * Aclara que Brokered aplica un 40% plano sobre el Total (no la cascada por
- * etapa de Banked). Va deliberadamente MÁS CHICA que `.kpi-hero__sub`
- * (11px, components.css) -- es una aclaración de letra chica, no un
- * titular. `.mcard`/`.kpi-hero__*` son compartidas con Commercial Activity;
- * esta clase es nueva y vive solo acá, no las toca.
+ * `.kpi-hero__sub--sm` achica el subtítulo "Forecast = On Track Loans after
+ * PT + Closed" por debajo del tamaño compartido `.kpi-hero__sub` (11px,
+ * components.css) -- modificador nuevo, vive solo acá, no toca la clase base
+ * que también usa Commercial Activity. La nota sobre el 40% de Brokered que
+ * vivía acá (Etapa F5j, `.kpi-hero__note`) se retiró: se movió como texto
+ * simple debajo de la tabla Brokered en PivotTable.tsx, que es el único
+ * lugar donde ese dato aplica.
+ *
+ * El centrado de contenido de las 4 tarjetas va scopeado a `.hero-banner`
+ * (verificado por grep: el SummaryCards de Commercial Activity no usa esta
+ * clase ni `.m-name`/`.kpi-hero__split`, así que no hay riesgo de que estas
+ * reglas se filtren a esa tabla).
  * ------------------------------------------------------------------------ */
-.kpi-hero__note {
-  font-size: 10px;
-  color: var(--slate-400);
-  margin-top: 4px;
-  line-height: 1.4;
+.kpi-hero__sub--sm {
+  font-size: 9.5px;
+}
+
+.hero-banner .mcard {
+  text-align: center;
+}
+.hero-banner .m-name {
+  justify-content: center;
+}
+.hero-banner .kpi-hero__split {
+  justify-content: center;
 }
 
 /* ---------------------------------------------------------------------------

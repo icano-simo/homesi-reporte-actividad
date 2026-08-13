@@ -985,6 +985,128 @@ de la UI por espacio (2-3 frases pedidas) -- documentadas acá en cambio.
 
 ---
 
+## Etapa UX9 — ajustes de tablas y tarjetas en Forecast
+
+Siete ajustes de presentación en Forecast & Pipeline, sin tocar `lib/pipeline/aggregate.ts` ni
+`app/api/pipeline/**`. Datos reales del snapshot activo (id 28, Supabase
+`eykplgdwlqpybzkzbpmu`, `pipeline_forecast.pipeline_loans`/`pipeline_resolved_loans`, leídos
+read-only el 2026-08-12).
+
+### Parte 1 — Tabla ejecutiva: entra sin scroll + se quita la barra "FORECAST"
+
+`.piv col.manager-col` baja de 32% a 18%; los 14 puntos liberados se reparten entre las 5
+columnas de métrica (11.2% → 14% cada una) — Branch queda igual (12%), la tabla sigue sumando
+100% de ancho, no cambia el ancho total. La fila de agrupación `exec-group-row` ("FORECAST" con
+colSpan=3, agregada en UX8) se elimina de `ExecHead` (`PivotTable.tsx`) y de
+`forecast-visual.css` — el tinte `emerald-50` + las esquinas redondeadas de `col-forecast`
+(ya existían) siguen identificando el grupo Forecast sin necesidad de una segunda fila de
+`<thead>`.
+
+`.piv--exec { min-width }` baja de 670px a 500px. UX8 solo había verificado sin-scroll a
+≤900px y ≥1440px (con scroll propio de la tabla entre ~1150-1350px, documentado ahí como
+trade-off). Este ajuste pide explícitamente sin scroll en 1150/1250/1350/1440px — el caso más
+angosto (1150px) da (1150-64-20)/2 = 533px reales por tabla de canal, así que el mínimo tenía
+que bajar de 670 a ≤533px.
+
+**Verificado con Playwright** (harness con las 3 tablas ejecutivas reales — Banked, Brokered,
+Combined — usando las hojas de estilo reales del repo vía `file://` y datos reales de las 12
+branches de Banked + 8 de Brokered, snapshot 28):
+
+| Viewport | Banked (`scrollWidth`/`clientWidth`) | Brokered | Combined |
+|---|---|---|---|
+| 1150px | 531 / 531 | 531 / 531 | 1084 / 1084 |
+| 1250px | 581 / 581 | 581 / 581 | 1184 / 1184 |
+| 1350px | 631 / 631 | 631 / 631 | 1284 / 1284 |
+| 1440px | 676 / 676 | 676 / 676 | 1374 / 1374 |
+
+Sin scroll horizontal en ningún caso (`scrollWidth === clientWidth` en las 3 tablas, en los 4
+anchos). Trade-off real, no oculto: con Branch Manager en 18% (95px reales a 1150px en las
+tablas de canal), algunos nombres largos (Armando Tejeda, Mariano Claudio, Stephanie García,
+Steve Badovinac) activan el recorte con puntos suspensivos que ya existe en `table.piv td`
+(`overflow:hidden;text-overflow:ellipsis`, HOTFIX UX2) — el nombre completo sigue disponible en
+el `title` de la celda. En la tabla Combined (ancho completo, sin partir en 2 columnas) los 194px
+reales de manager-col alcanzan para mostrar todos los nombres completos.
+
+### Parte 2 — Subtotal sin recortar
+
+`ExecTotalRow` (`PivotTable.tsx`) combina Branch + Branch Manager en un solo `<td className="lbl"
+colSpan={2}>{label}</td>` — antes el label completo ("Subtotal Brokered", "Combined Total
+(Banked - Retail + Brokered)") tenía que entrar en el ancho de la sola columna Branch (12%) y se
+recortaba. Verificado en las capturas: los 3 labels de cierre se leen completos en los 4 anchos
+probados.
+
+### Parte 3 — "Clear to Close" + totales por columna en Pipeline by Milestone
+
+`labelFromKey()` (`TabMilestoneMatrix.tsx`) agrega una excepción explícita: `'Closing' →
+'Clear to Close'`, antes de la transformación genérica por regex. Solo cambia el texto (acá y en
+el título del modal de celda, que reusa la misma función) — la key `Closing` de `BucketCounts`
+(`aggregate.ts`) y toda la lógica de pull-through no se tocan.
+
+El cálculo por fila (antes inline en el `.map()` del `<tbody>`) se saca a un array
+`rowsWithValues` construido antes del JSX, para poder derivar `columnTotals`/`grandTotal` sin
+recalcular. Se agrega una fila `<tr className="grp total">` al pie con el total de cada columna
+más la celda esquina (`grandTotal`) — reusa el estilo genérico `tr.grp.total td` que ya existe
+en `components.css`, sin CSS nuevo.
+
+**Verificado con datos reales** (12 branches de Banked, 8 de Brokered, snapshot 28, metricView
+Total):
+
+| Canal | Columnas | Suma de totales por fila | Suma de totales por columna | Celda esquina |
+|---|---|---|---|---|
+| Banked - Retail | Started 14, Processing 14, Submittal 4, Initial Decision 29, Resubmittal 7, Clear to Close 6 | 74 | 74 | 74 |
+| Brokered | File Creation 5, App Date 0, Processing 20, Submitted 0 | 25 | 25 | 25 |
+
+Las 3 cifras coinciden en los 2 canales — reconciliado también programáticamente (no solo a
+ojo) leyendo el DOM del harness de verificación.
+
+### Parte 4 — Tarjeta "Closed": de mes a "Projected to close soon"
+
+Se saca el subtítulo de mes (`targetMonthLabel`, "August 2026") y se reemplaza por el conteo de
+préstamos del pipeline abierto en milestone Clear to Close/Closing — ya calculado
+(`bucketTotal.Closing` de cada `BranchForecastRow`, sumado sobre todas las filas en `page.tsx`),
+sin cálculo nuevo. Se suma sobre los 2 canales sin filtrar por channel porque `bucketTotal` es
+vestigial para Brokered (usa el esquema de buckets de Banked, que Brokered no puebla) — verificado
+contra el snapshot real: ninguna fila Brokered tiene `milestone='Closing'` (0 de 25 préstamos), así
+que sumar sin filtrar da el mismo resultado que filtrar por Banked únicamente.
+
+**Real, snapshot 28, `estClosingDate` en pipelineDateRange (2026-07-01 a 2026-09-30):**
+`bucketTotal.Closing` = 6 (Banked) + 0 (Brokered) = **6 préstamos** → tarjeta Closed muestra
+"6 Loans Projected to close soon".
+
+### Parte 5 — Tarjeta "Total Forecast": subtítulo más chico + nota reubicada
+
+Se agrega el modificador `.kpi-hero__sub--sm` (9.5px, contra 11px de `.kpi-hero__sub` base) al
+subtítulo "Forecast = On Track Loans after PT + Closed" -- es lo único que queda como
+sub-contenido de la tarjeta, tal como pide el brief. El desglose Banked/Brokered
+(`ChannelSplit`) NO se quita -- el brief solo pedía achicar el subtítulo y reubicar la nota, no
+quitar el desglose.
+
+La nota "Brokered applies a flat 40% pull-through rate on its open pipeline (Total)." se saca de
+`SummaryCards.tsx` (`.kpi-hero__note`, que queda sin consumidores y se borra de
+`forecast-visual.css`) y se agrega como `<p className="foot-note">` debajo de la tabla Brokered
+en `PivotTable.tsx` -- solo aplica a ese canal, no tenía sentido en una tarjeta que resume los 2.
+
+### Parte 6 — Centrado de las 4 tarjetas del banner
+
+3 reglas nuevas scopeadas a `.hero-banner` (`.mcard { text-align:center }`, `.m-name { justify-
+content:center }` -- ya era flex --, `.kpi-hero__split { justify-content:center }`). Verificado
+por grep antes de escribirlas: el `SummaryCards` de Commercial Activity no usa `.hero-banner` en
+ningún lado, así que no hay riesgo de que se filtren ahí. Mismo orden/estructura de las 4
+tarjetas, solo cambia la alineación horizontal del contenido.
+
+### Parte 7 — Renombre de tab: "Executive Branch Forecast" → "Projected Forecast"
+
+Mismo patrón que el renombre de UX8: `TabNavigation.tsx` (`TABS`, el `id` sigue siendo
+`'executive'`), el subtítulo de `page.tsx` ("Executive branch forecast, milestone pipeline
+matrix..." → "Projected forecast, milestone pipeline matrix..."), y los comentarios/JSDoc de
+`PivotTable.tsx`/`TabMilestoneMatrix.tsx`/`forecast-visual.css` que lo mencionaban. Búsqueda del
+string viejo en todo el repo antes de dar por terminado: los únicos 3 restantes son narración
+histórica de etapas pasadas en este mismo documento (líneas de la sección "Estructura de
+carpetas", Etapa F6, y Etapa F5j-b) y el propio encabezado "Parte 1" de la sección UX8 de arriba
+-- se dejan como estaban, mismo criterio que UX8 usó para "Milestone Pipeline Matrix".
+
+---
+
 ## Glosario rápido (para no repetir la investigación)
 
 - **CL / SL** en nombres de archivo = residuo histórico de cuando existían dos empresas (City Lending / Supreme Lending); hoy solo existe Supreme Lending, no hay distinción de marca activa.
