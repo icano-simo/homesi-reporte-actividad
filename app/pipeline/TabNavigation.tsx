@@ -25,7 +25,9 @@ interface TabDefinition {
 
 const TABS: TabDefinition[] = [
   { id: 'executive', label: 'Executive Branch Forecast', icon: <BuildingIcon size={14} /> },
-  { id: 'matrix', label: 'Milestone Pipeline Matrix', icon: <GridIcon size={14} /> },
+  // Etapa UX8: renombrado de "Milestone Pipeline Matrix" -- el id ('matrix')
+  // no cambia (nada más depende de él), solo el texto visible del botón.
+  { id: 'matrix', label: 'Pipeline by Milestone', icon: <GridIcon size={14} /> },
   { id: 'adverse', label: 'Adverse & Risk Loans', icon: <AlertTriangleIcon size={14} />, badge: 'adverseCount' },
 ];
 

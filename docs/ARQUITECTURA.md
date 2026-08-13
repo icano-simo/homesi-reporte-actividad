@@ -176,7 +176,15 @@ Agregadas `--canvas`, `--coral`, `--sky` (paleta de marca, fundaciones agregadas
 7. **`fixtures/pipeline-demo.ts`** sigue en el repo, ya no se usa desde `page.tsx` — candidato a limpieza, no autorizado a borrar todavía.
 8. **[Histórico, F4i] Préstamo "invisible" entre Pipeline y Adverse — el motivo ya no aplica desde F5h.** Caso real encontrado (préstamo `776002059702`, agosto 2026): bajo el criterio original de F4i (`status='adverse'` Y `Loan Status='Application withdrawn'` Y Est. Closing Date en rango), un `Stage = Closed Lost` puesto por error/sin autorización en Salesforce (sin pasar por Encompash) caía en un hueco — no contaba como Pipeline (porque `Stage` no era `Negotiation`) ni aparecía en la tabla de Adverse, porque su `Loan Status` no era `Application withdrawn` (el préstamo en realidad seguía activo en Salesforce). Alejandra corrigió el caso puntual en Salesforce y restringió permisos para que no se repita.
 
-   **Criterio actual (desde F5h)**: Adverse filtra solo por `status='adverse'` Y Est. Closing Date dentro del rango activo — ya no se filtra por `Loan Status` ni por `Loan Folder` (deliberadamente, confirmado por el negocio que ese campo puede estar desactualizado). El filtro por `Loan Status='Application withdrawn'` fue el diseño original de F4i; se descartó en F5h porque excluía Adverse legítimos con otros motivos (Application denied, File Closed for incompleteness, y hasta casos con `Loan Status` desincronizado tipo "Active Loan" a pesar de `Stage=Closed Lost`). Con el criterio de hoy, un caso como el de arriba ya aparecería en Adverse sin necesidad de ninguna alerta extra.
+   **Criterio de F5h (histórico, ya no es el vigente)**: Adverse filtraba solo por `status='adverse'` Y Est. Closing Date dentro del rango activo — sin `Loan Status` ni `Loan Folder`. El filtro por `Loan Status='Application withdrawn'` fue el diseño original de F4i; se descartó en F5h porque excluía Adverse legítimos con otros motivos (Application denied, File Closed for incompleteness, y hasta casos con `Loan Status` desincronizado tipo "Active Loan" a pesar de `Stage=Closed Lost`).
+
+   **Criterio actual (desde F5j/F5m, confirmado contra `adverseInRange` en `page.tsx` en la Etapa UX8 -- este párrafo estaba desactualizado y se corrige acá):**
+   1. `status === 'adverse'`.
+   2. La fecha efectiva es `firstSeenAsAdverse` (F5g, primera vez que ese préstamo se vio como adverse en algún snapshot) — o, si es `null` ("recién visto por primera vez"), la fecha del snapshot activo. Ya **no** es Est. Closing Date, y el rango ya **no** es Pipeline Range: es el **Forecast Month** elegido (mismo mes que usa Cerrados).
+   3. Brokered: se excluyen los que están en Loan Folder = "Current Prospects" (F5m) — **esto SÍ vuelve a filtrar por Loan Folder**, al revés de lo que decía este párrafo antes de esta corrección.
+   4. Banked - Retail: se excluyen los que no tienen Est. Closing Date (F5m).
+
+   Con el criterio de F5h, un caso como el de arriba ya aparecería en Adverse sin necesidad de ninguna alerta extra; con el criterio actual también, salvo que caiga en alguna de las 2 exclusiones de F5m.
 9. **`BranchForecastRow.bucketTotal`/`.bucketHealthy` son vestigiales para Brokered — riesgo activo para cualquier componente nuevo.** Ese tipo (definido en `PivotTable.tsx`) está tipado fijo a `BucketCounts`, el esquema de Banked (`Started`/`Processing`/`Underwriting`/`Closing`). `page.tsx` los calcula con `countByMilestoneBucket()` sin importar el canal, así que para una fila de canal Brokered esos 2 campos quedan con las keys y los valores de la clasificación de Banked — **no** los reales de Brokered (`FileCreation`/`AppDate`/`Processing`/`Submitted`). No es un bug nuevo (viene desde F5i, documentado ahí), pero cobra importancia recién ahora que `TabMilestoneMatrix.tsx` (F6) necesitó datos de bucket por branch: cualquier componente que lea `bucketTotal`/`bucketHealthy` directo de una fila Brokered va a mostrar datos incorrectos con etiquetas de Banked. **La forma correcta**: recalcular desde `row.loans` con `countByBrokeredMilestoneBucket()` (`aggregate.ts`, ya exportada) -- ver `bucketsForRow()` en `TabMilestoneMatrix.tsx` para el patrón ya implementado. Arreglarlo de raíz (que `BranchForecastRow` tenga un shape específico por canal) requeriría tocar `PivotTable.tsx`, fuera de alcance hasta ahora.
 10. **`BANKED_MATRIX_COLUMNS` (`TabMilestoneMatrix.tsx`) está acoplado a mano con `MILESTONE_BUCKET` (`lib/pipeline/sources/salesforce-file.ts`) — sin ninguna referencia en código que los mantenga sincronizados.** Ajuste posterior a F6: la matriz Branch x Milestone desagrega el bucket `Underwriting` de Banked (que colapsa `Submittal`/`Initial Decision`/`Resubmittal`) en 3 columnas de vista, contando a mano sobre `rawMilestone` de cada préstamo (`bankedRawMilestoneCount()`) -- el cálculo de pull-through no cambió, sigue usando `bucketTotal.Underwriting`/`bucketHealthy.Underwriting` con la tasa combinada. El array `BANKED_MATRIX_COLUMNS = ['Started', 'Processing', 'Submittal', 'Initial Decision', 'Resubmittal', 'Closing']` está copiado a mano de `MILESTONE_BUCKET` -- si el parser agrega/quita un valor de `Current Milestone` dentro de Underwriting, `BANKED_MATRIX_COLUMNS` queda desactualizado en silencio (no rompe el build, solo deja de mostrar/cuenta mal una columna). No se resolvió leyendo dinámicamente de `MILESTONE_BUCKET` porque `sources/salesforce-file.ts` estaba fuera de la lista de archivos permitidos en esa etapa.
 11. **`BROKERED_COLUMN_TO_RAW_MILESTONE` (`TabMilestoneMatrix.tsx`) es el mismo tipo de acoplamiento manual que el riesgo 10, pero contra `BROKERED_MILESTONE_BUCKET` (`lib/pipeline/aggregate.ts`, constante privada del módulo, no exportada).** Ajuste posterior: al hacerse clickeable cada celda de la matriz (para abrir `LoanDetailModal` con la lista real de préstamos de esa columna), hizo falta filtrar préstamos individuales de Brokered por `rawMilestone` -- `countByBrokeredMilestoneBucket()` (sí exportada) solo devuelve conteos agregados, no permite filtrar por préstamo. Como `aggregate.ts` estaba fuera de la lista de archivos permitidos en esa tarea (no se podía exportar `BROKERED_MILESTONE_BUCKET` ni agregar una función de filtro ahí), se copió el mapeo a mano en `TabMilestoneMatrix.tsx`, verificado línea por línea contra el código real antes de escribirlo: `Started->FileCreation`, `Processing->Processing`, `Submittal->Submitted` (`AppDate` no tiene ningún `rawMilestone` real que mapee ahí, columna siempre en 0). Mismo riesgo que el ítem 10: si `BROKERED_MILESTONE_BUCKET` cambia en `aggregate.ts`, esta copia queda desactualizada en silencio.
@@ -886,6 +894,94 @@ con la primera línea de la etiqueta incluso cuando ésta ocupa dos.
 Falta confirmar con el negocio si además hay que renombrar la métrica `App Date` a
 `Applications` (afecta también los rótulos de fila del Excel exportado, `config/metrics.ts`
 es fuente única). Fuera de alcance de esta etapa a propósito.
+
+---
+
+## Etapa UX8 — columnas de Forecast desglosadas, total por fila en Pipeline by Milestone, explicación de Adverse
+
+Cuatro cambios de presentación en Forecast & Pipeline, sin tocar `lib/pipeline/aggregate.ts`.
+
+### Parte 1 — Executive Branch Forecast: nuevo orden + desglose
+
+Orden de columnas, antes `Branch | Branch Manager | Closed | Total Pipeline | Healthy Pipeline
+| Forecast`, pasa a `Branch | Branch Manager | Total Pipeline | Healthy Pipeline | Closed |
+Projected to Close | Forecast` — Closed se mueve adentro de un grupo "Forecast" (barra
+agrupadora nueva, colSpan=3, `<thead>` con 2 filas) junto a una columna nueva, **Projected to
+Close** (= `branchForecastRow.forecastTotal`, ya calculado — sin cálculo nuevo). El título
+completo ("Open pipeline loans (Total) projected to close after applying pull-through --
+before adding Closed.") va en el `title` de esa `<th>`.
+
+`ExecColgroup`/`ExecHead`/`ExecTotalRow`/`BranchDataRow` son compartidas por los 3 bloques
+(Banked, Brokered, Combined Total by Branch) — confirmado leyendo el archivo antes de asumirlo
+(el 3er bloque, "Combined Total by Branch", arma sus filas con JSX inline, no con
+`BranchDataRow`, pero usa el mismo `ExecColgroup`/`ExecHead`/`ExecTotalRow` compartido) — un
+solo cambio alcanzó para los 3.
+
+`BranchRow`/`BlockSubtotal`/`CombinedBranchRow` suman un campo nuevo, `projectedToClose` (=
+`branchForecastRow.forecastTotal` de cada fila, reexpuesto, no recalculado). `col-closed` (el
+grupo propio que tenía Closed) queda sin consumidores -- se retiró de `forecast-visual.css`.
+
+**Hallazgo, corregido de paso:** el foot-note bajo la tabla decía *"the Combined Total is
+calculated from the underlying decimal values before rounding, so it may differ by a small
+margin from the sum of the rounded subtotals"* — cierto en F5j-a, pero ya no: desde F5j-b
+`forecastTotal` se redondea por fila de branch en `page.tsx` antes de llegar acá, así que todo
+subtotal (de canal o Combinado) es ya la suma exacta de filas enteras. Se reemplazó el texto en
+vez de dejar una afirmación que esta misma etapa demuestra falsa.
+
+Verificado con datos reales (snapshot activo, 2026-08-12): Closed + Projected to Close =
+Forecast en cada fila, y los subtotales de las 2 columnas nuevas son la suma exacta de las
+filas, en Banked, Brokered y Combinado — sin excepciones.
+
+**Ancho de columnas** — con una columna más (7 en vez de 6), `.piv col.metric-col` baja de 14%
+a 11.2% (Branch/Manager quedan igual, 12/32). Repetir el piso de 90px por métrica de UX5/UX6
+pediría 804px de mínimo por tabla, muy por encima de los ~648px reales que le tocan a cada tabla
+de canal en el layout de 2 columnas — forzaría scroll horizontal siempre, no solo en pantallas
+chicas. Se relaja a 75px (670px de mínimo). Verificado con Playwright: sin scroll a ≤900px
+(`.channel-grid` ya colapsó a 1 columna, cada tabla tiene ancho completo) y a ≥1440px; entre
+~1150 y ~1350px cada tabla de canal SÍ necesita scroll horizontal propio (nunca del body) para
+ver Projected to Close/Forecast completos -- es el trade-off real de agregar una columna, no un
+bug; capturas del antes/después de scrollear en el reporte de esta etapa.
+
+### Parte 2 — Renombre de pestaña
+
+"Milestone Pipeline Matrix" → "Pipeline by Milestone". **El brief decía que el rótulo vivía en
+`app/pipeline/page.tsx` — no es así:** el texto real está en `app/pipeline/TabNavigation.tsx`
+(`TABS` array), un archivo que no estaba en la lista de "se puede tocar" de esta etapa. Se
+corrigió ahí de todos modos porque es inequívocamente el mismo cambio que pedía el brief (el
+texto visible del botón de esa pestaña), solo que en el archivo correcto -- confirmado
+buscando el string viejo en todo el repo antes de dar por terminado (apareció también en un
+comentario de `TabMilestoneMatrix.tsx` y en 3 lugares de este documento, todos actualizados).
+
+### Parte 3 — Total por fila en Pipeline by Milestone
+
+La matriz Branch × Milestone (`TabMilestoneMatrix.tsx`) suma una columna final "Total" (ancho
+fijo 12%, el resto se reparte entre los milestones) con la clase `totcol` que ya usa
+`PivotTable.tsx` para su columna de total -- mismo lenguaje visual, no un milestone más. El
+total de cada fila es la **suma de lo que esa fila muestra** (los `milestoneKeys` visibles), no
+`row.totalCount`/`row.healthyCount`: para Brokered esos 2 números pueden diferir si hay algún
+préstamo con un `rawMilestone` que no mapea a ningún bucket conocido (riesgo ya documentado
+arriba, `BROKERED_MILESTONE_BUCKET`) -- sumar lo mostrado es lo único que garantiza que el
+total de la fila cuadre con las columnas de esa misma fila, siempre. No existía una fila de
+totales por columna en esta tabla (se verificó antes de asumir que hacía falta cuadrar una
+celda de esquina) -- no se agregó una, no la pedía el brief.
+
+### Parte 4 — Texto introductorio en Adverse & Risk Loans
+
+**Hallazgo:** el criterio documentado en este archivo (§"Criterio actual (desde F5h)", más
+arriba) estaba desactualizado -- describía el filtro de F5h (`status='adverse'` + Est. Closing
+Date en Pipeline Range, sin `Loan Folder`), pero el código real (`adverseInRange` en
+`page.tsx`) hace tiempo que corre con el criterio de F5j/F5m: `firstSeenAsAdverse` dentro del
+**Forecast Month** (no Est. Closing Date en Pipeline Range), más 2 exclusiones por canal
+(Brokered: fuera `Loan Folder='Current Prospects'`; Banked: fuera si no tiene Est. Closing
+Date) -- la afirmación *"ya no se filtra... por Loan Folder"* es exactamente lo contrario de lo
+que hace el código hoy para Brokered. Se corrigió esa sección más arriba en vez de dejarla
+como estaba.
+
+El texto de `AdverseTable.tsx` se escribió a partir del código corregido, no de la
+documentación vieja: explica que la tabla lista préstamos `status='adverse'` cuya primera
+detección como tal cae dentro del Forecast Month elegido, y qué significa "New this period".
+Las 2 exclusiones por canal (Current Prospects / Est. Closing Date) quedaron fuera del texto
+de la UI por espacio (2-3 frases pedidas) -- documentadas acá en cambio.
 
 ---
 

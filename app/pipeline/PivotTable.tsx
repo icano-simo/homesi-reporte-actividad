@@ -45,6 +45,15 @@ interface BranchRow {
   closedCount: number;
   totalCount: number;
   healthyCount: number;
+  /**
+   * Etapa UX8: = `branchForecastRow.forecastTotal` (ya existía, sin cálculo
+   * nuevo) -- los préstamos del open pipeline que se proyecta que cierren
+   * después de aplicar el pull-through, ANTES de sumar Closed. Se expone acá
+   * como campo propio (antes solo vivía adentro de `branchForecastRow`) para
+   * poder mostrarlo como su propia columna y sumarlo en los subtotales igual
+   * que los demás.
+   */
+  projectedToClose: number;
   totalForecast: number;
   branchForecastRow: BranchForecastRow;
 }
@@ -53,6 +62,7 @@ interface BlockSubtotal {
   closedCount: number;
   totalCount: number;
   healthyCount: number;
+  projectedToClose: number;
   totalForecast: number;
 }
 
@@ -72,7 +82,7 @@ interface ModalState {
 /** Orden fijo de los dos bloques, igual que el Excel de referencia. */
 const CHANNEL_ORDER: PipelineLoan['channel'][] = ['Banked - Retail', 'Brokered'];
 
-const EMPTY_SUBTOTAL: BlockSubtotal = { closedCount: 0, totalCount: 0, healthyCount: 0, totalForecast: 0 };
+const EMPTY_SUBTOTAL: BlockSubtotal = { closedCount: 0, totalCount: 0, healthyCount: 0, projectedToClose: 0, totalForecast: 0 };
 const EMPTY_BUCKETS: BucketCounts = { Started: 0, Processing: 0, Underwriting: 0, Closing: 0 };
 const EMPTY_FORECAST_BUCKETS: ForecastByBucket = { Started: 0, Processing: 0, Underwriting: 0, Closing: 0 };
 
@@ -83,6 +93,7 @@ function addSubtotal(a: BlockSubtotal, b: BranchRow | BlockSubtotal): BlockSubto
     closedCount: a.closedCount + b.closedCount,
     totalCount: a.totalCount + b.totalCount,
     healthyCount: a.healthyCount + b.healthyCount,
+    projectedToClose: a.projectedToClose + b.projectedToClose,
     totalForecast: a.totalForecast + b.totalForecast,
   };
 }
@@ -145,6 +156,7 @@ function buildOrphanBranchRows(rows: BranchForecastRow[], resolvedLoans: Resolve
       closedCount: count,
       totalCount: 0,
       healthyCount: 0,
+      projectedToClose: 0,
       totalForecast: count,
       branchForecastRow: emptyBranchForecastRow,
     };
@@ -182,6 +194,7 @@ function buildBranchRows(
       closedCount,
       totalCount: branchForecastRow.totalCount,
       healthyCount: branchForecastRow.healthyCount,
+      projectedToClose: branchForecastRow.forecastTotal,
       totalForecast,
       branchForecastRow,
     };
@@ -209,6 +222,7 @@ interface CombinedBranchRow {
   closedCount: number;
   totalCount: number;
   healthyCount: number;
+  projectedToClose: number;
   totalForecast: number;
 }
 
@@ -225,6 +239,7 @@ function buildCombinedByBranch(branchRows: BranchRow[]): CombinedBranchRow[] {
       existing.closedCount += row.closedCount;
       existing.totalCount += row.totalCount;
       existing.healthyCount += row.healthyCount;
+      existing.projectedToClose += row.projectedToClose;
       existing.totalForecast += row.totalForecast;
     } else {
       map.set(row.branch, {
@@ -232,6 +247,7 @@ function buildCombinedByBranch(branchRows: BranchRow[]): CombinedBranchRow[] {
         closedCount: row.closedCount,
         totalCount: row.totalCount,
         healthyCount: row.healthyCount,
+        projectedToClose: row.projectedToClose,
         totalForecast: row.totalForecast,
       });
     }
@@ -273,14 +289,20 @@ function closedLoanToModalLoan(loan: ResolvedLoan): LoanDetailModalLoan {
  * ESTRUCTURA COMPARTIDA POR LAS 3 TABLAS EJECUTIVAS
  * ===========================================================================
  * Banked - Retail, Brokered y Combined Total by Branch tienen exactamente las
- * mismas 6 columnas. Antes el <colgroup> y el <thead> estaban duplicados
+ * mismas 7 columnas. Antes el <colgroup> y el <thead> estaban duplicados
  * literalmente en los dos bloques de JSX; con la jerarquía de columnas nueva
  * (etapa UX3) esa duplicación pasaba a ser de 3 clases por celda, así que se
  * extraen acá: un solo lugar donde cambiar anchos, rótulos o agrupación.
  *
  * Las clases `col-*` marcan a qué GRUPO DE MÉTRICA pertenece cada columna
- * (Closed / Pipeline / Forecast) y son las que el CSS usa para tintarlas.
- * `group-start` dibuja el divisor vertical al inicio de cada grupo.
+ * (Pipeline / Forecast) y son las que el CSS usa para tintarlas. `group-start`
+ * dibuja el divisor vertical al inicio de cada grupo.
+ *
+ * Etapa UX8: Closed se movió adentro del grupo Forecast (antes tenía su
+ * propio grupo `col-closed`, con un divisor propio) -- ahora las 3 columnas
+ * de Forecast (Closed, Projected to Close, Forecast) comparten `col-forecast`
+ * y un solo `group-start` al principio del bloque (en Closed). `col-closed`
+ * queda sin ningún consumidor (ver forecast-visual.css, se retira esa regla).
  */
 function ExecColgroup() {
   return (
@@ -291,20 +313,44 @@ function ExecColgroup() {
       <col className="metric-col" />
       <col className="metric-col" />
       <col className="metric-col" />
+      <col className="metric-col" />
     </colgroup>
   );
 }
 
+/**
+ * Etapa UX8: 2 filas de `<thead>` -- la primera agrupa Closed + Projected to
+ * Close + Forecast bajo una única barra "Forecast" (colSpan=3), la segunda
+ * tiene los rótulos reales de columna. Las 4 columnas de la izquierda
+ * (Branch/Branch Manager/Total Pipeline/Healthy Pipeline) no tienen nada que
+ * agrupar todavía, así que su celda en la fila de grupo va vacía -- ocupan su
+ * lugar en el <colgroup> pero no dibujan texto ni tinte.
+ */
 function ExecHead() {
   return (
     <thead>
+      <tr className="mo-row exec-group-row">
+        <th className="lbl" />
+        <th className="th-left" />
+        <th className="col-pipeline group-start" />
+        <th className="col-pipeline" />
+        <th className="col-forecast group-start forecast-group-label" colSpan={3}>
+          Forecast
+        </th>
+      </tr>
       <tr className="mo-row">
         <th className="lbl">Branch</th>
         <th className="th-left">Branch Manager</th>
-        <th className="col-closed group-start">Closed</th>
         <th className="col-pipeline group-start">Total Pipeline</th>
         <th className="col-pipeline">Healthy Pipeline</th>
-        <th className="totcol col-forecast group-start">Forecast</th>
+        <th className="col-forecast group-start">Closed</th>
+        <th
+          className="col-forecast"
+          title="Open pipeline loans (Total) projected to close after applying pull-through -- before adding Closed."
+        >
+          Projected to Close
+        </th>
+        <th className="totcol col-forecast">Forecast</th>
       </tr>
     </thead>
   );
@@ -314,21 +360,27 @@ function ExecHead() {
  * Fila de subtotal / total. Los valores repiten el tratamiento visual de su
  * columna (badge de Closed, píldora de Forecast) para que la fila de cierre se
  * lea como el resumen de lo de arriba y no como otra tabla.
+ *
+ * Etapa UX8: `subtotal.projectedToClose` (suma de `branchForecastRow.forecastTotal`
+ * de cada fila, ver BranchRow) tiene que cuadrar con
+ * `subtotal.totalForecast - subtotal.closedCount` -- verificado con datos
+ * reales en el reporte de esta etapa, no solo asumido.
  */
 function ExecTotalRow({ label, subtotal }: { label: string; subtotal: BlockSubtotal }) {
   return (
     <tr className="grp total">
       <td className="lbl">{label}</td>
       <td></td>
-      <td className="val col-closed group-start">
-        <ClosedValue value={subtotal.closedCount} />
-      </td>
       <td className="val col-pipeline group-start">{fmtInt(subtotal.totalCount)}</td>
       <td className="val col-pipeline">
         <span className="dot-healthy" />
         {fmtInt(subtotal.healthyCount)}
       </td>
-      <td className="totcol col-forecast group-start">
+      <td className="val col-forecast group-start">
+        <ClosedValue value={subtotal.closedCount} />
+      </td>
+      <td className="val col-forecast">{fmtForecast(subtotal.projectedToClose)}</td>
+      <td className="totcol col-forecast">
         <span className="badge badge--pill badge--emerald">{fmtForecast(subtotal.totalForecast)}</span>
       </td>
     </tr>
@@ -370,16 +422,20 @@ function BranchDataRow({
       <td className="th-left manager-cell" title={managerName}>
         {managerName}
       </td>
-      <td className="val col-closed group-start">
-        <CountCell value={row.closedCount} onClick={() => onOpenClosed(row)} variant="closed" />
-      </td>
       <td className="val col-pipeline group-start">
         <CountCell value={row.totalCount} onClick={() => onOpenTotal(row)} />
       </td>
       <td className="val col-pipeline">
         <CountCell value={row.healthyCount} onClick={() => onOpenHealthy(row)} withHealthyDot />
       </td>
-      <td className="totcol col-forecast group-start">
+      <td className="val col-forecast group-start">
+        <CountCell value={row.closedCount} onClick={() => onOpenClosed(row)} variant="closed" />
+      </td>
+      {/* Etapa UX8: Projected to Close no es clickeable, mismo motivo que
+          Forecast -- es un valor calculado (pull-through), no una lista de
+          préstamos concreta que auditar. */}
+      <td className="val col-forecast">{fmtForecast(row.projectedToClose)}</td>
+      <td className="totcol col-forecast">
         {/* Sin barras de progreso: el Forecast va siempre en píldora verde. */}
         <span className="badge badge--pill badge--emerald">{fmtForecast(row.totalForecast)}</span>
       </td>
@@ -512,7 +568,7 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
                   ))}
                   {!block.rows.length && (
                     <tr>
-                      <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={6}>
+                      <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={7}>
                         No pipeline data.
                       </td>
                     </tr>
@@ -540,22 +596,23 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
                   <td className="th-left manager-cell" title={branchManagers.get(row.branch) ?? UNASSIGNED_MANAGER}>
                     {branchManagers.get(row.branch) ?? UNASSIGNED_MANAGER}
                   </td>
-                  <td className="val col-closed group-start">
-                    <ClosedValue value={row.closedCount} />
-                  </td>
                   <td className="val col-pipeline group-start">{fmtInt(row.totalCount)}</td>
                   <td className="val col-pipeline">
                     <span className="dot-healthy" />
                     {fmtInt(row.healthyCount)}
                   </td>
-                  <td className="totcol col-forecast group-start">
+                  <td className="val col-forecast group-start">
+                    <ClosedValue value={row.closedCount} />
+                  </td>
+                  <td className="val col-forecast">{fmtForecast(row.projectedToClose)}</td>
+                  <td className="totcol col-forecast">
                     <span className="badge badge--pill badge--emerald">{fmtForecast(row.totalForecast)}</span>
                   </td>
                 </tr>
               ))}
               {!combinedByBranch.length && (
                 <tr>
-                  <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={6}>
+                  <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={7}>
                     No pipeline data.
                   </td>
                 </tr>
@@ -566,10 +623,21 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
         </div>
       </div>
 
+      {/*
+       * Etapa UX8, hallazgo: este texto describía un comportamiento que ya no
+       * existe. Databa de antes de F5j-b, cuando `forecastTotal` viajaba en
+       * decimal hasta el final y cada subtotal (de canal y Combinado) se
+       * redondeaba por separado -- podían no coincidir. Desde F5j-b,
+       * `forecastTotal` ya llega redondeado POR BRANCH (page.tsx), así que
+       * todo lo que suma esos valores (subtotal de canal, Combined Total)
+       * sí cuadra exacto con la suma de las filas mostradas -- verificado en
+       * el reporte de esta etapa, no solo asumido. Se reemplaza el texto en
+       * vez de dejarlo, porque contradecía directamente la garantía que esta
+       * etapa pide verificar.
+       */}
       <p className="foot-note">
-        Forecast subtotals are rounded independently per channel; the Combined Total is calculated from the underlying
-        decimal values before rounding, so it may differ by a small margin from the sum of the rounded subtotals shown
-        above.
+        Closed + Projected to Close always add up to Forecast, and subtotals are the exact sum of the rows shown above
+        -- no rows are hidden by rounding.
       </p>
 
       <LoanDetailModal

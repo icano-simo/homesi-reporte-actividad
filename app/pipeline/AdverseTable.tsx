@@ -61,80 +61,100 @@ export default function AdverseTable({ resolvedLoans, forecastMonthLabel, firstS
   const filtered = channelFilter === 'all' ? adverseLoans : adverseLoans.filter((loan) => loan.channel === channelFilter);
 
   return (
-    <div className="tbl-card">
-      <div className="tbl-card__head">
-        <span className="tbl-card__title">
-          Adverse ({filtered.length.toLocaleString('en-US')}){forecastMonthLabel ? ' — ' + forecastMonthLabel : ''}
-        </span>
-        <select
-          className="field"
-          value={channelFilter}
-          onChange={(e) => setChannelFilter(e.target.value as ChannelFilter)}
-        >
-          <option value="all">All channels</option>
-          <option value="Banked - Retail">Banked - Retail</option>
-          <option value="Brokered">Brokered</option>
-        </select>
-      </div>
-      <div className="tbl-scroll">
-        <table className="piv piv--adverse">
-          {/* 7 columnas con ancho explícito -- suma 100%. */}
-          <colgroup>
-            <col style={{ width: '15%' }} />
-            <col style={{ width: '9%' }} />
-            <col style={{ width: '18%' }} />
-            <col style={{ width: '18%' }} />
-            <col style={{ width: '12%' }} />
-            <col style={{ width: '15%' }} />
-            <col style={{ width: '13%' }} />
-          </colgroup>
-          <thead>
-            {/* Etapa UX1: se quitó `.adverse-header` (header navy sólido con
-                !important). El spec §3C fija un header claro para TODAS las
-                tablas, así que esta ya no necesita su propia excepción. */}
-            <tr className="mo-row">
-              <th className="lbl">Loan Number</th>
-              <th style={{ textAlign: 'left' }}>Branch</th>
-              <th style={{ textAlign: 'left' }}>Borrower Name</th>
-              <th style={{ textAlign: 'left' }}>Loan Officer</th>
-              <th>Amount</th>
-              <th style={{ textAlign: 'left' }}>Last Finished Milestone</th>
-              <th style={{ textAlign: 'left' }}>First Seen As Adverse</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((loan) => {
-              const firstSeen = firstSeenAsAdverse?.[loan.sourceLoanId];
-              return (
-                <tr className="metric" key={loan.sourceLoanId}>
-                  <td className="lbl">{loan.sourceLoanId}</td>
-                  <td style={{ textAlign: 'left' }}>{loan.branch}</td>
-                  <td style={{ textAlign: 'left' }}>{loan.borrowerName}</td>
-                  <td style={{ textAlign: 'left' }}>{loan.loanOfficer}</td>
-                  <td className="val">
-                    {loan.amount >= HIGH_AMOUNT_THRESHOLD ? (
-                      <span className="badge badge--rose">{fmtAmount(loan.amount)}</span>
-                    ) : (
-                      fmtAmount(loan.amount)
-                    )}
-                  </td>
-                  <td style={{ textAlign: 'left' }}>{loan.rawMilestone || '—'}</td>
-                  <td style={{ textAlign: 'left' }}>
-                    {firstSeen === undefined ? '—' : firstSeen === null ? 'New this period' : firstSeen}
+    <>
+      {/*
+       * Etapa UX8: texto introductorio -- leído del filtro real de
+       * `adverseInRange` en page.tsx (no de docs/ARQUITECTURA.md: esa sección
+       * describía el criterio de F5h -- status='adverse' + Est. Closing Date
+       * en Pipeline Range -- que ya no es el que corre. Actualizado en esta
+       * misma etapa, ver ahí). Se resumen las 2 reglas que un usuario
+       * necesita para leer la tabla bien (qué es "adverse" y qué significa
+       * "New this period"); las 2 exclusiones adicionales por canal (Current
+       * Prospects en Brokered, sin Est. Closing Date en Banked) quedan fuera
+       * del texto por espacio -- documentadas en ARQUITECTURA.md.
+       */}
+      <p className="foot-note" style={{ marginBottom: '16px' }}>
+        Adverse & Risk Loans lists resolved loans marked Closed Lost (status = adverse) whose first detection as
+        adverse falls within the selected Forecast Month -- not their original expected closing date. &ldquo;New this
+        period&rdquo; means the loan first appeared as adverse in the currently active upload. These loans never count
+        toward Pipeline or Forecast.
+      </p>
+      <div className="tbl-card">
+        <div className="tbl-card__head">
+          <span className="tbl-card__title">
+            Adverse ({filtered.length.toLocaleString('en-US')}){forecastMonthLabel ? ' — ' + forecastMonthLabel : ''}
+          </span>
+          <select
+            className="field"
+            value={channelFilter}
+            onChange={(e) => setChannelFilter(e.target.value as ChannelFilter)}
+          >
+            <option value="all">All channels</option>
+            <option value="Banked - Retail">Banked - Retail</option>
+            <option value="Brokered">Brokered</option>
+          </select>
+        </div>
+        <div className="tbl-scroll">
+          <table className="piv piv--adverse">
+            {/* 7 columnas con ancho explícito -- suma 100%. */}
+            <colgroup>
+              <col style={{ width: '15%' }} />
+              <col style={{ width: '9%' }} />
+              <col style={{ width: '18%' }} />
+              <col style={{ width: '18%' }} />
+              <col style={{ width: '12%' }} />
+              <col style={{ width: '15%' }} />
+              <col style={{ width: '13%' }} />
+            </colgroup>
+            <thead>
+              {/* Etapa UX1: se quitó `.adverse-header` (header navy sólido con
+                  !important). El spec §3C fija un header claro para TODAS las
+                  tablas, así que esta ya no necesita su propia excepción. */}
+              <tr className="mo-row">
+                <th className="lbl">Loan Number</th>
+                <th style={{ textAlign: 'left' }}>Branch</th>
+                <th style={{ textAlign: 'left' }}>Borrower Name</th>
+                <th style={{ textAlign: 'left' }}>Loan Officer</th>
+                <th>Amount</th>
+                <th style={{ textAlign: 'left' }}>Last Finished Milestone</th>
+                <th style={{ textAlign: 'left' }}>First Seen As Adverse</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((loan) => {
+                const firstSeen = firstSeenAsAdverse?.[loan.sourceLoanId];
+                return (
+                  <tr className="metric" key={loan.sourceLoanId}>
+                    <td className="lbl">{loan.sourceLoanId}</td>
+                    <td style={{ textAlign: 'left' }}>{loan.branch}</td>
+                    <td style={{ textAlign: 'left' }}>{loan.borrowerName}</td>
+                    <td style={{ textAlign: 'left' }}>{loan.loanOfficer}</td>
+                    <td className="val">
+                      {loan.amount >= HIGH_AMOUNT_THRESHOLD ? (
+                        <span className="badge badge--rose">{fmtAmount(loan.amount)}</span>
+                      ) : (
+                        fmtAmount(loan.amount)
+                      )}
+                    </td>
+                    <td style={{ textAlign: 'left' }}>{loan.rawMilestone || '—'}</td>
+                    <td style={{ textAlign: 'left' }}>
+                      {firstSeen === undefined ? '—' : firstSeen === null ? 'New this period' : firstSeen}
+                    </td>
+                  </tr>
+                );
+              })}
+              {!filtered.length && (
+                <tr>
+                  <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={7}>
+                    No adverse loans{channelFilter !== 'all' ? ' in this channel' : ''}.
                   </td>
                 </tr>
-              );
-            })}
-            {!filtered.length && (
-              <tr>
-                <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={7}>
-                  No adverse loans{channelFilter !== 'all' ? ' in this channel' : ''}.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
+

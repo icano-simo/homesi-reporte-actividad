@@ -45,6 +45,9 @@ type MetricView = 'total' | 'healthy';
  */
 const UNDERWRITING_RAW_MILESTONES = ['Submittal', 'Initial Decision', 'Resubmittal'] as const;
 
+/** Etapa UX8: ancho fijo (%) de la columna de total por fila en la matriz Branch x Milestone -- ver colgroup más abajo. */
+const MATRIX_TOTAL_COL_PERCENT = 12;
+
 function isUnderwritingRawMilestone(key: string): key is (typeof UNDERWRITING_RAW_MILESTONES)[number] {
   return (UNDERWRITING_RAW_MILESTONES as readonly string[]).includes(key);
 }
@@ -171,7 +174,9 @@ function bucketValue(bucket: BucketCounts | BrokeredBucketCounts, key: string): 
 }
 
 /**
- * Etapa F6f: tab "Milestone Pipeline Matrix" -- selector de canal (Banked -
+ * Etapa F6f: tab "Pipeline by Milestone" (renombrado en UX8, era "Milestone
+ * Pipeline Matrix" -- el nombre del archivo/componente no cambió, solo el
+ * texto visible en TabNavigation.tsx) -- selector de canal (Banked -
  * Retail / Brokered, sin tercera opción combinada, a propósito: cada canal
  * tiene su propia cascada con buckets/tasas incompatibles entre sí, ver
  * aggregate.ts) + toggle Total/Healthy + cuadro de Pull-Through Rates con
@@ -279,12 +284,16 @@ export default function TabMilestoneMatrix({
           <table className="piv piv--matrix">
             {/* Primera columna fija en %, el resto repartido en
                 partes iguales segun cuantos milestones tenga el canal activo --
-                asi la matriz llena el ancho exacto sin desbordar. */}
+                asi la matriz llena el ancho exacto sin desbordar.
+                Etapa UX8: se resta el % de la columna Total (fija, 12%) del
+                presupuesto de 84% que antes se repartían solo los milestones,
+                así la tabla sigue sin desbordar con una columna más. */}
             <colgroup>
               <col className="matrix-branch-col" />
               {milestoneKeys.map((k) => (
-                <col key={k} style={{ width: `${(84 / milestoneKeys.length).toFixed(2)}%` }} />
+                <col key={k} style={{ width: `${((84 - MATRIX_TOTAL_COL_PERCENT) / milestoneKeys.length).toFixed(2)}%` }} />
               ))}
+              <col style={{ width: `${MATRIX_TOTAL_COL_PERCENT}%` }} />
             </colgroup>
             <thead>
               <tr className="mo-row">
@@ -292,20 +301,38 @@ export default function TabMilestoneMatrix({
                 {milestoneKeys.map((k) => (
                   <th key={k}>{labelFromKey(k)}</th>
                 ))}
+                {/* Etapa UX8: columna de total por fila -- `totcol` es la
+                    misma clase que ya usa PivotTable.tsx para su columna de
+                    total (borde izquierdo + fondo distinto + bold), así se
+                    lee como "total" con el mismo lenguaje visual del resto
+                    de la app, no como un milestone más. */}
+                <th className="totcol">Total</th>
               </tr>
             </thead>
             <tbody>
               {filteredByChannel.map((row) => {
                 const { total, healthy } = bucketsForRow(row, channel);
                 const active = metricView === 'total' ? total : healthy;
+                const rowValues = milestoneKeys.map((k) =>
+                  channel === 'banked' && isUnderwritingRawMilestone(k)
+                    ? bankedRawMilestoneCount(row, k, metricView)
+                    : bucketValue(active, k)
+                );
+                // Etapa UX8: el total de la fila es la suma de lo que esa
+                // fila muestra (los `milestoneKeys` visibles), no
+                // `row.totalCount`/`row.healthyCount` -- para Brokered esos 2
+                // números pueden diferir si hay algún préstamo con un
+                // rawMilestone que no mapea a ningún bucket conocido (riesgo
+                // ya documentado en docs/ARQUITECTURA.md, BROKERED_MILESTONE_BUCKET).
+                // Sumar lo mostrado es lo único que garantiza que el total de
+                // esta fila cuadre con las columnas de esta misma fila,
+                // siempre.
+                const rowTotal = rowValues.reduce((sum, v) => sum + v, 0);
                 return (
                   <tr className="metric" key={row.branch}>
                     <td className="lbl">{row.branch}</td>
-                    {milestoneKeys.map((k) => {
-                      const value =
-                        channel === 'banked' && isUnderwritingRawMilestone(k)
-                          ? bankedRawMilestoneCount(row, k, metricView)
-                          : bucketValue(active, k);
+                    {milestoneKeys.map((k, i) => {
+                      const value = rowValues[i];
                       return (
                         <td className="val" key={k}>
                           {/* Spec §4D.2: el 0 va apagado y sin affordance de
@@ -320,12 +347,16 @@ export default function TabMilestoneMatrix({
                         </td>
                       );
                     })}
+                    {/* No es clickeable -- es la suma de las celdas de al
+                        lado, no una lista de préstamos propia que auditar
+                        (cada milestone individual ya es auditable). */}
+                    <td className="val totcol">{rowTotal}</td>
                   </tr>
                 );
               })}
               {!filteredByChannel.length && (
                 <tr>
-                  <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={milestoneKeys.length + 1}>
+                  <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={milestoneKeys.length + 2}>
                     No branches for this channel.
                   </td>
                 </tr>

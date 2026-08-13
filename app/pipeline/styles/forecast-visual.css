@@ -99,6 +99,11 @@
  *
  * Etapa UX3: 12 / 32 / 14 x4 = 100%. Branch cede 1 punto y Branch Manager gana
  * 5, que es la columna que de verdad los necesita (nombre y apellido completos).
+ *
+ * Etapa UX8: 14 x4 -> 11.2 x5 (Closed se suma a Total Pipeline/Healthy
+ * Pipeline/Forecast como quinta columna de métrica, moviéndose adentro del
+ * grupo Forecast -- ver PivotTable.tsx). Branch/Manager quedan igual
+ * (12/32); 100-12-32=56, /5 = 11.2% cada métrica.
  */
 .piv col.branch-col {
   width: 12%;
@@ -107,7 +112,7 @@
   width: 32%;
 }
 .piv col.metric-col {
-  width: 14%;
+  width: 11.2%;
 }
 
 /* Matriz Branch x Milestone: la primera columna fija y el resto repartido en
@@ -180,33 +185,42 @@
  * 90.7px, o sea que el mínimo de 90px del brief anterior se cumple igual sin
  * forzarlo. El mínimo sólo entra en juego en viewports más chicos, donde el
  * piso pasa a ser 87px por columna.
+ *
+ * ETAPA UX8 -- 5ta columna de métrica (Projected to Close). Repetir el mismo
+ * piso de 90px con 5 columnas en vez de 4 pediría 90/0.112 = 804px de mínimo,
+ * bastante más que los ~648px reales que le tocan a cada tabla de canal en el
+ * canvas de 1380px -- forzaría scroll horizontal SIEMPRE, no solo en
+ * viewports chicos, justo lo que UX5/UX6 evitaban. Se relaja el piso a 75px
+ * por métrica (75/0.112 ≈ 670px de mínimo): a los 648px reales de cada tabla
+ * de canal sigue quedando 1-2px por debajo del piso (scroll ocasional, no
+ * permanente), y "Projected to Close" ya envuelve a 2 líneas en el header sin
+ * problema (`white-space: normal` en la regla base del thead). Verificado con
+ * capturas a 900/1200/1440px en el reporte de esta etapa.
  */
 .piv--exec {
-  min-width: 620px;
+  min-width: 670px;
 }
 
 /*
- * Métricas centradas: las 4 columnas renderizan badges/píldoras/botones, no
+ * Métricas centradas: las 5 columnas renderizan badges/píldoras/botones, no
  * números pelados, así que centrar la forma dentro de la columna se lee mejor
  * que pegarla al borde derecho. Los dígitos siguen alineados entre filas por
  * `font-variant-numeric: tabular-nums`. Las tablas con números crudos
  * (Commercial Activity, cascada) conservan la alineación a la derecha, que es
  * lo correcto para comparar magnitudes de distinta cantidad de dígitos.
+ *
+ * Etapa UX8: `col-closed` se retira -- Closed pasó a `col-forecast` (se movió
+ * adentro del grupo Forecast, ver PivotTable.tsx), no le queda ningún
+ * consumidor propio.
  */
-.piv--exec th.col-closed,
 .piv--exec th.col-pipeline,
 .piv--exec th.col-forecast,
-.piv--exec td.col-closed,
 .piv--exec td.col-pipeline,
 .piv--exec td.col-forecast {
   text-align: center;
 }
 
 /* --- Encabezado: claro, con acento pastel por grupo --- */
-.piv--exec thead .mo-row th.col-closed {
-  color: var(--navy);
-  font-weight: 700;
-}
 .piv--exec thead .mo-row th.col-pipeline {
   background: rgba(248, 250, 252, 0.6); /* slate-50/60 */
   color: var(--slate-700);
@@ -215,12 +229,47 @@
   background: var(--emerald-50);
   color: var(--emerald-800);
   font-weight: 700;
+}
+/*
+ * Etapa UX8: el grupo Forecast pasó de 1 columna a 3 (Closed/Projected to
+ * Close/Forecast) -- redondear las 4 esquinas de CADA celda (como hacía la
+ * regla de arriba cuando era 1 sola columna) daría 3 píldoras sueltas en vez
+ * de un bloque continuo. Se redondea solo la esquina exterior de la primera
+ * celda del grupo (`group-start`, Closed) y de la última (`totcol`,
+ * Forecast); la del medio (Projected to Close) queda en ángulo recto, así el
+ * fondo emerald-50 se lee como una sola franja.
+ */
+.piv--exec thead .mo-row th.col-forecast.group-start {
   border-top-left-radius: var(--radius-md);
+}
+.piv--exec thead .mo-row th.col-forecast.totcol {
   border-top-right-radius: var(--radius-md);
 }
 /* Divisor vertical al inicio de cada grupo de métrica. */
 .piv--exec thead .mo-row th.group-start {
   border-left: 1px solid var(--slate-200);
+}
+
+/*
+ * Etapa UX8: fila de agrupación por encima de los rótulos reales -- "Forecast"
+ * abarcando Closed + Projected to Close + Forecast (colSpan=3). Las celdas
+ * vacías (Branch/Branch Manager/Total Pipeline/Healthy Pipeline, que todavía
+ * no tienen nada que agrupar) van sin fondo ni texto -- solo ocupan su lugar
+ * en el <colgroup>. Sin `border-bottom` propio para no duplicar la línea
+ * gruesa que ya pone la fila de rótulos reales debajo.
+ */
+.piv--exec thead tr.exec-group-row th {
+  border-bottom: none;
+  padding-bottom: 2px;
+}
+.piv--exec thead tr.exec-group-row th.forecast-group-label {
+  background: var(--emerald-50);
+  color: var(--emerald-800);
+  font-weight: 700;
+  font-size: 10px;
+  text-align: center;
+  border-top-left-radius: var(--radius-md);
+  border-top-right-radius: var(--radius-md);
 }
 
 /* --- Cuerpo: tinte por grupo --- */
