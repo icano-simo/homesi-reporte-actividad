@@ -373,7 +373,20 @@ export default function Home() {
       {records !== null && tree && (
         <div id="report">
           <div className="section-label">{kpiStripLabel}</div>
-          <SummaryCards tree={tree} months={monthsShown} measure={measure} />
+          {/*
+           * Bug AC1: en la vista "Por Loan Officer" el filtro de Branch queda
+           * oculto en el Toolbar (cruza todos los branches a propósito, ver
+           * comentario de loanOfficerTree más abajo) pero branchFilter en
+           * estado puede seguir apuntando a un branch de una vista anterior.
+           * Se lo neutraliza acá para que las tarjetas no hereden un filtro
+           * que en esta vista no está ni visible ni aplicado a la tabla.
+           */}
+          <SummaryCards
+            tree={tree}
+            months={monthsShown}
+            measure={measure}
+            branchFilter={view === 'loanOfficer' ? 'all' : branchFilter}
+          />
 
           <Toolbar
             groupBy={groupBy}

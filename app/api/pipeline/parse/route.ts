@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { getServerClient } from '@/lib/supabase/server';
 import { parseSalesforcePipelineFile } from '@/lib/pipeline/sources/salesforce-file';
 import type { PipelineLoan, ResolvedLoan } from '@/lib/pipeline/types';
 
@@ -36,11 +36,17 @@ const INSERT_BATCH_SIZE = 500;
  * con el negocio que NO se usa service_role key; los permisos de
  * lectura/escritura sobre estas 3 tablas ya están dados a nivel de Supabase.
  */
-function getSupabaseForecast() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!supabaseUrl || !supabaseAnonKey) return null;
-  return createClient(supabaseUrl, supabaseAnonKey, { db: { schema: 'pipeline_forecast' } });
+/**
+ * Etapa AUTH1: pasa a construirse desde las COOKIES de la request, o sea con
+ * la sesión del usuario que hizo la llamada. Antes usaba la anon key sin
+ * autenticar, y desde que se activó RLS en `pipeline_forecast` eso no lee ni
+ * escribe nada. Como esta ruta la llama el navegador (same-origin), la cookie
+ * de sesión llega sola -- no hace falta `service_role` ni pasar el token a
+ * mano. Devuelve null si faltan las env vars, igual que antes.
+ */
+async function getSupabaseForecast() {
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) return null;
+  return getServerClient('pipeline_forecast');
 }
 
 /**
@@ -125,7 +131,7 @@ export async function POST(request: Request) {
     // El error se agrega a `warnings` (misma lista que ya renderiza la UI),
     // en vez de tragárselo en silencio.
     let persisted = false;
-    const supabase = getSupabaseForecast();
+    const supabase = await getSupabaseForecast();
     if (!supabase) {
       warnings.push('No se pudo guardar en Supabase: faltan las variables de entorno de conexión.');
     } else {

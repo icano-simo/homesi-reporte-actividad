@@ -1,4 +1,43 @@
-import { createClient } from '@supabase/supabase-js';
+import { createBrowserClient } from '@supabase/ssr';
+
+/**
+ * ============================================================================
+ * CLIENTE DE SUPABASE DEL NAVEGADOR
+ * ============================================================================
+ *
+ * Etapa AUTH1. Antes este módulo creaba un cliente con `createClient` de
+ * supabase-js, que guarda la sesión en localStorage y — al no haber login —
+ * llamaba a la base siempre como `anon` sin autenticar.
+ *
+ * Desde que se cerró la seguridad en simoOS-prod (permisos de `anon` revocados
+ * en `activity_report` y `pipeline_forecast`, RLS activo en las 8 tablas, y
+ * políticas que exigen sesión autenticada + "commercial_activity" en
+ * `app_metadata.allowed_apps`), ese cliente ya no puede leer ni escribir nada.
+ *
+ * DOS CAMBIOS, POR MOTIVOS DISTINTOS:
+ *
+ * 1. `createBrowserClient` (@supabase/ssr) en vez de `createClient`.
+ *    Guarda la sesión en COOKIES en vez de localStorage. Hace falta porque:
+ *      - el gate (`proxy.ts`) corre en el servidor y sólo ve cookies;
+ *      - las 3 API routes de pipeline que el navegador llama por fetch
+ *        (`/parse`, `/latest`, `/adverse-history`) reciben esas cookies solas
+ *        por ser same-origin, así que pueden hablar con Supabase con la sesión
+ *        del usuario sin necesidad de `service_role`.
+ *    Es el mismo cliente que usa el repo hermano homesi-pl.
+ *
+ * 2. UNA SOLA INSTANCIA para los dos schemas.
+ *    `app/pipeline/page.tsx` creaba su propio cliente para
+ *    `pipeline_forecast`, porque éste está fijo a `activity_report`. Con auth
+ *    eso pasa a ser un problema real: dos instancias de GoTrue compitiendo por
+ *    la misma sesión (supabase-js avisa por consola) y el riesgo de que una de
+ *    las dos quede sin token. Se resuelve con `getForecastDb()`, que apunta el
+ *    MISMO cliente al otro schema vía `.schema()`.
+ *
+ * El JWT viaja solo: `supabase-js` adjunta el access token de la sesión activa
+ * en el header `Authorization` de cada request. No hay que pasarlo a mano en
+ * ningún lado — alcanza con que el login se haga con este mismo cliente
+ * (ver app/login/page.tsx).
+ */
 
 /**
  * Mensaje único de configuración faltante -- lo ven tanto quien levanta el
@@ -10,54 +49,27 @@ const MISSING_ENV_MESSAGE =
   'Copy .env.example to .env.local and fill in the project values.';
 
 /**
- * El tipo del cliente lleva el schema como parámetro genérico
- * (`SupabaseClient<any, 'activity_report', ...>`), y `SupabaseClient` a secas
- * asume 'public' -- anotarlo así daba un error de tipos. Se deriva del propio
- * constructor con ReturnType, que es exactamente el tipo que antes se
- * infería del `export const supabase = createClient(...)`.
+ * El tipo lleva el schema como parámetro genérico, y `SupabaseClient` a secas
+ * asume 'public' -- se deriva del propio constructor con ReturnType en vez de
+ * anotarlo a mano.
  */
 function createActivityReportClient(url: string, anonKey: string) {
-  return createClient(url, anonKey, { db: { schema: 'activity_report' } });
+  return createBrowserClient(url, anonKey, { db: { schema: 'activity_report' } });
 }
 
-type ActivityReportClient = ReturnType<typeof createActivityReportClient>;
+type BrowserClient = ReturnType<typeof createActivityReportClient>;
 
-let client: ActivityReportClient | null = null;
+let client: BrowserClient | null = null;
 
 /**
- * Cliente único de Supabase, apuntando al schema 'activity_report' (no
- * 'public'). Acceso abierto sin login por ahora -- decisión temporal,
- * pendiente de reemplazar cuando exista SSO.
+ * Cliente del navegador, cacheado. Schema por defecto `activity_report`
+ * (Commercial Activity); para Forecast, ver `getForecastDb()`.
  *
- * Nota: el schema 'activity_report' debe estar en la lista de "Exposed
- * schemas" del proyecto de Supabase (Settings -> API) para que PostgREST lo
- * acepte -- si no, todas las llamadas de este módulo fallan con un error de
- * "schema no encontrado".
- *
- * ---------------------------------------------------------------------------
- * Etapa UX1b — POR QUÉ ES UNA FUNCIÓN Y NO UN `export const supabase`
- * ---------------------------------------------------------------------------
- * Antes este módulo creaba el cliente en el top-level y hacía `throw` ahí
- * mismo si faltaban las env vars. Como app/page.tsx importa (vía saveUpload)
- * este archivo, ese throw ocurría durante la EVALUACIÓN DEL MÓDULO: sin
- * `.env.local`, la vista Commercial Activity devolvía un 500 completo, pantalla
- * en blanco, antes de renderizar una sola línea de UI.
- *
- * Ahora el chequeo se corre al PRIMER USO. La diferencia práctica:
- *  - la página renderiza siempre, aunque no haya credenciales;
- *  - el error sigue siendo igual de ruidoso, pero por el canal correcto: la
- *    promesa de loadCurrentReport()/saveUpload() rechaza y app/page.tsx ya
- *    tiene el `catch` que lo muestra como pill roja (ese manejo ya existía,
- *    simplemente nunca se llegaba a ejecutar).
- *
- * Es el mismo criterio que app/pipeline/page.tsx ya usaba para el cliente del
- * schema 'pipeline_forecast' (chequea las env vars y sale sin romper) -- esto
- * elimina la asimetría entre los dos módulos.
- *
- * El cliente se cachea: `createClient` abre conexiones/canales propios, no
- * conviene instanciar uno por llamada.
+ * El chequeo de env vars corre al PRIMER USO, no al evaluar el módulo: hacerlo
+ * arriba provocaba un 500 con pantalla en blanco en cualquier entorno sin
+ * `.env.local`, incluido el prerender de `next build`.
  */
-export function getSupabaseClient(): ActivityReportClient {
+export function getSupabaseClient(): BrowserClient {
   if (client) return client;
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -68,6 +80,21 @@ export function getSupabaseClient(): ActivityReportClient {
 
   client = createActivityReportClient(supabaseUrl, supabaseAnonKey);
   return client;
+}
+
+/**
+ * El MISMO cliente apuntando al schema `pipeline_forecast` (módulo Forecast).
+ *
+ * Devuelve el query builder de PostgREST, no un SupabaseClient completo: para
+ * `.from(...)` es suficiente, y deja explícito que la sesión y el resto del
+ * estado de auth siguen viviendo en una única instancia.
+ *
+ * Nota: el schema debe estar en "Exposed schemas" del proyecto (Settings →
+ * API) para que PostgREST lo acepte; si no, todas las llamadas fallan con un
+ * error de "schema no encontrado" que no tiene nada que ver con RLS.
+ */
+export function getForecastDb() {
+  return getSupabaseClient().schema('pipeline_forecast');
 }
 
 /**

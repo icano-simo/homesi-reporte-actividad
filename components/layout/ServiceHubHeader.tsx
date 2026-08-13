@@ -5,6 +5,8 @@ import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 import BrandLockup from './HomesiLogo';
 import { BarChartIcon, TrendingUpIcon } from '@/components/ui/icons';
+import { isAuthRoute } from '@/lib/auth/routes';
+import UserMenu from './UserMenu';
 
 /*
  * ============================================================================
@@ -39,6 +41,18 @@ const MODULE_TITLE = 'Analytics Portal';
 export default function ServiceHubHeader() {
   const pathname = usePathname();
 
+  /*
+   * Etapa AUTH1: /login y /no-access no llevan el shell de la app. Mostrarle
+   * los tabs de módulo a alguien que todavía no entró no tiene sentido, y en
+   * /no-access serían un enlace a una vista que no puede abrir.
+   *
+   * Se resuelve acá y no con un route group (app/(auth)/...) porque mover las
+   * 2 páginas existentes a un grupo cambiaría sus rutas de archivo sin cambiar
+   * sus URLs -- un diff grande para un condicional de una línea. El componente
+   * ya leía `pathname` para marcar el tab activo.
+   */
+  if (isAuthRoute(pathname)) return null;
+
   return (
     <header className="hub-header">
       <div className="hub-header__inner">
@@ -63,6 +77,8 @@ export default function ServiceHubHeader() {
               </Link>
             );
           })}
+          <span className="hub-brand__divider" aria-hidden="true" />
+          <UserMenu />
         </nav>
       </div>
     </header>

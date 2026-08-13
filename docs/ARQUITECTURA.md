@@ -151,7 +151,6 @@ Solo CL (First Lien) por ahora. Fuente única: el reporte que Alejandra/Isabella
 /app/api/pipeline/
   parse/route.ts            -- parseo server-side (el parser usa Buffer de Node) + persistencia en Supabase
   latest/route.ts           -- restaura el último snapshot activo al abrir la página
-  retention/route.ts        -- cron diario, retención de 90 días de snapshots
   adverse-history/route.ts  -- fecha de primera detección de cada préstamo como adverse
 /components/Sidebar.tsx  -- compartido con Actividad, extraído del markup decorativo del HTML original
 ```
@@ -246,10 +245,123 @@ Agregadas `--canvas`, `--coral`, `--sky` (paleta de marca, fundaciones agregadas
 7. **`fixtures/pipeline-demo.ts`** sigue en el repo, ya no se usa desde `page.tsx` — candidato a limpieza, no autorizado a borrar todavía.
 8. **[Histórico, F4i] Préstamo "invisible" entre Pipeline y Adverse — el motivo ya no aplica desde F5h.** Caso real encontrado (préstamo `776002059702`, agosto 2026): bajo el criterio original de F4i (`status='adverse'` Y `Loan Status='Application withdrawn'` Y Est. Closing Date en rango), un `Stage = Closed Lost` puesto por error/sin autorización en Salesforce (sin pasar por Encompash) caía en un hueco — no contaba como Pipeline (porque `Stage` no era `Negotiation`) ni aparecía en la tabla de Adverse, porque su `Loan Status` no era `Application withdrawn` (el préstamo en realidad seguía activo en Salesforce). Alejandra corrigió el caso puntual en Salesforce y restringió permisos para que no se repita.
 
-   **Criterio actual (desde F5h)**: Adverse filtra solo por `status='adverse'` Y Est. Closing Date dentro del rango activo — ya no se filtra por `Loan Status` ni por `Loan Folder` (deliberadamente, confirmado por el negocio que ese campo puede estar desactualizado). El filtro por `Loan Status='Application withdrawn'` fue el diseño original de F4i; se descartó en F5h porque excluía Adverse legítimos con otros motivos (Application denied, File Closed for incompleteness, y hasta casos con `Loan Status` desincronizado tipo "Active Loan" a pesar de `Stage=Closed Lost`). Con el criterio de hoy, un caso como el de arriba ya aparecería en Adverse sin necesidad de ninguna alerta extra.
+   **Criterio de F5h (histórico, ya no es el vigente)**: Adverse filtraba solo por `status='adverse'` Y Est. Closing Date dentro del rango activo — sin `Loan Status` ni `Loan Folder`. El filtro por `Loan Status='Application withdrawn'` fue el diseño original de F4i; se descartó en F5h porque excluía Adverse legítimos con otros motivos (Application denied, File Closed for incompleteness, y hasta casos con `Loan Status` desincronizado tipo "Active Loan" a pesar de `Stage=Closed Lost`).
+
+   **Criterio actual (desde F5j/F5m, confirmado contra `adverseInRange` en `page.tsx` en la Etapa UX8 -- este párrafo estaba desactualizado y se corrige acá):**
+   1. `status === 'adverse'`.
+   2. La fecha efectiva es `firstSeenAsAdverse` (F5g, primera vez que ese préstamo se vio como adverse en algún snapshot) — o, si es `null` ("recién visto por primera vez"), la fecha del snapshot activo. Ya **no** es Est. Closing Date, y el rango ya **no** es Pipeline Range: es el **Forecast Month** elegido (mismo mes que usa Cerrados).
+   3. Brokered: se excluyen los que están en Loan Folder = "Current Prospects" (F5m) — **esto SÍ vuelve a filtrar por Loan Folder**, al revés de lo que decía este párrafo antes de esta corrección.
+   4. Banked - Retail: se excluyen los que no tienen Est. Closing Date (F5m).
+
+   Con el criterio de F5h, un caso como el de arriba ya aparecería en Adverse sin necesidad de ninguna alerta extra; con el criterio actual también, salvo que caiga en alguna de las 2 exclusiones de F5m.
 9. **`BranchForecastRow.bucketTotal`/`.bucketHealthy` son vestigiales para Brokered — riesgo activo para cualquier componente nuevo.** Ese tipo (definido en `PivotTable.tsx`) está tipado fijo a `BucketCounts`, el esquema de Banked (`Started`/`Processing`/`Underwriting`/`Closing`). `page.tsx` los calcula con `countByMilestoneBucket()` sin importar el canal, así que para una fila de canal Brokered esos 2 campos quedan con las keys y los valores de la clasificación de Banked — **no** los reales de Brokered (`FileCreation`/`AppDate`/`Processing`/`Submitted`). No es un bug nuevo (viene desde F5i, documentado ahí), pero cobra importancia recién ahora que `TabMilestoneMatrix.tsx` (F6) necesitó datos de bucket por branch: cualquier componente que lea `bucketTotal`/`bucketHealthy` directo de una fila Brokered va a mostrar datos incorrectos con etiquetas de Banked. **La forma correcta**: recalcular desde `row.loans` con `countByBrokeredMilestoneBucket()` (`aggregate.ts`, ya exportada) -- ver `bucketsForRow()` en `TabMilestoneMatrix.tsx` para el patrón ya implementado. Arreglarlo de raíz (que `BranchForecastRow` tenga un shape específico por canal) requeriría tocar `PivotTable.tsx`, fuera de alcance hasta ahora.
 10. **`BANKED_MATRIX_COLUMNS` (`TabMilestoneMatrix.tsx`) está acoplado a mano con `MILESTONE_BUCKET` (`lib/pipeline/sources/salesforce-file.ts`) — sin ninguna referencia en código que los mantenga sincronizados.** Ajuste posterior a F6: la matriz Branch x Milestone desagrega el bucket `Underwriting` de Banked (que colapsa `Submittal`/`Initial Decision`/`Resubmittal`) en 3 columnas de vista, contando a mano sobre `rawMilestone` de cada préstamo (`bankedRawMilestoneCount()`) -- el cálculo de pull-through no cambió, sigue usando `bucketTotal.Underwriting`/`bucketHealthy.Underwriting` con la tasa combinada. El array `BANKED_MATRIX_COLUMNS = ['Started', 'Processing', 'Submittal', 'Initial Decision', 'Resubmittal', 'Closing']` está copiado a mano de `MILESTONE_BUCKET` -- si el parser agrega/quita un valor de `Current Milestone` dentro de Underwriting, `BANKED_MATRIX_COLUMNS` queda desactualizado en silencio (no rompe el build, solo deja de mostrar/cuenta mal una columna). No se resolvió leyendo dinámicamente de `MILESTONE_BUCKET` porque `sources/salesforce-file.ts` estaba fuera de la lista de archivos permitidos en esa etapa.
 11. **`BROKERED_COLUMN_TO_RAW_MILESTONE` (`TabMilestoneMatrix.tsx`) es el mismo tipo de acoplamiento manual que el riesgo 10, pero contra `BROKERED_MILESTONE_BUCKET` (`lib/pipeline/aggregate.ts`, constante privada del módulo, no exportada).** Ajuste posterior: al hacerse clickeable cada celda de la matriz (para abrir `LoanDetailModal` con la lista real de préstamos de esa columna), hizo falta filtrar préstamos individuales de Brokered por `rawMilestone` -- `countByBrokeredMilestoneBucket()` (sí exportada) solo devuelve conteos agregados, no permite filtrar por préstamo. Como `aggregate.ts` estaba fuera de la lista de archivos permitidos en esa tarea (no se podía exportar `BROKERED_MILESTONE_BUCKET` ni agregar una función de filtro ahí), se copió el mapeo a mano en `TabMilestoneMatrix.tsx`, verificado línea por línea contra el código real antes de escribirlo: `Started->FileCreation`, `Processing->Processing`, `Submittal->Submitted` (`AppDate` no tiene ningún `rawMilestone` real que mapee ahí, columna siempre en 0). Mismo riesgo que el ítem 10: si `BROKERED_MILESTONE_BUCKET` cambia en `aggregate.ts`, esta copia queda desactualizada en silencio.
+
+### Etapa F5j — pull-through plano del 40% para Brokered (Banked sin cambios)
+
+El commit `ad86013` había desactivado la cascada propia de Brokered (F5i) dejando
+`forecastTotal = healthy.length` -- un paso intermedio, no la regla final. F5j la reemplaza:
+para Brokered, **Pull-through = 40% plano sobre el Total de préstamos abiertos** (no sobre
+Healthy -- cambio de población además de tasa), en toda la app. `Forecast Brokered = round(Total
+× 0.40) + Closed Brokered`. **Banked no se tocó**: misma cascada de siempre
+(`calculateForecast` + `PULL_THROUGH_RATES` sobre Healthy), verificado que el valor calculado
+(decimal) es idéntico antes/después -- ver "Redondeo" abajo para lo único que sí cambia en
+Banked (el display).
+
+- **`BROKERED_FLAT_PULL_THROUGH_RATE = 0.4`** (`lib/pipeline/aggregate.ts`), constante nombrada,
+  junto a `BROKERED_PULL_THROUGH_RATES`. `BROKERED_PULL_THROUGH_RATES` y
+  `calculateBrokeredForecast()` quedan **código muerto** (marcado en comentario, no borrado --
+  así lo pidió el brief, para no ampliar el radio del cambio). **`countByBrokeredMilestoneBucket()`
+  NO es código muerto** -- pese a que el brief la mencionaba junto a las otras dos, sigue
+  activa en dos lugares: `page.tsx` (conteos Total/Healthy que muestra la cascada) y
+  `TabMilestoneMatrix.tsx` (`bucketsForRow()`, la matriz Branch × Milestone). Se dejó sin
+  marcar, con esta nota en vez de la marca que pedía el brief literalmente.
+
+- **Redondeo (Cambio 4, "en toda la app"):** se redondea por fila y se suma ya redondeado, no al
+  revés -- así las columnas visibles siempre cuadran. Se implementó en un solo punto de
+  `page.tsx` (donde se arma `forecastTotal` por branch, y donde se arma `brokeredForecastByBucket`
+  por milestone-bucket para la cascada), sin tocar `PivotTable.tsx` ni `MilestoneCascade.tsx`
+  (ninguno de los 2 está en el alcance de esta etapa): como el `closedCount` que suman esos 2
+  componentes ya es entero, `round(closedCount + x) === closedCount + round(x)` para cualquier
+  `x` -- adelantar el redondeo en `page.tsx` no cambia ninguna celda individual, solo hace que
+  los subtotales/totales hereden "sumar filas ya enteras" sin tocar esos archivos. Confirmado
+  con Isabella antes de aplicarlo a Banked: esto es redondeo de **display**, no de cálculo -- el
+  valor calculado de Banked (con decimales) es idéntico antes y después, ver la tabla de
+  verificación abajo.
+
+- **Truco del `rate` en la cascada de Brokered (`MilestoneCascadeRow`, `page.tsx`):**
+  `MilestoneCascade.tsx` (fuera de alcance) calcula la columna "% applied" como el producto de
+  `rate` desde esa fila hasta el final -- un modelo de embudo secuencial que ya no aplica. Con
+  las 4 filas en `0.4` literal, esa columna mostraría `40%×40%×40%×40%=2.56%` en File Creation
+  en vez de 40%, un número activamente incorrecto. Se pone `rate=1` en las primeras 3 filas y
+  `rate=0.4` solo en la última (Submitted) -- el producto acumulado desde cualquier fila da
+  exactamente 0.4, así que las 4 muestran "40.0% applied" correctamente sin tocar
+  `MilestoneCascade.tsx`. El cuadro de Pull-Through Rates al pie del tab (`brokeredRates`, prop
+  de `TabMilestoneMatrix`) es un valor **distinto** y sí es 0.4 literal en las 4 -- ese cuadro
+  muestra la tasa cruda, no un acumulado, y por eso repite "40.0%" cuatro veces (ver
+  "Pendiente/propuesta" abajo).
+
+- **Hallazgo de coherencia entre pestañas -- resuelto en F5j-b, ver esa sección abajo.**
+  Executive Branch Forecast redondeaba por **branch**; Milestone Pipeline Matrix redondeaba por
+  **milestone bucket** -- dos particiones distintas del mismo total, con arrastre de redondeo
+  distinto. Verificado contra el snapshot activo del 2026-08-12 (id 28, 19 préstamos Brokered
+  abiertos): el subtotal de PT de Executive daba **6**, el de Matrix **8** -- no coincidían. El
+  Forecast final (con Closed) coincidía en ese snapshot puntual por coincidencia numérica, no
+  por corresponder a la misma cuenta (Matrix nunca sumaba Closed). Reportado sin ajustar para
+  que cerrara -- la corrección de fondo es F5j-b.
+
+- **`SummaryCards.tsx` -- el texto que el brief F5j daba por existente
+  (`Forecast = On Track Loans after PT + Closed`) no está en esta rama** (esa redacción
+  pertenece a una etapa posterior de UX que corrió en paralelo, no fusionada acá todavía). Se
+  aplicó el espíritu del pedido sobre el texto real de esta rama (`Banked: X | Brokered: Y`):
+  se sacó el `.toFixed(1)` (enteros, Cambio 4) y se agregó una nota nueva y discreta
+  (`.kpi-hero__note`, `forecast-visual.css`) aclarando el 40% plano de Brokered.
+
+**Pendiente/propuesta, no decidida acá:** el cuadro de Pull-Through Rates de Brokered
+(`TabMilestoneMatrix.tsx`) va a mostrar "40.0%" cuatro veces (File Creation/App Date/
+Processing/Submitted) -- técnicamente correcto pero repetitivo, porque ese cuadro fue diseñado
+para una tasa distinta por etapa. Una alternativa: para Brokered, reemplazar la grilla de 4
+tarjetas por una sola línea ("Flat pull-through: 40% on open pipeline (Total)"). No implementado
+-- el brief pide proponerlo, no decidirlo.
+
+### Etapa F5j-b — una sola partición manda para el forecast de Brokered
+
+F5j (arriba) redondeaba el forecast de Brokered en 2 lugares independientes -- por branch
+(Executive) y por milestone-bucket (Matrix) -- y cada partición arrastra el redondeo distinto:
+no es un bug de una fórmula puntual, es aritmética (redondear-y-sumar da resultados distintos
+según cómo se agrupen las filas antes de sumar). Este ajuste elimina la posibilidad de que
+diverjan, en vez de solo reportarlo.
+
+**La regla:** el total por branch (`page.tsx`, ya redondeado por fila) es la **única fuente de
+verdad** para el forecast de Brokered. Ninguna otra vista lo recalcula -- si necesita un
+desglose, **reparte** ese total fijo, nunca lo vuelve a calcular multiplicando por 0.4.
+
+- **`apportionByWeight(total, weights)`** (`lib/pipeline/aggregate.ts`, nueva) -- reparte un
+  entero ya fijado entre N categorías en proporción a un peso, garantizando por construcción que
+  la suma de las partes sea exactamente el total recibido. Método de mayor resto (Hamilton
+  apportionment): piso de la porción proporcional exacta por categoría, y el resto entero que
+  falta se reparte de a 1 empezando por las categorías con mayor parte fraccionaria descartada.
+  Determinista. `page.tsx` la usa para repartir `brokeredSummary.forecastTotal` (el total por
+  branch) entre los 4 buckets de milestone, en proporción a su conteo Total -- ya no se calcula
+  `Math.round(bucketTotal.X * 0.4)` por bucket, que era la causa raíz de la divergencia.
+- **`TabMilestoneMatrix.tsx`** ahora recibe `brokeredClosedCount`/`brokeredTotalForecast` (props
+  nuevas, ambas obligatorias) y se las pasa a `MilestoneCascade` **solo cuando el canal activo es
+  Brokered** -- ese componente ya traía el mecanismo (`closedCount`/`totalForecast` opcionales,
+  agrega una fila "Closed (Funded)" y cambia el rótulo de la fila de total a "Total Forecast
+  (Closed + Projection)") sin que hiciera falta tocarlo. Banked sigue sin pasarlos, sin cambios:
+  su cascada sigue mostrando solo la proyección.
+- El foot-note debajo de la cascada de Matrix ahora es distinto por canal: Banked conserva el
+  texto de siempre ("does not include already-closed loans"); Brokered dice explícito que su
+  total ya incluye Closed y coincide con Executive -- el texto viejo dejó de ser cierto para ese
+  canal.
+
+**Verificado, no asumido** (snapshot activo id 28, 2026-08-12, y un caso sintético adversarial
+de 11 branches con 1 préstamo cada uno, todos en el mismo milestone-bucket -- el peor caso
+posible para la divergencia vieja): en ambos, Executive y Matrix dan ahora el mismo número
+(8 y 8; 0 y 0 en el caso adversarial, donde antes daba 0 contra 4). Banked verificado idéntico
+antes/después, cálculo y display.
+
 ---
 
 ## Etapa UX1 — Overhaul UI/UX "Service Hub" (ambos módulos)
@@ -567,6 +679,173 @@ A 648px reales la columna de métrica mide `648 × 0.14 = 90.7px`, así que el m
 pedía el brief anterior se cumple igual sin forzarlo; el `min-width` sólo entra en juego en
 viewports más chicos, donde el piso pasa a ser 87px por columna.
 
+---
+
+## Etapa AUTH1 — login con Supabase Auth
+
+Se cerró la seguridad a nivel de base en `simoOS-prod`: permisos de `anon` revocados en
+`activity_report` y `pipeline_forecast`, RLS activo en las 8 tablas, y políticas que exigen
+**sesión autenticada + `"commercial_activity"` en `app_metadata.allowed_apps`**. La app usaba la
+anon key sin sesión, así que toda lectura/escritura pasó a fallar.
+
+Patrón tomado del repo hermano **homesi-pl** (rama `feature/user-authentication`): mismo
+proyecto de Supabase, mismos usuarios, mismo criterio de permiso por app. No se creó ningún
+sistema de auth propio.
+
+### Decisión de dónde vive el gate
+
+Se eligió **`proxy.ts`** (middleware) por encima de un guard en el layout raíz:
+
+1. Toda ruta pasa por ahí, así que las páginas quedan protegidas **por existir**. Un guard en el
+   layout sólo cubre lo que ese layout envuelve, y no cubre las API routes.
+2. Corre **antes** de renderizar. Un guard de cliente pinta la página, corre el efecto y recién
+   ahí redirige — un parpadeo de contenido para quien no debería verlo.
+3. Es el único punto que puede **refrescar el token**, porque necesita escribir cookies en la
+   respuesta.
+
+Eso obliga a que la sesión viva en **cookies** y no en localStorage (el servidor no ve
+localStorage), y por eso el cliente pasó de `createClient` a `createBrowserClient`
+(`@supabase/ssr`, dependencia nueva — la misma que usa homesi-pl).
+
+Se llama `proxy.ts` porque Next 16 renombró la convención; soporta las dos
+(`PROXY_FILENAME`/`MIDDLEWARE_FILENAME`, verificado en `next@16.2.12`).
+
+### Un solo cliente para los dos schemas
+
+`app/pipeline/page.tsx` creaba su propio cliente para `pipeline_forecast`, porque
+`lib/supabase/client.ts` está fijo a `activity_report`. Con autenticación eso pasó a ser un
+problema real: dos instancias de GoTrue compitiendo por la misma sesión. Se resolvió con
+`getForecastDb()`, que apunta el **mismo** cliente al otro schema vía `.schema()`.
+
+El JWT viaja solo: `signInWithPassword` deja la sesión en ese cliente y supabase-js adjunta el
+access token en cada request. Si el login se hiciera con otra instancia, la app seguiría
+consultando como `anon`.
+
+### API routes
+
+Las 3 que llama el navegador (`/parse`, `/latest`, `/adverse-history`) pasaron a construir su
+cliente desde las **cookies de la request** (`lib/supabase/server.ts`), o sea con la sesión de
+quien llamó. Al ser same-origin la cookie llega sola: no hizo falta `service_role` ni pasar el
+token a mano.
+
+### El cron de retención se movió a `pg_cron` (resuelto)
+
+`/api/pipeline/retention` era un cron de Vercel: corría sin navegador, sin cookies y sin
+usuario, así que ningún cliente basado en sesión podía funcionar ahí. Con RLS activo sus
+UPDATE/DELETE habrían fallado y la retención de 90 días habría dejado de ejecutarse en silencio.
+
+De las tres salidas posibles se eligió **mover la tarea a `pg_cron` dentro de Supabase**: corre
+en la base, no pasa por PostgREST, y por lo tanto RLS no interviene — sin meter ninguna
+`service_role` key en las variables de entorno del proyecto.
+
+**Se eliminaron del repo** `app/api/pipeline/retention/` y `vercel.json` (sólo contenía esa
+entrada de cron), y `CRON_SECRET` dejó de usarse.
+
+El SQL está versionado en **`docs/sql/2026-08-retention-pg-cron.sql`**, idempotente y listo para
+ejecutar en el SQL Editor. Puntos que no son obvios y quedaron documentados ahí:
+
+- **La función NO vive en `pipeline_forecast`.** Ese schema está expuesto a PostgREST, así que
+  toda función que viva ahí queda publicada como endpoint RPC. Siendo `SECURITY DEFINER`, eso
+  sería justo el agujero que se acaba de cerrar. Va en un schema `maintenance` que no se expone,
+  y además se le revoca `EXECUTE` a `public`/`anon`/`authenticated` — Postgres lo otorga a
+  PUBLIC por defecto en toda función nueva.
+- **`set search_path = ''`** con todos los nombres calificados: sin eso, en una función
+  `SECURITY DEFINER` quien la llame puede anteponer un schema propio y secuestrar un nombre.
+- **Equivalencias exactas con el endpoint**: primero/último snapshot del mes por `min(id)`/
+  `max(id)` (orden de inserción, no `snapshot_date`, porque puede haber varias cargas el mismo
+  día); `is_month_end` nunca se marca para el mes en curso; fechas en UTC; se marca antes de
+  borrar para que lo recién marcado quede protegido; el borrado exige `= false` estricto (una
+  fila con NULL nunca se borra, igual que el `.eq(campo, false)` de PostgREST); y los hijos se
+  borran antes que el padre, sin depender de `ON DELETE CASCADE`.
+- **Mismo horario**: `0 9 * * *`. Vercel Cron y pg_cron en Supabase corren los dos en UTC.
+
+### Fuera de alcance, deliberadamente
+
+- **Permisos por rol dentro de la app** (fase 2).
+
+*(`must_change_password` estaba acá como fuera de alcance; se implementó en AUTH2, abajo.)*
+
+---
+
+## Etapa AUTH2 — cambio obligatorio de contraseña
+
+Mismo patrón que homesi-pl: quien entra con una contraseña temporal no puede usar la app hasta
+elegir la suya. El flag es `app_metadata.must_change_password`.
+
+### Por qué hizo falta romper una regla previa
+
+`app_metadata` sólo lo escribe el `service_role` — que es exactamente por qué el flag vive ahí:
+si estuviera en `user_metadata`, cualquiera se lo bajaría desde el navegador y se saltearía el
+cambio. La contrapartida es que **liberarlo exige privilegios que el cliente no tiene**.
+
+Hasta AUTH1 la app no usaba `service_role` en ningún lado, y `.env.example` decía explícitamente
+"NUNCA en las variables de entorno de Vercel". **Eso cambió**: `SUPABASE_SERVICE_ROLE_KEY` ahora
+es obligatoria en producción. Sin ella, quien tenga contraseña temporal la cambia pero no se
+desbloquea, y queda girando en `/change-password`.
+
+La excepción está acotada a un solo archivo (`lib/supabase/admin.ts`), importado por una sola
+ruta. Verificado en 4 niveles antes de habilitarla en Vercel — el decisivo: el valor de la clave
+aparece en **0 de 38** archivos de `.next/static`, que es lo que se sirve al navegador.
+
+### Piezas
+
+| Archivo | Rol |
+|---|---|
+| `app/change-password/page.tsx` | Formulario. Port visual de homesi-pl a `auth.css`. |
+| `app/api/auth/complete-password-change/route.ts` | Baja el flag con `service_role`. |
+| `lib/supabase/admin.ts` | **Único** punto de la app con `service_role`. |
+| `lib/auth/session.ts` | Resuelve quién llama, desde la cookie y con la anon key. |
+
+### Dos pasos, y el orden importa
+
+1. La contraseña la cambia **la propia sesión** del usuario (`auth.updateUser`).
+2. El flag lo baja **la API route**, con `service_role`.
+
+Si el paso 2 falla, la contraseña ya quedó cambiada y la persona sigue bloqueada: puede
+reintentar y el paso 1 vuelve a aplicarse. Es la dirección segura en la que fallar; lo inverso
+—liberar el flag y que el cambio no se aplique— dejaría a alguien adentro con la temporal.
+
+El usuario **siempre** se resuelve desde la cookie de sesión, nunca del body: si no, cualquiera
+con sesión podría limpiarle el flag a otra cuenta. La ruta además relee tras escribir, para no
+reportar éxito si el flag quedó puesto, y excluye `provider`/`providers` del `app_metadata` que
+reenvía (mismo problema que se corrigió en `grant-app-access.mjs`).
+
+### El gate
+
+El chequeo va **después** de `allowed_apps`: obligar a alguien a elegir contraseña para una app
+que después no va a poder abrir es trabajo inútil. `PASSWORD_CHANGE_ROUTES` exime a la página
+**y a la API route** — sin esa segunda exención, la llamada que desbloquea nunca podría salir y
+la persona quedaría encerrada de forma permanente.
+
+Ajuste hecho durante la verificación: el chequeo estaba después de la regla "tenés acceso, andá
+a la landing", así que `/no-access` daba 2 saltos. Se movió más arriba; ahora es 1.
+
+### Detalle que conviene recordar
+
+El gate usa `getUser()`, que **valida contra Supabase**, así que lee `app_metadata` fresco de la
+base y no del token viejo. El `refreshSession()` de la página es para mantener consistente el
+token del cliente, no un requisito para que el gate funcione.
+
+### Estado del proyecto compartido al implementarlo
+
+6 usuarios ya tenían `must_change_password: true` (heredado de cómo homesi-pl crea cuentas), y
+**5 de ellos con `commercial_activity`**: son los que quedan forzados a cambiar contraseña al
+desplegar. No es un efecto secundario del código, es el dato preexistente — pero conviene
+avisarles antes, sobre todo si ya cambiaron su contraseña en Homesí y el flag quedó sin limpiar.
+
+### Riesgo/pendiente que deja esta etapa
+
+### Estilo de las pantallas de auth
+
+Port visual de `app/login/page.tsx` y `app/no-access/page.tsx` de homesi-pl. El original usa
+Tailwind y este repo no, así que cada utilidad se tradujo a su valor real en
+`app/styles/auth.css` (la tabla de equivalencias está en la cabecera de ese archivo).
+
+**No hay conflicto de paleta**: `--navy`, `--coral` y `--canvas` de `tokens.css` ya eran
+exactamente `#001A40` / `#FF4040` / `#FCFCFA`, los mismos hex que usa homesi-pl. El logo sí
+difiere a favor de esta app: acá es un PNG con transparencia real
+(`public/brand/homesi-lockup.png`), mientras homesi-pl usa el JPG con fondo blanco.
+
 ### Riesgo/pendiente que deja esta etapa
 
 12. **`config/metrics.ts` es fuente única de labels para UI *y* export a Excel.** Al cambiar
@@ -581,7 +860,594 @@ viewports más chicos, donde el piso pasa a ser 87px por columna.
 
 ---
 
-## Glosario rápido (para no repetir la investigación)
+## Etapa UX7 — desglose Banked/Brokered en el banner de KPIs
+
+Cambio puramente de presentación en las 4 tarjetas del banner ejecutivo de Forecast &
+Pipeline (`Total Pipeline` / `Healthy Pipeline` / `Closed` / `Total Forecast`). Ningún
+cálculo nuevo: `SummaryCards.tsx` ya recibía `banked`/`brokered` como props (`SummaryBlock`
+completo) desde F5i, pero solo consumía `totalForecast` de cada uno para el subtítulo de la
+última tarjeta. Los otros seis valores (`totalCount`/`healthyCount`/`closedCount` de cada
+canal) estaban disponibles y sin usar.
+
+- Se agregó `ChannelSplit`, un subcomponente local a `SummaryCards.tsx` que renderiza
+  "Banked | Brokered" debajo del número combinado de cada tarjeta.
+- Clases nuevas en `app/pipeline/styles/forecast-visual.css`
+  (`.kpi-hero__split*`): no se tocó `.mcard`/`.kpi-hero__*`/`components.css`, que siguen
+  siendo compartidos con Commercial Activity.
+- **Asimetría deliberada de redondeo**: las 3 primeras tarjetas son conteos enteros
+  (`fmtInt`) y el desglose siempre suma exacto al combinado. `Total Forecast` es
+  fraccionario y conserva 1 decimal en el desglose (`toFixed(1)`), aunque el número grande
+  se muestre redondeado (`fmtRounded`) — por eso puede leerse `38.1 + 4.3 = 42.4` con un
+  titular de `42`. Redondear cada canal a entero generaría casos donde las partes no sumen
+  el total mostrado.
+- `Total Forecast` además: desglose con tipografía más grande
+  (`.kpi-hero__split--lg`, 19px vs. los 11px de `.kpi-hero__sub`) y subtítulo nuevo fijo:
+  `Forecast = On Track Loans after PT + Closed`.
+- Responsive: a 480px o menos el desglose pasa de lado-a-lado a apilado
+  (`.kpi-hero__split` en columna, divisor oculto) — `.hero-banner` ya colapsaba a 2 columnas
+  a los 900px definidos en `components.css`, sin cambios ahí.
+- `page.tsx`, `lib/**` y `components.css` quedaron sin modificar; `summarizeChannel()` (F4f)
+  sigue siendo la única fuente de estos números.
+
+---
+
+## Etapa AC1 — tarjetas de resumen por branch + etiquetas completas (Commercial Activity)
+
+Dos bugs de Commercial Activity, sin tocar `lib/aggregation/buildReportTree.ts` ni
+`lib/export/**`.
+
+### Bug 1 — las tarjetas ("Monthly Totals") no reaccionaban al filtro de Branch
+
+Causa: `SummaryCards.tsx` leía `tree.total.maps`, y ese nodo de `ReportTree` se calcula
+sobre *todos* los records sin filtrar por `branchFilter` — a propósito, porque también
+alimenta la fila Total del pivot y los totales del Excel exportado
+(`lib/export/sheetBuilders.ts`). Cambiarle la semántica a `tree.total` era la trampa obvia
+y quedó fuera de alcance a propósito.
+
+Arreglo, todo en el lado de lectura:
+
+- `SummaryCards` suma una prop opcional `branchFilter?: Branch | 'all'` y una función interna
+  `resolveMaps(tree, branchFilter)` que, con un branch específico, arma el
+  `Record<MetricKey, MetricMap>` a partir de `tree.branches[].metricGroups` (la misma fuente
+  que ya usa `PivotTable` para sus filas) en vez de `tree.total.maps`. Sin cálculo nuevo: solo
+  reindexa una estructura que `buildReportTree` ya entrega.
+- Un branch sin actividad en el rango de meses visible no aparece en `tree.branches`
+  (`buildReportTree` lo descarta cuando su total da cero) — `resolveMaps` devuelve mapas
+  vacíos en ese caso, que renderizan como 0 en todas las métricas. Es el resultado correcto
+  para "branch sin datos en este rango", no una caída silenciosa al total global.
+- `app/page.tsx` pasa `branchFilter={view === 'loanOfficer' ? 'all' : branchFilter}`. La
+  vista "Por Loan Officer" cruza todos los branches a propósito (el Toolbar oculta ahí el
+  selector de Branch, ver comentario en `Toolbar.tsx`) pero el `branchFilter` en estado puede
+  seguir apuntando a un branch elegido en una vista anterior — se neutraliza en el único
+  call site en vez de enseñarle a `SummaryCards` sobre la vista activa.
+- Los badges de `<Trend>` no se tocaron: ya recibían el mismo objeto `maps` que arma
+  `resolveMaps`, así que las flechas de tendencia siguen automáticamente la serie del branch
+  elegido en vez de la global.
+
+Verificado con un dataset chico de 2 branches x 2 meses corrido contra `buildReportTree` real
+(sin fixture de producción disponible en este entorno): con un branch específico, la tarjeta
+coincide mes a mes con `branch.metricGroups[].total` (la misma fuente que alimenta la fila de
+ese branch en el pivot); con `'all'` vuelve al combinado; un branch sin actividad da ceros; y
+la vista Loan Officer ignora el `branchFilter` residual.
+
+### Bug 2 — etiquetas de métrica cortadas ("File Creatio...", "Credit Rep...")
+
+Causa: `.kpi-row__label` tenía `white-space: nowrap` + `overflow: hidden` +
+`text-overflow: ellipsis`, y `.kpi-row__right` (valor + badge) tiene `flex-shrink: 0` — la
+etiqueta era la única que podía encogerse, así que absorbía el recorte. Se notaba en todos
+los meses salvo el primero, porque `<Trend>` no dibuja badge cuando no hay mes anterior con
+el que comparar, y esos ~20px de más alcanzaban para no cortar.
+
+Arreglo (`app/styles/components.css`, reglas `.kpi-row*` — confirmado por grep que sólo las
+usa `components/report/SummaryCards.tsx`; Forecast usa sus propias `.kpi-hero__*`/
+`.hero-banner`, sin relación):
+
+- Se sacaron las 3 propiedades de recorte. Sin `overflow: hidden` ni `text-overflow`, el
+  navegador no tiene forma de truncar aunque el texto no entre en una línea — se garantiza
+  estructuralmente que el nombre completo siempre se ve, en vez de depender de que alcance el
+  ancho justo en cada fuente/breakpoint.
+- `.kpi-row` pasa de `align-items: center` a `flex-start`: con la etiqueta pudiendo ocupar 2
+  líneas, centrar el valor+badge contra todo el bloque de texto los desalineaba hacia abajo.
+  `.kpi-row__right` suma `padding-top: 1px` para calzar con la primera línea pese a la
+  diferencia de `line-height` entre el label (11px) y el valor (12px).
+- `.mcard` (compartida con Forecast) no se tocó. Confirmado visualmente que el banner de
+  `/pipeline` no cambió: mismo screenshot de `.hero-banner` antes y después de este cambio.
+
+Verificado con Playwright headless contra los 3 cortes de `.kpi-strip` (>1240px → 8
+columnas, 1240px → 4, 680px → 2) y además forzando 12 columnas para ver el wrap en el caso
+más apretado posible: en ningún ancho aparece texto cortado, y el valor+badge quedan alineados
+con la primera línea de la etiqueta incluso cuando ésta ocupa dos.
+
+### Pendiente explícito, no resuelto acá
+
+Falta confirmar con el negocio si además hay que renombrar la métrica `App Date` a
+`Applications` (afecta también los rótulos de fila del Excel exportado, `config/metrics.ts`
+es fuente única). Fuera de alcance de esta etapa a propósito.
+
+---
+
+## Etapa UX8 — columnas de Forecast desglosadas, total por fila en Pipeline by Milestone, explicación de Adverse
+
+Cuatro cambios de presentación en Forecast & Pipeline, sin tocar `lib/pipeline/aggregate.ts`.
+
+### Parte 1 — Executive Branch Forecast: nuevo orden + desglose
+
+Orden de columnas, antes `Branch | Branch Manager | Closed | Total Pipeline | Healthy Pipeline
+| Forecast`, pasa a `Branch | Branch Manager | Total Pipeline | Healthy Pipeline | Closed |
+Projected to Close | Forecast` — Closed se mueve adentro de un grupo "Forecast" (barra
+agrupadora nueva, colSpan=3, `<thead>` con 2 filas) junto a una columna nueva, **Projected to
+Close** (= `branchForecastRow.forecastTotal`, ya calculado — sin cálculo nuevo). El título
+completo ("Open pipeline loans (Total) projected to close after applying pull-through --
+before adding Closed.") va en el `title` de esa `<th>`.
+
+`ExecColgroup`/`ExecHead`/`ExecTotalRow`/`BranchDataRow` son compartidas por los 3 bloques
+(Banked, Brokered, Combined Total by Branch) — confirmado leyendo el archivo antes de asumirlo
+(el 3er bloque, "Combined Total by Branch", arma sus filas con JSX inline, no con
+`BranchDataRow`, pero usa el mismo `ExecColgroup`/`ExecHead`/`ExecTotalRow` compartido) — un
+solo cambio alcanzó para los 3.
+
+`BranchRow`/`BlockSubtotal`/`CombinedBranchRow` suman un campo nuevo, `projectedToClose` (=
+`branchForecastRow.forecastTotal` de cada fila, reexpuesto, no recalculado). `col-closed` (el
+grupo propio que tenía Closed) queda sin consumidores -- se retiró de `forecast-visual.css`.
+
+**Hallazgo, corregido de paso:** el foot-note bajo la tabla decía *"the Combined Total is
+calculated from the underlying decimal values before rounding, so it may differ by a small
+margin from the sum of the rounded subtotals"* — cierto en F5j-a, pero ya no: desde F5j-b
+`forecastTotal` se redondea por fila de branch en `page.tsx` antes de llegar acá, así que todo
+subtotal (de canal o Combinado) es ya la suma exacta de filas enteras. Se reemplazó el texto en
+vez de dejar una afirmación que esta misma etapa demuestra falsa.
+
+Verificado con datos reales (snapshot activo, 2026-08-12): Closed + Projected to Close =
+Forecast en cada fila, y los subtotales de las 2 columnas nuevas son la suma exacta de las
+filas, en Banked, Brokered y Combinado — sin excepciones.
+
+**Ancho de columnas** — con una columna más (7 en vez de 6), `.piv col.metric-col` baja de 14%
+a 11.2% (Branch/Manager quedan igual, 12/32). Repetir el piso de 90px por métrica de UX5/UX6
+pediría 804px de mínimo por tabla, muy por encima de los ~648px reales que le tocan a cada tabla
+de canal en el layout de 2 columnas — forzaría scroll horizontal siempre, no solo en pantallas
+chicas. Se relaja a 75px (670px de mínimo). Verificado con Playwright: sin scroll a ≤900px
+(`.channel-grid` ya colapsó a 1 columna, cada tabla tiene ancho completo) y a ≥1440px; entre
+~1150 y ~1350px cada tabla de canal SÍ necesita scroll horizontal propio (nunca del body) para
+ver Projected to Close/Forecast completos -- es el trade-off real de agregar una columna, no un
+bug; capturas del antes/después de scrollear en el reporte de esta etapa.
+
+### Parte 2 — Renombre de pestaña
+
+"Milestone Pipeline Matrix" → "Pipeline by Milestone". **El brief decía que el rótulo vivía en
+`app/pipeline/page.tsx` — no es así:** el texto real está en `app/pipeline/TabNavigation.tsx`
+(`TABS` array), un archivo que no estaba en la lista de "se puede tocar" de esta etapa. Se
+corrigió ahí de todos modos porque es inequívocamente el mismo cambio que pedía el brief (el
+texto visible del botón de esa pestaña), solo que en el archivo correcto -- confirmado
+buscando el string viejo en todo el repo antes de dar por terminado (apareció también en un
+comentario de `TabMilestoneMatrix.tsx` y en 3 lugares de este documento, todos actualizados).
+
+### Parte 3 — Total por fila en Pipeline by Milestone
+
+La matriz Branch × Milestone (`TabMilestoneMatrix.tsx`) suma una columna final "Total" (ancho
+fijo 12%, el resto se reparte entre los milestones) con la clase `totcol` que ya usa
+`PivotTable.tsx` para su columna de total -- mismo lenguaje visual, no un milestone más. El
+total de cada fila es la **suma de lo que esa fila muestra** (los `milestoneKeys` visibles), no
+`row.totalCount`/`row.healthyCount`: para Brokered esos 2 números pueden diferir si hay algún
+préstamo con un `rawMilestone` que no mapea a ningún bucket conocido (riesgo ya documentado
+arriba, `BROKERED_MILESTONE_BUCKET`) -- sumar lo mostrado es lo único que garantiza que el
+total de la fila cuadre con las columnas de esa misma fila, siempre. No existía una fila de
+totales por columna en esta tabla (se verificó antes de asumir que hacía falta cuadrar una
+celda de esquina) -- no se agregó una, no la pedía el brief.
+
+### Parte 4 — Texto introductorio en Adverse & Risk Loans
+
+**Hallazgo:** el criterio documentado en este archivo (§"Criterio actual (desde F5h)", más
+arriba) estaba desactualizado -- describía el filtro de F5h (`status='adverse'` + Est. Closing
+Date en Pipeline Range, sin `Loan Folder`), pero el código real (`adverseInRange` en
+`page.tsx`) hace tiempo que corre con el criterio de F5j/F5m: `firstSeenAsAdverse` dentro del
+**Forecast Month** (no Est. Closing Date en Pipeline Range), más 2 exclusiones por canal
+(Brokered: fuera `Loan Folder='Current Prospects'`; Banked: fuera si no tiene Est. Closing
+Date) -- la afirmación *"ya no se filtra... por Loan Folder"* es exactamente lo contrario de lo
+que hace el código hoy para Brokered. Se corrigió esa sección más arriba en vez de dejarla
+como estaba.
+
+El texto de `AdverseTable.tsx` se escribió a partir del código corregido, no de la
+documentación vieja: explica que la tabla lista préstamos `status='adverse'` cuya primera
+detección como tal cae dentro del Forecast Month elegido, y qué significa "New this period".
+Las 2 exclusiones por canal (Current Prospects / Est. Closing Date) quedaron fuera del texto
+de la UI por espacio (2-3 frases pedidas) -- documentadas acá en cambio.
+
+---
+
+## Etapa UX9 — ajustes de tablas y tarjetas en Forecast
+
+Siete ajustes de presentación en Forecast & Pipeline, sin tocar `lib/pipeline/aggregate.ts` ni
+`app/api/pipeline/**`. Datos reales del snapshot activo (id 28, Supabase
+`eykplgdwlqpybzkzbpmu`, `pipeline_forecast.pipeline_loans`/`pipeline_resolved_loans`, leídos
+read-only el 2026-08-12).
+
+### Parte 1 — Tabla ejecutiva: entra sin scroll + se quita la barra "FORECAST"
+
+`.piv col.manager-col` baja de 32% a 18%; los 14 puntos liberados se reparten entre las 5
+columnas de métrica (11.2% → 14% cada una) — Branch queda igual (12%), la tabla sigue sumando
+100% de ancho, no cambia el ancho total. La fila de agrupación `exec-group-row` ("FORECAST" con
+colSpan=3, agregada en UX8) se elimina de `ExecHead` (`PivotTable.tsx`) y de
+`forecast-visual.css` — el tinte `emerald-50` + las esquinas redondeadas de `col-forecast`
+(ya existían) siguen identificando el grupo Forecast sin necesidad de una segunda fila de
+`<thead>`.
+
+`.piv--exec { min-width }` baja de 670px a 500px. UX8 solo había verificado sin-scroll a
+≤900px y ≥1440px (con scroll propio de la tabla entre ~1150-1350px, documentado ahí como
+trade-off). Este ajuste pide explícitamente sin scroll en 1150/1250/1350/1440px — el caso más
+angosto (1150px) da (1150-64-20)/2 = 533px reales por tabla de canal, así que el mínimo tenía
+que bajar de 670 a ≤533px.
+
+**Verificado con Playwright** (harness con las 3 tablas ejecutivas reales — Banked, Brokered,
+Combined — usando las hojas de estilo reales del repo vía `file://` y datos reales de las 12
+branches de Banked + 8 de Brokered, snapshot 28):
+
+| Viewport | Banked (`scrollWidth`/`clientWidth`) | Brokered | Combined |
+|---|---|---|---|
+| 1150px | 531 / 531 | 531 / 531 | 1084 / 1084 |
+| 1250px | 581 / 581 | 581 / 581 | 1184 / 1184 |
+| 1350px | 631 / 631 | 631 / 631 | 1284 / 1284 |
+| 1440px | 676 / 676 | 676 / 676 | 1374 / 1374 |
+
+Sin scroll horizontal en ningún caso (`scrollWidth === clientWidth` en las 3 tablas, en los 4
+anchos). Trade-off real, no oculto: con Branch Manager en 18% (95px reales a 1150px en las
+tablas de canal), algunos nombres largos (Armando Tejeda, Mariano Claudio, Stephanie García,
+Steve Badovinac) activan el recorte con puntos suspensivos que ya existe en `table.piv td`
+(`overflow:hidden;text-overflow:ellipsis`, HOTFIX UX2) — el nombre completo sigue disponible en
+el `title` de la celda. En la tabla Combined (ancho completo, sin partir en 2 columnas) los 194px
+reales de manager-col alcanzan para mostrar todos los nombres completos.
+
+### Parte 2 — Subtotal sin recortar
+
+`ExecTotalRow` (`PivotTable.tsx`) combina Branch + Branch Manager en un solo `<td className="lbl"
+colSpan={2}>{label}</td>` — antes el label completo ("Subtotal Brokered", "Combined Total
+(Banked - Retail + Brokered)") tenía que entrar en el ancho de la sola columna Branch (12%) y se
+recortaba. Verificado en las capturas: los 3 labels de cierre se leen completos en los 4 anchos
+probados.
+
+### Parte 3 — "Clear to Close" + totales por columna en Pipeline by Milestone
+
+`labelFromKey()` (`TabMilestoneMatrix.tsx`) agrega una excepción explícita: `'Closing' →
+'Clear to Close'`, antes de la transformación genérica por regex. Solo cambia el texto (acá y en
+el título del modal de celda, que reusa la misma función) — la key `Closing` de `BucketCounts`
+(`aggregate.ts`) y toda la lógica de pull-through no se tocan.
+
+El cálculo por fila (antes inline en el `.map()` del `<tbody>`) se saca a un array
+`rowsWithValues` construido antes del JSX, para poder derivar `columnTotals`/`grandTotal` sin
+recalcular. Se agrega una fila `<tr className="grp total">` al pie con el total de cada columna
+más la celda esquina (`grandTotal`) — reusa el estilo genérico `tr.grp.total td` que ya existe
+en `components.css`, sin CSS nuevo.
+
+**Verificado con datos reales** (12 branches de Banked, 8 de Brokered, snapshot 28, metricView
+Total):
+
+| Canal | Columnas | Suma de totales por fila | Suma de totales por columna | Celda esquina |
+|---|---|---|---|---|
+| Banked - Retail | Started 14, Processing 14, Submittal 4, Initial Decision 29, Resubmittal 7, Clear to Close 6 | 74 | 74 | 74 |
+| Brokered | File Creation 5, App Date 0, Processing 20, Submitted 0 | 25 | 25 | 25 |
+
+Las 3 cifras coinciden en los 2 canales — reconciliado también programáticamente (no solo a
+ojo) leyendo el DOM del harness de verificación.
+
+### Parte 4 — Tarjeta "Closed": de mes a "Projected to close soon"
+
+Se saca el subtítulo de mes (`targetMonthLabel`, "August 2026") y se reemplaza por el conteo de
+préstamos del pipeline abierto en milestone Clear to Close/Closing — ya calculado
+(`bucketTotal.Closing` de cada `BranchForecastRow`, sumado sobre todas las filas en `page.tsx`),
+sin cálculo nuevo. Se suma sobre los 2 canales sin filtrar por channel porque `bucketTotal` es
+vestigial para Brokered (usa el esquema de buckets de Banked, que Brokered no puebla) — verificado
+contra el snapshot real: ninguna fila Brokered tiene `milestone='Closing'` (0 de 25 préstamos), así
+que sumar sin filtrar da el mismo resultado que filtrar por Banked únicamente.
+
+**Real, snapshot 28, `estClosingDate` en pipelineDateRange (2026-07-01 a 2026-09-30):**
+`bucketTotal.Closing` = 6 (Banked) + 0 (Brokered) = **6 préstamos** → tarjeta Closed muestra
+"6 Loans Projected to close soon".
+
+### Parte 5 — Tarjeta "Total Forecast": subtítulo más chico + nota reubicada
+
+Se agrega el modificador `.kpi-hero__sub--sm` (9.5px, contra 11px de `.kpi-hero__sub` base) al
+subtítulo "Forecast = On Track Loans after PT + Closed" -- es lo único que queda como
+sub-contenido de la tarjeta, tal como pide el brief. El desglose Banked/Brokered
+(`ChannelSplit`) NO se quita -- el brief solo pedía achicar el subtítulo y reubicar la nota, no
+quitar el desglose.
+
+La nota "Brokered applies a flat 40% pull-through rate on its open pipeline (Total)." se saca de
+`SummaryCards.tsx` (`.kpi-hero__note`, que queda sin consumidores y se borra de
+`forecast-visual.css`) y se agrega como `<p className="foot-note">` debajo de la tabla Brokered
+en `PivotTable.tsx` -- solo aplica a ese canal, no tenía sentido en una tarjeta que resume los 2.
+
+### Parte 6 — Centrado de las 4 tarjetas del banner
+
+3 reglas nuevas scopeadas a `.hero-banner` (`.mcard { text-align:center }`, `.m-name { justify-
+content:center }` -- ya era flex --, `.kpi-hero__split { justify-content:center }`). Verificado
+por grep antes de escribirlas: el `SummaryCards` de Commercial Activity no usa `.hero-banner` en
+ningún lado, así que no hay riesgo de que se filtren ahí. Mismo orden/estructura de las 4
+tarjetas, solo cambia la alineación horizontal del contenido.
+
+### Parte 7 — Renombre de tab: "Executive Branch Forecast" → "Projected Forecast"
+
+Mismo patrón que el renombre de UX8: `TabNavigation.tsx` (`TABS`, el `id` sigue siendo
+`'executive'`), el subtítulo de `page.tsx` ("Executive branch forecast, milestone pipeline
+matrix..." → "Projected forecast, milestone pipeline matrix..."), y los comentarios/JSDoc de
+`PivotTable.tsx`/`TabMilestoneMatrix.tsx`/`forecast-visual.css` que lo mencionaban. Búsqueda del
+string viejo en todo el repo antes de dar por terminado: los únicos 3 restantes son narración
+histórica de etapas pasadas en este mismo documento (líneas de la sección "Estructura de
+carpetas", Etapa F6, y Etapa F5j-b) y el propio encabezado "Parte 1" de la sección UX8 de arriba
+-- se dejan como estaban, mismo criterio que UX8 usó para "Milestone Pipeline Matrix".
+
+---
+
+## Etapa UX10 — Pestaña Adverse: renombre, columna Loan Folder, sin resaltado por monto
+
+Cuatro ajustes en `AdverseTable.tsx`/`TabNavigation.tsx`, sin tocar `page.tsx` ni la lógica de
+filtro (`adverseInRange`, sin cambios).
+
+### Renombre: "Adverse & Risk Loans" → "Adverse Loans"
+
+**Motivo real:** la tabla filtra únicamente por `status === 'adverse'` -- no existe, ni existió,
+ninguna noción de "préstamo en riesgo" en el código. El rótulo viejo prometía una categoría que
+no está. Cambiado en `TabNavigation.tsx` (`TABS`, el `id` sigue siendo `'adverse'`) y en el
+título de la tarjeta dentro de `AdverseTable.tsx` (antes decía solo "Adverse (N)", ahora
+"Adverse Loans (N)"). Búsqueda del string viejo en todo el repo: los 3 restantes son narración
+histórica de etapas pasadas en este documento (Estructura de carpetas, Etapa F6, y el propio
+encabezado "Parte 4" de la sección UX8) -- se dejan como estaban, mismo criterio de todos los
+renombres anteriores (UX8, UX9).
+
+### Columna nueva: Loan Folder
+
+`loan.rawLoanFolder`, ya existente en `ResolvedLoan` (Etapa F5m), se agrega como columna visible
+para ambos canales. **Verificado con datos reales** (snapshot 28, `status='adverse'`, Supabase
+`eykplgdwlqpybzkzbpmu`): el campo está poblado al 100% (0 filas vacías) en las 258 filas de
+Banked - Retail y las 59 de Brokered. Banked muestra siempre "Adverse Loans" (258/258); Brokered
+varía: Adverse Loans (46), Current Prospects (8), My Pipeline (4), Unplugged Clean Up (1) -- tal
+como anticipaba el brief, confirmado y no asumido.
+
+**Matiz que vale la pena dejar anotado:** el filtro `adverseInRange` de `page.tsx` (Etapa F5m) ya
+excluye del set visible cualquier fila Brokered con `rawLoanFolder='Current Prospects'` -- así
+que ese valor específico existe en el dato crudo (y la columna lo mostraría si apareciera) pero
+en la práctica un usuario nunca lo va a ver en esta tabla para Brokered, porque esas filas se
+descartan antes de llegar acá. No es una inconsistencia del ajuste, es el filtro de F5m operando
+como ya estaba.
+
+`<colgroup>` pasa de 7 a 8 columnas. Borrower Name/Loan Officer quedan en 18% sin cambios (el
+`min-width` de `.piv--adverse` en `forecast-visual.css`, 1000px, está calculado sobre ese 18% --
+no hacía falta tocarlo). El resto de las columnas se achicó proporcionalmente para hacerle lugar
+a Loan Folder (13%): Loan Number 15%→12%, Branch 9%→7%, Amount 12%→10%, Last Finished Milestone
+15%→12%, First Seen As Adverse 13%→10%. El `colSpan={7}` de la fila vacía ("No adverse loans...")
+pasa a `colSpan={8}`.
+
+### Sin resaltado por monto
+
+Se elimina `HIGH_AMOUNT_THRESHOLD` (300.000) y el `<span className="badge badge--rose">`
+condicional -- el monto se muestra siempre igual, sin destacado. **Hallazgo:** el brief pedía
+"si `badge--rose` no lo usa nadie más, dejalo en el CSS pero marcalo como sin uso" -- no
+aplica: `badge--rose` sigue en uso activo en `healthStatus.ts` (variante de badge de salud del
+préstamo) y en `TabNavigation.tsx` (badge del contador de Adverse). No se tocó `components.css`.
+
+### Texto explicativo
+
+Reemplazado por el texto exacto del brief -- ya no menciona "risk loans" (esa categoría no
+existe en el código, mismo motivo del renombre de la tab).
+
+---
+
+## Etapa F5k — la cascada de Banked reparte, no recalcula (rama `fix/banked-cascade-apportion`)
+
+Mismo problema que F5j-b resolvió para Brokered, ahora en Banked: el panel Pull-Through Cascade
+recalculaba el forecast de Banked aparte, redondeando **por milestone** (`Math.round()` de cada
+uno de los 4 buckets, sumados), mientras la tabla ejecutiva lo calcula redondeando **por branch**
+(`bankedSummary.forecastTotal`, suma de `forecastTotal` ya redondeado por fila en el loop de
+`page.tsx`). Dos particiones distintas del mismo total decimal -- pueden divergir, exactamente
+como divergía Brokered antes de F5j-b.
+
+**La regla, ahora también para Banked:** el total por branch es la única fuente de verdad.
+`bankedForecastByBucket` (la cascada real de `PULL_THROUGH_RATES` sobre Healthy, calculada en
+`page.tsx` -- ninguna tasa, fórmula o población se tocó) deja de redondearse bucket por bucket;
+se usa tal cual, con sus valores decimales, como **peso** para repartir
+`bankedSummary.forecastTotal` con `apportionByWeight` (mismo mecanismo de F5j-b). A diferencia de
+Brokered (que pesa por conteo Total, porque su tasa es plana 0.4 para los 4 buckets), Banked pesa
+por el **forecast decimal** de cada bucket -- sus tasas no son planas (Started vale bastante
+menos por préstamo que Closing, que ya casi terminó su cascada), así que pesar por conteo crudo
+distorsionaría la proporción y la columna "% applied" dejaría de leerse coherente con la columna
+Forecast.
+
+### Hallazgo sobre los números esperados (corregido)
+
+**Primera verificación de esta etapa, con un rango de fechas equivocado:** medí
+`pipelineDateRange` a mano como 2026-07-01 a 2026-09-30 -- error de traducción de
+`new Date(year, month+1, 0)` (ese `0` da el último día del mes ANTERIOR a `month+1`, o sea el
+propio `month`, no el siguiente). Con esa fecha de corte mal calculada, Executive y la Cascade
+vieja daban 34 y 34 (coincidencia) para "todas las branches" -- reporté esos números como
+verificación real de esta etapa. **Isabella marcó la discrepancia** (había reproducido 30,60 /
+32 / 31 por SQL directo contra el snapshot, con Pipeline Range 2026-07-01–2026-08-31 explícito) y
+pidió reverificar con ese rango exacto.
+
+**Reverificado con el rango correcto** (`getDefaultPipelineDateRange()`: 2026-07-01 a
+2026-08-31, que es lo que la app realmente usa por defecto -- el error era solo mío, al
+reproducirlo a mano, el código de la app nunca calculó mal la fecha): snapshot 28, Forecast
+Month agosto 2026, All Branches:
+
+| | Executive (Projected to Close) | Cascade ANTES del fix | Cascade DESPUÉS del fix |
+|---|---|---|---|
+| Banked, todas las branches | **32** | **31** (diverge) | **32** |
+
+Total decimal exacto (suma de `forecastByBucket` sobre las 12 branches, sin redondear):
+**30,5871** ≈ 30,60, igual al que había reproducido Isabella por SQL. Reparto real después del
+fix (pesos: Started 2,6675, Processing 3,7368, Underwriting 18,4829, Closing 5,7 -- suman
+30,5871): Started 3 + Processing 4 + Underwriting 19 + Closing 6 = **32**, exacto, igual que
+Executive. Antes del fix: `Math.round(2,6675)=3 + Math.round(3,7368)=4 +
+Math.round(18,4829)=18 + Math.round(5,7)=6 = 31` -- ahí está el 31 que veía Isabella.
+
+Aislando una sola branch, la única de las 12 de Banked donde el redondeo por milestone (viejo) y
+el redondeo por branch (Executive) daban números distintos con este rango es **Affinity**:
+Executive = 5, Cascade vieja = 4 (`Math.round(0,6669)=1 + Math.round(1,4947)=1 +
+Math.round(2,4108)=2 + Math.round(0)=0 = 4`); después del fix, la Cascade también da 5.
+
+**Brokered no se tocó** -- confirmado revisando el diff línea por línea, ningún bloque de
+Brokered cambia (su apportionment ya estaba correcto desde F5j-b).
+
+### Cambio menor: rótulo de la tarjeta Closed
+
+"Projected to close soon" → "Projected to close soon (CTC)" -- aclara que son los préstamos en
+milestone Clear to Close, sin que el usuario tenga que inferir la sigla.
+
+### Parte 3 — Marca "N in CTC" en la columna Projected to Close (`PivotTable.tsx`)
+
+Cada celda de Projected to Close (fila de branch, fila de subtotal, y la fila de branch del
+bloque Combinado) agrega una anotación chica debajo del número principal: "N in CTC", con N =
+`branchForecastRow.bucketTotal.Closing` de esa fila -- el mismo dato que ya suma la tarjeta
+Closed ("Projected to close soon (CTC)"), sin cálculo nuevo. Solo se muestra con N > 0 (con 12
+branches, la mayoría da cero, y una columna llena de "0 in CTC" no aporta nada).
+
+`BranchRow`/`BlockSubtotal`/`CombinedBranchRow` suman un campo nuevo, `closingCount`, con el
+mismo patrón que `projectedToClose` (UX8): se expone como campo propio para poder sumarlo en
+`addSubtotal`/`buildCombinedByBranch` igual que los demás.
+
+**Por qué Brokered nunca lo muestra, por estructura y no por casualidad:** `bucketTotal` es
+vestigial para Brokered (usa el esquema de buckets de Banked, que Brokered no puebla) -- hoy da 0
+en la práctica, pero apoyarse en eso sería el mismo tipo de coincidencia frágil que ya causó el
+bug de F5k. Por eso `buildBranchRows` fuerza `closingCount = 0` para cualquier fila que no sea
+`channel === 'Banked - Retail'`, en vez de dejar que el valor vestigial "dé 0 por ahora" decida.
+En el bloque Combinado, sumar Banked (real) + Brokered (siempre 0 por construcción) da
+automáticamente solo la parte Banked -- sin necesidad de un caso especial ahí.
+
+**Verificado con datos reales** (snapshot 28, Pipeline Range 2026-07-01–2026-08-31, Banked): de
+las 12 branches, 6 muestran la marca -- 707 (1), 710 (1), 716 (1), 747 (1), 760 (1), 776 (1) --
+las otras 6 no llevan marca (closingCount = 0). Suma = **6**, exactamente el 6 que muestra la
+tarjeta Closed ("6 Loans Projected to close soon (CTC)") -- coincide, reportado tal cual salió,
+no ajustado.
+
+---
+
+## Etapa UX10 — marca de CTC como puntos, con leyenda
+
+Reemplaza la anotación de texto "N in CTC" (F5k, Parte 3) por un punto por préstamo en Clear to
+Close -- sin número ni la palabra "CTC" en la celda mientras entre dentro del tope.
+
+**Color -- `--ctc-dot`, variable nueva en `forecast-visual.css`.** Elegido **navy**
+(`var(--navy)`, el mismo ink de marca). Verificado con la fórmula de contraste WCAG, no solo a
+ojo:
+
+| Comparación | Contraste |
+|---|---|
+| `--ctc-dot` (navy) contra `--emerald-50` (fondo teñido del header de esta columna) | **16.3:1** |
+| `--ctc-dot` (navy) contra blanco (fondo real de las celdas de dato -- ver hallazgo abajo) | **17.2:1** |
+| `--emerald-700` (punto verde de Healthy Pipeline) contra `--emerald-50` | 5.2:1 |
+
+**Hallazgo, no ajustado para que el brief "cierre":** el brief describe la columna Projected to
+Close como "ya teñida" de verde claro. Verificado leyendo `forecast-visual.css`: el tinte
+`--emerald-50` existe SOLO en el `<thead>` (`.piv--exec thead .mo-row th.col-forecast`) -- las
+celdas de DATO (`td.col-forecast`, donde vive el punto) no tienen ningún `background` propio,
+heredan el blanco de `.tbl-card`. Confirmado también leyendo el color renderizado con Playwright
+(`getComputedStyle`), no solo el CSS fuente. No cambia la decisión -- navy da más contraste
+todavía contra blanco (17.2:1) que contra el emerald-50 del header -- pero el fondo real contra
+el que hay que leer el punto en la práctica es blanco, no verde, y vale la pena que quede
+anotado por si el diseño de esa columna cambia más adelante.
+
+`--ctc-dot` se define en `:root` (no en `.piv--exec`) porque la leyenda (fuera de la tabla) y la
+tarjeta Closed (`SummaryCards.tsx`, otro componente) tienen que leer la misma variable -- `:root`
+acá es seguro porque `forecast-visual.css` se importa solo en `app/pipeline/page.tsx`, nunca en
+Commercial Activity.
+
+**Tope de puntos: 8** (`CTC_DOT_CAP`, `PivotTable.tsx`). Hoy el máximo real es 1 por branch y 6
+en el subtotal -- muy por debajo del tope --, pero si algún branch o el subtotal llegaran a
+superarlo, se dibujan 8 puntos y se agrega el número completo al lado (verificado con valores
+sintéticos 0/1/6/8/9/12: en 8 salen 8 puntos sin número, en 9 y 12 salen 8 puntos + el número).
+
+**Tarjeta Closed:** el subtítulo "N Loans Projected to close soon (CTC)" usa
+`.kpi-hero__sub--ctc { color: var(--ctc-dot) }` -- mismo navy que los puntos, mismo origen (la
+variable), no pueden desincronizarse.
+
+**Leyenda:** un solo `<p className="foot-note ctc-legend">` al final de `PivotTable.tsx`, después
+de las 3 tablas (Banked, Brokered, Combined) -- no repetida por bloque. Texto: "● Loan in Clear
+to Close".
+
+**Verificado con datos reales** (mismo dataset de F5k/Parte 3, snapshot 28, Pipeline Range
+2026-07-01–2026-08-31): las 6 branches con marca (707, 710, 716, 747, 760, 776) muestran
+exactamente 1 punto cada una; el subtotal de Banked muestra 6 puntos (dentro del tope de 8, sin
+número al lado); la suma programática de los puntos por fila (leyendo el DOM, no a mano) da
+**6**, igual que antes. Brokered no muestra ningún punto en ninguna fila ni en su subtotal --
+confirmado visualmente y por la exclusión estructural ya existente en `buildBranchRows`.
+
+---
+
+## Etapa UX12 — limpiar los puntos
+
+Simplifica lo que agregaron F5k/Parte 3 y UX10: menos decoración, un solo verde con un único
+significado.
+
+### Parte 1 — se quita el punto de Healthy Pipeline
+
+**Grep antes de tocar nada** (pedido explícito del brief): `.dot-healthy` está definida en
+`app/styles/components.css` (compartido con Commercial Activity), pero solo la **consumen**
+`app/pipeline/PivotTable.tsx` (las 3 filas de la columna Healthy Pipeline: `BranchDataRow` vía
+`CountCell`, `ExecTotalRow`, y el bloque Combinado) y `app/pipeline/SummaryCards.tsx` (el punto
+junto al título de la tarjeta "Healthy Pipeline" del banner de KPIs). Commercial Activity **no
+usa la clase en ningún lado** -- confirmado, no asumido.
+
+Por eso no hizo falta anular nada por CSS ni tocar el archivo compartido: alcanzó con quitar el
+`<span className="dot-healthy" />` de las 3 filas de `PivotTable.tsx` (y el prop
+`withHealthyDot`, que quedaba sin ningún consumidor). El punto de la tarjeta "Healthy Pipeline"
+del banner (`SummaryCards.tsx`) **no se tocó** -- el brief pide sacar el de "la columna", y ese
+es un punto por tarjeta (uno solo, no por fila), no tiene el problema de "aparece en toda fila
+así que no distingue nada" que sí tenía el de la tabla.
+
+### Parte 2-3 — un solo punto verde, subtotal en texto
+
+`CtcDots` (F5k/UX10, un punto por préstamo con tope) se reemplaza por dos componentes:
+
+- `CtcDot` -- un punto único, sin número ni texto, cuando `closingCount > 0`. Envuelto en
+  `.ctc-cell` (`display: inline-flex; align-items: center`) junto al número de Projected to
+  Close, para que quede centrado verticalmente con él en vez de debajo (como F5k/UX10).
+- `CtcSubtotalNote` -- en la fila de subtotal, sin punto: el número exacto ("6 CTC"), chico
+  (10px), sin negrita, mismo verde, debajo del total.
+
+`--ctc-dot` cambia de `var(--navy)` a `var(--emerald-700)` -- el MISMO verde que ya usaba
+`.dot-healthy`. Ya no hace falta un tono distinto para no competir con Healthy: Healthy perdió su
+punto en la Parte 1 de este mismo ajuste, así que no hay 2 puntos en la misma fila que
+distinguir. El verde sigue significando "va bien" en toda la app, un solo significado en vez de
+dos verdes distintos. `.kpi-hero__sub--ctc` (`SummaryCards.tsx`) no necesitó ningún cambio -- ya
+leía `var(--ctc-dot)` desde UX10, así que el nuevo verde se propaga solo.
+
+### Parte 4 — se quita la leyenda
+
+La leyenda de UX10 ("● Loan in Clear to Close") se borra de `PivotTable.tsx`. Ya no hace falta:
+un solo punto sin ambigüedad + el "N CTC" explícito en el subtotal se explican solos.
+
+### Parte 5 — se quita el tope
+
+`CTC_DOT_CAP` (8, de UX10) se borra junto con toda su lógica -- nunca se dibuja más de un punto
+por fila, así que un tope de puntos ya no tiene sentido.
+
+**Verificado con datos reales** (mismo dataset de F5k/UX10, snapshot 28, Pipeline Range
+2026-07-01–2026-08-31): las 6 branches con punto siguen siendo las mismas -- 707, 710, 716, 747,
+760, 776 -- el resto sin marca. Suma programática de `closingCount` de esas 6 filas = **6**,
+igual que el subtotal ("32" con "6 CTC" debajo) y que la tarjeta Closed ("6 Loans Projected to
+close soon (CTC)"). El punto de la tabla y el texto de la tarjeta se leen en el mismo verde
+(`rgb(4, 120, 87)` en los 2, verificado con `getComputedStyle`, no solo el CSS fuente).
+`git diff --name-only main` para esta etapa: solo `app/pipeline/PivotTable.tsx` y
+`app/pipeline/styles/forecast-visual.css` -- `SummaryCards.tsx` no necesitó tocarse.
+
+### Ajuste posterior — orden y alineación del punto
+
+Dos correcciones sobre la Parte 2, mismas 12 branches y mismo dataset:
+
+1. **Orden:** el punto pasa a ir ANTES del número ("● 1", no "1 ●") -- en `PivotTable.tsx`,
+   `<CtcDot>` ahora es el primer hijo de `.ctc-cell`, no el último.
+2. **Alineación:** `CtcDot` dejó de hacer `return null` cuando `count` es 0 -- ahora siempre
+   renderiza el `<span>` (con la clase `ctc-dot--empty`, transparente, cuando no corresponde
+   pintarlo). Antes, al faltar el elemento por completo en las filas sin CTC, esas filas medían
+   menos que las filas con punto, y el centrado de la celda desplazaba el número entre unas y
+   otras -- el 5 de Affinity no coincidía con el 1 de 707. El subtotal reserva el mismo espacio
+   con un punto siempre vacío (`<CtcDot count={0} />`, no `subtotal.closingCount`), para que su
+   número quede en la misma línea que las filas de arriba.
+
+**Verificado con `getBoundingClientRect()` sobre la tabla real (no a ojo):** las 12 filas de
+branch comparten exactamente el mismo borde izquierdo Y derecho del número (`left`/`right`
+idénticos, con o sin punto pintado). El subtotal ("32", 2 dígitos) comparte el mismo borde
+DERECHO que las 12 filas (borde izquierdo distinto, esperable por tener un dígito más) --
+confirmado también con una fila sintética de 3 dígitos ("123"): comparte el mismo borde derecho
+que el resto. Los números de la columna quedan en línea recta por su borde derecho, el criterio
+pedido.
 
 - **CL / SL** en nombres de archivo = residuo histórico de cuando existían dos empresas (City Lending / Supreme Lending); hoy solo existe Supreme Lending, no hay distinción de marca activa.
 - **Healthy / Delayed / Out of Scope / Never / Adverse** — estados de un préstamo en pipeline. Adverse = terminal (rechazado). Never = provisional, "ya sabemos que no va a cerrar pero Encompash no lo refleja aún" — se trata igual que Adverse para el forecast.
