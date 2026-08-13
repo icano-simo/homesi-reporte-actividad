@@ -320,6 +320,18 @@
 }
 
 /*
+ * Etapa F5k, Parte 3: anotación "N in CTC" debajo del número de Projected to
+ * Close -- deliberadamente chica y apagada, es una marca secundaria, no un
+ * segundo número protagonista (el valor grande de la celda sigue siendo la
+ * proyección). Hereda `text-align:center` de `.piv--exec td.col-forecast`.
+ */
+.ctc-note {
+  font-size: 10px;
+  color: var(--slate-400);
+  margin-top: 2px;
+}
+
+/*
  * --- Fila de total ---
  *
  * Etapa UX4: también pasa a claro. El brief de esta etapa habla de headers,

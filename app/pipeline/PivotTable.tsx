@@ -54,6 +54,16 @@ interface BranchRow {
    * que los demás.
    */
   projectedToClose: number;
+  /**
+   * Etapa F5k, Parte 3: `branchForecastRow.bucketTotal.Closing` de esta fila
+   * -- el mismo dato que ya suma la tarjeta Closed ("Projected to close soon
+   * (CTC)"), sin cálculo nuevo. Estructuralmente 0 para Brokered (ver
+   * buildBranchRows): su `bucketTotal` es vestigial (esquema de buckets de
+   * Banked, que Brokered no puebla) -- no se apoya en que hoy dé 0 por
+   * casualidad de los datos, se fuerza a 0 por canal para que nunca dependa
+   * de eso.
+   */
+  closingCount: number;
   totalForecast: number;
   branchForecastRow: BranchForecastRow;
 }
@@ -63,6 +73,7 @@ interface BlockSubtotal {
   totalCount: number;
   healthyCount: number;
   projectedToClose: number;
+  closingCount: number;
   totalForecast: number;
 }
 
@@ -82,7 +93,14 @@ interface ModalState {
 /** Orden fijo de los dos bloques, igual que el Excel de referencia. */
 const CHANNEL_ORDER: PipelineLoan['channel'][] = ['Banked - Retail', 'Brokered'];
 
-const EMPTY_SUBTOTAL: BlockSubtotal = { closedCount: 0, totalCount: 0, healthyCount: 0, projectedToClose: 0, totalForecast: 0 };
+const EMPTY_SUBTOTAL: BlockSubtotal = {
+  closedCount: 0,
+  totalCount: 0,
+  healthyCount: 0,
+  projectedToClose: 0,
+  closingCount: 0,
+  totalForecast: 0,
+};
 const EMPTY_BUCKETS: BucketCounts = { Started: 0, Processing: 0, Underwriting: 0, Closing: 0 };
 const EMPTY_FORECAST_BUCKETS: ForecastByBucket = { Started: 0, Processing: 0, Underwriting: 0, Closing: 0 };
 
@@ -94,6 +112,7 @@ function addSubtotal(a: BlockSubtotal, b: BranchRow | BlockSubtotal): BlockSubto
     totalCount: a.totalCount + b.totalCount,
     healthyCount: a.healthyCount + b.healthyCount,
     projectedToClose: a.projectedToClose + b.projectedToClose,
+    closingCount: a.closingCount + b.closingCount,
     totalForecast: a.totalForecast + b.totalForecast,
   };
 }
@@ -157,6 +176,7 @@ function buildOrphanBranchRows(rows: BranchForecastRow[], resolvedLoans: Resolve
       totalCount: 0,
       healthyCount: 0,
       projectedToClose: 0,
+      closingCount: 0,
       totalForecast: count,
       branchForecastRow: emptyBranchForecastRow,
     };
@@ -195,6 +215,8 @@ function buildBranchRows(
       totalCount: branchForecastRow.totalCount,
       healthyCount: branchForecastRow.healthyCount,
       projectedToClose: branchForecastRow.forecastTotal,
+      // Etapa F5k, Parte 3: solo Banked -- ver el comentario en BranchRow.
+      closingCount: branchForecastRow.channel === 'Banked - Retail' ? branchForecastRow.bucketTotal.Closing : 0,
       totalForecast,
       branchForecastRow,
     };
@@ -223,6 +245,8 @@ interface CombinedBranchRow {
   totalCount: number;
   healthyCount: number;
   projectedToClose: number;
+  /** Etapa F5k, Parte 3: suma de `row.closingCount` de las 2 filas (Banked + Brokered) de esta branch -- como Brokered siempre aporta 0 (ver BranchRow), esto termina siendo solo la parte Banked, tal como pide el brief. */
+  closingCount: number;
   totalForecast: number;
 }
 
@@ -240,6 +264,7 @@ function buildCombinedByBranch(branchRows: BranchRow[]): CombinedBranchRow[] {
       existing.totalCount += row.totalCount;
       existing.healthyCount += row.healthyCount;
       existing.projectedToClose += row.projectedToClose;
+      existing.closingCount += row.closingCount;
       existing.totalForecast += row.totalForecast;
     } else {
       map.set(row.branch, {
@@ -248,6 +273,7 @@ function buildCombinedByBranch(branchRows: BranchRow[]): CombinedBranchRow[] {
         totalCount: row.totalCount,
         healthyCount: row.healthyCount,
         projectedToClose: row.projectedToClose,
+        closingCount: row.closingCount,
         totalForecast: row.totalForecast,
       });
     }
@@ -373,12 +399,27 @@ function ExecTotalRow({ label, subtotal }: { label: string; subtotal: BlockSubto
       <td className="val col-forecast group-start">
         <ClosedValue value={subtotal.closedCount} />
       </td>
-      <td className="val col-forecast">{fmtForecast(subtotal.projectedToClose)}</td>
+      <td className="val col-forecast">
+        {fmtForecast(subtotal.projectedToClose)}
+        <CtcNote count={subtotal.closingCount} />
+      </td>
       <td className="totcol col-forecast">
         <span className="badge badge--pill badge--emerald">{fmtForecast(subtotal.totalForecast)}</span>
       </td>
     </tr>
   );
+}
+
+/**
+ * Etapa F5k, Parte 3: anotación secundaria en la celda de Projected to Close
+ * -- "N in CTC" (préstamos ya en milestone Clear to Close/Closing). Es una
+ * marca, no un segundo número protagonista: texto chico, y solo aparece con
+ * count > 0 -- con 12 branches, la mayoría da cero, y llenar la columna de
+ * "0 in CTC" la vuelve ilegible sin aportar nada.
+ */
+function CtcNote({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return <div className="ctc-note">{fmtInt(count)} in CTC</div>;
 }
 
 /**
@@ -428,7 +469,10 @@ function BranchDataRow({
       {/* Etapa UX8: Projected to Close no es clickeable, mismo motivo que
           Forecast -- es un valor calculado (pull-through), no una lista de
           préstamos concreta que auditar. */}
-      <td className="val col-forecast">{fmtForecast(row.projectedToClose)}</td>
+      <td className="val col-forecast">
+        {fmtForecast(row.projectedToClose)}
+        <CtcNote count={row.closingCount} />
+      </td>
       <td className="totcol col-forecast">
         {/* Sin barras de progreso: el Forecast va siempre en píldora verde. */}
         <span className="badge badge--pill badge--emerald">{fmtForecast(row.totalForecast)}</span>
@@ -607,7 +651,10 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
                   <td className="val col-forecast group-start">
                     <ClosedValue value={row.closedCount} />
                   </td>
-                  <td className="val col-forecast">{fmtForecast(row.projectedToClose)}</td>
+                  <td className="val col-forecast">
+                    {fmtForecast(row.projectedToClose)}
+                    <CtcNote count={row.closingCount} />
+                  </td>
                   <td className="totcol col-forecast">
                     <span className="badge badge--pill badge--emerald">{fmtForecast(row.totalForecast)}</span>
                   </td>

@@ -1181,33 +1181,37 @@ menos por préstamo que Closing, que ya casi terminó su cascada), así que pesa
 distorsionaría la proporción y la columna "% applied" dejaría de leerse coherente con la columna
 Forecast.
 
-### Hallazgo sobre los números esperados
+### Hallazgo sobre los números esperados (corregido)
 
-El brief anticipaba "32 en Executive, 31 en Cascade, valor exacto ~30,6" para el snapshot activo.
-**Verificado con datos reales (snapshot 28, vista por defecto -- todas las branches de Banked,
-pipelineDateRange 2026-07-01 a 2026-09-30): Executive = 34, y la Cascade (ya con el bug, antes de
-este fix) también sumaba 34** -- coincidencia, mismo fenómeno "8=8" que ya se había señalado para
-Brokered antes de F5j-b: el error de redondeo de cada branch se cancela entre sí en el agregado
-de las 12 branches, así que a nivel "todas las branches" el bug no se veía hoy. No se fuerzan los
-números del brief para que "cierren" -- se reporta lo que da la verificación real.
+**Primera verificación de esta etapa, con un rango de fechas equivocado:** medí
+`pipelineDateRange` a mano como 2026-07-01 a 2026-09-30 -- error de traducción de
+`new Date(year, month+1, 0)` (ese `0` da el último día del mes ANTERIOR a `month+1`, o sea el
+propio `month`, no el siguiente). Con esa fecha de corte mal calculada, Executive y la Cascade
+vieja daban 34 y 34 (coincidencia) para "todas las branches" -- reporté esos números como
+verificación real de esta etapa. **Isabella marcó la discrepancia** (había reproducido 30,60 /
+32 / 31 por SQL directo contra el snapshot, con Pipeline Range 2026-07-01–2026-08-31 explícito) y
+pidió reverificar con ese rango exacto.
 
-El bug SÍ es reproducible hoy, filtrando el selector de branch a una sola: de las 12 branches de
-Banked, **branch 760 es la única donde el redondeo por milestone (viejo) y el redondeo por branch
-(Executive) daban números distintos** con el snapshot activo:
+**Reverificado con el rango correcto** (`getDefaultPipelineDateRange()`: 2026-07-01 a
+2026-08-31, que es lo que la app realmente usa por defecto -- el error era solo mío, al
+reproducirlo a mano, el código de la app nunca calculó mal la fecha): snapshot 28, Forecast
+Month agosto 2026, All Branches:
 
 | | Executive (Projected to Close) | Cascade ANTES del fix | Cascade DESPUÉS del fix |
 |---|---|---|---|
-| Banked, todas las branches | 34 | 34 (coincidencia) | 34 |
-| Banked, branch 760 sola | 5 | **6** (diverge) | 5 |
+| Banked, todas las branches | **32** | **31** (diverge) | **32** |
 
-Reparto real de branch 760 después del fix (pesos = forecast decimal de cada bucket: Started
-2.0006, Processing 0.7474, Underwriting 1.6072, Closing 0.95 -- suman 5,3054 exacto):
-Started 2 + Processing 1 + Underwriting 1 + Closing 1 = **5**, igual que Executive. Antes del
-fix: `Math.round(2.0006)=2 + Math.round(0.7474)=1 + Math.round(1.6072)=2 + Math.round(0.95)=1 = 6`.
+Total decimal exacto (suma de `forecastByBucket` sobre las 12 branches, sin redondear):
+**30,5871** ≈ 30,60, igual al que había reproducido Isabella por SQL. Reparto real después del
+fix (pesos: Started 2,6675, Processing 3,7368, Underwriting 18,4829, Closing 5,7 -- suman
+30,5871): Started 3 + Processing 4 + Underwriting 19 + Closing 6 = **32**, exacto, igual que
+Executive. Antes del fix: `Math.round(2,6675)=3 + Math.round(3,7368)=4 +
+Math.round(18,4829)=18 + Math.round(5,7)=6 = 31` -- ahí está el 31 que veía Isabella.
 
-Reparto real de "todas las branches" después del fix (pesos: Started 4,668, Processing 5,231,
-Underwriting 18,483, Closing 5,7 -- suman 34,082): Started 5 + Processing 5 + Underwriting 18 +
-Closing 6 = **34**, exacto.
+Aislando una sola branch, la única de las 12 de Banked donde el redondeo por milestone (viejo) y
+el redondeo por branch (Executive) daban números distintos con este rango es **Affinity**:
+Executive = 5, Cascade vieja = 4 (`Math.round(0,6669)=1 + Math.round(1,4947)=1 +
+Math.round(2,4108)=2 + Math.round(0)=0 = 4`); después del fix, la Cascade también da 5.
 
 **Brokered no se tocó** -- confirmado revisando el diff línea por línea, ningún bloque de
 Brokered cambia (su apportionment ya estaba correcto desde F5j-b).
@@ -1216,6 +1220,32 @@ Brokered cambia (su apportionment ya estaba correcto desde F5j-b).
 
 "Projected to close soon" → "Projected to close soon (CTC)" -- aclara que son los préstamos en
 milestone Clear to Close, sin que el usuario tenga que inferir la sigla.
+
+### Parte 3 — Marca "N in CTC" en la columna Projected to Close (`PivotTable.tsx`)
+
+Cada celda de Projected to Close (fila de branch, fila de subtotal, y la fila de branch del
+bloque Combinado) agrega una anotación chica debajo del número principal: "N in CTC", con N =
+`branchForecastRow.bucketTotal.Closing` de esa fila -- el mismo dato que ya suma la tarjeta
+Closed ("Projected to close soon (CTC)"), sin cálculo nuevo. Solo se muestra con N > 0 (con 12
+branches, la mayoría da cero, y una columna llena de "0 in CTC" no aporta nada).
+
+`BranchRow`/`BlockSubtotal`/`CombinedBranchRow` suman un campo nuevo, `closingCount`, con el
+mismo patrón que `projectedToClose` (UX8): se expone como campo propio para poder sumarlo en
+`addSubtotal`/`buildCombinedByBranch` igual que los demás.
+
+**Por qué Brokered nunca lo muestra, por estructura y no por casualidad:** `bucketTotal` es
+vestigial para Brokered (usa el esquema de buckets de Banked, que Brokered no puebla) -- hoy da 0
+en la práctica, pero apoyarse en eso sería el mismo tipo de coincidencia frágil que ya causó el
+bug de F5k. Por eso `buildBranchRows` fuerza `closingCount = 0` para cualquier fila que no sea
+`channel === 'Banked - Retail'`, en vez de dejar que el valor vestigial "dé 0 por ahora" decida.
+En el bloque Combinado, sumar Banked (real) + Brokered (siempre 0 por construcción) da
+automáticamente solo la parte Banked -- sin necesidad de un caso especial ahí.
+
+**Verificado con datos reales** (snapshot 28, Pipeline Range 2026-07-01–2026-08-31, Banked): de
+las 12 branches, 6 muestran la marca -- 707 (1), 710 (1), 716 (1), 747 (1), 760 (1), 776 (1) --
+las otras 6 no llevan marca (closingCount = 0). Suma = **6**, exactamente el 6 que muestra la
+tarjeta Closed ("6 Loans Projected to close soon (CTC)") -- coincide, reportado tal cual salió,
+no ajustado.
 
 ---
 

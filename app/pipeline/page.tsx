@@ -502,11 +502,14 @@ export default function PipelinePage() {
   // panel Pull-Through Cascade lo recalculaba aparte sumando
   // `bankedForecastByBucket` (la cascada real de PULL_THROUGH_RATES sobre
   // Healthy, sin cambios) y redondeando POR MILESTONE -- una partición
-  // distinta del mismo total decimal, que puede divergir del redondeo por
-  // branch (verificado con datos reales: branch 760 solo, snapshot activo,
-  // daba 5 en Executive contra 6 en la Cascade -- ver reporte de esta
-  // etapa). `bankedForecastByBucket` NO se toca (ninguna tasa, ninguna
-  // fórmula, ninguna población cambia): se usa
+  // distinta del mismo total decimal (~30,6), que puede divergir del
+  // redondeo por branch. Verificado con datos reales, snapshot activo,
+  // Pipeline Range 2026-07-01/2026-08-31 (pipelineDateRange por defecto),
+  // Forecast Month agosto 2026, All Branches: Executive=32, Cascade
+  // vieja=31 -- reproducido también aislando una sola branch (Affinity: 5 en
+  // Executive contra 4 en la Cascade vieja) -- ver reporte de esta etapa.
+  // `bankedForecastByBucket` NO se toca (ninguna tasa, ninguna fórmula,
+  // ninguna población cambia): se usa
   // tal cual, con sus valores decimales, como PESO para repartir el total ya
   // fijado (apportionByWeight, mismo mecanismo que Brokered) -- nunca más se
   // redondea bucket por bucket de forma independiente. El peso es el
