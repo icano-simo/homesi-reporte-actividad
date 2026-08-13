@@ -125,7 +125,10 @@ export default function SummaryCards({ combined, banked, brokered, projectedToCl
         <div className="m-name">Closed</div>
         <div className="kpi-hero__value">{loansLabel(combined.closedCount)}</div>
         <ChannelSplit bankedValue={fmtInt(banked.closedCount)} brokeredValue={fmtInt(brokered.closedCount)} />
-        <div className="kpi-hero__sub">{loansLabel(projectedToCloseSoon)} Projected to close soon</div>
+        {/* Etapa F5k: "(CTC)" agregado -- aclara que son los préstamos en
+            milestone Clear to Close, sin que el usuario tenga que adivinar
+            la sigla. */}
+        <div className="kpi-hero__sub">{loansLabel(projectedToCloseSoon)} Projected to close soon (CTC)</div>
       </div>
 
       <div className="mcard mcard--sky">

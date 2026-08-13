@@ -1161,6 +1161,64 @@ existe en el código, mismo motivo del renombre de la tab).
 
 ---
 
+## Etapa F5k — la cascada de Banked reparte, no recalcula (rama `fix/banked-cascade-apportion`)
+
+Mismo problema que F5j-b resolvió para Brokered, ahora en Banked: el panel Pull-Through Cascade
+recalculaba el forecast de Banked aparte, redondeando **por milestone** (`Math.round()` de cada
+uno de los 4 buckets, sumados), mientras la tabla ejecutiva lo calcula redondeando **por branch**
+(`bankedSummary.forecastTotal`, suma de `forecastTotal` ya redondeado por fila en el loop de
+`page.tsx`). Dos particiones distintas del mismo total decimal -- pueden divergir, exactamente
+como divergía Brokered antes de F5j-b.
+
+**La regla, ahora también para Banked:** el total por branch es la única fuente de verdad.
+`bankedForecastByBucket` (la cascada real de `PULL_THROUGH_RATES` sobre Healthy, calculada en
+`page.tsx` -- ninguna tasa, fórmula o población se tocó) deja de redondearse bucket por bucket;
+se usa tal cual, con sus valores decimales, como **peso** para repartir
+`bankedSummary.forecastTotal` con `apportionByWeight` (mismo mecanismo de F5j-b). A diferencia de
+Brokered (que pesa por conteo Total, porque su tasa es plana 0.4 para los 4 buckets), Banked pesa
+por el **forecast decimal** de cada bucket -- sus tasas no son planas (Started vale bastante
+menos por préstamo que Closing, que ya casi terminó su cascada), así que pesar por conteo crudo
+distorsionaría la proporción y la columna "% applied" dejaría de leerse coherente con la columna
+Forecast.
+
+### Hallazgo sobre los números esperados
+
+El brief anticipaba "32 en Executive, 31 en Cascade, valor exacto ~30,6" para el snapshot activo.
+**Verificado con datos reales (snapshot 28, vista por defecto -- todas las branches de Banked,
+pipelineDateRange 2026-07-01 a 2026-09-30): Executive = 34, y la Cascade (ya con el bug, antes de
+este fix) también sumaba 34** -- coincidencia, mismo fenómeno "8=8" que ya se había señalado para
+Brokered antes de F5j-b: el error de redondeo de cada branch se cancela entre sí en el agregado
+de las 12 branches, así que a nivel "todas las branches" el bug no se veía hoy. No se fuerzan los
+números del brief para que "cierren" -- se reporta lo que da la verificación real.
+
+El bug SÍ es reproducible hoy, filtrando el selector de branch a una sola: de las 12 branches de
+Banked, **branch 760 es la única donde el redondeo por milestone (viejo) y el redondeo por branch
+(Executive) daban números distintos** con el snapshot activo:
+
+| | Executive (Projected to Close) | Cascade ANTES del fix | Cascade DESPUÉS del fix |
+|---|---|---|---|
+| Banked, todas las branches | 34 | 34 (coincidencia) | 34 |
+| Banked, branch 760 sola | 5 | **6** (diverge) | 5 |
+
+Reparto real de branch 760 después del fix (pesos = forecast decimal de cada bucket: Started
+2.0006, Processing 0.7474, Underwriting 1.6072, Closing 0.95 -- suman 5,3054 exacto):
+Started 2 + Processing 1 + Underwriting 1 + Closing 1 = **5**, igual que Executive. Antes del
+fix: `Math.round(2.0006)=2 + Math.round(0.7474)=1 + Math.round(1.6072)=2 + Math.round(0.95)=1 = 6`.
+
+Reparto real de "todas las branches" después del fix (pesos: Started 4,668, Processing 5,231,
+Underwriting 18,483, Closing 5,7 -- suman 34,082): Started 5 + Processing 5 + Underwriting 18 +
+Closing 6 = **34**, exacto.
+
+**Brokered no se tocó** -- confirmado revisando el diff línea por línea, ningún bloque de
+Brokered cambia (su apportionment ya estaba correcto desde F5j-b).
+
+### Cambio menor: rótulo de la tarjeta Closed
+
+"Projected to close soon" → "Projected to close soon (CTC)" -- aclara que son los préstamos en
+milestone Clear to Close, sin que el usuario tenga que inferir la sigla.
+
+---
+
 ## Glosario rápido (para no repetir la investigación)
 
 - **CL / SL** en nombres de archivo = residuo histórico de cuando existían dos empresas (City Lending / Supreme Lending); hoy solo existe Supreme Lending, no hay distinción de marca activa.

@@ -495,6 +495,35 @@ export default function PipelinePage() {
   const bankedSummary = summarizeChannel('Banked - Retail', 'Banked - Retail');
   const brokeredSummary = summarizeChannel('Brokered', 'Brokered');
 
+  // Etapa F5k: mismo problema que F5j-b resolvió para Brokered, ahora en
+  // Banked -- `bankedSummary.forecastTotal` (suma de `forecastTotal`
+  // redondeado POR BRANCH, calculado en el loop de arriba) es la ÚNICA
+  // fuente de verdad del forecast de Banked, en cualquier vista. Antes, el
+  // panel Pull-Through Cascade lo recalculaba aparte sumando
+  // `bankedForecastByBucket` (la cascada real de PULL_THROUGH_RATES sobre
+  // Healthy, sin cambios) y redondeando POR MILESTONE -- una partición
+  // distinta del mismo total decimal, que puede divergir del redondeo por
+  // branch (verificado con datos reales: branch 760 solo, snapshot activo,
+  // daba 5 en Executive contra 6 en la Cascade -- ver reporte de esta
+  // etapa). `bankedForecastByBucket` NO se toca (ninguna tasa, ninguna
+  // fórmula, ninguna población cambia): se usa
+  // tal cual, con sus valores decimales, como PESO para repartir el total ya
+  // fijado (apportionByWeight, mismo mecanismo que Brokered) -- nunca más se
+  // redondea bucket por bucket de forma independiente. El peso es el
+  // forecast decimal de cada bucket (no el conteo crudo, a diferencia de
+  // Brokered) porque las tasas de Banked NO son planas -- Started vale menos
+  // por préstamo que Closing, y el reparto tiene que reflejar eso para que
+  // la columna "% applied" siga siendo coherente con la columna Forecast.
+  // Por construcción, la suma de las 4 partes es EXACTAMENTE
+  // bankedSummary.forecastTotal, siempre.
+  const [bankedStartedForecast, bankedProcessingForecast, bankedUnderwritingForecast, bankedClosingForecast] =
+    apportionByWeight(bankedSummary.forecastTotal, [
+      bankedForecastByBucket.Started,
+      bankedForecastByBucket.Processing,
+      bankedForecastByBucket.Underwriting,
+      bankedForecastByBucket.Closing,
+    ]);
+
   // Etapa F5j-b: `brokeredSummary.forecastTotal` (arriba) ya es la suma de
   // `forecastTotal` redondeado POR BRANCH de cada fila de Brokered -- la
   // única fuente de verdad para su forecast, en cualquier vista. Acá se
@@ -525,17 +554,10 @@ export default function PipelinePage() {
   // calcula la acumulada mostrada en "% applied" como producto de las tasas
   // desde esa fila en adelante -- mismo cálculo que antes, ahora genérico.
   //
-  // Etapa F5j, Cambio 4 (Banked): `forecast` de cada fila se redondea acá,
-  // en el punto de armado -- MilestoneCascade.tsx no está en el alcance de
-  // este ajuste, así que no se le puede pedir que redondee al mostrar. El
-  // valor CALCULADO (bankedForecastByBucket.*, con decimales, cascada de
-  // PULL_THROUGH_RATES sobre Healthy) no cambia ni un decimal -- Math.round()
-  // acá es puramente de display, igual que el de `forecastTotal` más arriba.
-  // Confirmado con Isabella antes de tocar esto (ver reporte de F5j): "no
-  // tocar Banked" es sobre la lógica (tasas/fórmula/población/cascada), no
-  // sobre el redondeo de display, y dejarlo sin redondear acá haría que
-  // Banked mostrara decimales en esta pestaña mientras Executive (y
-  // Brokered en esta misma tabla) muestran enteros.
+  // Etapa F5k: `forecast` de cada fila ya no es un redondeo independiente de
+  // `bankedForecastByBucket.*` (ver el reparto más arriba) -- es la parte
+  // entera que le tocó a ese bucket del reparto de `bankedSummary.forecastTotal`.
+  // Las 4 suman exacto ese total, siempre.
   const bankedCascadeRows: MilestoneCascadeRow[] = [
     {
       key: 'Started',
@@ -543,7 +565,7 @@ export default function PipelinePage() {
       rate: PULL_THROUGH_RATES.Started,
       healthy: bankedBucketHealthy.Started,
       total: bankedBucketTotal.Started,
-      forecast: Math.round(bankedForecastByBucket.Started),
+      forecast: bankedStartedForecast,
     },
     {
       key: 'Processing',
@@ -551,7 +573,7 @@ export default function PipelinePage() {
       rate: PULL_THROUGH_RATES.Processing,
       healthy: bankedBucketHealthy.Processing,
       total: bankedBucketTotal.Processing,
-      forecast: Math.round(bankedForecastByBucket.Processing),
+      forecast: bankedProcessingForecast,
     },
     {
       key: 'Underwriting',
@@ -559,7 +581,7 @@ export default function PipelinePage() {
       rate: PULL_THROUGH_RATES.Underwriting,
       healthy: bankedBucketHealthy.Underwriting,
       total: bankedBucketTotal.Underwriting,
-      forecast: Math.round(bankedForecastByBucket.Underwriting),
+      forecast: bankedUnderwritingForecast,
     },
     {
       key: 'Closing',
@@ -567,7 +589,7 @@ export default function PipelinePage() {
       rate: PULL_THROUGH_RATES.Closing,
       healthy: bankedBucketHealthy.Closing,
       total: bankedBucketTotal.Closing,
-      forecast: Math.round(bankedForecastByBucket.Closing),
+      forecast: bankedClosingForecast,
     },
   ];
 
