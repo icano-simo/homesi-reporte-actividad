@@ -320,15 +320,58 @@
 }
 
 /*
- * Etapa F5k, Parte 3: anotación "N in CTC" debajo del número de Projected to
- * Close -- deliberadamente chica y apagada, es una marca secundaria, no un
- * segundo número protagonista (el valor grande de la celda sigue siendo la
- * proyección). Hereda `text-align:center` de `.piv--exec td.col-forecast`.
+ * Etapa UX10: puntos de CTC (préstamos en Clear to Close) debajo del número
+ * de Projected to Close -- reemplaza la anotación de texto "N in CTC" de
+ * F5k/Parte 3 por un punto por préstamo, sin número ni texto en la celda
+ * mientras entre dentro de CTC_DOT_CAP (PivotTable.tsx). Es una marca
+ * secundaria, no un segundo número protagonista.
+ *
+ * `--ctc-dot` es una variable propia (no un token de tokens.css) para que la
+ * tarjeta Closed (SummaryCards.tsx, `.kpi-hero__sub--ctc`) use EXACTAMENTE el
+ * mismo color sin poder desincronizarse -- un solo lugar donde cambiarlo.
+ * Elegido navy: contraste 16.3:1 contra el fondo `--emerald-50` ya teñido de
+ * esta columna (verificado con la fórmula WCAG) -- muy por encima del punto
+ * verde de Healthy Pipeline en esa misma fila (`--emerald-700`, 5.2:1 contra
+ * el mismo fondo) y sin usar rojo/rosa, que en esta app ya significa
+ * "problema" -- CTC es lo contrario, préstamos más cerca de cerrar.
+ *
+ * Se define en `:root` (no en `.piv--exec`) porque la leyenda y la tarjeta
+ * Closed usan el mismo color fuera del árbol de esa tabla -- `:root` acá es
+ * seguro porque este archivo se importa solo en app/pipeline/page.tsx (ver
+ * cabecera del archivo), nunca en Commercial Activity.
  */
-.ctc-note {
+:root {
+  --ctc-dot: var(--navy);
+}
+.ctc-dots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  margin-top: 3px;
+  flex-wrap: wrap;
+}
+.ctc-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ctc-dot);
+  flex-shrink: 0;
+}
+.ctc-dots__count {
   font-size: 10px;
-  color: var(--slate-400);
-  margin-top: 2px;
+  font-weight: 700;
+  color: var(--ctc-dot);
+  margin-left: 2px;
+}
+.ctc-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ctc-legend .ctc-dot {
+  margin-top: -1px;
 }
 
 /*
@@ -489,6 +532,16 @@
  * ------------------------------------------------------------------------ */
 .kpi-hero__sub--sm {
   font-size: 9.5px;
+}
+
+/*
+ * Etapa UX10: subtítulo de la tarjeta Closed en el mismo color que los
+ * puntos de CTC de PivotTable.tsx -- `--ctc-dot` (definida más arriba en
+ * este archivo) es la única fuente del color en los 2 lugares, así que no
+ * pueden desincronizarse si el tono cambia en el futuro.
+ */
+.kpi-hero__sub--ctc {
+  color: var(--ctc-dot);
 }
 
 .hero-banner .mcard {

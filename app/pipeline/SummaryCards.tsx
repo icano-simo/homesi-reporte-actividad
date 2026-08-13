@@ -127,8 +127,13 @@ export default function SummaryCards({ combined, banked, brokered, projectedToCl
         <ChannelSplit bankedValue={fmtInt(banked.closedCount)} brokeredValue={fmtInt(brokered.closedCount)} />
         {/* Etapa F5k: "(CTC)" agregado -- aclara que son los préstamos en
             milestone Clear to Close, sin que el usuario tenga que adivinar
-            la sigla. */}
-        <div className="kpi-hero__sub">{loansLabel(projectedToCloseSoon)} Projected to close soon (CTC)</div>
+            la sigla. Etapa UX10: color `--ctc-dot` (forecast-visual.css,
+            misma variable que el punto en PivotTable.tsx) -- se lee como la
+            misma cosa en los dos lugares, y no se pueden desincronizar
+            porque ambos leen la misma variable. */}
+        <div className="kpi-hero__sub kpi-hero__sub--ctc">
+          {loansLabel(projectedToCloseSoon)} Projected to close soon (CTC)
+        </div>
       </div>
 
       <div className="mcard mcard--sky">

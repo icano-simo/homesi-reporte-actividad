@@ -401,7 +401,7 @@ function ExecTotalRow({ label, subtotal }: { label: string; subtotal: BlockSubto
       </td>
       <td className="val col-forecast">
         {fmtForecast(subtotal.projectedToClose)}
-        <CtcNote count={subtotal.closingCount} />
+        <CtcDots count={subtotal.closingCount} />
       </td>
       <td className="totcol col-forecast">
         <span className="badge badge--pill badge--emerald">{fmtForecast(subtotal.totalForecast)}</span>
@@ -411,15 +411,36 @@ function ExecTotalRow({ label, subtotal }: { label: string; subtotal: BlockSubto
 }
 
 /**
- * Etapa F5k, Parte 3: anotación secundaria en la celda de Projected to Close
- * -- "N in CTC" (préstamos ya en milestone Clear to Close/Closing). Es una
- * marca, no un segundo número protagonista: texto chico, y solo aparece con
- * count > 0 -- con 12 branches, la mayoría da cero, y llenar la columna de
- * "0 in CTC" la vuelve ilegible sin aportar nada.
+ * Etapa UX10: tope de puntos por celda -- a partir de esta cantidad, la fila
+ * dejaría de ser legible si siguiera agregando un punto por préstamo (hoy el
+ * máximo real es 1 por branch y 6 en el subtotal, pero eso puede cambiar).
+ * Por encima del tope se dibujan CTC_DOT_CAP puntos y se agrega el número
+ * completo al lado, en vez de dejar que la celda crezca sin control.
  */
-function CtcNote({ count }: { count: number }) {
+const CTC_DOT_CAP = 8;
+
+/**
+ * Etapa F5k, Parte 3 / UX10: anotación secundaria en la celda de Projected to
+ * Close -- un punto por préstamo ya en milestone Clear to Close/Closing
+ * (bucketTotal.Closing de esa fila). Es una marca, no un segundo número
+ * protagonista: sin texto "CTC" ni número en la celda mientras entre dentro
+ * del tope -- solo aparece con count > 0 (con 12 branches, la mayoría da
+ * cero, y llenar la columna de puntos o ceros la vuelve ilegible). El color
+ * (`--ctc-dot`, forecast-visual.css) tiene que distinguirse del punto verde
+ * de Healthy Pipeline (misma fila, misma tabla) y no puede ser rojo/rosa --
+ * ese tono ya significa "problema" en esta app, y CTC es lo contrario.
+ */
+function CtcDots({ count }: { count: number }) {
   if (count <= 0) return null;
-  return <div className="ctc-note">{fmtInt(count)} in CTC</div>;
+  const dotCount = Math.min(count, CTC_DOT_CAP);
+  return (
+    <div className="ctc-dots" title={count + ' loan' + (count === 1 ? '' : 's') + ' in Clear to Close'}>
+      {Array.from({ length: dotCount }).map((_, i) => (
+        <span className="ctc-dot" key={i} />
+      ))}
+      {count > CTC_DOT_CAP && <span className="ctc-dots__count">{fmtInt(count)}</span>}
+    </div>
+  );
 }
 
 /**
@@ -471,7 +492,7 @@ function BranchDataRow({
           préstamos concreta que auditar. */}
       <td className="val col-forecast">
         {fmtForecast(row.projectedToClose)}
-        <CtcNote count={row.closingCount} />
+        <CtcDots count={row.closingCount} />
       </td>
       <td className="totcol col-forecast">
         {/* Sin barras de progreso: el Forecast va siempre en píldora verde. */}
@@ -653,7 +674,7 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
                   </td>
                   <td className="val col-forecast">
                     {fmtForecast(row.projectedToClose)}
-                    <CtcNote count={row.closingCount} />
+                    <CtcDots count={row.closingCount} />
                   </td>
                   <td className="totcol col-forecast">
                     <span className="badge badge--pill badge--emerald">{fmtForecast(row.totalForecast)}</span>
@@ -672,6 +693,16 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
           </table>
         </div>
       </div>
+
+      {/*
+       * Etapa UX10: leyenda del punto de CTC -- una sola vez para las 3
+       * tablas (Banked, Brokered, Combined), no repetida por bloque. Brokered
+       * nunca muestra el punto (exclusión estructural, ver buildBranchRows),
+       * pero la leyenda igual aplica a la vista completa, no solo a Banked.
+       */}
+      <p className="foot-note ctc-legend">
+        <span className="ctc-dot" /> Loan in Clear to Close
+      </p>
 
       {/*
        * Etapa UX8, hallazgo: este texto describía un comportamiento que ya no

@@ -1249,6 +1249,58 @@ no ajustado.
 
 ---
 
+## Etapa UX10 — marca de CTC como puntos, con leyenda
+
+Reemplaza la anotación de texto "N in CTC" (F5k, Parte 3) por un punto por préstamo en Clear to
+Close -- sin número ni la palabra "CTC" en la celda mientras entre dentro del tope.
+
+**Color -- `--ctc-dot`, variable nueva en `forecast-visual.css`.** Elegido **navy**
+(`var(--navy)`, el mismo ink de marca). Verificado con la fórmula de contraste WCAG, no solo a
+ojo:
+
+| Comparación | Contraste |
+|---|---|
+| `--ctc-dot` (navy) contra `--emerald-50` (fondo teñido del header de esta columna) | **16.3:1** |
+| `--ctc-dot` (navy) contra blanco (fondo real de las celdas de dato -- ver hallazgo abajo) | **17.2:1** |
+| `--emerald-700` (punto verde de Healthy Pipeline) contra `--emerald-50` | 5.2:1 |
+
+**Hallazgo, no ajustado para que el brief "cierre":** el brief describe la columna Projected to
+Close como "ya teñida" de verde claro. Verificado leyendo `forecast-visual.css`: el tinte
+`--emerald-50` existe SOLO en el `<thead>` (`.piv--exec thead .mo-row th.col-forecast`) -- las
+celdas de DATO (`td.col-forecast`, donde vive el punto) no tienen ningún `background` propio,
+heredan el blanco de `.tbl-card`. Confirmado también leyendo el color renderizado con Playwright
+(`getComputedStyle`), no solo el CSS fuente. No cambia la decisión -- navy da más contraste
+todavía contra blanco (17.2:1) que contra el emerald-50 del header -- pero el fondo real contra
+el que hay que leer el punto en la práctica es blanco, no verde, y vale la pena que quede
+anotado por si el diseño de esa columna cambia más adelante.
+
+`--ctc-dot` se define en `:root` (no en `.piv--exec`) porque la leyenda (fuera de la tabla) y la
+tarjeta Closed (`SummaryCards.tsx`, otro componente) tienen que leer la misma variable -- `:root`
+acá es seguro porque `forecast-visual.css` se importa solo en `app/pipeline/page.tsx`, nunca en
+Commercial Activity.
+
+**Tope de puntos: 8** (`CTC_DOT_CAP`, `PivotTable.tsx`). Hoy el máximo real es 1 por branch y 6
+en el subtotal -- muy por debajo del tope --, pero si algún branch o el subtotal llegaran a
+superarlo, se dibujan 8 puntos y se agrega el número completo al lado (verificado con valores
+sintéticos 0/1/6/8/9/12: en 8 salen 8 puntos sin número, en 9 y 12 salen 8 puntos + el número).
+
+**Tarjeta Closed:** el subtítulo "N Loans Projected to close soon (CTC)" usa
+`.kpi-hero__sub--ctc { color: var(--ctc-dot) }` -- mismo navy que los puntos, mismo origen (la
+variable), no pueden desincronizarse.
+
+**Leyenda:** un solo `<p className="foot-note ctc-legend">` al final de `PivotTable.tsx`, después
+de las 3 tablas (Banked, Brokered, Combined) -- no repetida por bloque. Texto: "● Loan in Clear
+to Close".
+
+**Verificado con datos reales** (mismo dataset de F5k/Parte 3, snapshot 28, Pipeline Range
+2026-07-01–2026-08-31): las 6 branches con marca (707, 710, 716, 747, 760, 776) muestran
+exactamente 1 punto cada una; el subtotal de Banked muestra 6 puntos (dentro del tope de 8, sin
+número al lado); la suma programática de los puntos por fila (leyendo el DOM, no a mano) da
+**6**, igual que antes. Brokered no muestra ningún punto en ninguna fila ni en su subtotal --
+confirmado visualmente y por la exclusión estructural ya existente en `buildBranchRows`.
+
+---
+
 ## Glosario rápido (para no repetir la investigación)
 
 - **CL / SL** en nombres de archivo = residuo histórico de cuando existían dos empresas (City Lending / Supreme Lending); hoy solo existe Supreme Lending, no hay distinción de marca activa.
