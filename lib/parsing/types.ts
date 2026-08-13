@@ -27,6 +27,15 @@ export interface RawLoanRow {
   fundingMonth: YearMonth | null;
   /** Columna 'Milestone Date - Completion' convertida a YYYY-MM. */
   completionMonth: YearMonth | null;
+  /**
+   * Columna opcional 'CLOSING DOCS REGZ LOAN INFO DISBURSEMENT DATE'
+   * convertida a YYYY-MM. `null` si el archivo no la trae o la celda está
+   * vacía. Determina el MES de Closed cuando el loan ya llegó a su milestone
+   * de cierre (Funding para Banked, Completion para Brokered) -- ver
+   * classifyLoan(). Por sí sola NO implica que el loan esté Closed (un loan
+   * puede tener Disbursement Date y seguir en Started).
+   */
+  disbursementMonth: YearMonth | null;
   /** Columna 'Total Loan Amount'; 0 si la columna está ausente o no es numérica. */
   totalLoanAmount: number;
   /** Columna 'loan_number', valor crudo -- id único de préstamo (required). */

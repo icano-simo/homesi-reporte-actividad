@@ -29,7 +29,13 @@ export interface LoanRecord {
   fileCreationMonth: YearMonth | null;
   creditReportMonth: YearMonth | null;
   appDateMonth: YearMonth | null;
-  /** fundingMonth o completionMonth combinados según el canal (ver classifyLoan). */
+  /**
+   * Mes de Closed. `null` si el loan no llegó a su milestone de cierre según
+   * el canal (Funding para Banked-Retail, Completion para Brokered) -- esa
+   * condición sigue siendo la que decide SI cuenta como Closed. Cuando sí
+   * llegó, el MES es Disbursement Date si el archivo la trae para esa fila,
+   * o Funding/Completion como respaldo si no (ver classifyLoan).
+   */
   closingMonth: YearMonth | null;
   totalLoanAmount: number;
   /** Columna 'loan_number', valor crudo sin transformar -- id único de préstamo. */

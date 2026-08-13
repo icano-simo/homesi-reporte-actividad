@@ -7,6 +7,7 @@ const TOTAL_LOAN_AMOUNT_COLUMN = OPTIONAL_COLUMNS[0];
 const LOAN_PROGRAM_COLUMN = OPTIONAL_COLUMNS[1];
 const LOAN_FOLDER_NAME_COLUMN = OPTIONAL_COLUMNS[2];
 const AFFINITY_COLUMN = OPTIONAL_COLUMNS[3];
+const DISBURSEMENT_DATE_COLUMN = OPTIONAL_COLUMNS[4];
 
 function toRawString(value: unknown): string {
   return String(value === null || value === undefined ? '' : value).trim();
@@ -67,6 +68,7 @@ export function readWorkbook(workbook: WorkBook): RawLoanRow[] {
   const loanProgramIndex = header.indexOf(LOAN_PROGRAM_COLUMN);
   const loanFolderNameIndex = header.indexOf(LOAN_FOLDER_NAME_COLUMN);
   const affinityIndex = header.indexOf(AFFINITY_COLUMN);
+  const disbursementDateIndex = header.indexOf(DISBURSEMENT_DATE_COLUMN);
 
   const result: RawLoanRow[] = [];
   for (let i = 1; i < rows.length; i++) {
@@ -87,6 +89,12 @@ export function readWorkbook(workbook: WorkBook): RawLoanRow[] {
     const loanFolderName = loanFolderNameIndex >= 0 ? toRawString(row[loanFolderNameIndex]) : '';
     const affinity = affinityIndex >= 0 ? toRawString(row[affinityIndex]) : '';
 
+    // Igual patrón que fundingMonth/completionMonth: fecha convertida a
+    // YYYY-MM, null si el archivo no trae la columna (índice -1) o la celda
+    // está vacía.
+    const disbursementMonth =
+      disbursementDateIndex >= 0 ? excelValueToYearMonth(row[disbursementDateIndex]) : null;
+
     result.push({
       trueOrgId: toRawString(cell('True OrgID')),
       loanOfficer: toRawString(cell('loan_officer')),
@@ -98,6 +106,7 @@ export function readWorkbook(workbook: WorkBook): RawLoanRow[] {
       appDateMonth: excelValueToYearMonth(cell('App_Date')),
       fundingMonth: excelValueToYearMonth(cell('Milestone Date - Funding')),
       completionMonth: excelValueToYearMonth(cell('Milestone Date - Completion')),
+      disbursementMonth,
       totalLoanAmount,
       loanNumber: toRawString(cell('loan_number')),
       loanProgram,

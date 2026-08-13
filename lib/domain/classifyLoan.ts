@@ -15,11 +15,22 @@ export function classifyLoan(raw: RawLoanRow): LoanRecord {
   const loanOfficer = raw.loanOfficer.trim();
   const bd = raw.bd.trim();
 
+  // Regla de negocio confirmada por Isabella (consistencia con Salesforce):
+  // 1. SI cuenta como Closed sigue decidiéndolo el milestone del canal
+  //    (Funding para Banked-Retail, Completion para Brokered) -- un loan sin
+  //    ese milestone NO es Closed, tenga o no Disbursement Date (caso C: un
+  //    loan puede tener Disbursement Date y seguir en Started).
+  // 2. QUÉ MES de Closed sí cambia: si el loan ya cumplió su milestone,
+  //    Disbursement Date manda sobre Funding/Completion cuando está presente
+  //    (caso A). Si el milestone se cumplió pero el archivo no trae
+  //    Disbursement Date para esa fila (caso B), se conserva el mes de
+  //    Funding/Completion tal como antes -- alternativa conservadora, no se
+  //    inventa una regla nueva para ese caso.
   let closingMonth: LoanRecord['closingMonth'] = null;
-  if (raw.loanInfoChannel === 'Banked - Retail') {
-    closingMonth = raw.fundingMonth;
-  } else if (raw.loanInfoChannel === 'Brokered') {
-    closingMonth = raw.completionMonth;
+  if (raw.loanInfoChannel === 'Banked - Retail' && raw.fundingMonth) {
+    closingMonth = raw.disbursementMonth ?? raw.fundingMonth;
+  } else if (raw.loanInfoChannel === 'Brokered' && raw.completionMonth) {
+    closingMonth = raw.disbursementMonth ?? raw.completionMonth;
   }
 
   return {
