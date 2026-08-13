@@ -30,7 +30,11 @@ const TABS: TabDefinition[] = [
   // Etapa UX8: renombrado de "Milestone Pipeline Matrix" -- el id ('matrix')
   // no cambia (nada más depende de él), solo el texto visible del botón.
   { id: 'matrix', label: 'Pipeline by Milestone', icon: <GridIcon size={14} /> },
-  { id: 'adverse', label: 'Adverse & Risk Loans', icon: <AlertTriangleIcon size={14} />, badge: 'adverseCount' },
+  // Etapa UX10: renombrado de "Adverse & Risk Loans" -- el id ('adverse') no
+  // cambia. Motivo: la tabla solo filtra por status === 'adverse', no existe
+  // ninguna noción de "riesgo" en el código; el rótulo viejo prometía algo
+  // que no está.
+  { id: 'adverse', label: 'Adverse Loans', icon: <AlertTriangleIcon size={14} />, badge: 'adverseCount' },
 ];
 
 /**

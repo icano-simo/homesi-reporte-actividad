@@ -1107,6 +1107,60 @@ carpetas", Etapa F6, y Etapa F5j-b) y el propio encabezado "Parte 1" de la secci
 
 ---
 
+## Etapa UX10 — Pestaña Adverse: renombre, columna Loan Folder, sin resaltado por monto
+
+Cuatro ajustes en `AdverseTable.tsx`/`TabNavigation.tsx`, sin tocar `page.tsx` ni la lógica de
+filtro (`adverseInRange`, sin cambios).
+
+### Renombre: "Adverse & Risk Loans" → "Adverse Loans"
+
+**Motivo real:** la tabla filtra únicamente por `status === 'adverse'` -- no existe, ni existió,
+ninguna noción de "préstamo en riesgo" en el código. El rótulo viejo prometía una categoría que
+no está. Cambiado en `TabNavigation.tsx` (`TABS`, el `id` sigue siendo `'adverse'`) y en el
+título de la tarjeta dentro de `AdverseTable.tsx` (antes decía solo "Adverse (N)", ahora
+"Adverse Loans (N)"). Búsqueda del string viejo en todo el repo: los 3 restantes son narración
+histórica de etapas pasadas en este documento (Estructura de carpetas, Etapa F6, y el propio
+encabezado "Parte 4" de la sección UX8) -- se dejan como estaban, mismo criterio de todos los
+renombres anteriores (UX8, UX9).
+
+### Columna nueva: Loan Folder
+
+`loan.rawLoanFolder`, ya existente en `ResolvedLoan` (Etapa F5m), se agrega como columna visible
+para ambos canales. **Verificado con datos reales** (snapshot 28, `status='adverse'`, Supabase
+`eykplgdwlqpybzkzbpmu`): el campo está poblado al 100% (0 filas vacías) en las 258 filas de
+Banked - Retail y las 59 de Brokered. Banked muestra siempre "Adverse Loans" (258/258); Brokered
+varía: Adverse Loans (46), Current Prospects (8), My Pipeline (4), Unplugged Clean Up (1) -- tal
+como anticipaba el brief, confirmado y no asumido.
+
+**Matiz que vale la pena dejar anotado:** el filtro `adverseInRange` de `page.tsx` (Etapa F5m) ya
+excluye del set visible cualquier fila Brokered con `rawLoanFolder='Current Prospects'` -- así
+que ese valor específico existe en el dato crudo (y la columna lo mostraría si apareciera) pero
+en la práctica un usuario nunca lo va a ver en esta tabla para Brokered, porque esas filas se
+descartan antes de llegar acá. No es una inconsistencia del ajuste, es el filtro de F5m operando
+como ya estaba.
+
+`<colgroup>` pasa de 7 a 8 columnas. Borrower Name/Loan Officer quedan en 18% sin cambios (el
+`min-width` de `.piv--adverse` en `forecast-visual.css`, 1000px, está calculado sobre ese 18% --
+no hacía falta tocarlo). El resto de las columnas se achicó proporcionalmente para hacerle lugar
+a Loan Folder (13%): Loan Number 15%→12%, Branch 9%→7%, Amount 12%→10%, Last Finished Milestone
+15%→12%, First Seen As Adverse 13%→10%. El `colSpan={7}` de la fila vacía ("No adverse loans...")
+pasa a `colSpan={8}`.
+
+### Sin resaltado por monto
+
+Se elimina `HIGH_AMOUNT_THRESHOLD` (300.000) y el `<span className="badge badge--rose">`
+condicional -- el monto se muestra siempre igual, sin destacado. **Hallazgo:** el brief pedía
+"si `badge--rose` no lo usa nadie más, dejalo en el CSS pero marcalo como sin uso" -- no
+aplica: `badge--rose` sigue en uso activo en `healthStatus.ts` (variante de badge de salud del
+préstamo) y en `TabNavigation.tsx` (badge del contador de Adverse). No se tocó `components.css`.
+
+### Texto explicativo
+
+Reemplazado por el texto exacto del brief -- ya no menciona "risk loans" (esa categoría no
+existe en el código, mismo motivo del renombre de la tab).
+
+---
+
 ## Glosario rápido (para no repetir la investigación)
 
 - **CL / SL** en nombres de archivo = residuo histórico de cuando existían dos empresas (City Lending / Supreme Lending); hoy solo existe Supreme Lending, no hay distinción de marca activa.
