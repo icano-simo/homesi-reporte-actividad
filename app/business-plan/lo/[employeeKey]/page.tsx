@@ -14,7 +14,8 @@ import {
   fmtDecimal,
   initialsOf,
 } from '../../components/shared';
-import '../../styles/bp-visual.css';
+/* Etapa BP2: `bp-visual.css` ahora se importa una sola vez desde
+   `app/business-plan/layout.tsx`. */
 
 /**
  * ============================================================================
@@ -71,7 +72,7 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
               <div className="bp-avatar" aria-hidden="true">
                 {initialsOf(lo.fullName)}
               </div>
-              <div style={{ minWidth: 0 }}>
+              <div className="bp-profile__text">
                 <h1 className="bp-profile__name">
                   {lo.fullName}
                   {lo.isBranchManager && <span className="bp-chip">{lo.isProducing ? 'Producing BM' : 'BM'}</span>}
@@ -82,7 +83,7 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
                   {lo.tier && <> · Tier {lo.tier}</>}
                   {' · '}
                   {lo.monthlyBenchmark === null ? (
-                    <span style={{ color: 'var(--amber-800)', fontWeight: 600 }}>no benchmark</span>
+                    <span className="bp-missing">no benchmark</span>
                   ) : (
                     <>Benchmark {lo.monthlyBenchmark.toFixed(1)}/month</>
                   )}
@@ -122,7 +123,7 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
            * pide además que se vea en la UI que están pendientes -- no dejar
            * números de ejemplo que alguien pueda confundir con reales.
            */}
-          <div className="bp-kpis" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
+          <div className="bp-kpis bp-kpis--pair">
             <QualifierPlaceholder
               title="Activity qualifiers"
               lines={[
@@ -142,9 +143,9 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
             />
           </div>
 
-          <div className="bp-placeholder" style={{ marginTop: '16px' }}>
+          <div className="bp-placeholder bp-placeholder--spaced">
             <span className="bp-placeholder__tag">Pending — decision bar</span>
-            <p style={{ margin: 0, fontSize: '12.5px', color: 'var(--slate-600)', lineHeight: 1.6 }}>
+            <p className="bp-placeholder__body">
               The final verdict strip (thresholds missed, recommended action) is laid out but not computed. The GAP is a
               fractional average, and the published rule only names <code>GAP = -1</code>; a GAP of −0.67 falls in no
               band. That range has to be defined before anything is shown here.
@@ -171,13 +172,13 @@ function QualifierPlaceholder({ title, lines, note }: { title: string; lines: st
   return (
     <div className="bp-placeholder">
       <span className="bp-placeholder__tag">Pending — not computed</span>
-      <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--navy)', marginBottom: '8px' }}>{title}</div>
-      <ul style={{ margin: '0 0 8px', paddingLeft: '18px', fontSize: '12.5px', color: 'var(--slate-600)', lineHeight: 1.7 }}>
+      <div className="bp-placeholder__title">{title}</div>
+      <ul className="bp-placeholder__list">
         {lines.map((l) => (
           <li key={l}>{l}</li>
         ))}
       </ul>
-      <p style={{ margin: 0, fontSize: '11.5px', color: 'var(--amber-800)' }}>{note}</p>
+      <p className="bp-placeholder__note">{note}</p>
     </div>
   );
 }

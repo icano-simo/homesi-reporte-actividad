@@ -3,28 +3,190 @@
  * ESTILOS EXCLUSIVOS DEL MÓDULO BUSINESS PLAN OS
  * ============================================================================
  *
- * Etapa BP1 — ARCHIVO NUEVO.
- *
- * Se importa SÓLO desde las páginas de `app/business-plan/`, nunca desde
+ * Se importa SÓLO desde `app/business-plan/layout.tsx`, nunca desde
  * globals.css. Mismo patrón que `app/pipeline/styles/forecast-visual.css`.
  *
  * `app/styles/components.css` NO se toca: es compartido con Commercial Activity
- * y Forecast, y ya hubo incidentes. Lo que haga falta ajustar de ahí se
- * sobrescribe desde este archivo, acotado por el prefijo `.bp-`.
+ * y Forecast. Lo que haga falta ajustar se sobrescribe desde acá, acotado por
+ * el prefijo `.bp-`.
  *
- * COLORES: todo sale de `app/styles/tokens.css`. Ni un hex literal. El brief de
- * negocio mencionaba #0F172A y #DC2626, que NO son los colores de esta app --
- * la paleta real es el Brand Book HomeSí 2025 (navy #001A40, coral #FF4040,
- * sky #A6DEFF, canvas #FCFCFA).
+ * ---------------------------------------------------------------------------
+ * REGLA DURA (etapa BP2b): CERO VALORES DE COLOR LITERALES EN ESTE ARCHIVO
+ * ---------------------------------------------------------------------------
+ * Ni hexadecimales ni rgba(). Todo color sale de una variable de tokens.css.
+ * Verificable:
  *
- * TABLAS: se reutiliza el lenguaje visual ya resuelto en `table.piv`
- * (components.css) -- densidad, encabezado en mayúscula con letter-spacing,
- * numéricas a la derecha, primera columna congelada. Acá sólo se agrega lo
- * propio del módulo: filas clickeables, badges de triage y las tarjetas.
+ *     grep -nE "#[0-9a-fA-F]{3,8}" app/business-plan/styles/bp-visual.css
+ *
+ * tiene que devolver vacío. Por eso los nombres de color de marca se
+ * mencionan acá por su TOKEN y no por su valor.
+ *
+ * ---------------------------------------------------------------------------
+ * QUÉ SE REUSA EN VEZ DE REDEFINIRSE
+ * ---------------------------------------------------------------------------
+ * La primera versión de este archivo creó un sistema paralelo (`.bp-kpi__*`,
+ * `.bp-badge--*`, su propio hover de fila) que describía las mismas cosas con
+ * otros valores. Ese fue el motivo de que el módulo se viera de otra
+ * aplicación. Ahora se consumen las clases que ya definen el lenguaje visual:
+ *
+ *   Tarjetas KPI      -> `.mcard`, `.m-name`, `.kpi-hero__value`, `.kpi-hero__sub`
+ *   Tablas densas     -> `table.piv`, `.tbl-card`, `.tbl-scroll`, `tr.metric`
+ *   Encabezado tabla  -> `tr.mo-row th` (claro, mayúsculas, letter-spacing)
+ *   Pills de estado   -> `.badge`, `.badge--pill`, `.badge--emerald|rose|amber|neutral`
+ *   Hover de fila     -> `tr.metric:hover` ya pinta con Light Sky
+ *   Barra de filtros  -> `.control-bar`, `.control-group`, `.field`, `.seg`
+ *   Superficie blanca -> `.mcard` / `.tbl-card` (por eso acá no hace falta
+ *                        declarar ningún blanco)
+ *
+ * Lo único propio del módulo es lo que abajo: el shell de dos columnas con
+ * sidebar, el breadcrumb, los bloques marcados como pendientes, los anchos de
+ * columna y el centrado de las métricas.
  */
 
 /* ---------------------------------------------------------------------------
- * Breadcrumb
+ * 1. Shell de dos columnas — sólo dentro de Business Plan
+ * ------------------------------------------------------------------------ */
+
+.bp-shell {
+  display: flex;
+  align-items: stretch;
+  min-height: calc(100vh - var(--header-h));
+}
+
+/*
+ * El workspace se lleva TODO el ancho restante. `min-width: 0` es lo que
+ * permite que las tablas de adentro se encojan al expandir el sidebar: sin
+ * eso, un hijo con contenido ancho fija el tamaño del flex item y el layout
+ * deja de reflowear.
+ */
+.bp-workspace {
+  flex: 1;
+  min-width: 0;
+}
+.bp-workspace > .hub-container {
+  /* Ya está contenido por el sidebar: no vuelve a centrarse ni a limitarse. */
+  max-width: none;
+  margin: 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * 2. Sidebar del módulo
+ * ------------------------------------------------------------------------ */
+
+.bp-sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  background: var(--slate-50);
+  border-right: 1px solid var(--slate-200);
+  padding: 20px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: width 0.16s ease;
+}
+.bp-sidebar--collapsed {
+  width: 64px;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.bp-sidebar__title {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+  padding: 0 10px 10px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.bp-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: var(--radius-md);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--slate-600);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+.bp-nav-item:hover {
+  background: var(--accent-soft);
+  color: var(--navy);
+}
+.bp-nav-item.is-active {
+  background: var(--navy);
+  color: var(--canvas);
+}
+.bp-nav-item svg {
+  flex-shrink: 0;
+}
+.bp-sidebar--collapsed .bp-nav-item {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* Botón de colapsar, al pie del sidebar. */
+.bp-sidebar__toggle {
+  margin-top: auto;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--slate-500);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.bp-sidebar__toggle:hover {
+  color: var(--navy);
+  border-color: var(--slate-300);
+}
+.bp-sidebar--collapsed .bp-sidebar__toggle {
+  justify-content: center;
+}
+
+/*
+ * Por debajo de 900px el sidebar se colapsa solo a modo iconos, sin depender
+ * del estado del botón: 240px sobre una pantalla angosta se come el
+ * workspace y las tablas empiezan a desbordar.
+ */
+@media (max-width: 900px) {
+  .bp-sidebar {
+    width: 64px;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .bp-sidebar .bp-nav-item {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+  .bp-sidebar__label,
+  .bp-sidebar__title {
+    display: none;
+  }
+  .bp-sidebar__toggle {
+    justify-content: center;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 3. Breadcrumb
  * ------------------------------------------------------------------------ */
 
 .bp-crumbs {
@@ -57,7 +219,7 @@
 }
 
 /* ---------------------------------------------------------------------------
- * Tarjetas de resumen — mismo lenguaje que el banner de Forecast
+ * 4. Tarjetas KPI — `.mcard` + `.kpi-hero__*` de components.css
  * ------------------------------------------------------------------------ */
 
 .bp-kpis {
@@ -72,72 +234,114 @@
   }
 }
 
-.bp-kpi__value {
-  font-size: 26px;
-  font-weight: 800;
-  color: var(--navy);
-  line-height: 1.2;
-  letter-spacing: -0.02em;
+/* Variante de dos columnas (los bloques de qualifiers de la ficha del LO). */
+.bp-kpis--pair {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
-.bp-kpi__value--risk {
+
+/* Centrado horizontal del número y su subtítulo dentro de cada tarjeta. */
+.bp-kpis .mcard {
+  text-align: center;
+}
+.bp-kpis .m-name {
+  justify-content: center;
+}
+
+/*
+ * Único tono que components.css no trae: `.kpi-hero__value--emerald` existe,
+ * el equivalente en rose no. Se agrega acá en vez de tocar el archivo
+ * compartido.
+ */
+.kpi-hero__value--risk {
   color: var(--rose-700);
-}
-.bp-kpi__value--ok {
-  color: var(--emerald-700);
-}
-.bp-kpi__sub {
-  font-size: 11px;
-  color: var(--slate-500);
-  margin-top: 6px;
 }
 
 /* ---------------------------------------------------------------------------
- * Badges de triage
+ * 5. Tablas del módulo
  * ------------------------------------------------------------------------ */
 
-.bp-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  border-radius: var(--radius-full);
-  padding: 3px 10px;
-  font-size: 11px;
-  font-weight: 700;
-  white-space: nowrap;
+/*
+ * Fila que navega a otra PÁGINA (nunca abre un modal). El resaltado en hover
+ * ya lo pone `tr.metric:hover` de components.css con Light Sky -- acá sólo se
+ * agrega la señal de que es clickeable y el foco de teclado.
+ */
+.bp-row-link {
+  cursor: pointer;
 }
-.bp-badge--ok {
-  background: var(--emerald-50);
-  color: var(--emerald-800);
-}
-/* El intermedio: la escala ámbar se completó en tokens.css para esto. */
-.bp-badge--warn {
-  background: var(--amber-50);
-  color: var(--amber-800);
-}
-.bp-badge--risk {
-  background: var(--rose-50);
-  color: var(--rose-700);
-}
-.bp-badge--muted {
-  background: var(--slate-100);
-  color: var(--slate-500);
+.bp-row-link:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: -2px;
 }
 
-/* Chip de rol (Producing BM, LO, tier...). */
-.bp-chip {
-  display: inline-flex;
-  align-items: center;
-  border-radius: var(--radius-sm);
-  padding: 1px 7px;
-  font-size: 10.5px;
+/* Anchos de la tabla de branches: 12 + 38 + 15 + 15 + 20 = 100%. */
+.bp-table--branches col.bp-col-branch {
+  width: 12%;
+}
+.bp-table--branches col.bp-col-manager {
+  width: 38%;
+}
+.bp-table--branches col.bp-col-count {
+  width: 15%;
+}
+.bp-table--branches col.bp-col-status {
+  width: 20%;
+}
+
+/* Anchos de la tabla de Loan Officers de un branch. */
+.bp-table--los col.bp-col-name {
+  width: 26%;
+}
+.bp-table--los col.bp-col-metric {
+  width: 12%;
+}
+.bp-table--los col.bp-col-status {
+  width: 14%;
+}
+
+/*
+ * Métricas y estado centrados; el nombre y el manager quedan a la izquierda.
+ *
+ * OJO CON LA ESPECIFICIDAD: `components.css` alinea a la derecha con
+ * `table.piv th, table.piv td` (0,1,2). Una clase suelta (0,1,0) PIERDE y el
+ * centrado no se aplicaría. Por eso estas dos se califican con el elemento:
+ * `table.piv td.bp-center` es (0,2,2) y gana sin usar !important.
+ */
+table.piv th.bp-center,
+table.piv td.bp-center {
+  text-align: center;
+}
+table.piv th.bp-left,
+table.piv td.bp-left {
+  text-align: left;
+}
+/* Recorta con puntos suspensivos; el nombre completo va en el `title`. */
+.bp-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--slate-600);
+}
+/* Valor a destacar dentro de su columna (At Risk). */
+.bp-emphasis {
   font-weight: 700;
-  background: var(--accent-soft);
-  color: var(--navy);
-  margin-left: 6px;
+  color: var(--rose-700);
+}
+.bp-muted {
+  color: var(--slate-300);
+}
+/* Celda de "no hay filas": mismo tratamiento que usan las tablas de Forecast. */
+.bp-empty-cell {
+  color: var(--slate-500);
+  font-weight: 500;
+}
+/* Dato ausente que el usuario debería notar (sin benchmark cargado). */
+.bp-missing {
+  color: var(--amber-800);
+  font-weight: 600;
 }
 
 /* ---------------------------------------------------------------------------
- * Aviso de motor de triage pendiente
+ * 6. Bloques pendientes de definición
  * ------------------------------------------------------------------------ */
 
 .bp-pending {
@@ -157,11 +361,7 @@
   flex-shrink: 0;
   margin-top: 1px;
 }
-.bp-pending strong {
-  font-weight: 800;
-}
 
-/* Bloque maquetado pero sin cálculo: se ve que está pendiente, no roto. */
 .bp-placeholder {
   border: 1px dashed var(--slate-300);
   border-radius: var(--radius-lg);
@@ -180,63 +380,49 @@
   padding: 2px 8px;
   margin-bottom: 10px;
 }
-
-/* ---------------------------------------------------------------------------
- * Filas clickeables — navegan a una PÁGINA, no abren un modal
- * ------------------------------------------------------------------------ */
-
-.bp-row-link {
-  cursor: pointer;
-}
-.bp-row-link:hover td,
-.bp-row-link:hover td.lbl {
-  background: rgba(166, 222, 255, 0.28);
-}
-/* El foco tiene que verse: estas filas se navegan también con teclado. */
-.bp-row-link:focus-visible {
-  outline: 2px solid var(--sky);
-  outline-offset: -2px;
-}
-.bp-row-link td.lbl {
-  color: var(--navy);
+.bp-placeholder__title {
+  font-family: var(--font-display);
   font-weight: 700;
+  color: var(--navy);
+  margin-bottom: 8px;
 }
-
-/* Anchos de las tablas del módulo. */
-.bp-table--branches col.bp-col-branch {
-  width: 14%;
+.bp-placeholder__list {
+  margin: 0 0 8px;
+  padding-left: 18px;
+  font-size: 12.5px;
+  color: var(--slate-600);
+  line-height: 1.7;
 }
-.bp-table--branches col.bp-col-manager {
-  width: 34%;
+.bp-placeholder__note {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--amber-800);
 }
-.bp-table--branches col.bp-col-metric {
-  width: 17%;
+/* Texto corrido dentro de un bloque pendiente (no es una advertencia ámbar). */
+.bp-placeholder__body {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--slate-600);
+  line-height: 1.6;
 }
-
-.bp-table--los col.bp-col-name {
-  width: 26%;
-}
-.bp-table--los col.bp-col-metric {
-  width: 12%;
-}
-.bp-table--los col.bp-col-state {
-  width: 14%;
+.bp-placeholder--spaced {
+  margin-top: 16px;
 }
 
 /* ---------------------------------------------------------------------------
- * Perfil del LO (Pantalla 3)
+ * 7. Ficha del Loan Officer
  * ------------------------------------------------------------------------ */
 
+/* La superficie blanca la aporta `.mcard`; acá sólo la disposición. */
+.bp-profile__text {
+  min-width: 0;
+}
 .bp-profile {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 20px;
   flex-wrap: wrap;
-  background: #fff;
-  border: 1px solid var(--slate-200);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-xs);
   padding: 20px;
   margin-bottom: 20px;
 }
@@ -254,11 +440,10 @@
   height: 52px;
   border-radius: 50%;
   background: var(--navy);
-  color: #fff;
+  color: var(--canvas);
   font-family: var(--font-display);
   font-size: 17px;
   font-weight: 800;
-  letter-spacing: 0.02em;
   flex-shrink: 0;
 }
 .bp-profile__name {
@@ -275,7 +460,6 @@
   color: var(--slate-500);
   line-height: 1.5;
 }
-/* Contenedor de veredicto, arriba a la derecha. */
 .bp-verdict {
   text-align: right;
   min-width: 200px;
@@ -287,41 +471,23 @@
   max-width: 280px;
 }
 
-/* Grilla de métricas del LO. */
 .bp-metric-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
   margin-bottom: 20px;
 }
-.bp-metric {
-  background: #fff;
-  border: 1px solid var(--slate-200);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-xs);
-  padding: 14px;
+.bp-metric-grid .mcard {
+  text-align: center;
 }
-.bp-metric__label {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--slate-400);
-  margin-bottom: 6px;
-}
-.bp-metric__value {
-  font-size: 22px;
-  font-weight: 800;
-  color: var(--navy);
-  line-height: 1.2;
-}
-.bp-metric__value--muted {
-  color: var(--slate-300);
-  font-size: 15px;
-  font-weight: 600;
+.bp-metric-grid .m-name {
+  justify-content: center;
 }
 
-/* Pie de diagnóstico: qué se leyó y con qué ventana. */
+/* ---------------------------------------------------------------------------
+ * 8. Pie de diagnóstico
+ * ------------------------------------------------------------------------ */
+
 .bp-diagnostics {
   margin-top: 18px;
   font-size: 11px;
@@ -332,4 +498,16 @@
   font-family: inherit;
   color: var(--slate-500);
   font-weight: 600;
+}
+.bp-diagnostics__warn {
+  color: var(--amber-800);
+}
+
+/* Biblioteca de funnels: placeholder honesto, todavía sin diseño. */
+.bp-library-note {
+  max-width: 620px;
+  font-size: 13px;
+  color: var(--slate-500);
+  line-height: 1.6;
+  margin: 0 0 18px;
 }

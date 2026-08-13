@@ -7,7 +7,8 @@ import { TRIAGE_FILTERS } from '@/lib/business-plan/triage';
 import type { TriageState } from '@/lib/business-plan/types';
 import Breadcrumbs from './components/Breadcrumbs';
 import { Diagnostics, ErrorState, KpiCard, LoadingState, TriageBadge, TriageFilterPills, TriagePendingNotice } from './components/shared';
-import './styles/bp-visual.css';
+/* Etapa BP2: el import de `bp-visual.css` se mudó a `app/business-plan/layout.tsx`,
+   que es el punto único por el que pasan todas las rutas del módulo. */
 
 /**
  * ============================================================================
@@ -92,9 +93,9 @@ export default function BranchPortfolioPage() {
 
           <div className="bp-kpis">
             <KpiCard label="Total Branches" value={totals.branches} sub="Division branches only" />
-            <KpiCard label="Total Loan Officers" value={totals.los} sub="Distinct people with an LO role" />
-            <KpiCard label="LOs On Risk" value={totals.atRisk} sub="Pending triage engine" tone="risk" />
-            <KpiCard label="LOs On Track" value={totals.onTrack} sub="Pending triage engine" tone="ok" />
+            <KpiCard label="Total Loan Officers" value={totals.los} sub="Distinct people with a Loan Officer role" />
+            <KpiCard label="Loan Officers On Risk" value={totals.atRisk} sub="Pending triage engine" tone="risk" />
+            <KpiCard label="Loan Officers On Track" value={totals.onTrack} sub="Pending triage engine" tone="ok" />
           </div>
 
           <div className="control-bar">
@@ -136,20 +137,27 @@ export default function BranchPortfolioPage() {
           <div className="tbl-card">
             <div className="tbl-scroll">
               <table className="piv bp-table--branches">
+                {/*
+                  Etapa BP2 — el reparto de ancho lo fija el `<colgroup>`, no las
+                  celdas: `table.piv` usa `table-layout: fixed`, donde un
+                  `min-width` en el `td` se ignora. 12 + 38 + 15 + 15 + 20 = 100%.
+                  El manager se lleva el 38% porque es el único texto largo de la
+                  fila; el resto son números cortos y un pill.
+                */}
                 <colgroup>
                   <col className="bp-col-branch" />
                   <col className="bp-col-manager" />
-                  <col className="bp-col-metric" />
-                  <col className="bp-col-metric" />
-                  <col className="bp-col-metric" />
+                  <col className="bp-col-count" />
+                  <col className="bp-col-count" />
+                  <col className="bp-col-status" />
                 </colgroup>
                 <thead>
                   <tr className="mo-row">
                     <th className="lbl">Branch</th>
-                    <th style={{ textAlign: 'left' }}>Branch Manager</th>
-                    <th>Loan Officers</th>
-                    <th>On Risk</th>
-                    <th style={{ textAlign: 'left' }}>Status</th>
+                    <th className="bp-left">Branch Manager</th>
+                    <th className="bp-center">Loan Officers</th>
+                    <th className="bp-center">At Risk</th>
+                    <th className="bp-center">Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -168,22 +176,32 @@ export default function BranchPortfolioPage() {
                       }}
                     >
                       <td className="lbl">{b.branchCode}</td>
-                      {/* Puede haber más de uno: el 716 tiene dos. */}
-                      <td style={{ textAlign: 'left', color: 'var(--slate-600)' }} title={b.branchManagers.join(' + ')}>
-                        {b.branchManagers.length ? b.branchManagers.join(' + ') : <span style={{ color: 'var(--slate-300)' }}>—</span>}
+                      {/*
+                        Puede haber más de un manager por branch, así que el
+                        texto se recorta con elipsis y el `title` conserva los
+                        nombres completos: el ancho fijo no puede depender de
+                        cuántos managers tenga la sucursal más poblada.
+                      */}
+                      <td className="bp-left bp-ellipsis" title={b.branchManagers.join(' + ')}>
+                        {b.branchManagers.length ? b.branchManagers.join(' + ') : <span className="bp-muted">—</span>}
                       </td>
-                      <td className="val">{b.totalLoanOfficers}</td>
-                      <td className="val">
-                        {b.atRiskCount === 0 ? <span style={{ color: 'var(--slate-300)' }}>0</span> : b.atRiskCount}
+                      <td className="bp-center">{b.totalLoanOfficers}</td>
+                      {/* El cero se apaga para que sólo salten los branches con gente en riesgo. */}
+                      <td className="bp-center">
+                        {b.atRiskCount === 0 ? (
+                          <span className="bp-muted">0</span>
+                        ) : (
+                          <span className="bp-emphasis">{b.atRiskCount}</span>
+                        )}
                       </td>
-                      <td style={{ textAlign: 'left' }}>
+                      <td className="bp-center">
                         <TriageBadge state={b.triage} />
                       </td>
                     </tr>
                   ))}
                   {!visibleBranches.length && (
                     <tr>
-                      <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={5}>
+                      <td className="lbl bp-empty-cell" colSpan={5}>
                         No branch matches the current filters.
                       </td>
                     </tr>

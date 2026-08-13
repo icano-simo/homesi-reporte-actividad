@@ -28,7 +28,7 @@ export function TriagePendingNotice() {
     <div className="bp-pending" role="status">
       <AlertTriangleIcon size={16} />
       <span>
-        <strong>Triage engine pending definition.</strong> {TRIAGE_PENDING_NOTICE} Every officer shows as{' '}
+        <strong>Triage engine pending definition.</strong> {TRIAGE_PENDING_NOTICE} Every Loan Officer shows as{' '}
         <em>Not evaluable</em> until benchmarks are loaded and the thresholds are agreed.
       </span>
     </div>
@@ -47,12 +47,18 @@ export function KpiCard({
   sub?: string;
   tone?: 'risk' | 'ok';
 }) {
-  const toneClass = tone === 'risk' ? ' bp-kpi__value--risk' : tone === 'ok' ? ' bp-kpi__value--ok' : '';
+  /*
+   * Etapa BP2b: `.kpi-hero__value` / `.kpi-hero__sub` son las mismas clases que
+   * usa el banner de Forecast (components.css). El módulo tenía un par propio
+   * con otros tamaños y colores; se eliminó. El único tono que components.css
+   * no traía es el de riesgo, agregado como `--risk` en bp-visual.css.
+   */
+  const toneClass = tone === 'risk' ? ' kpi-hero__value--risk' : tone === 'ok' ? ' kpi-hero__value--emerald' : '';
   return (
     <div className="mcard">
       <div className="m-name">{label}</div>
-      <div className={'bp-kpi__value' + toneClass}>{value}</div>
-      {sub && <div className="bp-kpi__sub">{sub}</div>}
+      <div className={'kpi-hero__value' + toneClass}>{value}</div>
+      {sub && <div className="kpi-hero__sub">{sub}</div>}
     </div>
   );
 }
@@ -103,7 +109,7 @@ export function NotFoundState({ what, backHref, backLabel }: { what: string; bac
       <h2>{what}</h2>
       <p>
         It may have been renamed or removed from the roster.{' '}
-        <a href={backHref} style={{ color: 'var(--navy)', fontWeight: 700 }}>
+        <a href={backHref} className="bp-crumbs__current">
           {backLabel}
         </a>
       </p>
@@ -135,7 +141,7 @@ export function Diagnostics({ data }: { data: BusinessPlanData }) {
         the record.
       </div>
       {d.unmappedNames.length > 0 && (
-        <div style={{ color: 'var(--amber-800)' }}>
+        <div className="bp-diagnostics__warn">
           {d.unmappedNames.length} source name(s) are neither mapped nor excluded — they need classifying in{' '}
           <code>org.employee_alias</code> or <code>org.source_name_excluded</code>:{' '}
           {d.unmappedNames.slice(0, 5).map((u) => `${u.source}:"${u.nameRaw}" (${u.rows})`).join(', ')}

@@ -3,7 +3,7 @@
 import { useMemo, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { useBusinessPlanData } from '@/lib/business-plan/useBusinessPlanData';
-import { TRIAGE_FILTERS } from '@/lib/business-plan/triage';
+import { TRIAGE_FILTERS, TRIAGE_LABEL } from '@/lib/business-plan/triage';
 import type { TriageState } from '@/lib/business-plan/types';
 import Breadcrumbs from '../../components/Breadcrumbs';
 import {
@@ -17,11 +17,12 @@ import {
   TriagePendingNotice,
   fmtDecimal,
 } from '../../components/shared';
-import '../../styles/bp-visual.css';
+/* Etapa BP2: `bp-visual.css` ahora se importa una sola vez desde
+   `app/business-plan/layout.tsx`. */
 
 /**
  * ============================================================================
- * PANTALLA 2 — DIRECTORIO DE LOs DE UN BRANCH
+ * PANTALLA 2 — DIRECTORIO DE LOAN OFFICERS DE UN BRANCH
  * ============================================================================
  *
  * Etapa BP1 — ARCHIVO NUEVO. Segundo nivel de la navegación.
@@ -83,7 +84,8 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
             <div>
               <h1 className="page-head__title">Branch {branch.branchCode}</h1>
               <p className="page-head__subtitle">
-                {/* Puede haber más de un Branch Manager: el 716 tiene dos. */}
+                {/* Hoy ningún branch tiene más de un manager (el 716 quedó con
+                    Pier Laino), pero el roster admite varios y la vista los junta. */}
                 {branch.branchManagers.length
                   ? `Branch Manager: ${branch.branchManagers.join(' + ')}`
                   : 'No branch manager on the roster'}
@@ -95,9 +97,11 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
 
           <div className="bp-kpis">
             <KpiCard label="Loan Officers" value={branch.totalLoanOfficers} sub="Assigned to this branch" />
-            <KpiCard label="On Risk" value={branch.atRiskCount} sub="Pending triage engine" tone="risk" />
+            <KpiCard label="Loan Officers On Risk" value={branch.atRiskCount} sub="Pending triage engine" tone="risk" />
             <KpiCard label="Branch Managers" value={branch.branchManagers.length} sub={branch.branchManagers.join(' + ') || '—'} />
-            <KpiCard label="Branch Status" value={branch.triage === 'not_evaluable' ? '—' : branch.totalLoanOfficers} sub="Pending triage engine" />
+            {/* El estado del branch se muestra como su etiqueta, no como un conteo:
+                antes repetía el número de Loan Officers, que no era un estado. */}
+            <KpiCard label="Branch Status" value={TRIAGE_LABEL[branch.triage]} sub="Pending triage engine" />
           </div>
 
           <div className="control-bar">
@@ -134,6 +138,7 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
           <div className="tbl-card">
             <div className="tbl-scroll">
               <table className="piv bp-table--los">
+                {/* 26 + 12*5 + 14 = 100%. El nombre es lo único largo de la fila. */}
                 <colgroup>
                   <col className="bp-col-name" />
                   <col className="bp-col-metric" />
@@ -142,18 +147,18 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
                   <col className="bp-col-metric" />
                   <col className="bp-col-metric" />
                   <col className="bp-col-metric" />
-                  <col className="bp-col-state" />
+                  <col className="bp-col-status" />
                 </colgroup>
                 <thead>
                   <tr className="mo-row">
                     <th className="lbl">Loan Officer</th>
-                    <th>Avg Closings 3M</th>
-                    <th>Benchmark</th>
-                    <th>GAP</th>
-                    <th>Credit Apps</th>
-                    <th>Pre-Approvals</th>
-                    <th>Files Created</th>
-                    <th style={{ textAlign: 'left' }}>Status</th>
+                    <th className="bp-center">Avg Closings 3M</th>
+                    <th className="bp-center">Benchmark</th>
+                    <th className="bp-center">GAP</th>
+                    <th className="bp-center">Credit Apps</th>
+                    <th className="bp-center">Pre-Approvals</th>
+                    <th className="bp-center">Files Created</th>
+                    <th className="bp-center">Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -179,25 +184,25 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
                       <td className="val">{lo.activity.avgClosings3m.toFixed(1)}</td>
                       <td className="val">
                         {lo.monthlyBenchmark === null ? (
-                          <span style={{ color: 'var(--slate-300)' }}>no benchmark</span>
+                          <span className="bp-muted">no benchmark</span>
                         ) : (
                           lo.monthlyBenchmark.toFixed(1)
                         )}
                       </td>
                       <td className="val">
-                        {lo.gap === null ? <span style={{ color: 'var(--slate-300)' }}>—</span> : fmtDecimal(lo.gap)}
+                        {lo.gap === null ? <span className="bp-muted">—</span> : fmtDecimal(lo.gap)}
                       </td>
                       <td className={'val' + (lo.activity.creditApplications ? '' : ' zero')}>{lo.activity.creditApplications}</td>
                       <td className={'val' + (lo.activity.preApprovals ? '' : ' zero')}>{lo.activity.preApprovals}</td>
                       <td className={'val' + (lo.activity.filesCreated ? '' : ' zero')}>{lo.activity.filesCreated}</td>
-                      <td style={{ textAlign: 'left' }}>
+                      <td className="bp-center">
                         <TriageBadge state={lo.triage} />
                       </td>
                     </tr>
                   ))}
                   {!visibleLos.length && (
                     <tr>
-                      <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={8}>
+                      <td className="lbl bp-empty-cell" colSpan={8}>
                         No loan officer matches the current filters.
                       </td>
                     </tr>

@@ -70,12 +70,19 @@ export const TRIAGE_LABEL: Record<TriageState, string> = {
   not_evaluable: 'Not evaluable',
 };
 
-/** Clase del badge. El ámbar de `need_attention` se agregó a tokens.css en BP1. */
+/**
+ * Clase del badge.
+ *
+ * Etapa BP2b: usa el sistema de badges de `app/styles/components.css`, el mismo
+ * que Forecast. Antes había un set paralelo (`.bp-badge--ok/warn/risk/muted`)
+ * que describía los mismos estados con otros valores -- ese fue el motivo de
+ * que el módulo se viera de otra aplicación.
+ */
 export const TRIAGE_CLASS: Record<TriageState, string> = {
-  on_track: 'bp-badge bp-badge--ok',
-  need_attention: 'bp-badge bp-badge--warn',
-  on_risk: 'bp-badge bp-badge--risk',
-  not_evaluable: 'bp-badge bp-badge--muted',
+  on_track: 'badge badge--pill badge--emerald',
+  need_attention: 'badge badge--pill badge--amber',
+  on_risk: 'badge badge--pill badge--rose',
+  not_evaluable: 'badge badge--pill badge--neutral',
 };
 
 /** Estados que ofrece el filtro de pills, en orden. */
