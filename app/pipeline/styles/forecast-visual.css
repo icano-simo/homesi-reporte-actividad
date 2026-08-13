@@ -320,36 +320,43 @@
 }
 
 /*
- * Etapa UX10: puntos de CTC (préstamos en Clear to Close) debajo del número
- * de Projected to Close -- reemplaza la anotación de texto "N in CTC" de
- * F5k/Parte 3 por un punto por préstamo, sin número ni texto en la celda
- * mientras entre dentro de CTC_DOT_CAP (PivotTable.tsx). Es una marca
- * secundaria, no un segundo número protagonista.
+ * Etapa UX12: un solo punto verde junto al número de Projected to Close --
+ * reemplaza los puntos de F5k/UX10 (uno por préstamo, con tope de 8 y color
+ * navy elegido justamente para no chocar con el verde de Healthy Pipeline).
+ * Ya no hace falta distinguirlos: Healthy perdió su propio punto en este
+ * mismo ajuste (ver `.dot-healthy` en PivotTable.tsx, ahora sin uso ahí), así
+ * que CTC puede reusar el mismo verde -- sigue significando "va bien" en
+ * toda la app, sin dos verdes distintos compitiendo en la misma fila.
  *
- * `--ctc-dot` es una variable propia (no un token de tokens.css) para que la
- * tarjeta Closed (SummaryCards.tsx, `.kpi-hero__sub--ctc`) use EXACTAMENTE el
- * mismo color sin poder desincronizarse -- un solo lugar donde cambiarlo.
- * Elegido navy: contraste 16.3:1 contra el fondo `--emerald-50` ya teñido de
- * esta columna (verificado con la fórmula WCAG) -- muy por encima del punto
- * verde de Healthy Pipeline en esa misma fila (`--emerald-700`, 5.2:1 contra
- * el mismo fondo) y sin usar rojo/rosa, que en esta app ya significa
- * "problema" -- CTC es lo contrario, préstamos más cerca de cerrar.
- *
- * Se define en `:root` (no en `.piv--exec`) porque la leyenda y la tarjeta
- * Closed usan el mismo color fuera del árbol de esa tabla -- `:root` acá es
+ * `--ctc-dot` es una variable propia (no un token de tokens.css), definida en
+ * `:root` porque la tarjeta Closed (SummaryCards.tsx, `.kpi-hero__sub--ctc`)
+ * la usa fuera del árbol de esta tabla -- un solo lugar donde cambiar el
+ * color y que no se pueda desincronizar entre los 2 usos. `:root` acá es
  * seguro porque este archivo se importa solo en app/pipeline/page.tsx (ver
  * cabecera del archivo), nunca en Commercial Activity.
  */
 :root {
-  --ctc-dot: var(--navy);
+  --ctc-dot: var(--emerald-700);
 }
-.ctc-dots {
-  display: flex;
+/*
+ * Envoltorio inline-flex del punto + el número -- el punto va PRIMERO (a la
+ * izquierda del número), centrado verticalmente con él (no debajo, como en
+ * F5k/UX10) sin pelear con el `text-align:center` que ya tiene la celda.
+ *
+ * Ajuste posterior: `.ctc-dot` se renderiza SIEMPRE (PivotTable.tsx ya no
+ * hace `return null` cuando count es 0) -- solo cambia si se pinta
+ * (`.ctc-dot--empty` lo deja transparente). Reservar el espacio siempre,
+ * pintado o no, es lo que evita que las filas sin CTC midan menos que las
+ * filas con punto: antes, centrado dentro de la celda, esa diferencia de
+ * ancho desplazaba el número entre una fila y otra. El subtotal reserva el
+ * mismo espacio con un punto siempre vacío (`<CtcDot count={0} />` fijo en
+ * PivotTable.tsx), así su número queda en la misma línea que las filas de
+ * arriba.
+ */
+.ctc-cell {
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: 3px;
-  margin-top: 3px;
-  flex-wrap: wrap;
+  gap: 4px;
 }
 .ctc-dot {
   display: inline-block;
@@ -359,19 +366,19 @@
   background: var(--ctc-dot);
   flex-shrink: 0;
 }
-.ctc-dots__count {
+.ctc-dot--empty {
+  background: transparent;
+}
+/*
+ * Fila de subtotal: no lleva punto (ver PivotTable.tsx, CtcSubtotalNote) --
+ * el número exacto, chico y sin negrita, subordinado al total de Projected
+ * to Close que ya muestra la celda arriba.
+ */
+.ctc-subtotal-note {
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 400;
   color: var(--ctc-dot);
-  margin-left: 2px;
-}
-.ctc-legend {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.ctc-legend .ctc-dot {
-  margin-top: -1px;
+  margin-top: 2px;
 }
 
 /*

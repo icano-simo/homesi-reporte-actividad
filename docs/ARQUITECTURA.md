@@ -1301,7 +1301,84 @@ confirmado visualmente y por la exclusión estructural ya existente en `buildBra
 
 ---
 
-## Glosario rápido (para no repetir la investigación)
+## Etapa UX12 — limpiar los puntos
+
+Simplifica lo que agregaron F5k/Parte 3 y UX10: menos decoración, un solo verde con un único
+significado.
+
+### Parte 1 — se quita el punto de Healthy Pipeline
+
+**Grep antes de tocar nada** (pedido explícito del brief): `.dot-healthy` está definida en
+`app/styles/components.css` (compartido con Commercial Activity), pero solo la **consumen**
+`app/pipeline/PivotTable.tsx` (las 3 filas de la columna Healthy Pipeline: `BranchDataRow` vía
+`CountCell`, `ExecTotalRow`, y el bloque Combinado) y `app/pipeline/SummaryCards.tsx` (el punto
+junto al título de la tarjeta "Healthy Pipeline" del banner de KPIs). Commercial Activity **no
+usa la clase en ningún lado** -- confirmado, no asumido.
+
+Por eso no hizo falta anular nada por CSS ni tocar el archivo compartido: alcanzó con quitar el
+`<span className="dot-healthy" />` de las 3 filas de `PivotTable.tsx` (y el prop
+`withHealthyDot`, que quedaba sin ningún consumidor). El punto de la tarjeta "Healthy Pipeline"
+del banner (`SummaryCards.tsx`) **no se tocó** -- el brief pide sacar el de "la columna", y ese
+es un punto por tarjeta (uno solo, no por fila), no tiene el problema de "aparece en toda fila
+así que no distingue nada" que sí tenía el de la tabla.
+
+### Parte 2-3 — un solo punto verde, subtotal en texto
+
+`CtcDots` (F5k/UX10, un punto por préstamo con tope) se reemplaza por dos componentes:
+
+- `CtcDot` -- un punto único, sin número ni texto, cuando `closingCount > 0`. Envuelto en
+  `.ctc-cell` (`display: inline-flex; align-items: center`) junto al número de Projected to
+  Close, para que quede centrado verticalmente con él en vez de debajo (como F5k/UX10).
+- `CtcSubtotalNote` -- en la fila de subtotal, sin punto: el número exacto ("6 CTC"), chico
+  (10px), sin negrita, mismo verde, debajo del total.
+
+`--ctc-dot` cambia de `var(--navy)` a `var(--emerald-700)` -- el MISMO verde que ya usaba
+`.dot-healthy`. Ya no hace falta un tono distinto para no competir con Healthy: Healthy perdió su
+punto en la Parte 1 de este mismo ajuste, así que no hay 2 puntos en la misma fila que
+distinguir. El verde sigue significando "va bien" en toda la app, un solo significado en vez de
+dos verdes distintos. `.kpi-hero__sub--ctc` (`SummaryCards.tsx`) no necesitó ningún cambio -- ya
+leía `var(--ctc-dot)` desde UX10, así que el nuevo verde se propaga solo.
+
+### Parte 4 — se quita la leyenda
+
+La leyenda de UX10 ("● Loan in Clear to Close") se borra de `PivotTable.tsx`. Ya no hace falta:
+un solo punto sin ambigüedad + el "N CTC" explícito en el subtotal se explican solos.
+
+### Parte 5 — se quita el tope
+
+`CTC_DOT_CAP` (8, de UX10) se borra junto con toda su lógica -- nunca se dibuja más de un punto
+por fila, así que un tope de puntos ya no tiene sentido.
+
+**Verificado con datos reales** (mismo dataset de F5k/UX10, snapshot 28, Pipeline Range
+2026-07-01–2026-08-31): las 6 branches con punto siguen siendo las mismas -- 707, 710, 716, 747,
+760, 776 -- el resto sin marca. Suma programática de `closingCount` de esas 6 filas = **6**,
+igual que el subtotal ("32" con "6 CTC" debajo) y que la tarjeta Closed ("6 Loans Projected to
+close soon (CTC)"). El punto de la tabla y el texto de la tarjeta se leen en el mismo verde
+(`rgb(4, 120, 87)` en los 2, verificado con `getComputedStyle`, no solo el CSS fuente).
+`git diff --name-only main` para esta etapa: solo `app/pipeline/PivotTable.tsx` y
+`app/pipeline/styles/forecast-visual.css` -- `SummaryCards.tsx` no necesitó tocarse.
+
+### Ajuste posterior — orden y alineación del punto
+
+Dos correcciones sobre la Parte 2, mismas 12 branches y mismo dataset:
+
+1. **Orden:** el punto pasa a ir ANTES del número ("● 1", no "1 ●") -- en `PivotTable.tsx`,
+   `<CtcDot>` ahora es el primer hijo de `.ctc-cell`, no el último.
+2. **Alineación:** `CtcDot` dejó de hacer `return null` cuando `count` es 0 -- ahora siempre
+   renderiza el `<span>` (con la clase `ctc-dot--empty`, transparente, cuando no corresponde
+   pintarlo). Antes, al faltar el elemento por completo en las filas sin CTC, esas filas medían
+   menos que las filas con punto, y el centrado de la celda desplazaba el número entre unas y
+   otras -- el 5 de Affinity no coincidía con el 1 de 707. El subtotal reserva el mismo espacio
+   con un punto siempre vacío (`<CtcDot count={0} />`, no `subtotal.closingCount`), para que su
+   número quede en la misma línea que las filas de arriba.
+
+**Verificado con `getBoundingClientRect()` sobre la tabla real (no a ojo):** las 12 filas de
+branch comparten exactamente el mismo borde izquierdo Y derecho del número (`left`/`right`
+idénticos, con o sin punto pintado). El subtotal ("32", 2 dígitos) comparte el mismo borde
+DERECHO que las 12 filas (borde izquierdo distinto, esperable por tener un dígito más) --
+confirmado también con una fila sintética de 3 dígitos ("123"): comparte el mismo borde derecho
+que el resto. Los números de la columna quedan en línea recta por su borde derecho, el criterio
+pedido.
 
 - **CL / SL** en nombres de archivo = residuo histórico de cuando existían dos empresas (City Lending / Supreme Lending); hoy solo existe Supreme Lending, no hay distinción de marca activa.
 - **Healthy / Delayed / Out of Scope / Never / Adverse** — estados de un préstamo en pipeline. Adverse = terminal (rechazado). Never = provisional, "ya sabemos que no va a cerrar pero Encompash no lo refleja aún" — se trata igual que Adverse para el forecast.
