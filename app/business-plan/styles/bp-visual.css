@@ -113,23 +113,9 @@
   position: sticky;
   top: calc(var(--header-h) + 16px);
 }
-.bp-sidebar--collapsed {
-  width: 64px;
-  padding-left: 8px;
-  padding-right: 8px;
-}
-
-.bp-sidebar__title {
-  font-family: var(--font-display);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
-  color: var(--slate-400);
-  padding: 0 10px 10px;
-  white-space: nowrap;
-  overflow: hidden;
-}
+/* Etapa BP4: `.bp-sidebar--collapsed` y `.bp-sidebar__toggle` se eliminaron
+   junto con el botón. El angostado a iconos por debajo de 900px lo resuelve
+   solo la media query de más abajo, sin estado que sincronizar. */
 
 .bp-nav-item {
   display: flex;
@@ -150,53 +136,24 @@
   color: var(--navy);
 }
 .bp-nav-item.is-active {
-  background: var(--navy);
+  /*
+   * Etapa BP4: coral en vez de navy. El módulo tenía navy en el header, en el
+   * item activo, en los títulos y en el breadcrumb -- demasiado azul junto. El
+   * coral es el acento comercial del Brand Book y acá es donde se nota.
+   */
+  background: var(--coral);
   color: var(--canvas);
 }
 .bp-nav-item svg {
   flex-shrink: 0;
 }
-.bp-sidebar--collapsed .bp-nav-item {
-  justify-content: center;
-  padding-left: 0;
-  padding-right: 0;
-}
-
-/* Botón de colapsar, al pie del sidebar. */
-.bp-sidebar__toggle {
-  margin-top: auto;
-  font-family: inherit;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 9px 10px;
-  border: 1px solid var(--slate-200);
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--slate-500);
-  font-size: 11.5px;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-  overflow: hidden;
-}
-.bp-sidebar__toggle:hover {
-  color: var(--navy);
-  border-color: var(--slate-300);
-}
-.bp-sidebar--collapsed .bp-sidebar__toggle {
-  justify-content: center;
-}
-
 /*
- * Por debajo de 900px el sidebar se colapsa solo a modo iconos, sin depender
- * del estado del botón: 240px sobre una pantalla angosta se come el
- * workspace y las tablas empiezan a desbordar.
+ * Por debajo de 900px el sidebar se reduce a iconos: 220px sobre una pantalla
+ * angosta se come el workspace y las tablas empiezan a desbordar.
  */
 @media (max-width: 900px) {
   .bp-sidebar {
-    width: 64px;
+    width: 56px;
     padding-left: 8px;
     padding-right: 8px;
   }
@@ -205,12 +162,8 @@
     padding-left: 0;
     padding-right: 0;
   }
-  .bp-sidebar__label,
-  .bp-sidebar__title {
+  .bp-sidebar__label {
     display: none;
-  }
-  .bp-sidebar__toggle {
-    justify-content: center;
   }
 }
 
@@ -218,13 +171,21 @@
  * 3. Breadcrumb
  * ------------------------------------------------------------------------ */
 
+/*
+ * Etapa BP4: el breadcrumb pasó a la columna derecha, arriba del contenido del
+ * workspace. `min-height` + `align-items: center` lo dejan a la misma altura
+ * que la primera fila del sidebar, que arranca con el padding de 16px del
+ * panel; sin esa altura mínima, el nav mide lo que mida su texto y los dos
+ * topes no coinciden.
+ */
 .bp-crumbs {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
   font-size: 12px;
-  margin-bottom: 14px;
+  min-height: 34px;
+  margin-bottom: 10px;
 }
 .bp-crumbs a {
   color: var(--slate-500);
@@ -263,26 +224,57 @@
   }
 }
 
-/* Variante de dos columnas (los bloques de qualifiers de la ficha del LO). */
-.bp-kpis--pair {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+/*
+ * ETIQUETA DE CARGO — etapa BP4.
+ *
+ * Esta clase se usaba desde BP1 en tres lugares y NUNCA se había definido. Sin
+ * reglas, el <span> era texto en línea sin separación ni estilo, y la tabla
+ * mostraba "Ana PeñaProducing BM" pegado, como si el cargo fuera parte del
+ * apellido.
+ *
+ * El cargo es información secundaria: gris, más chico, en versalitas y
+ * separado. Nunca compite con el nombre.
+ */
+.bp-chip {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-sm);
+  background: var(--slate-50);
+  color: var(--slate-500);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  vertical-align: middle;
 }
 
-/* Centrado horizontal del número y su subtítulo dentro de cada tarjeta. */
+/*
+ * Etapa BP4: se centra TODO el contenido de la tarjeta, no sólo el número.
+ * `.m-name` es flex en components.css, así que `text-align` no la mueve --
+ * necesita `justify-content`. Se califica con `.mcard` para ganarle a
+ * `.mcard .m-name` (0,2,0) sin recurrir a !important.
+ */
 .bp-kpis .mcard {
   text-align: center;
 }
-.bp-kpis .m-name {
+.bp-kpis .mcard .m-name {
   justify-content: center;
 }
 
 /*
  * Único tono que components.css no trae: `.kpi-hero__value--emerald` existe,
- * el equivalente en rose no. Se agrega acá en vez de tocar el archivo
+ * el equivalente en rojo no. Se agrega acá en vez de tocar el archivo
  * compartido.
+ *
+ * Etapa BP4: era `--rose-700`, un borgoña oscuro que no es el rojo de la
+ * marca. La escala `--rose-*` sirve para fondos y bordes de estado; el rojo
+ * que la gente reconoce como HOMESÍ es `--coral`.
  */
 .kpi-hero__value--risk {
-  color: var(--rose-700);
+  color: var(--coral);
 }
 
 /* ---------------------------------------------------------------------------
@@ -363,11 +355,6 @@ table.piv td.bp-left {
   color: var(--slate-500);
   font-weight: 500;
 }
-/* Dato ausente que el usuario debería notar (sin benchmark cargado). */
-.bp-missing {
-  color: var(--amber-800);
-  font-weight: 600;
-}
 
 /*
  * Compactado de las tablas del módulo (etapa BP3).
@@ -391,72 +378,30 @@ table.piv.bp-table--los th {
 }
 
 /* ---------------------------------------------------------------------------
- * 6. Bloques pendientes de definición
+ * 6. Aviso de pendiente — UNO por pantalla, de una línea
  * ------------------------------------------------------------------------ */
 
+/*
+ * Etapa BP4: era un bloque de tres renglones con borde punteado, repetido
+ * hasta cuatro veces en la ficha del Loan Officer. Ahora es una tira fina de
+ * una línea y hay una sola por pantalla. Sigue en ámbar porque es un estado
+ * transitorio del módulo, no un error, pero deja de competir con los datos.
+ */
 .bp-pending {
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  border: 1px dashed var(--amber-200);
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--amber-200);
   background: var(--amber-50);
   color: var(--amber-800);
-  border-radius: var(--radius-lg);
-  padding: 12px 16px;
-  font-size: 12.5px;
-  line-height: 1.5;
-  margin-bottom: 20px;
+  border-radius: var(--radius-md);
+  padding: 6px 12px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  margin-bottom: 16px;
 }
 .bp-pending svg {
   flex-shrink: 0;
-  margin-top: 1px;
-}
-
-.bp-placeholder {
-  border: 1px dashed var(--slate-300);
-  border-radius: var(--radius-lg);
-  padding: 16px;
-  background: var(--slate-50);
-}
-.bp-placeholder__tag {
-  display: inline-block;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--amber-800);
-  background: var(--amber-100);
-  border-radius: var(--radius-sm);
-  padding: 2px 8px;
-  margin-bottom: 10px;
-}
-.bp-placeholder__title {
-  font-family: var(--font-display);
-  font-weight: 700;
-  color: var(--navy);
-  margin-bottom: 8px;
-}
-.bp-placeholder__list {
-  margin: 0 0 8px;
-  padding-left: 18px;
-  font-size: 12.5px;
-  color: var(--slate-600);
-  line-height: 1.7;
-}
-.bp-placeholder__note {
-  margin: 0;
-  font-size: 11.5px;
-  color: var(--amber-800);
-}
-/* Texto corrido dentro de un bloque pendiente (no es una advertencia ámbar). */
-.bp-placeholder__body {
-  margin: 0;
-  font-size: 12.5px;
-  color: var(--slate-600);
-  line-height: 1.6;
-}
-.bp-placeholder--spaced {
-  margin-top: 16px;
 }
 
 /* ---------------------------------------------------------------------------
@@ -514,12 +459,6 @@ table.piv.bp-table--los th {
   text-align: right;
   min-width: 200px;
 }
-.bp-verdict__line {
-  margin: 8px 0 0;
-  font-size: 12.5px;
-  color: var(--slate-500);
-  max-width: 280px;
-}
 
 .bp-metric-grid {
   display: grid;
@@ -553,11 +492,3 @@ table.piv.bp-table--los th {
   color: var(--amber-800);
 }
 
-/* Biblioteca de funnels: placeholder honesto, todavía sin diseño. */
-.bp-library-note {
-  max-width: 620px;
-  font-size: 13px;
-  color: var(--slate-500);
-  line-height: 1.6;
-  margin: 0 0 18px;
-}

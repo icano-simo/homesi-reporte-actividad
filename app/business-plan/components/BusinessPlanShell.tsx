@@ -23,10 +23,17 @@ import type { Crumb } from './Breadcrumbs';
  * adentro:
  *
  *     .hub-container.bp-shell        <- 1380px centrados, padding lateral 32px
- *       └ breadcrumb                 <- ancho completo del canvas
  *       └ .bp-columns                <- flex
  *           ├ .bp-sidebar  (220px)
  *           └ .bp-workspace (resto)
+ *               ├ breadcrumb         <- alineado con el contenido, no con el menú
+ *               └ children
+ *
+ * Etapa BP4: el breadcrumb bajó a la columna derecha. Arriba de las dos
+ * columnas arrancaba sobre el menú lateral, que es justo con lo que no tiene
+ * nada que ver -- las migas describen dónde estás DENTRO del workspace. Ahora
+ * comparte el borde izquierdo con el contenido y su alto mínimo lo deja a la
+ * misma altura que el tope del panel del menú.
  *
  * El ancho NO se declara acá: se reusa `.hub-container` de `app/styles/shell.css`,
  * que ya vale `max-width: var(--container-max)` con `padding: 32px 32px 64px`.
@@ -37,9 +44,9 @@ import type { Crumb } from './Breadcrumbs';
  *
  * EL BREADCRUMB Y POR QUÉ HAY UN CONTEXT
  * --------------------------------------
- * El breadcrumb tiene que ir ARRIBA del par sidebar/workspace y ocupar el ancho
- * completo, pero quien sabe qué dice es cada página, que se renderiza DENTRO del
- * workspace. Un componente no puede pintar por encima de su propio padre.
+ * El breadcrumb tiene que ir ARRIBA del contenido de la página, y quien sabe
+ * qué dice es esa misma página. Un componente no puede pintar por encima de su
+ * propio padre, así que las migas viajan hacia arriba en vez de hacia abajo.
  *
  * De las salidas posibles, esta es la que deja la responsabilidad donde
  * corresponde: la página sigue declarando sus migas con `<Breadcrumbs items>`
@@ -58,8 +65,8 @@ export const BreadcrumbContext = createContext<((items: Crumb[]) => void) | null
 
 function CrumbBar({ items }: { items: Crumb[] }) {
   /*
-   * Se reserva el alto aunque todavía no haya migas: si el nav apareciera de
-   * la nada al hidratar, el contenido de abajo daría un salto.
+   * Se pinta siempre, aunque todavía no haya migas: el alto mínimo está en el
+   * CSS, así que el contenido no da un salto cuando llegan al hidratar.
    */
   return (
     <nav className="bp-crumbs" aria-label="Breadcrumb">
@@ -97,10 +104,12 @@ export default function BusinessPlanShell({ children }: { children: ReactNode })
   return (
     <BreadcrumbContext.Provider value={value}>
       <div className="hub-container bp-shell">
-        <CrumbBar items={crumbs} />
         <div className="bp-columns">
           <ModuleSidebar />
-          <div className="bp-workspace">{children}</div>
+          <div className="bp-workspace">
+            <CrumbBar items={crumbs} />
+            {children}
+          </div>
         </div>
       </div>
     </BreadcrumbContext.Provider>

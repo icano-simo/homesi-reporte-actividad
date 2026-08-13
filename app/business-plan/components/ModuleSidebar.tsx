@@ -2,8 +2,8 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useState, type ReactNode } from 'react';
-import { BuildingIcon, GridIcon, CollapseIcon, ExpandIcon } from '@/components/ui/icons';
+import type { ReactNode } from 'react';
+import { BuildingIcon, GridIcon } from '@/components/ui/icons';
 
 /**
  * ============================================================================
@@ -11,6 +11,7 @@ import { BuildingIcon, GridIcon, CollapseIcon, ExpandIcon } from '@/components/u
  * ============================================================================
  *
  * Etapa BP2 — ARCHIVO NUEVO.
+ * Etapa BP4 — se quitó el botón de colapsar y todo su estado.
  *
  * Vive en `app/business-plan/layout.tsx`, que es lo que hace que exista en
  * TODAS las rutas del módulo y en NINGUNA otra: Commercial Activity (`/`) y
@@ -18,8 +19,10 @@ import { BuildingIcon, GridIcon, CollapseIcon, ExpandIcon } from '@/components/u
  * Montarlo en `ServiceHubHeader` habría sido el error opuesto -- aparecería en
  * los tres módulos.
  *
- * Como el layout no se re-renderiza al navegar entre rutas hijas, el estado de
- * colapsado sobrevive a moverse de Portfolio a Branch y a Loan Officer.
+ * Con dos items y 220px de ancho, poder colapsarlo no compraba nada: el
+ * componente dejó de tener estado y volvió a ser una lista de enlaces. Por
+ * debajo de 900px sigue reduciéndose a iconos, pero eso ahora lo decide el CSS
+ * solo, sin nada que sincronizar.
  */
 
 interface SidebarItem {
@@ -50,13 +53,10 @@ function resolveActiveHref(pathname: string): string {
 
 export default function ModuleSidebar() {
   const pathname = usePathname();
-  const [collapsed, setCollapsed] = useState(false);
   const activeHref = resolveActiveHref(pathname);
 
   return (
-    <aside className={'bp-sidebar' + (collapsed ? ' bp-sidebar--collapsed' : '')} aria-label="Business Plan sections">
-      <div className="bp-sidebar__title bp-sidebar__label">Business Plan</div>
-
+    <aside className="bp-sidebar" aria-label="Business Plan sections">
       {ITEMS.map((item) => {
         const isActive = item.href === activeHref;
         return (
@@ -65,8 +65,8 @@ export default function ModuleSidebar() {
             href={item.href}
             className={'bp-nav-item' + (isActive ? ' is-active' : '')}
             aria-current={isActive ? 'page' : undefined}
-            /* Con el sidebar colapsado el texto se oculta: el title es lo único
-               que queda para saber a dónde lleva cada icono. */
+            /* Angosto el sidebar el texto se oculta: el title es lo único que
+               queda para saber a dónde lleva cada icono. */
             title={item.label}
           >
             {item.icon}
@@ -74,17 +74,6 @@ export default function ModuleSidebar() {
           </Link>
         );
       })}
-
-      <button
-        type="button"
-        className="bp-sidebar__toggle"
-        onClick={() => setCollapsed((v) => !v)}
-        aria-expanded={!collapsed}
-        title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-      >
-        {collapsed ? <ExpandIcon size={14} /> : <CollapseIcon size={14} />}
-        <span className="bp-sidebar__label">{collapsed ? 'Expand' : 'Collapse'}</span>
-      </button>
     </aside>
   );
 }

@@ -49,6 +49,12 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
 
   const branch = useMemo(() => data?.branches.find((b) => b.branchCode === branchCode) ?? null, [data, branchCode]);
 
+  /* Suma de los promedios de sus Loan Officers: el ritmo de cierres del branch. */
+  const branchAvgClosings = useMemo(
+    () => (branch?.loanOfficers ?? []).reduce((sum, lo) => sum + lo.activity.avgClosings3m, 0),
+    [branch]
+  );
+
   const visibleLos = useMemo(() => {
     if (!branch) return [];
     const needle = search.trim().toLowerCase();
@@ -83,12 +89,11 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
           <div className="page-head">
             <div>
               <h1 className="page-head__title">Branch {branch.branchCode}</h1>
+              {/* El manager es un dato, no una explicación: se queda, en una línea.
+                  Hoy los 13 branches tienen exactamente uno, pero el roster admite
+                  varios y la vista los junta. */}
               <p className="page-head__subtitle">
-                {/* Hoy ningún branch tiene más de un manager (el 716 quedó con
-                    Pier Laino), pero el roster admite varios y la vista los junta. */}
-                {branch.branchManagers.length
-                  ? `Branch Manager: ${branch.branchManagers.join(' + ')}`
-                  : 'No branch manager on the roster'}
+                {branch.branchManagers.length ? branch.branchManagers.join(' + ') : '—'}
               </p>
             </div>
           </div>
@@ -96,12 +101,13 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
           <TriagePendingNotice />
 
           <div className="bp-kpis">
-            <KpiCard label="Loan Officers" value={branch.totalLoanOfficers} sub="Assigned to this branch" />
-            <KpiCard label="Loan Officers On Risk" value={branch.atRiskCount} sub="Pending triage engine" tone="risk" />
-            <KpiCard label="Branch Managers" value={branch.branchManagers.length} sub={branch.branchManagers.join(' + ') || '—'} />
-            {/* El estado del branch se muestra como su etiqueta, no como un conteo:
-                antes repetía el número de Loan Officers, que no era un estado. */}
-            <KpiCard label="Branch Status" value={TRIAGE_LABEL[branch.triage]} sub="Pending triage engine" />
+            <KpiCard label="Loan Officers" value={branch.totalLoanOfficers} />
+            <KpiCard label="On Risk" value={branch.atRiskCount} tone="risk" />
+            {/* Reemplaza a "Branch Managers", que sin subtítulo sólo decía "1" y
+                repetía lo que ya está bajo el título. */}
+            <KpiCard label="Avg Closings 3M" value={branchAvgClosings.toFixed(1)} />
+            {/* Guion mientras no haya motor, igual que la columna Status. */}
+            <KpiCard label="Status" value={branch.triage === 'not_evaluable' ? '—' : TRIAGE_LABEL[branch.triage]} />
           </div>
 
           <div className="control-bar">
@@ -125,15 +131,20 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
           {/*
            * ATRIBUCIÓN — LEER ANTES DE "CORREGIR" ESTOS NÚMEROS.
            *
-           * Los LOs de esta tabla salen de `employee_branch` con rol LO, o sea
-           * del branch ASIGNADO a la persona. Pero las métricas de cada fila son
-           * el TOTAL DE LA PERSONA, no sólo lo que produjo en este branch.
+           * Los Loan Officers de esta tabla salen de `employee_branch` con rol
+           * LO, o del branch forzado en `org.attribution_override`. Pero las
+           * métricas de cada fila son el TOTAL DE LA PERSONA, no sólo lo que
+           * produjo en este branch.
            *
            * Es contraintuitivo y está decidido así por el negocio: un préstamo
-           * se atribuye al branch del PRÉSTAMO, no al de la persona, y hay LOs
-           * con producción repartida en varios branches (Nathan Martinez está
-           * asignado al 716 y tiene préstamos en varios). Sumar sólo lo de este
-           * branch daría un número que no coincide con el de su propia ficha.
+           * se atribuye al branch del PRÉSTAMO, no al de la persona, y hay
+           * Loan Officers con producción repartida en varios branches. Sumar
+           * sólo lo de este branch daría un número que no coincide con el de su
+           * propia ficha.
+           *
+           * Etapa BP4: esto era además un párrafo al pie de la pantalla. Se
+           * quitó de la interfaz -- le sirve a quien mantiene el módulo, no a
+           * quien lee la tabla.
            */}
           <div className="tbl-card">
             <div className="tbl-scroll">
@@ -181,20 +192,19 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
                         {lo.fullName}
                         {lo.isBranchManager && <span className="bp-chip">{lo.isProducing ? 'Producing BM' : 'BM'}</span>}
                       </td>
-                      <td className="val">{lo.activity.avgClosings3m.toFixed(1)}</td>
-                      <td className="val">
-                        {lo.monthlyBenchmark === null ? (
-                          <span className="bp-muted">no benchmark</span>
-                        ) : (
-                          lo.monthlyBenchmark.toFixed(1)
-                        )}
+                      {/* Etapa BP4: los encabezados ya estaban centrados desde BP2 pero
+                          las celdas seguían alineadas a la derecha con `.val`. */}
+                      <td className="bp-center">{lo.activity.avgClosings3m.toFixed(1)}</td>
+                      {/* Guion, no "no benchmark" repetido: hoy es igual en las 38 filas. */}
+                      <td className="bp-center">
+                        {lo.monthlyBenchmark === null ? <span className="bp-muted">—</span> : lo.monthlyBenchmark.toFixed(1)}
                       </td>
-                      <td className="val">
+                      <td className="bp-center">
                         {lo.gap === null ? <span className="bp-muted">—</span> : fmtDecimal(lo.gap)}
                       </td>
-                      <td className={'val' + (lo.activity.creditApplications ? '' : ' zero')}>{lo.activity.creditApplications}</td>
-                      <td className={'val' + (lo.activity.preApprovals ? '' : ' zero')}>{lo.activity.preApprovals}</td>
-                      <td className={'val' + (lo.activity.filesCreated ? '' : ' zero')}>{lo.activity.filesCreated}</td>
+                      <td className={'bp-center' + (lo.activity.creditApplications ? '' : ' zero')}>{lo.activity.creditApplications}</td>
+                      <td className={'bp-center' + (lo.activity.preApprovals ? '' : ' zero')}>{lo.activity.preApprovals}</td>
+                      <td className={'bp-center' + (lo.activity.filesCreated ? '' : ' zero')}>{lo.activity.filesCreated}</td>
                       <td className="bp-center">
                         <TriageBadge state={lo.triage} />
                       </td>
@@ -211,12 +221,6 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
               </table>
             </div>
           </div>
-
-          <p className="foot-note">
-            Metrics are the officer&apos;s <b>own totals</b>, not this branch&apos;s share: a loan is attributed to the
-            branch of the loan, not to the branch the person is assigned to. Officers with no production still appear,
-            with zeros.
-          </p>
 
           <Diagnostics data={data} />
         </>

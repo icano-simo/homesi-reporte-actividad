@@ -1,7 +1,7 @@
 'use client';
 
 import { AlertTriangleIcon } from '@/components/ui/icons';
-import { TRIAGE_CLASS, TRIAGE_LABEL, TRIAGE_PENDING_NOTICE } from '@/lib/business-plan/triage';
+import { TRIAGE_CLASS, TRIAGE_LABEL } from '@/lib/business-plan/triage';
 import type { BusinessPlanData, TriageState } from '@/lib/business-plan/types';
 import { formatYearMonth } from '@/lib/business-plan/months';
 
@@ -11,54 +11,61 @@ import { formatYearMonth } from '@/lib/business-plan/months';
  * Etapa BP1 — ARCHIVO NUEVO.
  */
 
-/** Badge de estado de triage. */
+/**
+ * Badge de estado de triage.
+ *
+ * Etapa BP4: `not_evaluable` se dibuja como un guion, no como un pill que dice
+ * "Not evaluable". Hoy TODOS los Loan Officers están en ese estado, así que
+ * repetir la etiqueta 38 veces no informaba nada -- sólo llenaba la columna.
+ * El aviso de que el motor está pendiente va UNA vez, arriba de la pantalla.
+ *
+ * No es un caso especial que haya que deshacer después: en cuanto el motor
+ * empiece a devolver estados reales, esas filas dejan de caer en esta rama y
+ * el pill aparece solo.
+ */
 export function TriageBadge({ state }: { state: TriageState }) {
+  if (state === 'not_evaluable') return <span className="bp-muted">—</span>;
   return <span className={TRIAGE_CLASS[state]}>{TRIAGE_LABEL[state]}</span>;
 }
 
 /**
  * Aviso de que el motor de triage no está definido.
  *
- * Va en las 3 pantallas a propósito: mientras los estados sean todos "Not
- * evaluable", alguien que abra el módulo sin contexto va a pensar que está
- * roto. Decirlo es más barato que explicarlo después.
+ * UNO por pantalla y de una línea. La versión anterior ocupaba tres renglones
+ * y además repetía la misma frase dos veces, porque concatenaba un texto
+ * propio con `TRIAGE_PENDING_NOTICE`, que ya empezaba igual.
+ *
+ * Se queda porque sin él la columna de guiones no se entiende. Todo lo demás
+ * -- qué reglas faltan, qué contradicciones hay -- vive en
+ * `lib/business-plan/triage.ts`, que es donde le sirve a quien lo va a
+ * implementar, no en la pantalla del usuario.
  */
 export function TriagePendingNotice() {
   return (
     <div className="bp-pending" role="status">
-      <AlertTriangleIcon size={16} />
-      <span>
-        <strong>Triage engine pending definition.</strong> {TRIAGE_PENDING_NOTICE} Every Loan Officer shows as{' '}
-        <em>Not evaluable</em> until benchmarks are loaded and the thresholds are agreed.
-      </span>
+      <AlertTriangleIcon size={14} />
+      <span>Triage pending definition — status is not computed yet.</span>
     </div>
   );
 }
 
-/** Tarjeta de KPI, en el mismo lenguaje que el banner de Forecast. */
-export function KpiCard({
-  label,
-  value,
-  sub,
-  tone,
-}: {
-  label: string;
-  value: string | number;
-  sub?: string;
-  tone?: 'risk' | 'ok';
-}) {
-  /*
-   * Etapa BP2b: `.kpi-hero__value` / `.kpi-hero__sub` son las mismas clases que
-   * usa el banner de Forecast (components.css). El módulo tenía un par propio
-   * con otros tamaños y colores; se eliminó. El único tono que components.css
-   * no traía es el de riesgo, agregado como `--risk` en bp-visual.css.
-   */
+/**
+ * Tarjeta de KPI, en el mismo lenguaje que el banner de Forecast.
+ *
+ * Etapa BP2b: `.kpi-hero__value` es la misma clase que usa el banner de
+ * Forecast (components.css). El módulo tenía un par propio con otros tamaños y
+ * colores; se eliminó. El único tono que components.css no traía es el de
+ * riesgo, agregado como `--risk` en bp-visual.css.
+ *
+ * Etapa BP4: se quitó el subtítulo. Decía cosas como "Division branches only" o
+ * "Pending triage engine", que no agregaban nada al número y su etiqueta.
+ */
+export function KpiCard({ label, value, tone }: { label: string; value: string | number; tone?: 'risk' | 'ok' }) {
   const toneClass = tone === 'risk' ? ' kpi-hero__value--risk' : tone === 'ok' ? ' kpi-hero__value--emerald' : '';
   return (
     <div className="mcard">
       <div className="m-name">{label}</div>
       <div className={'kpi-hero__value' + toneClass}>{value}</div>
-      {sub && <div className="kpi-hero__sub">{sub}</div>}
     </div>
   );
 }
@@ -118,60 +125,56 @@ export function NotFoundState({ what, backHref, backLabel }: { what: string; bac
 }
 
 /**
- * Pie con lo que se leyó y bajo qué criterio.
+ * Pie de datos de la corrida.
  *
- * No es decoración: la ventana de meses del promedio es un SUPUESTO (ver
- * lib/business-plan/months.ts) y los nombres sin mapear son trabajo pendiente
- * para quien mantiene `org.employee_alias`. Tenerlo a la vista es lo que
- * permite detectar que algo se desalineó sin ir a mirar la base.
+ * Etapa BP4: dejó de ser prosa. Antes explicaba en frases cómo resolvía los
+ * nombres el módulo, que es documentación y no un dato -- eso vive en
+ * `lib/business-plan/loadData.ts`. Lo que queda son hechos de ESTA corrida,
+ * que cambian con los datos y no se pueden deducir mirando la pantalla:
+ *
+ *   - la ventana de meses del promedio, que es un SUPUESTO (ver months.ts) y
+ *     sin ella el "Avg Closings 3M" no se puede interpretar;
+ *   - cuántas filas se leyeron y cuántas se descartaron;
+ *   - qué excepciones de atribución están vigentes;
+ *   - y sólo si los hay, los nombres sin clasificar y la falta de benchmarks.
+ *
+ * Los dos últimos son condicionales: hoy no hay ningún nombre sin resolver, así
+ * que esa línea no se renderiza.
  */
 export function Diagnostics({ data }: { data: BusinessPlanData }) {
   const d = data.diagnostics;
   return (
     <div className="bp-diagnostics">
       <div>
-        Closing average window: <code>{d.monthsUsedForAverage.map(formatYearMonth).join(' · ')}</code> — the three
-        complete months before the current one (assumption pending confirmation).
+        Closing average: <code>{d.monthsUsedForAverage.map(formatYearMonth).join(' · ')}</code>
       </div>
       <div>
-        Read <code>{d.activityRowsRead.toLocaleString('en-US')}</code> Commercial Activity rows and{' '}
-        <code>{d.pipelineRowsRead.toLocaleString('en-US')}</code> Forecast rows. Names resolved through{' '}
-        <code>org.employee_alias</code>; <code>{d.excludedNamesSeen.toLocaleString('en-US')}</code> row(s) skipped as
-        deliberately excluded and <code>{d.rowsWithoutOfficer.toLocaleString('en-US')}</code> with no loan officer on
-        the record.
+        Rows read: <code>{d.activityRowsRead.toLocaleString('en-US')}</code> activity ·{' '}
+        <code>{d.pipelineRowsRead.toLocaleString('en-US')}</code> forecast ·{' '}
+        <code>{d.excludedNamesSeen.toLocaleString('en-US')}</code> excluded ·{' '}
+        <code>{d.rowsWithoutOfficer.toLocaleString('en-US')}</code> with no officer
       </div>
+      {d.attributionOverrides.length > 0 && (
+        <div>
+          Attribution forced:{' '}
+          {d.attributionOverrides.map((o, i) => (
+            <span key={o.fullName}>
+              {i > 0 ? ' · ' : ''}
+              {o.fullName} → <code>{o.forcedBranchCode}</code>
+            </span>
+          ))}
+        </div>
+      )}
       {d.unmappedNames.length > 0 && (
         <div className="bp-diagnostics__warn">
-          {d.unmappedNames.length} source name(s) are neither mapped nor excluded — they need classifying in{' '}
-          <code>org.employee_alias</code> or <code>org.source_name_excluded</code>:{' '}
+          Unclassified source names ({d.unmappedNames.length}):{' '}
           {d.unmappedNames.slice(0, 5).map((u) => `${u.source}:"${u.nameRaw}" (${u.rows})`).join(', ')}
           {d.unmappedNames.length > 5 ? ` … +${d.unmappedNames.length - 5} more` : ''}
         </div>
       )}
-      {/*
-        La excepción de atribución se muestra SIEMPRE que exista, no sólo
-        cuando algo falla. Ese es el motivo de que viva en una tabla y no en un
-        `if` del código: alguien que ve a una persona bajo un branch que no
-        coincide con el roster tiene que poder leer acá por qué, sin abrir la
-        base ni el repositorio.
-      */}
-      {d.attributionOverrides.length > 0 && (
-        <div>
-          Attribution exception(s) in effect, from <code>org.attribution_override</code>:{' '}
-          {d.attributionOverrides.map((o, i) => (
-            <span key={o.fullName}>
-              {i > 0 ? '; ' : ''}
-              <strong>{o.fullName}</strong> → branch <code>{o.forcedBranchCode}</code>
-              {o.reason ? ` (${o.reason})` : ''}
-            </span>
-          ))}
-          . All of their production counts under that branch regardless of the branch reported by the source rows.
-        </div>
-      )}
       {!d.benchmarkTableAvailable && (
         <div>
-          <code>org.employee_benchmark</code> is not available yet — the migration in{' '}
-          <code>docs/sql/</code> has not been applied, so every officer shows &quot;no benchmark&quot;.
+          <code>org.employee_benchmark</code> not loaded
         </div>
       )}
     </div>

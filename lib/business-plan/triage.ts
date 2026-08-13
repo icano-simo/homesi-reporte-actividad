@@ -35,9 +35,6 @@ import type { LoanOfficerRow, TriageState } from './types';
 /** Bandera única para encender la UI de "pendiente" en todas las pantallas. */
 export const TRIAGE_ENGINE_READY = false;
 
-export const TRIAGE_PENDING_NOTICE =
-  'Triage engine pending definition — thresholds and GAP bands are still under review with the business.';
-
 /**
  * Estado de un LO.
  *

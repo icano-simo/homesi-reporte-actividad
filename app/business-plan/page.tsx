@@ -76,12 +76,7 @@ export default function BranchPortfolioPage() {
       <Breadcrumbs items={[{ label: 'Branch Portfolio' }]} />
 
       <div className="page-head">
-        <div>
-          <h1 className="page-head__title">Branch Portfolio</h1>
-          <p className="page-head__subtitle">
-            Division branches, their managers and loan officer coverage. Select a branch to open its directory.
-          </p>
-        </div>
+        <h1 className="page-head__title">Branch Portfolio</h1>
       </div>
 
       {isLoading && <LoadingState />}
@@ -92,10 +87,10 @@ export default function BranchPortfolioPage() {
           <TriagePendingNotice />
 
           <div className="bp-kpis">
-            <KpiCard label="Total Branches" value={totals.branches} sub="Division branches only" />
-            <KpiCard label="Total Loan Officers" value={totals.los} sub="Distinct people with a Loan Officer role" />
-            <KpiCard label="Loan Officers On Risk" value={totals.atRisk} sub="Pending triage engine" tone="risk" />
-            <KpiCard label="Loan Officers On Track" value={totals.onTrack} sub="Pending triage engine" tone="ok" />
+            <KpiCard label="Branches" value={totals.branches} />
+            <KpiCard label="Loan Officers" value={totals.los} />
+            <KpiCard label="On Risk" value={totals.atRisk} tone="risk" />
+            <KpiCard label="On Track" value={totals.onTrack} tone="ok" />
           </div>
 
           <div className="control-bar">
