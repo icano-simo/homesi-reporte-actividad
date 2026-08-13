@@ -6,11 +6,40 @@ import type { Branch } from '@/config/roster';
 import { ymLabel } from '@/lib/aggregation/months';
 import { ExpandIcon, CollapseIcon } from '@/components/ui/icons';
 
-export type ReportView = 'main' | 'b2b' | 'loanOfficer';
+/**
+ * Etapa 2 (refacción de filtros): reemplaza el `view: 'main'|'b2b'|'loanOfficer'`
+ * excluyente. `GroupBy` es el modo de PRESENTACIÓN (cómo se agrupa la tabla:
+ * por Branch o por Loan Officer, cruzando branches) -- sigue siendo un único
+ * valor a la vez, igual que `view`, porque conceptualmente sigue siendo una
+ * elección de layout, no un filtro de datos. B2B y `ChannelFilter` son
+ * FILTROS DE DATOS, combinables entre sí y con cualquier GroupBy -- viven
+ * como estado independiente en app/page.tsx (b2bOnly: boolean, channelFilter),
+ * no acá.
+ */
+export type GroupBy = 'branch' | 'loanOfficer';
+
+/**
+ * Mismos 2 valores que ya usa LoanRecord.loanInfoChannel (lib/domain/types.ts),
+ * sin normalizar ni inventar uno nuevo -- 'all' es el estado "sin filtrar",
+ * propio de este componente. `'empty'` (micro-etapa: Channel vacío como
+ * categoría) es también un sentinel propio de este filtro, NO el valor real
+ * -- representa `loanInfoChannel === ''` (7 loans confirmados con Isabella:
+ * cuentan en File Creations/All channels pero no son Banked ni Brokered, y
+ * NO se les asigna un channel artificialmente). El dato original en
+ * LoanRecord sigue siendo `''`, nunca `'empty'`; el mapeo pasa por
+ * app/page.tsx.
+ */
+export type ChannelFilter = 'all' | 'Banked - Retail' | 'Brokered' | 'empty';
 
 export interface ToolbarProps {
-  view: ReportView;
-  onViewChange: (view: ReportView) => void;
+  groupBy: GroupBy;
+  onGroupByChange: (groupBy: GroupBy) => void;
+  /** Filtro de datos (LoanRecord.isB2B), independiente de groupBy -- ver nota arriba. */
+  b2bOnly: boolean;
+  onB2bOnlyChange: (b2bOnly: boolean) => void;
+  /** Filtro de datos (LoanRecord.loanInfoChannel), independiente de groupBy y de b2bOnly. */
+  channelFilter: ChannelFilter;
+  onChannelFilterChange: (channel: ChannelFilter) => void;
   measure: Measure;
   onMeasureChange: (measure: Measure) => void;
   branchFilter: Branch | 'all';
@@ -26,20 +55,28 @@ export interface ToolbarProps {
   onCollapseAll: () => void;
 }
 
-/**
- * Etapa UX1: las 3 vistas dejan de estar hardcodeadas en el JSX (3 <button>
- * casi idénticos) y pasan a una tabla de datos -- agregar una cuarta vista
- * ahora es una línea acá, no otro bloque copiado.
- */
-const VIEW_OPTIONS: { value: ReportView; label: string }[] = [
-  { value: 'main', label: 'Branch × Metric' },
-  { value: 'b2b', label: 'B2B' },
+/** Etapa 2: 2 opciones (antes 3 -- 'b2b' ya no es un modo de presentación, ver GroupBy arriba). */
+const GROUP_BY_OPTIONS: { value: GroupBy; label: string }[] = [
+  { value: 'branch', label: 'Branch × Metric' },
   { value: 'loanOfficer', label: 'Loan Officer' },
 ];
 
 const MEASURE_OPTIONS: { value: Measure; label: string }[] = [
   { value: 'count', label: 'Count' },
   { value: 'amount', label: 'Volume ($)' },
+];
+
+/** Etapa 2: mismo patrón visual que MEASURE_OPTIONS (seg de 2 botones) -- B2B pasa de "vista" a filtro combinable. */
+const B2B_OPTIONS: { value: boolean; label: string }[] = [
+  { value: false, label: 'All loans' },
+  { value: true, label: 'B2B only' },
+];
+
+const CHANNEL_OPTIONS: { value: ChannelFilter; label: string }[] = [
+  { value: 'all', label: 'All channels' },
+  { value: 'Banked - Retail', label: 'Banked - Retail' },
+  { value: 'Brokered', label: 'Brokered' },
+  { value: 'empty', label: 'Empty / Unclassified' },
 ];
 
 /**
@@ -60,8 +97,12 @@ const MEASURE_OPTIONS: { value: Measure; label: string }[] = [
  *  - Expandir/Colapsar todo llevan icono SVG en vez de texto pelado.
  */
 export default function Toolbar({
-  view,
-  onViewChange,
+  groupBy,
+  onGroupByChange,
+  b2bOnly,
+  onB2bOnlyChange,
+  channelFilter,
+  onChannelFilterChange,
   measure,
   onMeasureChange,
   branchFilter,
@@ -79,14 +120,14 @@ export default function Toolbar({
   return (
     <div className="control-bar">
       <div className="control-group">
-        <span className="label-chip">View by</span>
+        <span className="label-chip">Group by</span>
         <div className="seg">
-          {VIEW_OPTIONS.map((option) => (
+          {GROUP_BY_OPTIONS.map((option) => (
             <button
               key={option.value}
-              className={view === option.value ? 'on' : ''}
-              onClick={() => onViewChange(option.value)}
-              aria-pressed={view === option.value}
+              className={groupBy === option.value ? 'on' : ''}
+              onClick={() => onGroupByChange(option.value)}
+              aria-pressed={groupBy === option.value}
             >
               {option.label}
             </button>
@@ -110,10 +151,46 @@ export default function Toolbar({
         </div>
       </div>
 
+      {/* Etapa 2: filtros de datos, combinables entre sí y con Group by/Branch/
+          From/Year -- separado del grupo de arriba (que es medida/presentación),
+          mismo patrón visual (.seg / .field / .label-chip), sin rediseño. */}
       <div className="control-group">
-        {/* La vista "Loan Officer" cruza todos los branches por diseño -- el
-            filtro de Branch no aplica y se oculta (sin cambios desde Etapa 12). */}
-        {view !== 'loanOfficer' && (
+        <span className="label-chip">B2B</span>
+        <div className="seg">
+          {B2B_OPTIONS.map((option) => (
+            <button
+              key={String(option.value)}
+              className={b2bOnly === option.value ? 'on' : ''}
+              onClick={() => onB2bOnlyChange(option.value)}
+              aria-pressed={b2bOnly === option.value}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+
+        <span className="label-chip" style={{ marginLeft: '6px' }}>
+          Channel
+        </span>
+        <select
+          className="field"
+          style={{ maxWidth: '170px' }}
+          value={channelFilter}
+          onChange={(e) => onChannelFilterChange(e.target.value as ChannelFilter)}
+        >
+          {CHANNEL_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="control-group">
+        {/* La agrupación "Loan Officer" cruza todos los branches por diseño --
+            el filtro de Branch no aplica y se oculta (sin cambios desde Etapa 12,
+            solo se renombró `view` a `groupBy`). */}
+        {groupBy !== 'loanOfficer' && (
           <>
             <span className="label-chip">Branch</span>
             <select

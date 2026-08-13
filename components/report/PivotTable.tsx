@@ -15,8 +15,15 @@ export interface PivotTableProps {
   showTotal: boolean;
   collapsed: Set<string>;
   onToggleCollapse: (id: string) => void;
-  /** Decide el label de la 3ra columna ("BD" vs "Loan Officer") y el de la fila Total. */
-  view: 'main' | 'b2b';
+  /**
+   * Etapa 2: reemplaza `view: 'main'|'b2b'`. Decide el label de la 3ra
+   * columna ("BD" vs "Loan Officer") y el de la fila Total -- ahora es
+   * directamente el filtro B2B (app/page.tsx), no una "vista": el drill por
+   * BD sigue siendo consecuencia de que B2B esté activo (mismo
+   * comportamiento que antes), pero B2B ya no excluye ninguna otra
+   * combinación de filtros/agrupación.
+   */
+  b2bOnly: boolean;
 }
 
 function monthAbbrev(ym: YearMonth): string {
@@ -173,15 +180,15 @@ function BranchRows({
  * filtrado por branch, ver buildReportTree) pero no se debe mostrar --
  * ese es el bug corregido en esta etapa.
  *
- * `view` resuelve las dos etiquetas dinámicas del legacy: `drillLbl`
- * ('BD' vs 'Loan Officer' en el header de la 3ra columna) y `total.label`
- * ('Total (B2B)' vs 'Total'). Es solo texto -- ReportTree no necesita saber
- * qué vista lo generó, el cálculo no cambia.
+ * `b2bOnly` (Etapa 2, antes `view`) resuelve las dos etiquetas dinámicas del
+ * legacy: `drillLbl` ('BD' vs 'Loan Officer' en el header de la 3ra columna)
+ * y `total.label` ('Total (B2B)' vs 'Total'). Es solo texto -- ReportTree no
+ * necesita saber qué filtro está activo, el cálculo no cambia.
  */
-export default function PivotTable({ tree, months, measure, showTotal, collapsed, onToggleCollapse, view }: PivotTableProps) {
+export default function PivotTable({ tree, months, measure, showTotal, collapsed, onToggleCollapse, b2bOnly }: PivotTableProps) {
   const totalCollapsed = collapsed.has('total');
-  const drillLabel = view === 'b2b' ? 'BD' : 'Loan Officer';
-  const totalLabel = view === 'b2b' ? 'Total (B2B)' : 'Total';
+  const drillLabel = b2bOnly ? 'BD' : 'Loan Officer';
+  const totalLabel = b2bOnly ? 'Total (B2B)' : 'Total';
 
   return (
     <table className="piv piv--tree" id="pivot">

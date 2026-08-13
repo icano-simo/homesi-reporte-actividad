@@ -19,7 +19,7 @@ import { UploadIcon, DownloadIcon, FileSheetIcon } from '@/components/ui/icons';
 import SummaryCards from '@/components/report/SummaryCards';
 import PivotTable from '@/components/report/PivotTable';
 import LoanOfficerTable from '@/components/report/LoanOfficerTable';
-import Toolbar from '@/components/report/Toolbar';
+import Toolbar, { type GroupBy, type ChannelFilter } from '@/components/report/Toolbar';
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -56,8 +56,16 @@ export default function Home() {
   // Estado equivalente al bloque STATE del legacy.
   const [records, setRecords] = useState<LoanRecord[] | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
-  const [view, setView] = useState<'main' | 'b2b' | 'loanOfficer'>('main');
-  // Etapa 12 (agregado): criterio de orden de la vista "Por Loan Officer" -- solo importa cuando view==='loanOfficer'.
+  // Etapa 2 (refacción de filtros): reemplaza `view: 'main'|'b2b'|'loanOfficer'`
+  // (excluyente) por 2 conceptos separados -- ver GroupBy/ChannelFilter en
+  // Toolbar.tsx para el porqué. `groupBy` sigue siendo un modo de
+  // presentación único a la vez (Branch×Metric o Loan Officer, igual que
+  // antes); `b2bOnly`/`channelFilter` son filtros de datos independientes,
+  // combinables entre sí y con cualquier groupBy.
+  const [groupBy, setGroupBy] = useState<GroupBy>('branch');
+  const [b2bOnly, setB2bOnly] = useState(false);
+  const [channelFilter, setChannelFilter] = useState<ChannelFilter>('all');
+  // Etapa 12 (agregado): criterio de orden de la agrupación "Por Loan Officer" -- solo importa cuando groupBy==='loanOfficer'.
   const [sortBy, setSortBy] = useState<MetricKey | 'total'>('total');
   const [measure, setMeasure] = useState<Measure>('count');
   const [year, setYear] = useState<'all' | string>('2026');
@@ -80,7 +88,9 @@ export default function Home() {
   function applyLoadedReport(loanRecords: LoanRecord[], name: string) {
     setRecords(loanRecords);
     setFileName(name);
-    setView('main');
+    setGroupBy('branch');
+    setB2bOnly(false);
+    setChannelFilter('all');
     setSortBy('total');
     setMeasure('count');
     setYear('2026');
@@ -171,7 +181,7 @@ export default function Home() {
   // 'lo::'+nombre que usa LoanOfficerTable).
   function handleCollapseAll() {
     const s = new Set<string>();
-    if (view === 'loanOfficer') {
+    if (groupBy === 'loanOfficer') {
       if (loanOfficerTree) {
         for (const officer of loanOfficerTree.officers) s.add('lo::' + officer.name);
       }
@@ -200,6 +210,11 @@ export default function Home() {
   }
 
   // Cálculos derivados del estado -- se recalculan en cada render, no son estado.
+  // Etapa 2: monthRange/availableYears/availableBranches siguen derivándose de
+  // `records` SIN filtrar (igual que antes de esta etapa, cuando `records` no
+  // se filtraba por B2B tampoco para esto) -- los selectores de rango de
+  // fecha/branch disponibles no dependen de qué filtros de datos estén
+  // activos, mismo comportamiento preservado.
   const monthRange = records ? deriveMonthRange(records) : null;
   const allMonths = monthRange?.allMonths ?? [];
   const effectiveMonths = start ? allMonths.filter((ym) => ym >= start) : allMonths;
@@ -210,35 +225,74 @@ export default function Home() {
     ? BRANCH_ORDER.filter((b) => records.some((r) => r.branch === b))
     : [];
 
-  // Etapa 12: SummaryCards siempre necesita un ReportTree válido (tree.total.maps),
-  // incluso en la vista "Por Loan Officer" -- ahí se le pasa 'main' como view
-  // (no hay restricción B2B en esa vista) solo para ese propósito; PivotTable
-  // no se renderiza con este tree cuando view==='loanOfficer' (ver JSX abajo).
-  const tree = records
+  // Etapa 2: filtros de datos (B2B + Loan Info Channel) aplicados ACÁ, antes
+  // de agregar -- ni buildReportTree ni buildLoanOfficerTree filtran nada
+  // internamente, solo agregan lo que reciben (ver comentario en
+  // buildReportTree.ts). Combinables entre sí y con cualquier groupBy.
+  // Micro-etapa (Channel vacío como categoría): 'empty' es un sentinel de
+  // ChannelFilter (Toolbar.tsx), no el valor real -- se traduce acá a
+  // loanInfoChannel === '' sin normalizar el dato ni asignarlo a Banked ni a
+  // Brokered. Decisión de negocio confirmada por Isabella: da visibilidad a
+  // esos 7 loans, no los oculta ni los reclasifica.
+  const filteredRecords = records
+    ? records.filter(
+        (r) =>
+          (!b2bOnly || r.isB2B) &&
+          (channelFilter === 'all' ||
+            (channelFilter === 'empty' ? r.loanInfoChannel === '' : r.loanInfoChannel === channelFilter)),
+      )
+    : null;
+
+  // Etapa 2: drillBy sigue derivándose de b2bOnly (antes de view==='b2b'), no
+  // es estado independiente -- así se preserva EXACTO el comportamiento de
+  // "Solo B2B" (desglose por BD) sin inventar un tercer control de UI que
+  // nadie pidió. Ver LOAN OFFICER en el brief de esta etapa.
+  const drillBy: 'loanOfficer' | 'bd' = b2bOnly ? 'bd' : 'loanOfficer';
+
+  // Etapa 12: SummaryCards siempre necesita un ReportTree válido
+  // (tree.total.maps), incluso con groupBy==='loanOfficer' -- por eso `tree`
+  // se calcula siempre a partir de filteredRecords, sin importar groupBy;
+  // PivotTable no se renderiza con este tree cuando groupBy==='loanOfficer'
+  // (ver JSX abajo), pero SummaryCards sí lo usa en los 2 casos. Etapa 2: a
+  // diferencia de antes (donde la vista "Por Loan Officer" forzaba
+  // view:'main', o sea SIN filtro B2B, porque B2B y Loan Officer eran
+  // exclusivos), ahora si b2bOnly/channelFilter están activos SÍ se
+  // reflejan acá también -- es la combinación nueva que esta etapa habilita
+  // (B2B + Loan Officer + Channel, ver COMPATIBILIDAD caso 8).
+  const tree = filteredRecords
     ? buildReportTree({
-        records,
+        records: filteredRecords,
         months: monthsShown,
         measure,
-        view: view === 'loanOfficer' ? 'main' : view,
         branchFilter,
-        drillBy: view === 'b2b' ? 'bd' : 'loanOfficer',
+        drillBy,
       })
     : null;
 
-  // Etapa 12: vista "Por Loan Officer" -- cruza todos los branches, no usa
-  // branchFilter ni el drillBy de arriba.
+  // Etapa 12: agrupación "Por Loan Officer" -- cruza todos los branches, no
+  // usa branchFilter (sin cambios). Etapa 2: usa filteredRecords en vez de
+  // records sin filtrar -- antes esta combinación (B2B/Channel + Loan
+  // Officer) no existía, así que no hay comportamiento previo que preservar.
   const loanOfficerTree =
-    records && view === 'loanOfficer' ? buildLoanOfficerTree({ records, months: monthsShown, measure }) : null;
+    filteredRecords && groupBy === 'loanOfficer'
+      ? buildLoanOfficerTree({ records: filteredRecords, months: monthsShown, measure })
+      : null;
 
   // Port de showTotal (BRANCHF==='all') del legacy: el nodo Total de
   // ReportTree existe siempre (no está filtrado por branch), así que hay
   // que ocultarlo explícitamente cuando hay un branch específico elegido.
   const showTotal = branchFilter === 'all';
 
-  // Rótulo del KPI strip: describe qué vista/medida están activas.
+  // Rótulo del KPI strip: describe qué filtros/agrupación/medida están activos.
+  // Micro-etapa (Channel vacío como categoría): 'empty' es sentinel de
+  // ChannelFilter, no el label a mostrar -- ver CHANNEL_OPTIONS en
+  // Toolbar.tsx para el texto real ('Empty / Unclassified').
+  const channelFilterLabel = channelFilter === 'empty' ? 'Empty / Unclassified' : channelFilter;
   const kpiStripLabel =
-    (view === 'b2b' ? 'Monthly Totals — B2B' : 'Monthly Totals') +
-    (view === 'loanOfficer' ? ' (all branches)' : '') +
+    'Monthly Totals' +
+    (b2bOnly ? ' — B2B' : '') +
+    (channelFilter !== 'all' ? ' — ' + channelFilterLabel : '') +
+    (groupBy === 'loanOfficer' ? ' (all branches)' : '') +
     (measure === 'amount' ? ' — Volume ($)' : '');
 
   return (
@@ -322,8 +376,12 @@ export default function Home() {
           <SummaryCards tree={tree} months={monthsShown} measure={measure} />
 
           <Toolbar
-            view={view}
-            onViewChange={setView}
+            groupBy={groupBy}
+            onGroupByChange={setGroupBy}
+            b2bOnly={b2bOnly}
+            onB2bOnlyChange={setB2bOnly}
+            channelFilter={channelFilter}
+            onChannelFilterChange={setChannelFilter}
             measure={measure}
             onMeasureChange={setMeasure}
             branchFilter={branchFilter}
@@ -346,7 +404,7 @@ export default function Home() {
            * .tbl-scroll: si la tabla no entra, scrollea ELLA, nunca el body
            * (spec §6).
            */}
-          {view === 'loanOfficer' && loanOfficerTree ? (
+          {groupBy === 'loanOfficer' && loanOfficerTree ? (
             <LoanOfficerTable
               tree={loanOfficerTree}
               months={monthsShown}
@@ -366,7 +424,7 @@ export default function Home() {
                   showTotal={showTotal}
                   collapsed={collapsed}
                   onToggleCollapse={handleToggleCollapse}
-                  view={view === 'b2b' ? 'b2b' : 'main'}
+                  b2bOnly={b2bOnly}
                 />
               </div>
             </div>

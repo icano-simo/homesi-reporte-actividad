@@ -45,6 +45,40 @@ File Creations, Credit Reports, Applications, Closings — por branch, loan offi
 - `Branch` tipado como `string` (abierto), `MetricKey` como unión estricta (`'fc'|'cr'|'ap'|'cl'`).
 - Un bug real del HTML legado se corrigió con aprobación explícita de Heather: el drill-down por Loan Officer ignoraba el toggle Cantidad/Monto (siempre mostraba cantidad); ya corregido.
 
+### Etapa 2 — filtros de datos (B2B + Channel)
+
+Reemplaza el `view: 'main'|'b2b'|'loanOfficer'` excluyente por dos conceptos
+separados, en `app/page.tsx` (estado) y `components/report/Toolbar.tsx`
+(tipos `GroupBy`/`ChannelFilter`):
+
+- `groupBy` (`'branch' | 'loanOfficer'`) — modo de PRESENTACIÓN de la tabla,
+  sigue siendo único a la vez (Branch × Metric o Loan Officer).
+- `b2bOnly` (boolean) y `channelFilter` (`ChannelFilter`) — FILTROS DE DATOS,
+  independientes entre sí y del `groupBy`, y **combinables** entre sí y con
+  cualquier `groupBy` (antes B2B y "Por Loan Officer" eran excluyentes).
+
+El filtrado se aplica en `app/page.tsx` (`filteredRecords`) antes de agregar;
+`buildReportTree` y `buildLoanOfficerTree` ya no filtran nada internamente,
+solo agregan lo que reciben.
+
+**Opciones de Channel** (`CHANNEL_OPTIONS`, Toolbar.tsx):
+- All channels
+- Banked - Retail
+- Brokered
+- Unclassified / Empty
+
+**Regla de negocio — Unclassified / Empty** (confirmada por Isabella): representa
+loans cuyo `loanInfoChannel` viene vacío (`''`). No se reasignan a Banked ni a
+Brokered, ni se normaliza el dato original — se muestran como categoría propia
+únicamente para dar visibilidad al problema de calidad de datos.
+
+**Hallazgo validado**: existen 7 loans con `loanInfoChannel` vacío, que explican
+la diferencia observada en File Creations entre Banked + Brokered y All
+channels. Ejemplo validado: Banked 2,911 + Brokered 173 + Empty 7 = All 3,091.
+
+Etapa 2 y esta corrección de Channel vacío quedaron validadas funcionalmente
+en localhost con datos reales.
+
 ### Pendiente
 - Redeploy en Vercel desde la cuenta de equipo de Isa (SimoLogic), no la personal de Heather.
 - Auto-registro de branch nuevo: el roster vive en `config/roster.ts` como archivo estático, **no** como tabla en Supabase — a diferencia de Forecast, este módulo nunca necesitó branches dinámicos.

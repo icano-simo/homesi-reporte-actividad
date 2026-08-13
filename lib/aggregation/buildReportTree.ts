@@ -14,10 +14,18 @@ import type {
 } from './types';
 
 export interface BuildReportTreeOptions {
+  /**
+   * Etapa 2 (refacción de filtros): YA debe venir filtrado por quien llama
+   * (B2B, Loan Info Channel) -- este módulo agrega lo que recibe, no decide
+   * qué filtrar. Antes (`view: 'main'|'b2b'`) el filtro de B2B vivía acá
+   * adentro; se movió a app/page.tsx para que sea combinable con cualquier
+   * otro filtro/agrupación, no exclusivo de una "vista". Ver
+   * BuildReportTreeOptions.drillBy para el único rastro que queda de B2B acá
+   * (el label del drill, que sigue siendo responsabilidad del caller).
+   */
   records: LoanRecord[];
   months: YearMonth[];
   measure: Measure;
-  view: 'main' | 'b2b';
   branchFilter: Branch | 'all';
   drillBy: 'loanOfficer' | 'bd';
 }
@@ -31,9 +39,11 @@ export interface BuildReportTreeOptions {
  * y este módulo es la única fuente de cálculo, así que se resuelve aquí.
  */
 export function buildReportTree(options: BuildReportTreeOptions): ReportTree {
-  const { records, months, measure, view, branchFilter, drillBy } = options;
+  const { records, months, measure, branchFilter, drillBy } = options;
 
-  const scoped = view === 'b2b' ? records.filter((r) => r.isB2B) : records;
+  // Etapa 2: ya no filtra por B2B acá (ver comentario en BuildReportTreeOptions.records)
+  // -- `scoped` se mantiene como nombre solo para no tocar el resto del cuerpo.
+  const scoped = records;
 
   const total = { maps: computeMetricMaps(scoped, measure) };
 
