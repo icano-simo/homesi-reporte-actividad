@@ -381,6 +381,11 @@ function ExecHead() {
  * de cada fila, ver BranchRow) tiene que cuadrar con
  * `subtotal.totalForecast - subtotal.closedCount` -- verificado con datos
  * reales en el reporte de esta etapa, no solo asumido.
+ *
+ * Etapa UX12: se quitó el punto verde de Healthy Pipeline (`.dot-healthy`) --
+ * aparecía en toda fila con valor > 0, así que no distinguía nada, y
+ * competía visualmente con la marca de CTC nueva de la columna vecina. Queda
+ * solo el número, en esta fila, en `BranchDataRow` y en el bloque Combinado.
  */
 function ExecTotalRow({ label, subtotal }: { label: string; subtotal: BlockSubtotal }) {
   return (
@@ -392,16 +397,13 @@ function ExecTotalRow({ label, subtotal }: { label: string; subtotal: BlockSubto
         {label}
       </td>
       <td className="val col-pipeline group-start">{fmtInt(subtotal.totalCount)}</td>
-      <td className="val col-pipeline">
-        <span className="dot-healthy" />
-        {fmtInt(subtotal.healthyCount)}
-      </td>
+      <td className="val col-pipeline">{fmtInt(subtotal.healthyCount)}</td>
       <td className="val col-forecast group-start">
         <ClosedValue value={subtotal.closedCount} />
       </td>
       <td className="val col-forecast">
         {fmtForecast(subtotal.projectedToClose)}
-        <CtcDots count={subtotal.closingCount} />
+        <CtcSubtotalNote count={subtotal.closingCount} />
       </td>
       <td className="totcol col-forecast">
         <span className="badge badge--pill badge--emerald">{fmtForecast(subtotal.totalForecast)}</span>
@@ -411,36 +413,30 @@ function ExecTotalRow({ label, subtotal }: { label: string; subtotal: BlockSubto
 }
 
 /**
- * Etapa UX10: tope de puntos por celda -- a partir de esta cantidad, la fila
- * dejaría de ser legible si siguiera agregando un punto por préstamo (hoy el
- * máximo real es 1 por branch y 6 en el subtotal, pero eso puede cambiar).
- * Por encima del tope se dibujan CTC_DOT_CAP puntos y se agrega el número
- * completo al lado, en vez de dejar que la celda crezca sin control.
+ * Etapa UX12: reemplaza los puntos de F5k/UX10 (uno por préstamo, con tope de
+ * 8) -- ahora un solo punto, sin importar cuántos préstamos haya en Clear to
+ * Close. El tope y el número al lado del punto ya no aplican: nunca se dibuja
+ * más de un punto por fila. El color es `--ctc-dot` (forecast-visual.css) --
+ * el MISMO verde que ya usaba el punto de Healthy Pipeline, para que el
+ * verde siga significando "va bien" en toda la app (antes era un tono nuevo,
+ * navy, elegido justamente para no chocar con Healthy -- ya no hace falta
+ * distinguirlos porque Healthy perdió su punto en este mismo ajuste).
  */
-const CTC_DOT_CAP = 8;
+function CtcDot({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return <span className="ctc-dot" title={count + ' loan' + (count === 1 ? '' : 's') + ' in Clear to Close'} />;
+}
 
 /**
- * Etapa F5k, Parte 3 / UX10: anotación secundaria en la celda de Projected to
- * Close -- un punto por préstamo ya en milestone Clear to Close/Closing
- * (bucketTotal.Closing de esa fila). Es una marca, no un segundo número
- * protagonista: sin texto "CTC" ni número en la celda mientras entre dentro
- * del tope -- solo aparece con count > 0 (con 12 branches, la mayoría da
- * cero, y llenar la columna de puntos o ceros la vuelve ilegible). El color
- * (`--ctc-dot`, forecast-visual.css) tiene que distinguirse del punto verde
- * de Healthy Pipeline (misma fila, misma tabla) y no puede ser rojo/rosa --
- * ese tono ya significa "problema" en esta app, y CTC es lo contrario.
+ * Etapa UX12: la fila de subtotal no lleva punto -- un punto binario no
+ * puede representar "6 préstamos" sin perder información, así que en el
+ * subtotal se muestra el número exacto en texto chico ("6 CTC"), subordinado
+ * al total de Projected to Close de arriba: mismo verde que el punto, sin
+ * negrita.
  */
-function CtcDots({ count }: { count: number }) {
+function CtcSubtotalNote({ count }: { count: number }) {
   if (count <= 0) return null;
-  const dotCount = Math.min(count, CTC_DOT_CAP);
-  return (
-    <div className="ctc-dots" title={count + ' loan' + (count === 1 ? '' : 's') + ' in Clear to Close'}>
-      {Array.from({ length: dotCount }).map((_, i) => (
-        <span className="ctc-dot" key={i} />
-      ))}
-      {count > CTC_DOT_CAP && <span className="ctc-dots__count">{fmtInt(count)}</span>}
-    </div>
-  );
+  return <div className="ctc-subtotal-note">{fmtInt(count)} CTC</div>;
 }
 
 /**
@@ -482,7 +478,7 @@ function BranchDataRow({
         <CountCell value={row.totalCount} onClick={() => onOpenTotal(row)} />
       </td>
       <td className="val col-pipeline">
-        <CountCell value={row.healthyCount} onClick={() => onOpenHealthy(row)} withHealthyDot />
+        <CountCell value={row.healthyCount} onClick={() => onOpenHealthy(row)} />
       </td>
       <td className="val col-forecast group-start">
         <CountCell value={row.closedCount} onClick={() => onOpenClosed(row)} variant="closed" />
@@ -491,8 +487,10 @@ function BranchDataRow({
           Forecast -- es un valor calculado (pull-through), no una lista de
           préstamos concreta que auditar. */}
       <td className="val col-forecast">
-        {fmtForecast(row.projectedToClose)}
-        <CtcDots count={row.closingCount} />
+        <span className="ctc-cell">
+          {fmtForecast(row.projectedToClose)}
+          <CtcDot count={row.closingCount} />
+        </span>
       </td>
       <td className="totcol col-forecast">
         {/* Sin barras de progreso: el Forecast va siempre en píldora verde. */}
@@ -510,12 +508,10 @@ function BranchDataRow({
 function CountCell({
   value,
   onClick,
-  withHealthyDot,
   variant,
 }: {
   value: number;
   onClick: () => void;
-  withHealthyDot?: boolean;
   /** 'closed' pinta el valor como badge de logro (fondo slate, navy bold). */
   variant?: 'closed';
 }) {
@@ -525,7 +521,6 @@ function CountCell({
   }
   return (
     <button type="button" className={base} onClick={onClick}>
-      {withHealthyDot && <span className="dot-healthy" />}
       {fmtInt(value)}
     </button>
   );
@@ -665,16 +660,15 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
                     {branchManagers.get(row.branch) ?? UNASSIGNED_MANAGER}
                   </td>
                   <td className="val col-pipeline group-start">{fmtInt(row.totalCount)}</td>
-                  <td className="val col-pipeline">
-                    <span className="dot-healthy" />
-                    {fmtInt(row.healthyCount)}
-                  </td>
+                  <td className="val col-pipeline">{fmtInt(row.healthyCount)}</td>
                   <td className="val col-forecast group-start">
                     <ClosedValue value={row.closedCount} />
                   </td>
                   <td className="val col-forecast">
-                    {fmtForecast(row.projectedToClose)}
-                    <CtcDots count={row.closingCount} />
+                    <span className="ctc-cell">
+                      {fmtForecast(row.projectedToClose)}
+                      <CtcDot count={row.closingCount} />
+                    </span>
                   </td>
                   <td className="totcol col-forecast">
                     <span className="badge badge--pill badge--emerald">{fmtForecast(row.totalForecast)}</span>
@@ -693,16 +687,6 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
           </table>
         </div>
       </div>
-
-      {/*
-       * Etapa UX10: leyenda del punto de CTC -- una sola vez para las 3
-       * tablas (Banked, Brokered, Combined), no repetida por bloque. Brokered
-       * nunca muestra el punto (exclusión estructural, ver buildBranchRows),
-       * pero la leyenda igual aplica a la vista completa, no solo a Banked.
-       */}
-      <p className="foot-note ctc-legend">
-        <span className="ctc-dot" /> Loan in Clear to Close
-      </p>
 
       {/*
        * Etapa UX8, hallazgo: este texto describía un comportamiento que ya no
