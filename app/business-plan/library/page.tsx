@@ -17,7 +17,7 @@ import Breadcrumbs from '../components/Breadcrumbs';
  */
 export default function FunnelLibraryPage() {
   return (
-    <div className="hub-container">
+    <>
       <Breadcrumbs items={[{ label: 'Branch Portfolio', href: '/business-plan' }, { label: 'Funnel & Node Library' }]} />
 
       <div className="page-head">
@@ -40,6 +40,6 @@ export default function FunnelLibraryPage() {
           would suggest decisions that nobody has taken — the same reason the triage engine is still empty.
         </p>
       </div>
-    </div>
+    </>
   );
 }

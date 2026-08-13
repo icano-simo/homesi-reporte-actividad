@@ -4,6 +4,7 @@ import { lastCompleteMonths } from './months';
 import { triageFor, branchTriage } from './triage';
 import type {
   ActivityMetrics,
+  AttributionOverride,
   BranchRow,
   BusinessPlanData,
   DimBranch,
@@ -136,6 +137,30 @@ export async function loadBusinessPlanData(): Promise<BusinessPlanData> {
     /* tabla ausente: se sigue sin benchmarks */
   }
 
+  // ── 2b. Excepciones de atribución ────────────────────────────────────────
+  /*
+   * `org.attribution_override` lista a las personas cuya producción se fuerza a
+   * un branch, contra lo que digan las fuentes. Se CONSULTA, no se codifica:
+   * agregar a alguien tiene que ser un INSERT, no un deploy, y la excepción
+   * tiene que poder verse mirando la base.
+   *
+   * Igual que con los benchmarks, que la tabla falte no puede romper la página:
+   * sin ella rige la regla general y listo.
+   */
+  const forcedBranchByEmployee = new Map<number, { branchKey: number; reason: string | null }>();
+  let attributionOverrideTableAvailable = false;
+  try {
+    const { data, error } = await org.from('attribution_override').select('*');
+    if (!error && data) {
+      attributionOverrideTableAvailable = true;
+      for (const r of data as AttributionOverride[]) {
+        forcedBranchByEmployee.set(r.employee_key, { branchKey: r.force_branch_key, reason: r.reason });
+      }
+    }
+  } catch {
+    /* tabla ausente: rige la regla general */
+  }
+
   // ── 3. Commercial Activity: lote activo ──────────────────────────────────
   const { data: batches, error: batchError } = await supabase
     .from('upload_batches')
@@ -253,7 +278,7 @@ export async function loadBusinessPlanData(): Promise<BusinessPlanData> {
    * deja fuera del directorio a Pier Laino: es BM de 710 y 716 pero no tiene
    * ninguna fila con rol LO, así que no aparece por ningún lado como LO.
    *
-   * Al revés, un "Producing BM" (Ana Zegarra, Galo Rizzo, Mariano Claudio...)
+   * Al revés, un "Producing BM" (Ana Peña, Galo Rizzo, Mariano Claudio...)
    * SÍ tiene fila LO además de la BM, y aparece en las dos listas. Es correcto.
    */
   const loBranchCodes = new Map<number, string[]>();
@@ -264,6 +289,25 @@ export async function loadBusinessPlanData(): Promise<BusinessPlanData> {
     const list = loBranchCodes.get(row.employee_key) ?? [];
     list.push(code);
     loBranchCodes.set(row.employee_key, list);
+  }
+
+  /*
+   * La excepción de atribución se aplica DESPUÉS y REEMPLAZA la lista, no la
+   * amplía: "toda su producción va al 777" quiere decir que no queda nada
+   * contándose en otro lado. Si sólo se agregara el branch forzado, la persona
+   * aparecería en los dos y sus totales se contarían dos veces.
+   *
+   * Se aplica aunque `employee_branch` ya coincida con el override -- que hoy
+   * coincida (Jonathan Valenzuela ya figura con rol LO en el 777) es una
+   * casualidad del roster actual, no algo en lo que apoyarse: el día que el
+   * roster lo mueva al 710, esta línea es lo que mantiene su producción en 777.
+   */
+  const overrideDetail = new Map<number, { forcedBranchCode: string; reason: string | null }>();
+  for (const [employeeKey, forced] of forcedBranchByEmployee) {
+    const code = branchByKey.get(forced.branchKey)?.branch_code;
+    if (!code) continue; // override apuntando a un branch inexistente: se ignora
+    loBranchCodes.set(employeeKey, [code]);
+    overrideDetail.set(employeeKey, { forcedBranchCode: code, reason: forced.reason });
   }
 
   const loanOfficers: LoanOfficerRow[] = [];
@@ -279,6 +323,7 @@ export async function loadBusinessPlanData(): Promise<BusinessPlanData> {
       employeeKey,
       fullName: employee.full_name,
       branchCodes: branchCodes.sort(),
+      attributionOverride: overrideDetail.get(employeeKey) ?? null,
       tier: employee.tier,
       rosterStatus: employee.roster_status,
       isBranchManager: employee.is_branch_manager,
@@ -332,6 +377,14 @@ export async function loadBusinessPlanData(): Promise<BusinessPlanData> {
       unmappedNames: [...unmapped.values()].sort((a, b) => b.rows - a.rows),
       benchmarkTableAvailable,
       monthsUsedForAverage,
+      attributionOverrides: [...overrideDetail.entries()]
+        .map(([employeeKey, d]) => ({
+          fullName: employeeByKey.get(employeeKey)?.full_name ?? ('employee_key ' + employeeKey),
+          forcedBranchCode: d.forcedBranchCode,
+          reason: d.reason,
+        }))
+        .sort((a, b) => a.fullName.localeCompare(b.fullName)),
+      attributionOverrideTableAvailable,
     },
   };
 }

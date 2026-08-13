@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import ModuleSidebar from './components/ModuleSidebar';
+import BusinessPlanShell from './components/BusinessPlanShell';
 import './styles/bp-visual.css';
 
 /**
@@ -8,6 +8,7 @@ import './styles/bp-visual.css';
  * ============================================================================
  *
  * Etapa BP2 — ARCHIVO NUEVO.
+ * Etapa BP3 — el armado pasó a `BusinessPlanShell`.
  *
  * Es la razón por la que el sidebar existe SÓLO acá: en App Router un
  * `layout.tsx` envuelve a todas las rutas hijas de su carpeta y a ninguna
@@ -18,14 +19,12 @@ import './styles/bp-visual.css';
  * sidebar se dibuja una vez y conserva su estado de colapsado mientras se pasa
  * de Portfolio a Branch y a Loan Officer.
  *
+ * Este archivo sigue siendo un componente de servidor: todo lo que necesita
+ * estado (el colapsado del sidebar, las migas) vive dentro de `BusinessPlanShell`.
+ *
  * `bp-visual.css` se importa acá y no en cada página: es el punto único por el
  * que pasa todo el módulo, y así no se repite el import en cuatro archivos.
  */
 export default function BusinessPlanLayout({ children }: { children: ReactNode }) {
-  return (
-    <div className="bp-shell">
-      <ModuleSidebar />
-      <div className="bp-workspace">{children}</div>
-    </div>
-  );
+  return <BusinessPlanShell>{children}</BusinessPlanShell>;
 }

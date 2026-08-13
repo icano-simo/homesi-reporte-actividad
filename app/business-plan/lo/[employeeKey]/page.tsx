@@ -48,7 +48,7 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
   }, [data, primaryBranch]);
 
   return (
-    <div className="hub-container">
+    <>
       <Breadcrumbs
         items={[
           { label: 'Branch Portfolio', href: '/business-plan' },
@@ -79,6 +79,16 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
                 </h1>
                 <p className="bp-profile__meta">
                   Branch {lo.branchCodes.join(', ')}
+                  {/*
+                    Sin esta marca, alguien que sepa que las fuentes reportan
+                    parte de su producción bajo otro branch leería el número de
+                    arriba como un error de atribución.
+                  */}
+                  {lo.attributionOverride && (
+                    <span className="bp-chip" title={lo.attributionOverride.reason ?? undefined}>
+                      Attribution forced
+                    </span>
+                  )}
                   {branchManagers.length > 0 && <> · BM: {branchManagers.join(' + ')}</>}
                   {lo.tier && <> · Tier {lo.tier}</>}
                   {' · '}
@@ -155,7 +165,7 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
           <Diagnostics data={data} />
         </>
       )}
-    </div>
+    </>
   );
 }
 

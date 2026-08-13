@@ -59,6 +59,30 @@ export interface EmployeeAlias {
   match_method: string | null;
 }
 
+/**
+ * EXCEPCIÓN DE ATRIBUCIÓN — `org.attribution_override`.
+ *
+ * Etapa BP3.
+ *
+ * La regla general es que un préstamo se atribuye al branch DEL PRÉSTAMO
+ * (`loan_records.branch` / `pipeline_loans.branch`), no al branch asignado a la
+ * persona. Esta tabla es la lista, confirmada por el negocio, de las personas
+ * cuya producción se fuerza a un branch sin importar lo que digan las fuentes.
+ *
+ * La tabla existe para que la excepción SEA VISIBLE: si esto viviera en un `if`
+ * dentro del código, sumar una persona nueva sería un deploy, y nadie sabría
+ * mirando la base que la excepción existe. Acá es un INSERT, y el módulo la
+ * muestra en su panel de diagnóstico.
+ */
+export interface AttributionOverride {
+  employee_key: number;
+  /** Branch al que se fuerza TODA la producción de esa persona. */
+  force_branch_key: number;
+  reason: string | null;
+  confirmed_by: string | null;
+  confirmed_on: string | null;
+}
+
 /* ─────────────────────── Filas derivadas para la UI ────────────────────── */
 
 /**
@@ -107,8 +131,20 @@ export interface LoanOfficerRow {
   employeeKey: number;
   /** Nombre canónico del roster. Es SIEMPRE lo que se muestra. */
   fullName: string;
-  /** Branches donde la persona está asignada como LO. */
+  /**
+   * Branches bajo los que se lista a la persona.
+   *
+   * Normalmente son sus asignaciones con rol LO en `org.employee_branch`. Si
+   * tiene una fila en `org.attribution_override`, en cambio, es el único branch
+   * forzado -- ver `attributionOverride`.
+   */
   branchCodes: string[];
+  /**
+   * Presente sólo si la persona está en `org.attribution_override`. Sirve para
+   * que la pantalla pueda decir POR QUÉ aparece donde aparece, en vez de que el
+   * usuario vea un branch que no coincide con el roster y lo tome por un bug.
+   */
+  attributionOverride: { forcedBranchCode: string; reason: string | null } | null;
   tier: string | null;
   rosterStatus: string | null;
   isBranchManager: boolean;
@@ -127,7 +163,10 @@ export interface BranchRow {
   branchKey: number;
   branchCode: string;
   isDivisionBranch: boolean;
-  /** Puede ser más de uno: el 716 tiene dos. Nunca asumir uno solo. */
+  /**
+   * Puede ser más de uno. Hoy ninguno tiene dos (el 716 quedó sólo con Pier
+   * Laino), pero el roster lo admite: nunca asumir uno solo.
+   */
   branchManagers: string[];
   loanOfficers: LoanOfficerRow[];
   totalLoanOfficers: number;
@@ -152,5 +191,12 @@ export interface BusinessPlanData {
     benchmarkTableAvailable: boolean;
     /** Los 3 meses completos usados para el promedio de cierres. */
     monthsUsedForAverage: string[];
+    /**
+     * Excepciones de atribución vigentes, para mostrarlas en pantalla. Si la
+     * tabla no existiera todavía, queda vacío y el módulo sigue funcionando con
+     * la regla general.
+     */
+    attributionOverrides: { fullName: string; forcedBranchCode: string; reason: string | null }[];
+    attributionOverrideTableAvailable: boolean;
   };
 }

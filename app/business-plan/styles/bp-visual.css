@@ -44,13 +44,36 @@
  */
 
 /* ---------------------------------------------------------------------------
- * 1. Shell de dos columnas — sólo dentro de Business Plan
+ * 1. Shell — el par sidebar/workspace, DENTRO del canvas de 1380px
  * ------------------------------------------------------------------------ */
 
+/*
+ * Etapa BP3. `.bp-shell` se aplica SOBRE `.hub-container`, no alrededor: el
+ * elemento es `<div class="hub-container bp-shell">`.
+ *
+ * Por eso acá NO hay ningún `max-width` ni `margin: auto`. Los pone
+ * `.hub-container` en `app/styles/shell.css` (max-width var(--container-max),
+ * padding 32px lateral), que es exactamente el mismo par que usa
+ * `.hub-header__inner`. De ahí sale la alineación vertical entre el borde
+ * izquierdo del sidebar y el del logo de HOMESÍ: es la misma caja, no dos
+ * medidas que casualmente coinciden. Redeclarar el ancho acá sería crear una
+ * segunda fuente de verdad que se desincroniza en cuanto una de las dos cambie.
+ */
 .bp-shell {
+  /*
+   * Sin `min-height` a propósito. `.hub-canvas` ya cubre el alto de la ventana;
+   * repetirlo acá le sumaría el padding vertical del contenedor (32 + 64) y la
+   * página quedaría SIEMPRE más alta que el viewport, con scrollbar permanente
+   * aunque no hubiera contenido que scrollear.
+   */
+  display: block;
+}
+
+/* El par de columnas. El breadcrumb queda ARRIBA de esto, a ancho completo. */
+.bp-columns {
   display: flex;
-  align-items: stretch;
-  min-height: calc(100vh - var(--header-h));
+  align-items: flex-start;
+  gap: 24px;
 }
 
 /*
@@ -63,26 +86,32 @@
   flex: 1;
   min-width: 0;
 }
-.bp-workspace > .hub-container {
-  /* Ya está contenido por el sidebar: no vuelve a centrarse ni a limitarse. */
-  max-width: none;
-  margin: 0;
-}
 
 /* ---------------------------------------------------------------------------
  * 2. Sidebar del módulo
  * ------------------------------------------------------------------------ */
 
+/*
+ * Etapa BP3: 220px (venía de 240) y ya no está pegado al borde de la ventana.
+ * Al vivir dentro del canvas deja de ser cromo de la aplicación y pasa a ser
+ * una columna de la página, así que se dibuja como panel cerrado -- borde
+ * completo y radio-- en vez del `border-right` suelto que tenía cuando su lado
+ * izquierdo se perdía fuera de la pantalla.
+ */
 .bp-sidebar {
-  width: 240px;
+  width: 220px;
   flex-shrink: 0;
   background: var(--slate-50);
-  border-right: 1px solid var(--slate-200);
-  padding: 20px 12px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  padding: 16px 10px;
   display: flex;
   flex-direction: column;
   gap: 4px;
   transition: width 0.16s ease;
+  /* Acompaña al scroll de tablas largas sin despegarse del header sticky. */
+  position: sticky;
+  top: calc(var(--header-h) + 16px);
 }
 .bp-sidebar--collapsed {
   width: 64px;
@@ -338,6 +367,27 @@ table.piv td.bp-left {
 .bp-missing {
   color: var(--amber-800);
   font-weight: 600;
+}
+
+/*
+ * Compactado de las tablas del módulo (etapa BP3).
+ *
+ * `tabular-nums` es lo que hace que los conteos centrados se lean como columna:
+ * con cifras proporcionales, un "111" ocupa bastante menos que un "888" y los
+ * números quedan visiblemente desalineados entre filas aunque la celda esté
+ * centrada. Con cifras tabulares todos los dígitos miden igual.
+ *
+ * El padding baja de 6px 10px a 4px 8px SÓLO en las tablas de este módulo: son
+ * conteos cortos, no las cifras largas de Forecast. `components.css` no se toca.
+ */
+/* Calificado con `table.piv` por la misma razón de especificidad que el
+   centrado: `table.piv th, table.piv td` es (0,1,2) y una clase suelta pierde. */
+table.piv.bp-table--branches td,
+table.piv.bp-table--branches th,
+table.piv.bp-table--los td,
+table.piv.bp-table--los th {
+  padding: 4px 8px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---------------------------------------------------------------------------

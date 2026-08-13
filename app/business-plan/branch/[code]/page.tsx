@@ -60,7 +60,7 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
   }, [branch, search, triageFilter]);
 
   return (
-    <div className="hub-container">
+    <>
       <Breadcrumbs
         items={[
           { label: 'Branch Portfolio', href: '/business-plan' },
@@ -221,6 +221,6 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
           <Diagnostics data={data} />
         </>
       )}
-    </div>
+    </>
   );
 }

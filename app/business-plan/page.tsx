@@ -72,7 +72,7 @@ export default function BranchPortfolioPage() {
   }, [data]);
 
   return (
-    <div className="hub-container">
+    <>
       <Breadcrumbs items={[{ label: 'Branch Portfolio' }]} />
 
       <div className="page-head">
@@ -214,6 +214,6 @@ export default function BranchPortfolioPage() {
           <Diagnostics data={data} />
         </>
       )}
-    </div>
+    </>
   );
 }

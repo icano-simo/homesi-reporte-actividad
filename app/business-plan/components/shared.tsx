@@ -148,6 +148,26 @@ export function Diagnostics({ data }: { data: BusinessPlanData }) {
           {d.unmappedNames.length > 5 ? ` … +${d.unmappedNames.length - 5} more` : ''}
         </div>
       )}
+      {/*
+        La excepción de atribución se muestra SIEMPRE que exista, no sólo
+        cuando algo falla. Ese es el motivo de que viva en una tabla y no en un
+        `if` del código: alguien que ve a una persona bajo un branch que no
+        coincide con el roster tiene que poder leer acá por qué, sin abrir la
+        base ni el repositorio.
+      */}
+      {d.attributionOverrides.length > 0 && (
+        <div>
+          Attribution exception(s) in effect, from <code>org.attribution_override</code>:{' '}
+          {d.attributionOverrides.map((o, i) => (
+            <span key={o.fullName}>
+              {i > 0 ? '; ' : ''}
+              <strong>{o.fullName}</strong> → branch <code>{o.forcedBranchCode}</code>
+              {o.reason ? ` (${o.reason})` : ''}
+            </span>
+          ))}
+          . All of their production counts under that branch regardless of the branch reported by the source rows.
+        </div>
+      )}
       {!d.benchmarkTableAvailable && (
         <div>
           <code>org.employee_benchmark</code> is not available yet — the migration in{' '}
@@ -158,7 +178,7 @@ export function Diagnostics({ data }: { data: BusinessPlanData }) {
   );
 }
 
-/** Iniciales para el avatar. "Ana Zegarra (Peña)" -> "AZ". */
+/** Iniciales para el avatar. "Adriana Espinoza (Szczech)" -> "AE". */
 export function initialsOf(fullName: string): string {
   const words = fullName
     .replace(/\(.*?\)/g, ' ') // los apellidos entre paréntesis no cuentan
