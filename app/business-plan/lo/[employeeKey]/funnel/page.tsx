@@ -364,7 +364,7 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
                   </div>
                   <div className="bp-catalog__meta">
                     <span className="bp-pill bp-pill--sky">{s.nodeCount} nodes</span>
-                    <span className="bp-pill bp-pill--sky">{s.subMilestoneCount} sub-milestones</span>
+                    <span className="bp-pill bp-pill--sky">{s.subMilestoneCount} stages</span>
                     {f.duration_weeks && <span className="bp-pill bp-pill--sky">~{f.duration_weeks} weeks</span>}
                   </div>
                   <p className="bp-catalog__desc">{f.description ?? ''}</p>

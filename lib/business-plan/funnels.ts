@@ -354,7 +354,7 @@ export function checkActivation(
   if (milestoneCount === 0) {
     return {
       ok: false,
-      reason: 'This funnel has nodes but no milestones — there would be nothing to do.',
+      reason: 'This funnel has nodes but no stages — there would be nothing to do.',
       nodeCount: nodeKeys.length,
       milestoneCount: 0,
     };
@@ -524,4 +524,41 @@ export function canDeleteFunnel(enrollmentCount: number): boolean {
 export function progressOf(done: number, total: number): number {
   if (total <= 0) return 0;
   return Math.round((done / total) * 100);
+}
+
+
+/**
+ * ============================================================================
+ * ¿YA EXISTE UN NODO CON ESE NOMBRE? — etapa BP25
+ * ============================================================================
+ *
+ * ⚠ NACIÓ DE UN DUPLICADO REAL. Convivieron "Cold Calling" y "Cold calling":
+ * dos nodos distintos para lo mismo, y el segundo se coló en tres funnels antes
+ * de que alguien lo notara. Hubo que borrarlo a mano y rehacer las secuencias.
+ *
+ * La columna `name` ES única, y aun así pasó: en Postgres `text` distingue
+ * mayúsculas, así que para la base son dos nombres diferentes. Una mayúscula de
+ * más basta, y un espacio doble también.
+ *
+ * Esto no reemplaza a la restricción de la base, la complementa: la base impide
+ * el duplicado exacto y esto impide el que se le parece. Lo correcto de verdad
+ * sería un índice único sobre `lower(btrim(name))`, y queda anotado como TODO
+ * en la doc -- pero eso es una migración más, y mientras tanto la app puede
+ * dejar de crearlos.
+ *
+ * Devuelve el nombre YA GUARDADO, no un booleano: decir "ya existe" sin decir
+ * cuál obliga a ir a buscarlo, y el que existe casi nunca se escribe igual que
+ * el que se está intentando crear -- si se escribiera igual, no habría problema.
+ */
+export function findNodeNameClash(
+  name: string,
+  nodes: { node_key: number; name: string }[],
+  /** Al renombrar, el propio nodo no cuenta como choque consigo mismo. */
+  exceptNodeKey?: number | null
+): string | null {
+  const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+  const target = norm(name);
+  if (target === '') return null;
+  const hit = nodes.find((n) => n.node_key !== exceptNodeKey && norm(n.name) === target);
+  return hit ? hit.name : null;
 }

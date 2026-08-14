@@ -429,9 +429,12 @@ table.piv.bp-table--los th {
   min-width: 0;
 }
 /*
- * El avatar. Etapa BP24: de circulo relleno a circulo de CONTORNO -- fondo
- * blanco, borde e iniciales del color de la persona. El color lo pone una clase
- * `--tN` (seccion 23); esto es lo comun a todas.
+ * El avatar. Navy solido con las iniciales claras.
+ *
+ * Etapa BP21 le dio un tono por persona y BP24 lo paso a contorno; etapa BP25
+ * revirtio las dos cosas. Un color que no codifica nada -- ni rol, ni estado,
+ * ni urgencia -- competia por la atencion con las pildoras de estado y de
+ * fecha, que si la tienen.
  */
 .bp-avatar {
   display: flex;
@@ -440,9 +443,8 @@ table.piv.bp-table--los th {
   width: 52px;
   height: 52px;
   border-radius: 50%;
-  background: var(--canvas);
-  color: var(--navy);
-  border: 1.5px solid var(--slate-300);
+  background: var(--navy);
+  color: var(--canvas);
   font-family: var(--font-display);
   font-size: 17px;
   font-weight: 800;
@@ -2677,16 +2679,19 @@ table.piv th.bp-wrap {
 
 /* ── Preview del funnel: stepper horizontal ─────────────────────────────── */
 
+/* El `flex-wrap` y el `gap` los fija la seccion 24 (BP25): una sola fila con
+   scroll. Aca queda lo que no cambio. */
 .bp-fstep {
   display: flex;
-  flex-wrap: wrap;
   align-items: stretch;
-  gap: 2px;
   margin-bottom: 14px;
 }
+/* `flex-shrink: 0` tambien en el hueco: si no, el navegador lo encoge antes de
+   decidir que hace falta scroll. Etapa BP25. */
 .bp-fstep__slot {
   display: flex;
   align-items: center;
+  flex-shrink: 0;
 }
 .bp-fstep__card {
   font-family: inherit;
@@ -3074,8 +3079,8 @@ table.piv.bp-table--cards .badge--pill {
  * slate y sky pleno. Ninguno es un color nuevo.
  */
 /*
- * Los seis tonos viven en la seccion 23 (BP24): pasaron de circulo relleno a
- * circulo de contorno. El hash que elige cual le toca a cada persona no cambio.
+ * Etapa BP21 puso aca seis tonos de avatar, uno por persona, elegidos por un
+ * hash del nombre. Etapa BP25 los quito: ver `.bp-avatar` en la seccion 4.
  */
 
 /* ── Píldoras de conteo, de día y de vencido ────────────────────────────── */
@@ -3163,39 +3168,35 @@ table.piv.bp-table--cards .badge--pill {
 }
 
 /*
- * ⚠ GRILLA DE COLUMNAS FIJAS, NO `flex-wrap` — etapa BP21.
+ * ⚠ UNA SOLA FILA, CON SCROLL — etapa BP25.
  *
- * Es lo que resuelve la flecha que apuntaba a la nada. Con `flex-wrap` no hay
- * selector que sepa cuál es el último elemento de una fila: el navegador decide
- * el corte al medir, y el CSS no puede preguntarlo. Con un número FIJO de
- * columnas, `:nth-child(4n)` es exactamente el último de cada fila.
+ * Un funnel es una SECUENCIA. Envuelta en tres filas deja de leerse como una:
+ * con diez nodos la forma del funnel -- que es lo primero que alguien quiere
+ * ver -- desaparecía debajo de sí misma.
  *
- * El precio es que la grilla no se adapta al contenido; a cambio, la flecha
- * nunca vuelve a apuntar al borde del modal.
+ * Esto reemplaza a la grilla de columnas fijas de BP21, que existía para poder
+ * ocultar la flecha del último de cada fila con `:nth-child(4n)`. Sin filas no
+ * hay último de fila: la única flecha que sobra es la del último nodo, y para
+ * eso alcanza `:last-child`. El problema de BP21 desaparece con su causa.
+ *
+ * `flex-shrink: 0` en las tarjetas es lo que hace que el scroll ocurra: sin él
+ * flexbox las apretaría hasta que entren, y con diez nodos quedarían ilegibles
+ * en vez de scrollear.
  */
 .bp-fstep {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px 2px;
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  gap: 2px;
+  padding-bottom: 6px;
 }
-.bp-fstep__slot:nth-child(4n) .bp-fstep__arrow,
 .bp-fstep__slot:last-child .bp-fstep__arrow {
-  visibility: hidden;
-}
-@media (max-width: 900px) {
-  .bp-fstep {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .bp-fstep__slot:nth-child(4n) .bp-fstep__arrow {
-    visibility: visible;
-  }
-  .bp-fstep__slot:nth-child(2n) .bp-fstep__arrow {
-    visibility: hidden;
-  }
+  display: none;
 }
 .bp-fstep__card {
-  min-width: 0;
   position: relative;
+  flex-shrink: 0;
+  width: 172px;
 }
 .bp-fstep__name {
   display: flex;
@@ -3608,9 +3609,14 @@ table.piv tr.metric.is-late td.lbl {
   box-shadow: inset 3px 0 0 var(--coral);
 }
 
-/* El icono del funnel dentro de una celda, alineado con su texto. */
+/* El icono del funnel dentro de una celda, alineado con su texto. Donde hay
+   una celda de nombre el espacio ya lo pone su `gap`, y sumarle el margen los
+   separaria el doble. */
 table.piv td .bp-glyph {
   margin-right: 6px;
+}
+.bp-name-cell .bp-glyph {
+  margin-right: 0;
 }
 
 /* El botón de notas de un paso, encendido mientras el panel está abierto. */
@@ -3649,48 +3655,6 @@ table.piv td .bp-glyph {
  */
 
 /* ── Los avatares, en contorno ──────────────────────────────────────────── */
-
-/*
- * De círculo relleno a círculo de contorno: fondo blanco, borde e iniciales en
- * el color de la persona. Se ven más limpios, y sobre todo funcionan igual
- * sobre cualquier fondo -- que es lo que permite que la tarjeta seleccionada ya
- * no tenga que tratarlos distinto.
- *
- * Lo común a todos está en la sección 4, con el resto de la forma del avatar;
- * acá sólo los seis pares de color. El hash por nombre no cambia
- * (`avatarToneOf` en components/shared.tsx): cada persona conserva su color en
- * todas las pantallas.
- */
-.bp-avatar--t0 {
-  background: var(--canvas);
-  color: var(--navy);
-  border-color: var(--sky);
-}
-.bp-avatar--t1 {
-  background: var(--canvas);
-  color: var(--emerald-700);
-  border-color: var(--emerald-700);
-}
-.bp-avatar--t2 {
-  background: var(--canvas);
-  color: var(--amber-700);
-  border-color: var(--amber-500);
-}
-.bp-avatar--t3 {
-  background: var(--canvas);
-  color: var(--coral);
-  border-color: var(--coral);
-}
-.bp-avatar--t4 {
-  background: var(--canvas);
-  color: var(--slate-600);
-  border-color: var(--slate-400);
-}
-.bp-avatar--t5 {
-  background: var(--canvas);
-  color: var(--slate-700);
-  border-color: var(--slate-700);
-}
 
 /* ── El nodo abierto del preview ────────────────────────────────────────── */
 
@@ -4051,4 +4015,125 @@ table.piv tr.metric.is-picked td.lbl {
 .bp-dot--future {
   background: var(--slate-100);
   box-shadow: inset 0 0 0 1px var(--slate-300);
+}
+
+/* ===========================================================================
+ * 24. Etapa BP25 — ajustes de presentacion
+ * =========================================================================== */
+
+/*
+ * ⚠ EL ICONO DENTRO DE UNA TABLA VA EN CLARO.
+ *
+ * `.bp-glyph--strong` es navy pleno, y funciona junto a un titulo grande -- ahi
+ * es una chapa. Repetido en cada fila de una tabla se convertia en una columna
+ * de cuadrados navy que pesaba mas que los nombres, que es lo que la tabla
+ * existe para mostrar. Dentro de una celda se dibuja el glifo solo.
+ */
+table.piv td .bp-glyph--strong,
+table.piv td .bp-glyph--soft {
+  background: transparent;
+  color: var(--slate-600);
+  padding: 0;
+}
+
+/*
+ * El nombre AL LADO del icono, no debajo.
+ *
+ * La causa era el `width: 100%` del input de edicion en linea: ocupaba la celda
+ * entera y empujaba al icono a su propio renglon.
+ *
+ * ⚠ EL FLEX VA EN UN SPAN, NO EN EL `td`. Poner `display: flex` sobre una celda
+ * la saca del algoritmo de tabla -- deja de ser celda -- y con
+ * `table-layout: fixed`, que es lo que usan estas tablas, se lleva puestos los
+ * anchos de todas las columnas de la fila.
+ */
+.bp-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.bp-name-cell .bp-inline-input {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+/* ── Vista de flujo de los stages ───────────────────────────────────────── */
+
+/*
+ * El conmutador entre lista y flujo. Reusa `.seg`, que es el mismo control
+ * segmentado de las pestanas del modulo -- inventarle otro aspecto a un
+ * selector de dos opciones habria sumado un lenguaje visual sin necesidad.
+ */
+.bp-view-toggle {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
+/*
+ * El flujo: una fila, con scroll, igual criterio que el stepper del preview.
+ * Una secuencia envuelta deja de leerse como secuencia.
+ */
+.bp-flow {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  align-items: stretch;
+  gap: 2px;
+  padding-bottom: 8px;
+}
+.bp-flow__slot {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.bp-flow__card {
+  width: 190px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  background: var(--slate-50);
+  padding: 12px 14px;
+}
+.bp-flow__n {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+.bp-flow__title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--navy);
+  line-height: 1.35;
+}
+/* El responsable AL FRENTE, no escondido en un title: es la pregunta que trae
+   a alguien a esta vista -- quien hace cada paso. */
+.bp-flow__who {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  color: var(--slate-600);
+  margin-top: auto;
+  padding-top: 6px;
+  border-top: 1px solid var(--slate-200);
+}
+.bp-flow__arrow {
+  color: var(--slate-300);
+  padding: 0 5px;
+  font-size: 14px;
+}
+.bp-flow__slot:last-child .bp-flow__arrow {
+  display: none;
+}
+.bp-flow__empty {
+  font-size: 12px;
+  color: var(--slate-400);
 }

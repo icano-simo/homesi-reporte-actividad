@@ -174,55 +174,28 @@ export function initialsOf(fullName: string): string {
 
 /**
  * ============================================================================
- * COLOR DEL AVATAR — etapa BP21
+ * EL AVATAR
  * ============================================================================
  *
- * Ocho iniciales idénticas en navy no distinguen a nadie: la lista de pasos se
- * leía como una columna de círculos oscuros y había que ir letra por letra.
+ * Etapa BP21 — se le dio a cada persona un tono propio, elegido por un hash de
+ * su nombre. Etapa BP24 — de círculo relleno a círculo de contorno.
+ * Etapa BP25 — SE REVIRTIÓ TODO: vuelve al navy sólido con las iniciales
+ * claras, que es como estaba desde BP12.
  *
- * ---------------------------------------------------------------------------
- * ⚠ DETERMINISTA A PARTIR DEL NOMBRE, NO POR POSICIÓN EN LA LISTA
- * ---------------------------------------------------------------------------
- * Es la parte que importa. Si el tono saliera del índice, Angela sería azul en
- * el plan y ámbar en el catálogo según en qué orden viniera cada consulta -- y
- * un color que cambia entre pantallas es PEOR que todos iguales: deja de ser
- * información y pasa a ser ruido. Con el hash del nombre, cada persona tiene
- * siempre el mismo tono en todo el módulo.
+ * El motivo es de lectura, no de gusto: con seis tonos repartidos por hash, una
+ * lista de pasos o una tarjeta con cuatro responsables quedaba con cuatro
+ * colores compitiendo, y ninguno de esos colores significa nada -- el tono no
+ * codifica rol, ni estado, ni urgencia. Era color sin información, y le ganaba
+ * la atención a las píldoras de estado y de fecha, que sí la tienen.
  *
- * ⚠ La normalización es la misma que la de `initialsOf` -- se quita el apellido
- * entre paréntesis, y no distingue mayúsculas ni espacios sobrantes -- pero eso
- * NO alcanza para unificar dos grafías distintas del mismo nombre: "Ana Peña" y
- * "Ana Zegarra (Peña)" quedan en tonos distintos, igual que ya daban iniciales
- * distintas (AP y AZ) desde BP12.
+ * ⚠ Con el tono se fue también `avatarToneOf`. Si alguna vez vuelve a hacer
+ * falta distinguir personas por color, la regla que valía sigue valiendo: el
+ * color tiene que salir del NOMBRE y no de la posición en la lista, o la misma
+ * persona cambia de color entre pantallas.
  *
- * No es un problema en la práctica, y conviene saber por qué: todos los
- * avatares se dibujan con `dim_employee.full_name`, que es UN valor por
- * persona. Las grafías alternativas viven en los archivos de origen y las
- * resuelve `aliasIndex` antes de llegar acá. Si algún día una pantalla pintara
- * un avatar con un nombre crudo de una fuente, ahí sí habría dos colores para
- * la misma persona -- y la solución sería pasar por el alias, no complicar este
- * hash.
- *
- * Los seis tonos salen de las escalas que ya existen en tokens.css --navy/sky,
- * emerald, amber, coral, slate y sky pleno--. Índigo y púrpura, que pedía el
- * prompt original, no están en la paleta de marca y meterlos habría roto la
- * consistencia que costó varias rondas alinear.
- */
-export const AVATAR_TONES = 6;
-
-export function avatarToneOf(fullName: string): number {
-  const norm = fullName.replace(/\(.*?\)/g, ' ').trim().toLowerCase();
-  let h = 7;
-  for (let i = 0; i < norm.length; i++) h = (h * 31 + norm.charCodeAt(i)) | 0;
-  return Math.abs(h) % AVATAR_TONES;
-}
-
-/**
- * El avatar, en un solo lugar.
- *
- * Antes cada pantalla escribía a mano `<span className="bp-avatar…">` con las
- * iniciales, y por eso el color tenía que ser el mismo en las siete: cualquiera
- * que se olvidara del tono rompía la promesa de arriba.
+ * El componente se queda, aunque ahora dibuje algo muy simple: es lo que
+ * garantiza que las iniciales se calculen igual en las siete pantallas que lo
+ * usan.
  */
 export function Avatar({
   name,
@@ -234,10 +207,7 @@ export function Avatar({
   title?: string;
 }) {
   return (
-    <span
-      className={'bp-avatar' + (size === 'sm' ? ' bp-avatar--sm' : '') + ' bp-avatar--t' + avatarToneOf(name)}
-      title={title ?? name}
-    >
+    <span className={'bp-avatar' + (size === 'sm' ? ' bp-avatar--sm' : '')} title={title ?? name}>
       {initialsOf(name)}
     </span>
   );

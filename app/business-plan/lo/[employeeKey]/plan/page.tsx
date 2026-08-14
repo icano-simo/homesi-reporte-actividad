@@ -51,13 +51,19 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
   const sessionEmail = useSessionEmail();
 
   /*
-   * ⚠ `?activated=1` — etapa BP20. El catálogo redirige acá con ese parámetro
-   * después de activar, y eso abre el editor de una.
+   * `?activated=1` — etapa BP20. El catálogo redirige acá con ese parámetro
+   * después de activar.
    *
-   * Personalizar EN EL MOMENTO DEL ENROLAMIENTO es lo natural: es cuando se
-   * sabe qué le sobra y qué le falta a esta persona. Lo que no se puede es
-   * editar antes de activar, porque hasta ese momento lo único que existe es la
-   * plantilla y tocarla cambiaría el plan de todos.
+   * ⚠ Etapa BP25: el parámetro sólo muestra el AVISO. Ya no abre el editor.
+   *
+   * Abrirlo era pasarse de listo: lo primero que ve alguien recién enrolado es
+   * su plan, no un formulario para reestructurarlo, y el editor empujaba la
+   * lista de pasos fuera de la pantalla justo cuando quiere ver qué le tocó. El
+   * aviso sigue diciendo que puede ajustarlo, y el botón está al lado.
+   *
+   * Lo que no cambia es cuándo se puede editar: recién después de activar,
+   * porque hasta ese momento lo único que existe es la plantilla y tocarla
+   * cambiaría el plan de todos.
    */
   const searchParams = useSearchParams();
   const justActivated = searchParams.get('activated') === '1';
@@ -65,7 +71,7 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
   /* La biblioteca sólo se usa para el editor: de ahí salen los nodos que se
      pueden agregar al plan. */
   const { data: lib } = useFunnelLibrary();
-  const [editing, setEditing] = useState(justActivated);
+  const [editing, setEditing] = useState(false);
   const [activeNode, setActiveNode] = useState<number | null>(null);
   const [showTeam, setShowTeam] = useState(false);
   const [openNotes, setOpenNotes] = useState<number | null>(null);
@@ -204,9 +210,9 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
           */}
           {justActivated && (
             <div className="bp-just-activated" role="status">
-              <strong>Plan activated.</strong> This is {lo?.fullName ?? 'this person'}&apos;s own copy — adjust it now,
-              before starting. Adding, removing or reordering here changes nothing in the library or in anyone else&apos;s
-              plan.
+              <strong>Plan activated.</strong> This is {lo?.fullName ?? 'this person'}&apos;s own copy — use{' '}
+              <strong>Edit plan</strong> below to adjust it before starting. Adding, removing or reordering there
+              changes nothing in the library or in anyone else&apos;s plan.
             </div>
           )}
 
@@ -238,7 +244,7 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                 <span className="bp-ring__pct">{progressOf(totals.done, totals.total)}%</span>
               </div>
               <div className="bp-ring__label">
-                {totals.done} of {totals.total} sub-milestones
+                {totals.done} of {totals.total} stages
               </div>
             </div>
           </div>
@@ -317,7 +323,7 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                     <span style={{ width: progressOf(p.done, p.total) + '%' }} />
                   </div>
                   <span className="bp-node-progress__label">
-                    {p.done} of {p.total} steps done
+                    {p.done} of {p.total} stages done
                   </span>
                 </div>
 
@@ -330,7 +336,7 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                   */}
                   <li className="bp-ms bp-ms--head" aria-hidden="true">
                     <span />
-                    <span>Step</span>
+                    <span>Stage</span>
                     <span>Owner</span>
                     <span>Status</span>
                     <span>Target date</span>
@@ -383,7 +389,7 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                               'Completed on ' +
                               String(m.completed_at).slice(0, 10) +
                               (m.completed_by ? ' by ' + m.completed_by : '') +
-                              ' — done steps cannot be reopened'
+                              ' — done stages cannot be reopened'
                             }
                           >
                             {MILESTONE_STATUS_LABEL.done}
@@ -396,7 +402,7 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                             onChange={(e) => changeStatus(m, e.target.value as MilestoneStatus)}
                             title={
                               mine
-                                ? 'You are accountable for this step'
+                                ? 'You are accountable for this stage'
                                 : person
                                   ? `Only ${person.full_name} can mark this one as done`
                                   : 'No accountable person assigned — nobody can close it'
@@ -432,7 +438,7 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                         <button
                           type="button"
                           className={'bp-icon-btn' + (openNotes === m.enrollment_milestone_key ? ' is-on' : '')}
-                          title="Notes on this step"
+                          title="Stage notes"
                           onClick={() =>
                             setOpenNotes((k) => (k === m.enrollment_milestone_key ? null : m.enrollment_milestone_key))
                           }
@@ -452,7 +458,7 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                       </li>
                     );
                   })}
-                  {node.milestones.length === 0 && <li className="bp-muted-line">No milestones in this node.</li>}
+                  {node.milestones.length === 0 && <li className="bp-muted-line">No stages in this node.</li>}
                 </ul>
 
                 <NotesPanel
@@ -476,7 +482,8 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
             {/*
               Editar el plan de ESTA persona. Va detrás de un botón porque no es
               lo que se hace todos los días: lo habitual es marcar pasos, no
-              reestructurar el plan. Recién activado arranca abierto.
+              reestructurar el plan. Arranca cerrado siempre, incluso recién
+              activado (etapa BP25).
             */}
             <button type="button" className="bp-btn bp-btn--small" onClick={() => setEditing((v) => !v)}>
               {editing ? 'Close editor' : 'Edit plan'}

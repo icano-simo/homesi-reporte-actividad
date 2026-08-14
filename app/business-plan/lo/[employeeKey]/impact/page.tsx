@@ -150,7 +150,7 @@ export default function ImpactPage({ params }: { params: Promise<{ employeeKey: 
                 <span className="bp-ring__pct">{progressOf(totals.done, totals.total)}%</span>
               </div>
               <div className="bp-ring__label">
-                {totals.done} of {totals.total} steps · plan progress
+                {totals.done} of {totals.total} stages · plan progress
               </div>
             </div>
           </div>

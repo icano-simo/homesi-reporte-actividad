@@ -248,7 +248,7 @@ export default function SequenceBuilder({
                     DAY {range.fromDay}-{range.toDay}
                   </div>
                   <div className="bp-builder__card-name">{node?.name ?? 'unknown node'}</div>
-                  <div className="bp-builder__card-sub">{count} milestones</div>
+                  <div className="bp-builder__card-sub">{count} stages</div>
 
                   <div className="bp-builder__reorder">
                     <button
@@ -298,7 +298,7 @@ export default function SequenceBuilder({
                   {confirmRemove === nodeKey && (
                     <div className="bp-builder__confirm" onClick={(e) => e.stopPropagation()}>
                       <p>
-                        Remove <strong>{node?.name}</strong> from this funnel? Its {count} steps go with it.
+                        Remove <strong>{node?.name}</strong> from this funnel? Its {count} stages go with it.
                       </p>
                       <p className="bp-builder__confirm-note">The node stays in the library.</p>
                       <div className="bp-builder__confirm-actions">

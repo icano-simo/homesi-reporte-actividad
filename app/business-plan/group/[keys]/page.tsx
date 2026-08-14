@@ -131,7 +131,7 @@ export default function GroupReviewPage({ params }: { params: Promise<{ keys: st
           */}
           <div className="bp-group-note">
             <strong>This verdict is informative.</strong> It uses the same rules as an individual one, applied to the
-            added-up numbers — but it triggers no Business Plan. Plans belong to people: a group has no funnel, no steps
+            added-up numbers — but it triggers no Business Plan. Plans belong to people: a group has no funnel, no stages
             and nobody accountable for them. To act, open a member below.
           </div>
 

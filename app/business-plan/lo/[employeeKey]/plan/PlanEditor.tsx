@@ -188,7 +188,7 @@ export default function PlanEditor({
             <li key={n.enrollment_node_key} className="bp-editor__node">
               <span className="bp-editor__pos">{i + 1}</span>
               <span className="bp-editor__name">{n.name}</span>
-              <span className="bp-editor__count">{n.milestones.length} milestones</span>
+              <span className="bp-editor__count">{n.milestones.length} stages</span>
               <div className="bp-actions">
                 <button type="button" className="bp-icon-btn" disabled={busy || i === 0} title="Move earlier" onClick={() => reorder(n.enrollment_node_key, -1)}>
                   ↑
@@ -205,7 +205,7 @@ export default function PlanEditor({
                 <button
                   type="button"
                   className="bp-icon-btn"
-                  title="Add a milestone to this node"
+                  title="Add a stage to this node"
                   disabled={busy}
                   onClick={() => setDialog({ kind: 'ms-form', nodeKey: n.enrollment_node_key, milestone: null })}
                 >
@@ -238,7 +238,7 @@ export default function PlanEditor({
                         className="bp-inline-input"
                         value={m.accountable_employee_key ?? ''}
                         disabled={busy || locked}
-                        title={locked ? 'Completed milestones cannot be edited' : 'Change the accountable person'}
+                        title={locked ? 'Completed stages cannot be edited' : 'Change the accountable person'}
                         onChange={(e) =>
                           run(() =>
                             bp()
@@ -261,7 +261,7 @@ export default function PlanEditor({
                           type="button"
                           className="bp-icon-btn"
                           disabled={busy || locked}
-                          title={locked ? 'Completed milestones cannot be edited' : 'Edit'}
+                          title={locked ? 'Completed stages cannot be edited' : 'Edit'}
                           onClick={() => setDialog({ kind: 'ms-form', nodeKey: n.enrollment_node_key, milestone: m })}
                         >
                           ✎
@@ -270,7 +270,7 @@ export default function PlanEditor({
                           type="button"
                           className="bp-icon-btn bp-icon-btn--danger"
                           disabled={busy || locked}
-                          title={locked ? 'Completed milestones cannot be deleted' : 'Delete'}
+                          title={locked ? 'Completed stages cannot be deleted' : 'Delete'}
                           onClick={() => setDialog({ kind: 'ms-delete', milestone: m })}
                         >
                           <CloseIcon size={12} />

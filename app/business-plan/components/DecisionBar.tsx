@@ -56,7 +56,7 @@ export default function DecisionBar({
         <div className="bp-decision__text">
           <div className="bp-decision__title">{p.funnelName}</div>
           <p className="bp-decision__why">
-            {p.doneMilestones} of {p.totalMilestones} steps · {pct}% · started {p.activatedAt.slice(0, 10)}
+            {p.doneMilestones} of {p.totalMilestones} stages · {pct}% · started {p.activatedAt.slice(0, 10)}
           </p>
         </div>
         <div className="bp-decision__actions">

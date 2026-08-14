@@ -236,7 +236,7 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
                         {lo.activePlan && (
                           <span
                             className="bp-plan-chip"
-                            title={`${lo.activePlan.funnelName} · ${lo.activePlan.doneMilestones} of ${lo.activePlan.totalMilestones} steps`}
+                            title={`${lo.activePlan.funnelName} · ${lo.activePlan.doneMilestones} of ${lo.activePlan.totalMilestones} stages`}
                           >
                             plan {lo.activePlan.doneMilestones}/{lo.activePlan.totalMilestones}
                           </span>

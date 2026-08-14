@@ -143,7 +143,7 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
                 {lo.activePlan.funnelName}
               </span>
               <span className="bp-plan-banner__meta">
-                {lo.activePlan.doneMilestones} of {lo.activePlan.totalMilestones} steps · since{' '}
+                {lo.activePlan.doneMilestones} of {lo.activePlan.totalMilestones} stages · since{' '}
                 {lo.activePlan.activatedAt.slice(0, 10)}
               </span>
               <span className="bp-plan-banner__cta">See progress →</span>

@@ -109,7 +109,7 @@ export default function TeamPage() {
         <div>
           <h1 className="page-head__title">What I am accountable for</h1>
           <p className="page-head__subtitle">
-            Every active plan, consolidated by person — the steps assigned to you and the stages you own.
+            Every active plan, consolidated by person — the stages assigned to you and the nodes you own.
           </p>
         </div>
         {data && data.team.length > 0 && (
@@ -174,14 +174,14 @@ export default function TeamPage() {
               <p className="bp-team-head__meta">{viewing.job_title ?? '—'}</p>
             </div>
             <div className="bp-team-head__counts">
-              <span className="bp-pill bp-pill--sky">{openCount} open steps</span>
+              <span className="bp-pill bp-pill--sky">{openCount} open stages</span>
               {overdueCount > 0 && <span className="bp-pill bp-pill--late">{overdueCount} overdue</span>}
-              <span className="bp-pill bp-pill--sky">{myNodes.length} stages owned</span>
+              <span className="bp-pill bp-pill--sky">{myNodes.length} nodes owned</span>
             </div>
           </div>
 
           {/* ── Pasos asignados ─────────────────────────────────────────────── */}
-          <h3 className="bp-section-title">Steps assigned to {viewing.full_name.split(' ')[0]}</h3>
+          <h3 className="bp-section-title">Stages assigned to {viewing.full_name.split(' ')[0]}</h3>
           <div className="tbl-card">
             <div className="tbl-scroll">
             <table className="piv bp-table--team">
@@ -200,7 +200,7 @@ export default function TeamPage() {
                   <th className="bp-center">Branch</th>
                   <th className="bp-left">Funnel</th>
                   <th className="bp-left">Node</th>
-                  <th className="bp-left">Step</th>
+                  <th className="bp-left">Stage</th>
                   <th className="bp-center">Status</th>
                   <th className="bp-center">Target date</th>
                 </tr>
@@ -241,7 +241,7 @@ export default function TeamPage() {
                 {mySteps.length === 0 && (
                   <tr>
                     <td className="lbl bp-empty-cell" colSpan={7}>
-                      No steps assigned across the active plans.
+                      No stages assigned across the active plans.
                     </td>
                   </tr>
                 )}
@@ -251,9 +251,9 @@ export default function TeamPage() {
           </div>
 
           {/* ── Etapas de las que es responsable ────────────────────────────── */}
-          <h3 className="bp-section-title">Stages owned</h3>
+          <h3 className="bp-section-title">Nodes owned</h3>
           <p className="bp-muted-line">
-            Being accountable for a stage is not the same as having its steps assigned — it means answering for the stage
+            Being accountable for a node is not the same as having its stages assigned — it means answering for the node
             moving forward, whoever executes it.
           </p>
           <div className="tbl-card">

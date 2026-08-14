@@ -2147,3 +2147,121 @@ que cada quien conserva su color en todas las pantallas.
 La excepción declarada es el menú lateral, donde el item activo en coral sólido
 se queda: ahí el contraste es contra el fondo de la barra, no contra contenido
 que viva adentro.
+
+## Etapa BP25 — presentación, consistencia y una regresión propia
+
+### "Stages", y el vocabulario que quedaba a medias
+
+Los pasos de un nodo se llaman **Stages** en toda la interfaz. El rename tocó
+sólo texto visible: tablas, columnas y variables siguen diciendo `milestone`,
+que es como está en la base.
+
+Lo que **no** se tocó: el `milestone` de un préstamo, que viene de Salesforce y
+es otra cosa. Sigue llamándose milestone en el modal de detalle de préstamos, en
+la nota de cálculo y en las tasas de Settings. Renombrarlo ahí habría fundido
+dos conceptos que el módulo tiene separados desde BP5.
+
+Además del rename pedido se unificó **"step" → "stage"** en las pantallas donde
+convivían las dos palabras para lo mismo: la cabecera de la lista de pasos del
+plan, el explorador de funnels, BP Team y el impacto. Dos nombres para un solo
+objeto es la inconsistencia que el rename venía a sacar; dejar la mitad habría
+sido peor que no empezar.
+
+Un efecto colateral: en BP Team, "Stages owned" pasó a ser **"Nodes owned"**.
+Con los pasos llamándose stages, esa sección decía que alguien "responde por
+stages" cuando por lo que responde es por un NODO. La ambigüedad la creó el
+rename, así que se arregla en el rename.
+
+### Nombres de nodo duplicados
+
+⚠ Nació de un duplicado real: convivieron "Cold Calling" y "Cold calling", y el
+segundo se coló en tres funnels antes de que alguien lo notara.
+
+`node.name` **es** único, y aun así pasó: en Postgres `text` distingue
+mayúsculas, así que para la base son dos nombres distintos. Una mayúscula de más
+alcanza, y un espacio doble también.
+
+`findNodeNameClash` (función pura, en `funnels.ts`) normaliza como lo hace un
+humano al leer -- trim, espacios colapsados, minúsculas -- y devuelve **el
+nombre ya guardado**, no un booleano: decir "ya existe" sin decir cuál obliga a
+ir a buscarlo, y el que existe casi nunca se escribe igual que el que se está
+intentando crear.
+
+Se aplica en los DOS caminos, no sólo al crear: el formulario de alta y el
+renombre en línea de la tabla. Renombrar es la otra forma de fabricar el
+duplicado, y taparle sólo una puerta al problema no lo cierra.
+
+**TODO para el revisor**, fuera de alcance de esta etapa: lo correcto de verdad
+es un índice único sobre `lower(btrim(name))`. Esto es una defensa de
+aplicación; la base sigue aceptando el duplicado si algo escribe sin pasar por
+la app.
+
+### El editor del plan arranca cerrado
+
+Abrirlo al activar (BP20) era pasarse de listo: lo primero que ve alguien recién
+enrolado es su plan, no un formulario para reestructurarlo, y el editor empujaba
+la lista de stages fuera de la pantalla justo cuando quiere ver qué le tocó. El
+aviso de "podés ajustarlo antes de arrancar" se queda y ahora señala el botón.
+
+### El avatar vuelve al navy
+
+Se revierten BP21 (un tono por persona, elegido por hash del nombre) y BP24 (de
+relleno a contorno). El motivo es de lectura: seis tonos repartidos por hash
+llenaban una lista de pasos de colores que **no codifican nada** -- ni rol, ni
+estado, ni urgencia -- y le ganaban la atención a las píldoras de estado y de
+fecha, que sí la tienen.
+
+Con el tono se fue `avatarToneOf`. Si alguna vez vuelve a hacer falta, la regla
+que valía sigue valiendo: el color sale del NOMBRE y no de la posición en la
+lista, o la misma persona cambia de color entre pantallas.
+
+### El stepper del preview, en una sola fila
+
+Un funnel es una SECUENCIA. Envuelta en tres filas deja de leerse como una: con
+diez nodos, la forma del funnel desaparecía debajo de sí misma.
+
+Esto reemplaza a la grilla de columnas fijas de BP21, que existía únicamente
+para poder ocultar la flecha del último de cada fila con `:nth-child(4n)`. Sin
+filas no hay último de fila: la única flecha que sobra es la del último nodo, y
+para eso alcanza `:last-child`. **El problema de BP21 desapareció junto con su
+causa** — la regla se borró en vez de quedar dando vueltas.
+
+`flex-shrink: 0` en las tarjetas y en los huecos es lo que hace que aparezca el
+scroll: sin él, flexbox las aprieta hasta que entren y con diez nodos quedan
+ilegibles en vez de scrollear.
+
+### Vista de flujo de los stages
+
+Dos vistas del mismo nodo, con un conmutador que reusa `.seg`:
+
+- **List** (por defecto) — la vista de TRABAJO: SLA, posición, editar y borrar.
+- **Flow** — la vista de LECTURA: los stages en secuencia horizontal con su
+  responsable al frente, que es lo que se quiere ver al explicarle el nodo a
+  alguien. Un clic en una tarjeta abre su edición, para no obligar a volver a la
+  lista para corregir algo que se acaba de ver mal.
+
+La lista es la de por defecto porque es donde se hacen cosas; arrancar en la de
+leer costaría un clic extra en el caso habitual.
+
+### ⚠ Una regresión propia, encontrada al repasar
+
+El primer intento de poner el nombre al lado del icono en la biblioteca puso
+`display: flex` **en el `td`**. Eso saca a la celda del algoritmo de tabla: deja
+de ser celda, y con `table-layout: fixed` -- que es lo que usan estas tablas
+desde UX2 -- se lleva puestos los anchos de todas las columnas de la fila.
+
+Se corrigió antes de commitear: el flex vive en un `<span>` de adentro y el `td`
+sigue siendo un `td`. La causa real del problema era otra y más chica: el
+`width: 100%` del input de edición en línea ocupaba la celda entera y empujaba
+al icono a su propio renglón.
+
+Queda anotado porque es un error fácil de repetir: cualquier `display` que no
+sea de tabla sobre un `td` o un `tr` rompe el layout entero, y el síntoma
+aparece en columnas que uno no tocó.
+
+### El icono dentro de una tabla va en claro
+
+`.bp-glyph--strong` es navy pleno y funciona junto a un título grande -- ahí es
+una chapa. Repetido en cada fila armaba una columna de cuadrados oscuros que
+pesaba más que los nombres, que es lo que la tabla existe para mostrar. Dentro
+de una celda se dibuja el glifo solo.

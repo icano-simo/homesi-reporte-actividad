@@ -34,7 +34,10 @@ import { Avatar } from '../../../components/shared';
  * Los nodos van arriba en fila, conectados por flechas, y abajo se abre el
  * detalle del seleccionado. Un acordeón vertical obligaba a abrir y cerrar para
  * comparar dos nodos, y escondía la forma del funnel -- que es justamente lo
- * primero que alguien quiere ver: cuántos pasos son y en qué orden.
+ * primero que alguien quiere ver: cuántos nodos son y en qué orden.
+ *
+ * Etapa BP25: una sola fila con scroll. Ver el comentario del `.bp-fstep` en
+ * bp-visual.css.
  */
 
 export default function FunnelExplorer({
@@ -94,7 +97,7 @@ export default function FunnelExplorer({
           <h2 className="bp-fhead__name">{funnel.name}</h2>
           <div className="bp-fhead__meta">
             <span className="bp-pill bp-pill--sky">{ordered.length} nodes</span>
-            <span className="bp-pill bp-pill--sky">{total} steps</span>
+            <span className="bp-pill bp-pill--sky">{total} stages</span>
             {funnel.duration_weeks && <span className="bp-pill bp-pill--sky">~{funnel.duration_weeks} weeks</span>}
           </div>
         </div>
@@ -110,12 +113,12 @@ export default function FunnelExplorer({
           const isActive = nodeKey === active;
           return (
             /*
-              ⚠ LA FLECHA DEL ÚLTIMO DE CADA FILA — etapa BP21.
-              Cuando la secuencia envuelve, el último de la primera fila
-              apuntaba al borde del modal, como si el flujo siguiera hacia
-              afuera. Se resuelve en el CSS: la grilla tiene un número FIJO de
-              columnas, y por eso `:nth-child(4n)` sabe cuál es el último de cada
-              fila. Con `flex-wrap` no habría selector que lo supiera.
+              Etapa BP25: los nodos van en UNA sola fila con scroll horizontal.
+              Un funnel es una secuencia, y envuelta en tres filas deja de
+              leerse como una. Eso disuelve tambien el problema de BP21 -- la
+              flecha que apuntaba al borde era la del ultimo de cada fila, y sin
+              filas la unica que sobra es la del ultimo nodo, que el CSS oculta
+              con `:last-child`.
             */
             <div key={nodeKey} className="bp-fstep__slot">
               <button
@@ -129,7 +132,7 @@ export default function FunnelExplorer({
                   {node?.name ?? 'unknown node'}
                 </span>
                 <span className="bp-pill bp-pill--sky">
-                  {count} steps · day {ranges[i].fromDay}–{ranges[i].toDay}
+                  {count} stages · day {ranges[i].fromDay}–{ranges[i].toDay}
                 </span>
                 {nodeOwners.length > 0 && (
                   <span className="bp-fstep__owners">
@@ -200,7 +203,7 @@ export default function FunnelExplorer({
                 </li>
               );
             })}
-            {activeSteps.length === 0 && <li className="bp-muted">This node has no steps yet.</li>}
+            {activeSteps.length === 0 && <li className="bp-muted">This node has no stages yet.</li>}
           </ul>
         </div>
       )}

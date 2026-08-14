@@ -6,6 +6,7 @@ import { useFunnelLibrary } from '@/lib/business-plan/useFunnelLibrary';
 import {
   canDeleteFunnel,
   checkNodeDelete,
+  findNodeNameClash,
   funnelStats,
   type Funnel,
   type FunnelCategory,
@@ -16,7 +17,7 @@ import { AlertTriangleIcon, CloseIcon } from '@/components/ui/icons';
 import { FunnelGlyph } from '../components/funnelIcons';
 import Breadcrumbs from '../components/Breadcrumbs';
 import Modal from '../components/Modal';
-import { ErrorState, LoadingState } from '../components/shared';
+import { Avatar, ErrorState, LoadingState } from '../components/shared';
 import SequenceBuilder from './SequenceBuilder';
 import { ConfirmDelete, FunnelForm, MilestoneForm, NodeForm } from './LibraryForms';
 
@@ -95,6 +96,9 @@ export default function FunnelLibraryPage() {
     }
   }
 
+  /* Lista o flujo dentro del detalle de un nodo. Etapa BP25. */
+  const [stageView, setStageView] = useState<'list' | 'flow'>('list');
+
   const stats = useMemo(() => {
     if (!data) return new Map<number, ReturnType<typeof funnelStats>>();
     return new Map(
@@ -129,6 +133,11 @@ export default function FunnelLibraryPage() {
   }, [data, nodeFilter]);
 
   const dlgNode = dialog && 'node' in dialog ? dialog.node : null;
+  /* Los stages del nodo abierto, en orden. Una sola vez: las dos vistas del
+     detalle los recorren, y filtrar dos veces las dejaba libres de discrepar. */
+  const nodeStages = (data?.milestones ?? [])
+    .filter((m) => dlgNode !== null && m.node_key === dlgNode.node_key)
+    .sort((a, b) => a.position - b.position);
 
   return (
     <>
@@ -205,7 +214,7 @@ export default function FunnelLibraryPage() {
                       <th className="lbl">Funnel</th>
                       <th className="bp-center">Category</th>
                       <th className="bp-left">Nodes, in order</th>
-                      <th className="bp-center">Sub-ms</th>
+                      <th className="bp-center">Stages</th>
                       <th className="bp-center">Weeks</th>
                       <th className="bp-center">In use</th>
                       <th className="bp-center">Actions</th>
@@ -227,17 +236,28 @@ export default function FunnelLibraryPage() {
                               Etapa BP21: el icono que se elige en el formulario,
                               visible en la tabla. Sin esto no habia forma de
                               saber cual tenia cada funnel sin abrir el editor.
+                              Etapa BP25: en claro. `--strong` es navy pleno y
+                              repetido por fila armaba una columna de cuadrados
+                              oscuros que pesaba mas que los nombres.
+
+                              ⚠ El `flex` va en un SPAN de adentro, nunca en el
+                              `td`. Un `display: flex` sobre una celda la saca del
+                              algoritmo de tabla: deja de ser celda y con
+                              `table-layout: fixed` se lleva puestos los anchos de
+                              todas las columnas.
                             */}
-                            <FunnelGlyph icon={f.icon} size={15} tone="strong" />
-                            <input
-                              className="bp-inline-input bp-inline-input--name"
-                              defaultValue={f.name}
-                              disabled={busy}
-                              onBlur={(e) => {
-                                if (e.target.value !== f.name && e.target.value.trim() !== '')
-                                  run(() => bp().from('funnel').update({ name: e.target.value.trim() }).eq('funnel_key', f.funnel_key), false);
-                              }}
-                            />
+                            <span className="bp-name-cell">
+                              <FunnelGlyph icon={f.icon} size={15} />
+                              <input
+                                className="bp-inline-input bp-inline-input--name"
+                                defaultValue={f.name}
+                                disabled={busy}
+                                onBlur={(e) => {
+                                  if (e.target.value !== f.name && e.target.value.trim() !== '')
+                                    run(() => bp().from('funnel').update({ name: e.target.value.trim() }).eq('funnel_key', f.funnel_key), false);
+                                }}
+                              />
+                            </span>
                             {!f.is_active && <span className="bp-chip">inactive</span>}
                             {f.is_example && <span className="bp-chip">example</span>}
                           </td>
@@ -382,7 +402,7 @@ export default function FunnelLibraryPage() {
                   <thead>
                     <tr className="mo-row">
                       <th className="lbl">Node</th>
-                      <th className="bp-center">Milestones</th>
+                      <th className="bp-center">Stages</th>
                       {/* La columna que faltaba: la relación, visible. */}
                       <th className="bp-left">Used in funnels</th>
                       <th className="bp-center">Accountable</th>
@@ -399,17 +419,29 @@ export default function FunnelLibraryPage() {
                         .filter(Boolean);
                       return (
                         <tr key={n.node_key} className="metric">
+                          {/* Etapa BP25: el nombre AL LADO del icono, no debajo. */}
                           <td className="lbl bp-wrap">
-                            <FunnelGlyph icon={n.icon} size={15} tone="strong" />
+                            <span className="bp-name-cell">
+                            <FunnelGlyph icon={n.icon} size={15} />
                             <input
                               className="bp-inline-input bp-inline-input--name"
                               defaultValue={n.name}
                               disabled={busy}
                               onBlur={(e) => {
-                                if (e.target.value !== n.name && e.target.value.trim() !== '')
-                                  run(() => bp().from('node').update({ name: e.target.value.trim() }).eq('node_key', n.node_key), false);
+                                const next = e.target.value.trim();
+                                if (next === n.name || next === '') return;
+                                /* La misma puerta que en el formulario: renombrar
+                                   es la otra forma de crear el duplicado. */
+                                const clash = findNodeNameClash(next, data.nodes, n.node_key);
+                                if (clash) {
+                                  e.target.value = n.name;
+                                  setOpError('A node called "' + clash + '" already exists — the rename was undone.');
+                                  return;
+                                }
+                                run(() => bp().from('node').update({ name: next }).eq('node_key', n.node_key), false);
                               }}
                             />
+                            </span>
                           </td>
                           <td className="bp-center">{mine.length}</td>
                           <td className="bp-left bp-wrap">
@@ -427,7 +459,7 @@ export default function FunnelLibraryPage() {
                           </td>
                           <td className="bp-center">
                             <div className="bp-actions">
-                              <button type="button" className="bp-icon-btn" title="Milestones" onClick={() => setDialog({ kind: 'node-detail', node: n })}>
+                              <button type="button" className="bp-icon-btn" title="Stages" onClick={() => setDialog({ kind: 'node-detail', node: n })}>
                                 ☰
                               </button>
                               <button type="button" className="bp-icon-btn" title="Edit node" onClick={() => setDialog({ kind: 'node-form', node: n })}>
@@ -554,6 +586,26 @@ export default function FunnelLibraryPage() {
               onClose={() => setDialog(null)}
               onSave={(d) =>
                 run(async () => {
+                  /*
+                   * ⚠ Etapa BP25. Convivieron "Cold Calling" y "Cold calling",
+                   * y el segundo se coló en tres funnels antes de que alguien lo
+                   * notara. La columna ES unica, pero `text` distingue
+                   * mayusculas: para la base eran dos nombres distintos.
+                   *
+                   * Se devuelve un `error` con la misma forma que los de
+                   * PostgREST para que `run` lo muestre igual que cualquier otro
+                   * -- sin una segunda via de mensajes de error que mantener.
+                   */
+                  const clash = findNodeNameClash(d.name, data.nodes, dialog.node?.node_key ?? null);
+                  if (clash) {
+                    return {
+                      error: {
+                        message:
+                          'A node called "' + clash + '" already exists. Names must be different beyond upper/lower ' +
+                          'case and spacing — use that one, or pick another name.',
+                      },
+                    };
+                  }
                   const row = { name: d.name.trim(), description: d.description.trim() || null, icon: d.icon.trim() || null };
                   let nodeKey = dialog.node?.node_key;
                   if (nodeKey) {
@@ -604,7 +656,7 @@ export default function FunnelLibraryPage() {
                 if (chk.usedIn.length === 0) return 'This node is not used by any funnel.';
                 return `It will be removed from ${chk.usedIn.length} funnel(s): ${chk.usedIn.map((u) => u.name).join(', ')}. Its ${
                   data.milestones.filter((m) => m.node_key === dlgNode.node_key).length
-                } milestones go with it.`;
+                } stages go with it.`;
               })()}
               blockedReason={checkNodeDelete(dlgNode.node_key, data.links, data.funnels, data.enrollmentsByFunnel).reason}
               onClose={() => setDialog(null)}
@@ -613,28 +665,47 @@ export default function FunnelLibraryPage() {
           )}
 
           {dialog?.kind === 'node-detail' && dlgNode && (
-            <Modal title={dlgNode.name + ' — milestones'} onClose={() => setDialog(null)}>
+            <Modal title={dlgNode.name + ' — stages'} onClose={() => setDialog(null)}>
               <p className="bp-modal__lead">
                 Used in: {funnelsOf(dlgNode.node_key).map((f) => f.name).join(', ') || 'no funnel yet'} ·{' '}
                 <button type="button" className="bp-linkish" onClick={() => setDialog({ kind: 'node-form', node: dlgNode })}>
                   change funnels and accountable people
                 </button>
               </p>
-              <table className="piv">
-                <thead>
-                  <tr className="mo-row">
-                    <th className="lbl">Milestone</th>
-                    <th className="bp-left">Accountable</th>
-                    <th className="bp-center">SLA</th>
-                    <th className="bp-center">Pos</th>
-                    <th className="bp-center">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.milestones
-                    .filter((m) => m.node_key === dlgNode.node_key)
-                    .sort((a, b) => a.position - b.position)
-                    .map((m) => (
+
+              {/*
+                ⚠ DOS VISTAS DE LO MISMO — etapa BP25.
+                La lista es la vista de TRABAJO: tiene el SLA, la posición y los
+                botones de editar y borrar. El flujo es la vista de LECTURA: los
+                pasos en secuencia con su responsable al frente, que es lo que se
+                quiere ver al explicarle el nodo a alguien.
+                La lista es la de por defecto porque es donde se hacen cosas;
+                arrancar en la de leer costaría un clic extra en el caso habitual.
+              */}
+              <div className="bp-view-toggle">
+                <div className="seg">
+                  <button type="button" className={stageView === 'list' ? 'on' : ''} onClick={() => setStageView('list')}>
+                    List
+                  </button>
+                  <button type="button" className={stageView === 'flow' ? 'on' : ''} onClick={() => setStageView('flow')}>
+                    Flow
+                  </button>
+                </div>
+              </div>
+
+              {stageView === 'list' ? (
+                <table className="piv">
+                  <thead>
+                    <tr className="mo-row">
+                      <th className="lbl">Stage</th>
+                      <th className="bp-left">Accountable</th>
+                      <th className="bp-center">SLA</th>
+                      <th className="bp-center">Pos</th>
+                      <th className="bp-center">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {nodeStages.map((m) => (
                       <tr key={m.milestone_key} className="metric">
                         <td className="lbl bp-wrap">{m.title}</td>
                         <td className="bp-left">
@@ -666,15 +737,69 @@ export default function FunnelLibraryPage() {
                         </td>
                       </tr>
                     ))}
-                </tbody>
-              </table>
+                    {nodeStages.length === 0 && (
+                      <tr>
+                        <td className="lbl bp-empty-cell" colSpan={5}>
+                          This node has no stages yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              ) : (
+                /*
+                  Una sola fila con scroll, mismo criterio que el stepper del
+                  preview: una secuencia envuelta en varias filas deja de leerse
+                  como una secuencia. Se edita con un clic en la tarjeta, para no
+                  obligar a volver a la lista para corregir algo que se acaba de
+                  ver mal.
+                */
+                <div className="bp-flow">
+                  {nodeStages.map((m, i) => {
+                    const who = data.support.find((s) => s.employee_key === m.accountable_employee_key) ?? null;
+                    return (
+                      <div key={m.milestone_key} className="bp-flow__slot">
+                        <button
+                          type="button"
+                          className="bp-flow__card"
+                          title="Edit this stage"
+                          onClick={() => setDialog({ kind: 'ms-form', nodeKey: dlgNode.node_key, milestone: m })}
+                        >
+                          <span className="bp-flow__n">
+                            STAGE {i + 1}
+                            {m.sla_days !== null && <> · day {m.sla_days}</>}
+                          </span>
+                          <span className="bp-flow__title">{m.title}</span>
+                          {/* El responsable AL FRENTE: es la pregunta que trae a
+                              alguien a esta vista. */}
+                          <span className="bp-flow__who">
+                            {who ? (
+                              <>
+                                <Avatar name={who.full_name} title={who.job_title ?? who.full_name} />
+                                {who.full_name}
+                              </>
+                            ) : (
+                              <span className="bp-muted">unassigned</span>
+                            )}
+                          </span>
+                        </button>
+                        <span className="bp-flow__arrow" aria-hidden="true">
+                          →
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {nodeStages.length === 0 && <p className="bp-flow__empty">This node has no stages yet.</p>}
+                </div>
+              )}
+
               <div className="bp-form__actions">
                 <button
                   type="button"
                   className="bp-btn bp-btn--small"
                   onClick={() => setDialog({ kind: 'ms-form', nodeKey: dlgNode.node_key, milestone: null })}
                 >
-                  + New milestone
+                  + New stage
                 </button>
               </div>
             </Modal>
@@ -706,11 +831,11 @@ export default function FunnelLibraryPage() {
 
           {dialog?.kind === 'ms-delete' && (
             <ConfirmDelete
-              what={'milestone "' + dialog.milestone.title + '"'}
+              what={'stage "' + dialog.milestone.title + '"'}
               busy={busy}
               /* En la plantilla se borra libre: los planes ya activados tienen
                  su copia y no se ven afectados. */
-              warning="Plans already activated keep their own copy of this milestone."
+              warning="Plans already activated keep their own copy of this stage."
               onClose={() => setDialog(null)}
               onConfirm={() => run(() => bp().from('node_milestone').delete().eq('milestone_key', dialog.milestone.milestone_key))}
             />
