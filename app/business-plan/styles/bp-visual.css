@@ -600,44 +600,8 @@ table.piv.bp-table--los th {
 .bp-chart-card {
   padding: 16px 18px 12px;
 }
-.bp-stats {
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.bp-stat__label {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--slate-400);
-}
-.bp-stat__value {
-  font-family: var(--font-display);
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--navy);
-  font-variant-numeric: tabular-nums;
-}
 /* El promedio CON mes actual es el que alimenta el GAP: va grande. El de meses
    cerrados va al lado, más chico, porque es contexto y no entra en el cálculo. */
-.bp-stat--hero .bp-stat__value {
-  font-size: 30px;
-  line-height: 1.1;
-}
-.bp-stat__value--small {
-  font-size: 16px;
-}
-.bp-stat__sub {
-  display: block;
-  font-family: var(--font-body);
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--slate-400);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
 
 /* Color del GAP según su estado. */
 .bp-gap--ok {
@@ -1099,4 +1063,161 @@ table.piv.bp-table--los th {
   font-size: 11px;
   line-height: 1.45;
   color: var(--slate-500);
+}
+
+/* ===========================================================================
+ * 10. Etapa BP7b — panel del Qualifier 1 en filas, Qualifier 2 en tarjetas
+ * =========================================================================== */
+
+/*
+ * PANEL DE ESTADÍSTICAS. Una fila por métrica: etiqueta pegada al borde
+ * izquierdo, valor pegado al derecho. Antes cada métrica ocupaba dos renglones
+ * (etiqueta arriba en gris, valor abajo) y el panel se leía como una lista de
+ * párrafos en vez de una ficha de datos.
+ */
+.bp-stats {
+  padding: 6px 16px;
+  display: flex;
+  flex-direction: column;
+}
+.bp-stat {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--slate-100);
+}
+.bp-stat:last-child {
+  border-bottom: none;
+}
+.bp-stat__label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+  /* No se parte en dos líneas: la fila dejaría de leerse como una fila. */
+  line-height: 1.3;
+}
+.bp-stat__value {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/*
+ * El promedio CON mes actual es el que alimenta el GAP: va notablemente más
+ * grande que el resto. La jerarquía es el mensaje -- de todas las cifras del
+ * panel, esta es la que decide.
+ */
+.bp-stat--hero .bp-stat__value {
+  font-size: 32px;
+  line-height: 1;
+}
+
+/*
+ * GAP: número y estado en la MISMA píldora, con el fondo del color del estado.
+ * Separados en dos renglones había que unirlos mentalmente para leer que −0,5
+ * está en riesgo.
+ */
+.bp-gap-pill {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.bp-gap-pill__state {
+  font-family: var(--font-body);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+/* Los tres estados reusan las mismas escalas que el resto del módulo. */
+.bp-gap-pill.bp-gap--ok {
+  background: var(--emerald-50);
+  color: var(--emerald-700);
+}
+.bp-gap-pill.bp-gap--warn {
+  background: var(--amber-50);
+  color: var(--amber-800);
+}
+.bp-gap-pill.bp-gap--risk {
+  background: var(--rose-50);
+  color: var(--coral);
+}
+
+/* ── Qualifier 2: una tarjeta por métrica ───────────────────────────────── */
+
+/*
+ * Reemplaza a la tabla. La tabla decía "No" y dejaba al lector restando para
+ * saber qué tan lejos estaba de la meta; acá la barra muestra la distancia de
+ * un vistazo y la píldora la pone en números.
+ */
+.bp-q2-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.bp-q2-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: var(--canvas);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+  padding: 12px 16px;
+}
+.bp-q2-card__name {
+  flex: 0 0 130px;
+  font-family: var(--font-display);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--navy);
+}
+.bp-q2-card__bar {
+  flex: 1;
+  min-width: 0;
+}
+.bp-q2-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--slate-100);
+  overflow: hidden;
+}
+.bp-q2-bar__fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--coral);
+  transition: width 0.2s ease;
+}
+/* Al llegar a la meta la barra pasa a verde: el color confirma la píldora.
+   `--emerald-700` y no un tono medio porque la escala del proyecto no tiene
+   500 -- agregar un token nuevo por una barra no se justifica. */
+.bp-q2-card.is-met .bp-q2-bar__fill {
+  background: var(--emerald-700);
+}
+.bp-q2-card__count {
+  margin-top: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--slate-600);
+  font-variant-numeric: tabular-nums;
+}
+/* Lo que suele producir: contexto, subordinado al conteo del mes. */
+.bp-q2-card__avg {
+  margin-left: 6px;
+  font-weight: 500;
+  color: var(--slate-400);
 }

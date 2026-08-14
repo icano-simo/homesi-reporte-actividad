@@ -204,6 +204,11 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
               />
             </div>
 
+            {/*
+             * Una línea por métrica: etiqueta a la izquierda, valor a la
+             * derecha. Antes cada una ocupaba dos renglones y el panel se leía
+             * como una lista de párrafos en vez de una ficha de datos.
+             */}
             <div className="mcard bp-stats">
               {/*
                * Los DOS promedios, y no para suavizar el veredicto: son
@@ -211,39 +216,49 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
                *   histórico bajo + proyección baja  = problema sostenido
                *   histórico bueno + proyección baja = se le secó el pipeline
                *   histórico bajo + proyección buena = ya está reaccionando
-               * El GAP sale SIEMPRE del que incluye el mes actual.
+               * El GAP sale SIEMPRE del que incluye el mes actual, y por eso
+               * ese va notablemente más grande que el resto.
                */}
               <div className="bp-stat bp-stat--hero">
-                <div className="bp-stat__label">Avg 3M (with current month)</div>
-                <div className="bp-stat__value" title={exactTitle(lo.q1.avgWithCurrent)}>
+                <span className="bp-stat__label">Avg 3M (with current month)</span>
+                <span className="bp-stat__value" title={exactTitle(lo.q1.avgWithCurrent)}>
                   {fmtAvg(lo.q1.avgWithCurrent)}
-                </div>
+                </span>
               </div>
               <div className="bp-stat">
-                <div className="bp-stat__label">Avg 3M (closed months)</div>
-                <div className="bp-stat__value bp-stat__value--small" title={exactTitle(lo.avgClosedMonths)}>
+                <span className="bp-stat__label">Avg 3M (closed months)</span>
+                <span className="bp-stat__value" title={exactTitle(lo.avgClosedMonths)}>
                   {fmtAvg(lo.avgClosedMonths)}
-                </div>
+                </span>
               </div>
               <div className="bp-stat">
-                <div className="bp-stat__label">Benchmark</div>
+                <span className="bp-stat__label">Benchmark</span>
                 <BenchmarkEditor lo={lo} onSaved={reload} />
               </div>
               <div className="bp-stat">
-                <div className="bp-stat__label">GAP</div>
-                {/* Un decimal SIEMPRE: redondear el GAP a entero convertiría
-                    un -0,5 en 0, o sea On Target. Cambiaría veredictos. */}
-                <div
-                  className={'bp-stat__value bp-stat__value--small ' + (lo.q1.state ? GAP_STATE_CLASS[lo.q1.state] : '')}
-                  title={lo.q1.gap === null ? undefined : exactTitle(lo.q1.gap)}
-                >
-                  {fmtGap(lo.q1.gap)}
-                </div>
-                {lo.q1.state && <div className="bp-stat__sub">{GAP_STATE_LABEL[lo.q1.state]}</div>}
+                <span className="bp-stat__label">GAP</span>
+                {/*
+                 * Número y estado en la MISMA píldora: separados en dos
+                 * renglones había que unirlos mentalmente para leer "−0,5 está
+                 * en riesgo". Un decimal siempre -- redondear a entero
+                 * convertiría un −0,5 en 0, o sea On Target, y cambiaría el
+                 * veredicto en vez de la presentación.
+                 */}
+                {lo.q1.gap === null ? (
+                  <span className="bp-muted">—</span>
+                ) : (
+                  <span
+                    className={'bp-gap-pill ' + (lo.q1.state ? GAP_STATE_CLASS[lo.q1.state] : '')}
+                    title={exactTitle(lo.q1.gap)}
+                  >
+                    <strong>{fmtGap(lo.q1.gap)}</strong>
+                    {lo.q1.state && <span className="bp-gap-pill__state">{GAP_STATE_LABEL[lo.q1.state]}</span>}
+                  </span>
+                )}
               </div>
               <div className="bp-stat">
-                <div className="bp-stat__label">YTD</div>
-                <div className="bp-stat__value bp-stat__value--small">{lo.ytdClosings}</div>
+                <span className="bp-stat__label">YTD</span>
+                <span className="bp-stat__value">{lo.ytdClosings}</span>
               </div>
             </div>
           </div>
@@ -254,44 +269,35 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
           {lo.q2.metrics.length === 0 ? (
             <p className="bp-muted-line">No benchmark on record, so the required volumes cannot be derived.</p>
           ) : (
-            <div className="tbl-card">
-              <div className="tbl-scroll">
-                <table className="piv bp-table--q2">
-                  <colgroup>
-                    <col className="bp-col-name" />
-                    <col className="bp-col-metric" />
-                    <col className="bp-col-metric" />
-                    <col className="bp-col-metric" />
-                    <col className="bp-col-status" />
-                  </colgroup>
-                  <thead>
-                    <tr className="mo-row">
-                      <th className="lbl">Metric</th>
-                      <th className="bp-center">Required</th>
-                      <th className="bp-center">{shortMonth(thisMonth)} so far</th>
-                      <th className="bp-center">Avg 3M closed</th>
-                      <th className="bp-center">Meets</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {lo.q2.metrics.map((m) => (
-                      <tr key={m.key} className="metric">
-                        <td className="lbl">{m.label}</td>
-                        <td className="bp-center">{m.required}</td>
-                        <td className="bp-center">{m.actual}</td>
-                        <td className="bp-center" title={exactTitle(m.trailingAvg)}>
-                          {fmtActivityAvg(m.trailingAvg)}
-                        </td>
-                        <td className="bp-center">
-                          <span className={m.meets ? 'badge badge--pill badge--emerald' : 'badge badge--pill badge--rose'}>
-                            {m.meets ? 'Yes' : 'No'}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+            /*
+             * Tarjetas y no una tabla. La tabla decía "No" y dejaba al lector
+             * restando para saber qué tan lejos estaba de la meta. Acá la barra
+             * muestra la distancia y la píldora la dice en números.
+             */
+            <div className="bp-q2-cards">
+              {lo.q2.metrics.map((m) => {
+                const short = Math.max(0, m.required - m.actual);
+                const pct = m.required <= 0 ? 0 : Math.min(100, (m.actual / m.required) * 100);
+                return (
+                  <div key={m.key} className={'bp-q2-card' + (m.meets ? ' is-met' : '')}>
+                    <div className="bp-q2-card__name">{m.label}</div>
+                    <div className="bp-q2-card__bar">
+                      <div className="bp-q2-bar">
+                        <div className="bp-q2-bar__fill" style={{ width: pct + '%' }} />
+                      </div>
+                      <div className="bp-q2-card__count">
+                        {m.actual} of {m.required}
+                        <span className="bp-q2-card__avg" title="Average of the three closed months">
+                          · usually {fmtActivityAvg(m.trailingAvg)}/month
+                        </span>
+                      </div>
+                    </div>
+                    <span className={m.meets ? 'badge badge--pill badge--emerald' : 'badge badge--pill badge--rose'}>
+                      {m.meets ? 'Met' : 'Short by ' + short}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           )}
 

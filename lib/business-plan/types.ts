@@ -314,6 +314,12 @@ export interface BusinessPlanData {
      * nota al pie tiene que mostrar la que se aplicó, no la de fábrica.
      */
     rates: RateSettings;
+    /**
+     * Personas con rol LO en un branch de división pero `is_active = false`.
+     * Se excluyen del módulo entero; se cuentan acá para que un cambio de
+     * roster que saque a media división no pase inadvertido.
+     */
+    inactiveExcluded: number;
     interventionTableAvailable: boolean;
   };
 }

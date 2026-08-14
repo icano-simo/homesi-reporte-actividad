@@ -132,6 +132,11 @@ export function Diagnostics({ data }: { data: BusinessPlanData }) {
         <code>{d.excludedNamesSeen.toLocaleString('en-US')}</code> excluded ·{' '}
         <code>{d.rowsWithoutOfficer.toLocaleString('en-US')}</code> with no officer
       </div>
+      {d.inactiveExcluded > 0 && (
+        <div>
+          Excluded <code>{d.inactiveExcluded}</code> inactive loan officer(s) from the roster.
+        </div>
+      )}
       {d.attributionOverrides.length > 0 && (
         <div>
           Attribution forced:{' '}

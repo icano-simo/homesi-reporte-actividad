@@ -385,11 +385,33 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
    * (Ana Peña, Galo Rizzo...) tiene fila LO además de la BM y aparece en las
    * dos listas: es correcto.
    */
+  /*
+   * ── SÓLO GENTE ACTIVA (etapa BP7b) ──────────────────────────────────────
+   *
+   * Se filtra por `is_active`, el booleano, y NO por el texto de
+   * `roster_status`. El booleano ya cubre los dos motivos por los que alguien
+   * no está trabajando hoy -- 'Inactive' y 'Supreme Hiring Process' -- y
+   * parsear la cadena obligaría a mantener una lista de estados válidos que se
+   * desactualiza cada vez que RRHH inventa uno nuevo.
+   *
+   * No es cosmético: evaluar a alguien que ya no está infla el riesgo del
+   * branch. Sergio Vermejo (716) aparecía sin benchmark y contaba como On
+   * Risk, cuando el problema era que no debía estar en la lista.
+   *
+   * El conteo de excluidos viaja en `diagnostics` para que se note si mañana
+   * desaparece medio equipo por un cambio de roster.
+   */
+  let inactiveExcluded = 0;
   const loBranchCodes = new Map<number, string[]>();
   for (const row of employeeBranch) {
     if (row.role_in_branch !== 'LO') continue;
     const code = branchByKey.get(row.branch_key)?.branch_code;
     if (!code) continue;
+    const employee = employeeByKey.get(row.employee_key);
+    if (!employee?.is_active) {
+      if (employee) inactiveExcluded += 1;
+      continue;
+    }
     loBranchCodes.set(row.employee_key, [...(loBranchCodes.get(row.employee_key) ?? []), code]);
   }
 
@@ -403,6 +425,8 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
   for (const [employeeKey, forced] of forcedBranchByEmployee) {
     const code = branchByKey.get(forced.branchKey)?.branch_code;
     if (!code) continue;
+    // La excepción de atribución no resucita a nadie: si está inactivo, no entra.
+    if (!employeeByKey.get(employeeKey)?.is_active) continue;
     loBranchCodes.set(employeeKey, [code]);
     overrideDetail.set(employeeKey, { forcedBranchCode: code, reason: forced.reason });
   }
@@ -485,8 +509,11 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
   const bmByBranchKey = new Map<number, string[]>();
   for (const row of employeeBranch) {
     if (row.role_in_branch !== 'BM') continue;
-    const name = employeeByKey.get(row.employee_key)?.full_name;
-    if (!name) continue;
+    // Mismo criterio que con los Loan Officers: un manager dado de baja no se
+    // muestra al frente de un branch. Hoy no hay ninguno, pero el roster cambia.
+    const employee = employeeByKey.get(row.employee_key);
+    if (!employee?.is_active) continue;
+    const name = employee.full_name;
     bmByBranchKey.set(row.branch_key, [...(bmByBranchKey.get(row.branch_key) ?? []), name]);
   }
 
@@ -535,6 +562,7 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
       settingsTableAvailable,
       interventionTableAvailable,
       rates,
+      inactiveExcluded,
     },
   };
 }
