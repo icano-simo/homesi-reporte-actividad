@@ -119,8 +119,39 @@ export interface InterventionRow {
 
 export type MilestoneBucket = 'Started' | 'Processing' | 'Underwriting' | 'Closing';
 
+/**
+ * Un préstamo de Commercial Activity, a nivel fila.
+ *
+ * Etapa BP9. Hace falta para los modales de detalle: hasta ahora el módulo
+ * sólo guardaba conteos por mes.
+ *
+ * ⚠ `loan_records` NO tiene número de préstamo ni nombre de prestatario --
+ * el archivo de Commercial Activity no los trae. Los modales que salen de esta
+ * fuente muestran lo que sí hay. Ver docs/ARQUITECTURA.md.
+ */
+export interface ActivityLoan {
+  branch: string | null;
+  amount: number;
+  /** Nulos en los lotes cargados antes de BP9; ver `saveUpload.ts`. */
+  loanProgram: string | null;
+  loanFolderName: string | null;
+  channel: string | null;
+}
+
+/** Un préstamo ya resuelto (funded) del snapshot activo. */
+export interface ResolvedLoan {
+  sourceLoanId: string | null;
+  borrowerName: string | null;
+  amount: number | null;
+  loanFolder: string | null;
+  disbursementDate: string | null;
+  estClosingDate: string | null;
+}
+
 /** Un préstamo abierto del snapshot activo, ya atribuido a una persona. */
 export interface OpenLoan {
+  sourceLoanId: string | null;
+  borrowerName: string | null;
   milestone: MilestoneBucket;
   /** Milestone crudo de Salesforce. Distingue Clear To Close de Closing. */
   rawMilestone: string | null;
@@ -148,6 +179,16 @@ export interface ActivityMetrics {
   filesByMonth: Record<string, number>;
   creditReportsByMonth: Record<string, number>;
   applicationsByMonth: Record<string, number>;
+  /**
+   * Filas, no conteos: es lo que consumen los modales de detalle. Se guardan
+   * sólo los cierres por mes (para las barras del gráfico) y las tres métricas
+   * del mes en curso (para las tarjetas del Qualifier 2) -- guardar el año
+   * entero de las tres multiplicaría la memoria sin que nada lo use.
+   */
+  closingsRowsByMonth: Record<string, ActivityLoan[]>;
+  currentMonthFiles: ActivityLoan[];
+  currentMonthCreditReports: ActivityLoan[];
+  currentMonthApplications: ActivityLoan[];
   /** Totales del lote activo, para las tablas. */
   creditApplications: number;
   preApprovals: number;
@@ -242,6 +283,8 @@ export interface LoanOfficerRow {
   activity: ActivityMetrics;
   pipeline: PipelineMetrics;
   openLoanDetail: OpenLoan[];
+  /** Los funded del snapshot; el modal de Forecast Total los marca como cerrados. */
+  resolvedLoanDetail: ResolvedLoan[];
 
   /** null mientras la persona no tenga fila en `org.employee_benchmark`. */
   monthlyBenchmark: number | null;

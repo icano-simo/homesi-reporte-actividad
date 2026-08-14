@@ -1,14 +1,13 @@
 'use client';
 
-import { useMemo, useState, use } from 'react';
+import { useMemo, useState, use, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { useBusinessPlanData } from '@/lib/business-plan/useBusinessPlanData';
 import { GAP_STATE_CLASS, GAP_STATE_LABEL } from '@/lib/business-plan/qualifiers';
-import { monthsOfYear, currentYearMonth, formatYearMonth, shortMonth } from '@/lib/business-plan/months';
-import type { MilestoneBucket } from '@/lib/business-plan/types';
+import { monthsOfYear, currentYearMonth, shortMonth } from '@/lib/business-plan/months';
 import Breadcrumbs from '../../components/Breadcrumbs';
 import MonthlyBarChart from '../../components/MonthlyBarChart';
-import Modal from '../../components/Modal';
+import LoanDetailModal, { type ModalKind } from '../../components/LoanDetailModal';
 import BenchmarkEditor from '../../components/BenchmarkEditor';
 import DecisionBar from '../../components/DecisionBar';
 import {
@@ -43,7 +42,6 @@ import {
  *   5. la nota de cálculo, ya fuera del área operativa
  */
 
-const MILESTONES: MilestoneBucket[] = ['Started', 'Processing', 'Underwriting', 'Closing'];
 
 export default function LoanOfficerDetailPage({ params }: { params: Promise<{ employeeKey: string }> }) {
   const { employeeKey: rawKey } = use(params);
@@ -58,7 +56,7 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
   const router = useRouter();
   const { data, isLoading, error, reload } = useBusinessPlanData();
 
-  const [openModal, setOpenModal] = useState<null | 'activity' | 'milestones'>(null);
+  const [openModal, setOpenModal] = useState<ModalKind | null>(null);
 
   const lo = useMemo(
     () =>
@@ -70,6 +68,9 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
   const reference = useMemo(() => new Date(), []);
   const yearMonths = useMemo(() => monthsOfYear(reference), [reference]);
   const thisMonth = currentYearMonth(reference);
+  /* Lo que aporta el pipeline, sin lo ya cerrado. Forecast Total suma los dos. */
+  const projectedFromPipeline = lo ? lo.projection.projectedTotal - lo.projection.closedToDate : 0;
+  const ctcAndClosing = lo ? lo.projection.inCtc + lo.projection.inClosing : 0;
 
   return (
     <>
@@ -128,16 +129,58 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
            * negocio: de lo más cierto a lo más pronosticado. Ese orden es el
            * argumento -- primero lo que ya pasó, después lo que falta.
            */}
+          {/*
+            Cinco tarjetas, todas clickeables: cada una abre el detalle de los
+            préstamos que la componen. El orden es el del argumento -- de lo más
+            cierto a lo más pronosticado -- y el total va al final.
+
+            Todos los números ENTEROS: un préstamo es discreto. El valor exacto
+            de los que son fraccionarios queda en el `title`.
+          */}
           <div className="bp-forensic">
-            <ForensicItem label={'Closings in ' + shortMonth(thisMonth)} value={lo.projection.closedToDate} />
-            <ForensicItem label="Total Pipeline" value={lo.projection.totalPipeline} suffix="loans" />
-            <ForensicItem label="Healthy" value={lo.projection.healthyPipeline} suffix="loans" />
-            {/* Entero: un préstamo es discreto. El exacto queda en el title. */}
+            <ForensicItem
+              label={'Closings in ' + shortMonth(thisMonth) + ' so far'}
+              value={lo.projection.closedToDate}
+              onClick={() => setOpenModal('closed')}
+            />
+            <ForensicItem
+              label="Total Pipeline"
+              value={lo.projection.totalPipeline}
+              suffix="loans"
+              onClick={() => setOpenModal('pipeline')}
+            />
+            <ForensicItem
+              label="Healthy"
+              value={lo.projection.healthyPipeline}
+              suffix="loans"
+              onClick={() => setOpenModal('healthy')}
+            />
             <ForensicItem
               label="Projected to close after PT"
+              value={fmtLoans(projectedFromPipeline)}
+              title={exactTitle(projectedFromPipeline)}
+              onClick={() => setOpenModal('projected')}
+            />
+            {/*
+              Forecast Total = proyectado + cerrado. Es el número que alimenta
+              el GAP, así que va destacado. Los préstamos en CTC/Closing se
+              marcan con el mismo punto verde que usa Forecast en su pivot: son
+              los que están a un paso de cerrar.
+            */}
+            <ForensicItem
+              label="Forecast Total"
               value={fmtLoans(lo.projection.projectedTotal)}
               title={exactTitle(lo.projection.projectedTotal)}
               strong
+              onClick={() => setOpenModal('forecast')}
+              badge={
+                ctcAndClosing > 0 ? (
+                  <span className="bp-ctc-mark" title={`${lo.projection.inCtc} in CTC · ${lo.projection.inClosing} in Closing`}>
+                    <i className="ctc-dot" />
+                    {ctcAndClosing} CTC
+                  </span>
+                ) : null
+              }
             />
           </div>
 
@@ -173,25 +216,14 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
             )}
           </div>
 
-          <div className="bp-forensic-lines">
-            {/* Sólo si tiene. Si no, la línea no se muestra. */}
-            {lo.projection.inCtc + lo.projection.inClosing > 0 && (
-              <p>
-                <strong>Projected to close soon:</strong> {lo.projection.inCtc} in CTC · {lo.projection.inClosing} in
-                Closing
-              </p>
-            )}
-            <p>
-              <button
-                type="button"
-                className="bp-linkish"
-                onClick={() => setOpenModal('milestones')}
-                title="Open the loan-by-loan detail"
-              >
-                {MILESTONES.map((m) => `${lo.projection.byMilestone[m]} in ${m}`).join(' · ')}
-              </button>
-            </p>
-          </div>
+          {/*
+            Etapa BP9: acá iba el desglose por milestone
+            ("2 in Started · 0 in Processing · …"). Se quitó: sumaba 8 al lado
+            de un chip que decía 7 healthy y parecía un error sin serlo -- el
+            desglose cuenta TODO el pipeline y el chip sólo los healthy. Ese
+            detalle vive ahora dentro de los modales de las tarjetas, donde cada
+            préstamo se ve con su milestone y no hay dos totales compitiendo.
+          */}
 
           <div className="bp-q1-grid">
             <div className="mcard bp-chart-card">
@@ -201,6 +233,7 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
                 currentMonth={thisMonth}
                 projection={lo.projection}
                 benchmark={lo.monthlyBenchmark}
+                onSelectMonth={(m) => setOpenModal({ month: m })}
               />
             </div>
 
@@ -231,6 +264,13 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
                   {fmtAvg(lo.avgClosedMonths)}
                 </span>
               </div>
+              {/*
+                Benchmark y GAP van juntos en una caja destacada: son las dos
+                cifras que definen el problema, y el ojo tiene que saltar ahí.
+                El color sale del ESTADO, no fijo en rojo -- un recuadro rojo
+                sobre alguien On Target diría lo contrario de su veredicto.
+              */}
+              <div className={'bp-stat-highlight' + (lo.q1.state ? ' bp-highlight--' + lo.q1.state : '')}>
               <div className="bp-stat">
                 <span className="bp-stat__label">Benchmark</span>
                 <BenchmarkEditor lo={lo} onSaved={reload} />
@@ -256,6 +296,7 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
                   </span>
                 )}
               </div>
+              </div>
               <div className="bp-stat">
                 <span className="bp-stat__label">YTD</span>
                 <span className="bp-stat__value">{lo.ytdClosings}</span>
@@ -264,7 +305,13 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
           </div>
 
           {/* ── 3. Qualifier 2 ───────────────────────────────────────────── */}
-          <h2 className="bp-section-title">Qualifier 2 — commercial activity</h2>
+          {/* El título abre la actividad del año; cada métrica, su detalle. */}
+          <h2 className="bp-section-title">
+            Qualifier 2 —{' '}
+            <button type="button" className="bp-title-btn" onClick={() => setOpenModal('activity')}>
+              commercial activity
+            </button>
+          </h2>
 
           {lo.q2.metrics.length === 0 ? (
             <p className="bp-muted-line">No benchmark on record, so the required volumes cannot be derived.</p>
@@ -280,32 +327,30 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
                 const pct = m.required <= 0 ? 0 : Math.min(100, (m.actual / m.required) * 100);
                 return (
                   <div key={m.key} className={'bp-q2-card' + (m.meets ? ' is-met' : '')}>
-                    <div className="bp-q2-card__name">{m.label}</div>
-                    <div className="bp-q2-card__bar">
-                      <div className="bp-q2-bar">
-                        <div className="bp-q2-bar__fill" style={{ width: pct + '%' }} />
-                      </div>
-                      <div className="bp-q2-card__count">
-                        {m.actual} of {m.required}
-                        <span className="bp-q2-card__avg" title="Average of the three closed months">
-                          · usually {fmtActivityAvg(m.trailingAvg)}/month
-                        </span>
-                      </div>
+                    <button
+                      type="button"
+                      className="bp-q2-card__name"
+                      onClick={() => setOpenModal(m.key === 'fileCreations' ? 'files' : m.key === 'creditReports' ? 'credit' : 'apps')}
+                    >
+                      {m.label}
+                    </button>
+                    <div className="bp-q2-card__count">
+                      {m.actual} of {m.required}
+                    </div>
+                    <div className="bp-q2-bar">
+                      <div className="bp-q2-bar__fill" style={{ width: pct + '%' }} />
                     </div>
                     <span className={m.meets ? 'badge badge--pill badge--emerald' : 'badge badge--pill badge--rose'}>
                       {m.meets ? 'Met' : 'Short by ' + short}
                     </span>
+                    <div className="bp-q2-card__avg" title="Average of the three closed months">
+                      usually {fmtActivityAvg(m.trailingAvg)}/month
+                    </div>
                   </div>
                 );
               })}
             </div>
           )}
-
-          <p className="bp-forensic-lines">
-            <button type="button" className="bp-linkish" onClick={() => setOpenModal('activity')}>
-              Open this year&apos;s commercial activity
-            </button>
-          </p>
 
           {/* ── 4. Barra de decisión ─────────────────────────────────────── */}
           <DecisionBar
@@ -318,99 +363,59 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
           <Diagnostics data={data} />
 
           {/* ── Modales: detalle complementario, nunca navegación ─────────── */}
-          {openModal === 'activity' && (
-            <Modal title={lo.fullName + ' — commercial activity ' + reference.getFullYear()} onClose={() => setOpenModal(null)}>
-              <table className="piv">
-                <thead>
-                  <tr className="mo-row">
-                    <th className="lbl">Month</th>
-                    <th className="bp-center">Files</th>
-                    <th className="bp-center">Credit Reports</th>
-                    <th className="bp-center">Applications</th>
-                    <th className="bp-center">Closings</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {yearMonths.map((m) => (
-                    <tr key={m} className="metric">
-                      <td className="lbl">{formatYearMonth(m)}</td>
-                      <td className="bp-center">{lo.activity.filesByMonth[m] ?? 0}</td>
-                      <td className="bp-center">{lo.activity.creditReportsByMonth[m] ?? 0}</td>
-                      <td className="bp-center">{lo.activity.applicationsByMonth[m] ?? 0}</td>
-                      <td className="bp-center">{lo.activity.closingsByMonth[m] ?? 0}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </Modal>
+          {openModal !== null && (
+            <LoanDetailModal
+              kind={openModal}
+              lo={lo}
+              thisMonth={thisMonth}
+              year={reference.getFullYear()}
+              yearMonths={yearMonths}
+              onClose={() => setOpenModal(null)}
+            />
           )}
 
-          {openModal === 'milestones' && (
-            <Modal title={lo.fullName + ' — open loans by milestone'} onClose={() => setOpenModal(null)}>
-              <table className="piv">
-                <thead>
-                  <tr className="mo-row">
-                    <th className="lbl">Milestone</th>
-                    <th className="bp-left">Last milestone date</th>
-                    <th className="bp-center">Healthy</th>
-                    <th className="bp-center">Channel</th>
-                    <th className="bp-center">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...lo.openLoanDetail]
-                    .sort((a, b) => MILESTONES.indexOf(a.milestone) - MILESTONES.indexOf(b.milestone))
-                    .map((l, i) => (
-                      <tr key={i} className="metric">
-                        <td className="lbl">
-                          {l.milestone}
-                          {l.rawMilestone && l.rawMilestone !== l.milestone && <span className="bp-chip">{l.rawMilestone}</span>}
-                        </td>
-                        <td className="bp-left">{l.milestoneDate ?? '—'}</td>
-                        <td className="bp-center">{l.healthy ? 'Yes' : 'No'}</td>
-                        <td className="bp-center">{l.channel ?? '—'}</td>
-                        <td className="bp-center">
-                          {l.amount === null ? '—' : l.amount.toLocaleString('en-US', { maximumFractionDigits: 0 })}
-                        </td>
-                      </tr>
-                    ))}
-                  {lo.openLoanDetail.length === 0 && (
-                    <tr>
-                      <td className="lbl bp-empty-cell" colSpan={5}>
-                        No open loans in the active snapshot.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </Modal>
-          )}
         </>
       )}
     </>
   );
 }
 
+/**
+ * Tarjeta del bloque forense.
+ *
+ * Es un `<button>` y no un `<div onClick>`: así entra en el orden de tabulación
+ * y se activa con Enter sin que haya que reimplementar nada de eso a mano.
+ */
 function ForensicItem({
   label,
   value,
   suffix,
   strong,
   title,
+  onClick,
+  badge,
 }: {
   label: string;
   value: string | number;
   suffix?: string;
   strong?: boolean;
   title?: string;
+  onClick?: () => void;
+  badge?: ReactNode;
 }) {
   return (
-    <div className={'bp-forensic__item' + (strong ? ' is-strong' : '')} title={title}>
-      <div className="bp-forensic__label">{label}</div>
+    <button
+      type="button"
+      className={'bp-forensic__item' + (strong ? ' is-strong' : '')}
+      title={title}
+      onClick={onClick}
+    >
       <div className="bp-forensic__value">
         {value}
         {suffix && <span className="bp-forensic__suffix"> {suffix}</span>}
       </div>
-    </div>
+      <div className="bp-forensic__label">{label}</div>
+      {badge}
+    </button>
   );
 }

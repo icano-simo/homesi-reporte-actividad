@@ -5,6 +5,7 @@ import { combineVerdict, evaluateQualifier1, evaluateQualifier2, projectCurrentM
 import { DEFAULT_RATES, toRateSettings, type RateKey, type RateSettings } from './rates';
 import { branchStatus } from './intervention';
 import type {
+  ActivityLoan,
   ActivityMetrics,
   AttributionOverride,
   BranchRow,
@@ -19,6 +20,7 @@ import type {
   MilestoneBucket,
   OpenLoan,
   PipelineMetrics,
+  ResolvedLoan,
   SourceSystem,
 } from './types';
 
@@ -73,10 +75,18 @@ interface ActivityRow {
   credit_report_month: string | null;
   app_date_month: string | null;
   closing_month: string | null;
+  branch: string | null;
+  total_loan_amount: number | string | null;
+  /* Etapa BP9. NULL en los lotes cargados antes de que se persistieran. */
+  loan_program: string | null;
+  loan_folder_name: string | null;
+  loan_info_channel_raw: string | null;
 }
 
 interface PipelineLoanRow {
   loan_officer: string | null;
+  source_loan_id: string | null;
+  borrower_name: string | null;
   milestone: MilestoneBucket;
   raw_milestone: string | null;
   healthy: boolean | null;
@@ -94,6 +104,10 @@ function emptyActivity(): ActivityMetrics {
     filesByMonth: {},
     creditReportsByMonth: {},
     applicationsByMonth: {},
+    closingsRowsByMonth: {},
+    currentMonthFiles: [],
+    currentMonthCreditReports: [],
+    currentMonthApplications: [],
     creditApplications: 0,
     preApprovals: 0,
     filesCreated: 0,
@@ -243,7 +257,9 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
     ? await readAll<ActivityRow>((from, to) =>
         supabase
           .from('loan_records')
-          .select('loan_officer, file_creation_month, credit_report_month, app_date_month, closing_month')
+          .select(
+            'loan_officer, file_creation_month, credit_report_month, app_date_month, closing_month, branch, total_loan_amount, loan_program, loan_folder_name, loan_info_channel_raw'
+          )
           .eq('upload_batch_id', batchId)
           .range(from, to)
       )
@@ -263,17 +279,28 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
     ? await readAll<PipelineLoanRow>((from, to) =>
         pf
           .from('pipeline_loans')
-          .select('loan_officer, milestone, raw_milestone, healthy, channel, close_month, est_closing_date, amount, milestone_date, branch')
+          .select(
+            'loan_officer, source_loan_id, borrower_name, milestone, raw_milestone, healthy, channel, close_month, est_closing_date, amount, milestone_date, branch'
+          )
           .eq('snapshot_id', snapshotId)
           .range(from, to)
       )
     : [];
-  const resolvedRows: { loan_officer: string | null; status: string | null; disbursement_date: string | null }[] =
+  const resolvedRows: {
+    loan_officer: string | null;
+    status: string | null;
+    disbursement_date: string | null;
+    source_loan_id: string | null;
+    borrower_name: string | null;
+    amount: number | string | null;
+    raw_loan_folder: string | null;
+    est_closing_date: string | null;
+  }[] =
     snapshotId
       ? await readAll((from, to) =>
           pf
             .from('pipeline_resolved_loans')
-            .select('loan_officer, status, disbursement_date')
+            .select('loan_officer, status, disbursement_date, source_loan_id, borrower_name, amount, raw_loan_folder, est_closing_date')
             .eq('snapshot_id', snapshotId)
             .range(from, to)
         )
@@ -321,6 +348,27 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
     bump(m.filesByMonth, row.file_creation_month);
     bump(m.creditReportsByMonth, row.credit_report_month);
     bump(m.applicationsByMonth, row.app_date_month);
+
+    /*
+     * Filas para los modales de detalle. Se guardan los cierres de TODOS los
+     * meses (una barra del gráfico se puede abrir) pero de las otras tres
+     * métricas sólo el mes en curso, que es lo único que las tarjetas del
+     * Qualifier 2 comparan. Guardar el año de las cuatro cuadruplicaría la
+     * memoria por un detalle que ninguna pantalla muestra.
+     */
+    const loan: ActivityLoan = {
+      branch: row.branch,
+      amount: Number(row.total_loan_amount) || 0,
+      loanProgram: row.loan_program,
+      loanFolderName: row.loan_folder_name,
+      channel: row.loan_info_channel_raw,
+    };
+    if (row.closing_month) {
+      m.closingsRowsByMonth[row.closing_month] = [...(m.closingsRowsByMonth[row.closing_month] ?? []), loan];
+    }
+    if (row.file_creation_month === thisMonth) m.currentMonthFiles.push(loan);
+    if (row.credit_report_month === thisMonth) m.currentMonthCreditReports.push(loan);
+    if (row.app_date_month === thisMonth) m.currentMonthApplications.push(loan);
   }
 
   for (const row of openLoanRows) {
@@ -331,6 +379,8 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
     pipelineByEmployee.set(key, m);
     const list = openLoansByEmployee.get(key) ?? [];
     list.push({
+      sourceLoanId: row.source_loan_id,
+      borrowerName: row.borrower_name,
       milestone: row.milestone,
       rawMilestone: row.raw_milestone,
       healthy: row.healthy === true,
@@ -367,6 +417,7 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
    * día los totales no cuadran al mirar hacia atrás, la explicación está acá.
    */
   const closedThisMonthByEmployee = new Map<number, number>();
+  const resolvedThisMonthByEmployee = new Map<number, ResolvedLoan[]>();
   for (const row of resolvedRows) {
     if (row.status !== 'funded') continue;
     const key = resolve('salesforce', row.loan_officer);
@@ -376,6 +427,17 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
     pipelineByEmployee.set(key, m);
     if ((row.disbursement_date ?? '').slice(0, 7) === thisMonth) {
       closedThisMonthByEmployee.set(key, (closedThisMonthByEmployee.get(key) ?? 0) + 1);
+      resolvedThisMonthByEmployee.set(key, [
+        ...(resolvedThisMonthByEmployee.get(key) ?? []),
+        {
+          sourceLoanId: row.source_loan_id,
+          borrowerName: row.borrower_name,
+          amount: row.amount === null ? null : Number(row.amount),
+          loanFolder: row.raw_loan_folder,
+          disbursementDate: row.disbursement_date,
+          estClosingDate: row.est_closing_date,
+        },
+      ]);
     }
   }
 
@@ -487,6 +549,7 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
       activity,
       pipeline: pipelineByEmployee.get(employeeKey) ?? emptyPipeline(),
       openLoanDetail,
+      resolvedLoanDetail: resolvedThisMonthByEmployee.get(employeeKey) ?? [],
       monthlyBenchmark: benchmark,
       benchmarkSetBy: benchmarkRow?.set_by ?? null,
       benchmarkEffectiveFrom: benchmarkRow?.effective_from ?? null,

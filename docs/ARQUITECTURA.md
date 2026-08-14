@@ -1663,3 +1663,38 @@ Las tres quedaron fijadas así, y con ellas el motor coincide **6/6**:
 El catálogo de funnels, la biblioteca de nodos y el portal del plan activo.
 `/business-plan/lo/[key]/funnel` existe como placeholder honesto para que el
 botón "Choose a funnel" no lleve a un 404.
+
+### 6. Detalle de préstamos: qué campos hay según la fuente (etapa BP9)
+
+Los modales de detalle del perfil leen de dos fuentes que **no tienen los
+mismos campos**, y eso se nota en pantalla:
+
+| | número | prestatario | monto | programa / folder | milestone |
+|---|---|---|---|---|---|
+| `pipeline_forecast.pipeline_loans` | sí | sí | sí | no | sí |
+| `pipeline_forecast.pipeline_resolved_loans` | sí | sí | sí | folder sí | — |
+| `activity_report.loan_records` | **no** | **no** | sí | sí (desde BP9) | no |
+
+Por eso el modal de una barra de un mes pasado muestra menos columnas que el de
+una tarjeta del pipeline: sale de Commercial Activity, y **ese archivo no trae
+número de préstamo ni nombre de prestatario**. No es un olvido de la
+implementación; el dato no existe en el origen.
+
+`pipeline_loans` tampoco trae el programa del préstamo, así que los modales del
+pipeline muestran el canal en su lugar.
+
+### 7. Las tres columnas de Commercial Activity, ahora persistidas
+
+`loan_program`, `loan_folder_name` y `affinity` ya las leía el parser (están en
+`OPTIONAL_COLUMNS`) pero no se guardaban: vivían en memoria y se perdían al
+recargar. En BP9 se agregaron al insert de `lib/supabase/saveUpload.ts` y al
+select de `lib/supabase/loadCurrent.ts`.
+
+⚠ **Las filas cargadas antes de ese cambio las tienen en NULL.** El desglose por
+folder de las Applications sólo tiene datos completos **desde la próxima carga
+de Commercial Activity**; hasta entonces el modal lo dice explícitamente en vez
+de mostrar un desglose vacío que se confunda con un cero.
+
+Esos dos archivos son de Commercial Activity y estaban fuera del alcance del
+módulo: fue una excepción acotada a agregar columnas al insert y al select, sin
+tocar nada más.

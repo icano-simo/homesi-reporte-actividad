@@ -44,9 +44,18 @@ interface Props {
   currentMonth: string;
   projection: CurrentMonthProjection;
   benchmark: number | null;
+  /** Abre el detalle de los préstamos que componen la barra de ese mes. */
+  onSelectMonth: (month: string) => void;
 }
 
-export default function MonthlyBarChart({ months, closingsByMonth, currentMonth, projection, benchmark }: Props) {
+export default function MonthlyBarChart({
+  months,
+  closingsByMonth,
+  currentMonth,
+  projection,
+  benchmark,
+  onSelectMonth,
+}: Props) {
   const values = months.map((m) => (m === currentMonth ? projection.projectedTotal : (closingsByMonth[m] ?? 0)));
   /*
    * La escala incluye el benchmark: si nadie llegara nunca a él, la línea
@@ -84,7 +93,19 @@ export default function MonthlyBarChart({ months, closingsByMonth, currentMonth,
             const isCurrent = m === currentMonth;
             const total = isCurrent ? projection.projectedTotal : (closingsByMonth[m] ?? 0);
             return (
-              <div key={m} className="bp-chart__col" style={{ width: barW }}>
+              /*
+               * Cada columna es un botón: la barra abre los préstamos de ese
+               * mes. Botón y no div para que entre en el tabulado y responda a
+               * Enter sin reimplementarlo.
+               */
+              <button
+                type="button"
+                key={m}
+                className="bp-chart__col"
+                style={{ width: barW }}
+                onClick={() => onSelectMonth(m)}
+                title={'See the loans behind ' + shortMonth(m)}
+              >
                 {/* Entero también en el mes actual: un préstamo es discreto. */}
                 <div className="bp-chart__value" title={isCurrent ? 'Exact: ' + total.toFixed(2) : undefined}>
                   {total > 0 ? Math.round(total) : ''}
@@ -106,7 +127,7 @@ export default function MonthlyBarChart({ months, closingsByMonth, currentMonth,
                 ) : (
                   <div className="bp-chart__bar" style={{ height: scale(total) + 'px' }} title={`${total} closings`} />
                 )}
-              </div>
+              </button>
             );
           })}
         </div>
