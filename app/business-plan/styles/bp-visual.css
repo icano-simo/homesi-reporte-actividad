@@ -492,3 +492,480 @@ table.piv.bp-table--los th {
   color: var(--amber-800);
 }
 
+
+/* ===========================================================================
+ * 8. Etapa BP5 — motor de veredicto, perfil, gráfico, modales y Settings
+ * ===========================================================================
+ *
+ * Sigue rigiendo la regla dura del encabezado: CERO valores de color literales.
+ * Todo sale de tokens.css.
+ */
+
+/* ── Buscador y su resultado ─────────────────────────────────────────────── */
+
+.bp-search {
+  min-width: 220px;
+  cursor: text;
+}
+/* Dice A QUIÉN encontró, para que el usuario no tenga que deducirlo de qué
+   branches quedaron en la tabla. */
+.bp-search-hits {
+  font-size: 11.5px;
+  color: var(--slate-500);
+}
+
+/* ── Títulos de sección del perfil ──────────────────────────────────────── */
+
+.bp-section-title {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--slate-500);
+  margin: 24px 0 12px;
+}
+.bp-muted-line {
+  font-size: 12.5px;
+  color: var(--slate-500);
+  margin: 0 0 16px;
+}
+
+/* ── Bloque forense del mes en curso ─────────────────────────────────────── */
+
+.bp-forensic {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 10px;
+}
+@media (max-width: 900px) {
+  .bp-forensic {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.bp-forensic__item {
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  padding: 10px 14px;
+  background: var(--slate-50);
+}
+/* El último paso de la cadena -- la proyección -- se destaca: es el número que
+   alimenta el GAP, los otros tres explican cómo se llegó a él. */
+.bp-forensic__item.is-strong {
+  background: var(--accent-soft);
+  border-color: var(--sky);
+}
+.bp-forensic__label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+  margin-bottom: 4px;
+}
+.bp-forensic__value {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+}
+.bp-forensic__suffix {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--slate-400);
+}
+.bp-forensic-lines {
+  font-size: 12px;
+  color: var(--slate-600);
+  margin: 0 0 16px;
+}
+.bp-forensic-lines p {
+  margin: 0 0 4px;
+}
+
+/* Botón que se lee como enlace: abre un modal, no navega. */
+.bp-linkish {
+  font-family: inherit;
+  font-size: inherit;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--navy);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.bp-linkish:hover {
+  color: var(--coral);
+}
+
+/* ── Qualifier 1: gráfico + panel de estadísticas ───────────────────────── */
+
+.bp-q1-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+@media (max-width: 900px) {
+  .bp-q1-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.bp-chart-card {
+  padding: 16px 18px 12px;
+}
+.bp-stats {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.bp-stat__label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+}
+.bp-stat__value {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+}
+/* El promedio CON mes actual es el que alimenta el GAP: va grande. El de meses
+   cerrados va al lado, más chico, porque es contexto y no entra en el cálculo. */
+.bp-stat--hero .bp-stat__value {
+  font-size: 30px;
+  line-height: 1.1;
+}
+.bp-stat__value--small {
+  font-size: 16px;
+}
+.bp-stat__sub {
+  display: block;
+  font-family: var(--font-body);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--slate-400);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Color del GAP según su estado. */
+.bp-gap--ok {
+  color: var(--emerald-700);
+}
+.bp-gap--warn {
+  color: var(--amber-800);
+}
+.bp-gap--risk {
+  color: var(--coral);
+}
+
+/* ── Gráfico de barras ──────────────────────────────────────────────────── */
+
+.bp-chart__plot {
+  position: relative;
+}
+.bp-chart__bars {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+}
+.bp-chart__col {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  height: 100%;
+}
+.bp-chart__value {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--slate-400);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 2px;
+}
+.bp-chart__bar {
+  background: var(--sky);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  min-height: 1px;
+}
+/* La del mes actual apila tres segmentos que suman la proyección. */
+.bp-chart__bar--current {
+  display: flex;
+  flex-direction: column;
+  background: none;
+  overflow: hidden;
+}
+.bp-seg--projected {
+  background: var(--slate-200);
+}
+.bp-seg--ctc {
+  background: var(--sky);
+}
+.bp-seg--closed {
+  background: var(--navy);
+}
+
+/* La línea del benchmark cruza el área entera: sin ella las barras no se
+   pueden juzgar, sólo comparar entre sí. */
+.bp-chart__benchmark {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1.5px dashed var(--coral);
+  z-index: 1;
+  pointer-events: none;
+}
+.bp-chart__benchmark-label {
+  position: absolute;
+  right: 0;
+  top: -14px;
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--coral);
+}
+
+.bp-chart__axis {
+  display: flex;
+  margin-top: 6px;
+}
+.bp-chart__tick {
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--slate-400);
+  text-align: center;
+}
+.bp-chart__tick.is-current {
+  color: var(--navy);
+}
+.bp-chart__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 10px;
+  font-size: 10.5px;
+  color: var(--slate-500);
+}
+.bp-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  margin-right: 5px;
+}
+.bp-dot--closed {
+  background: var(--navy);
+}
+.bp-dot--ctc {
+  background: var(--sky);
+}
+.bp-dot--projected {
+  background: var(--slate-200);
+}
+
+/* ── Benchmark editable ─────────────────────────────────────────────────── */
+
+.bp-benchmark__edit {
+  margin-left: 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+.bp-benchmark__form {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.bp-benchmark__input {
+  width: 72px;
+}
+.bp-benchmark__error {
+  flex-basis: 100%;
+  font-size: 10.5px;
+  color: var(--coral);
+}
+
+/* ── Botones ────────────────────────────────────────────────────────────── */
+
+.bp-btn {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--slate-300);
+  background: var(--canvas);
+  color: var(--navy);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.bp-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.bp-btn--small {
+  font-size: 11px;
+  padding: 4px 10px;
+}
+/* Acción primaria en coral: es el acento comercial del Brand Book y acá es la
+   única cosa de la pantalla que el usuario tiene que hacer. */
+.bp-btn--primary {
+  background: var(--coral);
+  border-color: var(--coral);
+  color: var(--canvas);
+}
+.bp-btn--ghost {
+  background: transparent;
+  border-color: var(--slate-400);
+  color: var(--canvas);
+}
+
+/* ── Barra de decisión ──────────────────────────────────────────────────── */
+
+.bp-decision {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  background: var(--navy);
+  color: var(--canvas);
+  border-radius: var(--radius-lg);
+  padding: 16px 20px;
+  margin: 20px 0;
+}
+/* En "Watch" el plan es sugerido, no obligatorio: mismo bloque, menos peso. */
+.bp-decision--suggested {
+  background: var(--slate-600);
+}
+.bp-decision__title {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.bp-decision__why {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--sky);
+  max-width: 62ch;
+}
+.bp-decision__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* ── Modales ────────────────────────────────────────────────────────────── */
+
+.bp-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: var(--slate-600);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.bp-modal {
+  background: var(--canvas);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  width: min(900px, 100%);
+  max-height: 84vh;
+  display: flex;
+  flex-direction: column;
+}
+.bp-modal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--slate-200);
+}
+.bp-modal__title {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--navy);
+  margin: 0;
+}
+.bp-modal__close {
+  border: none;
+  background: none;
+  color: var(--slate-500);
+  cursor: pointer;
+  padding: 4px;
+  line-height: 0;
+}
+.bp-modal__close:hover {
+  color: var(--navy);
+}
+.bp-modal__body {
+  overflow: auto;
+  padding: 4px 18px 18px;
+}
+
+/* ── Settings ───────────────────────────────────────────────────────────── */
+
+.bp-rate-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.bp-rate-input {
+  width: 84px;
+}
+.bp-table--settings col.bp-col-name {
+  width: 34%;
+}
+.bp-table--settings col.bp-col-metric {
+  width: 18%;
+}
+.bp-table--settings col.bp-col-status {
+  width: 30%;
+}
+.bp-table--q2 col.bp-col-name {
+  width: 28%;
+}
+.bp-table--q2 col.bp-col-metric {
+  width: 18%;
+}
+.bp-table--q2 col.bp-col-status {
+  width: 18%;
+}
+
+/* ── Nota de cálculo ────────────────────────────────────────────────────── */
+
+/*
+ * Única excepción a la limpieza de textos de BP4, y lo es porque va DESPUÉS de
+ * que termina la pantalla operativa. Chica y gris a propósito: quien sólo mira
+ * números nunca llega; quien se pregunta de dónde salió uno, lo encuentra.
+ */
+.bp-calc-note {
+  margin-top: 28px;
+  padding-top: 14px;
+  border-top: 1px solid var(--slate-200);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--slate-400);
+  max-width: 92ch;
+}
+.bp-calc-note p {
+  margin: 0 0 5px;
+}
+.bp-calc-note strong {
+  color: var(--slate-500);
+}

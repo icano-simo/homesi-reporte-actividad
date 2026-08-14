@@ -1,64 +1,28 @@
 'use client';
 
-import { AlertTriangleIcon } from '@/components/ui/icons';
-import { TRIAGE_CLASS, TRIAGE_LABEL } from '@/lib/business-plan/triage';
-import type { BusinessPlanData, TriageState } from '@/lib/business-plan/types';
+import { VERDICT_CLASS, VERDICT_LABEL, requiredUnits } from '@/lib/business-plan/qualifiers';
+import { DEFAULT_RATE_SETTINGS, formatRate } from '@/lib/business-plan/rates';
+import type { BusinessPlanData, Verdict } from '@/lib/business-plan/types';
 import { formatYearMonth } from '@/lib/business-plan/months';
 
 /**
- * Piezas visuales compartidas por las 3 pantallas del módulo.
+ * Piezas visuales compartidas por las pantallas del módulo.
  *
  * Etapa BP1 — ARCHIVO NUEVO.
  */
 
-/**
- * Badge de estado de triage.
- *
- * Etapa BP4: `not_evaluable` se dibuja como un guion, no como un pill que dice
- * "Not evaluable". Hoy TODOS los Loan Officers están en ese estado, así que
- * repetir la etiqueta 38 veces no informaba nada -- sólo llenaba la columna.
- * El aviso de que el motor está pendiente va UNA vez, arriba de la pantalla.
- *
- * No es un caso especial que haya que deshacer después: en cuanto el motor
- * empiece a devolver estados reales, esas filas dejan de caer en esta rama y
- * el pill aparece solo.
- */
-export function TriageBadge({ state }: { state: TriageState }) {
-  if (state === 'not_evaluable') return <span className="bp-muted">—</span>;
-  return <span className={TRIAGE_CLASS[state]}>{TRIAGE_LABEL[state]}</span>;
-}
-
-/**
- * Aviso de que el motor de triage no está definido.
- *
- * UNO por pantalla y de una línea. La versión anterior ocupaba tres renglones
- * y además repetía la misma frase dos veces, porque concatenaba un texto
- * propio con `TRIAGE_PENDING_NOTICE`, que ya empezaba igual.
- *
- * Se queda porque sin él la columna de guiones no se entiende. Todo lo demás
- * -- qué reglas faltan, qué contradicciones hay -- vive en
- * `lib/business-plan/triage.ts`, que es donde le sirve a quien lo va a
- * implementar, no en la pantalla del usuario.
- */
-export function TriagePendingNotice() {
-  return (
-    <div className="bp-pending" role="status">
-      <AlertTriangleIcon size={14} />
-      <span>Triage pending definition — status is not computed yet.</span>
-    </div>
-  );
+/** Badge del veredicto. Sin benchmark no hay veredicto: va un guion. */
+export function VerdictBadge({ verdict }: { verdict: Verdict }) {
+  if (verdict === 'not_evaluable') return <span className="bp-muted">—</span>;
+  return <span className={VERDICT_CLASS[verdict]}>{VERDICT_LABEL[verdict]}</span>;
 }
 
 /**
  * Tarjeta de KPI, en el mismo lenguaje que el banner de Forecast.
  *
- * Etapa BP2b: `.kpi-hero__value` es la misma clase que usa el banner de
- * Forecast (components.css). El módulo tenía un par propio con otros tamaños y
- * colores; se eliminó. El único tono que components.css no traía es el de
- * riesgo, agregado como `--risk` en bp-visual.css.
- *
- * Etapa BP4: se quitó el subtítulo. Decía cosas como "Division branches only" o
- * "Pending triage engine", que no agregaban nada al número y su etiqueta.
+ * `.kpi-hero__value` es la misma clase que usa Forecast (components.css). El
+ * único tono que ese archivo no traía es el de riesgo, agregado en
+ * bp-visual.css. Sin subtítulo: el número y su etiqueta alcanzan.
  */
 export function KpiCard({ label, value, tone }: { label: string; value: string | number; tone?: 'risk' | 'ok' }) {
   const toneClass = tone === 'risk' ? ' kpi-hero__value--risk' : tone === 'ok' ? ' kpi-hero__value--emerald' : '';
@@ -70,33 +34,11 @@ export function KpiCard({ label, value, tone }: { label: string; value: string |
   );
 }
 
-/** Pills de filtro por estado de triage. */
-export function TriageFilterPills({
-  value,
-  onChange,
-  options,
-}: {
-  value: TriageState | 'all';
-  onChange: (v: TriageState | 'all') => void;
-  options: { value: TriageState | 'all'; label: string }[];
-}) {
-  return (
-    <div className="seg">
-      {options.map((o) => (
-        <button key={o.value} className={value === o.value ? 'on' : ''} onClick={() => onChange(o.value)} aria-pressed={value === o.value}>
-          {o.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-/** Estados de carga y error, iguales en las 3 pantallas. */
+/** Estados de carga y error, iguales en todas las pantallas. */
 export function LoadingState() {
   return (
     <div className="empty">
       <h2>Loading roster…</h2>
-      <p>Reading the org directory and the active Commercial Activity batch.</p>
     </div>
   );
 }
@@ -115,7 +57,6 @@ export function NotFoundState({ what, backHref, backLabel }: { what: string; bac
     <div className="empty">
       <h2>{what}</h2>
       <p>
-        It may have been renamed or removed from the roster.{' '}
         <a href={backHref} className="bp-crumbs__current">
           {backLabel}
         </a>
@@ -125,28 +66,64 @@ export function NotFoundState({ what, backHref, backLabel }: { what: string; bac
 }
 
 /**
+ * ============================================================================
+ * NOTA DE CÁLCULO — al pie, fuera del área operativa
+ * ============================================================================
+ *
+ * Etapa BP5. Es la ÚNICA excepción a la limpieza de textos de BP4, y lo es
+ * porque va después de que termina la pantalla: quien sólo quiere leer los
+ * números nunca llega hasta acá, y quien se pregunta de dónde salió un número
+ * lo encuentra sin tener que preguntar.
+ *
+ * Tres o cuatro líneas. No es un manual.
+ */
+export function CalcNote({ data }: { data: BusinessPlanData }) {
+  const d = data.diagnostics;
+  const r = DEFAULT_RATE_SETTINGS;
+  const win = d.windowMonths.map(formatYearMonth);
+  return (
+    <div className="bp-calc-note">
+      <p>
+        <strong>GAP</strong> = average of {win.slice(0, -1).join(', ')} and {win[win.length - 1]} projected, minus the
+        benchmark. The projection is closings to date + loans in CTC and Closing (no rate applied) + remaining healthy
+        loans weighted by the pull-through of their milestone.
+      </p>
+      <p>
+        <strong>Qualifier 2</strong> requires <code>ceil(benchmark ÷ conversion rate)</code> units of each metric — with
+        a benchmark of 2 that is {requiredUnits(2, r.q2.fileCreations)} file creations,{' '}
+        {requiredUnits(2, r.q2.creditReports)} credit reports and {requiredUnits(2, r.q2.applications)} applications. It
+        fails when two or more fall short.
+      </p>
+      <p>
+        Rates: Started {formatRate(r.milestone.Started)} · Processing {formatRate(r.milestone.Processing)} ·
+        Underwriting {formatRate(r.milestone.Underwriting)} · Closing {formatRate(r.milestone.Closing)} · Brokered{' '}
+        {formatRate(r.brokeredFlat)}.{' '}
+        {d.settingsTableAvailable ? 'Editable in Settings.' : 'Defaults — business_plan.settings is not available yet.'}
+      </p>
+    </div>
+  );
+}
+
+/**
  * Pie de datos de la corrida.
  *
- * Etapa BP4: dejó de ser prosa. Antes explicaba en frases cómo resolvía los
- * nombres el módulo, que es documentación y no un dato -- eso vive en
- * `lib/business-plan/loadData.ts`. Lo que queda son hechos de ESTA corrida,
- * que cambian con los datos y no se pueden deducir mirando la pantalla:
- *
- *   - la ventana de meses del promedio, que es un SUPUESTO (ver months.ts) y
- *     sin ella el "Avg Closings 3M" no se puede interpretar;
- *   - cuántas filas se leyeron y cuántas se descartaron;
- *   - qué excepciones de atribución están vigentes;
- *   - y sólo si los hay, los nombres sin clasificar y la falta de benchmarks.
- *
- * Los dos últimos son condicionales: hoy no hay ningún nombre sin resolver, así
- * que esa línea no se renderiza.
+ * Hechos de ESTA corrida, no explicaciones: la ventana de meses, cuántas filas
+ * se leyeron, qué excepciones de atribución rigen, y sólo si los hay, los
+ * nombres sin clasificar y las tablas que faltan.
  */
 export function Diagnostics({ data }: { data: BusinessPlanData }) {
   const d = data.diagnostics;
+  const missing = [
+    !d.benchmarkTableAvailable && 'org.employee_benchmark',
+    !d.settingsTableAvailable && 'business_plan.settings',
+    !d.interventionTableAvailable && 'business_plan.intervention',
+  ].filter(Boolean) as string[];
+
   return (
     <div className="bp-diagnostics">
       <div>
-        Closing average: <code>{d.monthsUsedForAverage.map(formatYearMonth).join(' · ')}</code>
+        Window: <code>{d.windowMonths.map(formatYearMonth).join(' · ')}</code> (last one projected) · closed-month
+        reference <code>{d.closedMonths.map(formatYearMonth).join(' · ')}</code>
       </div>
       <div>
         Rows read: <code>{d.activityRowsRead.toLocaleString('en-US')}</code> activity ·{' '}
@@ -172,11 +149,7 @@ export function Diagnostics({ data }: { data: BusinessPlanData }) {
           {d.unmappedNames.length > 5 ? ` … +${d.unmappedNames.length - 5} more` : ''}
         </div>
       )}
-      {!d.benchmarkTableAvailable && (
-        <div>
-          <code>org.employee_benchmark</code> not loaded
-        </div>
-      )}
+      {missing.length > 0 && <div className="bp-diagnostics__warn">Not available yet: {missing.join(' · ')}</div>}
     </div>
   );
 }
@@ -196,4 +169,20 @@ export function initialsOf(fullName: string): string {
 /** Número con 1 decimal, o el guion largo cuando no hay dato. */
 export function fmtDecimal(n: number | null): string {
   return n === null ? '—' : n.toFixed(1);
+}
+
+/**
+ * El GAP siempre con UN decimal. Redondearlo a entero inventaría precisión que
+ * el dato no tiene: es un promedio de tres meses, fraccionario por
+ * construcción, y un GAP de exactamente −1 casi nunca ocurre.
+ */
+export function fmtGap(gap: number | null): string {
+  if (gap === null) return '—';
+  return (gap > 0 ? '+' : '') + gap.toFixed(1);
+}
+
+/** Etiqueta de cargo, separada del nombre y en gris sutil. */
+export function RoleChip({ isBranchManager, isProducing }: { isBranchManager: boolean; isProducing: boolean }) {
+  if (!isBranchManager) return null;
+  return <span className="bp-chip">{isProducing ? 'Producing BM' : 'BM'}</span>;
 }

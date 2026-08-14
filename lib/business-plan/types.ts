@@ -4,10 +4,12 @@
  * ============================================================================
  *
  * Etapa BP1 — ARCHIVO NUEVO.
+ * Etapa BP5 — el triage dejó de estar pendiente: `TriageState` (que sólo sabía
+ *             decir "no evaluable") se reemplazó por el veredicto real, con sus
+ *             dos qualifiers. Ver `lib/business-plan/qualifiers.ts`.
  *
- * Tipos del esquema `org` (roster canónico) más las filas ya derivadas que
- * consumen las 3 pantallas. `org` es de SOLO LECTURA para la app: lo puebla y
- * lo mantiene quien administra la base, acá nunca se escribe.
+ * Tipos del esquema `org` (roster canónico), del esquema `business_plan`
+ * (propio del módulo) y de las filas ya derivadas que consumen las pantallas.
  */
 
 /* ─────────────────────────── Esquema `org` ─────────────────────────────── */
@@ -83,120 +85,200 @@ export interface AttributionOverride {
   confirmed_on: string | null;
 }
 
-/* ─────────────────────── Filas derivadas para la UI ────────────────────── */
+/** Fila de `org.employee_benchmark`. Versionada: cada cambio inserta una. */
+export interface EmployeeBenchmark {
+  employee_key: number;
+  monthly_benchmark: number;
+  effective_from: string;
+  set_by: string;
+  set_at: string;
+}
+
+/* ──────────────────────── Esquema `business_plan` ──────────────────────── */
+
+export type InterventionStatus = 'reviewed' | 'active' | 'closed';
+
+export interface InterventionRow {
+  id: number;
+  employee_key: number;
+  status: InterventionStatus;
+  funnel_key: number | null;
+  reviewed_at: string | null;
+  reviewed_by: string | null;
+  activated_at: string | null;
+  activated_by: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+/* ────────────────────────── Pipeline y actividad ───────────────────────── */
+
+export type MilestoneBucket = 'Started' | 'Processing' | 'Underwriting' | 'Closing';
+
+/** Un préstamo abierto del snapshot activo, ya atribuido a una persona. */
+export interface OpenLoan {
+  milestone: MilestoneBucket;
+  /** Milestone crudo de Salesforce. Distingue Clear To Close de Closing. */
+  rawMilestone: string | null;
+  healthy: boolean;
+  channel: string | null;
+  closeMonth: string | null;
+  estClosingDate: string | null;
+  amount: number | null;
+  milestoneDate: string | null;
+  branch: string | null;
+}
 
 /**
  * Métricas de actividad de una persona. Vienen de Commercial Activity
  * (`activity_report.loan_records`, vía alias `slquery`).
  *
- * OJO CON LA ATRIBUCIÓN: son el total de la PERSONA, no de un branch. Un LO
- * puede tener producción en branches distintos al suyo -- el préstamo se
- * atribuye al branch del préstamo, no al branch asignado a la persona. Está
- * decidido así por el negocio; ver la nota en app/business-plan/branch/[code].
+ * OJO CON LA ATRIBUCIÓN: son el total de la PERSONA, no de un branch. Un Loan
+ * Officer puede tener producción en branches distintos al suyo -- el préstamo
+ * se atribuye al branch del préstamo, no al branch asignado a la persona.
  */
 export interface ActivityMetrics {
   /** Cierres por mes ('YYYY-MM' -> cantidad). */
   closingsByMonth: Record<string, number>;
-  /** Promedio de cierres de los últimos 3 meses completos. */
-  avgClosings3m: number;
-  /** Credit Applications (App Date). */
+  /** Ídem para las tres métricas del Qualifier 2. */
+  filesByMonth: Record<string, number>;
+  creditReportsByMonth: Record<string, number>;
+  applicationsByMonth: Record<string, number>;
+  /** Totales del lote activo, para las tablas. */
   creditApplications: number;
-  /** Pre-Approvals. Mapea a Credit Reports -- confirmado por el negocio. */
   preApprovals: number;
-  /** Files Created. */
   filesCreated: number;
 }
 
 /** Presencia en Forecast (`pipeline_forecast`, vía alias `salesforce`). */
 export interface PipelineMetrics {
-  /** Préstamos abiertos del snapshot activo atribuidos a la persona. */
   openLoans: number;
-  /** Cerrados (funded) históricos atribuidos a la persona. */
   resolvedFunded: number;
 }
 
-/**
- * Estado de triage.
- *
- * ⚠ `not_evaluable` es hoy el único estado que la app produce de verdad: el
- * motor de triage NO está implementado (sus reglas tienen contradicciones
- * abiertas, ver docs/ARQUITECTURA.md). Los otros tres existen para que el
- * lenguaje visual y los filtros estén construidos, y se activan cuando el
- * negocio cierre las fórmulas.
- */
-export type TriageState = 'on_track' | 'need_attention' | 'on_risk' | 'not_evaluable';
+/* ─────────────────────────── Qualifiers ────────────────────────────────── */
 
-/** Un Loan Officer, ya resuelto y con sus métricas. */
+export interface CurrentMonthProjection {
+  closedToDate: number;
+  totalPipeline: number;
+  healthyPipeline: number;
+  inCtc: number;
+  inClosing: number;
+  /** Aporte de los healthy que NO están en CTC/Closing, ya con su tasa. */
+  projectedFromHealthy: number;
+  /** cerrados + CTC + Closing + aporte con tasa. Es un pronóstico, no un conteo. */
+  projectedTotal: number;
+  byMilestone: Record<MilestoneBucket, number>;
+}
+
+export interface Qualifier1 {
+  /** Los 3 meses de la ventana; el último es el actual, proyectado. */
+  windowMonths: string[];
+  avgWithCurrent: number;
+  /** null si la persona no tiene benchmark cargado. */
+  gap: number | null;
+  state: 'on_target' | 'on_risk' | 'need_attention' | null;
+  passes: boolean | null;
+}
+
+export interface Qualifier2Metric {
+  key: 'fileCreations' | 'creditReports' | 'applications';
+  label: string;
+  rate: number;
+  required: number;
+  actual: number;
+  /** Promedio de los 3 meses cerrados: lo que esa persona suele producir. */
+  trailingAvg: number;
+  meets: boolean;
+}
+
+export interface Qualifier2 {
+  metrics: Qualifier2Metric[];
+  belowCount: number;
+  passes: boolean | null;
+}
+
+export type Verdict = 'on_track' | 'watch' | 'on_risk' | 'not_evaluable';
+
+/* ─────────────────────── Filas derivadas para la UI ────────────────────── */
+
 export interface LoanOfficerRow {
   employeeKey: number;
   /** Nombre canónico del roster. Es SIEMPRE lo que se muestra. */
   fullName: string;
   /**
-   * Branches bajo los que se lista a la persona.
-   *
-   * Normalmente son sus asignaciones con rol LO en `org.employee_branch`. Si
-   * tiene una fila en `org.attribution_override`, en cambio, es el único branch
-   * forzado -- ver `attributionOverride`.
+   * Branches bajo los que se lista a la persona. Normalmente sus asignaciones
+   * con rol LO; si tiene fila en `org.attribution_override`, el branch forzado.
    */
   branchCodes: string[];
-  /**
-   * Presente sólo si la persona está en `org.attribution_override`. Sirve para
-   * que la pantalla pueda decir POR QUÉ aparece donde aparece, en vez de que el
-   * usuario vea un branch que no coincide con el roster y lo tome por un bug.
-   */
   attributionOverride: { forcedBranchCode: string; reason: string | null } | null;
   tier: string | null;
   rosterStatus: string | null;
   isBranchManager: boolean;
   isProducing: boolean;
+
   activity: ActivityMetrics;
   pipeline: PipelineMetrics;
-  /** null mientras no exista `org.employee_benchmark` poblada. */
+  openLoanDetail: OpenLoan[];
+
+  /** null mientras la persona no tenga fila en `org.employee_benchmark`. */
   monthlyBenchmark: number | null;
-  /** avgClosings3m - benchmark. null si no hay benchmark. */
-  gap: number | null;
-  triage: TriageState;
+  benchmarkSetBy: string | null;
+  benchmarkEffectiveFrom: string | null;
+
+  projection: CurrentMonthProjection;
+  /** Promedio de los 3 meses CERRADOS. Contexto: no entra en el GAP. */
+  avgClosedMonths: number;
+  /** Cierres del año en curso. */
+  ytdClosings: number;
+  q1: Qualifier1;
+  q2: Qualifier2;
+  verdict: Verdict;
+  intervention: InterventionRow | null;
 }
 
-/** Un branch con su resumen, para la Pantalla 1. */
+/**
+ * Estado de INTERVENCIÓN de un branch — etapa BP5.
+ *
+ * Ya no mide rendimiento. Un branch con gente en riesgo y gente bien no tiene
+ * un rendimiento único, así que promediarlo no significaba nada. Ahora responde
+ * una pregunta operativa: ¿los que están en riesgo ya están atendidos?
+ */
+export type BranchStatus = 'no_risk' | 'handled' | 'reviewed' | 'pending';
+
 export interface BranchRow {
   branchKey: number;
   branchCode: string;
   isDivisionBranch: boolean;
-  /**
-   * Puede ser más de uno. Hoy ninguno tiene dos (el 716 quedó sólo con Pier
-   * Laino), pero el roster lo admite: nunca asumir uno solo.
-   */
   branchManagers: string[];
   loanOfficers: LoanOfficerRow[];
   totalLoanOfficers: number;
   atRiskCount: number;
-  triage: TriageState;
+  status: BranchStatus;
+  /** Cuántos en riesgo siguen sin revisar ni plan. Alimenta "Pendiente (N)". */
+  pendingCount: number;
+  /** Suma de los promedios de sus Loan Officers, misma ventana que el Q1. */
+  avgClosings3m: number;
 }
 
-/** Todo lo que las pantallas necesitan, ya resuelto. */
 export interface BusinessPlanData {
   branches: BranchRow[];
   loanOfficers: LoanOfficerRow[];
-  /** Diagnóstico de la resolución de alias -- se muestra en el pie de página. */
   diagnostics: {
     activityRowsRead: number;
     pipelineRowsRead: number;
-    /** Nombres crudos ignorados por estar en `source_name_excluded`. */
     excludedNamesSeen: number;
-    /** Filas cuyo loan officer venía vacío ('(blank)' del parser propio). */
     rowsWithoutOfficer: number;
-    /** Nombres crudos sin alias NI exclusión: hay que revisarlos. */
     unmappedNames: { source: SourceSystem; nameRaw: string; rows: number }[];
     benchmarkTableAvailable: boolean;
-    /** Los 3 meses completos usados para el promedio de cierres. */
-    monthsUsedForAverage: string[];
-    /**
-     * Excepciones de atribución vigentes, para mostrarlas en pantalla. Si la
-     * tabla no existiera todavía, queda vacío y el módulo sigue funcionando con
-     * la regla general.
-     */
+    /** Los 3 meses de la ventana del Qualifier 1 (el último, proyectado). */
+    windowMonths: string[];
+    /** Los 3 meses cerrados del promedio de contexto. */
+    closedMonths: string[];
     attributionOverrides: { fullName: string; forcedBranchCode: string; reason: string | null }[];
     attributionOverrideTableAvailable: boolean;
+    /** false = las tasas salen de los defaults del código, no de la base. */
+    settingsTableAvailable: boolean;
+    interventionTableAvailable: boolean;
   };
 }

@@ -1,7 +1,9 @@
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { buildAliasIndex, buildExcludedIndex } from './aliasIndex';
-import { lastCompleteMonths } from './months';
-import { triageFor, branchTriage } from './triage';
+import { lastCompleteMonths, currentWindowMonths, currentYearMonth } from './months';
+import { combineVerdict, evaluateQualifier1, evaluateQualifier2, projectCurrentMonth } from './qualifiers';
+import { DEFAULT_RATES, toRateSettings, type RateKey, type RateSettings } from './rates';
+import { branchStatus } from './intervention';
 import type {
   ActivityMetrics,
   AttributionOverride,
@@ -10,8 +12,12 @@ import type {
   DimBranch,
   DimEmployee,
   EmployeeAlias,
+  EmployeeBenchmark,
   EmployeeBranch,
+  InterventionRow,
   LoanOfficerRow,
+  MilestoneBucket,
+  OpenLoan,
   PipelineMetrics,
   SourceSystem,
 } from './types';
@@ -21,32 +27,43 @@ import type {
  * CARGA Y RESOLUCIÓN DE DATOS DEL MÓDULO
  * ============================================================================
  *
- * Etapa BP1 — ARCHIVO NUEVO.
+ * Etapa BP1 — ARCHIVO NUEVO. Ampliado en BP5 con el motor de veredicto.
  *
  * Todo corre en el navegador con la sesión del usuario, igual que el resto de
- * la app: el esquema `org` tiene RLS por el claim `commercial_activity` y es de
- * solo lectura para `authenticated`. No hay API routes ni service_role acá.
+ * la app: `org` y `business_plan` tienen RLS por el claim `commercial_activity`.
+ * No hay API routes ni service_role acá.
  *
- * VOLUMEN: `activity_report.loan_records` tiene ~53k filas históricas, pero
- * sólo se leen las del lote ACTIVO (~4.6k), y sólo 5 columnas. Es el mismo
- * orden de magnitud que ya carga Commercial Activity al abrirse.
+ * ---------------------------------------------------------------------------
+ * ⚠ CUADRATURA CON FORECAST — ESTO NO ES UN BUG
+ * ---------------------------------------------------------------------------
+ * La suma de las proyecciones de los Loan Officers de un branch NO va a
+ * coincidir con el forecast de ese branch en Forecast & Pipeline. Alguien lo va
+ * a reportar como error; no lo es.
+ *
+ * Son dos atribuciones distintas sobre los mismos préstamos:
+ *   - Forecast atribuye por el branch DEL PRÉSTAMO (`pipeline_loans.branch`).
+ *   - Business Plan atribuye por PERSONA, y hay gente con producción repartida
+ *     en varios branches (Gian Laino tiene préstamos en 747, 716, 710 y 707).
+ *
+ * Además la proyección de una persona es un PRONÓSTICO, no un conteo: puede dar
+ * 2.4 y está bien. No se redondea ni se reparte proporcionalmente para que
+ * "cierre" -- redondear inventaría precisión y el reparto proporcional
+ * inventaría una atribución que el negocio no pidió.
  */
 
 /** PostgREST corta en 1000 filas por respuesta; hay que paginar explícitamente. */
 const PAGE_SIZE = 1000;
 
-/** Cuántos meses completos entran en el promedio de cierres. */
-const AVERAGE_WINDOW_MONTHS = 3;
+/** Cuántos meses entran en cada ventana (2 cerrados + el actual proyectado). */
+const WINDOW_MONTHS = 3;
 
 /**
  * Centinela que produce NUESTRO propio parser, no un nombre de la fuente:
- * `classifyLoan()` normaliza un loan officer vacío a '(blank)'. Son 210 filas
- * del lote actual.
+ * `classifyLoan()` normaliza un loan officer vacío a '(blank)'.
  *
  * Se reconoce explícitamente para no listarlo como "nombre sin clasificar" --
  * nadie va a agregar '(blank)' a `org.employee_alias`, y dejarlo en el
- * diagnóstico enterraría los nombres que sí hay que revisar. Se cuenta aparte:
- * es producción sin LO asignado, un dato de calidad de la fuente.
+ * diagnóstico enterraría los nombres que sí hay que revisar.
  */
 const BLANK_OFFICER = '(blank)';
 
@@ -58,8 +75,29 @@ interface ActivityRow {
   closing_month: string | null;
 }
 
+interface PipelineLoanRow {
+  loan_officer: string | null;
+  milestone: MilestoneBucket;
+  raw_milestone: string | null;
+  healthy: boolean | null;
+  channel: string | null;
+  close_month: string | null;
+  est_closing_date: string | null;
+  amount: number | null;
+  milestone_date: string | null;
+  branch: string | null;
+}
+
 function emptyActivity(): ActivityMetrics {
-  return { closingsByMonth: {}, avgClosings3m: 0, creditApplications: 0, preApprovals: 0, filesCreated: 0 };
+  return {
+    closingsByMonth: {},
+    filesByMonth: {},
+    creditReportsByMonth: {},
+    applicationsByMonth: {},
+    creditApplications: 0,
+    preApprovals: 0,
+    filesCreated: 0,
+  };
 }
 
 function emptyPipeline(): PipelineMetrics {
@@ -81,11 +119,24 @@ async function readAll<T>(
   return out;
 }
 
-export async function loadBusinessPlanData(): Promise<BusinessPlanData> {
+const bump = (bucket: Record<string, number>, key: string | null) => {
+  if (key) bucket[key] = (bucket[key] ?? 0) + 1;
+};
+
+const sumOver = (byMonth: Record<string, number>, months: string[]) =>
+  months.reduce((sum, m) => sum + (byMonth[m] ?? 0), 0);
+
+export async function loadBusinessPlanData(reference: Date = new Date()): Promise<BusinessPlanData> {
   const supabase = getSupabaseClient();
   const org = supabase.schema('org');
+  const bp = supabase.schema('business_plan');
 
-  // ── 1. Roster canónico (tablas chicas, se leen enteras) ──────────────────
+  const windowMonths = currentWindowMonths(reference, WINDOW_MONTHS);
+  const closedMonths = lastCompleteMonths(reference, WINDOW_MONTHS);
+  const thisMonth = currentYearMonth(reference);
+  const yearPrefix = String(reference.getFullYear()) + '-';
+
+  // ── 1. Roster canónico ───────────────────────────────────────────────────
   const [branchesRes, employeesRes, employeeBranchRes, aliasRes, excludedRes] = await Promise.all([
     org.from('dim_branch').select('*'),
     org.from('dim_employee').select('*'),
@@ -93,7 +144,6 @@ export async function loadBusinessPlanData(): Promise<BusinessPlanData> {
     org.from('employee_alias').select('*'),
     org.from('source_name_excluded').select('source_system, name_raw'),
   ]);
-
   for (const res of [branchesRes, employeesRes, employeeBranchRes, aliasRes, excludedRes]) {
     if (res.error) throw new Error('org: ' + res.error.message);
   }
@@ -101,52 +151,68 @@ export async function loadBusinessPlanData(): Promise<BusinessPlanData> {
   const branches = (branchesRes.data ?? []) as DimBranch[];
   const employees = (employeesRes.data ?? []) as DimEmployee[];
   const employeeBranch = (employeeBranchRes.data ?? []) as EmployeeBranch[];
-  const aliases = (aliasRes.data ?? []) as EmployeeAlias[];
-
-  const aliasIndex = buildAliasIndex(aliases);
+  const aliasIndex = buildAliasIndex((aliasRes.data ?? []) as EmployeeAlias[]);
   const excludedIndex = buildExcludedIndex((excludedRes.data ?? []) as { source_system: SourceSystem; name_raw: string }[]);
 
   const branchByKey = new Map(branches.map((b) => [b.branch_key, b]));
   const employeeByKey = new Map(employees.map((e) => [e.employee_key, e]));
 
-  // ── 2. Benchmarks (la tabla puede no existir todavía) ────────────────────
+  // ── 2. Tablas opcionales ─────────────────────────────────────────────────
   /*
-   * `org.employee_benchmark` se entrega como migración en docs/sql/ y la aplica
-   * el revisor. Hasta entonces la consulta falla, y eso NO debe romper la
-   * página: sin benchmark el triage es "no evaluable", que es exactamente lo
-   * que el negocio pidió -- nada de defaults silenciosos a 2.0.
+   * Las cuatro se leen con tolerancia a que no existan todavía: son migraciones
+   * que aplica el revisor. Que falte una NO puede dejar el módulo inutilizable
+   * -- se degrada a un estado visible y el pie de página lo dice.
    */
-  let benchmarkByEmployee = new Map<number, number>();
+  const benchmarkByEmployee = new Map<number, EmployeeBenchmark>();
   let benchmarkTableAvailable = false;
   try {
     const { data, error } = await org
       .from('employee_benchmark')
-      .select('employee_key, monthly_benchmark, effective_from')
+      .select('employee_key, monthly_benchmark, effective_from, set_by, set_at')
       .order('effective_from', { ascending: true });
     if (!error && data) {
       benchmarkTableAvailable = true;
-      // Versionado por fecha: gana el más reciente que ya entró en vigencia.
-      const today = new Date().toISOString().slice(0, 10);
-      const latest = new Map<number, number>();
-      for (const r of data as { employee_key: number; monthly_benchmark: number; effective_from: string }[]) {
-        if (r.effective_from <= today) latest.set(r.employee_key, Number(r.monthly_benchmark));
+      const today = reference.toISOString().slice(0, 10);
+      // Versionado por fecha: gana el más reciente que YA entró en vigencia.
+      for (const r of data as EmployeeBenchmark[]) {
+        if (r.effective_from <= today) benchmarkByEmployee.set(r.employee_key, r);
       }
-      benchmarkByEmployee = latest;
     }
   } catch {
-    /* tabla ausente: se sigue sin benchmarks */
+    /* tabla ausente: sin benchmark no hay veredicto, que es lo correcto */
   }
 
-  // ── 2b. Excepciones de atribución ────────────────────────────────────────
-  /*
-   * `org.attribution_override` lista a las personas cuya producción se fuerza a
-   * un branch, contra lo que digan las fuentes. Se CONSULTA, no se codifica:
-   * agregar a alguien tiene que ser un INSERT, no un deploy, y la excepción
-   * tiene que poder verse mirando la base.
-   *
-   * Igual que con los benchmarks, que la tabla falte no puede romper la página:
-   * sin ella rige la regla general y listo.
-   */
+  const rateByKey: Record<RateKey, number> = { ...DEFAULT_RATES };
+  let settingsTableAvailable = false;
+  try {
+    const { data, error } = await bp.from('settings').select('key, value');
+    if (!error && data) {
+      settingsTableAvailable = true;
+      for (const r of data as { key: string; value: number }[]) {
+        if (r.key in rateByKey) rateByKey[r.key as RateKey] = Number(r.value);
+      }
+    }
+  } catch {
+    /* esquema no expuesto todavía: se usan los defaults del código */
+  }
+  const rates: RateSettings = toRateSettings(rateByKey);
+
+  const interventionByEmployee = new Map<number, InterventionRow>();
+  let interventionTableAvailable = false;
+  try {
+    const { data, error } = await bp.from('intervention').select('*').order('created_at', { ascending: true });
+    if (!error && data) {
+      interventionTableAvailable = true;
+      // La vigente es la última no cerrada.
+      for (const r of data as InterventionRow[]) {
+        if (r.status === 'closed') interventionByEmployee.delete(r.employee_key);
+        else interventionByEmployee.set(r.employee_key, r);
+      }
+    }
+  } catch {
+    /* sin tabla, todos los que estén en riesgo cuentan como pendientes */
+  }
+
   const forcedBranchByEmployee = new Map<number, { branchKey: number; reason: string | null }>();
   let attributionOverrideTableAvailable = false;
   try {
@@ -190,44 +256,41 @@ export async function loadBusinessPlanData(): Promise<BusinessPlanData> {
     .limit(1);
   const snapshotId = snapshots?.[0]?.id as number | undefined;
 
-  const openLoanRows: { loan_officer: string | null }[] = snapshotId
-    ? await readAll((from, to) =>
-        pf.from('pipeline_loans').select('loan_officer').eq('snapshot_id', snapshotId).range(from, to)
+  const openLoanRows: PipelineLoanRow[] = snapshotId
+    ? await readAll<PipelineLoanRow>((from, to) =>
+        pf
+          .from('pipeline_loans')
+          .select('loan_officer, milestone, raw_milestone, healthy, channel, close_month, est_closing_date, amount, milestone_date, branch')
+          .eq('snapshot_id', snapshotId)
+          .range(from, to)
       )
     : [];
   const resolvedRows: { loan_officer: string | null; status: string | null }[] = snapshotId
     ? await readAll((from, to) =>
-        pf
-          .from('pipeline_resolved_loans')
-          .select('loan_officer, status')
-          .eq('snapshot_id', snapshotId)
-          .range(from, to)
+        pf.from('pipeline_resolved_loans').select('loan_officer, status').eq('snapshot_id', snapshotId).range(from, to)
       )
     : [];
 
   // ── 5. Atribución por alias ──────────────────────────────────────────────
   const activityByEmployee = new Map<number, ActivityMetrics>();
   const pipelineByEmployee = new Map<number, PipelineMetrics>();
+  const openLoansByEmployee = new Map<number, OpenLoan[]>();
   const unmapped = new Map<string, { source: SourceSystem; nameRaw: string; rows: number }>();
   let excludedNamesSeen = 0;
   let rowsWithoutOfficer = 0;
 
-  /** Resuelve un nombre crudo, o cuenta por qué no se pudo. */
   function resolve(source: SourceSystem, nameRaw: string | null): number | null {
     const { employeeKey } = aliasIndex.lookup(source, nameRaw);
     if (employeeKey !== null) return employeeKey;
     if (!nameRaw) return null;
-    // Centinela propio, no un nombre a clasificar (ver BLANK_OFFICER).
     if (nameRaw.trim().toLowerCase() === BLANK_OFFICER) {
       rowsWithoutOfficer += 1;
       return null;
     }
-    // Excluido a propósito: se ignora en silencio, sin contarlo en ningún lado.
     if (excludedIndex.has(source, nameRaw)) {
       excludedNamesSeen += 1;
       return null;
     }
-    // Ni mapeado ni excluido: alguien tiene que clasificarlo.
     const k = source + ' ' + nameRaw;
     const prev = unmapped.get(k);
     if (prev) prev.rows += 1;
@@ -246,7 +309,10 @@ export async function loadBusinessPlanData(): Promise<BusinessPlanData> {
     if (row.file_creation_month) m.filesCreated += 1;
     if (row.credit_report_month) m.preApprovals += 1;
     if (row.app_date_month) m.creditApplications += 1;
-    if (row.closing_month) m.closingsByMonth[row.closing_month] = (m.closingsByMonth[row.closing_month] ?? 0) + 1;
+    bump(m.closingsByMonth, row.closing_month);
+    bump(m.filesByMonth, row.file_creation_month);
+    bump(m.creditReportsByMonth, row.credit_report_month);
+    bump(m.applicationsByMonth, row.app_date_month);
   }
 
   for (const row of openLoanRows) {
@@ -255,6 +321,19 @@ export async function loadBusinessPlanData(): Promise<BusinessPlanData> {
     const m = pipelineByEmployee.get(key) ?? emptyPipeline();
     m.openLoans += 1;
     pipelineByEmployee.set(key, m);
+    const list = openLoansByEmployee.get(key) ?? [];
+    list.push({
+      milestone: row.milestone,
+      rawMilestone: row.raw_milestone,
+      healthy: row.healthy === true,
+      channel: row.channel,
+      closeMonth: row.close_month,
+      estClosingDate: row.est_closing_date,
+      amount: row.amount === null ? null : Number(row.amount),
+      milestoneDate: row.milestone_date,
+      branch: row.branch,
+    });
+    openLoansByEmployee.set(key, list);
   }
   for (const row of resolvedRows) {
     if (row.status !== 'funded') continue;
@@ -265,47 +344,30 @@ export async function loadBusinessPlanData(): Promise<BusinessPlanData> {
     pipelineByEmployee.set(key, m);
   }
 
-  // ── 6. Promedio de cierres ───────────────────────────────────────────────
-  const monthsUsedForAverage = lastCompleteMonths(new Date(), AVERAGE_WINDOW_MONTHS);
-  for (const m of activityByEmployee.values()) {
-    const total = monthsUsedForAverage.reduce((sum, month) => sum + (m.closingsByMonth[month] ?? 0), 0);
-    m.avgClosings3m = total / AVERAGE_WINDOW_MONTHS;
-  }
-
-  // ── 7. Filas de LO ───────────────────────────────────────────────────────
+  // ── 6. Filas de Loan Officer ─────────────────────────────────────────────
   /*
-   * Los LOs salen de `employee_branch` con role_in_branch='LO'. Esto es lo que
-   * deja fuera del directorio a Pier Laino: es BM de 710 y 716 pero no tiene
-   * ninguna fila con rol LO, así que no aparece por ningún lado como LO.
-   *
-   * Al revés, un "Producing BM" (Ana Peña, Galo Rizzo, Mariano Claudio...)
-   * SÍ tiene fila LO además de la BM, y aparece en las dos listas. Es correcto.
+   * Salen de `employee_branch` con role_in_branch='LO'. Un "Producing BM"
+   * (Ana Peña, Galo Rizzo...) tiene fila LO además de la BM y aparece en las
+   * dos listas: es correcto.
    */
   const loBranchCodes = new Map<number, string[]>();
   for (const row of employeeBranch) {
     if (row.role_in_branch !== 'LO') continue;
     const code = branchByKey.get(row.branch_key)?.branch_code;
     if (!code) continue;
-    const list = loBranchCodes.get(row.employee_key) ?? [];
-    list.push(code);
-    loBranchCodes.set(row.employee_key, list);
+    loBranchCodes.set(row.employee_key, [...(loBranchCodes.get(row.employee_key) ?? []), code]);
   }
 
   /*
-   * La excepción de atribución se aplica DESPUÉS y REEMPLAZA la lista, no la
-   * amplía: "toda su producción va al 777" quiere decir que no queda nada
-   * contándose en otro lado. Si sólo se agregara el branch forzado, la persona
-   * aparecería en los dos y sus totales se contarían dos veces.
-   *
-   * Se aplica aunque `employee_branch` ya coincida con el override -- que hoy
-   * coincida (Jonathan Valenzuela ya figura con rol LO en el 777) es una
-   * casualidad del roster actual, no algo en lo que apoyarse: el día que el
-   * roster lo mueva al 710, esta línea es lo que mantiene su producción en 777.
+   * La excepción de atribución REEMPLAZA la lista, no la amplía: "toda su
+   * producción va al 777" significa que no queda nada contándose en otro lado.
+   * Si sólo se agregara, la persona aparecería en los dos branches y sus
+   * totales se contarían dos veces.
    */
   const overrideDetail = new Map<number, { forcedBranchCode: string; reason: string | null }>();
   for (const [employeeKey, forced] of forcedBranchByEmployee) {
     const code = branchByKey.get(forced.branchKey)?.branch_code;
-    if (!code) continue; // override apuntando a un branch inexistente: se ignora
+    if (!code) continue;
     loBranchCodes.set(employeeKey, [code]);
     overrideDetail.set(employeeKey, { forcedBranchCode: code, reason: forced.reason });
   }
@@ -316,8 +378,38 @@ export async function loadBusinessPlanData(): Promise<BusinessPlanData> {
     if (!employee) continue;
 
     const activity = activityByEmployee.get(employeeKey) ?? emptyActivity();
-    const monthlyBenchmark = benchmarkByEmployee.get(employeeKey) ?? null;
-    const gap = monthlyBenchmark === null ? null : activity.avgClosings3m - monthlyBenchmark;
+    const openLoanDetail = openLoansByEmployee.get(employeeKey) ?? [];
+    const benchmarkRow = benchmarkByEmployee.get(employeeKey) ?? null;
+    const benchmark = benchmarkRow === null ? null : Number(benchmarkRow.monthly_benchmark);
+
+    const projection = projectCurrentMonth(activity.closingsByMonth[thisMonth] ?? 0, openLoanDetail, rates);
+    const q1 = evaluateQualifier1(activity.closingsByMonth, windowMonths, projection, benchmark);
+
+    /*
+     * El "actual" del Qualifier 2 es el MES EN CURSO, coherente con que el
+     * requerido se deriva de un benchmark mensual.
+     *
+     * ⚠ Consecuencia conocida: a principio de mes casi nadie llega al
+     * requerido, porque se compara un mes incompleto contra un objetivo de mes
+     * entero. Por eso al lado va siempre el promedio de los 3 meses cerrados,
+     * que es lo que esa persona suele producir. Si el negocio prefiere evaluar
+     * sobre el promedio en vez del mes en curso, se cambia el argumento de acá
+     * y nada más.
+     */
+    const q2 = evaluateQualifier2(
+      {
+        fileCreations: activity.filesByMonth[thisMonth] ?? 0,
+        creditReports: activity.creditReportsByMonth[thisMonth] ?? 0,
+        applications: activity.applicationsByMonth[thisMonth] ?? 0,
+      },
+      {
+        fileCreations: sumOver(activity.filesByMonth, closedMonths) / WINDOW_MONTHS,
+        creditReports: sumOver(activity.creditReportsByMonth, closedMonths) / WINDOW_MONTHS,
+        applications: sumOver(activity.applicationsByMonth, closedMonths) / WINDOW_MONTHS,
+      },
+      benchmark,
+      rates
+    );
 
     loanOfficers.push({
       employeeKey,
@@ -330,29 +422,38 @@ export async function loadBusinessPlanData(): Promise<BusinessPlanData> {
       isProducing: employee.is_producing,
       activity,
       pipeline: pipelineByEmployee.get(employeeKey) ?? emptyPipeline(),
-      monthlyBenchmark,
-      gap,
-      triage: triageFor(monthlyBenchmark),
+      openLoanDetail,
+      monthlyBenchmark: benchmark,
+      benchmarkSetBy: benchmarkRow?.set_by ?? null,
+      benchmarkEffectiveFrom: benchmarkRow?.effective_from ?? null,
+      projection,
+      avgClosedMonths: sumOver(activity.closingsByMonth, closedMonths) / WINDOW_MONTHS,
+      ytdClosings: Object.entries(activity.closingsByMonth)
+        .filter(([m]) => m.startsWith(yearPrefix))
+        .reduce((sum, [, n]) => sum + n, 0),
+      q1,
+      q2,
+      verdict: combineVerdict(q1, q2),
+      intervention: interventionByEmployee.get(employeeKey) ?? null,
     });
   }
   loanOfficers.sort((a, b) => a.fullName.localeCompare(b.fullName));
 
-  // ── 8. Filas de branch ───────────────────────────────────────────────────
+  // ── 7. Filas de branch ───────────────────────────────────────────────────
   const bmByBranchKey = new Map<number, string[]>();
   for (const row of employeeBranch) {
     if (row.role_in_branch !== 'BM') continue;
     const name = employeeByKey.get(row.employee_key)?.full_name;
     if (!name) continue;
-    const list = bmByBranchKey.get(row.branch_key) ?? [];
-    list.push(name);
-    bmByBranchKey.set(row.branch_key, list);
+    bmByBranchKey.set(row.branch_key, [...(bmByBranchKey.get(row.branch_key) ?? []), name]);
   }
 
   const branchRows: BranchRow[] = branches
     .filter((b) => b.is_division_branch)
     .map((b) => {
       const los = loanOfficers.filter((lo) => lo.branchCodes.includes(b.branch_code));
-      const atRiskCount = los.filter((lo) => lo.triage === 'on_risk').length;
+      const atRisk = los.filter((lo) => lo.verdict === 'on_risk');
+      const { status, pendingCount } = branchStatus(atRisk);
       return {
         branchKey: b.branch_key,
         branchCode: b.branch_code,
@@ -360,8 +461,11 @@ export async function loadBusinessPlanData(): Promise<BusinessPlanData> {
         branchManagers: (bmByBranchKey.get(b.branch_key) ?? []).sort(),
         loanOfficers: los,
         totalLoanOfficers: los.length,
-        atRiskCount,
-        triage: branchTriage(los),
+        atRiskCount: atRisk.length,
+        status,
+        pendingCount,
+        // Ritmo de cierres del branch: la suma de los promedios de su gente.
+        avgClosings3m: los.reduce((sum, lo) => sum + lo.q1.avgWithCurrent, 0),
       };
     })
     .sort((a, b) => a.branchCode.localeCompare(b.branchCode, undefined, { numeric: true }));
@@ -376,15 +480,18 @@ export async function loadBusinessPlanData(): Promise<BusinessPlanData> {
       rowsWithoutOfficer,
       unmappedNames: [...unmapped.values()].sort((a, b) => b.rows - a.rows),
       benchmarkTableAvailable,
-      monthsUsedForAverage,
+      windowMonths,
+      closedMonths,
       attributionOverrides: [...overrideDetail.entries()]
         .map(([employeeKey, d]) => ({
-          fullName: employeeByKey.get(employeeKey)?.full_name ?? ('employee_key ' + employeeKey),
+          fullName: employeeByKey.get(employeeKey)?.full_name ?? 'employee_key ' + employeeKey,
           forcedBranchCode: d.forcedBranchCode,
           reason: d.reason,
         }))
         .sort((a, b) => a.fullName.localeCompare(b.fullName)),
       attributionOverrideTableAvailable,
+      settingsTableAvailable,
+      interventionTableAvailable,
     },
   };
 }

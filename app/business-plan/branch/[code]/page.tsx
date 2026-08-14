@@ -3,33 +3,30 @@
 import { useMemo, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { useBusinessPlanData } from '@/lib/business-plan/useBusinessPlanData';
-import { TRIAGE_FILTERS, TRIAGE_LABEL } from '@/lib/business-plan/triage';
-import type { TriageState } from '@/lib/business-plan/types';
+import { branchStatusClass, branchStatusLabel } from '@/lib/business-plan/intervention';
 import Breadcrumbs from '../../components/Breadcrumbs';
 import {
+  CalcNote,
   Diagnostics,
   ErrorState,
   KpiCard,
   LoadingState,
   NotFoundState,
-  TriageBadge,
-  TriageFilterPills,
-  TriagePendingNotice,
-  fmtDecimal,
+  RoleChip,
+  VerdictBadge,
+  fmtGap,
 } from '../../components/shared';
-/* Etapa BP2: `bp-visual.css` ahora se importa una sola vez desde
-   `app/business-plan/layout.tsx`. */
 
 /**
  * ============================================================================
- * PANTALLA 2 — DIRECTORIO DE LOAN OFFICERS DE UN BRANCH
+ * VISTA 2 — BRANCH ABIERTO
  * ============================================================================
  *
- * Etapa BP1 — ARCHIVO NUEVO. Segundo nivel de la navegación.
+ * Etapa BP1 — ARCHIVO NUEVO. Reescrita en BP5.
  *
- * EL PARÁMETRO NO ES UN NÚMERO. `branch_code` incluye 'Affinity' y
- * 'Branch Out of Division' (con espacios), así que llega URL-encoded y hay que
- * decodificarlo antes de comparar. Tratarlo como entero rompería esos dos.
+ * EL PARÁMETRO NO ES UN NÚMERO. `branch_code` incluye 'Branch Out of Division'
+ * (con espacios), así que llega URL-encoded y hay que decodificarlo antes de
+ * comparar. Tratarlo como entero rompería esos casos.
  */
 
 function loHref(employeeKey: number): string {
@@ -43,45 +40,29 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
 
   const router = useRouter();
   const { data, isLoading, error } = useBusinessPlanData();
-
   const [search, setSearch] = useState('');
-  const [triageFilter, setTriageFilter] = useState<TriageState | 'all'>('all');
 
   const branch = useMemo(() => data?.branches.find((b) => b.branchCode === branchCode) ?? null, [data, branchCode]);
-
-  /* Suma de los promedios de sus Loan Officers: el ritmo de cierres del branch. */
-  const branchAvgClosings = useMemo(
-    () => (branch?.loanOfficers ?? []).reduce((sum, lo) => sum + lo.activity.avgClosings3m, 0),
-    [branch]
-  );
 
   const visibleLos = useMemo(() => {
     if (!branch) return [];
     const needle = search.trim().toLowerCase();
-    return branch.loanOfficers.filter((lo) => {
-      if (triageFilter !== 'all' && lo.triage !== triageFilter) return false;
-      if (needle && !lo.fullName.toLowerCase().includes(needle)) return false;
-      return true;
-    });
-  }, [branch, search, triageFilter]);
+    if (!needle) return branch.loanOfficers;
+    return branch.loanOfficers.filter((lo) => lo.fullName.toLowerCase().includes(needle));
+  }, [branch, search]);
 
   return (
     <>
-      <Breadcrumbs
-        items={[
-          { label: 'Branch Portfolio', href: '/business-plan' },
-          {
-            label: branch?.branchManagers.length
-              ? `${branchCode} (${branch.branchManagers.join(' + ')})`
-              : branchCode,
-          },
-        ]}
-      />
+      <Breadcrumbs items={[{ label: 'Branch Portfolio', href: '/business-plan' }, { label: branchCode }]} />
 
       {isLoading && <LoadingState />}
       {error && <ErrorState message={error} />}
       {data && !branch && (
-        <NotFoundState what={`Branch "${branchCode}" is not a division branch`} backHref="/business-plan" backLabel="Back to Branch Portfolio" />
+        <NotFoundState
+          what={`Branch "${branchCode}" is not a division branch`}
+          backHref="/business-plan"
+          backLabel="Back to Branch Portfolio"
+        />
       )}
 
       {data && branch && (
@@ -89,25 +70,25 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
           <div className="page-head">
             <div>
               <h1 className="page-head__title">Branch {branch.branchCode}</h1>
-              {/* El manager es un dato, no una explicación: se queda, en una línea.
-                  Hoy los 13 branches tienen exactamente uno, pero el roster admite
-                  varios y la vista los junta. */}
               <p className="page-head__subtitle">
                 {branch.branchManagers.length ? branch.branchManagers.join(' + ') : '—'}
               </p>
             </div>
+            <span className={branchStatusClass(branch.status)}>
+              {branchStatusLabel(branch.status, branch.pendingCount)}
+            </span>
           </div>
-
-          <TriagePendingNotice />
 
           <div className="bp-kpis">
             <KpiCard label="Loan Officers" value={branch.totalLoanOfficers} />
             <KpiCard label="On Risk" value={branch.atRiskCount} tone="risk" />
-            {/* Reemplaza a "Branch Managers", que sin subtítulo sólo decía "1" y
-                repetía lo que ya está bajo el título. */}
-            <KpiCard label="Avg Closings 3M" value={branchAvgClosings.toFixed(1)} />
-            {/* Guion mientras no haya motor, igual que la columna Status. */}
-            <KpiCard label="Status" value={branch.triage === 'not_evaluable' ? '—' : TRIAGE_LABEL[branch.triage]} />
+            {/*
+              Ritmo de cierres del branch: la suma de los promedios de su gente,
+              con la MISMA ventana del Qualifier 1 (dos meses cerrados más el
+              actual proyectado). Es un pronóstico, por eso es fraccionario.
+            */}
+            <KpiCard label="Avg Closings 3M" value={branch.avgClosings3m.toFixed(1)} />
+            <KpiCard label="Status" value={branchStatusLabel(branch.status, branch.pendingCount)} />
           </div>
 
           <div className="control-bar">
@@ -115,16 +96,12 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
               <span className="label-chip">Search</span>
               <input
                 type="text"
-                className="field"
-                style={{ minWidth: '220px', cursor: 'text' }}
+                className="field bp-search"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Loan officer name…"
                 aria-label="Search loan officer in this branch"
               />
-            </div>
-            <div className="control-group">
-              <TriageFilterPills value={triageFilter} onChange={setTriageFilter} options={TRIAGE_FILTERS} />
             </div>
           </div>
 
@@ -141,15 +118,11 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
            * Loan Officers con producción repartida en varios branches. Sumar
            * sólo lo de este branch daría un número que no coincide con el de su
            * propia ficha.
-           *
-           * Etapa BP4: esto era además un párrafo al pie de la pantalla. Se
-           * quitó de la interfaz -- le sirve a quien mantiene el módulo, no a
-           * quien lee la tabla.
            */}
           <div className="tbl-card">
             <div className="tbl-scroll">
               <table className="piv bp-table--los">
-                {/* 26 + 12*5 + 14 = 100%. El nombre es lo único largo de la fila. */}
+                {/* 26 + 6×10 + 14 = 100%. El nombre es lo único largo de la fila. */}
                 <colgroup>
                   <col className="bp-col-name" />
                   <col className="bp-col-metric" />
@@ -169,7 +142,7 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
                     <th className="bp-center">Credit Apps</th>
                     <th className="bp-center">Pre-Approvals</th>
                     <th className="bp-center">Files Created</th>
-                    <th className="bp-center">Status</th>
+                    <th className="bp-center">Verdict</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -190,30 +163,25 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
                       <td className="lbl">
                         {/* Siempre el nombre canónico del roster, nunca el crudo de la fuente. */}
                         {lo.fullName}
-                        {lo.isBranchManager && <span className="bp-chip">{lo.isProducing ? 'Producing BM' : 'BM'}</span>}
+                        <RoleChip isBranchManager={lo.isBranchManager} isProducing={lo.isProducing} />
                       </td>
-                      {/* Etapa BP4: los encabezados ya estaban centrados desde BP2 pero
-                          las celdas seguían alineadas a la derecha con `.val`. */}
-                      <td className="bp-center">{lo.activity.avgClosings3m.toFixed(1)}</td>
-                      {/* Guion, no "no benchmark" repetido: hoy es igual en las 38 filas. */}
+                      <td className="bp-center">{lo.q1.avgWithCurrent.toFixed(1)}</td>
                       <td className="bp-center">
                         {lo.monthlyBenchmark === null ? <span className="bp-muted">—</span> : lo.monthlyBenchmark.toFixed(1)}
                       </td>
-                      <td className="bp-center">
-                        {lo.gap === null ? <span className="bp-muted">—</span> : fmtDecimal(lo.gap)}
-                      </td>
+                      <td className="bp-center">{fmtGap(lo.q1.gap)}</td>
                       <td className={'bp-center' + (lo.activity.creditApplications ? '' : ' zero')}>{lo.activity.creditApplications}</td>
                       <td className={'bp-center' + (lo.activity.preApprovals ? '' : ' zero')}>{lo.activity.preApprovals}</td>
                       <td className={'bp-center' + (lo.activity.filesCreated ? '' : ' zero')}>{lo.activity.filesCreated}</td>
                       <td className="bp-center">
-                        <TriageBadge state={lo.triage} />
+                        <VerdictBadge verdict={lo.verdict} />
                       </td>
                     </tr>
                   ))}
                   {!visibleLos.length && (
                     <tr>
                       <td className="lbl bp-empty-cell" colSpan={8}>
-                        No loan officer matches the current filters.
+                        No loan officer matches that search.
                       </td>
                     </tr>
                   )}
@@ -222,6 +190,7 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
             </div>
           </div>
 
+          <CalcNote data={data} />
           <Diagnostics data={data} />
         </>
       )}

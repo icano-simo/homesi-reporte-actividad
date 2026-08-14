@@ -1486,3 +1486,102 @@ intermedio de triage, sin tocar los dos que ya estaban en uso.
 - **Healthy / Delayed / Out of Scope / Never / Adverse** — estados de un préstamo en pipeline. Adverse = terminal (rechazado). Never = provisional, "ya sabemos que no va a cerrar pero Encompash no lo refleja aún" — se trata igual que Adverse para el forecast.
 - **Loan Folder** ≠ milestone — es una carpeta operativa (Current Prospects, My Pipeline, Underwriting, Brokered, Funded, Adverse Loans), no la secuencia de avance del préstamo.
 - **Org_ID vs True OrgID** — el campo `Branch` que ya usamos en el parser **es** el True OrgID (confirmado por Isabella); no hace falta distinguir los dos.
+
+---
+
+## Business Plan OS — deuda explícita y decisiones abiertas (etapa BP5)
+
+### 1. Las tasas de pull-through están duplicadas, a propósito y por ahora
+
+`business_plan.settings` es la tabla de tasas del módulo, editable desde
+**Business Plan → Settings**. Pero **sólo Business Plan la lee**.
+Forecast & Pipeline sigue con sus constantes en `app/pipeline/page.tsx`
+(`PULL_THROUGH_RATES` y `BROKERED_FLAT_PULL_THROUGH_RATE`).
+
+Consecuencia práctica: **editar una tasa marcada como "shared" en Settings
+cambia lo que ve Business Plan y no cambia Forecast.** La pantalla de Settings
+lo dice en un aviso permanente, porque si no, alguien que edite
+"Milestone Processing" y no vea moverse el forecast va a reportarlo como bug.
+
+Es deuda deliberada: `app/pipeline/**` quedó fuera del alcance de BP5 y había
+otras ramas trabajando ahí. **Que Forecast consuma la tabla es una etapa
+aparte**, y cuando pase hay que sacar el aviso de Settings y esta nota.
+
+Ojo con una confusión fácil al hacerlo: las tasas de `app/pipeline` son **por
+paso** (de un milestone al siguiente) y las de `business_plan.settings` son
+**acumuladas** (de un milestone hasta el cierre). Salen unas de otras:
+
+    Started       0.8923 × 0.93 × 0.8459 × 0.95 = 0.6668  ->  66.7 %
+    Processing             0.93 × 0.8459 × 0.95 = 0.7473  ->  74.7 %
+    Underwriting                  0.8459 × 0.95 = 0.8036  ->  80.4 %
+    Closing                                0.95 = 0.9500  ->  95.0 %
+
+No son intercambiables. Para proyectar cuántos préstamos abiertos de una
+persona van a cerrar, la que sirve es la acumulada.
+
+### 2. La suma por Loan Officer no cuadra con el forecast por branch
+
+**No es un bug.** Son dos atribuciones distintas de los mismos préstamos:
+
+- Forecast atribuye por el branch **del préstamo** (`pipeline_loans.branch`).
+- Business Plan atribuye por **persona**, y hay gente con producción repartida
+  en varios branches (Gian Laino tiene préstamos en 747, 716, 710 y 707).
+
+Además la proyección de una persona es un **pronóstico, no un conteo**: puede
+dar 2,4 y está bien. No se redondea ni se reparte proporcionalmente para que
+cierre — redondear inventaría precisión y el reparto proporcional inventaría
+una atribución que el negocio no pidió.
+
+Está comentado en `lib/business-plan/loadData.ts`, arriba de todo.
+
+### 3. El "actual" del Qualifier 2 es el mes en curso — supuesto a confirmar
+
+El requerido de cada métrica sale de un benchmark **mensual**
+(`ceil(benchmark / tasa)`), así que se compara contra el **mes en curso**.
+
+Consecuencia conocida: a principio de mes casi nadie llega al requerido, porque
+se compara un mes incompleto contra un objetivo de mes entero. Por eso la
+pantalla muestra siempre, al lado, el promedio de los 3 meses cerrados.
+
+Si el negocio prefiere evaluar sobre ese promedio en vez del mes en curso, se
+cambia el argumento en `loadData.ts` (la llamada a `evaluateQualifier2`) y nada
+más: el motor ya recibe los dos.
+
+### 4. Los números de referencia del brief BP5 no se reproducen
+
+El brief traía seis promedios "verificados por SQL". El promedio de **meses
+cerrados** coincide en los 6 exactamente, o sea que la fuente de cierres y la
+ventana son correctas. El promedio **con mes actual** no coincide en ninguno, y
+no por un margen de redondeo:
+
+| Loan Officer | esperado | calculado |
+|---|---|---|
+| Nathan Martinez | 7,21 | 7,42 |
+| Ana Peña | 3,54 | 3,45 |
+| Gian Laino | 4,07 | 3,70 |
+| Haydee Tito-Pace | 1,80 | 1,53 |
+| Luis Silva | 0,33 | 0,58 |
+| Jose Arango | 0,00 | 0,54 |
+
+Se descartó que fuera un error de implementación con dos pruebas:
+
+- **Ningún snapshot reproduce el conjunto.** Luis Silva y Jose Arango sólo dan
+  los valores esperados en los snapshots 29 y 30 (donde no tienen préstamos
+  healthy); en el snapshot activo (31) Luis tiene 1 healthy en agosto, así que
+  su proyección no puede ser 0 con ninguna tasa positiva.
+- **Gian Laino es imposible en el snapshot 30**: necesitaría un aporte de 4,21
+  a partir de 4 préstamos healthy, o sea una tasa media mayor que 1,0.
+
+La hipótesis más probable es que los seis números se calcularon en momentos
+distintos del día — hubo tres cargas de snapshot el 13/8 (13:49, 19:54, 20:53)
+— y por eso no son consistentes entre sí.
+
+**La fórmula quedó implementada tal como está especificada en el brief.** No se
+ajustó para hacer coincidir los números, siguiendo la instrucción explícita de
+parar y reportar la diferencia.
+
+### 5. Fuera de alcance en BP5
+
+El catálogo de funnels, la biblioteca de nodos y el portal del plan activo.
+`/business-plan/lo/[key]/funnel` existe como placeholder honesto para que el
+botón "Choose a funnel" no lleve a un 404.

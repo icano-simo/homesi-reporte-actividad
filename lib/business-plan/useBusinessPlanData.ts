@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { loadBusinessPlanData } from './loadData';
 import type { BusinessPlanData } from './types';
 
@@ -15,9 +15,11 @@ import type { BusinessPlanData } from './types';
  * la primera pantalla que monta dispara la carga y las demás se cuelgan de la
  * misma promesa.
  *
- * No es un caché con invalidación ni pretende serlo -- se vacía al recargar la
- * página, que es el gesto natural para pedir datos frescos. Si en el futuro
- * hace falta refrescar sin recargar, `invalidateBusinessPlanData()` está listo.
+ * Etapa BP5: ahora SÍ hace falta invalidarlo sin recargar. Editar el benchmark
+ * de alguien o una tasa en Settings cambia veredictos en las tres pantallas, y
+ * dejar el caché viejo mostraría el número nuevo con el veredicto anterior.
+ * Para eso están `invalidateBusinessPlanData()` y el `reload` que devuelve el
+ * hook.
  */
 
 let cached: Promise<BusinessPlanData> | null = null;
@@ -44,8 +46,16 @@ export interface BusinessPlanState {
   error: string | null;
 }
 
-export function useBusinessPlanData(): BusinessPlanState {
+export function useBusinessPlanData(): BusinessPlanState & { reload: () => void } {
   const [state, setState] = useState<BusinessPlanState>({ data: null, isLoading: true, error: null });
+  /* Un contador basta para reejecutar el efecto; no hace falta más estado. */
+  const [tick, setTick] = useState(0);
+
+  const reload = useCallback(() => {
+    invalidateBusinessPlanData();
+    setState({ data: null, isLoading: true, error: null });
+    setTick((t) => t + 1);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -64,7 +74,7 @@ export function useBusinessPlanData(): BusinessPlanState {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [tick]);
 
-  return state;
+  return { ...state, reload };
 }
