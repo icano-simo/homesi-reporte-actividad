@@ -4438,3 +4438,20 @@ table.piv tr.metric.is-picked td.lbl {
 .bp-q2-card.is-at_risk {
   border-color: var(--rose-200);
 }
+
+/* ===========================================================================
+ * 29. Etapa BP31 — la revision conjunta usa los componentes del perfil
+ * =========================================================================== */
+
+/*
+ * El desglose de la suma del benchmark, en el lugar donde el perfil pone su
+ * editor. Chico y en gris: el numero que importa es la suma, esto explica de
+ * donde sale.
+ */
+.bp-group-sum {
+  font-family: var(--font-body);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}

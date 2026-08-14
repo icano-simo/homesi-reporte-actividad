@@ -1,25 +1,32 @@
 'use client';
 
-import { useMemo, use } from 'react';
+import { useMemo, useState, use } from 'react';
 import Link from 'next/link';
 import { useBusinessPlanData } from '@/lib/business-plan/useBusinessPlanData';
 import { aggregateGroup, parseKeys } from '@/lib/business-plan/group';
-import { GAP_STATE_LABEL, requiredUnits } from '@/lib/business-plan/qualifiers';
-import { formatYearMonth, monthsOfYear, currentYearMonth, shortMonth } from '@/lib/business-plan/months';
+import { monthsOfYear, currentYearMonth } from '@/lib/business-plan/months';
 import { AlertTriangleIcon } from '@/components/ui/icons';
 import Breadcrumbs from '../../components/Breadcrumbs';
+import MonthlyBarChart from '../../components/MonthlyBarChart';
+import LoanDetailModal, { type ModalKind } from '../../components/LoanDetailModal';
 import { FunnelGlyph } from '../../components/funnelIcons';
 import {
+  ChannelBreakdown,
+  ForensicCards,
+  FuturePerformanceCards,
+  Q1Panel,
+  modalKindOfMetric,
+} from '../../components/performance';
+import {
   Avatar,
+  CalcNote,
   ErrorState,
   LoadingState,
   VerdictBadge,
   VerdictPanel,
   exactTitle,
-  fmtActivityAvg,
   fmtAvg,
   fmtGap,
-  fmtLoans,
 } from '../../components/shared';
 
 /**
@@ -27,26 +34,44 @@ import {
  * REVISIÓN CONJUNTA DE VARIOS LOAN OFFICERS
  * ============================================================================
  *
- * Etapa BP23 — ARCHIVO NUEVO.
+ * Etapa BP23 — ARCHIVO NUEVO. Etapa BP31 — REESCRITO SOBRE LOS COMPONENTES
+ * COMPARTIDOS.
  *
  * ---------------------------------------------------------------------------
- * PÁGINA, NO MODAL, Y LAS CLAVES EN LA URL
+ * ⚠ ESTA VISTA ES LA INDIVIDUAL CON LOS NÚMEROS SUMADOS. LITERALMENTE.
  * ---------------------------------------------------------------------------
- * `/business-plan/group/1-25-33` se puede compartir, marcar y abrir en otra
- * pestaña. Un modal habría obligado a rehacer la selección para volver a la
- * misma revisión, y una revisión que no se puede mandar por link no sirve para
- * discutirla con nadie. Es la misma regla que rige los tres niveles del módulo.
+ * BP23 la construyó con su propio markup, y por eso no recibió ninguno de los
+ * cambios posteriores: en BP29 la regla de Future performance pasó al ritmo
+ * prorrateado y sólo cambió en el perfil, así que el grupo se quedó mostrando el
+ * acumulado contra la meta del mes entero -- la lógica que ese cambio había
+ * reemplazado. No fue un descuido de nadie: el diseño lo garantizaba.
+ *
+ * Ahora `aggregateGroup` devuelve un `LoanOfficerRow` SINTÉTICO y esta página
+ * monta los mismos componentes que el perfil -- `ForensicCards`,
+ * `ChannelBreakdown`, `Q1Panel`, `FuturePerformanceCards`, `MonthlyBarChart` y
+ * `LoanDetailModal` -- pasándoles esa fila. No hay una sola copia: cambiar una
+ * regla en `components/performance.tsx` cambia las dos vistas a la vez.
  *
  * ---------------------------------------------------------------------------
- * ⚠ EL VEREDICTO DEL GRUPO NO DISPARA NADA
+ * LO QUE SÍ ES PROPIO DEL GRUPO
  * ---------------------------------------------------------------------------
- * Se calcula con las mismas reglas que el individual, sobre los números
- * agregados, y es INFORMATIVO. Los Business Plan son de personas: un grupo no
- * se enrola, no tiene funnel y no tiene pasos. Está escrito en la pantalla
- * porque un badge "On Risk" idéntico al del perfil invita a actuar sobre él.
+ *   · el aviso de que el veredicto es informativo y no dispara nada
+ *   · la lista de miembros con su veredicto individual
+ *   · el benchmark como SUMA, con el desglose visible, en vez del editor
+ *   · la nota sobre préstamos compartidos
  *
- * La agregación vive en `lib/business-plan/group.ts` -- ahí está el porqué de
- * sumar en vez de promediar promedios, y la deduplicación.
+ * ---------------------------------------------------------------------------
+ * ⚠ NO HAY PANEL DE NOTAS, Y ES DELIBERADO
+ * ---------------------------------------------------------------------------
+ * Una nota necesita un destino con FK, y un grupo NO es una entidad guardada:
+ * es una selección momentánea que vive en una URL. `business_plan.note` tiene
+ * una columna por destino justamente para que la base pueda garantizar que el
+ * objeto al que apunta existe (ver el SQL de BP20); un grupo no tendría a qué
+ * apuntar, y la única forma de darle una sería inventar una tabla de "grupos"
+ * que nadie pidió y que habría que mantener.
+ *
+ * Si hace falta dejar constancia de una revisión conjunta, va como nota en el
+ * perfil de cada miembro -- que además es donde alguien la va a buscar después.
  */
 
 export default function GroupReviewPage({ params }: { params: Promise<{ keys: string }> }) {
@@ -54,6 +79,12 @@ export default function GroupReviewPage({ params }: { params: Promise<{ keys: st
   const keys = useMemo(() => parseKeys(rawKeys), [rawKeys]);
 
   const { data, isLoading, error } = useBusinessPlanData();
+  const [openModal, setOpenModal] = useState<ModalKind | null>(null);
+
+  /* El reloj se lee UNA vez: dos renders del mismo estado no pueden discrepar. */
+  const [now] = useState(() => new Date());
+  const thisMonth = currentYearMonth(now);
+  const yearMonths = useMemo(() => monthsOfYear(now), [now]);
 
   const members = useMemo(
     () => (data ? keys.map((k) => data.loanOfficers.find((lo) => lo.employeeKey === k)).filter(Boolean) : []),
@@ -65,16 +96,10 @@ export default function GroupReviewPage({ params }: { params: Promise<{ keys: st
   const group = useMemo(() => {
     if (!data || members.length === 0) return null;
     const d = data.diagnostics;
-    return aggregateGroup(
-      members, d.windowMonths, d.closedMonths, d.windowMonths[d.windowMonths.length - 1], d.rates,
-      /* El dia del mes, para el ritmo prorrateado del Future performance. */
-      new Date().getDate()
-    );
-  }, [data, members]);
+    return aggregateGroup(members, d.windowMonths, d.closedMonths, thisMonth, d.rates, now.getDate());
+  }, [data, members, thisMonth, now]);
 
   const branches = useMemo(() => [...new Set(members.flatMap((m) => m.branchCodes))].sort(), [members]);
-  const year = useMemo(() => monthsOfYear(new Date()), []);
-  const thisMonth = currentYearMonth(new Date());
 
   return (
     <>
@@ -99,7 +124,7 @@ export default function GroupReviewPage({ params }: { params: Promise<{ keys: st
             Volume and activity added up across the group.
           </p>
         </div>
-        {group && <VerdictPanel verdict={group.verdict} />}
+        {group && <VerdictPanel verdict={group.row.verdict} />}
       </div>
 
       {isLoading && <LoadingState />}
@@ -130,124 +155,98 @@ export default function GroupReviewPage({ params }: { params: Promise<{ keys: st
         <>
           {/*
             ⚠ El aviso de que esto no dispara nada. Va ARRIBA, junto al
-            veredicto, y no al pie: quien mira un badge "On Risk" idéntico al
-            del perfil individual actúa antes de llegar al pie de la página.
+            veredicto, y no al pie: quien mira un badge "On Risk" idéntico al del
+            perfil individual actúa antes de llegar al final de la página.
           */}
           <div className="bp-group-note">
-            <strong>This verdict is informative.</strong> It uses the same rules as an individual one, applied to the
-            added-up numbers — but it triggers no Business Plan. Plans belong to people: a group has no funnel, no stages
-            and nobody accountable for them. To act, open a member below.
+            <strong>This verdict is informative.</strong> It uses the same rules as an individual one — the same
+            qualifiers, the same pace bands — applied to the added-up numbers. But it triggers no Business Plan: plans
+            belong to people, and a group has no funnel, no stages and nobody accountable for them. To act, open a
+            member below.
           </div>
 
-          {/* ── Qualifier 1, sumado ─────────────────────────────────────────── */}
-          <h2 className="bp-section-title">Current performance — volume, added up</h2>
-          <div className="bp-forensic">
-            <GroupItem label={'Closings in ' + shortMonth(thisMonth) + ' so far'} value={fmtLoans(group.projection.closedToDate)} />
-            <GroupItem label="Total Pipeline" value={fmtLoans(group.projection.totalPipeline)} />
-            <GroupItem label="Healthy Pipeline" value={fmtLoans(group.projection.healthyPipeline)} />
-            <GroupItem
-              label={shortMonth(thisMonth) + ' projection'}
-              value={fmtLoans(group.projection.projectedTotal)}
-              title={exactTitle(group.projection.projectedTotal)}
-              strong
-            />
-          </div>
+          {/* ── Current performance ─────────────────────────────────────────── */}
+          <h2 className="bp-section-title">Current performance — this month&apos;s pipeline, added up</h2>
+          <ForensicCards lo={group.row} thisMonth={thisMonth} onOpen={(t) => setOpenModal(t)} />
+          <ChannelBreakdown lo={group.row} />
 
-          {/* ── El GAP del grupo ────────────────────────────────────────────── */}
-          <div className="mcard bp-group-gap">
-            <div className="bp-group-gap__row">
-              <div>
-                <div className="m-name">3-month average</div>
-                <div className="kpi-hero__value" title={exactTitle(group.q1.avgWithCurrent)}>
-                  {fmtAvg(group.q1.avgWithCurrent)}
-                </div>
-                {/*
-                  La cuenta escrita: es exactamente el punto que separa sumar de
-                  promediar promedios, y verla evita la discusión.
-                */}
-                <div className="bp-muted-line">
-                  ({group.q1.windowMonths.slice(0, -1).map((m) => group.closingsByMonth[m] ?? 0).join(' + ')} +{' '}
-                  {group.projection.projectedTotal.toFixed(2)} projected) ÷ {group.q1.windowMonths.length} months
-                </div>
-              </div>
-              <div>
-                <div className="m-name">Group benchmark</div>
-                <div className="kpi-hero__value">{group.benchmark === null ? '—' : group.benchmark.toFixed(1)}</div>
-                <div className="bp-muted-line">
-                  {group.benchmark === null
-                    ? 'sum not available'
-                    : members.map((m) => (m.monthlyBenchmark ?? 0).toFixed(1)).join(' + ')}
-                </div>
-              </div>
-              <div>
-                <div className="m-name">GAP</div>
-                <div
-                  className={
-                    'kpi-hero__value' +
-                    (group.q1.gap === null ? '' : group.q1.gap < 0 ? ' kpi-hero__value--risk' : ' kpi-hero__value--emerald')
-                  }
-                >
-                  {fmtGap(group.q1.gap)}
-                </div>
-                <div className="bp-muted-line">{group.q1.state ? GAP_STATE_LABEL[group.q1.state] : 'not evaluable'}</div>
-              </div>
+          <div className="bp-q1-grid">
+            <div className="mcard bp-chart-card">
+              <MonthlyBarChart
+                months={yearMonths}
+                closingsByMonth={group.row.activity.closingsByMonth}
+                currentMonth={thisMonth}
+                projection={group.row.projection}
+                benchmark={group.row.monthlyBenchmark}
+                onSelectMonth={(m) => setOpenModal({ month: m })}
+              />
             </div>
 
             {/*
-              ⚠ Sin benchmark de alguien, el GAP NO se calcula y NO se rellena
-              con cero. Un cero diría que a esa persona no se le pide nada, y el
-              GAP del grupo saldría mejor de lo que es.
+              El mismo panel del perfil. Lo único distinto es el benchmark: acá
+              es la SUMA de los individuales y no se edita, así que en vez del
+              editor va el número con su desglose a la vista.
             */}
-            {group.missingBenchmark.length > 0 && (
-              <div className="bp-pending" role="status">
-                <AlertTriangleIcon size={14} />
-                <span>
-                  No group GAP: {group.missingBenchmark.map((m) => m.fullName).join(', ')}{' '}
-                  {group.missingBenchmark.length === 1 ? 'has' : 'have'} no benchmark. Treating a missing benchmark as
-                  zero would make the group look better than it is, so the whole sum is left undefined.
+            <Q1Panel
+              lo={group.row}
+              benchmarkSlot={
+                <span
+                  className="bp-stat__value"
+                  title={members.map((m) => `${m.fullName} ${m.monthlyBenchmark ?? '—'}`).join(' · ')}
+                >
+                  {group.row.monthlyBenchmark === null ? (
+                    <span className="bp-muted">—</span>
+                  ) : (
+                    <>
+                      {group.row.monthlyBenchmark.toFixed(1)}
+                      <span className="bp-group-sum">
+                        {' '}
+                        = {members.map((m) => (m.monthlyBenchmark ?? 0).toFixed(1)).join(' + ')}
+                      </span>
+                    </>
+                  )}
                 </span>
-              </div>
-            )}
-          </div>
-
-          {/* ── Qualifier 2, sumado ─────────────────────────────────────────── */}
-          <h2 className="bp-section-title">Future performance — activity, added up</h2>
-          <div className="bp-q2-grid">
-            {[
-              { k: 'applications' as const, label: 'Credit applications', rate: data.diagnostics.rates.q2.applications },
-              { k: 'creditReports' as const, label: 'Pre-approvals', rate: data.diagnostics.rates.q2.creditReports },
-              { k: 'fileCreations' as const, label: 'File creations', rate: data.diagnostics.rates.q2.fileCreations },
-            ].map((row) => {
-              const required = group.benchmark === null ? null : requiredUnits(group.benchmark, row.rate);
-              const actual = group.currentActivity[row.k];
-              return (
-                <div key={row.k} className="mcard bp-q2-card">
-                  <div className="bp-q2-card__name">{row.label}</div>
-                  <div className="bp-q2-card__value">
-                    {actual}
-                    <span className="bp-q2-card__req"> / {required ?? '—'}</span>
-                  </div>
-                  <div className="bp-q2-card__avg" title="Group total ÷ 3 closed months">
-                    usually {fmtActivityAvg(group.trailingActivityAvg[row.k])}/month
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* ── Producción agregada por mes ─────────────────────────────────── */}
-          <h2 className="bp-section-title">Group closings by month</h2>
-          <div className="mcard">
-            <GroupBars months={year} byMonth={group.closingsByMonth} benchmark={group.benchmark} />
-            <p className="bp-muted-line">
-              Every bar is the sum of the members&apos; closings for that month. The window that feeds the GAP is{' '}
-              {group.q1.windowMonths.map(formatYearMonth).join(', ')}, with the last one projected.
-            </p>
+              }
+            />
           </div>
 
           {/*
-            La deduplicación, dicha. Callarla dejaría la duda de si se comprobó.
+            ⚠ Sin benchmark de alguien, el GAP NO se calcula y NO se rellena con
+            cero. Un cero diría que a esa persona no se le pide nada, y el GAP
+            del grupo saldría mejor de lo que es.
           */}
+          {group.missingBenchmark.length > 0 && (
+            <div className="bp-pending" role="status">
+              <AlertTriangleIcon size={14} />
+              <span>
+                No group GAP: {group.missingBenchmark.map((m) => m.fullName).join(', ')}{' '}
+                {group.missingBenchmark.length === 1 ? 'has' : 'have'} no benchmark. Treating a missing benchmark as
+                zero would make the group look better than it is, so the whole sum is left undefined.
+              </span>
+            </div>
+          )}
+
+          {/* ── Future performance ──────────────────────────────────────────── */}
+          <h2 className="bp-section-title">
+            Future performance —{' '}
+            <button type="button" className="bp-title-btn" onClick={() => setOpenModal('activity')}>
+              commercial activity
+            </button>
+            , added up
+          </h2>
+
+          {group.row.q2.metrics.length === 0 ? (
+            <p className="bp-muted-line">
+              No group benchmark, so the required volumes cannot be derived — see the note above.
+            </p>
+          ) : (
+            <FuturePerformanceCards
+              metrics={group.row.q2.metrics}
+              onOpenMetric={(k) => setOpenModal(modalKindOfMetric(k))}
+            />
+          )}
+
+          {/* La deduplicación, dicha. Callarla dejaría la duda de si se comprobó. */}
           <div className="bp-group-dedupe">
             {group.sharedOpenLoans === 0 ? (
               <>No pipeline loan appears under two members of this group, so nothing is counted twice.</>
@@ -312,84 +311,27 @@ export default function GroupReviewPage({ params }: { params: Promise<{ keys: st
               </table>
             </div>
           </div>
+
+          <CalcNote data={data} />
+
+          {/*
+            Los MISMOS modales que el perfil: la fila sintética tiene los mismos
+            campos, así que `LoanDetailModal` no distingue una persona de un
+            grupo. Los préstamos ya vienen deduplicados de `aggregateGroup`, así
+            que el detalle no repite ninguno.
+          */}
+          {openModal !== null && (
+            <LoanDetailModal
+              kind={openModal}
+              lo={group.row}
+              thisMonth={thisMonth}
+              year={now.getFullYear()}
+              yearMonths={yearMonths}
+              onClose={() => setOpenModal(null)}
+            />
+          )}
         </>
       )}
     </>
-  );
-}
-
-function GroupItem({
-  label,
-  value,
-  title,
-  strong,
-}: {
-  label: string;
-  value: string;
-  title?: string;
-  strong?: boolean;
-}) {
-  return (
-    <div className={'bp-forensic__item' + (strong ? ' is-strong' : '')} title={title}>
-      <div className="bp-forensic__value">{value}</div>
-      <div className="bp-forensic__label">{label}</div>
-    </div>
-  );
-}
-
-/**
- * Barras del año, sin proyección segmentada.
- *
- * No se reutiliza `MonthlyBarChart`: aquél apila los tres componentes de la
- * proyección del mes en curso, y para un grupo esos segmentos no son la lectura
- * que se busca -- lo que se mira es la producción conjunta a lo largo del año.
- */
-function GroupBars({
-  months,
-  byMonth,
-  benchmark,
-}: {
-  months: string[];
-  byMonth: Record<string, number>;
-  benchmark: number | null;
-}) {
-  const H = 130;
-  const GAP = 5;
-  const values = months.map((m) => byMonth[m] ?? 0);
-  const max = Math.max(1, ...values, benchmark ?? 0);
-  const w = `calc((100% - ${(months.length - 1) * GAP}px) / ${months.length})`;
-  return (
-    <div className="bp-chart">
-      <div className="bp-chart__plot" style={{ height: H + 'px' }}>
-        {benchmark !== null && (
-          <div
-            className="bp-chart__benchmark"
-            style={{ bottom: (benchmark / max) * H + 'px' }}
-            title={`Group benchmark ${benchmark.toFixed(1)}`}
-          >
-            <span className="bp-chart__benchmark-label">{benchmark.toFixed(1)}</span>
-          </div>
-        )}
-        <div className="bp-chart__bars" style={{ gap: GAP + 'px' }}>
-          {months.map((m) => (
-            <div key={m} className="bp-impact-chart__col" style={{ width: w }}>
-              <div className="bp-chart__value">{(byMonth[m] ?? 0) > 0 ? byMonth[m] : ''}</div>
-              <div
-                className="bp-chart__bar"
-                style={{ height: ((byMonth[m] ?? 0) / max) * H + 'px' }}
-                title={`${shortMonth(m)}: ${byMonth[m] ?? 0} closings`}
-              />
-            </div>
-          ))}
-        </div>
-      </div>
-      <div className="bp-chart__axis" style={{ gap: GAP + 'px' }}>
-        {months.map((m) => (
-          <div key={m} className="bp-chart__tick" style={{ width: w }}>
-            {shortMonth(m)}
-          </div>
-        ))}
-      </div>
-    </div>
   );
 }

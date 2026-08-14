@@ -2468,3 +2468,103 @@ pasó con el fondo del icono.
 La banda tiñe el BORDE de la tarjeta, nunca el fondo: teñir el fondo apagaría
 las dos barras y las dos píldoras que viven adentro — el mismo error que costó
 cuatro rondas con el icono.
+
+## Etapa BP31 — la revisión conjunta deja de ser una copia
+
+### El problema, y por qué era estructural
+
+BP23 construyó la vista de grupo con su propio markup. Ninguno de los cambios
+posteriores llegó ahí: en BP29 la regla de Future performance pasó al ritmo
+prorrateado y sólo cambió en el perfil, así que el grupo se quedó mostrando el
+acumulado contra la meta del mes entero — la lógica que ese cambio había
+reemplazado.
+
+No fue un descuido de nadie. **El diseño lo garantizaba**: con dos markups para
+lo mismo, la única defensa era acordarse, y acordarse no es una defensa.
+
+### ⚠ La decisión que hace posible compartir todo
+
+`aggregateGroup` ahora devuelve un **`LoanOfficerRow` sintético**. El grupo tiene
+exactamente la misma forma de dato que una persona, así que cada componente de
+presentación recibe un `LoanOfficerRow` y no sabe —ni le importa— si detrás hay
+una persona o tres.
+
+La alternativa era pasarle a cada componente los campos sueltos, y con eso cada
+uno tendría dos maneras de recibir sus datos: el mismo camino, un nivel más
+abajo.
+
+Los campos que no tienen sentido para un grupo van en su valor vacío y están
+marcados en el código: `employeeKey: -1`, sin historial de benchmark, sin
+intervención, sin plan activo. Falsearlos con datos de un miembro habría sido
+peor que dejarlos vacíos.
+
+Dentro de la fila, todo lo agregado está deduplicado: los préstamos abiertos por
+`sourceLoanId`, los resueltos por lo mismo, y las filas de cierre por
+`loan_number` — las mismas que abren los modales del gráfico.
+
+### Qué se extrajo
+
+`app/business-plan/components/performance.tsx`, ARCHIVO NUEVO. Nada de esto es
+nuevo: salió del perfil del Loan Officer, donde vivía escrito a mano.
+
+| Componente | Qué es |
+|---|---|
+| `ForensicCards` | las cinco tarjetas del mes, con sus modales y la marca de CTC |
+| `ChannelBreakdown` | Banked / Brokered con el método de cada canal |
+| `Q1Panel` | Avg 3M con actual, Avg 3M cerrados, Benchmark, GAP héroe, YTD |
+| `FuturePerformanceCards` | las tres tarjetas con Progress to date y Month to date |
+| `modalKindOfMetric` | qué modal abre cada métrica |
+
+Y dos que ya existían y ahora también los monta el grupo: `MonthlyBarChart` (con
+las barras clickeables y los tres segmentos del mes actual) y `LoanDetailModal`.
+
+Las dos vistas montan los seis. Verificado por grep: cada uno aparece en
+`lo/[employeeKey]/page.tsx` y en `group/[keys]/page.tsx`, en ningún otro lado, y
+no hay copias.
+
+Efecto colateral que confirma el diagnóstico: al extraer, aparecieron en el
+perfil un `ForensicItem` local, siete imports y dos variables que ya no usaba
+nadie. Todo eso era el markup que el grupo había duplicado.
+
+### El grupo del branch 703, con los números reales
+
+Benchmark del grupo 6 (4 + 1 + 1), acumulado de agosto sumado de los tres, día
+14, ejecutando el mismo `evaluateQualifier2` que monta el perfil:
+
+| métrica | requerido | ritmo/día | esperado a hoy | acumulado | % ritmo | banda |
+|---|---|---|---|---|---|---|
+| File Creations | 30 | 1,00 | 14,00 | 17 | 121% | on track |
+| Credit Reports | 20 | 0,67 | 9,33 | 20 | 214% | on track |
+| Applications | 9 | 0,30 | 4,20 | 6 | 143% | on track |
+
+Cero en `at_risk` → Future performance pasa.
+
+**Y acá se ve por qué esto importaba.** Con la lógica que el grupo tenía hasta
+hoy —acumulado contra la meta del mes entero— Applications mostraba "6 of 9",
+dos de las tres métricas quedaban por debajo, y Future performance **fallaba**.
+El grupo estaba dando un veredicto distinto del que darían sus miembros con la
+regla vigente.
+
+### Lo que sí es propio del grupo, y se queda
+
+El aviso de que el veredicto es informativo y no dispara ningún Business Plan;
+la lista de miembros con su veredicto individual; el benchmark como suma con el
+desglose visible en lugar del editor; y la nota sobre préstamos compartidos.
+
+### ⚠ Sin panel de notas, y es deliberado
+
+Coincido con la recomendación. Una nota necesita un destino con FK, y un grupo
+NO es una entidad guardada: es una selección momentánea que vive en una URL.
+`business_plan.note` tiene una columna por destino justamente para que la base
+garantice que el objeto al que apunta existe (ver el SQL de BP20); un grupo no
+tendría a qué apuntar, y la única forma de darle una sería inventar una tabla de
+"grupos" que nadie pidió y que habría que mantener.
+
+Si hace falta dejar constancia de una revisión conjunta, va como nota en el
+perfil de cada miembro — que además es donde alguien la va a buscar después.
+
+### Un rename que BP29 no había alcanzado
+
+El título de Future performance en el perfil seguía diciendo "Qualifier 2":
+BP29 buscó la cadena `'Qualifier 2 — '` y ahí el JSX está partido
+(`Qualifier 2 —{' '}` con un botón dentro), así que no coincidió. Corregido.

@@ -1,15 +1,21 @@
 'use client';
 
-import { useMemo, useState, use, type ReactNode } from 'react';
+import { useMemo, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { useBusinessPlanData } from '@/lib/business-plan/useBusinessPlanData';
-import { GAP_STATE_LABEL } from '@/lib/business-plan/qualifiers';
-import { monthsOfYear, currentYearMonth, shortMonth } from '@/lib/business-plan/months';
+import { monthsOfYear, currentYearMonth } from '@/lib/business-plan/months';
 import Breadcrumbs from '../../components/Breadcrumbs';
 import MonthlyBarChart from '../../components/MonthlyBarChart';
 import LoanDetailModal, { type ModalKind } from '../../components/LoanDetailModal';
 import BenchmarkEditor from '../../components/BenchmarkEditor';
 import DecisionBar from '../../components/DecisionBar';
+import {
+  ChannelBreakdown,
+  ForensicCards,
+  FuturePerformanceCards,
+  Q1Panel,
+  modalKindOfMetric,
+} from '../../components/performance';
 import NotesPanel from '../../components/NotesPanel';
 import { FunnelGlyph } from '../../components/funnelIcons';
 import {
@@ -19,11 +25,6 @@ import {
   NotFoundState,
   RoleChip,
   VerdictPanel,
-  fmtActivityAvg,
-  fmtAvg,
-  fmtGap,
-  fmtLoans,
-  exactTitle,
   Avatar,
 } from '../../components/shared';
 
@@ -69,9 +70,8 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
   const reference = useMemo(() => new Date(), []);
   const yearMonths = useMemo(() => monthsOfYear(reference), [reference]);
   const thisMonth = currentYearMonth(reference);
-  /* Lo que aporta el pipeline, sin lo ya cerrado. Forecast Total suma los dos. */
-  const projectedFromPipeline = lo ? lo.projection.projectedTotal - lo.projection.closedToDate : 0;
-  const ctcAndClosing = lo ? lo.projection.inCtc + lo.projection.inClosing : 0;
+  /* `projectedFromPipeline` y `ctcAndClosing` se mudaron a `ForensicCards`
+     junto con las tarjetas que los usaban (etapa BP31). */
 
   return (
     <>
@@ -154,96 +154,13 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
           <h2 className="bp-section-title">Current performance — this month&apos;s pipeline</h2>
 
           {/*
-           * Bloque forense del mes en curso, en el orden exacto que pidió el
-           * negocio: de lo más cierto a lo más pronosticado. Ese orden es el
-           * argumento -- primero lo que ya pasó, después lo que falta.
-           */}
-          {/*
-            Cinco tarjetas, todas clickeables: cada una abre el detalle de los
-            préstamos que la componen. El orden es el del argumento -- de lo más
-            cierto a lo más pronosticado -- y el total va al final.
-
-            Todos los números ENTEROS: un préstamo es discreto. El valor exacto
-            de los que son fraccionarios queda en el `title`.
+            Etapa BP31: las cinco tarjetas y el desglose por canal se mudaron a
+            `components/performance.tsx`, tal cual estaban. La revisión conjunta
+            monta EXACTAMENTE estos componentes con los números sumados -- es lo
+            que impide que las dos vistas vuelvan a divergir.
           */}
-          <div className="bp-forensic">
-            <ForensicItem
-              label={'Closings in ' + shortMonth(thisMonth) + ' so far'}
-              value={lo.projection.closedToDate}
-              onClick={() => setOpenModal('closed')}
-            />
-            <ForensicItem
-              label="Total Pipeline"
-              value={lo.projection.totalPipeline}
-              suffix="loans"
-              onClick={() => setOpenModal('pipeline')}
-            />
-            <ForensicItem
-              label="Healthy"
-              value={lo.projection.healthyPipeline}
-              suffix="loans"
-              onClick={() => setOpenModal('healthy')}
-            />
-            <ForensicItem
-              label="Projected to close after PT"
-              value={fmtLoans(projectedFromPipeline)}
-              title={exactTitle(projectedFromPipeline)}
-              onClick={() => setOpenModal('projected')}
-            />
-            {/*
-              Forecast Total = proyectado + cerrado. Es el número que alimenta
-              el GAP, así que va destacado. Los préstamos en CTC/Closing se
-              marcan con el mismo punto verde que usa Forecast en su pivot: son
-              los que están a un paso de cerrar.
-            */}
-            <ForensicItem
-              label="Forecast Total"
-              value={fmtLoans(lo.projection.projectedTotal)}
-              title={exactTitle(lo.projection.projectedTotal)}
-              strong
-              onClick={() => setOpenModal('forecast')}
-              badge={
-                ctcAndClosing > 0 ? (
-                  <span className="bp-ctc-mark" title={`${lo.projection.inCtc} in CTC · ${lo.projection.inClosing} in Closing`}>
-                    <i className="ctc-dot" />
-                    {ctcAndClosing} CTC
-                  </span>
-                ) : null
-              }
-            />
-          </div>
-
-          {/*
-            DESGLOSE POR CANAL. La proyección combina dos modelos distintos --
-            Banked por cascada de milestone sobre los healthy, Brokered por tasa
-            plana sobre el total-- y sin abrirlo el número de arriba es
-            imposible de explicar. Sólo se muestran los canales con préstamos.
-          */}
-          <div className="bp-channels">
-            {lo.projection.banked.loans > 0 && (
-              <div className="bp-channel">
-                <span className="bp-channel__name">Banked</span>
-                <span className="bp-channel__detail">
-                  {lo.projection.banked.loans} healthy loans → <strong>{fmtAvg(lo.projection.banked.projected)}</strong>{' '}
-                  <span className="bp-channel__how">milestone cascade</span>
-                </span>
-              </div>
-            )}
-            {lo.projection.brokered.loans > 0 && (
-              <div className="bp-channel">
-                <span className="bp-channel__name">Brokered</span>
-                <span className="bp-channel__detail">
-                  {lo.projection.brokered.loans} loans → <strong>{fmtAvg(lo.projection.brokered.projected)}</strong>{' '}
-                  <span className="bp-channel__how">flat rate, on the whole pipeline</span>
-                </span>
-              </div>
-            )}
-            {lo.projection.banked.loans === 0 && lo.projection.brokered.loans === 0 && (
-              <div className="bp-channel">
-                <span className="bp-channel__detail bp-muted">No open loans due to close this month.</span>
-              </div>
-            )}
-          </div>
+          <ForensicCards lo={lo} thisMonth={thisMonth} onOpen={(t) => setOpenModal(t)} />
+          <ChannelBreakdown lo={lo} />
 
           {/*
             Etapa BP9: acá iba el desglose por milestone
@@ -267,81 +184,16 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
             </div>
 
             {/*
-             * Una línea por métrica: etiqueta a la izquierda, valor a la
-             * derecha. Antes cada una ocupaba dos renglones y el panel se leía
-             * como una lista de párrafos en vez de una ficha de datos.
-             */}
-            {/*
-             * JERARQUÍA DEL PANEL — etapa BP10, y el cambio es deliberado.
-             *
-             * Hasta BP9 el número grande era el promedio con mes actual. Estaba
-             * mal: el promedio es el INSUMO y el GAP es la CONCLUSIÓN -- es lo
-             * que decide el veredicto. Con dos números grandes en el mismo
-             * panel no había ninguno destacado.
-             *
-             * Ahora todas las filas son normales y sólo el GAP sale del renglón.
-             */}
-            <div className="mcard bp-stats">
-              {/*
-               * Los DOS promedios, y no para suavizar el veredicto: son
-               * diagnósticos distintos y cambian el tipo de ayuda.
-               *   histórico bajo + proyección baja  = problema sostenido
-               *   histórico bueno + proyección baja = se le secó el pipeline
-               *   histórico bajo + proyección buena = ya está reaccionando
-               * El GAP sale SIEMPRE del que incluye el mes actual.
-               */}
-              <div className="bp-stat">
-                <span className="bp-stat__label">Avg 3M (with current month)</span>
-                <span className="bp-stat__value" title={exactTitle(lo.q1.avgWithCurrent)}>
-                  {fmtAvg(lo.q1.avgWithCurrent)}
-                </span>
-              </div>
-              <div className="bp-stat bp-stat--muted">
-                <span className="bp-stat__label">Avg 3M (closed months)</span>
-                <span className="bp-stat__value" title={exactTitle(lo.avgClosedMonths)}>
-                  {fmtAvg(lo.avgClosedMonths)}
-                </span>
-              </div>
-              {/* Neutro a propósito: el benchmark es una referencia, no una alerta. */}
-              <div className="bp-stat">
-                <span className="bp-stat__label">Benchmark</span>
-                <BenchmarkEditor lo={lo} onSaved={reload} />
-              </div>
-
-              {/*
-               * GAP: su propio contenedor, número grande y la píldora del estado
-               * al lado. El color viene del ESTADO y no fijo en rojo -- alguien
-               * On Target con GAP +0,6 dentro de un recuadro rojo leería lo
-               * contrario de su veredicto.
-               *
-               * Un decimal siempre: redondear a entero convertiría un −0,5 en 0,
-               * o sea On Target, y eso cambia veredictos, no la presentación.
-               */}
-              <div className={'bp-gap-hero' + (lo.q1.state ? ' bp-gap-hero--' + lo.q1.state : '')}>
-                <span className="bp-stat__label">GAP</span>
-                {lo.q1.gap === null ? (
-                  <span className="bp-muted">—</span>
-                ) : (
-                  <div className="bp-gap-hero__row">
-                    <span className="bp-gap-hero__value" title={exactTitle(lo.q1.gap)}>
-                      {fmtGap(lo.q1.gap)}
-                    </span>
-                    {lo.q1.state && <span className="bp-gap-hero__state">{GAP_STATE_LABEL[lo.q1.state]}</span>}
-                  </div>
-                )}
-              </div>
-
-              <div className="bp-stat">
-                <span className="bp-stat__label">YTD closings</span>
-                <span className="bp-stat__value">{lo.ytdClosings}</span>
-              </div>
-            </div>
+              El panel del GAP también es compartido. Lo único propio del perfil
+              es el EDITOR del benchmark: el del grupo es una suma y no se edita.
+            */}
+            <Q1Panel lo={lo} benchmarkSlot={<BenchmarkEditor lo={lo} onSaved={reload} />} />
           </div>
 
           {/* ── 3. Qualifier 2 ───────────────────────────────────────────── */}
           {/* El título abre la actividad del año; cada métrica, su detalle. */}
           <h2 className="bp-section-title">
-            Qualifier 2 —{' '}
+            Future performance —{' '}
             <button type="button" className="bp-title-btn" onClick={() => setOpenModal('activity')}>
               commercial activity
             </button>
@@ -355,84 +207,7 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
              * restando para saber qué tan lejos estaba de la meta. Acá la barra
              * muestra la distancia y la píldora la dice en números.
              */
-            <div className="bp-q2-cards">
-              {lo.q2.metrics.map((m) => {
-                const short = Math.max(0, m.required - m.actual);
-                /* Month to date: contra la meta del MES ENTERO. */
-                const monthPct = m.required <= 0 ? 0 : Math.min(100, (m.actual / m.required) * 100);
-                /*
-                 * Progress to date: contra lo esperado A HOY. La barra puede
-                 * pasarse del 100% -- se recorta al dibujar, pero el número de
-                 * arriba dice el porcentaje real, que es el dato.
-                 */
-                const pacePct = m.paceRatio === null ? 0 : Math.min(100, m.paceRatio * 100);
-                const band = m.band ?? 'at_risk';
-                return (
-                  <div key={m.key} className={'bp-q2-card is-' + band}>
-                    <button
-                      type="button"
-                      className="bp-q2-card__name"
-                      onClick={() => setOpenModal(m.key === 'fileCreations' ? 'files' : m.key === 'creditReports' ? 'credit' : 'apps')}
-                    >
-                      {m.label}
-                    </button>
-
-                    {/*
-                      ⚠ ARRIBA VA LO QUE DECIDE — etapa BP29.
-                      El orden es el argumento: primero el ritmo, que es lo que
-                      define el veredicto, y debajo el acumulado del mes, que
-                      quedó como visibilidad. Al revés, lo primero que se leería
-                      sería el número que ya no manda.
-                    */}
-                    <div className="bp-q2-block">
-                      <div className="bp-q2-block__head">
-                        <span className="bp-q2-block__title">Progress to date</span>
-                        <span className={'bp-q2-block__band bp-q2-block__band--' + band}>
-                          {band === 'on_track' ? 'On track' : band === 'watch' ? 'Watch' : 'At risk'}
-                        </span>
-                      </div>
-                      <div className="bp-q2-card__count">
-                        {m.actual} of {m.expectedToDate.toFixed(1)}
-                        <span className="bp-q2-card__req"> expected by day {m.dayOfMonth}</span>
-                      </div>
-                      <div className="bp-q2-bar">
-                        <div className={'bp-q2-bar__fill bp-q2-bar__fill--' + band} style={{ width: pacePct + '%' }} />
-                      </div>
-                      <div
-                        className="bp-q2-block__math"
-                        title={`${m.required} required ÷ 30 days = ${m.dailyPace.toFixed(2)}/day × day ${m.dayOfMonth}`}
-                      >
-                        {m.required} ÷ 30 = {m.dailyPace.toFixed(2)}/day ·{' '}
-                        {m.paceRatio === null ? '—' : Math.round(m.paceRatio * 100) + '% of pace'}
-                      </div>
-                    </div>
-
-                    {/*
-                      Month to date. Se queda porque sigue siendo la pregunta de
-                      fin de mes -- cuánto falta para la meta completa -- pero ya
-                      no decide nada, y por eso va en gris y sin banda.
-                    */}
-                    <div className="bp-q2-block bp-q2-block--muted">
-                      <div className="bp-q2-block__head">
-                        <span className="bp-q2-block__title">Month to date</span>
-                        <span className="bp-q2-block__note">{m.meets ? 'Met' : short + ' to go'}</span>
-                      </div>
-                      <div className="bp-q2-card__count">
-                        {m.actual} of {m.required}
-                        <span className="bp-q2-card__req"> for the full month</span>
-                      </div>
-                      <div className="bp-q2-bar bp-q2-bar--muted">
-                        <div className="bp-q2-bar__fill bp-q2-bar__fill--muted" style={{ width: monthPct + '%' }} />
-                      </div>
-                    </div>
-
-                    <div className="bp-q2-card__avg" title="Average of the three closed months">
-                      usually {fmtActivityAvg(m.trailingAvg)}/month
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            <FuturePerformanceCards metrics={lo.q2.metrics} onOpenMetric={(k) => setOpenModal(modalKindOfMetric(k))} />
           )}
 
           {/* ── 4. Barra de decisión ─────────────────────────────────────── */}
@@ -475,45 +250,5 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
         </>
       )}
     </>
-  );
-}
-
-/**
- * Tarjeta del bloque forense.
- *
- * Es un `<button>` y no un `<div onClick>`: así entra en el orden de tabulación
- * y se activa con Enter sin que haya que reimplementar nada de eso a mano.
- */
-function ForensicItem({
-  label,
-  value,
-  suffix,
-  strong,
-  title,
-  onClick,
-  badge,
-}: {
-  label: string;
-  value: string | number;
-  suffix?: string;
-  strong?: boolean;
-  title?: string;
-  onClick?: () => void;
-  badge?: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      className={'bp-forensic__item' + (strong ? ' is-strong' : '')}
-      title={title}
-      onClick={onClick}
-    >
-      <div className="bp-forensic__value">
-        {value}
-        {suffix && <span className="bp-forensic__suffix"> {suffix}</span>}
-      </div>
-      <div className="bp-forensic__label">{label}</div>
-      {badge}
-    </button>
   );
 }

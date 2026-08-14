@@ -1,6 +1,6 @@
 import { evaluateQualifier1, evaluateQualifier2, combineVerdict, projectCurrentMonth } from './qualifiers';
 import type { RateSettings } from './rates';
-import type { LoanOfficerRow, OpenLoan, Qualifier1, Qualifier2, Verdict } from './types';
+import type { ActivityLoan, LoanOfficerRow, OpenLoan, ResolvedLoan } from './types';
 
 /**
  * ============================================================================
@@ -48,24 +48,34 @@ import type { LoanOfficerRow, OpenLoan, Qualifier1, Qualifier2, Verdict } from '
  */
 
 export interface GroupAggregate {
+  /**
+   * ============================================================================
+   * ⚠ EL GRUPO SE DEVUELVE COMO UN `LoanOfficerRow` SINTÉTICO — etapa BP31.
+   * ============================================================================
+   *
+   * Es la decisión que hace posible que las dos vistas compartan TODO. La regla
+   * del negocio es "la vista de grupo es la individual con los números sumados",
+   * y la forma más directa de cumplirla es que el grupo tenga exactamente la
+   * misma forma de dato que una persona: entonces cada componente de
+   * presentación recibe un `LoanOfficerRow` y no sabe -- ni le importa -- si
+   * detrás hay una persona o tres.
+   *
+   * La alternativa era pasarle a cada componente los campos sueltos, y con eso
+   * cada uno tendría dos maneras de recibir sus datos. Es justamente el camino
+   * por el que la vista de grupo quedó desactualizada: BP23 la construyó con su
+   * propio markup, y BP29 cambió la regla de Future performance en un solo lado.
+   *
+   * Los campos que no tienen sentido para un grupo van en su valor vacío y están
+   * marcados abajo: nadie los lee, pero el tipo los exige y falsearlos con datos
+   * de un miembro sería peor.
+   */
+  row: LoanOfficerRow;
   members: LoanOfficerRow[];
-  /** Cierres del grupo por mes, ya sumados. */
-  closingsByMonth: Record<string, number>;
-  /** Suma de los benchmarks, o `null` si a alguien le falta. */
-  benchmark: number | null;
   /** Quiénes no tienen benchmark. Vacío si todos lo tienen. */
   missingBenchmark: LoanOfficerRow[];
-  q1: Qualifier1;
-  q2: Qualifier2;
-  verdict: Verdict;
-  projection: ReturnType<typeof projectCurrentMonth>;
-  /** Actividad del mes en curso, sumada. */
-  currentActivity: { fileCreations: number; creditReports: number; applications: number };
-  /** Promedio mensual del grupo sobre los meses cerrados. */
-  trailingActivityAvg: { fileCreations: number; creditReports: number; applications: number };
   /** Préstamos del pipeline que aparecían en más de un miembro. */
   sharedOpenLoans: number;
-  /** Cierres del mes en curso que aparecían en más de un miembro. */
+  /** Cierres que aparecían en más de un miembro. */
   sharedClosings: number;
 }
 
@@ -203,22 +213,106 @@ export function aggregateGroup(
   };
 
   const q1 = evaluateQualifier1(closings.byMonth, windowMonths, projection, benchmark);
+  /* ⚠ El MISMO motor que una persona sola, con el día del mes: por eso el
+     veredicto del grupo sale de las bandas de ritmo, igual que el individual. */
   const q2 = evaluateQualifier2(currentActivity, trailingActivityAvg, benchmark, rates, dayOfMonth);
 
-  return {
-    members,
-    closingsByMonth: closings.byMonth,
-    benchmark,
-    missingBenchmark,
+  /* Las filas de cierre, deduplicadas igual que los conteos: son las que abren
+     los modales del gráfico. */
+  const closingsRowsByMonth: Record<string, ActivityLoan[]> = {};
+  const seenRows = new Map<string, Set<string>>();
+  for (const lo of members) {
+    for (const [month, rows] of Object.entries(lo.activity.closingsRowsByMonth)) {
+      const seen = seenRows.get(month) ?? new Set<string>();
+      seenRows.set(month, seen);
+      for (const row of rows) {
+        if (row.loanNumber) {
+          if (seen.has(row.loanNumber)) continue;
+          seen.add(row.loanNumber);
+        }
+        closingsRowsByMonth[month] = [...(closingsRowsByMonth[month] ?? []), row];
+      }
+    }
+  }
+
+  const yearPrefix = thisMonth.slice(0, 5);
+  const row: LoanOfficerRow = {
+    /* ── Identidad: del grupo, no de nadie ── */
+    employeeKey: -1,
+    fullName: members.length + ' loan officers',
+    branchCodes: [...new Set(members.flatMap((m) => m.branchCodes))].sort(),
+    attributionOverride: null,
+    tier: null,
+    rosterStatus: null,
+    isBranchManager: false,
+    isProducing: false,
+
+    /* ── Lo agregado, que es lo que las pantallas leen ── */
+    activity: {
+      closingsByMonth: closings.byMonth,
+      filesByMonth,
+      creditReportsByMonth: creditByMonth,
+      applicationsByMonth: appsByMonth,
+      closingsRowsByMonth,
+      currentMonthFiles: members.flatMap((m) => m.activity.currentMonthFiles),
+      currentMonthCreditReports: members.flatMap((m) => m.activity.currentMonthCreditReports),
+      currentMonthApplications: members.flatMap((m) => m.activity.currentMonthApplications),
+      creditApplications: members.reduce((a, m) => a + m.activity.creditApplications, 0),
+      preApprovals: members.reduce((a, m) => a + m.activity.preApprovals, 0),
+      filesCreated: members.reduce((a, m) => a + m.activity.filesCreated, 0),
+    },
+    pipeline: {
+      openLoans: openLoans.length,
+      resolvedFunded: members.reduce((a, m) => a + m.pipeline.resolvedFunded, 0),
+    },
+    openLoanDetail: openLoans,
+    resolvedLoanDetail: dedupeResolved(members.flatMap((m) => m.resolvedLoanDetail)),
+
+    monthlyBenchmark: benchmark,
+    /* ⚠ Vacíos a propósito: un grupo no tiene historial de benchmark ni quién lo
+       fijó. La vista de grupo muestra la SUMA con su desglose, no un editor. */
+    benchmarkSetBy: null,
+    benchmarkEffectiveFrom: null,
+    benchmarkNote: null,
+    benchmarkHistory: [],
+
+    projection,
+    avgClosedMonths: sumOver(closings.byMonth, closedMonths) / closedMonths.length,
+    trailingActivityAvg,
+    ytdClosings: Object.entries(closings.byMonth)
+      .filter(([m]) => m.startsWith(yearPrefix))
+      .reduce((sum, [, n]) => sum + n, 0),
     q1,
     q2,
     verdict: combineVerdict(q1, q2),
-    projection,
-    currentActivity,
-    trailingActivityAvg,
+    /* Un grupo no se enrola ni se interviene: los planes son de personas. */
+    intervention: null,
+    activePlan: null,
+  };
+
+  return {
+    row,
+    members,
+    missingBenchmark,
     sharedOpenLoans: duplicates,
     sharedClosings: closings.shared,
   };
+}
+
+/** Los préstamos ya resueltos, sin repetir el que aparezca en dos miembros. */
+function dedupeResolved(loans: ResolvedLoan[]): ResolvedLoan[] {
+  const seen = new Set<string>();
+  const out: ResolvedLoan[] = [];
+  for (const l of loans) {
+    if (l.sourceLoanId === null) {
+      out.push(l);
+      continue;
+    }
+    if (seen.has(l.sourceLoanId)) continue;
+    seen.add(l.sourceLoanId);
+    out.push(l);
+  }
+  return out;
 }
 
 /** '1-25-33' -> [1, 25, 33]. Las claves viajan en la URL para poder compartir el link. */
