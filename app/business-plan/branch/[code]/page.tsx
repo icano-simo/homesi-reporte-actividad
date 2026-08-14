@@ -12,9 +12,12 @@ import {
   KpiCard,
   LoadingState,
   NotFoundState,
+  ProvisionalTag,
   RoleChip,
   VerdictBadge,
+  fmtAvg,
   fmtGap,
+  exactTitle,
 } from '../../components/shared';
 
 /**
@@ -87,7 +90,7 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
               con la MISMA ventana del Qualifier 1 (dos meses cerrados más el
               actual proyectado). Es un pronóstico, por eso es fraccionario.
             */}
-            <KpiCard label="Avg Closings 3M" value={branch.avgClosings3m.toFixed(1)} />
+            <KpiCard label="Avg Closings 3M" value={fmtAvg(branch.avgClosings3m)} />
             <KpiCard label="Status" value={branchStatusLabel(branch.status, branch.pendingCount)} />
           </div>
 
@@ -165,10 +168,20 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
                         {lo.fullName}
                         <RoleChip isBranchManager={lo.isBranchManager} isProducing={lo.isProducing} />
                       </td>
-                      <td className="bp-center">{lo.q1.avgWithCurrent.toFixed(1)}</td>
-                      <td className="bp-center">
-                        {lo.monthlyBenchmark === null ? <span className="bp-muted">—</span> : lo.monthlyBenchmark.toFixed(1)}
+                      <td className="bp-center" title={exactTitle(lo.q1.avgWithCurrent)}>
+                        {fmtAvg(lo.q1.avgWithCurrent)}
                       </td>
+                      <td className="bp-center">
+                        {lo.monthlyBenchmark === null ? (
+                          <span className="bp-muted">—</span>
+                        ) : (
+                          <>
+                            {fmtAvg(lo.monthlyBenchmark)}
+                            <ProvisionalTag setBy={lo.benchmarkSetBy} note={lo.benchmarkNote} />
+                          </>
+                        )}
+                      </td>
+                      {/* El GAP nunca se redondea a entero: -0,5 pasaría a 0, o sea On Target. */}
                       <td className="bp-center">{fmtGap(lo.q1.gap)}</td>
                       <td className={'bp-center' + (lo.activity.creditApplications ? '' : ' zero')}>{lo.activity.creditApplications}</td>
                       <td className={'bp-center' + (lo.activity.preApprovals ? '' : ' zero')}>{lo.activity.preApprovals}</td>

@@ -34,9 +34,7 @@ import type { RateSettings } from './rates';
  *                + loansEnClosing
  *                + Σ (healthy restantes × tasa acumulada de su milestone)
  *
- * A los préstamos en CTC y en Closing NO se les aplica tasa. Se muestran
- * aparte en la pantalla y aplicarles el pull-through los contaría con
- * descuento además de contarlos dos veces.
+ * El detalle por canal está en `projectCurrentMonth`.
  *
  * ---------------------------------------------------------------------------
  * TRES DECISIONES QUE SE FIJARON EN BP6 (antes eran lecturas mías)
@@ -49,11 +47,9 @@ import type { RateSettings } from './rates';
  *     entraban todos los healthy, lo que adelantaba producción de meses
  *     siguientes al mes en curso.
  *
- *  2. BROKERED USA LA MISMA CASCADA QUE BANKED. La tasa plana del 40% sigue
- *     existiendo en `business_plan.settings` porque es de Forecast, pero NO se
- *     aplica acá. ⚠ Vale la pena mirarlo con el negocio: para alguien con
- *     pipeline mayormente Brokered la diferencia casi duplica la proyección
- *     (Haydee Tito-Pace: 2,24 con cascada contra 1,20 con la plana).
+ *  2. BROKERED USA SU TASA PLANA, sobre el total abierto y no sobre los
+ *     healthy (confirmado en BP7: el mismo préstamo tiene que proyectar lo
+ *     mismo en Business Plan y en Forecast).
  *
  *  3. `cerradosALaFecha` sale de `pipeline_forecast.pipeline_resolved_loans`
  *     (funded con disbursement en el mes), no de Commercial Activity. Ver la
@@ -64,12 +60,34 @@ import type { RateSettings } from './rates';
 /** Milestone crudo que Salesforce reporta como Clear To Close. */
 const RAW_CLEAR_TO_CLOSE = 'Clear To Close';
 
+/** Valor de `pipeline_loans.channel` para Brokered. El resto es Banked. */
+const CHANNEL_BROKERED = 'Brokered';
+
 /**
  * Proyección del mes en curso para una persona.
  *
- * `closedToDate` viene de Commercial Activity (cierres con `closing_month` en
- * el mes actual), no del pipeline: es el mismo origen que las barras de los
- * meses anteriores, así que la serie del gráfico es homogénea.
+ * ---------------------------------------------------------------------------
+ * DOS MODELOS, UNO POR CANAL (etapa BP7)
+ * ---------------------------------------------------------------------------
+ * No es una inconsistencia: es que Forecast modela los dos canales distinto, y
+ * el mismo préstamo tiene que proyectar lo mismo en los dos módulos.
+ *
+ *   BANKED    cascada por milestone, SOBRE LOS HEALTHY.
+ *             CTC y Closing entran enteros, sin tasa -- se muestran aparte en
+ *             la pantalla y aplicarles el pull-through los contaría con
+ *             descuento además de contarlos dos veces.
+ *
+ *   BROKERED  tasa plana (`pt_brokered_flat`, 40%) SOBRE EL TOTAL ABIERTO,
+ *             healthy o no. Así lo hace Forecast: la tasa plana ya absorbe la
+ *             mortalidad del canal, así que filtrar healthy además la
+ *             descontaría dos veces.
+ *
+ * En los dos casos entran sólo los préstamos que cierran ESTE mes: uno con
+ * cierre estimado en septiembre no aporta a la proyección de agosto.
+ *
+ * `closedToDate` viene de `pipeline_resolved_loans` (ver la nota en
+ * `loadData.ts`): la proyección es "lo que cerró + lo que sigue abierto" y las
+ * dos mitades tienen que venir del mismo sistema.
  */
 export function projectCurrentMonth(
   closedToDate: number,
@@ -83,7 +101,9 @@ export function projectCurrentMonth(
   let healthy = 0;
   let ctc = 0;
   let closing = 0;
-  let projectedFromRest = 0;
+  let bankedProjected = 0;
+  let bankedLoans = 0;
+  let brokeredLoans = 0;
 
   for (const loan of openLoans) {
     /*
@@ -94,23 +114,29 @@ export function projectCurrentMonth(
      */
     total += 1;
     byMilestone[loan.milestone] += 1;
-    if (!loan.healthy) continue;
-    healthy += 1;
+    if (loan.healthy) healthy += 1;
+
     if (loan.closeMonth !== currentMonth) continue;
 
-    if (loan.milestone === 'Closing') {
-      // CTC y Closing entran enteros, sin tasa. Ver la nota de arriba.
-      if (loan.rawMilestone === RAW_CLEAR_TO_CLOSE) ctc += 1;
-      else closing += 1;
+    if (loan.channel === CHANNEL_BROKERED) {
+      // Tasa plana sobre el total: no se filtra por healthy (ver arriba).
+      brokeredLoans += 1;
       continue;
     }
-    /*
-     * Misma cascada para Brokered y para Banked (ver decisión 2 arriba). La
-     * tasa plana de `rates.brokeredFlat` queda sin usar en este cálculo, a
-     * propósito: pertenece al modelo de Forecast.
-     */
-    projectedFromRest += rates.milestone[loan.milestone];
+
+    // De acá para abajo, sólo Banked y sólo healthy.
+    if (!loan.healthy) continue;
+    bankedLoans += 1;
+    if (loan.milestone === 'Closing') {
+      if (loan.rawMilestone === RAW_CLEAR_TO_CLOSE) ctc += 1;
+      else closing += 1;
+      bankedProjected += 1;
+      continue;
+    }
+    bankedProjected += rates.milestone[loan.milestone];
   }
+
+  const brokeredProjected = brokeredLoans * rates.brokeredFlat;
 
   return {
     closedToDate,
@@ -118,9 +144,12 @@ export function projectCurrentMonth(
     healthyPipeline: healthy,
     inCtc: ctc,
     inClosing: closing,
-    projectedFromHealthy: projectedFromRest,
-    projectedTotal: closedToDate + ctc + closing + projectedFromRest,
+    /* Lo que aporta el pipeline, sin contar lo ya cerrado. */
+    projectedFromHealthy: bankedProjected - ctc - closing + brokeredProjected,
+    projectedTotal: closedToDate + bankedProjected + brokeredProjected,
     byMilestone,
+    banked: { loans: bankedLoans, projected: bankedProjected },
+    brokered: { loans: brokeredLoans, projected: brokeredProjected },
   };
 }
 

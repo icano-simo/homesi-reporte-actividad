@@ -94,6 +94,8 @@ export interface EmployeeBenchmark {
   effective_from: string;
   set_by: string;
   set_at: string;
+  /** Por qué se fijó ese número. Columna agregada en BP7. */
+  note: string | null;
 }
 
 /* ──────────────────────── Esquema `business_plan` ──────────────────────── */
@@ -160,6 +162,22 @@ export interface PipelineMetrics {
 
 /* ─────────────────────────── Qualifiers ────────────────────────────────── */
 
+/**
+ * Aporte de un canal a la proyección del mes.
+ *
+ * Etapa BP7: la proyección combina DOS modelos distintos -- Banked va por
+ * cascada de milestone sobre los healthy, Brokered por tasa plana sobre el
+ * total. Un número que suma los dos es imposible de explicar si no se puede
+ * abrir, así que cada canal reporta por separado cuántos préstamos aporta y
+ * cuánto proyecta.
+ */
+export interface ChannelBreakdown {
+  /** Préstamos del canal que entran al cálculo (cierran este mes). */
+  loans: number;
+  /** Cuánto de la proyección aporta este canal. */
+  projected: number;
+}
+
 export interface CurrentMonthProjection {
   closedToDate: number;
   totalPipeline: number;
@@ -171,6 +189,8 @@ export interface CurrentMonthProjection {
   /** cerrados + CTC + Closing + aporte con tasa. Es un pronóstico, no un conteo. */
   projectedTotal: number;
   byMilestone: Record<MilestoneBucket, number>;
+  banked: ChannelBreakdown;
+  brokered: ChannelBreakdown;
 }
 
 export interface Qualifier1 {
@@ -227,6 +247,13 @@ export interface LoanOfficerRow {
   monthlyBenchmark: number | null;
   benchmarkSetBy: string | null;
   benchmarkEffectiveFrom: string | null;
+  benchmarkNote: string | null;
+  /**
+   * TODAS las versiones del benchmark de la persona, en orden cronológico.
+   * La tabla es append-only, así que esto es el registro completo de cómo se
+   * fue moviendo su objetivo y quién lo movió.
+   */
+  benchmarkHistory: EmployeeBenchmark[];
 
   projection: CurrentMonthProjection;
   /** Promedio de los 3 meses CERRADOS. Contexto: no entra en el GAP. */

@@ -164,17 +164,20 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
    * -- se degrada a un estado visible y el pie de página lo dice.
    */
   const benchmarkByEmployee = new Map<number, EmployeeBenchmark>();
+  const benchmarkHistoryByEmployee = new Map<number, EmployeeBenchmark[]>();
   let benchmarkTableAvailable = false;
   try {
     const { data, error } = await org
       .from('employee_benchmark')
-      .select('employee_key, monthly_benchmark, effective_from, set_by, set_at')
+      .select('employee_key, monthly_benchmark, effective_from, set_by, set_at, note')
       .order('effective_from', { ascending: true });
     if (!error && data) {
       benchmarkTableAvailable = true;
       const today = reference.toISOString().slice(0, 10);
-      // Versionado por fecha: gana el más reciente que YA entró en vigencia.
       for (const r of data as EmployeeBenchmark[]) {
+        // El historial guarda TODO, incluidos los que rigen a futuro.
+        benchmarkHistoryByEmployee.set(r.employee_key, [...(benchmarkHistoryByEmployee.get(r.employee_key) ?? []), r]);
+        // El vigente es el más reciente que YA entró en vigencia.
         if (r.effective_from <= today) benchmarkByEmployee.set(r.employee_key, r);
       }
     }
@@ -463,6 +466,8 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
       monthlyBenchmark: benchmark,
       benchmarkSetBy: benchmarkRow?.set_by ?? null,
       benchmarkEffectiveFrom: benchmarkRow?.effective_from ?? null,
+      benchmarkNote: benchmarkRow?.note ?? null,
+      benchmarkHistory: benchmarkHistoryByEmployee.get(employeeKey) ?? [],
       projection,
       avgClosedMonths: sumOver(activity.closingsByMonth, closedMonths) / WINDOW_MONTHS,
       ytdClosings: Object.entries(activity.closingsByMonth)

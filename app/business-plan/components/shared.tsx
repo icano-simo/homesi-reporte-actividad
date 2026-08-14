@@ -167,6 +167,53 @@ export function initialsOf(fullName: string): string {
   return (words[0][0] + words[words.length - 1][0]).toUpperCase();
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+ * REDONDEO — etapa BP7
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * Es SÓLO presentación. El motor guarda siempre el valor exacto y los
+ * veredictos se calculan con él: redondear antes de comparar cambiaría
+ * resultados, no la lectura.
+ *
+ * Cada tipo de número se redondea distinto porque significan cosas distintas:
+ *
+ *   préstamos y proyecciones  entero   un préstamo es discreto; "6,4 préstamos"
+ *                                      no quiere decir nada
+ *   promedios                 1 dec.   3,45 -> 3,5. Nunca dos decimales
+ *   GAP                       1 dec.   ⚠ ver abajo
+ *
+ * ⚠ EL GAP NO SE REDONDEA A ENTERO, Y NO ES UNA CUESTIÓN DE GUSTO. Un GAP de
+ * −0,5 redondeado a entero da 0, y 0 es "On Target": alguien por debajo del
+ * benchmark pasaría a aprobado. Redondear el GAP cambia veredictos.
+ *
+ * Donde se muestra un número redondeado, el exacto queda en el `title` -- para
+ * que nadie tenga que adivinar por qué 1 + 0 + 5 da 6.
+ */
+
+/** Préstamos y proyecciones: entero. */
+export function fmtLoans(n: number): string {
+  return String(Math.round(n));
+}
+
+/** Promedios: un decimal. */
+export function fmtAvg(n: number): string {
+  return n.toFixed(1);
+}
+
+/**
+ * Promedios de actividad: un decimal, pero sin el `.0` inútil. 29,7 se muestra
+ * como 29.7 y 27,0 como 27.
+ */
+export function fmtActivityAvg(n: number): string {
+  const r = Math.round(n * 10) / 10;
+  return Number.isInteger(r) ? String(r) : r.toFixed(1);
+}
+
+/** Valor exacto para el `title` de un número redondeado. */
+export function exactTitle(n: number): string {
+  return 'Exact: ' + Math.round(n * 1000) / 1000;
+}
+
 /** Número con 1 decimal, o el guion largo cuando no hay dato. */
 export function fmtDecimal(n: number | null): string {
   return n === null ? '—' : n.toFixed(1);
@@ -180,6 +227,59 @@ export function fmtDecimal(n: number | null): string {
 export function fmtGap(gap: number | null): string {
   if (gap === null) return '—';
   return (gap > 0 ? '+' : '') + gap.toFixed(1);
+}
+
+/**
+ * ============================================================================
+ * CONTENEDOR DE VEREDICTO — lo primero que hay que leer
+ * ============================================================================
+ *
+ * Etapa BP7. Antes el veredicto era una pill chica arriba a la derecha,
+ * desconectada de todo: para saber si había que actuar sobre alguien había que
+ * buscarla. Ahora es una caja con el borde del color del estado, el veredicto
+ * en grande y la CONSECUENCIA escrita, que es lo que la persona necesita.
+ *
+ * En "no evaluable" no se dibuja la caja: no hay veredicto que destacar.
+ */
+export function VerdictPanel({ verdict }: { verdict: Verdict }) {
+  if (verdict === 'not_evaluable') {
+    return (
+      <div className="bp-verdict-panel bp-verdict-panel--none">
+        <div className="bp-verdict-panel__label">No benchmark</div>
+      </div>
+    );
+  }
+  const consequence =
+    verdict === 'on_risk'
+      ? 'Core Business Plan is mandatory'
+      : verdict === 'watch'
+        ? 'Business Plan suggested'
+        : 'No action required';
+  return (
+    <div className={'bp-verdict-panel bp-verdict-panel--' + verdict}>
+      <div className="bp-verdict-panel__label">{VERDICT_LABEL[verdict]}</div>
+      <div className="bp-verdict-panel__consequence">{consequence}</div>
+    </div>
+  );
+}
+
+/**
+ * Marca de benchmark provisional.
+ *
+ * Los 36 benchmarks sembrados salen del promedio de cierres de la propia
+ * persona, que es circular: se la evalúa contra lo que ya hacía. No son
+ * objetivos de gestión y no se pueden mostrar como si lo fueran, así que
+ * llevan una marca discreta y el motivo en el `title`.
+ */
+export const PROVISIONAL_SET_BY = 'provisional-seed';
+
+export function ProvisionalTag({ setBy, note }: { setBy: string | null; note?: string | null }) {
+  if (setBy !== PROVISIONAL_SET_BY) return null;
+  return (
+    <span className="bp-provisional" title={note ?? 'Provisional benchmark — replace with the MMI.'}>
+      provisional
+    </span>
+  );
 }
 
 /** Etiqueta de cargo, separada del nombre y en gris sutil. */

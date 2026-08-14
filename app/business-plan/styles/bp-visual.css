@@ -455,23 +455,6 @@ table.piv.bp-table--los th {
   color: var(--slate-500);
   line-height: 1.5;
 }
-.bp-verdict {
-  text-align: right;
-  min-width: 200px;
-}
-
-.bp-metric-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 12px;
-  margin-bottom: 20px;
-}
-.bp-metric-grid .mcard {
-  text-align: center;
-}
-.bp-metric-grid .m-name {
-  justify-content: center;
-}
 
 /* ---------------------------------------------------------------------------
  * 8. Pie de diagnóstico
@@ -491,7 +474,6 @@ table.piv.bp-table--los th {
 .bp-diagnostics__warn {
   color: var(--amber-800);
 }
-
 
 /* ===========================================================================
  * 8. Etapa BP5 — motor de veredicto, perfil, gráfico, modales y Settings
@@ -967,5 +949,154 @@ table.piv.bp-table--los th {
   margin: 0 0 5px;
 }
 .bp-calc-note strong {
+  color: var(--slate-500);
+}
+
+/* ===========================================================================
+ * 9. Etapa BP7 — veredicto prominente, canales, provisional, historial
+ * =========================================================================== */
+
+/*
+ * CONTENEDOR DE VEREDICTO. Antes era una pill chica arriba a la derecha; ahora
+ * es una caja con el borde del color del estado y la consecuencia escrita.
+ * Los colores salen de los mismos tokens que los badges -- no hay una paleta
+ * nueva, sólo otro tamaño.
+ */
+.bp-verdict-panel {
+  border: 1.5px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  padding: 12px 18px;
+  min-width: 200px;
+  text-align: right;
+  background: var(--slate-50);
+}
+.bp-verdict-panel__label {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--navy);
+}
+.bp-verdict-panel__consequence {
+  font-size: 11px;
+  font-weight: 600;
+  margin-top: 2px;
+  color: var(--slate-500);
+}
+.bp-verdict-panel--on_risk {
+  border-color: var(--coral);
+  background: var(--rose-50);
+}
+.bp-verdict-panel--on_risk .bp-verdict-panel__label,
+.bp-verdict-panel--on_risk .bp-verdict-panel__consequence {
+  color: var(--coral);
+}
+.bp-verdict-panel--watch {
+  border-color: var(--amber-200);
+  background: var(--amber-50);
+}
+.bp-verdict-panel--watch .bp-verdict-panel__label,
+.bp-verdict-panel--watch .bp-verdict-panel__consequence {
+  color: var(--amber-800);
+}
+.bp-verdict-panel--on_track {
+  border-color: var(--emerald-200);
+  background: var(--emerald-50);
+}
+.bp-verdict-panel--on_track .bp-verdict-panel__label,
+.bp-verdict-panel--on_track .bp-verdict-panel__consequence {
+  color: var(--emerald-700);
+}
+.bp-verdict-panel--none .bp-verdict-panel__label {
+  font-size: 14px;
+  color: var(--slate-400);
+}
+
+/* ── Desglose por canal ─────────────────────────────────────────────────── */
+
+.bp-channels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.bp-channel {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  background: var(--canvas);
+  padding: 7px 12px;
+  font-size: 12px;
+  color: var(--slate-600);
+}
+.bp-channel__name {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--navy);
+}
+.bp-channel__detail strong {
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+}
+/* Cómo se calculó, subordinado: el dato es el número, esto es la nota al pie. */
+.bp-channel__how {
+  font-size: 10.5px;
+  color: var(--slate-400);
+}
+
+/* ── Marca de benchmark provisional ─────────────────────────────────────── */
+
+/*
+ * Discreta a propósito: no es un error ni una alerta, es una advertencia de
+ * procedencia. El número sirve, pero no es un objetivo de gestión -- se derivó
+ * del propio rendimiento de la persona, que es circular.
+ */
+.bp-provisional {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: var(--radius-sm);
+  background: var(--amber-50);
+  color: var(--amber-800);
+  border: 1px solid var(--amber-200);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  vertical-align: middle;
+  cursor: help;
+}
+
+/* ── Benchmark: número clickeable e historial ───────────────────────────── */
+
+.bp-benchmark__open {
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  color: inherit;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  border-bottom: 1px dotted var(--slate-300);
+}
+.bp-benchmark__open:hover {
+  color: var(--coral);
+  border-bottom-color: var(--coral);
+}
+.bp-benchmark__note {
+  flex-basis: 100%;
+  font-size: 11px;
+}
+/* La nota puede ser larga; en la tabla del historial se deja respirar. */
+.bp-history__note {
+  white-space: normal;
+  font-size: 11px;
+  line-height: 1.45;
   color: var(--slate-500);
 }

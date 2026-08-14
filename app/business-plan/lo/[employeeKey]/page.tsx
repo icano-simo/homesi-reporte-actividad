@@ -18,8 +18,12 @@ import {
   LoadingState,
   NotFoundState,
   RoleChip,
-  VerdictBadge,
+  VerdictPanel,
+  fmtActivityAvg,
+  fmtAvg,
   fmtGap,
+  fmtLoans,
+  exactTitle,
   initialsOf,
 } from '../../components/shared';
 
@@ -112,9 +116,8 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
                 </p>
               </div>
             </div>
-            <div className="bp-verdict">
-              <VerdictBadge verdict={lo.verdict} />
-            </div>
+            {/* El veredicto es lo primero que hay que leer, no una pill al margen. */}
+            <VerdictPanel verdict={lo.verdict} />
           </div>
 
           {/* ── 2. Qualifier 1 ───────────────────────────────────────────── */}
@@ -129,7 +132,45 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
             <ForensicItem label={'Closings in ' + shortMonth(thisMonth)} value={lo.projection.closedToDate} />
             <ForensicItem label="Total Pipeline" value={lo.projection.totalPipeline} suffix="loans" />
             <ForensicItem label="Healthy" value={lo.projection.healthyPipeline} suffix="loans" />
-            <ForensicItem label="Projected to close after PT" value={lo.projection.projectedTotal.toFixed(1)} strong />
+            {/* Entero: un préstamo es discreto. El exacto queda en el title. */}
+            <ForensicItem
+              label="Projected to close after PT"
+              value={fmtLoans(lo.projection.projectedTotal)}
+              title={exactTitle(lo.projection.projectedTotal)}
+              strong
+            />
+          </div>
+
+          {/*
+            DESGLOSE POR CANAL. La proyección combina dos modelos distintos --
+            Banked por cascada de milestone sobre los healthy, Brokered por tasa
+            plana sobre el total-- y sin abrirlo el número de arriba es
+            imposible de explicar. Sólo se muestran los canales con préstamos.
+          */}
+          <div className="bp-channels">
+            {lo.projection.banked.loans > 0 && (
+              <div className="bp-channel">
+                <span className="bp-channel__name">Banked</span>
+                <span className="bp-channel__detail">
+                  {lo.projection.banked.loans} healthy loans → <strong>{fmtAvg(lo.projection.banked.projected)}</strong>{' '}
+                  <span className="bp-channel__how">milestone cascade</span>
+                </span>
+              </div>
+            )}
+            {lo.projection.brokered.loans > 0 && (
+              <div className="bp-channel">
+                <span className="bp-channel__name">Brokered</span>
+                <span className="bp-channel__detail">
+                  {lo.projection.brokered.loans} loans → <strong>{fmtAvg(lo.projection.brokered.projected)}</strong>{' '}
+                  <span className="bp-channel__how">flat rate, on the whole pipeline</span>
+                </span>
+              </div>
+            )}
+            {lo.projection.banked.loans === 0 && lo.projection.brokered.loans === 0 && (
+              <div className="bp-channel">
+                <span className="bp-channel__detail bp-muted">No open loans due to close this month.</span>
+              </div>
+            )}
           </div>
 
           <div className="bp-forensic-lines">
@@ -174,11 +215,15 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
                */}
               <div className="bp-stat bp-stat--hero">
                 <div className="bp-stat__label">Avg 3M (with current month)</div>
-                <div className="bp-stat__value">{lo.q1.avgWithCurrent.toFixed(2)}</div>
+                <div className="bp-stat__value" title={exactTitle(lo.q1.avgWithCurrent)}>
+                  {fmtAvg(lo.q1.avgWithCurrent)}
+                </div>
               </div>
               <div className="bp-stat">
                 <div className="bp-stat__label">Avg 3M (closed months)</div>
-                <div className="bp-stat__value bp-stat__value--small">{lo.avgClosedMonths.toFixed(2)}</div>
+                <div className="bp-stat__value bp-stat__value--small" title={exactTitle(lo.avgClosedMonths)}>
+                  {fmtAvg(lo.avgClosedMonths)}
+                </div>
               </div>
               <div className="bp-stat">
                 <div className="bp-stat__label">Benchmark</div>
@@ -186,7 +231,12 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
               </div>
               <div className="bp-stat">
                 <div className="bp-stat__label">GAP</div>
-                <div className={'bp-stat__value bp-stat__value--small ' + (lo.q1.state ? GAP_STATE_CLASS[lo.q1.state] : '')}>
+                {/* Un decimal SIEMPRE: redondear el GAP a entero convertiría
+                    un -0,5 en 0, o sea On Target. Cambiaría veredictos. */}
+                <div
+                  className={'bp-stat__value bp-stat__value--small ' + (lo.q1.state ? GAP_STATE_CLASS[lo.q1.state] : '')}
+                  title={lo.q1.gap === null ? undefined : exactTitle(lo.q1.gap)}
+                >
                   {fmtGap(lo.q1.gap)}
                 </div>
                 {lo.q1.state && <div className="bp-stat__sub">{GAP_STATE_LABEL[lo.q1.state]}</div>}
@@ -229,7 +279,9 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
                         <td className="lbl">{m.label}</td>
                         <td className="bp-center">{m.required}</td>
                         <td className="bp-center">{m.actual}</td>
-                        <td className="bp-center">{m.trailingAvg.toFixed(1)}</td>
+                        <td className="bp-center" title={exactTitle(m.trailingAvg)}>
+                          {fmtActivityAvg(m.trailingAvg)}
+                        </td>
                         <td className="bp-center">
                           <span className={m.meets ? 'badge badge--pill badge--emerald' : 'badge badge--pill badge--rose'}>
                             {m.meets ? 'Yes' : 'No'}
@@ -338,14 +390,16 @@ function ForensicItem({
   value,
   suffix,
   strong,
+  title,
 }: {
   label: string;
   value: string | number;
   suffix?: string;
   strong?: boolean;
+  title?: string;
 }) {
   return (
-    <div className={'bp-forensic__item' + (strong ? ' is-strong' : '')}>
+    <div className={'bp-forensic__item' + (strong ? ' is-strong' : '')} title={title}>
       <div className="bp-forensic__label">{label}</div>
       <div className="bp-forensic__value">
         {value}
