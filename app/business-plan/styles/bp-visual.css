@@ -1,0 +1,4457 @@
+/*
+ * ============================================================================
+ * ESTILOS EXCLUSIVOS DEL MÓDULO BUSINESS PLAN OS
+ * ============================================================================
+ *
+ * Se importa SÓLO desde `app/business-plan/layout.tsx`, nunca desde
+ * globals.css. Mismo patrón que `app/pipeline/styles/forecast-visual.css`.
+ *
+ * `app/styles/components.css` NO se toca: es compartido con Commercial Activity
+ * y Forecast. Lo que haga falta ajustar se sobrescribe desde acá, acotado por
+ * el prefijo `.bp-`.
+ *
+ * ---------------------------------------------------------------------------
+ * REGLA DURA (etapa BP2b): CERO VALORES DE COLOR LITERALES EN ESTE ARCHIVO
+ * ---------------------------------------------------------------------------
+ * Ni hexadecimales ni rgba(). Todo color sale de una variable de tokens.css.
+ * Verificable:
+ *
+ *     grep -nE "#[0-9a-fA-F]{3,8}" app/business-plan/styles/bp-visual.css
+ *
+ * tiene que devolver vacío. Por eso los nombres de color de marca se
+ * mencionan acá por su TOKEN y no por su valor.
+ *
+ * ---------------------------------------------------------------------------
+ * QUÉ SE REUSA EN VEZ DE REDEFINIRSE
+ * ---------------------------------------------------------------------------
+ * La primera versión de este archivo creó un sistema paralelo (`.bp-kpi__*`,
+ * `.bp-badge--*`, su propio hover de fila) que describía las mismas cosas con
+ * otros valores. Ese fue el motivo de que el módulo se viera de otra
+ * aplicación. Ahora se consumen las clases que ya definen el lenguaje visual:
+ *
+ *   Tarjetas KPI      -> `.mcard`, `.m-name`, `.kpi-hero__value`, `.kpi-hero__sub`
+ *   Tablas densas     -> `table.piv`, `.tbl-card`, `.tbl-scroll`, `tr.metric`
+ *   Encabezado tabla  -> `tr.mo-row th` (claro, mayúsculas, letter-spacing)
+ *   Pills de estado   -> `.badge`, `.badge--pill`, `.badge--emerald|rose|amber|neutral`
+ *   Hover de fila     -> `tr.metric:hover` ya pinta con Light Sky
+ *   Barra de filtros  -> `.control-bar`, `.control-group`, `.field`, `.seg`
+ *   Superficie blanca -> `.mcard` / `.tbl-card` (por eso acá no hace falta
+ *                        declarar ningún blanco)
+ *
+ * Lo único propio del módulo es lo que abajo: el shell de dos columnas con
+ * sidebar, el breadcrumb, los bloques marcados como pendientes, los anchos de
+ * columna y el centrado de las métricas.
+ */
+
+/* ---------------------------------------------------------------------------
+ * 1. Shell — el par sidebar/workspace, DENTRO del canvas de 1380px
+ * ------------------------------------------------------------------------ */
+
+/*
+ * Etapa BP3. `.bp-shell` se aplica SOBRE `.hub-container`, no alrededor: el
+ * elemento es `<div class="hub-container bp-shell">`.
+ *
+ * Por eso acá NO hay ningún `max-width` ni `margin: auto`. Los pone
+ * `.hub-container` en `app/styles/shell.css` (max-width var(--container-max),
+ * padding 32px lateral), que es exactamente el mismo par que usa
+ * `.hub-header__inner`. De ahí sale la alineación vertical entre el borde
+ * izquierdo del sidebar y el del logo de HOMESÍ: es la misma caja, no dos
+ * medidas que casualmente coinciden. Redeclarar el ancho acá sería crear una
+ * segunda fuente de verdad que se desincroniza en cuanto una de las dos cambie.
+ */
+.bp-shell {
+  /*
+   * Sin `min-height` a propósito. `.hub-canvas` ya cubre el alto de la ventana;
+   * repetirlo acá le sumaría el padding vertical del contenedor (32 + 64) y la
+   * página quedaría SIEMPRE más alta que el viewport, con scrollbar permanente
+   * aunque no hubiera contenido que scrollear.
+   */
+  display: block;
+}
+
+/* El par de columnas. El breadcrumb queda ARRIBA de esto, a ancho completo. */
+.bp-columns {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+/*
+ * El workspace se lleva TODO el ancho restante. `min-width: 0` es lo que
+ * permite que las tablas de adentro se encojan al expandir el sidebar: sin
+ * eso, un hijo con contenido ancho fija el tamaño del flex item y el layout
+ * deja de reflowear.
+ */
+.bp-workspace {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * 2. Sidebar del módulo
+ * ------------------------------------------------------------------------ */
+
+/*
+ * Etapa BP3: 220px (venía de 240) y ya no está pegado al borde de la ventana.
+ * Al vivir dentro del canvas deja de ser cromo de la aplicación y pasa a ser
+ * una columna de la página, así que se dibuja como panel cerrado -- borde
+ * completo y radio-- en vez del `border-right` suelto que tenía cuando su lado
+ * izquierdo se perdía fuera de la pantalla.
+ */
+.bp-sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  background: var(--slate-50);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  padding: 16px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: width 0.16s ease;
+  /* Acompaña al scroll de tablas largas sin despegarse del header sticky. */
+  position: sticky;
+  top: calc(var(--header-h) + 16px);
+}
+/* Etapa BP4: `.bp-sidebar--collapsed` y `.bp-sidebar__toggle` se eliminaron
+   junto con el botón. El angostado a iconos por debajo de 900px lo resuelve
+   solo la media query de más abajo, sin estado que sincronizar. */
+
+.bp-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: var(--radius-md);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--slate-600);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+.bp-nav-item:hover {
+  background: var(--accent-soft);
+  color: var(--navy);
+}
+.bp-nav-item.is-active {
+  /*
+   * Etapa BP4: coral en vez de navy. El módulo tenía navy en el header, en el
+   * item activo, en los títulos y en el breadcrumb -- demasiado azul junto. El
+   * coral es el acento comercial del Brand Book y acá es donde se nota.
+   */
+  background: var(--coral);
+  color: var(--canvas);
+}
+.bp-nav-item svg {
+  flex-shrink: 0;
+}
+/*
+ * Por debajo de 900px el sidebar se reduce a iconos: 220px sobre una pantalla
+ * angosta se come el workspace y las tablas empiezan a desbordar.
+ */
+@media (max-width: 900px) {
+  .bp-sidebar {
+    width: 56px;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .bp-sidebar .bp-nav-item {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+  .bp-sidebar__label {
+    display: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 3. Breadcrumb
+ * ------------------------------------------------------------------------ */
+
+/*
+ * Etapa BP4: el breadcrumb pasó a la columna derecha, arriba del contenido del
+ * workspace. `min-height` + `align-items: center` lo dejan a la misma altura
+ * que la primera fila del sidebar, que arranca con el padding de 16px del
+ * panel; sin esa altura mínima, el nav mide lo que mida su texto y los dos
+ * topes no coinciden.
+ */
+.bp-crumbs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  min-height: 34px;
+  margin-bottom: 10px;
+}
+.bp-crumbs a {
+  color: var(--slate-500);
+  text-decoration: none;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  padding: 2px 4px;
+}
+.bp-crumbs a:hover {
+  color: var(--navy);
+  background: var(--accent-soft);
+}
+/* El último segmento es texto plano: ya estás ahí, no es un destino. */
+.bp-crumbs__current {
+  color: var(--navy);
+  font-weight: 700;
+  padding: 2px 4px;
+}
+.bp-crumbs__sep {
+  color: var(--slate-300);
+}
+
+/* ---------------------------------------------------------------------------
+ * 4. Tarjetas KPI — `.mcard` + `.kpi-hero__*` de components.css
+ * ------------------------------------------------------------------------ */
+
+.bp-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+@media (max-width: 900px) {
+  .bp-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/*
+ * ETIQUETA DE CARGO — etapa BP4.
+ *
+ * Esta clase se usaba desde BP1 en tres lugares y NUNCA se había definido. Sin
+ * reglas, el <span> era texto en línea sin separación ni estilo, y la tabla
+ * mostraba "Ana PeñaProducing BM" pegado, como si el cargo fuera parte del
+ * apellido.
+ *
+ * El cargo es información secundaria: gris, más chico, en versalitas y
+ * separado. Nunca compite con el nombre.
+ */
+.bp-chip {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-sm);
+  background: var(--slate-50);
+  color: var(--slate-500);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+/*
+ * Etapa BP4: se centra TODO el contenido de la tarjeta, no sólo el número.
+ * `.m-name` es flex en components.css, así que `text-align` no la mueve --
+ * necesita `justify-content`. Se califica con `.mcard` para ganarle a
+ * `.mcard .m-name` (0,2,0) sin recurrir a !important.
+ */
+.bp-kpis .mcard {
+  text-align: center;
+}
+.bp-kpis .mcard .m-name {
+  justify-content: center;
+}
+
+/*
+ * Único tono que components.css no trae: `.kpi-hero__value--emerald` existe,
+ * el equivalente en rojo no. Se agrega acá en vez de tocar el archivo
+ * compartido.
+ *
+ * Etapa BP4: era `--rose-700`, un borgoña oscuro que no es el rojo de la
+ * marca. La escala `--rose-*` sirve para fondos y bordes de estado; el rojo
+ * que la gente reconoce como HOMESÍ es `--coral`.
+ */
+.kpi-hero__value--risk {
+  color: var(--coral);
+}
+
+/* ---------------------------------------------------------------------------
+ * 5. Tablas del módulo
+ * ------------------------------------------------------------------------ */
+
+/*
+ * Fila que navega a otra PÁGINA (nunca abre un modal). El resaltado en hover
+ * ya lo pone `tr.metric:hover` de components.css con Light Sky -- acá sólo se
+ * agrega la señal de que es clickeable y el foco de teclado.
+ */
+.bp-row-link {
+  cursor: pointer;
+}
+.bp-row-link:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: -2px;
+}
+
+/* Anchos: 11 + 33 + 12 × 3 + 20 = 100%. Etapa BP15 sumó "With plan". */
+.bp-table--branches col.bp-col-branch {
+  width: 11%;
+}
+.bp-table--branches col.bp-col-manager {
+  width: 33%;
+}
+.bp-table--branches col.bp-col-count {
+  width: 12%;
+}
+.bp-table--branches col.bp-col-status {
+  width: 20%;
+}
+
+/* Anchos del directorio. Etapa BP17: seis columnas en vez de ocho -- salieron
+   Benchmark y GAP. 30 + 4 x 14 + 14 = 100%. */
+.bp-table--los col.bp-col-name {
+  width: 30%;
+}
+.bp-table--los col.bp-col-metric {
+  width: 14%;
+}
+.bp-table--los col.bp-col-status {
+  width: 14%;
+}
+
+/*
+ * Métricas y estado centrados; el nombre y el manager quedan a la izquierda.
+ *
+ * OJO CON LA ESPECIFICIDAD: `components.css` alinea a la derecha con
+ * `table.piv th, table.piv td` (0,1,2). Una clase suelta (0,1,0) PIERDE y el
+ * centrado no se aplicaría. Por eso estas dos se califican con el elemento:
+ * `table.piv td.bp-center` es (0,2,2) y gana sin usar !important.
+ */
+table.piv th.bp-center,
+table.piv td.bp-center {
+  text-align: center;
+}
+table.piv th.bp-left,
+table.piv td.bp-left {
+  text-align: left;
+}
+/* Recorta con puntos suspensivos; el nombre completo va en el `title`. */
+.bp-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--slate-600);
+}
+/* Valor a destacar dentro de su columna (At Risk). */
+.bp-emphasis {
+  font-weight: 700;
+  color: var(--rose-700);
+}
+.bp-muted {
+  color: var(--slate-300);
+}
+/* Celda de "no hay filas": mismo tratamiento que usan las tablas de Forecast. */
+.bp-empty-cell {
+  color: var(--slate-500);
+  font-weight: 500;
+}
+
+/*
+ * Compactado de las tablas del módulo (etapa BP3).
+ *
+ * `tabular-nums` es lo que hace que los conteos centrados se lean como columna:
+ * con cifras proporcionales, un "111" ocupa bastante menos que un "888" y los
+ * números quedan visiblemente desalineados entre filas aunque la celda esté
+ * centrada. Con cifras tabulares todos los dígitos miden igual.
+ *
+ * El padding baja de 6px 10px a 4px 8px SÓLO en las tablas de este módulo: son
+ * conteos cortos, no las cifras largas de Forecast. `components.css` no se toca.
+ */
+/* Calificado con `table.piv` por la misma razón de especificidad que el
+   centrado: `table.piv th, table.piv td` es (0,1,2) y una clase suelta pierde. */
+table.piv.bp-table--branches td,
+table.piv.bp-table--branches th,
+table.piv.bp-table--los td,
+table.piv.bp-table--los th {
+  padding: 4px 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------------------
+ * 6. Aviso de pendiente — UNO por pantalla, de una línea
+ * ------------------------------------------------------------------------ */
+
+/*
+ * Etapa BP4: era un bloque de tres renglones con borde punteado, repetido
+ * hasta cuatro veces en la ficha del Loan Officer. Ahora es una tira fina de
+ * una línea y hay una sola por pantalla. Sigue en ámbar porque es un estado
+ * transitorio del módulo, no un error, pero deja de competir con los datos.
+ */
+.bp-pending {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--amber-200);
+  background: var(--amber-50);
+  color: var(--amber-800);
+  border-radius: var(--radius-md);
+  padding: 6px 12px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  margin-bottom: 16px;
+}
+.bp-pending svg {
+  flex-shrink: 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * 7. Ficha del Loan Officer
+ * ------------------------------------------------------------------------ */
+
+/* La superficie blanca la aporta `.mcard`; acá sólo la disposición. */
+.bp-profile__text {
+  min-width: 0;
+}
+.bp-profile {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+.bp-profile__id {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+/*
+ * El avatar. Navy solido con las iniciales claras.
+ *
+ * Etapa BP21 le dio un tono por persona y BP24 lo paso a contorno; etapa BP25
+ * revirtio las dos cosas. Un color que no codifica nada -- ni rol, ni estado,
+ * ni urgencia -- competia por la atencion con las pildoras de estado y de
+ * fecha, que si la tienen.
+ */
+.bp-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--navy);
+  color: var(--canvas);
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+.bp-profile__name {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--navy);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+.bp-profile__meta {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  color: var(--slate-500);
+  line-height: 1.5;
+}
+
+/* ---------------------------------------------------------------------------
+ * 8. Pie de diagnóstico
+ * ------------------------------------------------------------------------ */
+
+.bp-diagnostics {
+  margin-top: 18px;
+  font-size: 11px;
+  color: var(--slate-400);
+  line-height: 1.6;
+}
+.bp-diagnostics code {
+  font-family: inherit;
+  color: var(--slate-500);
+  font-weight: 600;
+}
+.bp-diagnostics__warn {
+  color: var(--amber-800);
+}
+
+/* ===========================================================================
+ * 8. Etapa BP5 — motor de veredicto, perfil, gráfico, modales y Settings
+ * ===========================================================================
+ *
+ * Sigue rigiendo la regla dura del encabezado: CERO valores de color literales.
+ * Todo sale de tokens.css.
+ */
+
+/* ── Buscador y su resultado ─────────────────────────────────────────────── */
+
+.bp-search {
+  min-width: 220px;
+  cursor: text;
+}
+/* Dice A QUIÉN encontró, para que el usuario no tenga que deducirlo de qué
+   branches quedaron en la tabla. */
+.bp-search-hits {
+  font-size: 11.5px;
+  color: var(--slate-500);
+}
+
+/* ── Títulos de sección del perfil ──────────────────────────────────────── */
+
+.bp-section-title {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--slate-500);
+  margin: 24px 0 12px;
+}
+.bp-muted-line {
+  font-size: 12.5px;
+  color: var(--slate-500);
+  margin: 0 0 16px;
+}
+
+/* ── Bloque forense del mes en curso ─────────────────────────────────────── */
+
+@media (max-width: 900px) {
+  .bp-forensic {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+/* El último paso de la cadena -- la proyección -- se destaca: es el número que
+   alimenta el GAP, los otros tres explican cómo se llegó a él. */
+.bp-forensic-lines {
+  font-size: 12px;
+  color: var(--slate-600);
+  margin: 0 0 16px;
+}
+.bp-forensic-lines p {
+  margin: 0 0 4px;
+}
+
+/* Botón que se lee como enlace: abre un modal, no navega. */
+.bp-linkish {
+  font-family: inherit;
+  font-size: inherit;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--navy);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.bp-linkish:hover {
+  color: var(--coral);
+}
+
+/* ── Qualifier 1: gráfico + panel de estadísticas ───────────────────────── */
+
+.bp-q1-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+@media (max-width: 900px) {
+  .bp-q1-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.bp-chart-card {
+  padding: 16px 18px 12px;
+}
+/* El promedio CON mes actual es el que alimenta el GAP: va grande. El de meses
+   cerrados va al lado, más chico, porque es contexto y no entra en el cálculo. */
+
+/* ── Gráfico de barras ──────────────────────────────────────────────────── */
+
+.bp-chart__plot {
+  position: relative;
+}
+.bp-chart__bars {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+}
+.bp-chart__value {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--slate-400);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 2px;
+}
+/*
+ * COLOR POR SIGNIFICADO, no por posición — etapa BP11.
+ *
+ * Antes las barras de los meses anteriores eran celestes y el segmento
+ * CTC/Closing de agosto también: el mismo color decía "cerrado" en julio y "en
+ * CTC" en agosto. Ahora:
+ *
+ *   navy           cerrado, en TODOS los meses
+ *   verde de CTC   sólo CTC/Closing (mismo tono que los puntos de Forecast)
+ *   gris claro     proyectado con pull-through
+ */
+.bp-chart__bar {
+  background: var(--navy);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  min-height: 1px;
+  transition: opacity 0.12s ease;
+}
+/* La del mes actual apila tres segmentos que suman la proyección. */
+.bp-chart__bar--current {
+  display: flex;
+  flex-direction: column;
+  background: none;
+  overflow: hidden;
+}
+.bp-seg--projected {
+  background: var(--slate-200);
+}
+/* El mismo verde que `.ctc-dot`, para que CTC signifique lo mismo en toda la app. */
+.bp-seg--ctc {
+  background: var(--emerald-700);
+}
+.bp-seg--closed {
+  background: var(--navy);
+}
+
+/* La línea del benchmark cruza el área entera: sin ella las barras no se
+   pueden juzgar, sólo comparar entre sí. */
+.bp-chart__benchmark {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1.5px dashed var(--coral);
+  z-index: 1;
+  pointer-events: none;
+}
+.bp-chart__benchmark-label {
+  position: absolute;
+  right: 0;
+  top: -14px;
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--coral);
+}
+
+.bp-chart__axis {
+  display: flex;
+  margin-top: 6px;
+}
+.bp-chart__tick {
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--slate-400);
+  text-align: center;
+}
+.bp-chart__tick.is-current {
+  color: var(--navy);
+}
+.bp-chart__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 10px;
+  font-size: 10.5px;
+  color: var(--slate-500);
+}
+.bp-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  margin-right: 5px;
+}
+.bp-dot--closed {
+  background: var(--navy);
+}
+.bp-dot--ctc {
+  background: var(--emerald-700);
+}
+.bp-dot--projected {
+  background: var(--slate-200);
+}
+
+/* ── Benchmark editable ─────────────────────────────────────────────────── */
+
+.bp-benchmark__edit {
+  margin-left: 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+.bp-benchmark__form {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.bp-benchmark__input {
+  width: 72px;
+}
+.bp-benchmark__error {
+  flex-basis: 100%;
+  font-size: 10.5px;
+  color: var(--coral);
+}
+
+/* ── Botones ────────────────────────────────────────────────────────────── */
+
+.bp-btn {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--slate-300);
+  background: var(--canvas);
+  color: var(--navy);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.bp-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.bp-btn--small {
+  font-size: 11px;
+  padding: 4px 10px;
+}
+/* Acción primaria en coral: es el acento comercial del Brand Book y acá es la
+   única cosa de la pantalla que el usuario tiene que hacer. */
+.bp-btn--primary {
+  background: var(--coral);
+  border-color: var(--coral);
+  color: var(--canvas);
+}
+.bp-btn--ghost {
+  background: transparent;
+  border-color: var(--slate-400);
+  color: var(--canvas);
+}
+
+/* ── Barra de decisión ──────────────────────────────────────────────────── */
+
+.bp-decision {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  background: var(--navy);
+  color: var(--canvas);
+  border-radius: var(--radius-lg);
+  padding: 16px 20px;
+  margin: 20px 0;
+}
+/* En "Watch" el plan es sugerido, no obligatorio: mismo bloque, menos peso. */
+.bp-decision--suggested {
+  background: var(--slate-600);
+}
+.bp-decision__title {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.bp-decision__why {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--sky);
+  max-width: 62ch;
+}
+.bp-decision__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* ── Modales ────────────────────────────────────────────────────────────── */
+
+/*
+ * FONDO DEL MODAL — etapa BP11.
+ *
+ * Antes era `background: var(--slate-600)` opaco y la página desaparecía
+ * detrás. El modal FLOTA sobre la pantalla, no la reemplaza: se tiene que
+ * seguir viendo qué había debajo.
+ *
+ * La capa translúcida va en un `::before` con `opacity`, y NO con `rgba()` ni
+ * un hexadecimal con alfa: la regla dura del archivo prohíbe los dos, y así el
+ * color sigue saliendo de un token. `color-mix()` sería más directo pero
+ * agregaría un requisito de navegador que el resto del proyecto no tiene.
+ */
+.bp-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  /* Desenfoque suave de lo que queda atrás -- el mismo recurso que el header. */
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+.bp-modal-backdrop::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--navy);
+  opacity: 0.42;
+}
+.bp-modal {
+  /* Por encima de la capa atenuada del `::before`. */
+  position: relative;
+  z-index: 1;
+  background: var(--canvas);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  width: min(900px, 100%);
+  max-height: 84vh;
+  display: flex;
+  flex-direction: column;
+}
+.bp-modal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--slate-200);
+}
+.bp-modal__title {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--navy);
+  margin: 0;
+}
+.bp-modal__close {
+  border: none;
+  background: none;
+  color: var(--slate-500);
+  cursor: pointer;
+  padding: 4px;
+  line-height: 0;
+}
+.bp-modal__close:hover {
+  color: var(--navy);
+}
+.bp-modal__body {
+  overflow: auto;
+  padding: 4px 18px 18px;
+}
+
+/* ── Settings ───────────────────────────────────────────────────────────── */
+
+.bp-rate-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.bp-rate-input {
+  width: 84px;
+}
+.bp-table--settings col.bp-col-name {
+  width: 34%;
+}
+.bp-table--settings col.bp-col-metric {
+  width: 18%;
+}
+.bp-table--settings col.bp-col-status {
+  width: 30%;
+}
+.bp-table--q2 col.bp-col-name {
+  width: 28%;
+}
+.bp-table--q2 col.bp-col-metric {
+  width: 18%;
+}
+.bp-table--q2 col.bp-col-status {
+  width: 18%;
+}
+
+/* ── Nota de cálculo ────────────────────────────────────────────────────── */
+
+/*
+ * Única excepción a la limpieza de textos de BP4, y lo es porque va DESPUÉS de
+ * que termina la pantalla operativa. Chica y gris a propósito: quien sólo mira
+ * números nunca llega; quien se pregunta de dónde salió uno, lo encuentra.
+ */
+.bp-calc-note {
+  margin-top: 28px;
+  padding-top: 14px;
+  border-top: 1px solid var(--slate-200);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--slate-400);
+  max-width: 92ch;
+}
+.bp-calc-note p {
+  margin: 0 0 5px;
+}
+.bp-calc-note strong {
+  color: var(--slate-500);
+}
+
+/* ===========================================================================
+ * 9. Etapa BP7 — veredicto prominente, canales, provisional, historial
+ * =========================================================================== */
+
+/*
+ * CONTENEDOR DE VEREDICTO. Antes era una pill chica arriba a la derecha; ahora
+ * es una caja con el borde del color del estado y la consecuencia escrita.
+ * Los colores salen de los mismos tokens que los badges -- no hay una paleta
+ * nueva, sólo otro tamaño.
+ */
+.bp-verdict-panel {
+  border: 1.5px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  padding: 12px 18px;
+  min-width: 200px;
+  text-align: right;
+  background: var(--slate-50);
+}
+.bp-verdict-panel__label {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--navy);
+}
+.bp-verdict-panel__consequence {
+  font-size: 11px;
+  font-weight: 600;
+  margin-top: 2px;
+  color: var(--slate-500);
+}
+.bp-verdict-panel--on_risk {
+  border-color: var(--coral);
+  background: var(--rose-50);
+}
+.bp-verdict-panel--on_risk .bp-verdict-panel__label,
+.bp-verdict-panel--on_risk .bp-verdict-panel__consequence {
+  color: var(--coral);
+}
+.bp-verdict-panel--watch {
+  border-color: var(--amber-200);
+  background: var(--amber-50);
+}
+.bp-verdict-panel--watch .bp-verdict-panel__label,
+.bp-verdict-panel--watch .bp-verdict-panel__consequence {
+  color: var(--amber-800);
+}
+.bp-verdict-panel--on_track {
+  border-color: var(--emerald-200);
+  background: var(--emerald-50);
+}
+.bp-verdict-panel--on_track .bp-verdict-panel__label,
+.bp-verdict-panel--on_track .bp-verdict-panel__consequence {
+  color: var(--emerald-700);
+}
+.bp-verdict-panel--none .bp-verdict-panel__label {
+  font-size: 14px;
+  color: var(--slate-400);
+}
+
+/* ── Desglose por canal ─────────────────────────────────────────────────── */
+
+.bp-channels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.bp-channel {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  background: var(--canvas);
+  padding: 7px 12px;
+  font-size: 12px;
+  color: var(--slate-600);
+}
+.bp-channel__name {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--navy);
+}
+.bp-channel__detail strong {
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+}
+/* Cómo se calculó, subordinado: el dato es el número, esto es la nota al pie. */
+.bp-channel__how {
+  font-size: 10.5px;
+  color: var(--slate-400);
+}
+
+/* ── Marca de benchmark provisional ─────────────────────────────────────── */
+
+/*
+ * Discreta a propósito: no es un error ni una alerta, es una advertencia de
+ * procedencia. El número sirve, pero no es un objetivo de gestión -- se derivó
+ * del propio rendimiento de la persona, que es circular.
+ */
+.bp-provisional {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: var(--radius-sm);
+  background: var(--amber-50);
+  color: var(--amber-800);
+  border: 1px solid var(--amber-200);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  vertical-align: middle;
+  cursor: help;
+}
+
+/* ── Benchmark: número clickeable e historial ───────────────────────────── */
+
+.bp-benchmark__open {
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  color: inherit;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  border-bottom: 1px dotted var(--slate-300);
+}
+.bp-benchmark__open:hover {
+  color: var(--coral);
+  border-bottom-color: var(--coral);
+}
+.bp-benchmark__note {
+  flex-basis: 100%;
+  font-size: 11px;
+}
+/* La nota puede ser larga; en la tabla del historial se deja respirar. */
+.bp-history__note {
+  white-space: normal;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--slate-500);
+}
+
+/* ===========================================================================
+ * 10. Etapa BP7b — panel del Qualifier 1 en filas, Qualifier 2 en tarjetas
+ * =========================================================================== */
+
+/*
+ * PANEL DE ESTADÍSTICAS. Una fila por métrica: etiqueta pegada al borde
+ * izquierdo, valor pegado al derecho. Antes cada métrica ocupaba dos renglones
+ * (etiqueta arriba en gris, valor abajo) y el panel se leía como una lista de
+ * párrafos en vez de una ficha de datos.
+ */
+.bp-stats {
+  padding: 6px 16px;
+  display: flex;
+  flex-direction: column;
+}
+.bp-stat {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--slate-100);
+}
+.bp-stat:last-child {
+  border-bottom: none;
+}
+.bp-stat__label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+  /* No se parte en dos líneas: la fila dejaría de leerse como una fila. */
+  line-height: 1.3;
+}
+.bp-stat__value {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/*
+ * El promedio CON mes actual es el que alimenta el GAP: va notablemente más
+ * grande que el resto. La jerarquía es el mensaje -- de todas las cifras del
+ * panel, esta es la que decide.
+ */
+
+/*
+ * GAP: número y estado en la MISMA píldora, con el fondo del color del estado.
+ * Separados en dos renglones había que unirlos mentalmente para leer que −0,5
+ * está en riesgo.
+ */
+/* Los tres estados reusan las mismas escalas que el resto del módulo. */
+
+/* ── Qualifier 2: una tarjeta por métrica ───────────────────────────────── */
+
+/*
+ * Reemplaza a la tabla. La tabla decía "No" y dejaba al lector restando para
+ * saber qué tan lejos estaba de la meta; acá la barra muestra la distancia de
+ * un vistazo y la píldora la pone en números.
+ */
+.bp-q2-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--slate-100);
+  overflow: hidden;
+}
+/*
+ * El relleno no trae color propio: lo pone la clase de banda (seccion 28,
+ * etapa BP29). Antes era `--coral` a fondo pleno, y `--emerald-700` al llegar a
+ * la meta; los dos gritaban mas que los numeros de la tarjeta. El color va
+ * ACA en null y no anulado desde abajo, para no repetir lo que paso con el
+ * fondo del icono.
+ */
+.bp-q2-bar__fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.2s ease;
+}
+/* Lo que suele producir: contexto, subordinado al conteo del mes. */
+
+/* ===========================================================================
+ * 11. Etapa BP9 — tarjetas clickeables, modales de detalle y resaltado
+ * =========================================================================== */
+
+/*
+ * AFORDANCIA DE CLIC, una sola definición para todo lo que abre un modal:
+ * cursor de mano y una sombra suave al pasar por encima. Sin subrayado -- el
+ * subrayado dice "esto navega a otro lado" y estos abren detalle en el lugar.
+ */
+.bp-forensic__item,
+.bp-chart__col,
+.bp-q2-card__name,
+.bp-title-btn {
+  cursor: pointer;
+  transition: box-shadow 0.14s ease, background 0.14s ease, color 0.14s ease;
+}
+/*
+ * ⚠ La columna del gráfico NO va acá. Etapa BP19: `.bp-chart__col` es un botón
+ * TRANSPARENTE de altura completa, así que una `box-shadow` grande le pintaba
+ * un halo claro a lo largo de todo el alto del área y además se derramaba sobre
+ * la columna vecina -- por eso se veían dos "encendidas" a la vez. El hover de
+ * la columna se resuelve más abajo, sobre la barra.
+ */
+.bp-forensic__item:hover {
+  box-shadow: var(--shadow-lg);
+}
+.bp-forensic__item:focus-visible,
+.bp-chart__col:focus-visible,
+.bp-q2-card__name:focus-visible,
+.bp-title-btn:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 2px;
+}
+
+/* ── Bloque forense: 5 tarjetas iguales, todo centrado ──────────────────── */
+
+.bp-forensic {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+@media (max-width: 900px) {
+  .bp-forensic {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.bp-forensic__item {
+  /* Es un `button`: hay que neutralizar el estilo nativo antes del propio. */
+  font-family: inherit;
+  text-align: center;
+  width: 100%;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  padding: 14px 12px;
+  background: var(--slate-50);
+  /* Centrado vertical y horizontal del número con su etiqueta. */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-height: 96px;
+}
+/* Forecast Total: es el número que alimenta el GAP. */
+.bp-forensic__item.is-strong {
+  background: var(--accent-soft);
+  border-color: var(--sky);
+}
+.bp-forensic__value {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--navy);
+  /* tabular-nums, NO una monoespaciada: la app usa Inter en las tres pestañas
+     y una mono sólo acá haría que el módulo se vea de otra aplicación. */
+  font-variant-numeric: tabular-nums;
+}
+.bp-forensic__suffix {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--slate-400);
+}
+.bp-forensic__label {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+  line-height: 1.25;
+}
+
+/*
+ * Marca de CTC. Replica el punto verde de `.ctc-dot` de Forecast, que no se
+ * puede importar: vive en `forecast-visual.css`, que sólo carga /pipeline y
+ * define `--ctc-dot` en `:root`. Se usa el mismo token para que los dos verdes
+ * no se desincronicen.
+ */
+.bp-ctc-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--emerald-700);
+}
+.bp-ctc-mark .ctc-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--emerald-700);
+  flex-shrink: 0;
+}
+
+/* ── Columnas del gráfico como botón ────────────────────────────────────── */
+
+.bp-chart__col {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  height: 100%;
+  border: none;
+  background: none;
+  padding: 0;
+  border-radius: var(--radius-sm);
+}
+/*
+ * El hover afecta SÓLO a la barra: se aclara un poco y el `title` hace de
+ * tooltip. El fondo del área no cambia. La opacidad y no un color nuevo, para
+ * que sirva igual sobre la barra navy de un mes cerrado y sobre los tres
+ * segmentos del mes en curso, sin declarar una variante por cada uno.
+ */
+.bp-chart__col:hover .bp-chart__bar {
+  opacity: 0.72;
+}
+.bp-chart__col:hover .bp-chart__value {
+  color: var(--navy);
+}
+
+/* ── Caja destacada de Benchmark + GAP ──────────────────────────────────── */
+
+/*
+ * El color viene del ESTADO del GAP, no fijo. Un recuadro rojo sobre alguien
+ * On Target diría lo contrario de su veredicto.
+ */
+
+/* ── Qualifier 2: tres tarjetas lado a lado ─────────────────────────────── */
+
+/*
+ * Etapa BP9: en grid de 3 y no apiladas. A todo el ancho las barras alargaban
+ * la pantalla sin aportar -- lo que importa es comparar las tres entre sí.
+ */
+.bp-q2-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (max-width: 900px) {
+  .bp-q2-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.bp-q2-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  background: var(--canvas);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+  padding: 14px 16px;
+  text-align: center;
+}
+.bp-q2-card__name {
+  font-family: var(--font-display);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--navy);
+  border: none;
+  background: none;
+  padding: 0;
+}
+.bp-q2-card__name:hover {
+  color: var(--coral);
+}
+.bp-q2-card__count {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.bp-q2-card .bp-q2-bar {
+  width: 100%;
+}
+.bp-q2-card__avg {
+  font-size: 10.5px;
+  color: var(--slate-400);
+  cursor: help;
+}
+
+/* Título de sección que abre un modal. */
+.bp-title-btn {
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: var(--slate-500);
+  border: none;
+  background: none;
+  padding: 0;
+}
+.bp-title-btn:hover {
+  color: var(--coral);
+}
+
+/* ── Modales de detalle ─────────────────────────────────────────────────── */
+
+.bp-modal__lead {
+  font-size: 12px;
+  color: var(--slate-600);
+  margin: 0 0 10px;
+}
+.bp-modal__lead--warn {
+  color: var(--amber-800);
+  background: var(--amber-50);
+  border: 1px solid var(--amber-200);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+}
+.bp-modal__hint {
+  color: var(--slate-400);
+  font-size: 11px;
+}
+.bp-modal__subtitle {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+  margin: 18px 0 6px;
+}
+
+/* Actividad del año: los meses en horizontal, como el módulo de Actividad. */
+.bp-year-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+@media (max-width: 900px) {
+  .bp-year-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+.bp-year-card {
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  background: var(--slate-50);
+}
+.bp-year-card.is-current {
+  background: var(--accent-soft);
+  border-color: var(--sky);
+}
+.bp-year-card__month {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--navy);
+  margin-bottom: 4px;
+}
+.bp-year-card__row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10.5px;
+  color: var(--slate-500);
+  font-variant-numeric: tabular-nums;
+}
+.bp-year-card__row.is-strong {
+  color: var(--navy);
+  font-weight: 700;
+  border-top: 1px solid var(--slate-200);
+  margin-top: 3px;
+  padding-top: 3px;
+}
+
+/* ===========================================================================
+ * 12. Etapa BP10 — el GAP es la métrica héroe del panel
+ * ===========================================================================
+ *
+ * Hasta BP9 el número grande del panel era el promedio con mes actual. El
+ * cambio: el promedio es el INSUMO y el GAP es la CONCLUSIÓN -- es lo que
+ * decide el veredicto. Con dos números grandes en el mismo panel no había
+ * ninguno destacado, así que ahora todas las filas son iguales y sólo el GAP
+ * sale del renglón.
+ */
+
+/* El promedio de meses cerrados es contexto: no entra en el GAP. */
+.bp-stat--muted .bp-stat__value {
+  font-size: 14px;
+  color: var(--slate-500);
+}
+
+.bp-gap-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  background: var(--slate-50);
+}
+.bp-gap-hero__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.bp-gap-hero__value {
+  font-family: var(--font-display);
+  font-size: 34px;
+  font-weight: 700;
+  line-height: 1;
+  /* tabular-nums sobre Inter, como el resto de la app. Nada de monoespaciada. */
+  font-variant-numeric: tabular-nums;
+}
+/* La píldora del estado, al lado del número y no debajo. */
+.bp-gap-hero__state {
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/*
+ * El color sale del ESTADO, nunca fijo. Alguien On Target con GAP +0,6 dentro
+ * de un recuadro rojo leería lo contrario de su propio veredicto.
+ */
+.bp-gap-hero--on_target {
+  background: var(--emerald-50);
+  border-color: var(--emerald-200);
+}
+.bp-gap-hero--on_target .bp-gap-hero__value,
+.bp-gap-hero--on_target .bp-stat__label {
+  color: var(--emerald-700);
+}
+.bp-gap-hero--on_target .bp-gap-hero__state {
+  background: var(--emerald-700);
+  color: var(--canvas);
+}
+
+/*
+ * ON RISK vs NEED ATTENTION — etapa BP11.
+ *
+ * Los dos son rojos, pero Need Attention es un estado PEOR y tiene que verse
+ * peor. La diferencia se hace por saturación y no por matiz:
+ *
+ *   On Risk         coral de marca en versión suave -- fondo claro, texto y
+ *                   píldora en coral sobre fondo claro.
+ *   Need Attention  rose saturado -- fondo más cargado, borde marcado y la
+ *                   píldora en sólido invertido.
+ *
+ * Así se leen como dos escalones del mismo problema y no como dos problemas
+ * distintos, que es lo que pasaba con el ámbar (ámbar dice "cuidado", no
+ * "está por debajo del objetivo").
+ */
+.bp-gap-hero--on_risk {
+  background: var(--rose-50);
+  border-color: var(--coral);
+}
+.bp-gap-hero--on_risk .bp-gap-hero__value,
+.bp-gap-hero--on_risk .bp-stat__label {
+  color: var(--coral);
+}
+.bp-gap-hero--on_risk .bp-gap-hero__state {
+  background: var(--canvas);
+  border: 1px solid var(--coral);
+  color: var(--coral);
+}
+
+.bp-gap-hero--need_attention {
+  background: var(--rose-200);
+  border-color: var(--rose-700);
+}
+.bp-gap-hero--need_attention .bp-gap-hero__value,
+.bp-gap-hero--need_attention .bp-stat__label {
+  color: var(--rose-700);
+}
+.bp-gap-hero--need_attention .bp-gap-hero__state {
+  background: var(--rose-700);
+  color: var(--canvas);
+}
+
+/* ===========================================================================
+ * 13. Etapa BP12 — biblioteca de funnels y constructor de secuencia
+ * =========================================================================== */
+
+.bp-row-actions {
+  display: inline-flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* ── Nodos ──────────────────────────────────────────────────────────────── */
+
+.bp-node-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (max-width: 900px) {
+  .bp-node-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.bp-node-card {
+  font-family: inherit;
+  text-align: left;
+  background: var(--canvas);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: box-shadow 0.14s ease;
+}
+.bp-node-card:hover {
+  box-shadow: var(--shadow-lg);
+}
+.bp-node-card:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 2px;
+}
+.bp-node-card__name {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--navy);
+}
+.bp-node-card__desc {
+  font-size: 11.5px;
+  color: var(--slate-500);
+  margin: 4px 0 6px;
+  line-height: 1.45;
+}
+.bp-node-card__meta {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--slate-400);
+}
+
+/* ── Constructor de secuencia ───────────────────────────────────────────── */
+
+/*
+ * Dos columnas: la biblioteca de nodos a la izquierda y la secuencia a la
+ * derecha. No es un lienzo -- es una lista ordenada, porque estos funnels son
+ * lineales. Ver la nota de SequenceBuilder.tsx.
+ */
+.bp-builder {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .bp-builder {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.bp-builder__library {
+  background: var(--slate-50);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.bp-builder__title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+}
+.bp-builder__chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--canvas);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  padding: 7px 10px;
+  font-size: 11.5px;
+  /* `grab` y no `pointer`: la acción principal es arrastrar, no hacer clic. */
+  cursor: grab;
+}
+.bp-builder__chip:active {
+  cursor: grabbing;
+}
+.bp-builder__chip-name {
+  font-weight: 600;
+  color: var(--navy);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bp-builder__canvas {
+  background: var(--canvas);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+  padding: 14px 16px;
+}
+.bp-builder__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+/* Lo que reemplaza a los botones de zoom del mockup: la duración calculada. */
+.bp-builder__total {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--slate-500);
+  font-variant-numeric: tabular-nums;
+}
+.bp-builder__flow {
+  display: flex;
+  align-items: stretch;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+.bp-builder__slot {
+  display: flex;
+  align-items: center;
+}
+.bp-builder__card {
+  position: relative;
+  min-width: 150px;
+  background: var(--slate-50);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  padding: 10px 12px;
+  cursor: grab;
+}
+.bp-builder__card:active {
+  cursor: grabbing;
+}
+.bp-builder__card.is-selected {
+  border-color: var(--coral);
+  background: var(--rose-50);
+}
+.bp-builder__day {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--coral);
+  font-variant-numeric: tabular-nums;
+}
+.bp-builder__card-name {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--navy);
+  margin: 2px 0;
+}
+.bp-builder__card-sub {
+  font-size: 10.5px;
+  color: var(--slate-400);
+}
+/* Alternativa por teclado al arrastre: la API nativa no es accesible. */
+.bp-builder__reorder {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+}
+.bp-builder__reorder button {
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px 6px;
+  border: 1px solid var(--slate-300);
+  border-radius: var(--radius-sm);
+  background: var(--canvas);
+  color: var(--slate-600);
+  cursor: pointer;
+}
+.bp-builder__reorder button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.bp-builder__arrow {
+  color: var(--slate-300);
+  font-size: 15px;
+  padding: 0 4px;
+}
+/* Zona de soltado entre tarjetas: invisible hasta que algo pasa por encima. */
+.bp-builder__gap {
+  width: 10px;
+  align-self: stretch;
+  border-radius: var(--radius-sm);
+}
+.bp-builder__gap.is-over {
+  background: var(--sky);
+}
+.bp-builder__gap--end {
+  width: 28px;
+}
+.bp-builder__drop {
+  flex: 1;
+  border: 1.5px dashed var(--slate-300);
+  border-radius: var(--radius-lg);
+  padding: 22px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--slate-400);
+}
+.bp-builder__drop.is-over {
+  border-color: var(--sky);
+  background: var(--accent-soft);
+}
+
+/* ===========================================================================
+ * 14. Etapa BP12 fase 3 — catálogo de funnels
+ * =========================================================================== */
+
+.bp-eyebrow {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--coral);
+  margin-bottom: 4px;
+}
+
+.bp-catalog {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+@media (max-width: 900px) {
+  .bp-catalog {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.bp-catalog__card {
+  position: relative;
+  font-family: inherit;
+  text-align: left;
+  background: var(--canvas);
+  border: 1.5px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+  padding: 16px 18px;
+  cursor: pointer;
+  transition: box-shadow 0.14s ease, border-color 0.14s ease;
+}
+.bp-catalog__card:hover {
+  box-shadow: var(--shadow-lg);
+}
+.bp-catalog__card:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 2px;
+}
+/* La elegida: ver la seccion 23 (BP24). Contorno coral y check, sin tenir el
+   fondo -- el tinte apagaba las pildoras de adentro. */
+.bp-catalog__check {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--coral);
+  color: var(--canvas);
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.bp-catalog__name {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--navy);
+}
+.bp-catalog__meta {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+  margin: 3px 0 8px;
+}
+.bp-catalog__desc {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--slate-600);
+  margin: 0 0 10px;
+}
+.bp-catalog__chain {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+.bp-catalog__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--slate-50);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-sm);
+  padding: 3px 7px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--slate-600);
+}
+.bp-catalog__arrow {
+  color: var(--slate-300);
+  font-style: normal;
+  margin-left: 2px;
+}
+.bp-catalog__team {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.bp-avatar--sm {
+  width: 24px;
+  height: 24px;
+  font-size: 9px;
+}
+.bp-catalog__more {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--slate-400);
+}
+.bp-catalog__actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+.bp-catalog__hint {
+  font-size: 11px;
+  color: var(--slate-400);
+}
+
+/* ===========================================================================
+ * 15. Etapa BP12 fase 4 — portal del plan activo
+ * =========================================================================== */
+
+.bp-plan-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+/* Anillo de progreso con conic-gradient: un SVG con stroke-dasharray daría lo
+   mismo y ocuparía cuatro veces más markup. */
+.bp-ring {
+  text-align: center;
+}
+.bp-ring__dial {
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  background: conic-gradient(var(--coral) var(--pct), var(--slate-100) 0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 6px;
+}
+.bp-ring__pct {
+  width: 66px;
+  height: 66px;
+  border-radius: 50%;
+  background: var(--canvas);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+}
+.bp-ring__label {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--slate-400);
+}
+
+/* ── Stepper de nodos ───────────────────────────────────────────────────── */
+
+/* Envuelve a segunda línea sola: con cinco nodos y nombres largos, forzar una
+   sola fila obligaría a recortar los nombres, que es lo que hay que leer. */
+.bp-stepper {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.bp-step {
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--slate-200);
+  background: var(--slate-50);
+  color: var(--slate-500);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+.bp-step:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 2px;
+}
+/* Completado, en curso y pendiente: ver la seccion 23 (BP24). Los tres
+   comparten fondo y se distinguen por el contorno. */
+.bp-step__n {
+  font-family: var(--font-display);
+  font-weight: 700;
+  opacity: 0.7;
+}
+.bp-step__count {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+
+/* ── Tarjeta del nodo ───────────────────────────────────────────────────── */
+
+.bp-plan-node {
+  padding: 18px 20px;
+}
+.bp-plan-node__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+.bp-plan-node__title {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--navy);
+  margin: 0;
+}
+.bp-plan-node__desc {
+  font-size: 12px;
+  color: var(--slate-500);
+  margin: 3px 0 0;
+}
+
+/* ── Lista de milestones ────────────────────────────────────────────────── */
+
+.bp-ms-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.bp-ms {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto auto 84px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--slate-100);
+}
+@media (max-width: 900px) {
+  .bp-ms {
+    grid-template-columns: 26px minmax(0, 1fr);
+  }
+}
+/*
+ * Etapa BP20: aca vivian `.bp-ms__check` y sus cuatro estados. El boton
+ * redondo de "marcar hecho" lo reemplazo el desplegable de estado, asi que las
+ * reglas se fueron con el. La marca que quedo, `.bp-ms__dot`, ya no es un
+ * control: solo dibuja en que estado esta la fila.
+ */
+.bp-ms__title {
+  font-size: 12.5px;
+  color: var(--navy);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bp-ms.is-done .bp-ms__title {
+  text-decoration: line-through;
+  color: var(--slate-400);
+}
+.bp-ms__person {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--slate-500);
+  white-space: nowrap;
+}
+.bp-ms__due {
+  font-size: 11px;
+  color: var(--slate-400);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Barra del equipo de soporte ────────────────────────────────────────── */
+
+.bp-team-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+.bp-team-bar__stack {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ===========================================================================
+ * 16. Etapa BP13 — CRUD de la biblioteca y la relación nodo ↔ funnel visible
+ * =========================================================================== */
+
+/*
+ * Los nombres de funnel se cortaban con ellipsis sin razón: son cortos y la
+ * columna tenía espacio. `.bp-wrap` deshace el `white-space: nowrap` que
+ * `table.piv td` impone para toda la app.
+ */
+table.piv td.bp-wrap,
+table.piv th.bp-wrap {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1.35;
+}
+
+/* Anchos: la columna de acciones se achica y ese espacio va a los nombres. */
+.bp-table--funnels col.bp-col-fname {
+  width: 19%;
+}
+.bp-table--funnels col.bp-col-fcat {
+  width: 9%;
+}
+.bp-table--funnels col.bp-col-fnodes {
+  width: 38%;
+}
+.bp-table--funnels col.bp-col-fnum {
+  width: 7%;
+}
+.bp-table--funnels col.bp-col-facts {
+  width: 13%;
+}
+.bp-table--nodes col.bp-col-fname {
+  width: 22%;
+}
+.bp-table--nodes col.bp-col-fnum {
+  width: 10%;
+}
+.bp-table--nodes col.bp-col-fnodes {
+  width: 34%;
+}
+.bp-table--nodes col.bp-col-fcat {
+  width: 22%;
+}
+.bp-table--nodes col.bp-col-facts {
+  width: 12%;
+}
+
+/* La secuencia de nombres: se lee como una cadena, no como una lista. */
+.bp-seq {
+  font-size: 11px;
+  color: var(--slate-600);
+  line-height: 1.5;
+}
+
+/* Un nodo que no está en ningún funnel: existe pero nadie lo usa. */
+.bp-orphan {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: var(--radius-sm);
+  background: var(--amber-50);
+  border: 1px solid var(--amber-200);
+  color: var(--amber-800);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: help;
+}
+
+/* ── Acciones en línea ──────────────────────────────────────────────────── */
+
+/*
+ * Apiladas en columna, cada fila medía el triple de alto y con seis funnels la
+ * tabla se volvía pesada. En línea y como iconos ocupan un solo renglón.
+ */
+.bp-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.bp-icon-btn {
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-sm);
+  background: var(--canvas);
+  color: var(--slate-500);
+  cursor: pointer;
+  transition: color 0.14s ease, border-color 0.14s ease;
+}
+.bp-icon-btn:hover {
+  color: var(--navy);
+  border-color: var(--slate-300);
+}
+.bp-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+/* El de borrar en coral sólo al pasar por encima: en reposo compite con todo. */
+.bp-icon-btn--danger:hover {
+  color: var(--coral);
+  border-color: var(--coral);
+}
+
+/* ── Edición en la línea ────────────────────────────────────────────────── */
+
+/*
+ * Campos que se ven como texto hasta que se los toca. Un `input` con borde en
+ * cada celda convertiría la tabla en un formulario y se perdería de vista que
+ * lo que se está mirando son datos.
+ */
+.bp-inline-input {
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--navy);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  padding: 2px 5px;
+  width: 100%;
+  max-width: 100%;
+}
+.bp-inline-input:hover {
+  border-color: var(--slate-200);
+}
+.bp-inline-input:focus {
+  border-color: var(--sky);
+  background: var(--canvas);
+  outline: none;
+}
+.bp-inline-input--name {
+  font-weight: 600;
+}
+.bp-inline-input--num {
+  width: 56px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Formularios ────────────────────────────────────────────────────────── */
+
+.bp-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.bp-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.bp-form__label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+}
+.bp-form__area {
+  font-family: inherit;
+  resize: vertical;
+  line-height: 1.5;
+}
+/* Casillas y no un multi-select: con ocho personas o seis funnels, un
+   multi-select obliga a mantener Ctrl apretado para no perder la selección. */
+.bp-form__checks {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 12px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  background: var(--slate-50);
+}
+.bp-form__check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--slate-600);
+  cursor: pointer;
+}
+.bp-form__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+/* Tarjeta del catálogo que no se puede activar. */
+.bp-catalog__card.is-disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.bp-catalog__card.is-disabled:hover {
+  box-shadow: var(--shadow-xs);
+}
+.bp-catalog__blocked {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--amber-800);
+  background: var(--amber-50);
+  border: 1px solid var(--amber-200);
+  border-radius: var(--radius-sm);
+  padding: 5px 9px;
+  margin-bottom: 8px;
+}
+
+/* ===========================================================================
+ * 17. Etapa BP14 — editor del plan de una persona
+ * =========================================================================== */
+
+/*
+ * Va debajo del portal, no reemplazándolo: lo habitual es marcar pasos, no
+ * reestructurar el plan, así que el editor no compite con la lista de
+ * milestones -- se abre cuando hace falta.
+ */
+.bp-editor {
+  margin-top: 18px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  background: var(--slate-50);
+  padding: 14px 16px;
+}
+.bp-editor__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.bp-editor__title {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--navy);
+}
+.bp-editor__hint {
+  flex: 1;
+  font-size: 11px;
+  color: var(--slate-400);
+}
+.bp-editor__nodes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.bp-editor__node {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  background: var(--canvas);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  padding: 9px 12px;
+}
+.bp-editor__pos {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+.bp-editor__name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--navy);
+}
+.bp-editor__count {
+  font-size: 10.5px;
+  color: var(--slate-400);
+  white-space: nowrap;
+}
+/* El motivo del rechazo, en la fila y no sólo en un title que hay que buscar. */
+.bp-editor__blocked {
+  grid-column: 1 / -1;
+  font-size: 10.5px;
+  color: var(--amber-800);
+  background: var(--amber-50);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+}
+.bp-editor__ms {
+  grid-column: 1 / -1;
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0 0 0 10px;
+  border-left: 2px solid var(--slate-100);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.bp-editor__ms li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px 84px auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+}
+@media (max-width: 900px) {
+  .bp-editor__ms li {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}
+/* Un paso hecho se ve inerte: sus controles están deshabilitados. */
+.bp-editor__ms li.is-locked {
+  opacity: 0.55;
+}
+.bp-editor__ms-title {
+  color: var(--slate-600);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bp-editor__due {
+  font-size: 10.5px;
+  color: var(--slate-400);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===========================================================================
+ * 18. Etapa BP15 — explorar un funnel, y el plan visible desde el perfil
+ * =========================================================================== */
+
+/* ── Explorador del funnel ──────────────────────────────────────────────── */
+
+.bp-explore {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.bp-explore__node {
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  background: var(--canvas);
+  overflow: hidden;
+}
+.bp-explore__node.is-open {
+  border-color: var(--sky);
+}
+.bp-explore__head {
+  font-family: inherit;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto auto 16px;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.bp-explore__head:hover {
+  background: var(--slate-50);
+}
+.bp-explore__pos {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+.bp-explore__body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.bp-explore__name {
+  font-family: var(--font-display);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--navy);
+}
+.bp-explore__desc {
+  font-size: 11px;
+  color: var(--slate-500);
+  line-height: 1.4;
+}
+.bp-explore__meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-size: 10.5px;
+  color: var(--slate-500);
+  white-space: nowrap;
+}
+.bp-explore__days {
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+.bp-explore__owners {
+  display: flex;
+  gap: 3px;
+}
+.bp-explore__chev {
+  color: var(--slate-400);
+  font-size: 11px;
+}
+.bp-explore__steps {
+  list-style: none;
+  margin: 0;
+  padding: 4px 12px 10px 46px;
+  border-top: 1px solid var(--slate-100);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.bp-explore__steps li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px 66px;
+  gap: 10px;
+  font-size: 11.5px;
+  color: var(--slate-600);
+}
+@media (max-width: 900px) {
+  .bp-explore__steps li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.bp-explore__step-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bp-explore__step-who {
+  color: var(--slate-500);
+}
+.bp-explore__step-day {
+  text-align: right;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Pista en la tarjeta de que el clic abre y no selecciona. */
+.bp-catalog__explore {
+  margin-top: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+}
+.bp-catalog__card.is-picked .bp-catalog__explore {
+  color: var(--coral);
+}
+
+/* ── El plan, visible desde el perfil ───────────────────────────────────── */
+
+/*
+ * Banner en la parte de arriba del perfil. Antes el perfil se veía igual antes
+ * y después de activar: no había forma de saber desde acá que la persona ya
+ * estaba cursando algo.
+ */
+.bp-plan-banner {
+  font-family: inherit;
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  text-align: left;
+  border: 1px solid var(--sky);
+  border-radius: var(--radius-lg);
+  background: var(--accent-soft);
+  padding: 11px 16px;
+  margin-bottom: 16px;
+  cursor: pointer;
+  transition: box-shadow 0.14s ease;
+}
+.bp-plan-banner:hover {
+  box-shadow: var(--shadow-lg);
+}
+.bp-plan-banner:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 2px;
+}
+.bp-plan-banner__label {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--slate-500);
+}
+.bp-plan-banner__name {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--navy);
+}
+.bp-plan-banner__meta {
+  font-size: 11.5px;
+  color: var(--slate-600);
+  font-variant-numeric: tabular-nums;
+}
+.bp-plan-banner__cta {
+  margin-left: auto;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--coral);
+}
+
+/* La barra de decisión cuando ya hay plan: informa, no pide decidir. */
+.bp-decision--plan {
+  background: var(--navy);
+}
+
+/* Marca de plan activo en el directorio del branch. */
+.bp-plan-chip {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  border: 1px solid var(--sky);
+  color: var(--navy);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  vertical-align: middle;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===========================================================================
+ * 19. Etapa BP16 — arrastre visible, stepper del preview y tablas-tarjeta
+ * =========================================================================== */
+
+/* ── Arrastre del constructor ───────────────────────────────────────────── */
+
+/*
+ * El asa. Sin una señal visible nadie descubre que las tarjetas se arrastran --
+ * el `cursor: grab` sólo aparece cuando el puntero ya está encima.
+ */
+.bp-grip {
+  color: var(--slate-300);
+  font-size: 13px;
+  line-height: 1;
+  letter-spacing: -1px;
+  cursor: grab;
+  flex-shrink: 0;
+}
+.bp-grip--card {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+.bp-builder__howto {
+  font-size: 10.5px;
+  color: var(--slate-400);
+  margin: 0 0 4px;
+  line-height: 1.4;
+}
+/* Lo que está en vuelo se atenúa: se ve de dónde salió. */
+.bp-builder__chip.is-dragging,
+.bp-builder__card.is-dragging {
+  opacity: 0.4;
+}
+
+/*
+ * Las zonas de soltado medían 10px y acertarles era cuestión de suerte. Sólo se
+ * ensanchan mientras hay algo en vuelo (`is-armed`), para que en reposo no
+ * separen las tarjetas.
+ */
+.bp-builder__gap.is-armed {
+  width: 26px;
+  border: 1.5px dashed var(--slate-300);
+}
+.bp-builder__gap.is-armed.is-over {
+  border-color: var(--sky);
+  background: var(--accent-soft);
+}
+
+/* ── Preview del funnel: stepper horizontal ─────────────────────────────── */
+
+/* El `flex-wrap` y el `gap` los fija la seccion 24 (BP25): una sola fila con
+   scroll. Aca queda lo que no cambio. */
+.bp-fstep {
+  display: flex;
+  align-items: stretch;
+  margin-bottom: 14px;
+}
+/* `flex-shrink: 0` tambien en el hueco: si no, el navegador lo encoge antes de
+   decidir que hace falta scroll. Etapa BP25. */
+.bp-fstep__slot {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.bp-fstep__card {
+  font-family: inherit;
+  text-align: left;
+  min-width: 150px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  background: var(--slate-50);
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+.bp-fstep__card:hover {
+  border-color: var(--sky);
+}
+.bp-fstep__card:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 2px;
+}
+/* El nodo abierto: ver la seccion 23 (BP24). Se marca por CONTORNO, no por
+   fondo -- la version en navy pleno de BP16 obligaba a tener dos versiones de
+   cada pildora y de cada avatar. */
+.bp-fstep__n {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+.bp-fstep__name {
+  font-family: var(--font-display);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--navy);
+}
+.bp-fstep__owners {
+  display: flex;
+  gap: 3px;
+  margin-top: 2px;
+}
+.bp-fstep__arrow {
+  color: var(--slate-300);
+  padding: 0 5px;
+  font-size: 14px;
+}
+
+.bp-fdetail {
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  background: var(--canvas);
+  padding: 14px 16px;
+}
+.bp-fdetail__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.bp-fdetail__title {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--navy);
+  margin: 0;
+}
+.bp-fdetail__owners {
+  font-size: 11px;
+  color: var(--slate-500);
+}
+.bp-fdetail__desc {
+  font-size: 12px;
+  color: var(--slate-500);
+  margin: 4px 0 10px;
+  line-height: 1.5;
+}
+.bp-fdetail__steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.bp-fdetail__steps li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 190px 90px;
+  gap: 12px;
+  align-items: center;
+  padding: 7px 0;
+  border-top: 1px solid var(--slate-100);
+  font-size: 12px;
+}
+@media (max-width: 900px) {
+  .bp-fdetail__steps li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.bp-fdetail__step-title {
+  color: var(--navy);
+}
+.bp-fdetail__step-who {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--slate-500);
+  font-size: 11px;
+}
+.bp-fdetail__step-day {
+  text-align: right;
+  font-size: 11px;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Pie de la tarjeta del catálogo: explorar a la izquierda, elegir a la derecha. */
+.bp-catalog__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+/* ── Tablas como tarjetas flotantes ─────────────────────────────────────── */
+
+/*
+ * Branch Portfolio y el directorio se seguían leyendo como una planilla. Cada
+ * fila pasa a ser una tarjeta blanca independiente: `border-collapse: separate`
+ * con `border-spacing` vertical es lo que permite separarlas sin recurrir a
+ * márgenes falsos en las celdas.
+ *
+ * El contenedor pierde su propio fondo y borde -- si no, quedaría una tarjeta
+ * grande con tarjetas adentro.
+ */
+.tbl-card--floating {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  overflow: visible;
+}
+table.piv.bp-table--cards {
+  border-collapse: separate;
+  border-spacing: 0 8px;
+}
+/* Encabezados flotando: sin fondo ni línea, sólo las etiquetas. */
+table.piv.bp-table--cards thead tr.mo-row th {
+  background: transparent;
+  border: none;
+  padding-bottom: 2px;
+  color: var(--slate-400);
+}
+table.piv.bp-table--cards tbody tr.metric td {
+  background: var(--canvas);
+  border-top: 1px solid var(--slate-200);
+  border-bottom: 1px solid var(--slate-200);
+  /* Más aire vertical: la fila ya no es un renglón, es una tarjeta. */
+  padding: 13px 12px;
+}
+/* Las esquinas redondeadas sólo se pueden pedir en las celdas de los extremos. */
+table.piv.bp-table--cards tbody tr.metric td:first-child {
+  border-left: 1px solid var(--slate-200);
+  border-top-left-radius: var(--radius-lg);
+  border-bottom-left-radius: var(--radius-lg);
+}
+table.piv.bp-table--cards tbody tr.metric td:last-child {
+  border-right: 1px solid var(--slate-200);
+  border-top-right-radius: var(--radius-lg);
+  border-bottom-right-radius: var(--radius-lg);
+}
+table.piv.bp-table--cards tbody tr.metric:hover td {
+  background: var(--accent-soft);
+}
+/* La primera celda deja de ser sticky: dentro de una tarjeta se despegaría. */
+table.piv.bp-table--cards td.lbl {
+  position: static;
+}
+/* Píldoras de estado un poco más grandes, ahora que la fila tiene aire. */
+table.piv.bp-table--cards .badge--pill {
+  font-size: 10.5px;
+  padding: 4px 11px;
+}
+
+/* ===========================================================================
+ * 20. Etapa BP17 — el rojo de marca y el selector de iconos
+ * =========================================================================== */
+
+/*
+ * EL ROJO DE LAS PÍLDORAS.
+ *
+ * `.badge--rose` de components.css pinta con `--rose-700`, que vale un borgoña
+ * oscuro. Es un token `--rose-*` legítimo, pero NO es el rojo que la gente
+ * reconoce como HOMESÍ -- el mismo problema que ya se corrigió en el GAP y en
+ * el número de riesgo.
+ *
+ * Se sobrescribe ACÁ y no en components.css, que es compartido con Commercial
+ * Activity y Forecast y está fuera de alcance. Como `bp-visual.css` sólo se
+ * carga en el módulo, el alcance del override es exactamente el que se quiere;
+ * y como se declara después, gana con la misma especificidad, sin !important.
+ *
+ * Afecta al veredicto On Risk y al Status "Pending (N)", que son los dos que
+ * usan esta clase.
+ */
+.badge--rose {
+  background: var(--rose-50);
+  color: var(--coral);
+}
+
+/* ── Selector de iconos ─────────────────────────────────────────────────── */
+
+/*
+ * Etapa BP19: más columnas y sin etiqueta debajo. Con 21 opciones y texto, el
+ * selector ocupaba media pantalla y había que scrollear el formulario para
+ * llegar al botón de guardar. Las etiquetas viven en el `title`.
+ */
+.bp-iconpick {
+  display: grid;
+  grid-template-columns: repeat(11, minmax(0, 1fr));
+  gap: 4px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  background: var(--slate-50);
+  padding: 7px;
+}
+@media (max-width: 900px) {
+  .bp-iconpick {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+}
+.bp-iconpick__opt {
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  background: var(--canvas);
+  color: var(--slate-500);
+  cursor: pointer;
+  transition: border-color 0.14s ease, color 0.14s ease, background 0.14s ease;
+}
+.bp-iconpick__opt:hover {
+  border-color: var(--sky);
+  color: var(--navy);
+}
+.bp-iconpick__opt:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 2px;
+}
+/* El elegido en coral: es el acento de acción del módulo. */
+.bp-iconpick__opt.is-on {
+  border-color: var(--coral);
+  background: var(--rose-50);
+  color: var(--coral);
+}
+
+/* ===========================================================================
+ * 21. Etapa BP18 — quitar con botón y confirmación en la tarjeta
+ * =========================================================================== */
+
+/*
+ * Quitar NO se hace arrastrando fuera: ese gesto no tiene destino visible, el
+ * navegador no señala dónde termina, y nadie lo descubre solo. Un botón en la
+ * tarjeta es más rápido y no se puede fallar.
+ *
+ * En coral sólo al pasar por encima: en reposo competiría con las flechas, que
+ * son la acción frecuente.
+ */
+.bp-builder__remove {
+  margin-left: 2px;
+  color: var(--slate-400);
+}
+.bp-builder__remove:hover:not(:disabled) {
+  color: var(--coral);
+  border-color: var(--coral);
+}
+
+/*
+ * La confirmación aparece sobre la propia tarjeta, no en un modal: el objeto
+ * del que se pregunta está justo debajo, y un modal lo taparía.
+ */
+.bp-builder__confirm {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: var(--canvas);
+  border: 1.5px solid var(--coral);
+  border-radius: var(--radius-lg);
+  padding: 9px 11px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--slate-600);
+}
+.bp-builder__confirm p {
+  margin: 0;
+}
+.bp-builder__confirm-note {
+  color: var(--slate-400);
+}
+.bp-builder__confirm-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+/* ===========================================================================
+ * 22. Etapas BP20 y BP21 — responsabilidad en dos niveles, notas, BP Team,
+ *     el icono del funnel y el color de la paleta
+ * ===========================================================================
+ *
+ * Sigue rigiendo la regla del módulo: CERO HEXADECIMALES. Todo sale de
+ * tokens.css. El prompt que originó la parte cromática pedía `bg-indigo-100`,
+ * `bg-purple-100` y el rojo escrito como hexadecimal; los dos primeros no
+ * existen en la paleta de marca y el tercero ES `--coral`. Se hizo con lo que
+ * hay. Ni siquiera se transcribe el hexadecimal acá: el grep que vigila este
+ * archivo no distingue un comentario de una declaración, y tener que explicar
+ * cada vez por qué esa línea no cuenta sale más caro que reescribirla.
+ *
+ * Tampoco se cambia de familia tipográfica para los números. El prompt pedía
+ * tres veces una monoespaciada; ya está resuelto desde UX2 con Inter y
+ * `tabular-nums`, que alinea las cifras sin cambiar de fuente en medio de una
+ * tarjeta.
+ */
+
+/* ── Sólo para lectores de pantalla ─────────────────────────────────────── */
+
+/*
+ * Oculta a la vista sin sacar del árbol de accesibilidad. `display: none` sí lo
+ * sacaría, y entonces el diálogo del explorador se quedaría sin nombre.
+ */
+.bp-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── El icono del funnel y del nodo ─────────────────────────────────────── */
+
+/*
+ * ⚠ EL GLIFO VA SOLO. SIN RECUADRO, SIN FONDO, SIN PADDING.
+ *
+ * Etapa BP21 lo dibujó como una "chapa": un cuadrado relleno con el icono
+ * encima. Eran dos clases, y ESTAS DOS SON LAS QUE PINTABAN EL FONDO:
+ *
+ *     .bp-glyph--soft    background: var(--accent-soft)
+ *     .bp-glyph--strong  background: var(--navy);  color: var(--sky)
+ *
+ * Se pidió sacarlo en BP24, BP25, BP26, BP27 y BP28. Las veces anteriores se
+ * "arregló" agregando `background: transparent` en un selector más específico
+ * -- `table.piv td .bp-glyph--strong` -- que sólo alcanzaba a las tablas. Las
+ * dos reglas de arriba seguían vivas, así que en el catálogo, en el preview, en
+ * el banner y en el portal el cuadrado seguía ahí.
+ *
+ * Por eso ahora se borran EN SU ORIGEN y con ellas la variante `tone` del
+ * componente: anular una regla desde abajo deja las dos en el archivo, y la
+ * que gana depende de dónde se dibuje el icono. Es lo que hizo falta repetir el
+ * pedido cuatro veces.
+ *
+ * `flex-shrink: 0` se queda: sin él el icono se aplasta cuando el nombre del
+ * funnel es largo.
+ */
+.bp-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--navy);
+  vertical-align: middle;
+}
+
+/* ── Avatares ───────────────────────────────────────────────────────────── */
+
+/*
+ * ⚠ El tono lo elige `avatarToneOf(nombre)` en `components/shared.tsx`, a
+ * partir del NOMBRE. Acá sólo viven los seis pares de color. Si algún día se
+ * agrega un séptimo, hay que subir `AVATAR_TONES` en ese archivo -- si no, la
+ * clase se genera pero nunca se usa.
+ *
+ * Los seis salen de escalas que ya existían: navy/sky, emerald, amber, coral,
+ * slate y sky pleno. Ninguno es un color nuevo.
+ */
+/*
+ * Etapa BP21 puso aca seis tonos de avatar, uno por persona, elegidos por un
+ * hash del nombre. Etapa BP25 los quito: ver `.bp-avatar` en la seccion 4.
+ */
+
+/* ── Píldoras de conteo, de día y de vencido ────────────────────────────── */
+
+/*
+ * Reemplazan al texto gris tenue de "3 steps · day 1–7" y de "by day 3". El
+ * dato es el mismo; la diferencia es que ahora se ve que es un dato y no una
+ * aclaración al margen.
+ */
+.bp-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: var(--radius-sm);
+  padding: 2px 7px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.bp-pill--sky {
+  background: var(--accent-soft);
+  color: var(--slate-700);
+  border: 1px solid var(--sky);
+}
+.bp-pill--day {
+  background: var(--slate-100);
+  color: var(--slate-700);
+  border: 1px solid var(--slate-200);
+}
+/* Vencido: el rojo de marca, el mismo del GAP y del veredicto On Risk. */
+.bp-pill--late {
+  background: var(--rose-50);
+  color: var(--coral);
+  border: 1px solid var(--rose-200);
+}
+
+/* ── Catálogo: el nombre domina su tarjeta ──────────────────────────────── */
+
+.bp-catalog__ident {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 6px;
+}
+/*
+ * De 15px a 19px. El nombre es LO QUE SE ESTÁ ELIGIENDO: antes empataba con la
+ * línea de conteos que va debajo y la tarjeta no tenía un punto de entrada.
+ */
+.bp-catalog__name {
+  font-size: 19px;
+  line-height: 1.15;
+}
+/* La línea de conteos deja de ser un renglón de texto y pasa a ser píldoras. */
+.bp-catalog__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* ── Preview del funnel ─────────────────────────────────────────────────── */
+
+.bp-fhead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.bp-fhead__name {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--navy);
+  margin: 0;
+  line-height: 1.1;
+}
+.bp-fhead__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 5px;
+}
+
+/*
+ * ⚠ UNA SOLA FILA, CON SCROLL — etapa BP25.
+ *
+ * Un funnel es una SECUENCIA. Envuelta en tres filas deja de leerse como una:
+ * con diez nodos la forma del funnel -- que es lo primero que alguien quiere
+ * ver -- desaparecía debajo de sí misma.
+ *
+ * Esto reemplaza a la grilla de columnas fijas de BP21, que existía para poder
+ * ocultar la flecha del último de cada fila con `:nth-child(4n)`. Sin filas no
+ * hay último de fila: la única flecha que sobra es la del último nodo, y para
+ * eso alcanza `:last-child`. El problema de BP21 desaparece con su causa.
+ *
+ * `flex-shrink: 0` en las tarjetas es lo que hace que el scroll ocurra: sin él
+ * flexbox las apretaría hasta que entren, y con diez nodos quedarían ilegibles
+ * en vez de scrollear.
+ */
+.bp-fstep {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  gap: 2px;
+  padding-bottom: 6px;
+}
+.bp-fstep__slot:last-child .bp-fstep__arrow {
+  display: none;
+}
+.bp-fstep__card {
+  position: relative;
+  flex-shrink: 0;
+  width: 172px;
+}
+.bp-fstep__name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* El acento del nodo abierto vive en la seccion 23 (BP24). Las tres reglas que
+   habia aca -- nombre, pildora e icono aclarados -- existian solo para
+   sobrevivir al fondo navy, y se fueron con el. */
+
+/* ── Responsables del nodo, rotulados ───────────────────────────────────── */
+
+/*
+ * ⚠ Etapa BP20. El rótulo NO es decoración: sin él, los avatares del nodo y los
+ * de cada paso se leían como la misma cosa mal sincronizada. Son dos niveles
+ * distintos de responsabilidad y ahora está escrito cuál es cuál.
+ */
+.bp-owners {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  text-align: right;
+}
+.bp-owners--inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+.bp-owners__label {
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+}
+.bp-owners__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+.bp-owners__one {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--navy);
+  white-space: nowrap;
+}
+.bp-owners__hint {
+  font-size: 10px;
+  color: var(--slate-400);
+}
+
+/* ── Tarjeta del nodo con más presencia ─────────────────────────────────── */
+
+.bp-plan-node__ident {
+  min-width: 0;
+}
+/* De 16px a 21px, con su icono. Es el objeto del que trata toda la tarjeta. */
+.bp-plan-node__title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 21px;
+  line-height: 1.15;
+}
+.bp-plan-node__desc {
+  font-size: 12.5px;
+  max-width: 62ch;
+}
+
+/* Progreso DEL NODO. El anillo de la cabecera es el del plan entero. */
+.bp-node-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.bp-node-progress__bar {
+  flex: 1;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--slate-100);
+  overflow: hidden;
+}
+.bp-node-progress__bar span {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: var(--emerald-700);
+  transition: width 0.2s ease;
+}
+.bp-node-progress__label {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--slate-500);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ── Lista de pasos: encabezados, estado y fecha editables ──────────────── */
+
+/*
+ * Seis columnas: marca, paso, responsable, estado, fecha y notas. La quinta y
+ * la sexta son nuevas de BP20 -- antes la fecha era texto y no había notas.
+ */
+.bp-ms {
+  grid-template-columns: 22px minmax(0, 1fr) 165px 105px 130px 26px;
+  gap: 10px;
+  align-items: center;
+}
+@media (max-width: 900px) {
+  .bp-ms {
+    grid-template-columns: 22px minmax(0, 1fr) 26px;
+  }
+}
+/* La fila de encabezados. No es una fila de datos: no lleva borde superior. */
+.bp-ms--head {
+  border-top: 0;
+  padding-bottom: 4px;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+}
+.bp-ms--head span {
+  white-space: nowrap;
+}
+
+/* La marca del estado, ahora sin clic: el control es el desplegable. */
+.bp-ms__dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  border: 1.5px solid var(--slate-300);
+  background: var(--canvas);
+  color: var(--canvas);
+}
+.bp-ms__dot--in_progress {
+  border-color: var(--amber-500);
+  background: var(--amber-50);
+}
+.bp-ms__dot--done {
+  border-color: var(--emerald-700);
+  background: var(--emerald-700);
+}
+
+.bp-ms__status,
+.bp-ms__date {
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--navy);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-sm);
+  background: var(--canvas);
+  padding: 4px 6px;
+  width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+.bp-ms__status:hover,
+.bp-ms__date:hover {
+  border-color: var(--sky);
+}
+.bp-ms__status--in_progress {
+  background: var(--amber-50);
+  border-color: var(--amber-200);
+  color: var(--amber-800);
+}
+/* Una fecha ya vencida se señala en el propio control, no sólo en la fila. */
+.bp-ms__date.is-late {
+  background: var(--rose-50);
+  border-color: var(--rose-200);
+  color: var(--coral);
+  font-weight: 700;
+}
+.bp-ms.is-late .bp-ms__title {
+  color: var(--coral);
+}
+
+/* Las notas del paso ocupan la fila entera, debajo de sus columnas. */
+.bp-ms__notes {
+  grid-column: 1 / -1;
+  padding-top: 6px;
+}
+
+/* ── Aviso de recién activado ───────────────────────────────────────────── */
+
+.bp-just-activated {
+  border: 1px solid var(--sky);
+  border-left: 3px solid var(--coral);
+  background: var(--accent-soft);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--navy);
+  margin-bottom: 14px;
+}
+
+/* El nombre del funnel en el portal del plan, con su icono. */
+.bp-funnel-title {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--navy);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  line-height: 1.1;
+}
+.bp-plan-banner__name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ── Notas ──────────────────────────────────────────────────────────────── */
+
+.bp-notes {
+  border-top: 1px solid var(--slate-100);
+  margin-top: 14px;
+  padding-top: 12px;
+}
+.bp-notes--compact {
+  border-top: 0;
+  margin-top: 0;
+  padding-top: 0;
+  padding-left: 32px;
+}
+.bp-notes__title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-display);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--navy);
+  margin-bottom: 8px;
+}
+.bp-notes__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-full);
+  background: var(--accent-soft);
+  border: 1px solid var(--sky);
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+}
+.bp-notes__list {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.bp-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+}
+.bp-note__body {
+  min-width: 0;
+}
+.bp-note__meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.bp-note__who {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--navy);
+}
+.bp-note__when {
+  font-size: 10px;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+/* `pre-wrap`: los saltos de línea de quien escribió se respetan tal cual. */
+.bp-note__text {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--slate-700);
+  margin: 2px 0 0;
+  white-space: pre-wrap;
+}
+.bp-notes__compose {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.bp-notes__area {
+  flex: 1;
+  resize: vertical;
+  min-height: 38px;
+}
+
+/* ── BP Team ────────────────────────────────────────────────────────────── */
+
+.bp-team-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.bp-team-picker .field {
+  min-width: 190px;
+}
+.bp-team-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  background: var(--canvas);
+  padding: 14px 18px;
+  margin-bottom: 18px;
+}
+.bp-team-head__name {
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 800;
+  color: var(--navy);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.bp-team-head__meta {
+  font-size: 11.5px;
+  color: var(--slate-500);
+  margin: 2px 0 0;
+}
+.bp-team-head__counts {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/*
+ * Anchos de las dos tablas. `table-layout: fixed` ignora el `min-width` de las
+ * celdas, así que el reparto se decide acá y sólo acá.
+ */
+.bp-table--team col.bp-col-tlo {
+  width: 17%;
+}
+.bp-table--team col.bp-col-tbranch {
+  width: 8%;
+}
+.bp-table--team col.bp-col-tfunnel {
+  width: 17%;
+}
+.bp-table--team col.bp-col-tnode {
+  width: 15%;
+}
+.bp-table--team col.bp-col-tstep {
+  width: 26%;
+}
+.bp-table--team col.bp-col-tstatus {
+  width: 9%;
+}
+.bp-table--team col.bp-col-tdate {
+  width: 11%;
+}
+.bp-table--owned col.bp-col-tlo {
+  width: 24%;
+}
+.bp-table--owned col.bp-col-tbranch {
+  width: 10%;
+}
+.bp-table--owned col.bp-col-tfunnel {
+  width: 24%;
+}
+.bp-table--owned col.bp-col-tnode {
+  width: 22%;
+}
+.bp-table--owned col.bp-col-tstatus {
+  width: 10%;
+}
+.bp-table--owned col.bp-col-tdate {
+  width: 12%;
+}
+
+/*
+ * ⚠ ESPECIFICIDAD: `table.piv th, table.piv td` es (0,1,2), así que una clase
+ * suelta pierde. Ya pasó dos veces en este archivo -- con el centrado y con el
+ * padding. Por eso el elemento va en el selector.
+ */
+table.piv td.bp-late-cell {
+  color: var(--coral);
+  font-weight: 700;
+}
+table.piv tr.metric.is-late td.lbl {
+  box-shadow: inset 3px 0 0 var(--coral);
+}
+
+/* El icono del funnel dentro de una celda, alineado con su texto. Donde hay
+   una celda de nombre el espacio ya lo pone su `gap`, y sumarle el margen los
+   separaria el doble. */
+table.piv td .bp-glyph {
+  margin-right: 6px;
+}
+.bp-name-cell .bp-glyph {
+  margin-right: 0;
+}
+
+/* El botón de notas de un paso, encendido mientras el panel está abierto. */
+.bp-icon-btn.is-on {
+  border-color: var(--coral);
+  color: var(--coral);
+  background: var(--rose-50);
+}
+
+/* ===========================================================================
+ * 23. Etapas BP22, BP23 y BP24 — impacto, revisión conjunta y la selección
+ *     marcada por CONTORNO en vez de por relleno
+ * ===========================================================================
+ *
+ * Cero hexadecimales, como siempre. Todo sale de tokens.css.
+ */
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * BP24 — SELECCIÓN POR CONTORNO
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ * ⚠ EL MOTIVO NO ES ESTÉTICO, ES DE MANTENIMIENTO.
+ *
+ * Pintar de navy la tarjeta seleccionada obligaba a tener DOS versiones de todo
+ * lo que vive adentro: la píldora de días perdía su tinte, el avatar se apagaba
+ * y el icono había que aclararlo. Cada componente nuevo que entrara a una
+ * tarjeta iba a necesitar su propia excepción "cuando está seleccionada", y ese
+ * es el camino directo a que se desincronicen.
+ *
+ * Con el fondo IGUAL en los dos estados, las píldoras y los avatares se dibujan
+ * una sola vez y se ven idénticos estén o no seleccionados. Lo único que cambia
+ * es el borde.
+ *
+ * LA EXCEPCIÓN es el menú lateral: ahí el item activo en coral sólido contrasta
+ * contra el fondo de la barra, no contra contenido que viva adentro. No se toca.
+ */
+
+/* ── Los avatares, en contorno ──────────────────────────────────────────── */
+
+/* ── El nodo abierto del preview ────────────────────────────────────────── */
+
+/*
+ * Mismo fondo que los demás. Se marca sólo con el contorno en coral, más grueso
+ * y con una sombra suave para que se despegue.
+ */
+.bp-fstep__card.is-active {
+  background: var(--slate-50);
+  border: 2px solid var(--coral);
+  box-shadow: var(--shadow-xs);
+}
+/*
+ * El numero del nodo abierto, en coral. Es lo unico que hace falta ahora: las
+ * compensaciones de color que vivian aca se borraron en su origen, en vez de
+ * anularse desde abajo. Anular una regla con otra deja las dos en el archivo y
+ * la proxima persona no sabe cual manda.
+ */
+.bp-fstep__card.is-active .bp-fstep__n {
+  color: var(--coral);
+}
+
+/* ── El stepper del plan activo ─────────────────────────────────────────── */
+
+/*
+ * Tres estados, los tres sobre el mismo fondo: pendiente en gris, completo en
+ * emerald y el abierto en coral. Antes los dos últimos eran rellenos plenos y
+ * el conteo "3/3" quedaba en un blanco que competía con el del nombre.
+ */
+.bp-step.is-done {
+  background: var(--slate-50);
+  border: 1.5px solid var(--emerald-700);
+  color: var(--emerald-800);
+}
+/* Mismo fondo que las pendientes: lo unico que cambia es el contorno. */
+.bp-step.is-current {
+  background: var(--slate-50);
+  border: 2px solid var(--coral);
+  color: var(--coral);
+}
+.bp-step.is-current .bp-step__n,
+.bp-step.is-done .bp-step__n {
+  opacity: 1;
+}
+
+/* ── Las pestañas ───────────────────────────────────────────────────────── */
+
+/*
+ * `.seg button.on` vive en components.css, compartido con Commercial Activity y
+ * Forecast, que están fuera de alcance. Se sobrescribe ACÁ: como bp-visual.css
+ * sólo se carga bajo /business-plan, el alcance del override es exactamente el
+ * módulo. Mismo recurso que se usó en BP17 con `.badge--rose`.
+ */
+/* Transparente: sobre la pista gris del control, la pestana activa es un anillo
+   coral y nada mas. Rellenarla de blanco habria sido otro fondo distinto. */
+.seg button.on {
+  background: transparent;
+  color: var(--coral);
+  box-shadow: inset 0 0 0 2px var(--coral);
+}
+.seg button.on:hover {
+  color: var(--coral);
+}
+
+/* ── La tarjeta del catálogo ────────────────────────────────────────────── */
+
+/*
+ * Ya se marcaba con borde coral, pero además teñía el fondo de rose. Eso
+ * apagaba las píldoras del contenido, que es el mismo problema en chico. Queda
+ * sólo el contorno, más grueso.
+ */
+.bp-catalog__card.is-picked {
+  background: var(--canvas);
+  border: 2px solid var(--coral);
+  box-shadow: var(--shadow-xs);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * BP22 — IMPACTO
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+.bp-impact-windows {
+  font-size: 11.5px;
+  color: var(--slate-500);
+  margin: 6px 0 0;
+  line-height: 1.6;
+  max-width: 78ch;
+}
+
+.bp-impact-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+@media (max-width: 900px) {
+  .bp-impact-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+/* Tarjeta y botón a la vez: elegir una cambia la serie del gráfico de abajo. */
+.bp-impact-card {
+  font-family: inherit;
+  text-align: center;
+  background: var(--canvas);
+  border: 1.5px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+  padding: 14px 12px;
+  cursor: pointer;
+  transition: border-color 0.14s ease, box-shadow 0.14s ease;
+}
+.bp-impact-card:hover {
+  border-color: var(--sky);
+}
+.bp-impact-card:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 2px;
+}
+/* Contorno, no relleno: misma regla que todo lo demás desde BP24. */
+.bp-impact-card.is-picked {
+  border: 2px solid var(--coral);
+}
+.bp-impact-card__label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+  margin-bottom: 8px;
+}
+.bp-impact-card__pair {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.bp-impact-card__before,
+.bp-impact-card__after {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+}
+.bp-impact-card__before {
+  color: var(--slate-400);
+}
+.bp-impact-card__cap {
+  font-family: var(--font-body);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+}
+.bp-impact-card__arrow {
+  color: var(--slate-300);
+  font-size: 15px;
+}
+.bp-impact-card__change {
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+/* Verde si sube, rojo de marca si baja. */
+.bp-impact-card__change.is-up {
+  color: var(--emerald-700);
+}
+.bp-impact-card__change.is-down {
+  color: var(--coral);
+}
+.bp-impact-card__change.is-flat {
+  color: var(--slate-500);
+}
+
+/*
+ * El aviso de "todavía no hay historia". Deliberadamente grande: es la
+ * respuesta principal de la pantalla mientras no haya un mes completo posterior,
+ * no una nota al pie.
+ */
+.bp-impact-notice {
+  border: 1px solid var(--amber-200);
+  border-left: 3px solid var(--amber-500);
+  background: var(--amber-50);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--amber-800);
+  margin-bottom: 18px;
+}
+
+/* ── El gráfico de impacto ──────────────────────────────────────────────── */
+
+.bp-impact-chart__col {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  height: 100%;
+}
+/* La línea del enrolamiento, al borde izquierdo del mes partido. */
+.bp-impact-chart__mark {
+  position: absolute;
+  left: -3px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--coral);
+}
+.bp-impact-chart__bar.is-before {
+  background: var(--slate-300);
+}
+/*
+ * El mes partido va RAYADO y no de un color pleno: un color pleno lo pondría de
+ * un lado de la línea, y no está de ninguno. La trama dice "mitad y mitad" sin
+ * tener que escribirlo en la barra.
+ */
+.bp-impact-chart__bar.is-partial {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--amber-200),
+    var(--amber-200) 4px,
+    var(--amber-50) 4px,
+    var(--amber-50) 8px
+  );
+  border: 1px solid var(--amber-500);
+}
+.bp-impact-chart__bar.is-after {
+  background: var(--navy);
+}
+.bp-impact-chart__bar.is-running {
+  background: var(--accent-soft);
+  border: 1px dashed var(--sky);
+}
+.bp-dot--before {
+  background: var(--slate-300);
+}
+.bp-dot--partial {
+  background: var(--amber-200);
+}
+.bp-dot--after {
+  background: var(--navy);
+}
+.bp-dot--running {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--sky);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * BP23 — REVISIÓN CONJUNTA
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+/* La columna de casillas: lo más angosta posible sin apretar el control. */
+.bp-table--los col.bp-col-pick {
+  width: 34px;
+}
+table.piv td.bp-pick-cell,
+table.piv th.bp-pick-cell {
+  padding-left: 8px;
+  padding-right: 0;
+}
+.bp-pick-cell input {
+  cursor: pointer;
+  accent-color: var(--coral);
+}
+/* Contorno también acá: la fila elegida se marca al costado, sin teñirse. */
+table.piv tr.metric.is-picked td.lbl {
+  box-shadow: inset 3px 0 0 var(--coral);
+}
+
+/*
+ * La barra de acción. `sticky` al pie para que no haya que scrollear hasta el
+ * final de una tabla larga para encontrar el botón después de elegir.
+ */
+.bp-pickbar {
+  position: sticky;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1.5px solid var(--coral);
+  border-radius: var(--radius-lg);
+  background: var(--canvas);
+  box-shadow: var(--shadow-lg);
+  padding: 10px 16px;
+  margin: 14px 0 4px;
+}
+.bp-pickbar__count {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--coral);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.bp-pickbar__names {
+  flex: 1;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--slate-500);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* El aviso de que el veredicto del grupo no dispara nada. */
+.bp-group-note {
+  border: 1px solid var(--sky);
+  border-left: 3px solid var(--navy);
+  background: var(--accent-soft);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--navy);
+  margin-bottom: 18px;
+}
+
+.bp-group-gap {
+  padding: 16px 20px;
+  margin-bottom: 18px;
+}
+.bp-group-gap__row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+@media (max-width: 900px) {
+  .bp-group-gap__row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.bp-group-dedupe {
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--slate-500);
+  border-top: 1px solid var(--slate-100);
+  padding-top: 10px;
+  margin: 14px 0 18px;
+  max-width: 82ch;
+}
+
+/*
+ * Los meses que todavia no ocurrieron. Casi invisibles: se dibuja el hueco para
+ * que el eje del año quede completo, sin que parezcan un desplome.
+ */
+.bp-impact-chart__bar.is-future {
+  background: var(--slate-100);
+}
+.bp-dot--future {
+  background: var(--slate-100);
+  box-shadow: inset 0 0 0 1px var(--slate-300);
+}
+
+/* ===========================================================================
+ * 24. Etapa BP25 — ajustes de presentacion
+ * =========================================================================== */
+
+/*
+ * Aca vivia la anulacion del fondo del glifo dentro de las tablas. Se fue con
+ * la causa: desde BP28 `.bp-glyph` no pinta fondo en ningun lado, asi que no
+ * hay nada que anular. Ver el comentario de `.bp-glyph` en la seccion 22.
+ */
+
+/*
+ * El nombre AL LADO del icono, no debajo.
+ *
+ * La causa era el `width: 100%` del input de edicion en linea: ocupaba la celda
+ * entera y empujaba al icono a su propio renglon.
+ *
+ * ⚠ EL FLEX VA EN UN SPAN, NO EN EL `td`. Poner `display: flex` sobre una celda
+ * la saca del algoritmo de tabla -- deja de ser celda -- y con
+ * `table-layout: fixed`, que es lo que usan estas tablas, se lleva puestos los
+ * anchos de todas las columnas de la fila.
+ */
+.bp-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.bp-name-cell .bp-inline-input {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+/* ── Vista de flujo de los stages ───────────────────────────────────────── */
+
+/*
+ * El conmutador entre lista y flujo. Reusa `.seg`, que es el mismo control
+ * segmentado de las pestanas del modulo -- inventarle otro aspecto a un
+ * selector de dos opciones habria sumado un lenguaje visual sin necesidad.
+ */
+.bp-view-toggle {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
+/*
+ * El flujo: una fila, con scroll, igual criterio que el stepper del preview.
+ * Una secuencia envuelta deja de leerse como secuencia.
+ */
+.bp-flow {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  align-items: stretch;
+  gap: 2px;
+  padding-bottom: 8px;
+}
+.bp-flow__slot {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.bp-flow__card {
+  width: 190px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  background: var(--slate-50);
+  padding: 12px 14px;
+}
+.bp-flow__n {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+.bp-flow__title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--navy);
+  line-height: 1.35;
+}
+/* El responsable AL FRENTE, no escondido en un title: es la pregunta que trae
+   a alguien a esta vista -- quien hace cada paso. */
+.bp-flow__who {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  color: var(--slate-600);
+  margin-top: auto;
+  padding-top: 6px;
+  border-top: 1px solid var(--slate-200);
+}
+.bp-flow__arrow {
+  color: var(--slate-300);
+  padding: 0 5px;
+  font-size: 14px;
+}
+.bp-flow__slot:last-child .bp-flow__arrow {
+  display: none;
+}
+.bp-flow__empty {
+  font-size: 12px;
+  color: var(--slate-400);
+}
+
+/* ===========================================================================
+ * 25. Etapa BP26 — los dias del preview, con encabezado y contexto
+ * =========================================================================== */
+
+/* Mismo lenguaje que la fila de encabezados de la lista de stages del plan. */
+.bp-fdetail__steps-head {
+  border-top: 0;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+  padding-bottom: 2px;
+}
+.bp-fdetail__steps-head span {
+  white-space: nowrap;
+}
+.bp-fdetail__note {
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--slate-500);
+  margin: 10px 0 0;
+  max-width: 76ch;
+}
+
+/* ===========================================================================
+ * 26. Etapa BP27 — el impacto, en la cabecera del plan
+ * =========================================================================== */
+
+/*
+ * Bloque propio al lado del anillo, no un enlace. Mismo tamano y peso que el
+ * anillo para que la cabecera se lea como un resumen de dos partes: cuanto se
+ * hizo, y que resultado dio.
+ */
+/* El anillo y el bloque de impacto, uno al lado del otro. */
+.bp-plan-head__summary {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.bp-impact-cta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  text-decoration: none;
+  border: 1.5px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  background: var(--canvas);
+  box-shadow: var(--shadow-xs);
+  padding: 12px 18px;
+  min-width: 150px;
+  transition: border-color 0.14s ease, box-shadow 0.14s ease;
+}
+.bp-impact-cta:hover {
+  border-color: var(--coral);
+  box-shadow: var(--shadow-lg);
+}
+.bp-impact-cta:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 2px;
+}
+.bp-impact-cta__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--slate-500);
+}
+.bp-impact-cta__value {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+}
+.bp-impact-cta__value.is-up {
+  color: var(--emerald-700);
+}
+.bp-impact-cta__value.is-down {
+  color: var(--coral);
+}
+/* Sin dato todavia: el texto no puede tener el tamano de un numero, porque no
+   lo es. Se muestra igual -- el boton tiene que estar aunque no haya cifra. */
+.bp-impact-cta__value.is-none {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--slate-400);
+}
+.bp-impact-cta__hint {
+  font-size: 10px;
+  color: var(--slate-400);
+  text-align: center;
+}
+
+/* ===========================================================================
+ * 27. Etapa BP28 — las tarjetas del Sequence builder, con mas presencia
+ * ===========================================================================
+ *
+ * Se veian chicas y apagadas al lado de las del catalogo. No se inventa un
+ * lenguaje nuevo: se les da el mismo tamano de fuente, el mismo radio y la
+ * misma sombra que ya usa `.bp-catalog__card`, con los mismos tokens.
+ */
+
+.bp-builder__card {
+  min-width: 196px;
+  background: var(--canvas);
+  border: 1.5px solid var(--slate-200);
+  box-shadow: var(--shadow-xs);
+  padding: 16px 18px 12px;
+  transition: border-color 0.14s ease, box-shadow 0.14s ease;
+}
+.bp-builder__card:hover {
+  box-shadow: var(--shadow-lg);
+}
+/* Seleccion por CONTORNO, como en el resto del modulo desde BP24: el fondo es
+   el mismo este o no elegida. */
+.bp-builder__card.is-selected {
+  background: var(--canvas);
+  border: 2px solid var(--coral);
+}
+
+/* ── Jerarquia: el nombre manda ── */
+
+.bp-builder__day {
+  font-size: 9.5px;
+  color: var(--slate-400);
+}
+.bp-builder__card-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  line-height: 1.2;
+  margin: 6px 0 4px;
+}
+.bp-builder__card-sub {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+}
+
+/*
+ * Subir, bajar y quitar: mas discretos. Compiten con el contenido porque estan
+ * siempre a la vista, y son la accion secundaria -- lo primero que hace alguien
+ * en esta pantalla es leer la secuencia, no reordenarla. Se aclaran al pasar
+ * por la tarjeta, que es cuando efectivamente se los va a usar.
+ */
+.bp-builder__reorder {
+  margin-top: 10px;
+  opacity: 0.45;
+  transition: opacity 0.14s ease;
+}
+.bp-builder__card:hover .bp-builder__reorder,
+.bp-builder__card:focus-within .bp-builder__reorder {
+  opacity: 1;
+}
+.bp-builder__reorder button {
+  border-color: var(--slate-200);
+  color: var(--slate-500);
+}
+
+/* ===========================================================================
+ * 28. Etapa BP29 — Progress to date, y las barras en tonos suaves
+ * =========================================================================== */
+
+/*
+ * Cada tarjeta de Future performance tiene ahora DOS bloques. El de arriba,
+ * Progress to date, es el que decide; el de abajo, Month to date, quedo como
+ * visibilidad. El orden y el peso visual dicen eso sin tener que escribirlo.
+ */
+.bp-q2-card {
+  align-items: stretch;
+  text-align: left;
+  gap: 10px;
+}
+/* El nombre sigue centrado: es el titulo de la tarjeta, no parte de un bloque. */
+.bp-q2-card__name {
+  text-align: center;
+}
+
+.bp-q2-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+/* Month to date, subordinado: mismo contenido, menos peso. */
+.bp-q2-block--muted {
+  border-top: 1px solid var(--slate-100);
+  padding-top: 9px;
+}
+.bp-q2-block--muted .bp-q2-card__count {
+  font-size: 14px;
+  color: var(--slate-500);
+}
+.bp-q2-block__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.bp-q2-block__title {
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+}
+.bp-q2-block__note {
+  font-size: 10px;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+/* La cuenta escrita: sin ella "9,3 esperado" es un numero caido del cielo. */
+.bp-q2-block__math {
+  font-size: 9.5px;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+.bp-q2-card__req {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--slate-400);
+}
+
+/* ── Las tres bandas ────────────────────────────────────────────────────── */
+
+/*
+ * ⚠ TONOS SUAVES DE LAS ESCALAS QUE YA EXISTEN. El verde y el rojo anteriores
+ * eran `--emerald-700` y `--coral` a fondo pleno, y en una barra de 8px de alto
+ * repetida tres veces gritaban mas que los numeros. Se usan los pasos 200/500
+ * de emerald, amber y rose, que son los mismos que ya visten las pildoras de
+ * estado. Ningun color nuevo, cero hexadecimales.
+ */
+.bp-q2-block__band {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+  padding: 1px 7px;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+.bp-q2-block__band--on_track {
+  background: var(--emerald-50);
+  color: var(--emerald-800);
+  border: 1px solid var(--emerald-200);
+}
+.bp-q2-block__band--watch {
+  background: var(--amber-50);
+  color: var(--amber-800);
+  border: 1px solid var(--amber-200);
+}
+.bp-q2-block__band--at_risk {
+  background: var(--rose-50);
+  color: var(--rose-700);
+  border: 1px solid var(--rose-200);
+}
+
+.bp-q2-bar__fill--on_track {
+  background: var(--emerald-200);
+}
+.bp-q2-bar__fill--watch {
+  background: var(--amber-200);
+}
+.bp-q2-bar__fill--at_risk {
+  background: var(--rose-200);
+}
+/* La de Month to date, todavia mas apagada: acompana, no decide. */
+.bp-q2-bar--muted {
+  height: 5px;
+}
+.bp-q2-bar__fill--muted {
+  background: var(--slate-300);
+}
+
+/*
+ * El borde de la tarjeta toma la banda. Es la unica senal que se ve sin leer,
+ * y por eso va en el borde y no en el fondo: tenir el fondo apagaria las dos
+ * barras y las dos pildoras que viven adentro -- el mismo error que costo
+ * cuatro rondas con el icono.
+ */
+.bp-q2-card.is-on_track {
+  border-color: var(--emerald-200);
+}
+.bp-q2-card.is-watch {
+  border-color: var(--amber-200);
+}
+.bp-q2-card.is-at_risk {
+  border-color: var(--rose-200);
+}
+
+/* ===========================================================================
+ * 29. Etapa BP31 — la revision conjunta usa los componentes del perfil
+ * =========================================================================== */
+
+/*
+ * El desglose de la suma del benchmark, en el lugar donde el perfil pone su
+ * editor. Chico y en gris: el numero que importa es la suma, esto explica de
+ * donde sale.
+ */
+.bp-group-sum {
+  font-family: var(--font-body);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}

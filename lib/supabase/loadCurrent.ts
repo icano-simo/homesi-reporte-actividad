@@ -13,6 +13,11 @@ interface LoanRecordRow {
   app_date_month: string | null;
   closing_month: string | null;
   total_loan_amount: number | string | null;
+  /* Etapa BP9/BP11: nullable porque los lotes cargados antes no las tienen. */
+  loan_number: string | null;
+  loan_program: string | null;
+  loan_folder_name: string | null;
+  affinity: string | null;
 }
 
 export interface CurrentReport {
@@ -56,7 +61,7 @@ export async function loadCurrentReport(): Promise<CurrentReport | null> {
     const { data: page, error: pageError } = await supabase
       .from('loan_records')
       .select(
-        'branch, loan_officer, bd, is_b2b, file_creation_month, credit_report_month, app_date_month, closing_month, total_loan_amount'
+        'branch, loan_officer, bd, is_b2b, file_creation_month, credit_report_month, app_date_month, closing_month, total_loan_amount, loan_number, loan_program, loan_folder_name, affinity'
       )
       .eq('upload_batch_id', batch.id)
       .range(from, from + PAGE_SIZE - 1);
@@ -86,16 +91,15 @@ export async function loadCurrentReport(): Promise<CurrentReport | null> {
     // numeric/decimal en Postgres puede volver como string vía PostgREST;
     // Number(...) lo normaliza sin asumir cuál es el caso.
     totalLoanAmount: Number(row.total_loan_amount) || 0,
-    // Mismo caso que loanInfoChannel arriba: loan_records tampoco tiene
-    // columnas para loan_number/loan_program/loan_folder_name/affinity
-    // todavía (campos nuevos en LoanRecord, ver classifyLoan.ts) -- quedan
-    // en '' al restaurar un batch guardado antes de este cambio. El modal de
-    // detalle de préstamo que use loanNumber como id no debe confiar en un
-    // reporte restaurado desde Supabase hasta que se agregue la columna.
-    loanNumber: '',
-    loanProgram: '',
-    loanFolderName: '',
-    affinity: '',
+    /*
+     * Etapa BP9/BP11: estas cuatro YA se persisten (ver saveUpload.ts). El
+     * `?? ''` cubre las filas cargadas ANTES de ese cambio, que las tienen en
+     * NULL -- no es un placeholder, es compatibilidad con los lotes viejos.
+     */
+    loanNumber: row.loan_number ?? '',
+    loanProgram: row.loan_program ?? '',
+    loanFolderName: row.loan_folder_name ?? '',
+    affinity: row.affinity ?? '',
   }));
 
   return {

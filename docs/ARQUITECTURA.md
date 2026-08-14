@@ -1449,7 +1449,1122 @@ confirmado también con una fila sintética de 3 dígitos ("123"): comparte el m
 que el resto. Los números de la columna quedan en línea recta por su borde derecho, el criterio
 pedido.
 
+---
+
+## Etapa BP1 — Módulo Business Plan OS (esqueleto navegable)
+
+Tercer módulo: **Branch Portfolio → Branch → Loan Officer**. Esta etapa construye la navegación y
+la resolución de identidades. El motor de triage **no** está implementado, a propósito.
+
+### El problema real que resuelve: la misma persona con tres nombres
+
+Cada fuente llama distinto a la misma persona, y `org.employee_alias` es la única autoridad:
+
+| roster (canónico) | salesforce (Forecast) | slquery (Commercial Activity) |
+|---|---|---|
+| Ana Zegarra (Peña) | Ana Milena Zegarra | ANA ZEGARRA |
+| Gian Laino | Giancarlo Laino | GIAN LAINO |
+| July Castro | Julymar Castro | JULYMAR MAR CASTRO |
+
+**Nunca se comparan nombres con `===` ni con heurísticas de similitud.** No es una regla teórica:
+en los datos conviven **Juseth Castro** y **July Castro**, dos personas distintas que cualquier
+"fuzzy match" fundiría en una. La tabla las mantiene separadas porque alguien lo decidió a mano;
+verificado que sus métricas no se mezclan (July: avg 0.67 / 3 abiertos; Juseth: avg 1.33 / 14
+funded).
+
+`lib/business-plan/aliasIndex.ts` hace búsqueda por clave exacta contra esa tabla. La única
+normalización que aplica (trim + mayúsculas) absorbe espaciado y capitalización entre el parser y
+el alias cargado — **no** decide identidad. Si llegara a colapsar dos alias que apuntan a personas
+distintas, el índice lo detecta y lo reporta en vez de elegir uno en silencio.
+
+### Casos del roster que el código soporta explícitamente
+
+- **Un branch con dos Branch Managers**: el 716 tiene Pier Laino + Nelson Calderón. Nunca se
+  asume uno solo.
+- **BM de varios branches y sin ser LO**: Pier Laino es BM de 710 y 716 y no aparece en ningún
+  directorio de LOs — los LOs salen de `employee_branch` con `role_in_branch='LO'`, y él no tiene
+  ninguna fila con ese rol.
+- **Producing BM**: aparece en las dos listas, y es correcto.
+- **LOs sin producción**: Rene Perez Jr (733), Sandro Villavicencio (760) y Shon Lamberty (724)
+  aparecen con ceros. Sólo tienen alias `roster`, así que ninguna fuente les atribuye nada.
+
+### Navegación: páginas, cero modales
+
+Tres rutas reales, con breadcrumb de `<Link>`s funcionales:
+
+```
+/business-plan                      Branch Portfolio
+/business-plan/branch/[code]        Branch Portfolio > 703 (Ana Zegarra (Peña))
+/business-plan/lo/[employeeKey]     Branch Portfolio > 703 > Matthew Gomez Bruckner
+```
+
+`branch_code` **no siempre es numérico**: hay `Affinity` y `Branch Out of Division` (con
+espacios). Se codifica y decodifica; las tres variantes responden 200.
+
+**`isActive` del header** pasó de `pathname === tab.href` a comparación por sub-camino. No se
+podía usar `startsWith` a secas: `/` es prefijo de todo y habría dejado Commercial Activity activo
+en cualquier ruta. La raíz se compara exacta; el resto contra `href + '/'`, así un futuro
+`/pipeline-x` no enciende el tab de `/pipeline`.
+
+### Supuesto que hay que confirmar
+
+**La ventana del promedio de cierres.** El brief pide "últimos 3 meses" sin decir si el mes en
+curso entra. Se **excluye**: se usan los 3 meses calendario completos anteriores. Incluirlo haría
+que el mismo LO pareciera peor evaluado un día 3 que un día 28, y ese promedio alimenta el GAP. La
+ventana usada se muestra en el pie de cada pantalla.
+
+### Lo que NO se decidió
+
+`lib/business-plan/triage.ts` no implementa ninguna fórmula, y explica por qué: la banda del GAP
+fraccionario no está definida, la condición de qualifiers es redundante como está escrita (falta
+saber si era **O**), los multiplicadores no existen y el ejemplo del negocio se contradice.
+
+Hoy **todos** los LOs son `not_evaluable`, y es correcto: `org.employee_benchmark` todavía no
+existe. Sin benchmark no hay nada que comparar — **no hay default a 2.0**.
+
+### Benchmark
+
+`docs/sql/2026-08-org-employee-benchmark.sql`, **entregado sin ejecutar**. Versionado por
+`(employee_key, effective_from)` para poder responder con qué número se evaluó a alguien en el
+pasado. La app tolera que la tabla no exista: lo detecta y lo dice en el pie de pantalla.
+
+### Hallazgos de datos para quien mantiene `org`
+
+- **21 nombres de `salesforce` sin alias ni exclusión.** `source_name_excluded` tiene 35 de
+  slquery y sólo 1 de salesforce. Entre los no mapeados hay LOs del roster (Aileen Perez, Claudia
+  Velasco, Jose Zamora, Isabel Wagner, Ludwig Aguillon, Sergio Vermejo) y "Adriana Szczech", que
+  sí está mapeada del lado slquery. La app los ignora sin romperse y los lista en el pie.
+- **210 filas con loan officer vacío** (`'(blank)'`, centinela de nuestro propio parser). Se
+  cuentan aparte para no enterrar los nombres que sí hay que clasificar.
+- **`Affinity` no tiene LOs ni BM** en el roster, aunque es branch de división.
+
+### Alcance respetado
+
+No se tocó `app/page.tsx`, `app/pipeline/**`, `lib/pipeline/**`, `lib/aggregation/**`,
+`lib/domain/**`, `lib/parsing/**`, `components/report/**`, `app/styles/components.css`, `proxy.ts`
+ni `lib/auth/**`. El CSS del módulo vive en `app/business-plan/styles/bp-visual.css`, importado
+sólo desde sus páginas.
+
+De `app/styles/tokens.css` sólo se **completó la escala ámbar**: ya existían `--amber-50` y
+`--amber-700` (de UX1, para el chip "Transferred"); se agregaron 100/200/500/800 para el estado
+intermedio de triage, sin tocar los dos que ya estaban en uso.
+
+---
+
 - **CL / SL** en nombres de archivo = residuo histórico de cuando existían dos empresas (City Lending / Supreme Lending); hoy solo existe Supreme Lending, no hay distinción de marca activa.
 - **Healthy / Delayed / Out of Scope / Never / Adverse** — estados de un préstamo en pipeline. Adverse = terminal (rechazado). Never = provisional, "ya sabemos que no va a cerrar pero Encompash no lo refleja aún" — se trata igual que Adverse para el forecast.
 - **Loan Folder** ≠ milestone — es una carpeta operativa (Current Prospects, My Pipeline, Underwriting, Brokered, Funded, Adverse Loans), no la secuencia de avance del préstamo.
 - **Org_ID vs True OrgID** — el campo `Branch` que ya usamos en el parser **es** el True OrgID (confirmado por Isabella); no hace falta distinguir los dos.
+
+---
+
+## Business Plan OS — deuda explícita y decisiones abiertas (etapa BP5)
+
+### 1. Las tasas de pull-through están duplicadas, a propósito y por ahora
+
+`business_plan.settings` es la tabla de tasas del módulo, editable desde
+**Business Plan → Settings**. Pero **sólo Business Plan la lee**.
+Forecast & Pipeline sigue con sus constantes en `app/pipeline/page.tsx`
+(`PULL_THROUGH_RATES` y `BROKERED_FLAT_PULL_THROUGH_RATE`).
+
+Consecuencia práctica: **editar una tasa marcada como "shared" en Settings
+cambia lo que ve Business Plan y no cambia Forecast.** La pantalla de Settings
+lo dice en un aviso permanente, porque si no, alguien que edite
+"Milestone Processing" y no vea moverse el forecast va a reportarlo como bug.
+
+Es deuda deliberada: `app/pipeline/**` quedó fuera del alcance de BP5 y había
+otras ramas trabajando ahí. **Que Forecast consuma la tabla es una etapa
+aparte**, y cuando pase hay que sacar el aviso de Settings y esta nota.
+
+Ojo con una confusión fácil al hacerlo: las tasas de `app/pipeline` son **por
+paso** (de un milestone al siguiente) y las de `business_plan.settings` son
+**acumuladas** (de un milestone hasta el cierre). Salen unas de otras:
+
+    Started       0.8923 × 0.93 × 0.8459 × 0.95 = 0.6668  ->  66.7 %
+    Processing             0.93 × 0.8459 × 0.95 = 0.7473  ->  74.7 %
+    Underwriting                  0.8459 × 0.95 = 0.8036  ->  80.4 %
+    Closing                                0.95 = 0.9500  ->  95.0 %
+
+No son intercambiables. Para proyectar cuántos préstamos abiertos de una
+persona van a cerrar, la que sirve es la acumulada.
+
+### 2. La suma por Loan Officer no cuadra con el forecast por branch
+
+**No es un bug.** Son dos atribuciones distintas de los mismos préstamos:
+
+- Forecast atribuye por el branch **del préstamo** (`pipeline_loans.branch`).
+- Business Plan atribuye por **persona**, y hay gente con producción repartida
+  en varios branches (Gian Laino tiene préstamos en 747, 716, 710 y 707).
+
+Además la proyección de una persona es un **pronóstico, no un conteo**: puede
+dar 2,4 y está bien. No se redondea ni se reparte proporcionalmente para que
+cierre — redondear inventaría precisión y el reparto proporcional inventaría
+una atribución que el negocio no pidió.
+
+Está comentado en `lib/business-plan/loadData.ts`, arriba de todo.
+
+### 3. El "actual" del Qualifier 2 es el mes en curso — supuesto a confirmar
+
+El requerido de cada métrica sale de un benchmark **mensual**
+(`ceil(benchmark / tasa)`), así que se compara contra el **mes en curso**.
+
+Consecuencia conocida: a principio de mes casi nadie llega al requerido, porque
+se compara un mes incompleto contra un objetivo de mes entero. Por eso la
+pantalla muestra siempre, al lado, el promedio de los 3 meses cerrados.
+
+Si el negocio prefiere evaluar sobre ese promedio en vez del mes en curso, se
+cambia el argumento en `loadData.ts` (la llamada a `evaluateQualifier2`) y nada
+más: el motor ya recibe los dos.
+
+### 4. Los números de referencia: resuelto en BP6
+
+En BP5 los seis promedios de referencia no se reproducían. La causa fue doble y
+quedó cerrada:
+
+- **Del lado del negocio**: la tabla esperada se había calculado contra el
+  snapshot 28 y el activo era el 31 (hubo tres cargas el 13/8).
+- **Del lado del código**: tres decisiones que el brief no explicitaba y que yo
+  había resuelto de otra manera.
+
+Las tres quedaron fijadas así, y con ellas el motor coincide **6/6**:
+
+1. **Sólo entran los préstamos que cierran ESTE mes.** Un healthy con cierre
+   estimado en septiembre no aporta a la proyección de agosto. Antes entraban
+   todos los healthy, lo que adelantaba producción de meses siguientes.
+
+2. **Brokered usa la misma cascada que Banked.** La tasa plana del 40% sigue en
+   `business_plan.settings` porque pertenece al modelo de Forecast, pero **no se
+   aplica** en la proyección del Loan Officer.
+
+   ⚠ Vale la pena revisarlo con el negocio: para alguien con pipeline
+   mayormente Brokered la diferencia casi duplica la proyección (Haydee
+   Tito-Pace aporta 2,24 con cascada contra 1,20 con la plana). Hoy no cambia
+   ningún veredicto, pero es una decisión de modelo, no de implementación.
+
+3. **`cerradosALaFecha` sale de `pipeline_forecast.pipeline_resolved_loans`**
+   (funded con disbursement en el mes), **no** de Commercial Activity.
+
+   La proyección del mes es "lo que ya cerró + lo que sigue abierto", y las dos
+   mitades tienen que venir del mismo sistema: cuando un préstamo cierra sale de
+   `pipeline_loans` y entra en `pipeline_resolved_loans` en el mismo snapshot,
+   mientras que Commercial Activity se carga aparte y puede ir atrasada. Con
+   activity_report, un préstamo ya fundeado que el SLQuery todavía no trajo
+   desaparece de las dos mitades. Pasa hoy: Gian Laino tiene 3 cerrados en
+   agosto según el pipeline y 2 según Commercial Activity.
+
+   **Contrapartida**: las barras de los meses anteriores del gráfico sí salen de
+   Commercial Activity, que es la única fuente con la serie mensual completa. La
+   barra del mes en curso y las demás no vienen del mismo lado. Es aceptable
+   porque una es pronóstico y las otras hechos cerrados, pero si algún día los
+   totales no cuadran mirando hacia atrás, la explicación está acá.
+
+### 5. Fuera de alcance
+
+El catálogo de funnels, la biblioteca de nodos y el portal del plan activo.
+`/business-plan/lo/[key]/funnel` existe como placeholder honesto para que el
+botón "Choose a funnel" no lleve a un 404.
+
+### 6. Detalle de préstamos: qué campos hay según la fuente (etapa BP9)
+
+Los modales de detalle del perfil leen de dos fuentes que **no tienen los
+mismos campos**, y eso se nota en pantalla:
+
+| | número | prestatario | monto | programa / folder | milestone |
+|---|---|---|---|---|---|
+| `pipeline_forecast.pipeline_loans` | sí | sí | sí | no | sí |
+| `pipeline_forecast.pipeline_resolved_loans` | sí | sí | sí | folder sí | — |
+| `activity_report.loan_records` | sí (desde BP11) | **no** | sí | sí (desde BP9) | no |
+
+Por eso el modal de una barra de un mes pasado muestra menos columnas que el de
+una tarjeta del pipeline: sale de Commercial Activity, y **ese archivo no trae
+el nombre del prestatario**. No es un olvido de la implementación; el dato no
+existe en el origen.
+
+**Corrección de BP11**: en el reporte de BP9 se dijo que Commercial Activity
+tampoco traía el número de préstamo. Era incorrecto — `loan_number` está en
+`REQUIRED_COLUMNS`, así que el archivo lo trae siempre y el parser lo leía. Lo
+que faltaba era persistirlo, igual que folder y programa; se agregó en BP11.
+
+`pipeline_loans` tampoco trae el programa del préstamo, así que los modales del
+pipeline muestran el canal en su lugar.
+
+### 7. Las tres columnas de Commercial Activity, ahora persistidas
+
+`loan_number`, `loan_program`, `loan_folder_name` y `affinity` ya las leía el
+parser (la primera en `REQUIRED_COLUMNS`, las otras tres en `OPTIONAL_COLUMNS`)
+pero no se guardaban: vivían en memoria y se perdían al
+recargar. En BP9 se agregaron al insert de `lib/supabase/saveUpload.ts` y al
+select de `lib/supabase/loadCurrent.ts`.
+
+⚠ **Las filas cargadas antes de ese cambio las tienen en NULL.** El desglose por
+folder de las Applications sólo tiene datos completos **desde la próxima carga
+de Commercial Activity**; hasta entonces el modal lo dice explícitamente en vez
+de mostrar un desglose vacío que se confunda con un cero.
+
+Esos dos archivos son de Commercial Activity y estaban fuera del alcance del
+módulo: fue una excepción acotada a agregar columnas al insert y al select, sin
+tocar nada más.
+
+### 8. Los modales deciden sus columnas con los datos (etapa BP11)
+
+Las tablas de detalle que salen de Commercial Activity **no tienen un juego fijo
+de columnas**: cada una se dibuja sólo si al menos una fila la tiene con dato.
+
+El motivo es que hoy `loan_number`, `loan_program`, `loan_folder_name` y
+`affinity` están en NULL en las 4.590 filas del lote activo — se guardaron antes
+de que se persistieran. Con columnas fijas, cuatro de las cinco salían llenas de
+guiones, y el lector no podía distinguir "este préstamo no tiene programa" de
+"todavía no guardamos el programa".
+
+Cuando una columna falta por eso, el modal lo dice en una línea en vez de
+mostrarla vacía. Hoy los modales de actividad muestran **monto y canal**; las
+otras aparecen desde la próxima carga del archivo.
+
+### 9. Funnels: plantilla vs instancia (etapa BP12)
+
+El módulo tiene **dos mitades que no se tocan**:
+
+| | tablas | se edita | quién la ve |
+|---|---|---|---|
+| **Plantilla** | `funnel` · `node` · `funnel_node` · `node_milestone` · `node_owner` | libremente, con DELETE | la biblioteca |
+| **Instancia** | `enrollment` · `enrollment_node` · `enrollment_milestone` | por persona | el portal del plan |
+
+**Al enrolarse, el plan se COPIA.** Si apuntara a la plantilla, editar un funnel
+en la biblioteca cambiaría retroactivamente el plan de todos los enrolados:
+alguien con 11 de 19 milestones hechos pasaría de golpe a otro plan y su
+progreso dejaría de significar nada. Es el mismo principio que ya rige el
+histórico de forecast — lo que pasó no se recalcula cuando cambian las reglas.
+
+Eso es también lo que permite **editar el plan de una persona sin afectar a
+nadie más**, y por eso no hace falta una plantilla por cada variación: si cada
+personalización fuera una plantilla nueva, en un año habría cuarenta funnels
+casi idénticos y nadie sabría cuál usar.
+
+**Lo que NO se guarda, a propósito:**
+
+- Los **rangos de días** de cada nodo (`DAY 1-5`) se calculan de los SLA y de la
+  posición. Guardados, reordenar la secuencia dejaría todas las fechas
+  mintiendo.
+- Los **conteos** de la tarjeta del catálogo (`N NODES`, `N SUB-MILESTONES`) se
+  cuentan de las filas.
+- El **equipo de soporte** de una tarjeta se deriva de los responsables de sus
+  nodos y milestones. Guardado, seguiría mostrando a quien ya no participa.
+
+**Lo que sí se copia al activar**: el nombre del funnel y las fechas límite
+resueltas. Las dos son fotos del momento de la activación.
+
+### 10. El constructor de secuencia no es un lienzo
+
+La interacción es sobre una **lista ordenada**: arrastrar desde la biblioteca
+agrega, arrastrar dentro reordena. No hay coordenadas, ni zoom, ni posiciones
+libres.
+
+Un lienzo tiene sentido cuando el flujo se ramifica. Estos funnels son lineales
+—cinco nodos en fila— y un lienzo agregaría estado (x/y por nodo), migración y
+complejidad sin cambiar nada de lo que el usuario puede expresar. Si más
+adelante hacen falta bifurcaciones, se extiende sobre esto.
+
+Por eso **no hay botones de zoom**, aunque el mockup los muestre: sin un lienzo
+real no hay nada que acercar, y un zoom que sólo escala el texto promete una
+manipulación espacial que no existe. En su lugar va la duración total calculada,
+que es la pregunta que alguien se hace mirando esa pantalla.
+
+El drag and drop usa la **API nativa de HTML5**, sin librerías. Como esa API no
+es accesible por teclado, cada tarjeta lleva además botones de mover
+arriba/abajo — sin eso, reordenar sería imposible sin mouse.
+
+### 11. Activación: un funnel sin milestones no se puede activar (BP13)
+
+Quedó un enrolamiento con 5 nodos copiados y **cero milestones**, guardado como
+activo y sin advertencia: la persona tenía un plan que no le pedía hacer nada y
+un anillo de progreso en 0 de 0. Hubo que borrarlo a mano.
+
+`checkActivation()` valida **antes de escribir nada** que el funnel tenga al
+menos un nodo y al menos un milestone. Se aplica en dos lugares: la tarjeta del
+catálogo sale deshabilitada con el motivo, y la función de activar revalida —
+entre que la pantalla cargó y alguien hizo clic, otro pudo haber vaciado el
+funnel desde la biblioteca.
+
+### 12. El borrado en cascada no evalúa RLS del hijo
+
+Corrección del revisor sobre el SQL de BP12, y vale la pena entenderla porque
+es un agujero fácil de repetir: la política que impedía borrar un
+`enrollment_milestone` en `done` **sólo cubría el DELETE directo**. Borrar el
+`enrollment_node` padre arrastraba sus milestones completados por cascada, sin
+que la política del hijo se evaluara.
+
+Ahora las políticas de borrado de `enrollment` y `enrollment_node` también
+comprueban que no haya ningún milestone en `done`. Verificado contra la base:
+las dos devuelven 0 filas cuando lo hay.
+
+**Consecuencia para el código**: no se puede asumir que un nodo del plan siempre
+se puede borrar. Con pasos ya completados falla, y eso es lo correcto.
+
+Los grants quedaron además explícitos por tabla en vez de
+`all tables in schema`: `settings` no acepta insert ni delete, e `intervention`
+no acepta delete.
+
+### 13. Editar el plan de una persona (etapa BP14)
+
+El plan es una copia, así que agregar, quitar o reordenar nodos y milestones
+toca **sólo** a esa persona. Es lo que reemplaza la idea de crear una plantilla
+por cada variación.
+
+**El SLA se copia a la instancia.** `enrollment_milestone.sla_days` es nuevo. Sin
+él no se pueden recalcular las fechas al reordenar: `sla_days` vivía sólo en la
+plantilla, y el plan está deliberadamente desconectado de ella. Se evaluó
+derivarlo restando la fecha de activación a la `due_date`, pero eso funciona
+sólo la primera vez — después del primer reordenamiento las fechas ya no
+reflejan el orden original y el cálculo se desalinea sin avisar.
+
+**Al reordenar se recalculan las fechas**, con la misma fórmula de la
+activación pero sobre el orden nuevo. **Los milestones en `done` conservan la
+suya**: decir que un paso completado el 3 de septiembre "vence" el 20 de agosto
+porque alguien reordenó después sería reescribir el pasado. Y la base los
+rechazaría igual, porque una fila en `done` es invisible para UPDATE.
+
+**La activación es todo-o-nada.** PostgREST no da transacciones entre llamadas,
+así que si el insert de los milestones falla después del de la cabecera queda un
+enrolamiento con nodos y cero milestones — el estado roto que motivó
+`checkActivation`. Pasó de verdad al probar: la columna `sla_days` no estaba
+aplicada, el insert devolvió 400 y el enrolamiento quedó vivo. Ahora cada paso
+deshace lo anterior si falla.
+
+No es una transacción real: si se corta la red en medio del rollback puede
+quedar residuo. Cubre el caso que ocurre de verdad, que es un rechazo de la base.
+
+### 14. Explorar no es elegir (etapa BP15)
+
+Hasta BP14 el clic en una tarjeta del catálogo la **seleccionaba**, y la tarjeta
+sólo mostraba los nombres de los nodos. Nadie puede decidir entre dos funnels
+sin saber qué le van a pedir, así que la única forma de enterarse era activar
+uno — un compromiso de ocho semanas.
+
+Ahora son dos actos: el clic **abre** el detalle (nodos, pasos, responsables y
+día de vencimiento dentro del nodo) y elegir tiene su propio botón dentro.
+
+Va en un modal y **no en una página**: se exploran varios seguidos para
+compararlos, y una página obligaría a volver atrás entre uno y otro perdiendo
+la lista.
+
+### 15. Nunca "Choose a funnel" a quien ya tiene plan
+
+`enrollment` tiene un índice único parcial sobre `employee_key where status =
+'active'`, así que ofrecer elegir otro funnel llevaría derecho a un 409.
+Verificado: intentar un segundo enrolamiento devuelve
+`duplicate key value violates unique constraint "enrollment_one_active_idx"`.
+
+Con plan activo, la barra de decisión muestra el resumen y **See progress**.
+Cambiar de funnel sería cerrar el actual y activar otro — una acción distinta,
+todavía no pedida.
+
+El resumen del plan (`LoanOfficerRow.activePlan`) viaja con cada Loan Officer
+desde `loadData`, así que el perfil, el directorio del branch y el portfolio lo
+muestran sin una consulta por persona.
+
+## Etapas BP20 y BP21 — BP Team, notas, fechas editables y el icono que no se dibujaba
+
+### El bug del icono: estaba guardado y no había quién lo pintara
+
+Se buscó en la lectura y en el guardado, y los dos estaban bien: los seis
+funnels tienen `icon` cargado en la base (`message`, `building`, `grid`,
+`target`, `building`, `users`) y `useFunnelLibrary` los trae con `select('*')`.
+
+El problema era otro: `iconByName` vivía dentro de `library/IconPicker.tsx` y
+**ninguna pantalla la importaba nunca**. Un grep del proyecto la encontraba en
+un solo archivo, el mismo donde estaba definida. Se elegía el icono, se
+guardaba, y después no había una sola línea que lo dibujara.
+
+El arreglo es la mudanza: el registro pasó a
+`app/business-plan/components/funnelIcons.tsx`, con un componente `FunnelGlyph`
+que resuelve el caso de "sin icono" devolviendo `null` en vez de un cuadrado
+vacío. El selector quedó como consumidor del registro, no como su dueño.
+
+Se dibuja en las cinco pantallas: tarjeta del catálogo, modal de preview, banner
+del plan activo en el perfil, portal del plan y las dos tablas de la biblioteca.
+
+El enrolamiento **no copia el icono**, a diferencia del nombre. Es deliberado y
+la asimetría tiene motivo: el nombre identifica con qué se activó el plan y por
+eso es una foto; el icono es decoración de la estrategia, así que sigue al
+funnel actual. `ActivePlanSummary.funnelIcon` y `ActivePlan.funnel_icon` lo leen
+en vivo de la plantilla.
+
+### Dos niveles de responsabilidad, y por qué uno no estaba
+
+La tarjeta del nodo mostraba avatares arriba a la derecha sin rótulo, y cada
+paso mostraba otro responsable en su fila. Parecían lo mismo mal sincronizado.
+Son dos cosas distintas:
+
+- **Responsable del nodo** — responde por que la etapa avance. Puede ser más de
+  uno.
+- **Responsable del paso** — ejecuta ese paso y es el único que puede darlo por
+  hecho.
+
+Peor: los avatares del nodo salían de los responsables de sus pasos, lo cual era
+directamente falso. En Cold Calling el nodo lo llevan Juanjo Cabrera e Isabella
+Cano, y los seis pasos se reparten entre los dos.
+
+`enrollment_node` no copia los responsables del nodo, así que se resuelven en
+vivo contra `node_owner` de la plantilla vía `source_node_key`. También
+deliberado: quién responde por una etapa es un hecho de organización actual, no
+una foto del día del enrolamiento. Si alguien deja de llevar una etapa, deja de
+llevarla también en los planes en curso.
+
+### Estado y fecha editables, sin aflojar la regla
+
+El botón redondo de "marcar hecho" pasó a ser un desplegable de tres estados y
+la fecha pasó a ser un `<input type="date">`. Las dos reglas de siempre siguen
+en pie, y ahora viven en una función pura, `allowedStatuses`:
+
+- **Sólo el responsable puede llevar un paso a Done.** Lo respalda la app y nada
+  más: `done` no lleva restricción de autor en la base.
+- **Un paso hecho no se reabre.** Esto sí lo respalda la base, con el `using
+  (status <> 'done')` de la policy de UPDATE, que hace la fila invisible.
+
+Lo nuevo es el estado intermedio. `in_progress` es planificación, no un hecho:
+cualquiera del equipo lo mueve, igual que reprograma una fecha. Restringirlo al
+responsable no protegería nada.
+
+Verificado contra la base con una sesión `authenticated` real: `PATCH` de
+`due_date` y de `status` devuelven 200, se releen cambiados y se restauraron al
+valor original. **No se creó ningún paso en `done`**: esa transición es
+irreversible desde la app por diseño, así que probarla habría dejado residuo
+imborrable en un plan de producción.
+
+### Notas: una FK por destino, no una tabla polimórfica
+
+`docs/sql/2026-08-business-plan-note.sql`, **sin ejecutar**. Cuatro columnas FK
+nulables — `funnel_key`, `enrollment_node_key`, `enrollment_milestone_key`,
+`employee_key` — y un check de que exactamente una esté puesta.
+
+El atajo habitual (`entity_type` + `entity_id`) se descartó porque `entity_id`
+no puede tener FK: la base dejaría de saber si el objeto al que apunta una nota
+existe, no habría cascada al borrarlo, y `entity_type` sería texto libre donde
+'node', 'Node' y 'nodo' conviven sin que nada se queje.
+
+Las notas del **nodo** y del **paso** cuelgan de la instancia
+(`enrollment_node`, `enrollment_milestone`), no de la plantilla: "se habló con
+la persona y quedó en reprogramar" es un hecho de SU plan. Pegarlas a `node`
+las haría aparecer en el plan de todos los que usen esa plantilla.
+
+Sólo INSERT y SELECT, por **ausencia** de política de UPDATE y DELETE, más un
+grant que tampoco las incluye. Mismo criterio que `employee_benchmark`. Para
+rectificar se escribe otra nota.
+
+`useNotes` tolera que la tabla no exista: se confirmó que hoy PostgREST
+responde `404 / PGRST205`, que es uno de los códigos que el hook reconoce, así
+que el panel avisa qué SQL falta en vez de romper la pantalla.
+
+### BP Team
+
+Cuarta entrada del menú. Las otras tres organizan por Loan Officer; ésta lo da
+vuelta y organiza por persona del equipo de soporte.
+
+**Dos tablas, no una.** Arriba los pasos asignados, abajo las etapas de las que
+se es responsable de nodo. Se puede responder por una etapa sin ejecutar ni uno
+de sus pasos; juntarlas borraría la distinción que la tarjeta del nodo acaba de
+hacer explícita.
+
+Se identifica por el email de la sesión contra `org.dim_employee.email`, el
+mismo criterio que decide quién puede cerrar un paso. Si el email no es de nadie
+del equipo **no se muestra una tabla vacía**: una tabla vacía se lee como "no
+tenés nada pendiente", que es una respuesta falsa a una pregunta que nadie hizo.
+
+Se leen las tablas enteras y se filtra en memoria, para que el selector de
+persona no dispare cinco consultas por cambio. Con dos planes activos son tres
+viajes; cuando esto sean cientos de planes habrá que darlo vuelta con una vista
+del lado de Postgres.
+
+Verificado con datos reales: 28 pasos repartidos entre los ocho, de 2 a 6 cada
+uno. Juanjo Cabrera es el que más tiene (6 pasos, 2 etapas).
+
+### Al activar, caer en modo edición
+
+El catálogo redirige a `…/plan?activated=1`, y ese parámetro abre el editor y
+muestra un aviso. Es el único momento en que personalizar tiene sentido y no es
+peligroso: el plan ya es una copia propia. Antes de activar no se puede editar
+nada, porque lo único que existe es la plantilla y tocarla cambiaría el plan de
+todos los enrolados.
+
+### Color: la paleta que hay, no una nueva
+
+El pedido cromático original nombraba `bg-indigo-100` y `bg-purple-100`. No
+están en el Brand Book y meterlos habría roto la consistencia que costó varias
+rondas alinear. Los seis tonos de avatar salen de escalas que ya existían:
+navy/sky, emerald, amber, coral, slate y sky pleno.
+
+**El tono es determinista a partir del nombre**, no de la posición en la lista.
+Es la parte que importa: con el índice, la misma persona sería azul en una
+pantalla y ámbar en otra según en qué orden viniera cada consulta, y un color
+que cambia entre vistas es peor que todos iguales.
+
+La normalización es la misma que la de `initialsOf`, con su mismo límite: dos
+grafías distintas del mismo nombre darían tonos distintos, igual que ya dan
+iniciales distintas. No ocurre porque todos los avatares se dibujan con
+`dim_employee.full_name`, que es un valor por persona.
+
+### La flecha que apuntaba a la nada
+
+Cuando la secuencia de nodos envolvía a una segunda línea, el último de la
+primera fila mostraba una flecha hacia el borde del modal.
+
+No se puede resolver con `flex-wrap`: **no hay selector CSS que sepa cuál es el
+último elemento de una fila**, porque el corte lo decide el navegador al medir.
+El stepper pasó a ser una grilla de columnas fijas — 4 en escritorio, 2 abajo de
+900px — y ahí `:nth-child(4n)` es exactamente el último de cada fila. El precio
+es que la grilla ya no se adapta al contenido.
+
+## Etapas BP22, BP23 y BP24 — impacto, revisión conjunta y selección por contorno
+
+### BP22 — el "antes" se congela, el "después" es en vivo
+
+`docs/sql/2026-08-enrollment-baseline.sql`, **sin ejecutar**. Una fila por
+enrolamiento con el promedio mensual de los 3 meses completos previos, los meses
+que se usaron, el mes de enrolamiento y si la foto fue capturada o reconstruida.
+
+El motivo de congelarla no es de diseño, es de datos: Commercial Activity se
+recalcula entero con cada carga, y las reglas cambian. El cambio de Heather
+—tomar la fecha de desembolso en vez del mes de Closed— movió préstamos de un
+mes a otro. Una línea base recalculada cambiaría sola, sin que la persona
+hiciera nada. Es el mismo principio que ya rige el plan copiado al enrolar.
+
+La escritura va **dentro** del bloque de todo-o-nada de la activación, junto con
+la copia del plan. Fuera de él, un fallo dejaría un plan activo sin foto del
+antes, y esa foto no se puede reconstruir después sin mentir. La única excepción
+tolerada es que la tabla todavía no exista: cualquier otro error aborta y
+dispara el rollback que ya estaba.
+
+**Los dos enrolamientos existentes** se rellenan desde el SQL, marcados
+`reconstructed`. Calculados desde el lote activo con la misma resolución de
+nombres del módulo:
+
+| | cierres | apps | pre-appr | files |
+|---|---|---|---|---|
+| Ana Peña (crudo 7 / 14 / 79 / 89) | 2,3333 | 4,6667 | **26,3333** | 29,6667 |
+| Kiana Smith (crudo 3 / 5 / 20 / 23) | 1,0000 | 1,6667 | 6,6667 | 7,6667 |
+
+⚠ Siete de los ocho números coinciden con la tabla del brief. El octavo no: el
+brief da 26,7 pre-approvals para Ana Peña y el dato da 26,3333, con 22 en mayo,
+27 en junio y 30 en julio. Se dejó el valor que sale de los datos porque es el
+único reproducible; si el 26,7 viene de otra regla de conteo, hay que decir cuál
+y se recalculan los dos.
+
+#### Cinco estados de mes, no dos
+
+La tentación es partir la línea en antes y después. `phaseOf` distingue cinco, y
+tres de ellos existen por errores concretos:
+
+- `partial` — el mes del enrolamiento está PARTIDO. Ana Peña se enroló el 14 de
+  agosto: contar agosto como "después" le atribuiría al plan lo que pasó antes
+  de que existiera.
+- `running` — el mes en curso no terminó. Compararlo contra un promedio de meses
+  enteros da una caída garantizada el día 3 de cada mes.
+- `future` — **apareció al probar, y era un −100% real**. El gráfico dibuja los
+  doce meses del año y hoy es agosto: septiembre a diciembre entraban como
+  `after` con cero cierres, y el promedio del después daba 0 sobre cuatro meses
+  que no pasaron. Exactamente el número falso que esta pantalla existe para no
+  mostrar.
+
+Con los dos planes de hoy, `completeMonthsAfter` devuelve `[]` y la pantalla
+muestra la línea base sola, con el primer mes medible nombrado: septiembre 2026.
+Visto desde octubre, la misma función devuelve `['2026-09']`.
+
+### BP23 — revisión conjunta
+
+Ruta `/business-plan/group/1-25-44`, con las claves en el path. Página y no
+modal: una revisión que no se puede mandar por link no sirve para discutirla.
+
+**Sumar, no promediar promedios.** Verificado con los 3 Loan Officers del branch
+703 (Ana Peña, Kiana Smith, Matthew Gomez Bruckner), ejecutando la agregación
+real de `lib/business-plan/group.ts`:
+
+```
+cierres del grupo: may 4 · jun 2 · jul 4  = 10 en la ventana
+  correcto    10 / 3 meses            = 3,33 por mes
+  incorrecto  (2,33 + 1,00 + 0,00) / 3 = 1,11 por mes
+```
+
+El segundo número está exactamente 3 veces abajo, y ese factor es el tamaño del
+grupo: no es "otra forma de verlo", responde una pregunta distinta (promedio por
+persona por mes). La agregación arma el mapa de cierres sumado y lo pasa por el
+MISMO `evaluateQualifier1` que usa una persona sola, así que no hay una segunda
+implementación del cálculo que pueda divergir.
+
+**Préstamos compartidos.** Verificado, no asumido:
+
+- Forecast, snapshot activo: los 3 tienen 10 préstamos abiertos con 10
+  `source_loan_id` distintos. Ninguno compartido. En el conjunto completo, 100
+  préstamos y cero compartidos entre cualquier par de personas.
+- Commercial Activity: **no se puede verificar hoy**. `loan_number` está en NULL
+  en las 4.609 filas del lote activo — se empezó a persistir en BP9/BP11,
+  después de esa carga. La deduplicación de cierres está implementada y probada
+  con un caso sintético, pero contra los datos de hoy no encuentra claves. La
+  pantalla lo dice con esas palabras: un cero ahí significa "sin clave para
+  comparar", no "comprobado y limpio".
+
+**Sin benchmark de alguien, el grupo no es evaluable.** No se rellena con cero:
+un cero diría que a esa persona no se le pide nada y el GAP del grupo saldría
+mejor de lo que es. Probado: con un miembro sin benchmark, `benchmark`, `gap` y
+`state` quedan en `null` y el veredicto es `not_evaluable`, con el nombre a la
+vista. Los 3 del 703 sí tienen (4,0 + 1,0 + 1,0 = 6,0).
+
+Nota al margen: el branch 703 tiene una cuarta persona en `employee_branch`,
+Fred Gomez, que **no** aparece en la revisión ni en el directorio porque su
+`role_in_branch` no es LO — es BDR. Su falta de benchmark no contradice el "los
+37 activos tienen benchmark": los 37 son Loan Officers.
+
+**El veredicto del grupo es informativo y no dispara nada.** Está escrito arriba,
+junto al badge, y no al pie: quien ve un "On Risk" idéntico al del perfil actúa
+antes de llegar al final de la página. Los planes son de personas.
+
+### BP24 — selección por contorno
+
+⚠ El motivo no es estético. Pintar de navy la tarjeta seleccionada obligaba a
+tener DOS versiones de todo lo que vive adentro: la píldora de días perdía su
+tinte, el avatar se apagaba, el icono había que aclararlo. Cada componente nuevo
+que entrara a una tarjeta iba a necesitar su propia excepción "cuando está
+seleccionada" — el camino directo a que se desincronicen. Con el fondo igual en
+los dos estados, cada pieza se dibuja una sola vez.
+
+Las reglas viejas **se borraron en su origen** en vez de anularse desde abajo.
+Anular una regla con otra deja las dos en el archivo y la siguiente persona no
+sabe cuál manda; era el mismo problema en chico. Quedó una sola declaración por
+selector.
+
+Fondo idéntico entre estados, verificado en el archivo:
+
+| | no seleccionado | seleccionado |
+|---|---|---|
+| `.bp-fstep__card` | `--slate-50` | `--slate-50` + borde 2px `--coral` |
+| `.bp-step` | `--slate-50` | `--slate-50` + borde 2px `--coral` |
+| `.bp-catalog__card` | `--canvas` | `--canvas` + borde 2px `--coral` |
+| `.seg button` | transparente | transparente + anillo `--coral` |
+
+Los avatares pasaron de círculo relleno a círculo de contorno: fondo `--canvas`,
+borde e iniciales en el color de la persona. El hash por nombre no cambió, así
+que cada quien conserva su color en todas las pantallas.
+
+La excepción declarada es el menú lateral, donde el item activo en coral sólido
+se queda: ahí el contraste es contra el fondo de la barra, no contra contenido
+que viva adentro.
+
+## Etapa BP25 — presentación, consistencia y una regresión propia
+
+### "Stages", y el vocabulario que quedaba a medias
+
+Los pasos de un nodo se llaman **Stages** en toda la interfaz. El rename tocó
+sólo texto visible: tablas, columnas y variables siguen diciendo `milestone`,
+que es como está en la base.
+
+Lo que **no** se tocó: el `milestone` de un préstamo, que viene de Salesforce y
+es otra cosa. Sigue llamándose milestone en el modal de detalle de préstamos, en
+la nota de cálculo y en las tasas de Settings. Renombrarlo ahí habría fundido
+dos conceptos que el módulo tiene separados desde BP5.
+
+Además del rename pedido se unificó **"step" → "stage"** en las pantallas donde
+convivían las dos palabras para lo mismo: la cabecera de la lista de pasos del
+plan, el explorador de funnels, BP Team y el impacto. Dos nombres para un solo
+objeto es la inconsistencia que el rename venía a sacar; dejar la mitad habría
+sido peor que no empezar.
+
+Un efecto colateral: en BP Team, "Stages owned" pasó a ser **"Nodes owned"**.
+Con los pasos llamándose stages, esa sección decía que alguien "responde por
+stages" cuando por lo que responde es por un NODO. La ambigüedad la creó el
+rename, así que se arregla en el rename.
+
+### Nombres de nodo duplicados
+
+⚠ Nació de un duplicado real: convivieron "Cold Calling" y "Cold calling", y el
+segundo se coló en tres funnels antes de que alguien lo notara.
+
+`node.name` **es** único, y aun así pasó: en Postgres `text` distingue
+mayúsculas, así que para la base son dos nombres distintos. Una mayúscula de más
+alcanza, y un espacio doble también.
+
+`findNodeNameClash` (función pura, en `funnels.ts`) normaliza como lo hace un
+humano al leer -- trim, espacios colapsados, minúsculas -- y devuelve **el
+nombre ya guardado**, no un booleano: decir "ya existe" sin decir cuál obliga a
+ir a buscarlo, y el que existe casi nunca se escribe igual que el que se está
+intentando crear.
+
+Se aplica en los DOS caminos, no sólo al crear: el formulario de alta y el
+renombre en línea de la tabla. Renombrar es la otra forma de fabricar el
+duplicado, y taparle sólo una puerta al problema no lo cierra.
+
+**TODO para el revisor**, fuera de alcance de esta etapa: lo correcto de verdad
+es un índice único sobre `lower(btrim(name))`. Esto es una defensa de
+aplicación; la base sigue aceptando el duplicado si algo escribe sin pasar por
+la app.
+
+### El editor del plan arranca cerrado
+
+Abrirlo al activar (BP20) era pasarse de listo: lo primero que ve alguien recién
+enrolado es su plan, no un formulario para reestructurarlo, y el editor empujaba
+la lista de stages fuera de la pantalla justo cuando quiere ver qué le tocó. El
+aviso de "podés ajustarlo antes de arrancar" se queda y ahora señala el botón.
+
+### El avatar vuelve al navy
+
+Se revierten BP21 (un tono por persona, elegido por hash del nombre) y BP24 (de
+relleno a contorno). El motivo es de lectura: seis tonos repartidos por hash
+llenaban una lista de pasos de colores que **no codifican nada** -- ni rol, ni
+estado, ni urgencia -- y le ganaban la atención a las píldoras de estado y de
+fecha, que sí la tienen.
+
+Con el tono se fue `avatarToneOf`. Si alguna vez vuelve a hacer falta, la regla
+que valía sigue valiendo: el color sale del NOMBRE y no de la posición en la
+lista, o la misma persona cambia de color entre pantallas.
+
+### El stepper del preview, en una sola fila
+
+Un funnel es una SECUENCIA. Envuelta en tres filas deja de leerse como una: con
+diez nodos, la forma del funnel desaparecía debajo de sí misma.
+
+Esto reemplaza a la grilla de columnas fijas de BP21, que existía únicamente
+para poder ocultar la flecha del último de cada fila con `:nth-child(4n)`. Sin
+filas no hay último de fila: la única flecha que sobra es la del último nodo, y
+para eso alcanza `:last-child`. **El problema de BP21 desapareció junto con su
+causa** — la regla se borró en vez de quedar dando vueltas.
+
+`flex-shrink: 0` en las tarjetas y en los huecos es lo que hace que aparezca el
+scroll: sin él, flexbox las aprieta hasta que entren y con diez nodos quedan
+ilegibles en vez de scrollear.
+
+### Vista de flujo de los stages
+
+Dos vistas del mismo nodo, con un conmutador que reusa `.seg`:
+
+- **List** (por defecto) — la vista de TRABAJO: SLA, posición, editar y borrar.
+- **Flow** — la vista de LECTURA: los stages en secuencia horizontal con su
+  responsable al frente, que es lo que se quiere ver al explicarle el nodo a
+  alguien. Un clic en una tarjeta abre su edición, para no obligar a volver a la
+  lista para corregir algo que se acaba de ver mal.
+
+La lista es la de por defecto porque es donde se hacen cosas; arrancar en la de
+leer costaría un clic extra en el caso habitual.
+
+### ⚠ Una regresión propia, encontrada al repasar
+
+El primer intento de poner el nombre al lado del icono en la biblioteca puso
+`display: flex` **en el `td`**. Eso saca a la celda del algoritmo de tabla: deja
+de ser celda, y con `table-layout: fixed` -- que es lo que usan estas tablas
+desde UX2 -- se lleva puestos los anchos de todas las columnas de la fila.
+
+Se corrigió antes de commitear: el flex vive en un `<span>` de adentro y el `td`
+sigue siendo un `td`. La causa real del problema era otra y más chica: el
+`width: 100%` del input de edición en línea ocupaba la celda entera y empujaba
+al icono a su propio renglón.
+
+Queda anotado porque es un error fácil de repetir: cualquier `display` que no
+sea de tabla sobre un `td` o un `tr` rompe el layout entero, y el síntoma
+aparece en columnas que uno no tocó.
+
+### El icono dentro de una tabla va en claro
+
+`.bp-glyph--strong` es navy pleno y funciona junto a un título grande -- ahí es
+una chapa. Repetido en cada fila armaba una columna de cuadrados oscuros que
+pesaba más que los nombres, que es lo que la tabla existe para mostrar. Dentro
+de una celda se dibuja el glifo solo.
+
+## Etapas BP26, BP27 y BP28 — el recuadro del icono, el impacto arriba y el constructor
+
+### ⚠ El recuadro del icono: qué regla lo pintaba, y por qué volvía
+
+Se pidió sacarlo en BP24, BP25, BP26, BP27 y BP28. Estas son las dos
+declaraciones que lo pintaban, las dos en `app/business-plan/styles/bp-visual.css`:
+
+```css
+.bp-glyph--soft   { background: var(--accent-soft); color: var(--slate-600); }
+.bp-glyph--strong { background: var(--navy);        color: var(--sky); }
+```
+
+Existían desde BP21, cuando el icono se diseñó como una "chapa" -- un cuadrado
+relleno con el glifo encima. `FunnelGlyph` recibía una prop `tone` que elegía
+entre las dos, y casi todas las pantallas pasaban `tone="strong"`: de ahí el
+cuadrado navy con el glifo claro.
+
+**Por qué volvió tres veces.** En BP25 lo "arreglé" agregando una regla más
+específica en vez de tocar la causa:
+
+```css
+table.piv td .bp-glyph--strong,
+table.piv td .bp-glyph--soft { background: transparent; ... }
+```
+
+Eso sólo alcanzaba a las tablas. Las dos declaraciones de arriba seguían vivas,
+así que en el catálogo, en la cabecera del preview, en el banner del perfil y en
+el portal del plan el cuadrado seguía exactamente donde estaba. Anular una regla
+desde abajo deja las dos en el archivo y la que gana depende de dónde se dibuje
+el icono — es la mecánica que hizo falta repetir el pedido cuatro veces.
+
+**El arreglo, ahora en el origen.** Se borraron las dos variantes, se borró la
+anulación de BP25 (ya no hay nada que anular), y se borró la prop `tone` del
+componente. `.bp-glyph` quedó sin `background`, sin `padding` y sin
+`border-radius`: sólo `color: var(--navy)` y el `flex-shrink: 0` que impide que
+el icono se aplaste cuando el nombre es largo.
+
+Sacar la prop es la mitad que importa: mientras existiera, cualquier pantalla
+nueva podía volver a pedir el cuadrado sin darse cuenta. Ahora no hay forma de
+pedir otra cosa.
+
+Alcanza a las nueve pantallas donde aparece: tarjeta del catálogo, cabecera del
+preview, tarjetas de nodo del preview, tabla de funnels, tabla de nodos, banner
+del plan en el perfil, cabecera del portal, tarjeta del nodo activo y —nuevo en
+BP28— las tarjetas del Sequence builder.
+
+### Los días del preview, con contexto
+
+`Day 3` solo no dice de qué. No es una fecha ni el día 3 del plan: es el SLA
+acumulado desde que arranca **ese nodo**, que es como está guardado.
+
+Se le puso encabezado a las tres columnas (`Stage · Accountable · Due (day of
+node)`) y una línea al pie que dice por qué son días y no fechas: en el preview
+todavía no hay nada activado, y sin fecha de activación una fecha sería
+inventada. En el plan activo esa misma columna ya son fechas reales, así que ahí
+no cambió nada.
+
+### El impacto sube a la cabecera del plan
+
+Era un enlace subrayado al pie, menos visible que "Edit plan". Es la pregunta
+que justifica el módulo -- si el plan sirvió -- y al pie quedaba como un detalle.
+
+Ahora es un bloque propio junto al anillo de progreso, con la variación de
+cierres contra la línea base congelada.
+
+⚠ **El dato de la cabecera es el RESULTADO, no el avance.** El anillo ya dice
+cuánto del plan se hizo; poner al lado otro número que también hable del avance
+sería decir dos veces lo mismo. Se adelanta la variación de cierres, que es la
+métrica que decide el veredicto; las otras tres están en la pantalla de impacto.
+
+Si todavía no hay un mes completo posterior al enrolamiento, el botón se muestra
+igual pero sin cifra: dice "no data yet" y explica qué falta. **No se rellena
+con un cero ni con un −100%** -- es el mismo cuidado que tiene la pantalla de
+impacto, y romperlo acá lo rompería igual.
+
+El anillo y el bloque van dentro de un contenedor común: la cabecera es un flex
+con `space-between`, y sueltos como dos hijos el del medio habría quedado
+centrado entre el título y el borde.
+
+### Los cuatro paneles de notas
+
+Los cuatro están puestos, y cada uno escribe en su propia columna vía el mapa
+`COLUMN` de `useNotes` -- no hay lógica repetida que pueda divergir:
+
+| Nivel | Pantalla | Dónde exactamente | Columna |
+|---|---|---|---|
+| funnel | Catálogo | modal de preview, al pie | `funnel_key` |
+| nodo | Portal del plan | tarjeta del nodo activo, bajo la lista | `enrollment_node_key` |
+| stage | Portal del plan | dentro de la fila, tras el botón de notas | `enrollment_milestone_key` |
+| loan officer | Perfil del LO | tras la barra de decisión | `employee_key` |
+
+### El Sequence builder
+
+Las tarjetas se veían chicas y apagadas al lado de las del catálogo. Se les dio
+el mismo lenguaje que ya existe, con los mismos tokens: fondo `--canvas`, borde
+de 1,5px, `--shadow-xs` y sombra al pasar, radio `--radius-lg`.
+
+Jerarquía: el nombre pasó de 12px a 15px y es lo principal; el rango de días
+dejó el coral y bajó a gris de apoyo; el conteo de stages quedó como etiqueta
+chica en mayúsculas. Se sumó el icono del nodo al lado del nombre.
+
+Subir, bajar y quitar quedan al 45% de opacidad y se aclaran al pasar por la
+tarjeta o al recibir foco. Están siempre a la vista y son la acción secundaria:
+lo primero que se hace en esta pantalla es leer la secuencia, no reordenarla.
+
+La selección se marca por contorno, coherente con el resto del módulo desde
+BP24 -- antes teñía el fondo de rose.
+
+## Etapa BP29 — Progress to date, y el fin de "Qualifier 1 / Qualifier 2"
+
+### Los nombres
+
+`Qualifier 1` → **Current performance**: mide el pipeline del mes en curso.
+`Qualifier 2` → **Future performance**: la actividad de hoy alimenta el pipeline
+de los meses siguientes.
+
+Sólo texto visible. En el código siguen llamándose `q1` y `q2`, y
+`evaluateQualifier1` / `evaluateQualifier2` conservan su nombre: renombrar
+funciones que aparecen en ocho archivos por un cambio de etiqueta habría
+mezclado un rename mecánico con un cambio de lógica en el mismo commit.
+
+### ⚠ Progress to date corrige un defecto real, no es un refinamiento
+
+Hasta BP28, el acumulado del mes se comparaba contra la meta del MES ENTERO. El
+día 2 de cada mes casi todo el mundo fallaba: se le exigía a alguien con dos
+días de trabajo lo mismo que a fin de mes. **El veredicto del módulo dependía de
+qué día se mirara la pantalla.**
+
+Ahora se compara contra lo que corresponde llevar a hoy:
+
+```
+ritmo diario   = requerido del mes / 30
+esperado a hoy = ritmo diario × día del mes
+```
+
+Verificado ejecutando el motor real con los datos de Ana Peña, benchmark 4, día
+14 de agosto de 2026:
+
+| métrica | tasa | requerido | ritmo/día | esperado a hoy | acumulado | % ritmo | banda |
+|---|---|---|---|---|---|---|---|
+| File Creations | 20,0% | 20 | 0,67 | 9,33 | 13 | 139% | on track |
+| Credit Reports | 30,0% | 14 | 0,47 | 6,53 | 16 | 245% | on track |
+| Applications | 66,7% | 6 | 0,20 | 2,80 | 6 | 214% | on track |
+
+El efecto que se buscaba, con los mismos datos: llevando 2 file creations, el
+día 2 da `on track` (esperado 1,33) y el día 30 da `at risk` (esperado 20). Con
+la regla vieja los dos casos decían lo mismo, "short by 18".
+
+### Las tres bandas, y por qué 85%
+
+```
+>= 100%   on track
+85 – 99%  watch
+ < 85%    at risk
+```
+
+Lo esperado es fraccionario (9,33) y lo real es entero. Sin margen, estar en 9
+cuando toca 9,33 pintaría rojo a alguien que está a un tercio de unidad de la
+meta — una distancia que ni siquiera se puede recorrer, porque no existe un
+tercio de file creation. Los cortes, comprobados: 10 → 107% on track · 9 → 96%
+watch · 8 → 86% watch · 7 → 75% at risk.
+
+**Future performance falla con 2 o más en `at_risk`.** La regla de "2 de 3" no
+cambió; lo que cambió es qué se cuenta.
+
+### Tres decisiones cerradas, anotadas para que no se reinterpreten
+
+1. **Treinta días fijos**, no los días reales del mes. Sesgo chico y constante
+   —en febrero exige de menos, en los meses de 31 de más— aceptado a cambio de
+   que la meta diaria sea la misma todo el año.
+2. **Días corridos**, no hábiles. Un mes con más fines de semana pide lo mismo.
+   Queda para revisar.
+3. **El día sale del reloj del sistema**, y llega por parámetro: leerlo dentro
+   del motor lo volvería impuro y no se podría probar sin viajar en el tiempo.
+
+### Dos consecuencias que había que perseguir
+
+**La barra de decisión explicaba la falla con la regla vieja.** Filtraba por
+`meets` —contra la meta del mes entero— mientras el veredicto ya salía de las
+bandas. Podía nombrar métricas que el veredicto no había contado, o callar las
+que sí: alguien leería "short in 1 of 3" debajo de un veredicto que falló por
+otras dos. Ahora filtra por `band === 'at_risk'` y muestra el esperado a hoy.
+
+**El benchmark vigente necesitaba desempate.** La tabla dejó de tener PK
+`(employee_key, effective_from)` — ahora la clave es sustituta y se puede
+cambiar varias veces el mismo día. Con dos filas de la misma vigencia, ordenar
+sólo por `effective_from` dejaba el ganador librado al orden en que PostgREST
+devolviera las filas, que es indefinido. Se agregó `set_at` como segundo
+criterio: gana la registrada después.
+
+### Los colores
+
+`--emerald-*` para on track, `--amber-*` para watch, `--rose-*` para at risk, en
+los pasos 50/200/800 que ya visten las píldoras de estado. El relleno de la
+barra **dejó de traer color propio**: antes era `--coral` a fondo pleno y
+`--emerald-700` al llegar a la meta, los dos gritando más que los números. El
+color se sacó en su origen y no se anuló desde abajo, para no repetir lo que
+pasó con el fondo del icono.
+
+La banda tiñe el BORDE de la tarjeta, nunca el fondo: teñir el fondo apagaría
+las dos barras y las dos píldoras que viven adentro — el mismo error que costó
+cuatro rondas con el icono.
+
+## Etapa BP31 — la revisión conjunta deja de ser una copia
+
+### El problema, y por qué era estructural
+
+BP23 construyó la vista de grupo con su propio markup. Ninguno de los cambios
+posteriores llegó ahí: en BP29 la regla de Future performance pasó al ritmo
+prorrateado y sólo cambió en el perfil, así que el grupo se quedó mostrando el
+acumulado contra la meta del mes entero — la lógica que ese cambio había
+reemplazado.
+
+No fue un descuido de nadie. **El diseño lo garantizaba**: con dos markups para
+lo mismo, la única defensa era acordarse, y acordarse no es una defensa.
+
+### ⚠ La decisión que hace posible compartir todo
+
+`aggregateGroup` ahora devuelve un **`LoanOfficerRow` sintético**. El grupo tiene
+exactamente la misma forma de dato que una persona, así que cada componente de
+presentación recibe un `LoanOfficerRow` y no sabe —ni le importa— si detrás hay
+una persona o tres.
+
+La alternativa era pasarle a cada componente los campos sueltos, y con eso cada
+uno tendría dos maneras de recibir sus datos: el mismo camino, un nivel más
+abajo.
+
+Los campos que no tienen sentido para un grupo van en su valor vacío y están
+marcados en el código: `employeeKey: -1`, sin historial de benchmark, sin
+intervención, sin plan activo. Falsearlos con datos de un miembro habría sido
+peor que dejarlos vacíos.
+
+Dentro de la fila, todo lo agregado está deduplicado: los préstamos abiertos por
+`sourceLoanId`, los resueltos por lo mismo, y las filas de cierre por
+`loan_number` — las mismas que abren los modales del gráfico.
+
+### Qué se extrajo
+
+`app/business-plan/components/performance.tsx`, ARCHIVO NUEVO. Nada de esto es
+nuevo: salió del perfil del Loan Officer, donde vivía escrito a mano.
+
+| Componente | Qué es |
+|---|---|
+| `ForensicCards` | las cinco tarjetas del mes, con sus modales y la marca de CTC |
+| `ChannelBreakdown` | Banked / Brokered con el método de cada canal |
+| `Q1Panel` | Avg 3M con actual, Avg 3M cerrados, Benchmark, GAP héroe, YTD |
+| `FuturePerformanceCards` | las tres tarjetas con Progress to date y Month to date |
+| `modalKindOfMetric` | qué modal abre cada métrica |
+
+Y dos que ya existían y ahora también los monta el grupo: `MonthlyBarChart` (con
+las barras clickeables y los tres segmentos del mes actual) y `LoanDetailModal`.
+
+Las dos vistas montan los seis. Verificado por grep: cada uno aparece en
+`lo/[employeeKey]/page.tsx` y en `group/[keys]/page.tsx`, en ningún otro lado, y
+no hay copias.
+
+Efecto colateral que confirma el diagnóstico: al extraer, aparecieron en el
+perfil un `ForensicItem` local, siete imports y dos variables que ya no usaba
+nadie. Todo eso era el markup que el grupo había duplicado.
+
+### El grupo del branch 703, con los números reales
+
+Benchmark del grupo 6 (4 + 1 + 1), acumulado de agosto sumado de los tres, día
+14, ejecutando el mismo `evaluateQualifier2` que monta el perfil:
+
+| métrica | requerido | ritmo/día | esperado a hoy | acumulado | % ritmo | banda |
+|---|---|---|---|---|---|---|
+| File Creations | 30 | 1,00 | 14,00 | 17 | 121% | on track |
+| Credit Reports | 20 | 0,67 | 9,33 | 20 | 214% | on track |
+| Applications | 9 | 0,30 | 4,20 | 6 | 143% | on track |
+
+Cero en `at_risk` → Future performance pasa.
+
+**Y acá se ve por qué esto importaba.** Con la lógica que el grupo tenía hasta
+hoy —acumulado contra la meta del mes entero— Applications mostraba "6 of 9",
+dos de las tres métricas quedaban por debajo, y Future performance **fallaba**.
+El grupo estaba dando un veredicto distinto del que darían sus miembros con la
+regla vigente.
+
+### Lo que sí es propio del grupo, y se queda
+
+El aviso de que el veredicto es informativo y no dispara ningún Business Plan;
+la lista de miembros con su veredicto individual; el benchmark como suma con el
+desglose visible en lugar del editor; y la nota sobre préstamos compartidos.
+
+### ⚠ Sin panel de notas, y es deliberado
+
+Coincido con la recomendación. Una nota necesita un destino con FK, y un grupo
+NO es una entidad guardada: es una selección momentánea que vive en una URL.
+`business_plan.note` tiene una columna por destino justamente para que la base
+garantice que el objeto al que apunta existe (ver el SQL de BP20); un grupo no
+tendría a qué apuntar, y la única forma de darle una sería inventar una tabla de
+"grupos" que nadie pidió y que habría que mantener.
+
+Si hace falta dejar constancia de una revisión conjunta, va como nota en el
+perfil de cada miembro — que además es donde alguien la va a buscar después.
+
+### Un rename que BP29 no había alcanzado
+
+El título de Future performance en el perfil seguía diciendo "Qualifier 2":
+BP29 buscó la cadena `'Qualifier 2 — '` y ahí el JSX está partido
+(`Qualifier 2 —{' '}` con un botón dentro), así que no coincidió. Corregido.

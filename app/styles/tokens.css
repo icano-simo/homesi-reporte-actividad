@@ -58,8 +58,21 @@
   --rose-50: #fff1f2;
   --rose-200: #fecdd3;
   --rose-700: #be123c;
+  /*
+   * Etapa BP1: la escala ámbar existía a medias -- sólo 50 y 700, agregados en
+   * UX1 para el chip "Transferred" de Forecast. El módulo Business Plan
+   * necesita el estado INTERMEDIO de triage ("Need Attention"), que va entre el
+   * emerald de "bien" y el rose de "riesgo", y para eso hacen falta los pasos
+   * de borde y de texto fuerte que faltaban. Se completan siguiendo el mismo
+   * patrón de las otras escalas (mismos números, misma familia Tailwind), sin
+   * tocar los dos valores que ya estaban en uso.
+   */
   --amber-50: #fffbeb;
+  --amber-100: #fef3c7;
+  --amber-200: #fde68a;
+  --amber-500: #f59e0b;
   --amber-700: #b45309;
+  --amber-800: #92400e;
 
   /* ---- Derivados de marca ------------------------------------------------ */
   /* 'Light Sky' aclarado sobre blanco — fondo de pills, hover suave. */
