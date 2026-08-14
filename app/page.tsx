@@ -39,19 +39,35 @@ function errorMessage(err: unknown): string {
 }
 
 /**
+ * Todos los ids de nivel Metric ('br::'+branch+'::m::'+metric), uno por
+ * combinación branch×métrica -- el mismo esquema que ya usa PivotTable para
+ * togglear el desglose de Loan Officer/BD de cada metric group. Factorizado
+ * para que defaultCollapsed() y handleCollapseAll() (más abajo) partan de la
+ * MISMA enumeración -- antes handleCollapseAll() la omitía por completo, que
+ * era la causa real de que reabrir un branch después de "Collapse all"
+ * mostrara sus Metrics ya expandidas (con Loan Officers visibles): sus ids no
+ * estaban en el Set, y "no está en el Set" se lee como "no colapsado" en
+ * todo el árbol (ver PivotTable.tsx/PivotRow.tsx, ninguno de los dos se
+ * tocó).
+ */
+function allMetricIds(): string[] {
+  const ids: string[] = [];
+  for (const b of BRANCH_ORDER) {
+    for (const { key } of METRICS) {
+      ids.push('br::' + b + '::m::' + key);
+    }
+  }
+  return ids;
+}
+
+/**
  * Port de defaultCollapsed() del legacy: al cargar un archivo, los headers
  * de Total/Branch quedan expandidos, pero el desglose de Loan Officer/BD de
  * cada métrica de cada branch empieza colapsado -- mismo esquema de ids
  * ('br::'+branch+'::m::'+metric) que usa PivotTable para togglearlos.
  */
 function defaultCollapsed(): Set<string> {
-  const s = new Set<string>();
-  for (const b of BRANCH_ORDER) {
-    for (const { key } of METRICS) {
-      s.add('br::' + b + '::m::' + key);
-    }
-  }
-  return s;
+  return new Set(allMetricIds());
 }
 
 export default function Home() {
@@ -183,11 +199,19 @@ export default function Home() {
     setCollapsed(new Set());
   }
 
-  // Port de collapseAll del legacy: colapsa 'total' y cada header de branch
-  // (lo que también oculta sus metric-groups, sin necesidad de listarlos).
+  // Port de collapseAll del legacy: colapsa 'total' y cada header de branch.
   // Etapa 12: en la vista "Por Loan Officer" no hay 'total' ni branches --
   // colapsa cada Loan Officer visible en su lugar (mismo esquema de id
   // 'lo::'+nombre que usa LoanOfficerTable).
+  //
+  // Fix (jerarquía de expansión): además de 'total' y cada branch, ahora
+  // también agrega TODOS los ids de Metric (allMetricIds(), misma lista que
+  // defaultCollapsed()) -- antes se omitían, así que después de "Collapse
+  // all" el Set no tenía ninguna entrada de Metric, y al reabrir un branch
+  // sus 4 Metrics aparecían ya expandidas (con el desglose de Loan
+  // Officer/BD visible) en vez de colapsadas. Cada nivel (Branch, Metric)
+  // sigue teniendo su propio id independiente -- esto no cambia esa
+  // arquitectura, solo corrige qué ids quedan en el Set al colapsar todo.
   function handleCollapseAll() {
     const s = new Set<string>();
     if (groupBy === 'loanOfficer') {
@@ -197,6 +221,7 @@ export default function Home() {
     } else {
       s.add('total');
       for (const b of BRANCH_ORDER) s.add('br::' + b);
+      for (const id of allMetricIds()) s.add(id);
     }
     setCollapsed(s);
   }

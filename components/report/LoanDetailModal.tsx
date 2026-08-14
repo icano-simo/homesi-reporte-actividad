@@ -42,6 +42,25 @@ function channelLabel(loanInfoChannel: string): string {
   return loanInfoChannel || 'Unclassified';
 }
 
+/**
+ * Ajuste de UX (post-Fase 1): antes esto se aplanaba a un solo string
+ * ("Branch 733" / "Loan Officer: NAME" / "BD: NAME" / "All branches") dentro
+ * de `.modal-eyebrow`. Ahora se separa en {label, value} para poder renderizar
+ * un campo propio del context header (ver JSX) -- mismo dato, misma
+ * prioridad drillName > branch que ya tenía, sin lógica nueva: solo cambia
+ * CÓMO se presenta, no QUÉ loans se muestran (eso sigue siendo
+ * responsabilidad exclusiva de loansForCell(), sin tocar acá).
+ */
+function contextField(context: DrillDownContext): { label: string; value: string } {
+  if (context.drillName) {
+    return { label: context.drillBy === 'bd' ? 'BD' : 'Loan Officer', value: context.drillName };
+  }
+  // Sin drillName: Branch cuando hay uno filtrado, o 'All branches' para la
+  // fila Total (ningún branch específico) -- Branch sigue siendo la etiqueta
+  // en los dos casos, tal como se pidió.
+  return { label: 'Branch', value: context.branch ?? 'All branches' };
+}
+
 export default function LoanDetailModal({ isOpen, onClose, context, loans }: LoanDetailModalProps) {
   useEffect(() => {
     if (!isOpen) return;
@@ -67,12 +86,14 @@ export default function LoanDetailModal({ isOpen, onClose, context, loans }: Loa
   if (!isOpen || !context) return null;
 
   const countLabel = loans.length.toLocaleString('en-US') + (loans.length === 1 ? ' loan' : ' loans');
-  const title = metricLabel(context.metric) + ' · ' + monthYearLabel(context.month);
-  const eyebrow = context.drillName
-    ? (context.drillBy === 'bd' ? 'BD: ' : 'Loan Officer: ') + context.drillName
-    : context.branch
-      ? 'Branch ' + context.branch
-      : 'All branches';
+  const field = contextField(context);
+  const metric = metricLabel(context.metric);
+  const month = monthYearLabel(context.month);
+  // Texto plano para aria-label -- el context header de abajo es solo la
+  // presentación visual, esto es lo que anuncia un lector de pantalla al
+  // abrir el modal (mismo contenido que antes, ahora armado desde los mismos
+  // 3 campos que ya se muestran).
+  const ariaLabel = field.label + ' ' + field.value + ' — ' + metric + ' — ' + month;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -81,16 +102,39 @@ export default function LoanDetailModal({ isOpen, onClose, context, loans }: Loa
         className="modal-box"
         role="dialog"
         aria-modal="true"
-        aria-label={title + ' — ' + eyebrow}
+        aria-label={ariaLabel}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-header">
-          <div style={{ minWidth: 0 }}>
-            <div className="modal-eyebrow">{eyebrow}</div>
-            <h2 className="modal-title">
-              {title}
-              <span className="badge badge--pill badge--sky">{countLabel}</span>
-            </h2>
+          {/*
+           * Ajuste de UX (post-Fase 1): "context header" estructurado en vez
+           * de un solo string plano (eyebrow) + título -- el objetivo es que
+           * se distinga de un vistazo QUÉ dimensión es cada dato (Branch vs.
+           * Loan Officer, Metric, Month), no solo leerlo en una frase. Cada
+           * campo reutiliza `.modal-eyebrow` tal cual (label pequeño/
+           * secundario, ya global y compartido con el modal de Forecast, sin
+           * tocarlo) + una clase nueva `.modal-context__value` para el valor
+           * principal. Fila horizontal con wrap -- responsive, sin agregar
+           * altura: sigue siendo 2 líneas de texto (labels arriba, valores
+           * abajo), igual que antes con eyebrow+title.
+           */}
+          <div className="modal-context" style={{ minWidth: 0, flex: 1 }}>
+            <div className="modal-context__field">
+              <div className="modal-eyebrow">{field.label}</div>
+              <div className="modal-context__value">{field.value}</div>
+            </div>
+            <div className="modal-context__field">
+              <div className="modal-eyebrow">Metric</div>
+              <div className="modal-context__value">{metric}</div>
+            </div>
+            <div className="modal-context__field">
+              <div className="modal-eyebrow">Month</div>
+              <div className="modal-context__value">{month}</div>
+            </div>
+            <div className="modal-context__field">
+              <div className="modal-eyebrow">Loans</div>
+              <div className="modal-context__value">{countLabel}</div>
+            </div>
           </div>
           <button type="button" className="modal-close" onClick={onClose} aria-label="Close">
             <CloseIcon size={16} />
