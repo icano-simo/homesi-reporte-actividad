@@ -586,8 +586,19 @@ table.piv.bp-table--los th {
   font-variant-numeric: tabular-nums;
   margin-bottom: 2px;
 }
+/*
+ * COLOR POR SIGNIFICADO, no por posición — etapa BP11.
+ *
+ * Antes las barras de los meses anteriores eran celestes y el segmento
+ * CTC/Closing de agosto también: el mismo color decía "cerrado" en julio y "en
+ * CTC" en agosto. Ahora:
+ *
+ *   navy           cerrado, en TODOS los meses
+ *   verde de CTC   sólo CTC/Closing (mismo tono que los puntos de Forecast)
+ *   gris claro     proyectado con pull-through
+ */
 .bp-chart__bar {
-  background: var(--sky);
+  background: var(--navy);
   border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   min-height: 1px;
 }
@@ -601,8 +612,9 @@ table.piv.bp-table--los th {
 .bp-seg--projected {
   background: var(--slate-200);
 }
+/* El mismo verde que `.ctc-dot`, para que CTC signifique lo mismo en toda la app. */
 .bp-seg--ctc {
-  background: var(--sky);
+  background: var(--emerald-700);
 }
 .bp-seg--closed {
   background: var(--navy);
@@ -659,7 +671,7 @@ table.piv.bp-table--los th {
   background: var(--navy);
 }
 .bp-dot--ctc {
-  background: var(--sky);
+  background: var(--emerald-700);
 }
 .bp-dot--projected {
   background: var(--slate-200);
@@ -761,17 +773,41 @@ table.piv.bp-table--los th {
 
 /* ── Modales ────────────────────────────────────────────────────────────── */
 
+/*
+ * FONDO DEL MODAL — etapa BP11.
+ *
+ * Antes era `background: var(--slate-600)` opaco y la página desaparecía
+ * detrás. El modal FLOTA sobre la pantalla, no la reemplaza: se tiene que
+ * seguir viendo qué había debajo.
+ *
+ * La capa translúcida va en un `::before` con `opacity`, y NO con `rgba()` ni
+ * un hexadecimal con alfa: la regla dura del archivo prohíbe los dos, y así el
+ * color sigue saliendo de un token. `color-mix()` sería más directo pero
+ * agregaría un requisito de navegador que el resto del proyecto no tiene.
+ */
 .bp-modal-backdrop {
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: var(--slate-600);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;
+  /* Desenfoque suave de lo que queda atrás -- el mismo recurso que el header. */
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+.bp-modal-backdrop::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--navy);
+  opacity: 0.42;
 }
 .bp-modal {
+  /* Por encima de la capa atenuada del `::before`. */
+  position: relative;
+  z-index: 1;
   background: var(--canvas);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
@@ -1438,28 +1474,44 @@ table.piv.bp-table--los th {
   color: var(--canvas);
 }
 
+/*
+ * ON RISK vs NEED ATTENTION — etapa BP11.
+ *
+ * Los dos son rojos, pero Need Attention es un estado PEOR y tiene que verse
+ * peor. La diferencia se hace por saturación y no por matiz:
+ *
+ *   On Risk         coral de marca en versión suave -- fondo claro, texto y
+ *                   píldora en coral sobre fondo claro.
+ *   Need Attention  rose saturado -- fondo más cargado, borde marcado y la
+ *                   píldora en sólido invertido.
+ *
+ * Así se leen como dos escalones del mismo problema y no como dos problemas
+ * distintos, que es lo que pasaba con el ámbar (ámbar dice "cuidado", no
+ * "está por debajo del objetivo").
+ */
 .bp-gap-hero--on_risk {
-  background: var(--amber-50);
-  border-color: var(--amber-200);
+  background: var(--rose-50);
+  border-color: var(--coral);
 }
 .bp-gap-hero--on_risk .bp-gap-hero__value,
 .bp-gap-hero--on_risk .bp-stat__label {
-  color: var(--amber-800);
+  color: var(--coral);
 }
 .bp-gap-hero--on_risk .bp-gap-hero__state {
-  background: var(--amber-800);
-  color: var(--canvas);
+  background: var(--canvas);
+  border: 1px solid var(--coral);
+  color: var(--coral);
 }
 
 .bp-gap-hero--need_attention {
-  background: var(--rose-50);
-  border-color: var(--rose-200);
+  background: var(--rose-200);
+  border-color: var(--rose-700);
 }
 .bp-gap-hero--need_attention .bp-gap-hero__value,
 .bp-gap-hero--need_attention .bp-stat__label {
-  color: var(--coral);
+  color: var(--rose-700);
 }
 .bp-gap-hero--need_attention .bp-gap-hero__state {
-  background: var(--coral);
+  background: var(--rose-700);
   color: var(--canvas);
 }

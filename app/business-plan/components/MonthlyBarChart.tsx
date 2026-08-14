@@ -27,6 +27,11 @@ import type { CurrentMonthProjection } from '@/lib/business-plan/types';
  * Una sola barra sólida escondería que la mayor parte de un mes bueno puede ser
  * todavía pronóstico.
  *
+ * ETAPA BP11 — EL COLOR SIGNIFICA LO MISMO EN TODOS LOS MESES. El navy es
+ * "cerrado" en enero y en agosto; el verde es CTC/Closing y sólo eso, con el
+ * mismo tono que los puntos de la tabla de Forecast. Antes el celeste decía
+ * "cerrado" en los meses anteriores y "en CTC" en el actual.
+ *
  * ETAPA BP7 — LOS SEGMENTOS SON ENTEROS Y SUMAN EL ENTERO QUE SE MUESTRA.
  * La proyección exacta es fraccionaria (6,66), pero la barra muestra 7, y tres
  * segmentos redondeados por separado sumarían 6 u 8 y la barra mentiría.
@@ -125,6 +130,7 @@ export default function MonthlyBarChart({
                     <div className="bp-seg bp-seg--closed" style={{ height: pct(seg[0], segTotal) }} />
                   </div>
                 ) : (
+                  /* Navy: en los meses anteriores la barra entera son cierres. */
                   <div className="bp-chart__bar" style={{ height: scale(total) + 'px' }} title={`${total} closings`} />
                 )}
               </button>

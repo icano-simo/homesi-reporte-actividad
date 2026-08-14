@@ -125,11 +125,13 @@ export type MilestoneBucket = 'Started' | 'Processing' | 'Underwriting' | 'Closi
  * Etapa BP9. Hace falta para los modales de detalle: hasta ahora el módulo
  * sólo guardaba conteos por mes.
  *
- * ⚠ `loan_records` NO tiene número de préstamo ni nombre de prestatario --
- * el archivo de Commercial Activity no los trae. Los modales que salen de esta
- * fuente muestran lo que sí hay. Ver docs/ARQUITECTURA.md.
+ * ⚠ `loan_records` NO tiene nombre de prestatario: el export de Commercial
+ * Activity no lo trae. El NÚMERO de préstamo sí (está en REQUIRED_COLUMNS);
+ * en BP9 se reportó lo contrario por error y se corrigió en BP11.
  */
 export interface ActivityLoan {
+  /** Etapa BP11: está en REQUIRED_COLUMNS, siempre viene en el archivo. */
+  loanNumber: string | null;
   branch: string | null;
   amount: number;
   /** Nulos en los lotes cargados antes de BP9; ver `saveUpload.ts`. */

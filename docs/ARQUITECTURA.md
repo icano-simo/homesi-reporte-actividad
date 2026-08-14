@@ -1673,20 +1673,26 @@ mismos campos**, y eso se nota en pantalla:
 |---|---|---|---|---|---|
 | `pipeline_forecast.pipeline_loans` | sí | sí | sí | no | sí |
 | `pipeline_forecast.pipeline_resolved_loans` | sí | sí | sí | folder sí | — |
-| `activity_report.loan_records` | **no** | **no** | sí | sí (desde BP9) | no |
+| `activity_report.loan_records` | sí (desde BP11) | **no** | sí | sí (desde BP9) | no |
 
 Por eso el modal de una barra de un mes pasado muestra menos columnas que el de
 una tarjeta del pipeline: sale de Commercial Activity, y **ese archivo no trae
-número de préstamo ni nombre de prestatario**. No es un olvido de la
-implementación; el dato no existe en el origen.
+el nombre del prestatario**. No es un olvido de la implementación; el dato no
+existe en el origen.
+
+**Corrección de BP11**: en el reporte de BP9 se dijo que Commercial Activity
+tampoco traía el número de préstamo. Era incorrecto — `loan_number` está en
+`REQUIRED_COLUMNS`, así que el archivo lo trae siempre y el parser lo leía. Lo
+que faltaba era persistirlo, igual que folder y programa; se agregó en BP11.
 
 `pipeline_loans` tampoco trae el programa del préstamo, así que los modales del
 pipeline muestran el canal en su lugar.
 
 ### 7. Las tres columnas de Commercial Activity, ahora persistidas
 
-`loan_program`, `loan_folder_name` y `affinity` ya las leía el parser (están en
-`OPTIONAL_COLUMNS`) pero no se guardaban: vivían en memoria y se perdían al
+`loan_number`, `loan_program`, `loan_folder_name` y `affinity` ya las leía el
+parser (la primera en `REQUIRED_COLUMNS`, las otras tres en `OPTIONAL_COLUMNS`)
+pero no se guardaban: vivían en memoria y se perdían al
 recargar. En BP9 se agregaron al insert de `lib/supabase/saveUpload.ts` y al
 select de `lib/supabase/loadCurrent.ts`.
 
@@ -1698,3 +1704,18 @@ de mostrar un desglose vacío que se confunda con un cero.
 Esos dos archivos son de Commercial Activity y estaban fuera del alcance del
 módulo: fue una excepción acotada a agregar columnas al insert y al select, sin
 tocar nada más.
+
+### 8. Los modales deciden sus columnas con los datos (etapa BP11)
+
+Las tablas de detalle que salen de Commercial Activity **no tienen un juego fijo
+de columnas**: cada una se dibuja sólo si al menos una fila la tiene con dato.
+
+El motivo es que hoy `loan_number`, `loan_program`, `loan_folder_name` y
+`affinity` están en NULL en las 4.590 filas del lote activo — se guardaron antes
+de que se persistieran. Con columnas fijas, cuatro de las cinco salían llenas de
+guiones, y el lector no podía distinguir "este préstamo no tiene programa" de
+"todavía no guardamos el programa".
+
+Cuando una columna falta por eso, el modal lo dice en una línea en vez de
+mostrarla vacía. Hoy los modales de actividad muestran **monto y canal**; las
+otras aparecen desde la próxima carga del archivo.

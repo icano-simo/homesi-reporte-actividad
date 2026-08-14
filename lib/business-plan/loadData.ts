@@ -77,6 +77,7 @@ interface ActivityRow {
   closing_month: string | null;
   branch: string | null;
   total_loan_amount: number | string | null;
+  loan_number: string | null;
   /* Etapa BP9. NULL en los lotes cargados antes de que se persistieran. */
   loan_program: string | null;
   loan_folder_name: string | null;
@@ -258,7 +259,7 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
         supabase
           .from('loan_records')
           .select(
-            'loan_officer, file_creation_month, credit_report_month, app_date_month, closing_month, branch, total_loan_amount, loan_program, loan_folder_name, loan_info_channel_raw'
+            'loan_officer, file_creation_month, credit_report_month, app_date_month, closing_month, branch, total_loan_amount, loan_number, loan_program, loan_folder_name, loan_info_channel_raw'
           )
           .eq('upload_batch_id', batchId)
           .range(from, to)
@@ -357,6 +358,7 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
      * memoria por un detalle que ninguna pantalla muestra.
      */
     const loan: ActivityLoan = {
+      loanNumber: row.loan_number,
       branch: row.branch,
       amount: Number(row.total_loan_amount) || 0,
       loanProgram: row.loan_program,

@@ -79,6 +79,14 @@ export async function saveUpload(records: LoanRecord[], rawRows: RawLoanRow[], f
        * ⚠ Las filas ya cargadas quedan en NULL: se guardaron antes. El desglose
        * por folder recién tiene datos completos desde la próxima carga.
        */
+      /*
+       * Etapa BP11. `loan_number` está en REQUIRED_COLUMNS -- el archivo lo trae
+       * SIEMPRE y el parser lo leía; lo que faltaba era guardarlo, igual que las
+       * otras tres. (En BP9 se reportó por error que Commercial Activity no
+       * traía el número de préstamo: sí lo trae. Lo que no trae es el nombre del
+       * prestatario, y eso sigue siendo cierto.)
+       */
+      loan_number: record.loanNumber || null,
       loan_program: record.loanProgram || null,
       loan_folder_name: record.loanFolderName || null,
       affinity: record.affinity || null,

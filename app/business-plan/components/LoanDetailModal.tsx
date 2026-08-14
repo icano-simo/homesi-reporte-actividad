@@ -3,7 +3,6 @@
 import { formatYearMonth, shortMonth } from '@/lib/business-plan/months';
 import type { ActivityLoan, LoanOfficerRow, MilestoneBucket, OpenLoan } from '@/lib/business-plan/types';
 import Modal from './Modal';
-import { fmtActivityAvg } from './shared';
 
 /**
  * ============================================================================
@@ -24,16 +23,19 @@ import { fmtActivityAvg } from './shared';
  *   pipeline_forecast   número de préstamo, prestatario, monto, milestone y
  *                       fecha estimada de cierre. Todo disponible.
  *
- *   activity_report     NO tiene número de préstamo ni nombre de prestatario:
- *                       el archivo de Commercial Activity no los trae. Quedan
- *                       branch, monto, canal, programa y folder.
+ *   activity_report     NO tiene nombre de prestatario -- el export no lo trae.
+ *                       El número de préstamo SÍ (está en REQUIRED_COLUMNS); en
+ *                       BP9 se reportó lo contrario por error. Quedan número,
+ *                       monto, canal, programa y folder.
  *
  * Por eso el modal de una barra de un mes pasado muestra menos columnas que el
  * de una tarjeta del pipeline. No es un olvido; está anotado en
  * docs/ARQUITECTURA.md.
  *
- * Y programa/folder son NULL en los lotes cargados antes de BP9, que es cuando
- * se empezaron a persistir. Se muestran como guion.
+ * Número, programa y folder son NULL en los lotes cargados antes de que se
+ * empezaran a persistir. Etapa BP11: en vez de mostrar una columna de guiones,
+ * la columna no se dibuja y se explica en una línea por qué falta -- ver
+ * `ActivityTable`.
  */
 
 export type ModalKind =
@@ -306,38 +308,75 @@ function ResolvedTable({ loans }: { loans: LoanOfficerRow['resolvedLoanDetail'] 
 }
 
 /**
- * Detalle desde Commercial Activity. Sin número de préstamo ni prestatario: esa
- * fuente no los trae (ver la nota del encabezado).
+ * Detalle desde Commercial Activity.
+ *
+ * ---------------------------------------------------------------------------
+ * COLUMNAS QUE SE MUESTRAN — se deciden con los datos, no de antemano
+ * ---------------------------------------------------------------------------
+ * Etapa BP11. Antes había cinco columnas fijas y en la práctica salían tres de
+ * guiones: `loan_program` y `loan_folder_name` son NULL en todos los lotes
+ * cargados antes de que se persistieran, y `total_loan_amount` viene en 0 en
+ * bastantes filas.
+ *
+ * Mostrar cuatro columnas de guiones es peor que mostrar dos con datos: el
+ * lector no puede distinguir "este préstamo no tiene programa" de "todavía no
+ * guardamos el programa". Así que cada columna opcional se dibuja SÓLO si al
+ * menos una fila la tiene, y si falta se explica en una línea por qué.
+ *
+ * `Branch` se quitó del todo: estamos dentro del perfil de una persona de un
+ * branch conocido, repetirlo en cada fila no aporta nada.
  */
 function ActivityTable({ loans, empty }: { loans: ActivityLoan[]; empty: string }) {
   if (loans.length === 0) return <p className="bp-modal__lead">{empty}</p>;
+
+  const has = {
+    number: loans.some((l) => l.loanNumber),
+    amount: loans.some((l) => l.amount > 0),
+    channel: loans.some((l) => l.channel),
+    program: loans.some((l) => l.loanProgram),
+    folder: loans.some((l) => l.loanFolderName),
+  };
   const total = loans.reduce((s, l) => s + l.amount, 0);
+  /* Sólo las que están vacías POR FALTA DE CARGA, para el aviso. */
+  const pending = [
+    !has.number && 'loan number',
+    !has.program && 'program',
+    !has.folder && 'folder',
+  ].filter(Boolean) as string[];
+
   return (
     <>
       <p className="bp-modal__lead">
-        {loans.length} loans · {money(total)} total{' '}
-        <span className="bp-modal__hint">
-          — Commercial Activity does not carry loan number or borrower name
-        </span>
+        {loans.length} loans
+        {has.amount && <> · {money(total)} total</>}
       </p>
+      {pending.length > 0 && (
+        <p className="bp-modal__lead bp-modal__lead--warn">
+          {pending.join(', ')} {pending.length === 1 ? 'is' : 'are'} empty for every row in this batch — those columns
+          started being stored in this release and fill in from the next Commercial Activity upload.
+        </p>
+      )}
       <table className="piv">
         <thead>
           <tr className="mo-row">
-            <th className="lbl">Branch</th>
-            <th className="bp-center">Amount</th>
-            <th className="bp-center">Channel</th>
-            <th className="bp-center">Program</th>
-            <th className="bp-center">Folder</th>
+            {has.number && <th className="lbl">Loan</th>}
+            {has.amount && <th className="bp-center">Amount</th>}
+            {has.channel && <th className="bp-center">Channel</th>}
+            {has.program && <th className="bp-center">Program</th>}
+            {has.folder && <th className="bp-center">Folder</th>}
+            {/* Si no quedara ninguna columna, la tabla no tendría sentido. */}
+            {!has.number && !has.amount && !has.channel && <th className="lbl">Loans</th>}
           </tr>
         </thead>
         <tbody>
           {loans.map((l, i) => (
-            <tr key={i} className="metric">
-              <td className="lbl">{l.branch ?? '—'}</td>
-              <td className="bp-center">{money(l.amount)}</td>
-              <td className="bp-center">{l.channel ?? '—'}</td>
-              <td className="bp-center">{l.loanProgram ?? '—'}</td>
-              <td className="bp-center">{l.loanFolderName ?? '—'}</td>
+            <tr key={(l.loanNumber ?? '') + i} className="metric">
+              {has.number && <td className="lbl">{l.loanNumber ?? '—'}</td>}
+              {has.amount && <td className="bp-center">{money(l.amount)}</td>}
+              {has.channel && <td className="bp-center">{l.channel ?? '—'}</td>}
+              {has.program && <td className="bp-center">{l.loanProgram ?? '—'}</td>}
+              {has.folder && <td className="bp-center">{l.loanFolderName ?? '—'}</td>}
+              {!has.number && !has.amount && !has.channel && <td className="lbl">Loan {i + 1}</td>}
             </tr>
           ))}
         </tbody>
@@ -345,5 +384,3 @@ function ActivityTable({ loans, empty }: { loans: ActivityLoan[]; empty: string 
     </>
   );
 }
-
-void fmtActivityAvg;
