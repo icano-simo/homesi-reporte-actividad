@@ -38,11 +38,15 @@ export async function exportToExcel(options: ExportToExcelOptions): Promise<void
   const { records, months, measure } = options;
   const workbook = new Workbook();
 
+  // Etapa 2 (refacción de filtros de app/page.tsx): buildReportTree() ya no
+  // filtra por B2B internamente (antes vía `view: 'b2b'`) -- el filtro se
+  // aplica acá, mismo criterio (`r.isB2B`) que ya usaba, sin cambiar qué
+  // hoja resulta. Las otras 2 hojas seguían pasando `view: 'main'` (sin
+  // filtro), así que usan `records` sin filtrar, sin cambios.
   const b2bTree = buildReportTree({
-    records,
+    records: records.filter((r) => r.isB2B),
     months,
     measure,
-    view: 'b2b',
     branchFilter: 'all',
     drillBy: 'bd',
   });
@@ -52,7 +56,6 @@ export async function exportToExcel(options: ExportToExcelOptions): Promise<void
     records,
     months,
     measure,
-    view: 'main',
     branchFilter: 'all',
     drillBy: 'loanOfficer',
   });
@@ -62,7 +65,6 @@ export async function exportToExcel(options: ExportToExcelOptions): Promise<void
     records,
     months,
     measure,
-    view: 'main',
     branchFilter: 'all',
     drillBy: 'loanOfficer',
   });
