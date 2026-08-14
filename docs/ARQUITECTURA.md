@@ -2013,3 +2013,137 @@ No se puede resolver con `flex-wrap`: **no hay selector CSS que sepa cuál es el
 El stepper pasó a ser una grilla de columnas fijas — 4 en escritorio, 2 abajo de
 900px — y ahí `:nth-child(4n)` es exactamente el último de cada fila. El precio
 es que la grilla ya no se adapta al contenido.
+
+## Etapas BP22, BP23 y BP24 — impacto, revisión conjunta y selección por contorno
+
+### BP22 — el "antes" se congela, el "después" es en vivo
+
+`docs/sql/2026-08-enrollment-baseline.sql`, **sin ejecutar**. Una fila por
+enrolamiento con el promedio mensual de los 3 meses completos previos, los meses
+que se usaron, el mes de enrolamiento y si la foto fue capturada o reconstruida.
+
+El motivo de congelarla no es de diseño, es de datos: Commercial Activity se
+recalcula entero con cada carga, y las reglas cambian. El cambio de Heather
+—tomar la fecha de desembolso en vez del mes de Closed— movió préstamos de un
+mes a otro. Una línea base recalculada cambiaría sola, sin que la persona
+hiciera nada. Es el mismo principio que ya rige el plan copiado al enrolar.
+
+La escritura va **dentro** del bloque de todo-o-nada de la activación, junto con
+la copia del plan. Fuera de él, un fallo dejaría un plan activo sin foto del
+antes, y esa foto no se puede reconstruir después sin mentir. La única excepción
+tolerada es que la tabla todavía no exista: cualquier otro error aborta y
+dispara el rollback que ya estaba.
+
+**Los dos enrolamientos existentes** se rellenan desde el SQL, marcados
+`reconstructed`. Calculados desde el lote activo con la misma resolución de
+nombres del módulo:
+
+| | cierres | apps | pre-appr | files |
+|---|---|---|---|---|
+| Ana Peña (crudo 7 / 14 / 79 / 89) | 2,3333 | 4,6667 | **26,3333** | 29,6667 |
+| Kiana Smith (crudo 3 / 5 / 20 / 23) | 1,0000 | 1,6667 | 6,6667 | 7,6667 |
+
+⚠ Siete de los ocho números coinciden con la tabla del brief. El octavo no: el
+brief da 26,7 pre-approvals para Ana Peña y el dato da 26,3333, con 22 en mayo,
+27 en junio y 30 en julio. Se dejó el valor que sale de los datos porque es el
+único reproducible; si el 26,7 viene de otra regla de conteo, hay que decir cuál
+y se recalculan los dos.
+
+#### Cinco estados de mes, no dos
+
+La tentación es partir la línea en antes y después. `phaseOf` distingue cinco, y
+tres de ellos existen por errores concretos:
+
+- `partial` — el mes del enrolamiento está PARTIDO. Ana Peña se enroló el 14 de
+  agosto: contar agosto como "después" le atribuiría al plan lo que pasó antes
+  de que existiera.
+- `running` — el mes en curso no terminó. Compararlo contra un promedio de meses
+  enteros da una caída garantizada el día 3 de cada mes.
+- `future` — **apareció al probar, y era un −100% real**. El gráfico dibuja los
+  doce meses del año y hoy es agosto: septiembre a diciembre entraban como
+  `after` con cero cierres, y el promedio del después daba 0 sobre cuatro meses
+  que no pasaron. Exactamente el número falso que esta pantalla existe para no
+  mostrar.
+
+Con los dos planes de hoy, `completeMonthsAfter` devuelve `[]` y la pantalla
+muestra la línea base sola, con el primer mes medible nombrado: septiembre 2026.
+Visto desde octubre, la misma función devuelve `['2026-09']`.
+
+### BP23 — revisión conjunta
+
+Ruta `/business-plan/group/1-25-44`, con las claves en el path. Página y no
+modal: una revisión que no se puede mandar por link no sirve para discutirla.
+
+**Sumar, no promediar promedios.** Verificado con los 3 Loan Officers del branch
+703 (Ana Peña, Kiana Smith, Matthew Gomez Bruckner), ejecutando la agregación
+real de `lib/business-plan/group.ts`:
+
+```
+cierres del grupo: may 4 · jun 2 · jul 4  = 10 en la ventana
+  correcto    10 / 3 meses            = 3,33 por mes
+  incorrecto  (2,33 + 1,00 + 0,00) / 3 = 1,11 por mes
+```
+
+El segundo número está exactamente 3 veces abajo, y ese factor es el tamaño del
+grupo: no es "otra forma de verlo", responde una pregunta distinta (promedio por
+persona por mes). La agregación arma el mapa de cierres sumado y lo pasa por el
+MISMO `evaluateQualifier1` que usa una persona sola, así que no hay una segunda
+implementación del cálculo que pueda divergir.
+
+**Préstamos compartidos.** Verificado, no asumido:
+
+- Forecast, snapshot activo: los 3 tienen 10 préstamos abiertos con 10
+  `source_loan_id` distintos. Ninguno compartido. En el conjunto completo, 100
+  préstamos y cero compartidos entre cualquier par de personas.
+- Commercial Activity: **no se puede verificar hoy**. `loan_number` está en NULL
+  en las 4.609 filas del lote activo — se empezó a persistir en BP9/BP11,
+  después de esa carga. La deduplicación de cierres está implementada y probada
+  con un caso sintético, pero contra los datos de hoy no encuentra claves. La
+  pantalla lo dice con esas palabras: un cero ahí significa "sin clave para
+  comparar", no "comprobado y limpio".
+
+**Sin benchmark de alguien, el grupo no es evaluable.** No se rellena con cero:
+un cero diría que a esa persona no se le pide nada y el GAP del grupo saldría
+mejor de lo que es. Probado: con un miembro sin benchmark, `benchmark`, `gap` y
+`state` quedan en `null` y el veredicto es `not_evaluable`, con el nombre a la
+vista. Los 3 del 703 sí tienen (4,0 + 1,0 + 1,0 = 6,0).
+
+Nota al margen: el branch 703 tiene una cuarta persona en `employee_branch`,
+Fred Gomez, que **no** aparece en la revisión ni en el directorio porque su
+`role_in_branch` no es LO — es BDR. Su falta de benchmark no contradice el "los
+37 activos tienen benchmark": los 37 son Loan Officers.
+
+**El veredicto del grupo es informativo y no dispara nada.** Está escrito arriba,
+junto al badge, y no al pie: quien ve un "On Risk" idéntico al del perfil actúa
+antes de llegar al final de la página. Los planes son de personas.
+
+### BP24 — selección por contorno
+
+⚠ El motivo no es estético. Pintar de navy la tarjeta seleccionada obligaba a
+tener DOS versiones de todo lo que vive adentro: la píldora de días perdía su
+tinte, el avatar se apagaba, el icono había que aclararlo. Cada componente nuevo
+que entrara a una tarjeta iba a necesitar su propia excepción "cuando está
+seleccionada" — el camino directo a que se desincronicen. Con el fondo igual en
+los dos estados, cada pieza se dibuja una sola vez.
+
+Las reglas viejas **se borraron en su origen** en vez de anularse desde abajo.
+Anular una regla con otra deja las dos en el archivo y la siguiente persona no
+sabe cuál manda; era el mismo problema en chico. Quedó una sola declaración por
+selector.
+
+Fondo idéntico entre estados, verificado en el archivo:
+
+| | no seleccionado | seleccionado |
+|---|---|---|
+| `.bp-fstep__card` | `--slate-50` | `--slate-50` + borde 2px `--coral` |
+| `.bp-step` | `--slate-50` | `--slate-50` + borde 2px `--coral` |
+| `.bp-catalog__card` | `--canvas` | `--canvas` + borde 2px `--coral` |
+| `.seg button` | transparente | transparente + anillo `--coral` |
+
+Los avatares pasaron de círculo relleno a círculo de contorno: fondo `--canvas`,
+borde e iniciales en el color de la persona. El hash por nombre no cambió, así
+que cada quien conserva su color en todas las pantallas.
+
+La excepción declarada es el menú lateral, donde el item activo en coral sólido
+se queda: ahí el contraste es contra el fondo de la barra, no contra contenido
+que viva adentro.

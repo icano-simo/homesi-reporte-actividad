@@ -6,6 +6,7 @@ import { getSupabaseClient } from '@/lib/supabase/client';
 import { useBusinessPlanData } from '@/lib/business-plan/useBusinessPlanData';
 import { useFunnelLibrary } from '@/lib/business-plan/useFunnelLibrary';
 import { buildEnrollmentPlan, checkActivation, funnelStats, type Funnel, type FunnelCategory } from '@/lib/business-plan/funnels';
+import { averageOver, monthOf, monthsBefore } from '@/lib/business-plan/impact';
 import { AlertTriangleIcon } from '@/components/ui/icons';
 import Breadcrumbs from '../../../components/Breadcrumbs';
 import { FunnelGlyph } from '../../../components/funnelIcons';
@@ -194,6 +195,44 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
           activated_by: email,
         });
         if (e4) throw new Error(e4.message);
+
+        /*
+         * 5. ⚠ LA LÍNEA BASE, CONGELADA — etapa BP22.
+         *
+         * Va DENTRO del bloque de todo-o-nada, junto con la copia del plan, y
+         * ese es el punto: si se escribiera después, un fallo dejaría un plan
+         * activo sin foto del antes, y esa foto no se puede reconstruir más
+         * tarde sin mentir. Commercial Activity se recalcula con cada carga --
+         * el cambio de Heather movió préstamos de un mes a otro-- así que
+         * "los 3 meses previos" leídos dentro de dos semanas ya no son los
+         * mismos números que se ven hoy.
+         *
+         * Si falla, el catch de abajo borra el enrolamiento entero y no queda
+         * nada a medias.
+         *
+         * Se marca `captured`, no `reconstructed`: esta sí es la foto del día.
+         */
+        const enrollmentMonth = monthOf(new Date().toISOString());
+        const baseMonths = monthsBefore(enrollmentMonth, 3);
+        const avg = averageOver(lo.activity, baseMonths);
+        const { error: e5 } = await bp.from('enrollment_baseline').insert({
+          enrollment_key: enrollmentKey,
+          avg_closings: avg.closings,
+          avg_credit_applications: avg.creditApplications,
+          avg_pre_approvals: avg.preApprovals,
+          avg_file_creations: avg.fileCreations,
+          baseline_months: baseMonths,
+          enrollment_month: enrollmentMonth,
+          source: 'captured',
+          captured_by: email,
+        });
+        /*
+         * ⚠ La ÚNICA excepción tolerada: que la tabla todavía no exista. El SQL
+         * lo aplica el revisor, y entre el despliegue y la migración no tiene
+         * sentido impedir que alguien active un plan por una tabla que aún no
+         * está. Cualquier otro error sí aborta y dispara el rollback.
+         */
+        if (e5 && !['42P01', 'PGRST205', 'PGRST106'].includes(e5.code ?? '')) throw new Error(e5.message);
       } catch (inner) {
         if (enrollmentKey !== null) {
           // Los nodos y milestones se van en cascada con el enrolamiento.

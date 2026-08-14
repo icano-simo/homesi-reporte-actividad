@@ -481,6 +481,10 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
             <button type="button" className="bp-btn bp-btn--small" onClick={() => setEditing((v) => !v)}>
               {editing ? 'Close editor' : 'Edit plan'}
             </button>
+            {/* Etapa BP22: el resultado, al lado del avance. */}
+            <Link href={'/business-plan/lo/' + employeeKey + '/impact'} className="bp-btn bp-btn--small">
+              See impact
+            </Link>
             <div className="bp-team-bar__stack">
               {plan.support.slice(0, 4).map((p) => (
                 <Avatar key={p.employee_key} name={p.full_name} />

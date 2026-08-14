@@ -4,6 +4,7 @@ import { useMemo, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { useBusinessPlanData } from '@/lib/business-plan/useBusinessPlanData';
 import { branchStatusClass, branchStatusLabel } from '@/lib/business-plan/intervention';
+import { serializeKeys } from '@/lib/business-plan/group';
 import Breadcrumbs from '../../components/Breadcrumbs';
 import {
   CalcNote,
@@ -42,6 +43,20 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
   const router = useRouter();
   const { data, isLoading, error } = useBusinessPlanData();
   const [search, setSearch] = useState('');
+  /*
+   * Etapa BP23. Un `Set` de claves y no un flag por fila: la selección tiene
+   * que sobrevivir a filtrar por nombre. Con un booleano dentro de cada fila,
+   * escribir en el buscador habría borrado en silencio a los que dejaron de
+   * verse -- y el conteo de la barra habría cambiado solo.
+   */
+  const [picked, setPicked] = useState<Set<number>>(new Set());
+  const togglePick = (k: number) =>
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
 
   const branch = useMemo(() => data?.branches.find((b) => b.branchCode === branchCode) ?? null, [data, branchCode]);
 
@@ -135,6 +150,7 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
                   puede comparar ni entre personas ni entre meses.
                 */}
                 <colgroup>
+                  <col className="bp-col-pick" />
                   <col className="bp-col-name" />
                   <col className="bp-col-metric" />
                   <col className="bp-col-metric" />
@@ -144,6 +160,37 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
                 </colgroup>
                 <thead>
                   <tr className="mo-row">
+                    <th className="bp-center bp-pick-cell">
+                      {/*
+                        La casilla de "todos" opera sobre los VISIBLES, no sobre
+                        el branch entero: marcar una casilla que dice "todos" y
+                        que además seleccione a cinco personas que el filtro está
+                        escondiendo sería una trampa.
+                      */}
+                      <input
+                        type="checkbox"
+                        aria-label="Select every visible loan officer"
+                        title="Select every visible loan officer"
+                        checked={visibleLos.length > 0 && visibleLos.every((lo) => picked.has(lo.employeeKey))}
+                        ref={(el) => {
+                          if (el) {
+                            const some = visibleLos.some((lo) => picked.has(lo.employeeKey));
+                            const all = visibleLos.length > 0 && visibleLos.every((lo) => picked.has(lo.employeeKey));
+                            el.indeterminate = some && !all;
+                          }
+                        }}
+                        onChange={(e) =>
+                          setPicked((prev) => {
+                            const next = new Set(prev);
+                            for (const lo of visibleLos) {
+                              if (e.target.checked) next.add(lo.employeeKey);
+                              else next.delete(lo.employeeKey);
+                            }
+                            return next;
+                          })
+                        }
+                      />
+                    </th>
                     <th className="lbl">Loan Officer</th>
                     <th className="bp-center">Avg Closings 3M</th>
                     <th className="bp-center">Avg Credit Apps</th>
@@ -156,7 +203,7 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
                   {visibleLos.map((lo) => (
                     <tr
                       key={lo.employeeKey}
-                      className="metric bp-row-link"
+                      className={'metric bp-row-link' + (picked.has(lo.employeeKey) ? ' is-picked' : '')}
                       tabIndex={0}
                       role="link"
                       onClick={() => router.push(loHref(lo.employeeKey))}
@@ -167,6 +214,19 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
                         }
                       }}
                     >
+                      {/*
+                        `stopPropagation`: la fila entera es un enlace al perfil
+                        desde BP1. Sin esto, marcar la casilla navegaba y la
+                        selección se perdia antes de verse.
+                      */}
+                      <td className="bp-center bp-pick-cell" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={picked.has(lo.employeeKey)}
+                          aria-label={'Select ' + lo.fullName}
+                          onChange={() => togglePick(lo.employeeKey)}
+                        />
+                      </td>
                       <td className="lbl">
                         {/* Siempre el nombre canónico del roster, nunca el crudo de la fuente. */}
                         {lo.fullName}
@@ -211,7 +271,7 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
                   ))}
                   {!visibleLos.length && (
                     <tr>
-                      <td className="lbl bp-empty-cell" colSpan={6}>
+                      <td className="lbl bp-empty-cell" colSpan={7}>
                         No loan officer matches that search.
                       </td>
                     </tr>
@@ -220,6 +280,32 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
               </table>
             </div>
           </div>
+
+          {/*
+            ⚠ La barra aparece a partir de DOS. Con uno solo, "revisar en
+            conjunto" es su propio perfil, que ya está a un clic en la fila.
+          */}
+          {picked.size >= 2 && (
+            <div className="bp-pickbar" role="region" aria-label="Group review">
+              <span className="bp-pickbar__count">{picked.size} selected</span>
+              <span className="bp-pickbar__names">
+                {[...picked]
+                  .map((k) => branch.loanOfficers.find((lo) => lo.employeeKey === k)?.fullName)
+                  .filter(Boolean)
+                  .join(' · ')}
+              </span>
+              <button type="button" className="bp-linkish" onClick={() => setPicked(new Set())}>
+                clear
+              </button>
+              <button
+                type="button"
+                className="bp-btn bp-btn--primary bp-btn--small"
+                onClick={() => router.push('/business-plan/group/' + serializeKeys([...picked]))}
+              >
+                Review together
+              </button>
+            </div>
+          )}
 
           {/* Etapa BP16: el diagnóstico se mudó a Settings. Acá queda sólo la
               nota de cálculo, que explica los números de ESTA pantalla. */}

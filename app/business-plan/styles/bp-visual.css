@@ -428,6 +428,11 @@ table.piv.bp-table--los th {
   gap: 14px;
   min-width: 0;
 }
+/*
+ * El avatar. Etapa BP24: de circulo relleno a circulo de CONTORNO -- fondo
+ * blanco, borde e iniciales del color de la persona. El color lo pone una clase
+ * `--tN` (seccion 23); esto es lo comun a todas.
+ */
 .bp-avatar {
   display: flex;
   align-items: center;
@@ -435,8 +440,9 @@ table.piv.bp-table--los th {
   width: 52px;
   height: 52px;
   border-radius: 50%;
-  background: var(--navy);
-  color: var(--canvas);
+  background: var(--canvas);
+  color: var(--navy);
+  border: 1.5px solid var(--slate-300);
   font-family: var(--font-display);
   font-size: 17px;
   font-weight: 800;
@@ -1813,11 +1819,8 @@ table.piv.bp-table--los th {
   outline: 2px solid var(--sky);
   outline-offset: 2px;
 }
-/* La elegida: borde de marca y check, para que no haya duda de cuál se activa. */
-.bp-catalog__card.is-picked {
-  border-color: var(--coral);
-  background: var(--rose-50);
-}
+/* La elegida: ver la seccion 23 (BP24). Contorno coral y check, sin tenir el
+   fondo -- el tinte apagaba las pildoras de adentro. */
 .bp-catalog__check {
   position: absolute;
   top: 12px;
@@ -1981,17 +1984,8 @@ table.piv.bp-table--los th {
   outline: 2px solid var(--sky);
   outline-offset: 2px;
 }
-/* Completado en navy, en curso en coral, pendientes en gris. */
-.bp-step.is-done {
-  background: var(--navy);
-  border-color: var(--navy);
-  color: var(--canvas);
-}
-.bp-step.is-current {
-  background: var(--coral);
-  border-color: var(--coral);
-  color: var(--canvas);
-}
+/* Completado, en curso y pendiente: ver la seccion 23 (BP24). Los tres
+   comparten fondo y se distinguen por el contorno. */
 .bp-step__n {
   font-family: var(--font-display);
   font-weight: 700;
@@ -2716,11 +2710,9 @@ table.piv th.bp-wrap {
   outline: 2px solid var(--sky);
   outline-offset: 2px;
 }
-/* El nodo abierto, en navy: es el que se está mirando abajo. */
-.bp-fstep__card.is-active {
-  background: var(--navy);
-  border-color: var(--navy);
-}
+/* El nodo abierto: ver la seccion 23 (BP24). Se marca por CONTORNO, no por
+   fondo -- la version en navy pleno de BP16 obligaba a tener dos versiones de
+   cada pildora y de cada avatar. */
 .bp-fstep__n {
   font-family: var(--font-display);
   font-size: 10px;
@@ -2728,17 +2720,11 @@ table.piv th.bp-wrap {
   color: var(--slate-400);
   font-variant-numeric: tabular-nums;
 }
-.bp-fstep__card.is-active .bp-fstep__n {
-  color: var(--sky);
-}
 .bp-fstep__name {
   font-family: var(--font-display);
   font-size: 12.5px;
   font-weight: 700;
   color: var(--navy);
-}
-.bp-fstep__card.is-active .bp-fstep__name {
-  color: var(--canvas);
 }
 .bp-fstep__owners {
   display: flex;
@@ -3087,36 +3073,10 @@ table.piv.bp-table--cards .badge--pill {
  * Los seis salen de escalas que ya existían: navy/sky, emerald, amber, coral,
  * slate y sky pleno. Ninguno es un color nuevo.
  */
-.bp-avatar--t0 {
-  background: var(--accent-soft);
-  color: var(--navy);
-  border: 1px solid var(--sky);
-}
-.bp-avatar--t1 {
-  background: var(--emerald-50);
-  color: var(--emerald-800);
-  border: 1px solid var(--emerald-200);
-}
-.bp-avatar--t2 {
-  background: var(--amber-50);
-  color: var(--amber-800);
-  border: 1px solid var(--amber-200);
-}
-.bp-avatar--t3 {
-  background: var(--rose-50);
-  color: var(--coral);
-  border: 1px solid var(--rose-200);
-}
-.bp-avatar--t4 {
-  background: var(--slate-100);
-  color: var(--slate-700);
-  border: 1px solid var(--slate-300);
-}
-.bp-avatar--t5 {
-  background: var(--sky);
-  color: var(--navy);
-  border: 1px solid var(--sky);
-}
+/*
+ * Los seis tonos viven en la seccion 23 (BP24): pasaron de circulo relleno a
+ * circulo de contorno. El hash que elige cual le toca a cada persona no cambio.
+ */
 
 /* ── Píldoras de conteo, de día y de vencido ────────────────────────────── */
 
@@ -3242,19 +3202,9 @@ table.piv.bp-table--cards .badge--pill {
   align-items: center;
   gap: 6px;
 }
-/* Acento superior en coral sobre el nodo abierto. */
-.bp-fstep__card.is-active {
-  border-top: 3px solid var(--coral);
-}
-.bp-fstep__card.is-active .bp-pill--sky {
-  background: transparent;
-  color: var(--sky);
-  border-color: var(--sky);
-}
-.bp-fstep__card.is-active .bp-glyph--soft {
-  background: transparent;
-  color: var(--sky);
-}
+/* El acento del nodo abierto vive en la seccion 23 (BP24). Las tres reglas que
+   habia aca -- nombre, pildora e icono aclarados -- existian solo para
+   sobrevivir al fondo navy, y se fueron con el. */
 
 /* ── Responsables del nodo, rotulados ───────────────────────────────────── */
 
@@ -3668,4 +3618,437 @@ table.piv td .bp-glyph {
   border-color: var(--coral);
   color: var(--coral);
   background: var(--rose-50);
+}
+
+/* ===========================================================================
+ * 23. Etapas BP22, BP23 y BP24 — impacto, revisión conjunta y la selección
+ *     marcada por CONTORNO en vez de por relleno
+ * ===========================================================================
+ *
+ * Cero hexadecimales, como siempre. Todo sale de tokens.css.
+ */
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * BP24 — SELECCIÓN POR CONTORNO
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ * ⚠ EL MOTIVO NO ES ESTÉTICO, ES DE MANTENIMIENTO.
+ *
+ * Pintar de navy la tarjeta seleccionada obligaba a tener DOS versiones de todo
+ * lo que vive adentro: la píldora de días perdía su tinte, el avatar se apagaba
+ * y el icono había que aclararlo. Cada componente nuevo que entrara a una
+ * tarjeta iba a necesitar su propia excepción "cuando está seleccionada", y ese
+ * es el camino directo a que se desincronicen.
+ *
+ * Con el fondo IGUAL en los dos estados, las píldoras y los avatares se dibujan
+ * una sola vez y se ven idénticos estén o no seleccionados. Lo único que cambia
+ * es el borde.
+ *
+ * LA EXCEPCIÓN es el menú lateral: ahí el item activo en coral sólido contrasta
+ * contra el fondo de la barra, no contra contenido que viva adentro. No se toca.
+ */
+
+/* ── Los avatares, en contorno ──────────────────────────────────────────── */
+
+/*
+ * De círculo relleno a círculo de contorno: fondo blanco, borde e iniciales en
+ * el color de la persona. Se ven más limpios, y sobre todo funcionan igual
+ * sobre cualquier fondo -- que es lo que permite que la tarjeta seleccionada ya
+ * no tenga que tratarlos distinto.
+ *
+ * Lo común a todos está en la sección 4, con el resto de la forma del avatar;
+ * acá sólo los seis pares de color. El hash por nombre no cambia
+ * (`avatarToneOf` en components/shared.tsx): cada persona conserva su color en
+ * todas las pantallas.
+ */
+.bp-avatar--t0 {
+  background: var(--canvas);
+  color: var(--navy);
+  border-color: var(--sky);
+}
+.bp-avatar--t1 {
+  background: var(--canvas);
+  color: var(--emerald-700);
+  border-color: var(--emerald-700);
+}
+.bp-avatar--t2 {
+  background: var(--canvas);
+  color: var(--amber-700);
+  border-color: var(--amber-500);
+}
+.bp-avatar--t3 {
+  background: var(--canvas);
+  color: var(--coral);
+  border-color: var(--coral);
+}
+.bp-avatar--t4 {
+  background: var(--canvas);
+  color: var(--slate-600);
+  border-color: var(--slate-400);
+}
+.bp-avatar--t5 {
+  background: var(--canvas);
+  color: var(--slate-700);
+  border-color: var(--slate-700);
+}
+
+/* ── El nodo abierto del preview ────────────────────────────────────────── */
+
+/*
+ * Mismo fondo que los demás. Se marca sólo con el contorno en coral, más grueso
+ * y con una sombra suave para que se despegue.
+ */
+.bp-fstep__card.is-active {
+  background: var(--slate-50);
+  border: 2px solid var(--coral);
+  box-shadow: var(--shadow-xs);
+}
+/*
+ * El numero del nodo abierto, en coral. Es lo unico que hace falta ahora: las
+ * compensaciones de color que vivian aca se borraron en su origen, en vez de
+ * anularse desde abajo. Anular una regla con otra deja las dos en el archivo y
+ * la proxima persona no sabe cual manda.
+ */
+.bp-fstep__card.is-active .bp-fstep__n {
+  color: var(--coral);
+}
+
+/* ── El stepper del plan activo ─────────────────────────────────────────── */
+
+/*
+ * Tres estados, los tres sobre el mismo fondo: pendiente en gris, completo en
+ * emerald y el abierto en coral. Antes los dos últimos eran rellenos plenos y
+ * el conteo "3/3" quedaba en un blanco que competía con el del nombre.
+ */
+.bp-step.is-done {
+  background: var(--slate-50);
+  border: 1.5px solid var(--emerald-700);
+  color: var(--emerald-800);
+}
+/* Mismo fondo que las pendientes: lo unico que cambia es el contorno. */
+.bp-step.is-current {
+  background: var(--slate-50);
+  border: 2px solid var(--coral);
+  color: var(--coral);
+}
+.bp-step.is-current .bp-step__n,
+.bp-step.is-done .bp-step__n {
+  opacity: 1;
+}
+
+/* ── Las pestañas ───────────────────────────────────────────────────────── */
+
+/*
+ * `.seg button.on` vive en components.css, compartido con Commercial Activity y
+ * Forecast, que están fuera de alcance. Se sobrescribe ACÁ: como bp-visual.css
+ * sólo se carga bajo /business-plan, el alcance del override es exactamente el
+ * módulo. Mismo recurso que se usó en BP17 con `.badge--rose`.
+ */
+/* Transparente: sobre la pista gris del control, la pestana activa es un anillo
+   coral y nada mas. Rellenarla de blanco habria sido otro fondo distinto. */
+.seg button.on {
+  background: transparent;
+  color: var(--coral);
+  box-shadow: inset 0 0 0 2px var(--coral);
+}
+.seg button.on:hover {
+  color: var(--coral);
+}
+
+/* ── La tarjeta del catálogo ────────────────────────────────────────────── */
+
+/*
+ * Ya se marcaba con borde coral, pero además teñía el fondo de rose. Eso
+ * apagaba las píldoras del contenido, que es el mismo problema en chico. Queda
+ * sólo el contorno, más grueso.
+ */
+.bp-catalog__card.is-picked {
+  background: var(--canvas);
+  border: 2px solid var(--coral);
+  box-shadow: var(--shadow-xs);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * BP22 — IMPACTO
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+.bp-impact-windows {
+  font-size: 11.5px;
+  color: var(--slate-500);
+  margin: 6px 0 0;
+  line-height: 1.6;
+  max-width: 78ch;
+}
+
+.bp-impact-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+@media (max-width: 900px) {
+  .bp-impact-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+/* Tarjeta y botón a la vez: elegir una cambia la serie del gráfico de abajo. */
+.bp-impact-card {
+  font-family: inherit;
+  text-align: center;
+  background: var(--canvas);
+  border: 1.5px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+  padding: 14px 12px;
+  cursor: pointer;
+  transition: border-color 0.14s ease, box-shadow 0.14s ease;
+}
+.bp-impact-card:hover {
+  border-color: var(--sky);
+}
+.bp-impact-card:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 2px;
+}
+/* Contorno, no relleno: misma regla que todo lo demás desde BP24. */
+.bp-impact-card.is-picked {
+  border: 2px solid var(--coral);
+}
+.bp-impact-card__label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+  margin-bottom: 8px;
+}
+.bp-impact-card__pair {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.bp-impact-card__before,
+.bp-impact-card__after {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+}
+.bp-impact-card__before {
+  color: var(--slate-400);
+}
+.bp-impact-card__cap {
+  font-family: var(--font-body);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+}
+.bp-impact-card__arrow {
+  color: var(--slate-300);
+  font-size: 15px;
+}
+.bp-impact-card__change {
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+/* Verde si sube, rojo de marca si baja. */
+.bp-impact-card__change.is-up {
+  color: var(--emerald-700);
+}
+.bp-impact-card__change.is-down {
+  color: var(--coral);
+}
+.bp-impact-card__change.is-flat {
+  color: var(--slate-500);
+}
+
+/*
+ * El aviso de "todavía no hay historia". Deliberadamente grande: es la
+ * respuesta principal de la pantalla mientras no haya un mes completo posterior,
+ * no una nota al pie.
+ */
+.bp-impact-notice {
+  border: 1px solid var(--amber-200);
+  border-left: 3px solid var(--amber-500);
+  background: var(--amber-50);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--amber-800);
+  margin-bottom: 18px;
+}
+
+/* ── El gráfico de impacto ──────────────────────────────────────────────── */
+
+.bp-impact-chart__col {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  height: 100%;
+}
+/* La línea del enrolamiento, al borde izquierdo del mes partido. */
+.bp-impact-chart__mark {
+  position: absolute;
+  left: -3px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--coral);
+}
+.bp-impact-chart__bar.is-before {
+  background: var(--slate-300);
+}
+/*
+ * El mes partido va RAYADO y no de un color pleno: un color pleno lo pondría de
+ * un lado de la línea, y no está de ninguno. La trama dice "mitad y mitad" sin
+ * tener que escribirlo en la barra.
+ */
+.bp-impact-chart__bar.is-partial {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--amber-200),
+    var(--amber-200) 4px,
+    var(--amber-50) 4px,
+    var(--amber-50) 8px
+  );
+  border: 1px solid var(--amber-500);
+}
+.bp-impact-chart__bar.is-after {
+  background: var(--navy);
+}
+.bp-impact-chart__bar.is-running {
+  background: var(--accent-soft);
+  border: 1px dashed var(--sky);
+}
+.bp-dot--before {
+  background: var(--slate-300);
+}
+.bp-dot--partial {
+  background: var(--amber-200);
+}
+.bp-dot--after {
+  background: var(--navy);
+}
+.bp-dot--running {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--sky);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * BP23 — REVISIÓN CONJUNTA
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+/* La columna de casillas: lo más angosta posible sin apretar el control. */
+.bp-table--los col.bp-col-pick {
+  width: 34px;
+}
+table.piv td.bp-pick-cell,
+table.piv th.bp-pick-cell {
+  padding-left: 8px;
+  padding-right: 0;
+}
+.bp-pick-cell input {
+  cursor: pointer;
+  accent-color: var(--coral);
+}
+/* Contorno también acá: la fila elegida se marca al costado, sin teñirse. */
+table.piv tr.metric.is-picked td.lbl {
+  box-shadow: inset 3px 0 0 var(--coral);
+}
+
+/*
+ * La barra de acción. `sticky` al pie para que no haya que scrollear hasta el
+ * final de una tabla larga para encontrar el botón después de elegir.
+ */
+.bp-pickbar {
+  position: sticky;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1.5px solid var(--coral);
+  border-radius: var(--radius-lg);
+  background: var(--canvas);
+  box-shadow: var(--shadow-lg);
+  padding: 10px 16px;
+  margin: 14px 0 4px;
+}
+.bp-pickbar__count {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--coral);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.bp-pickbar__names {
+  flex: 1;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--slate-500);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* El aviso de que el veredicto del grupo no dispara nada. */
+.bp-group-note {
+  border: 1px solid var(--sky);
+  border-left: 3px solid var(--navy);
+  background: var(--accent-soft);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--navy);
+  margin-bottom: 18px;
+}
+
+.bp-group-gap {
+  padding: 16px 20px;
+  margin-bottom: 18px;
+}
+.bp-group-gap__row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+@media (max-width: 900px) {
+  .bp-group-gap__row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.bp-group-dedupe {
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--slate-500);
+  border-top: 1px solid var(--slate-100);
+  padding-top: 10px;
+  margin: 14px 0 18px;
+  max-width: 82ch;
+}
+
+/*
+ * Los meses que todavia no ocurrieron. Casi invisibles: se dibuja el hueco para
+ * que el eje del año quede completo, sin que parezcan un desplome.
+ */
+.bp-impact-chart__bar.is-future {
+  background: var(--slate-100);
+}
+.bp-dot--future {
+  background: var(--slate-100);
+  box-shadow: inset 0 0 0 1px var(--slate-300);
 }
