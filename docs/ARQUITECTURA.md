@@ -1861,3 +1861,155 @@ todavía no pedida.
 El resumen del plan (`LoanOfficerRow.activePlan`) viaja con cada Loan Officer
 desde `loadData`, así que el perfil, el directorio del branch y el portfolio lo
 muestran sin una consulta por persona.
+
+## Etapas BP20 y BP21 — BP Team, notas, fechas editables y el icono que no se dibujaba
+
+### El bug del icono: estaba guardado y no había quién lo pintara
+
+Se buscó en la lectura y en el guardado, y los dos estaban bien: los seis
+funnels tienen `icon` cargado en la base (`message`, `building`, `grid`,
+`target`, `building`, `users`) y `useFunnelLibrary` los trae con `select('*')`.
+
+El problema era otro: `iconByName` vivía dentro de `library/IconPicker.tsx` y
+**ninguna pantalla la importaba nunca**. Un grep del proyecto la encontraba en
+un solo archivo, el mismo donde estaba definida. Se elegía el icono, se
+guardaba, y después no había una sola línea que lo dibujara.
+
+El arreglo es la mudanza: el registro pasó a
+`app/business-plan/components/funnelIcons.tsx`, con un componente `FunnelGlyph`
+que resuelve el caso de "sin icono" devolviendo `null` en vez de un cuadrado
+vacío. El selector quedó como consumidor del registro, no como su dueño.
+
+Se dibuja en las cinco pantallas: tarjeta del catálogo, modal de preview, banner
+del plan activo en el perfil, portal del plan y las dos tablas de la biblioteca.
+
+El enrolamiento **no copia el icono**, a diferencia del nombre. Es deliberado y
+la asimetría tiene motivo: el nombre identifica con qué se activó el plan y por
+eso es una foto; el icono es decoración de la estrategia, así que sigue al
+funnel actual. `ActivePlanSummary.funnelIcon` y `ActivePlan.funnel_icon` lo leen
+en vivo de la plantilla.
+
+### Dos niveles de responsabilidad, y por qué uno no estaba
+
+La tarjeta del nodo mostraba avatares arriba a la derecha sin rótulo, y cada
+paso mostraba otro responsable en su fila. Parecían lo mismo mal sincronizado.
+Son dos cosas distintas:
+
+- **Responsable del nodo** — responde por que la etapa avance. Puede ser más de
+  uno.
+- **Responsable del paso** — ejecuta ese paso y es el único que puede darlo por
+  hecho.
+
+Peor: los avatares del nodo salían de los responsables de sus pasos, lo cual era
+directamente falso. En Cold Calling el nodo lo llevan Juanjo Cabrera e Isabella
+Cano, y los seis pasos se reparten entre los dos.
+
+`enrollment_node` no copia los responsables del nodo, así que se resuelven en
+vivo contra `node_owner` de la plantilla vía `source_node_key`. También
+deliberado: quién responde por una etapa es un hecho de organización actual, no
+una foto del día del enrolamiento. Si alguien deja de llevar una etapa, deja de
+llevarla también en los planes en curso.
+
+### Estado y fecha editables, sin aflojar la regla
+
+El botón redondo de "marcar hecho" pasó a ser un desplegable de tres estados y
+la fecha pasó a ser un `<input type="date">`. Las dos reglas de siempre siguen
+en pie, y ahora viven en una función pura, `allowedStatuses`:
+
+- **Sólo el responsable puede llevar un paso a Done.** Lo respalda la app y nada
+  más: `done` no lleva restricción de autor en la base.
+- **Un paso hecho no se reabre.** Esto sí lo respalda la base, con el `using
+  (status <> 'done')` de la policy de UPDATE, que hace la fila invisible.
+
+Lo nuevo es el estado intermedio. `in_progress` es planificación, no un hecho:
+cualquiera del equipo lo mueve, igual que reprograma una fecha. Restringirlo al
+responsable no protegería nada.
+
+Verificado contra la base con una sesión `authenticated` real: `PATCH` de
+`due_date` y de `status` devuelven 200, se releen cambiados y se restauraron al
+valor original. **No se creó ningún paso en `done`**: esa transición es
+irreversible desde la app por diseño, así que probarla habría dejado residuo
+imborrable en un plan de producción.
+
+### Notas: una FK por destino, no una tabla polimórfica
+
+`docs/sql/2026-08-business-plan-note.sql`, **sin ejecutar**. Cuatro columnas FK
+nulables — `funnel_key`, `enrollment_node_key`, `enrollment_milestone_key`,
+`employee_key` — y un check de que exactamente una esté puesta.
+
+El atajo habitual (`entity_type` + `entity_id`) se descartó porque `entity_id`
+no puede tener FK: la base dejaría de saber si el objeto al que apunta una nota
+existe, no habría cascada al borrarlo, y `entity_type` sería texto libre donde
+'node', 'Node' y 'nodo' conviven sin que nada se queje.
+
+Las notas del **nodo** y del **paso** cuelgan de la instancia
+(`enrollment_node`, `enrollment_milestone`), no de la plantilla: "se habló con
+la persona y quedó en reprogramar" es un hecho de SU plan. Pegarlas a `node`
+las haría aparecer en el plan de todos los que usen esa plantilla.
+
+Sólo INSERT y SELECT, por **ausencia** de política de UPDATE y DELETE, más un
+grant que tampoco las incluye. Mismo criterio que `employee_benchmark`. Para
+rectificar se escribe otra nota.
+
+`useNotes` tolera que la tabla no exista: se confirmó que hoy PostgREST
+responde `404 / PGRST205`, que es uno de los códigos que el hook reconoce, así
+que el panel avisa qué SQL falta en vez de romper la pantalla.
+
+### BP Team
+
+Cuarta entrada del menú. Las otras tres organizan por Loan Officer; ésta lo da
+vuelta y organiza por persona del equipo de soporte.
+
+**Dos tablas, no una.** Arriba los pasos asignados, abajo las etapas de las que
+se es responsable de nodo. Se puede responder por una etapa sin ejecutar ni uno
+de sus pasos; juntarlas borraría la distinción que la tarjeta del nodo acaba de
+hacer explícita.
+
+Se identifica por el email de la sesión contra `org.dim_employee.email`, el
+mismo criterio que decide quién puede cerrar un paso. Si el email no es de nadie
+del equipo **no se muestra una tabla vacía**: una tabla vacía se lee como "no
+tenés nada pendiente", que es una respuesta falsa a una pregunta que nadie hizo.
+
+Se leen las tablas enteras y se filtra en memoria, para que el selector de
+persona no dispare cinco consultas por cambio. Con dos planes activos son tres
+viajes; cuando esto sean cientos de planes habrá que darlo vuelta con una vista
+del lado de Postgres.
+
+Verificado con datos reales: 28 pasos repartidos entre los ocho, de 2 a 6 cada
+uno. Juanjo Cabrera es el que más tiene (6 pasos, 2 etapas).
+
+### Al activar, caer en modo edición
+
+El catálogo redirige a `…/plan?activated=1`, y ese parámetro abre el editor y
+muestra un aviso. Es el único momento en que personalizar tiene sentido y no es
+peligroso: el plan ya es una copia propia. Antes de activar no se puede editar
+nada, porque lo único que existe es la plantilla y tocarla cambiaría el plan de
+todos los enrolados.
+
+### Color: la paleta que hay, no una nueva
+
+El pedido cromático original nombraba `bg-indigo-100` y `bg-purple-100`. No
+están en el Brand Book y meterlos habría roto la consistencia que costó varias
+rondas alinear. Los seis tonos de avatar salen de escalas que ya existían:
+navy/sky, emerald, amber, coral, slate y sky pleno.
+
+**El tono es determinista a partir del nombre**, no de la posición en la lista.
+Es la parte que importa: con el índice, la misma persona sería azul en una
+pantalla y ámbar en otra según en qué orden viniera cada consulta, y un color
+que cambia entre vistas es peor que todos iguales.
+
+La normalización es la misma que la de `initialsOf`, con su mismo límite: dos
+grafías distintas del mismo nombre darían tonos distintos, igual que ya dan
+iniciales distintas. No ocurre porque todos los avatares se dibujan con
+`dim_employee.full_name`, que es un valor por persona.
+
+### La flecha que apuntaba a la nada
+
+Cuando la secuencia de nodos envolvía a una segunda línea, el último de la
+primera fila mostraba una flecha hacia el borde del modal.
+
+No se puede resolver con `flex-wrap`: **no hay selector CSS que sepa cuál es el
+último elemento de una fila**, porque el corte lo decide el navegador al medir.
+El stepper pasó a ser una grilla de columnas fijas — 4 en escritorio, 2 abajo de
+900px — y ahí `:nth-child(4n)` es exactamente el último de cada fila. El precio
+es que la grilla ya no se adapta al contenido.

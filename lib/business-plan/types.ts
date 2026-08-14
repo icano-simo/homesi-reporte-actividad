@@ -337,6 +337,14 @@ export interface ActivePlanSummary {
   funnelKey: number;
   /** Nombre copiado al activar, no el actual de la plantilla. */
   funnelName: string;
+  /**
+   * Icono de la PLANTILLA, leído en vivo -- a diferencia del nombre, que es la
+   * copia. Etapa BP21: el enrolamiento no guarda icono, y no tiene por qué. El
+   * nombre se copia porque identifica con qué se activó el plan; el icono es
+   * decoración de la estrategia, así que sigue al funnel actual y cambiarlo en
+   * la biblioteca se refleja en todos lados, que es lo esperable.
+   */
+  funnelIcon: string | null;
   activatedAt: string;
   doneMilestones: number;
   totalMilestones: number;

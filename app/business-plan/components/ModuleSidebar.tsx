@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
-import { BuildingIcon, GridIcon, TargetIcon } from '@/components/ui/icons';
+import { BuildingIcon, GridIcon, HandshakeIcon, TargetIcon } from '@/components/ui/icons';
 
 /**
  * ============================================================================
@@ -34,6 +34,12 @@ interface SidebarItem {
 const ITEMS: SidebarItem[] = [
   { href: '/business-plan', label: 'Branch Portfolio', icon: <BuildingIcon size={16} /> },
   { href: '/business-plan/library', label: 'Funnel & Node Library', icon: <GridIcon size={16} /> },
+  /*
+   * Etapa BP20. Las otras entradas miran el negocio por Loan Officer; ésta lo
+   * mira por PERSONA DEL EQUIPO DE SOPORTE, que es lo que faltaba: para saber
+   * todo lo que tenía pendiente alguien había que abrir los planes uno por uno.
+   */
+  { href: '/business-plan/team', label: 'BP Team', icon: <HandshakeIcon size={16} /> },
   { href: '/business-plan/settings', label: 'Settings', icon: <TargetIcon size={16} /> },
 ];
 

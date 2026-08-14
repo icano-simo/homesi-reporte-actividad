@@ -253,6 +253,69 @@ export function canToggleMilestone(sessionEmail: string | null, accountableEmail
 
 /**
  * ============================================================================
+ * ¿QUÉ ESTADOS PUEDE ELEGIR ESTA PERSONA EN ESTE PASO? — etapa BP20
+ * ============================================================================
+ *
+ * El estado dejó de ser un botón de "marcar hecho" y pasó a ser un desplegable
+ * de tres. Eso multiplica los casos, así que la regla vive acá, en una función
+ * pura que se puede leer entera, y no repartida por los `disabled` de la vista.
+ *
+ * Las dos reglas de siempre, sin cambios:
+ *
+ *   · Sólo el RESPONSABLE del paso puede llevarlo a Done. Nadie más, ni un
+ *     manager. Lo respalda la app y no hace falta más: `done` no lleva
+ *     restricción de autor en la base, así que si la vista lo permitiera, la
+ *     base lo dejaría pasar.
+ *   · Un paso ya hecho NO SE REABRE. Esto sí lo respalda la base: el `using
+ *     (status <> 'done')` de la policy de UPDATE hace invisible la fila, así
+ *     que aunque alguien forzara la llamada, no actualizaría nada.
+ *
+ * Lo nuevo es el estado intermedio. `in_progress` es planificación, no un
+ * hecho: cualquiera del equipo puede mover un paso a "en curso" o devolverlo a
+ * "pendiente", igual que puede reprogramar la fecha. Restringirlo al
+ * responsable no protegería nada y obligaría a pedirle a otro que mueva una
+ * etiqueta.
+ */
+export function allowedStatuses(
+  current: MilestoneStatus,
+  sessionEmail: string | null,
+  accountableEmail: string | null
+): MilestoneStatus[] {
+  if (current === 'done') return ['done'];
+  const base: MilestoneStatus[] = ['pending', 'in_progress'];
+  if (canToggleMilestone(sessionEmail, accountableEmail)) base.push('done');
+  return base;
+}
+
+/** Etiquetas de estado, en un solo lugar. */
+export const MILESTONE_STATUS_LABEL: Record<MilestoneStatus, string> = {
+  pending: 'Pending',
+  in_progress: 'In progress',
+  done: 'Done',
+};
+
+/** Clase de la píldora de estado. Mismo lenguaje de color que el veredicto. */
+export const MILESTONE_STATUS_CLASS: Record<MilestoneStatus, string> = {
+  pending: 'badge badge--pill badge--neutral',
+  in_progress: 'badge badge--pill badge--amber',
+  done: 'badge badge--pill badge--emerald',
+};
+
+/**
+ * ¿Está vencido? Pendiente o en curso, con fecha límite anterior a hoy.
+ *
+ * Un paso HECHO nunca está vencido, aunque se haya cerrado tarde: la fecha
+ * límite existe para saber qué falta, no para reprochar lo que ya se hizo.
+ * `today` se pasa como argumento -- leer el reloj adentro haría la función
+ * imposible de probar y volvería impuro cualquier render que la llame.
+ */
+export function isOverdue(status: MilestoneStatus, dueDate: string | null, today: string): boolean {
+  if (status === 'done' || dueDate === null) return false;
+  return dueDate < today;
+}
+
+/**
+ * ============================================================================
  * ¿SE PUEDE ACTIVAR ESTE FUNNEL?
  * ============================================================================
  *

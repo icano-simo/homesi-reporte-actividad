@@ -22,7 +22,24 @@ import { CloseIcon } from '@/components/ui/icons';
  * link, es página. Si es "quiero ver esto un segundo y cerrar", es modal.
  * Ninguno de estos dos es un destino.
  */
-export default function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+export default function Modal({
+  title,
+  onClose,
+  children,
+  hideTitle = false,
+}: {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+  /*
+   * Etapa BP21: la cabecera se puede ocultar VISUALMENTE sin perder el nombre.
+   * Lo usa el explorador de funnels, que dibuja el nombre adentro en grande y
+   * con su icono; repetirlo arriba lo hacía competir consigo mismo. El `title`
+   * se sigue exigiendo igual porque es el `aria-label` del diálogo -- ocultarlo
+   * a la vista no es motivo para dejar sin nombre al lector de pantalla.
+   */
+  hideTitle?: boolean;
+}) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -48,7 +65,7 @@ export default function Modal({ title, onClose, children }: { title: string; onC
     >
       <div className="bp-modal" role="dialog" aria-modal="true" aria-label={title}>
         <div className="bp-modal__head">
-          <h2 className="bp-modal__title">{title}</h2>
+          <h2 className={'bp-modal__title' + (hideTitle ? ' bp-sr-only' : '')}>{title}</h2>
           <button type="button" className="bp-modal__close" onClick={onClose} aria-label="Close">
             <CloseIcon size={16} />
           </button>

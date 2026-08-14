@@ -4,7 +4,9 @@ import { useState } from 'react';
 import { nodeDayRanges, type Funnel, type FunnelNode, type FunnelNodeLink, type NodeMilestone, type NodeOwner } from '@/lib/business-plan/funnels';
 import type { SupportPerson } from '@/lib/business-plan/useFunnelLibrary';
 import Modal from '../../../components/Modal';
-import { initialsOf } from '../../../components/shared';
+import NotesPanel from '../../../components/NotesPanel';
+import { FunnelGlyph } from '../../../components/funnelIcons';
+import { Avatar } from '../../../components/shared';
 
 /**
  * ============================================================================
@@ -12,16 +14,19 @@ import { initialsOf } from '../../../components/shared';
  * ============================================================================
  *
  * Etapa BP15 — ARCHIVO NUEVO. Etapa BP16 — de acordeón vertical a stepper.
+ * Etapa BP20 — notas sobre el funnel. Etapa BP21 — icono, color y volvió a
+ * poder activar.
  *
  * ---------------------------------------------------------------------------
- * EXPLORAR NO ES ELEGIR
+ * "SELECT THIS FUNNEL" VOLVIÓ, PERO AHORA HACE ALGO
  * ---------------------------------------------------------------------------
- * El clic en una tarjeta del catálogo ABRE esto; elegir se hace con el botón de
- * la tarjeta, afuera. Acá no hay ninguna acción que comprometa: es sólo lectura
- * de la plantilla, para poder comparar antes de firmar ocho semanas.
+ * En BP16 se lo quitó porque al apretarlo no pasaba nada -- un botón decorativo
+ * es peor que ninguno. El problema nunca fue tenerlo acá: era que mentía.
  *
- * Por eso este modal ya no tiene "Select this funnel" (etapa BP16): tener el
- * mismo acto en dos lugares obliga a mirar cuál de los dos ganó.
+ * Ahora activa de verdad y lleva al plan en modo edición, exactamente igual que
+ * el botón de la tarjeta. Y con eso el pie deja de tener una sola acción
+ * secundaria: se puede decidir sin volver atrás a buscar la tarjeta que uno
+ * acaba de abrir.
  *
  * ---------------------------------------------------------------------------
  * STEPPER HORIZONTAL, NO ACORDEÓN
@@ -40,6 +45,8 @@ export default function FunnelExplorer({
   owners,
   support,
   onClose,
+  onSelect,
+  busy,
 }: {
   funnel: Funnel;
   nodes: FunnelNode[];
@@ -48,6 +55,8 @@ export default function FunnelExplorer({
   owners: NodeOwner[];
   support: SupportPerson[];
   onClose: () => void;
+  onSelect: () => void;
+  busy: boolean;
 }) {
   const ordered = links
     .filter((l) => l.funnel_key === funnel.funnel_key)
@@ -72,13 +81,25 @@ export default function FunnelExplorer({
     active === null ? [] : milestones.filter((m) => m.node_key === active).sort((a, b) => a.position - b.position);
 
   return (
-    <Modal title={funnel.name} onClose={onClose}>
-      <p className="bp-modal__lead">
-        {funnel.description}
-        {funnel.description ? ' · ' : ''}
-        {ordered.length} nodes · {total} steps
-        {funnel.duration_weeks ? ` · ~${funnel.duration_weeks} weeks` : ''}
-      </p>
+    /*
+      La cabecera del modal va oculta a la vista: el nombre del funnel se dibuja
+      adentro, en grande y con su icono. Repetirlo arriba en el tamaño de un
+      encabezado de diálogo lo haría competir consigo mismo. Sigue siendo el
+      `aria-label` del diálogo.
+    */
+    <Modal title={funnel.name} hideTitle onClose={onClose}>
+      <div className="bp-fhead">
+        <FunnelGlyph icon={funnel.icon} size={26} tone="strong" />
+        <div>
+          <h2 className="bp-fhead__name">{funnel.name}</h2>
+          <div className="bp-fhead__meta">
+            <span className="bp-pill bp-pill--sky">{ordered.length} nodes</span>
+            <span className="bp-pill bp-pill--sky">{total} steps</span>
+            {funnel.duration_weeks && <span className="bp-pill bp-pill--sky">~{funnel.duration_weeks} weeks</span>}
+          </div>
+        </div>
+      </div>
+      {funnel.description && <p className="bp-modal__lead">{funnel.description}</p>}
 
       {/* ── Los nodos en fila, conectados ─────────────────────────────────── */}
       <div className="bp-fstep">
@@ -88,6 +109,14 @@ export default function FunnelExplorer({
           const nodeOwners = ownersOf(nodeKey);
           const isActive = nodeKey === active;
           return (
+            /*
+              ⚠ LA FLECHA DEL ÚLTIMO DE CADA FILA — etapa BP21.
+              Cuando la secuencia envuelve, el último de la primera fila
+              apuntaba al borde del modal, como si el flujo siguiera hacia
+              afuera. Se resuelve en el CSS: la grilla tiene un número FIJO de
+              columnas, y por eso `:nth-child(4n)` sabe cuál es el último de cada
+              fila. Con `flex-wrap` no habría selector que lo supiera.
+            */
             <div key={nodeKey} className="bp-fstep__slot">
               <button
                 type="button"
@@ -95,25 +124,24 @@ export default function FunnelExplorer({
                 onClick={() => setActive(nodeKey)}
               >
                 <span className="bp-fstep__n">{i + 1}</span>
-                <span className="bp-fstep__name">{node?.name ?? 'unknown node'}</span>
-                <span className="bp-fstep__meta">
+                <span className="bp-fstep__name">
+                  <FunnelGlyph icon={node?.icon} size={14} />
+                  {node?.name ?? 'unknown node'}
+                </span>
+                <span className="bp-pill bp-pill--sky">
                   {count} steps · day {ranges[i].fromDay}–{ranges[i].toDay}
                 </span>
                 {nodeOwners.length > 0 && (
                   <span className="bp-fstep__owners">
                     {nodeOwners.map((p) => (
-                      <span key={p.employee_key} className="bp-avatar bp-avatar--sm" title={p.full_name + ' · ' + (p.job_title ?? '')}>
-                        {initialsOf(p.full_name)}
-                      </span>
+                      <Avatar key={p.employee_key} name={p.full_name} title={p.full_name + ' · ' + (p.job_title ?? '')} />
                     ))}
                   </span>
                 )}
               </button>
-              {i < ordered.length - 1 && (
-                <span className="bp-fstep__arrow" aria-hidden="true">
-                  →
-                </span>
-              )}
+              <span className="bp-fstep__arrow" aria-hidden="true">
+                →
+              </span>
             </div>
           );
         })}
@@ -124,11 +152,20 @@ export default function FunnelExplorer({
         <div className="bp-fdetail">
           <div className="bp-fdetail__head">
             <h3 className="bp-fdetail__title">
+              <FunnelGlyph icon={activeNode.icon} size={16} tone="strong" />
               {activeIndex + 1}. {activeNode.name}
             </h3>
             {ownersOf(activeNode.node_key).length > 0 && (
-              <span className="bp-fdetail__owners">
-                {ownersOf(activeNode.node_key).map((p) => p.full_name).join(' · ')}
+              <span className="bp-owners bp-owners--inline">
+                <span className="bp-owners__label">Node owners</span>
+                <span className="bp-owners__list">
+                  {ownersOf(activeNode.node_key).map((p) => (
+                    <span key={p.employee_key} className="bp-owners__one">
+                      <Avatar name={p.full_name} title={p.job_title ?? p.full_name} />
+                      {p.full_name}
+                    </span>
+                  ))}
+                </span>
               </span>
             )}
           </div>
@@ -143,7 +180,7 @@ export default function FunnelExplorer({
                   <span className="bp-fdetail__step-who">
                     {p ? (
                       <>
-                        <span className="bp-avatar bp-avatar--sm">{initialsOf(p.full_name)}</span>
+                        <Avatar name={p.full_name} />
                         {p.full_name}
                       </>
                     ) : (
@@ -155,7 +192,11 @@ export default function FunnelExplorer({
                     guardado el SLA. Mostrar una fecha acá sería inventarla:
                     todavía no hay fecha de activación.
                   */}
-                  <span className="bp-fdetail__step-day">{m.sla_days === null ? '—' : 'by day ' + m.sla_days}</span>
+                  {m.sla_days === null ? (
+                    <span className="bp-muted">—</span>
+                  ) : (
+                    <span className="bp-pill bp-pill--day">Day {m.sla_days}</span>
+                  )}
                 </li>
               );
             })}
@@ -164,11 +205,25 @@ export default function FunnelExplorer({
         </div>
       )}
 
+      {/*
+        Notas sobre la PLANTILLA, no sobre el plan de nadie: qué funciona de
+        esta estrategia y qué habría que cambiarle. Las de una persona concreta
+        van en su plan, colgadas de su nodo o de su paso.
+      */}
+      <NotesPanel
+        target={{ kind: 'funnel', key: funnel.funnel_key }}
+        title="Notes on this funnel"
+        placeholder="What works, what to change in the template…"
+      />
+
       <div className="bp-form__actions">
+        <button type="button" className="bp-btn bp-btn--primary" disabled={busy} onClick={onSelect}>
+          {busy ? 'Activating…' : 'Select this funnel'}
+        </button>
         <button type="button" className="bp-btn" onClick={onClose}>
           Close
         </button>
-        <span className="bp-catalog__hint">Exploring changes nothing — pick a funnel from its card to select it.</span>
+        <span className="bp-catalog__hint">Activating copies the template into this person&apos;s own plan.</span>
       </div>
     </Modal>
   );

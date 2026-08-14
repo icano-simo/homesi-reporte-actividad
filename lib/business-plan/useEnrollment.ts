@@ -37,11 +37,29 @@ export interface PlanMilestone {
 
 export interface PlanNode {
   enrollment_node_key: number;
+  /** Nodo de la plantilla del que salió esta copia. Nulo si lo borraron. */
+  source_node_key: number | null;
   name: string;
   description: string | null;
   icon: string | null;
   position: number;
   milestones: PlanMilestone[];
+  /**
+   * ⚠ RESPONSABLES DEL NODO — etapa BP20. NO son los del paso.
+   *
+   * El del nodo responde por que la etapa avance; el del paso ejecuta ese paso
+   * concreto y es el único que puede marcarlo hecho. En Cold Calling el nodo lo
+   * llevan Juanjo Cabrera e Isabella Cano, y sus seis pasos se reparten entre
+   * los dos: sin esta distinción la tarjeta mostraba avatares sueltos arriba a
+   * la derecha que nadie sabía qué significaban.
+   *
+   * No están copiados en `enrollment_node` -- se resuelven en vivo contra
+   * `node_owner` de la PLANTILLA, vía `source_node_key`. Es deliberado: quién
+   * responde por una etapa es un hecho de organización actual, no una foto del
+   * día en que alguien se enroló. Si Juanjo deja de llevar Cold Calling, deja
+   * de llevarlo en los planes en curso también.
+   */
+  owners: SupportPerson[];
 }
 
 export interface ActivePlan {
@@ -49,6 +67,8 @@ export interface ActivePlan {
   employee_key: number;
   funnel_key: number;
   funnel_name: string;
+  /** De la plantilla, en vivo: el enrolamiento no copia icono. Etapa BP21. */
+  funnel_icon: string | null;
   activated_at: string;
   activated_by: string;
   nodes: PlanNode[];
@@ -108,27 +128,42 @@ export function useEnrollment(employeeKey: number): EnrollmentState {
           return;
         }
 
-        const [nodeRes, msRes] = await Promise.all([
+        const [nodeRes, msRes, ownerRes, funnelRes] = await Promise.all([
           bp.from('enrollment_node').select('*').eq('enrollment_key', enr.enrollment_key).order('position'),
           bp.from('enrollment_milestone').select('*').order('position'),
+          /* Responsables de la PLANTILLA: ver el comentario de `PlanNode.owners`. */
+          bp.from('node_owner').select('node_key, employee_key'),
+          bp.from('funnel').select('funnel_key, icon').eq('funnel_key', enr.funnel_key).limit(1),
         ]);
         if (cancelled) return;
         if (nodeRes.error) throw new Error(nodeRes.error.message);
 
-        const rawNodes = (nodeRes.data ?? []) as Omit<PlanNode, 'milestones'>[];
+        const rawNodes = (nodeRes.data ?? []) as Omit<PlanNode, 'milestones' | 'owners'>[];
         const nodeKeys = new Set(rawNodes.map((n) => n.enrollment_node_key));
         const allMs = ((msRes.data ?? []) as PlanMilestone[]).filter((m) => nodeKeys.has(m.enrollment_node_key));
+        const support = (supportRes.data ?? []) as SupportPerson[];
+        const ownerRows = (ownerRes.data ?? []) as { node_key: number; employee_key: number }[];
+        const funnelIcon =
+          ((funnelRes.data ?? []) as { icon: string | null }[])[0]?.icon ?? null;
 
         setState({
           plan: {
             ...enr,
+            funnel_icon: funnelIcon,
             nodes: rawNodes.map((n) => ({
               ...n,
               milestones: allMs
                 .filter((m) => m.enrollment_node_key === n.enrollment_node_key)
                 .sort((a, b) => a.position - b.position),
+              owners:
+                n.source_node_key === null
+                  ? []
+                  : (ownerRows
+                      .filter((o) => o.node_key === n.source_node_key)
+                      .map((o) => support.find((s) => s.employee_key === o.employee_key))
+                      .filter(Boolean) as SupportPerson[]),
             })),
-            support: (supportRes.data ?? []) as SupportPerson[],
+            support,
           },
           isLoading: false,
           available: true,

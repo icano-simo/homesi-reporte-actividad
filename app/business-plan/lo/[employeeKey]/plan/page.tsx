@@ -2,15 +2,26 @@
 
 import { useMemo, useState, use } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { useBusinessPlanData } from '@/lib/business-plan/useBusinessPlanData';
-import { useEnrollment, type PlanMilestone } from '@/lib/business-plan/useEnrollment';
+import { useEnrollment, type PlanMilestone, type PlanNode } from '@/lib/business-plan/useEnrollment';
 import { useFunnelLibrary, useSessionEmail } from '@/lib/business-plan/useFunnelLibrary';
-import { canEditMilestone, canToggleMilestone, progressOf } from '@/lib/business-plan/funnels';
-import { AlertTriangleIcon } from '@/components/ui/icons';
+import {
+  MILESTONE_STATUS_CLASS,
+  MILESTONE_STATUS_LABEL,
+  allowedStatuses,
+  canToggleMilestone,
+  isOverdue,
+  progressOf,
+  type MilestoneStatus,
+} from '@/lib/business-plan/funnels';
+import { AlertTriangleIcon, MessageIcon } from '@/components/ui/icons';
 import Breadcrumbs from '../../../components/Breadcrumbs';
 import Modal from '../../../components/Modal';
-import { ErrorState, LoadingState, initialsOf } from '../../../components/shared';
+import NotesPanel from '../../../components/NotesPanel';
+import { FunnelGlyph } from '../../../components/funnelIcons';
+import { Avatar, ErrorState, LoadingState } from '../../../components/shared';
 import PlanEditor from './PlanEditor';
 
 /**
@@ -19,6 +30,8 @@ import PlanEditor from './PlanEditor';
  * ============================================================================
  *
  * Etapa BP12, fase 4 — ARCHIVO NUEVO.
+ * Etapa BP20 — la tarjeta del nodo, las fechas editables y las notas.
+ * Etapa BP21 — el icono del funnel y el color de los avatares.
  *
  * Muestra la INSTANCIA de esta persona, no la plantilla. Todo lo que se edita
  * acá es su copia: agregar, quitar o reordenar no afecta a ningún otro plan ni
@@ -37,12 +50,25 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
   const { plan, isLoading, available, error, reload } = useEnrollment(employeeKey);
   const sessionEmail = useSessionEmail();
 
+  /*
+   * ⚠ `?activated=1` — etapa BP20. El catálogo redirige acá con ese parámetro
+   * después de activar, y eso abre el editor de una.
+   *
+   * Personalizar EN EL MOMENTO DEL ENROLAMIENTO es lo natural: es cuando se
+   * sabe qué le sobra y qué le falta a esta persona. Lo que no se puede es
+   * editar antes de activar, porque hasta ese momento lo único que existe es la
+   * plantilla y tocarla cambiaría el plan de todos.
+   */
+  const searchParams = useSearchParams();
+  const justActivated = searchParams.get('activated') === '1';
+
   /* La biblioteca sólo se usa para el editor: de ahí salen los nodos que se
      pueden agregar al plan. */
   const { data: lib } = useFunnelLibrary();
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(justActivated);
   const [activeNode, setActiveNode] = useState<number | null>(null);
   const [showTeam, setShowTeam] = useState(false);
+  const [openNotes, setOpenNotes] = useState<number | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
   const [opError, setOpError] = useState<string | null>(null);
 
@@ -70,19 +96,22 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
 
   const personOf = (key: number | null) => (key === null ? null : plan?.support.find((s) => s.employee_key === key) ?? null);
 
-  async function toggle(m: PlanMilestone) {
+  /**
+   * Una sola función para los dos campos editables del paso.
+   *
+   * Etapa BP20: antes había un único botón que sólo sabía escribir `done`. La
+   * fecha y el estado son ahora dos controles distintos sobre la misma fila, y
+   * duplicar el manejo de error y de `busy` en los dos garantizaba que se
+   * desincronizaran.
+   */
+  async function patchMilestone(m: PlanMilestone, patch: Record<string, unknown>) {
     setBusy(m.enrollment_milestone_key);
     setOpError(null);
     try {
-      const supabase = getSupabaseClient();
-      const { error: e } = await supabase
+      const { error: e } = await getSupabaseClient()
         .schema('business_plan')
         .from('enrollment_milestone')
-        .update({
-          status: 'done',
-          completed_at: new Date().toISOString(),
-          completed_by: sessionEmail,
-        })
+        .update(patch)
         .eq('enrollment_milestone_key', m.enrollment_milestone_key);
       if (e) throw new Error(e.message);
       reload();
@@ -93,12 +122,25 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
     }
   }
 
+  function changeStatus(m: PlanMilestone, next: MilestoneStatus) {
+    if (next === m.status) return;
+    /* Al pasar a hecho se sella quién y cuándo. Es lo que vuelve la fila
+       inmutable: desde ese momento la policy de UPDATE ya no la ve. */
+    patchMilestone(
+      m,
+      next === 'done'
+        ? { status: 'done', completed_at: new Date().toISOString(), completed_by: sessionEmail }
+        : { status: next }
+    );
+  }
+
   /*
    * "Ahora" se fija UNA vez, al montar, y no se lee en cada render: `Date.now()`
    * dentro del render es impuro -- dos renders del mismo estado podrían dar
    * semanas distintas si el componente se re-renderiza al cruzar la medianoche.
    */
   const [mountedAt] = useState(() => Date.now());
+  const today = useMemo(() => new Date(mountedAt).toISOString().slice(0, 10), [mountedAt]);
 
   /** Semana en curso del plan, contada desde la activación. */
   const weekNumber = useMemo(() => {
@@ -107,6 +149,11 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
     const days = Math.floor((mountedAt - start) / 86400000);
     return Math.max(1, Math.floor(days / 7) + 1);
   }, [plan, mountedAt]);
+
+  const nodeProgress = (n: PlanNode) => ({
+    done: n.milestones.filter((m) => m.status === 'done').length,
+    total: n.milestones.length,
+  });
 
   return (
     <>
@@ -151,10 +198,26 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
 
       {plan && (
         <>
+          {/*
+            Aviso de recién activado. Dura sólo mientras el parámetro esté en la
+            URL: no es un estado que haya que guardar en ningún lado.
+          */}
+          {justActivated && (
+            <div className="bp-just-activated" role="status">
+              <strong>Plan activated.</strong> This is {lo?.fullName ?? 'this person'}&apos;s own copy — adjust it now,
+              before starting. Adding, removing or reordering here changes nothing in the library or in anyone else&apos;s
+              plan.
+            </div>
+          )}
+
           {/* ── Cabecera con el anillo de progreso ─────────────────────────── */}
           <div className="bp-plan-head">
             <div>
-              <h1 className="page-head__title">{plan.funnel_name}</h1>
+              <h1 className="bp-funnel-title">
+                {/* Etapa BP21: el icono elegido en la biblioteca, al fin dibujado. */}
+                <FunnelGlyph icon={plan.funnel_icon} size={22} tone="strong" />
+                {plan.funnel_name}
+              </h1>
               <p className="page-head__subtitle">
                 {lo?.fullName ?? '—'}
                 {branch && <> · Branch {branch}</>} · started {plan.activated_at.slice(0, 10)} · week {weekNumber}
@@ -183,8 +246,8 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
           {/* ── Stepper de nodos ───────────────────────────────────────────── */}
           <div className="bp-stepper">
             {plan.nodes.map((n, i) => {
-              const done = n.milestones.filter((m) => m.status === 'done').length;
-              const complete = n.milestones.length > 0 && done === n.milestones.length;
+              const p = nodeProgress(n);
+              const complete = p.total > 0 && p.done === p.total;
               const isCurrent = n.enrollment_node_key === currentNodeKey;
               return (
                 <button
@@ -198,7 +261,7 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                   <span className="bp-step__n">{i + 1}</span>
                   <span className="bp-step__name">{n.name}</span>
                   <span className="bp-step__count">
-                    {done}/{n.milestones.length}
+                    {p.done}/{p.total}
                   </span>
                 </button>
               );
@@ -206,95 +269,200 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
           </div>
 
           {/* ── Tarjeta del nodo seleccionado ──────────────────────────────── */}
-          {node && (
-            <div className="mcard bp-plan-node">
-              <div className="bp-plan-node__head">
-                <div>
-                  <h2 className="bp-plan-node__title">{node.name}</h2>
-                  {node.description && <p className="bp-plan-node__desc">{node.description}</p>}
-                </div>
-                <div className="bp-plan-node__owners">
-                  {/*
-                    El responsable del nodo activo SÍ queda visible: es el que
-                    importa mientras se trabaja acá. El equipo completo va
-                    detrás de un botón, más abajo.
-                  */}
-                  {[...new Set(node.milestones.map((m) => m.accountable_employee_key).filter(Boolean))]
-                    .slice(0, 3)
-                    .map((k) => {
-                      const p = personOf(k as number);
-                      return p ? (
-                        <span key={p.employee_key} className="bp-avatar bp-avatar--sm" title={p.full_name + ' · ' + (p.job_title ?? '')}>
-                          {initialsOf(p.full_name)}
-                        </span>
-                      ) : null;
-                    })}
-                </div>
-              </div>
+          {node && (() => {
+            const p = nodeProgress(node);
+            return (
+              <div className="mcard bp-plan-node">
+                {/*
+                  ⚠ DOS NIVELES DE RESPONSABILIDAD — etapa BP20.
+                  Los avatares del nodo estaban arriba a la derecha sin rótulo, y
+                  cada paso mostraba otro responsable en su fila: parecían lo
+                  mismo mal sincronizado. Son cosas distintas y ahora se dicen:
+                  el del NODO responde por que la etapa avance, el del PASO lo
+                  ejecuta y es el único que puede darlo por hecho.
+                  Además los del nodo salían de los responsables de sus pasos, lo
+                  cual era directamente falso -- en Cold Calling el nodo lo llevan
+                  Juanjo e Isabella, y los seis pasos se reparten entre ellos dos.
+                */}
+                <div className="bp-plan-node__head">
+                  <div className="bp-plan-node__ident">
+                    <h2 className="bp-plan-node__title">
+                      <FunnelGlyph icon={node.icon} size={18} tone="strong" />
+                      {node.name}
+                    </h2>
+                    {node.description && <p className="bp-plan-node__desc">{node.description}</p>}
+                  </div>
 
-              <ul className="bp-ms-list">
-                {node.milestones.map((m) => {
-                  const person = personOf(m.accountable_employee_key);
-                  const mine = canToggleMilestone(sessionEmail, person?.email ?? null);
-                  const editable = canEditMilestone(m.status);
-                  const locked = !mine || !editable;
-                  return (
-                    <li key={m.enrollment_milestone_key} className={'bp-ms' + (m.status === 'done' ? ' is-done' : '')}>
-                      {/*
-                        ⚠ SOLO EL RESPONSABLE puede marcar. Para todos los demás
-                        el control queda deshabilitado con un candado y el título
-                        dice quién puede -- deshabilitarlo en silencio dejaría a
-                        la persona buscando por qué no le responde el clic.
-
-                        La comparación es por EMAIL contra el del responsable,
-                        no por nombre: el roster tiene "Ana Zegarra (Peña)" y
-                        "Ana Peña" para la misma persona.
-                      */}
-                      <button
-                        type="button"
-                        className={'bp-ms__check' + (locked ? ' is-locked' : '')}
-                        disabled={locked || busy === m.enrollment_milestone_key}
-                        onClick={() => toggle(m)}
-                        title={
-                          m.status === 'done'
-                            ? 'Completed on ' + String(m.completed_at).slice(0, 10) + ' — done milestones cannot be reopened'
-                            : mine
-                              ? 'Mark as done'
-                              : person
-                                ? `Only ${person.full_name} can mark this one`
-                                : 'No accountable person assigned'
-                        }
-                        aria-label={mine && editable ? 'Mark as done' : 'Locked'}
-                      >
-                        {m.status === 'done' ? '✓' : locked ? '🔒' : ''}
-                      </button>
-
-                      <span className="bp-ms__title">{m.title}</span>
-
-                      {person && (
-                        <span className="bp-ms__person">
-                          <span className="bp-avatar bp-avatar--sm">{initialsOf(person.full_name)}</span>
-                          {person.full_name}
-                        </span>
+                  <div className="bp-owners">
+                    <span className="bp-owners__label">Node owners</span>
+                    <span className="bp-owners__list">
+                      {node.owners.length === 0 ? (
+                        <span className="bp-muted">none assigned</span>
+                      ) : (
+                        node.owners.map((o) => (
+                          <span key={o.employee_key} className="bp-owners__one">
+                            <Avatar name={o.full_name} title={o.full_name + ' · ' + (o.job_title ?? '')} />
+                            {o.full_name}
+                          </span>
+                        ))
                       )}
+                    </span>
+                    <span className="bp-owners__hint">accountable for the stage moving forward</span>
+                  </div>
+                </div>
 
-                      <span
-                        className={
-                          'badge badge--pill ' +
-                          (m.status === 'done' ? 'badge--emerald' : m.status === 'in_progress' ? 'badge--amber' : 'badge--neutral')
-                        }
+                {/* Progreso DEL NODO, no del plan: el anillo de arriba es el total. */}
+                <div className="bp-node-progress">
+                  <div className="bp-node-progress__bar">
+                    <span style={{ width: progressOf(p.done, p.total) + '%' }} />
+                  </div>
+                  <span className="bp-node-progress__label">
+                    {p.done} of {p.total} steps done
+                  </span>
+                </div>
+
+                {/* ── Los pasos, con encabezados ─────────────────────────────── */}
+                <ul className="bp-ms-list">
+                  {/*
+                    Encabezados: la lista no los tenía, y una columna con
+                    "2026-08-17" suelto no dice si es cuándo se creó, cuándo
+                    vence o cuándo se hizo. Ahora dice Target date.
+                  */}
+                  <li className="bp-ms bp-ms--head" aria-hidden="true">
+                    <span />
+                    <span>Step</span>
+                    <span>Owner</span>
+                    <span>Status</span>
+                    <span>Target date</span>
+                    <span />
+                  </li>
+
+                  {node.milestones.map((m) => {
+                    const person = personOf(m.accountable_employee_key);
+                    const mine = canToggleMilestone(sessionEmail, person?.email ?? null);
+                    const options = allowedStatuses(m.status, sessionEmail, person?.email ?? null);
+                    const locked = m.status === 'done';
+                    const late = isOverdue(m.status, m.due_date, today);
+                    const rowBusy = busy === m.enrollment_milestone_key;
+                    return (
+                      <li
+                        key={m.enrollment_milestone_key}
+                        className={'bp-ms' + (locked ? ' is-done' : '') + (late ? ' is-late' : '')}
                       >
-                        {m.status === 'done' ? 'Done' : m.status === 'in_progress' ? 'In progress' : 'Pending'}
-                      </span>
+                        <span className={'bp-ms__dot bp-ms__dot--' + m.status} aria-hidden="true">
+                          {m.status === 'done' ? '✓' : ''}
+                        </span>
 
-                      <span className="bp-ms__due">{m.due_date ?? '—'}</span>
-                    </li>
-                  );
-                })}
-                {node.milestones.length === 0 && <li className="bp-muted-line">No milestones in this node.</li>}
-              </ul>
-            </div>
-          )}
+                        <span className="bp-ms__title">{m.title}</span>
+
+                        <span className="bp-ms__person">
+                          {person ? (
+                            <>
+                              <Avatar name={person.full_name} title={person.full_name + ' · ' + (person.job_title ?? '')} />
+                              {person.full_name}
+                            </>
+                          ) : (
+                            <span className="bp-muted">unassigned</span>
+                          )}
+                        </span>
+
+                        {/*
+                          ⚠ QUIÉN PUEDE MARCAR DONE no cambió con el desplegable.
+                          `allowedStatuses` sólo incluye 'done' cuando el email de
+                          la sesión coincide con el del responsable; para el resto
+                          el desplegable ofrece dos opciones y el `title` dice
+                          quién puede cerrarlo -- ocultarlo sin explicación dejaba
+                          a la persona buscando por qué no le responde el control.
+                          Y una fila ya hecha se muestra como píldora, sin control:
+                          no se reabre, y la base tampoco lo permitiría.
+                        */}
+                        {locked ? (
+                          <span
+                            className={MILESTONE_STATUS_CLASS.done}
+                            title={
+                              'Completed on ' +
+                              String(m.completed_at).slice(0, 10) +
+                              (m.completed_by ? ' by ' + m.completed_by : '') +
+                              ' — done steps cannot be reopened'
+                            }
+                          >
+                            {MILESTONE_STATUS_LABEL.done}
+                          </span>
+                        ) : (
+                          <select
+                            className={'bp-ms__status bp-ms__status--' + m.status}
+                            value={m.status}
+                            disabled={rowBusy}
+                            onChange={(e) => changeStatus(m, e.target.value as MilestoneStatus)}
+                            title={
+                              mine
+                                ? 'You are accountable for this step'
+                                : person
+                                  ? `Only ${person.full_name} can mark this one as done`
+                                  : 'No accountable person assigned — nobody can close it'
+                            }
+                          >
+                            {options.map((s) => (
+                              <option key={s} value={s}>
+                                {MILESTONE_STATUS_LABEL[s]}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+
+                        {/*
+                          Fecha editable: reprogramar es lo que más se hace y
+                          hasta ahora había que pedirlo. La cambia cualquiera del
+                          equipo, no sólo el responsable -- correr una fecha es
+                          coordinación, no dar algo por hecho.
+                        */}
+                        {locked ? (
+                          <span className="bp-ms__due">{m.due_date ?? '—'}</span>
+                        ) : (
+                          <input
+                            type="date"
+                            className={'bp-ms__date' + (late ? ' is-late' : '')}
+                            value={m.due_date ?? ''}
+                            disabled={rowBusy}
+                            title={late ? 'Overdue — reschedule it' : 'Target date. Anyone on the team can move it.'}
+                            onChange={(e) => patchMilestone(m, { due_date: e.target.value === '' ? null : e.target.value })}
+                          />
+                        )}
+
+                        <button
+                          type="button"
+                          className={'bp-icon-btn' + (openNotes === m.enrollment_milestone_key ? ' is-on' : '')}
+                          title="Notes on this step"
+                          onClick={() =>
+                            setOpenNotes((k) => (k === m.enrollment_milestone_key ? null : m.enrollment_milestone_key))
+                          }
+                        >
+                          <MessageIcon size={13} />
+                        </button>
+
+                        {openNotes === m.enrollment_milestone_key && (
+                          <div className="bp-ms__notes">
+                            <NotesPanel
+                              target={{ kind: 'milestone', key: m.enrollment_milestone_key }}
+                              compact
+                              placeholder={'Notes on “' + m.title + '”…'}
+                            />
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+                  {node.milestones.length === 0 && <li className="bp-muted-line">No milestones in this node.</li>}
+                </ul>
+
+                <NotesPanel
+                  target={{ kind: 'node', key: node.enrollment_node_key }}
+                  title={'Notes on ' + node.name}
+                  placeholder="What was discussed about this stage…"
+                />
+              </div>
+            );
+          })()}
 
           {/*
             Equipo de soporte detrás de un botón. Como lista fija en la columna
@@ -308,16 +476,14 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
             {/*
               Editar el plan de ESTA persona. Va detrás de un botón porque no es
               lo que se hace todos los días: lo habitual es marcar pasos, no
-              reestructurar el plan.
+              reestructurar el plan. Recién activado arranca abierto.
             */}
             <button type="button" className="bp-btn bp-btn--small" onClick={() => setEditing((v) => !v)}>
               {editing ? 'Close editor' : 'Edit plan'}
             </button>
             <div className="bp-team-bar__stack">
               {plan.support.slice(0, 4).map((p) => (
-                <span key={p.employee_key} className="bp-avatar bp-avatar--sm" title={p.full_name}>
-                  {initialsOf(p.full_name)}
-                </span>
+                <Avatar key={p.employee_key} name={p.full_name} />
               ))}
               {plan.support.length > 4 && <span className="bp-catalog__more">+{plan.support.length - 4}</span>}
             </div>

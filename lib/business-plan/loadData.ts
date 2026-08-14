@@ -254,10 +254,15 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
         activated_at: string;
       }[];
       if (enrollments.length > 0) {
-        const [{ data: nodeRows }, { data: msRows }] = await Promise.all([
+        const [{ data: nodeRows }, { data: msRows }, { data: funnelRows }] = await Promise.all([
           bp.from('enrollment_node').select('enrollment_node_key, enrollment_key'),
           bp.from('enrollment_milestone').select('enrollment_node_key, status'),
+          /* Etapa BP21: el icono sale de la plantilla, que es donde se edita. */
+          bp.from('funnel').select('funnel_key, icon'),
         ]);
+        const iconOfFunnel = new Map<number, string | null>(
+          ((funnelRows ?? []) as { funnel_key: number; icon: string | null }[]).map((f) => [f.funnel_key, f.icon])
+        );
         const enrollmentOfNode = new Map<number, number>();
         for (const n of (nodeRows ?? []) as { enrollment_node_key: number; enrollment_key: number }[]) {
           enrollmentOfNode.set(n.enrollment_node_key, n.enrollment_key);
@@ -277,6 +282,7 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
             enrollmentKey: e.enrollment_key,
             funnelKey: e.funnel_key,
             funnelName: e.funnel_name,
+            funnelIcon: iconOfFunnel.get(e.funnel_key) ?? null,
             activatedAt: e.activated_at,
             doneMilestones: t.done,
             totalMilestones: t.total,

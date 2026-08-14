@@ -13,6 +13,7 @@ import {
   type NodeMilestone,
 } from '@/lib/business-plan/funnels';
 import { AlertTriangleIcon, CloseIcon } from '@/components/ui/icons';
+import { FunnelGlyph } from '../components/funnelIcons';
 import Breadcrumbs from '../components/Breadcrumbs';
 import Modal from '../components/Modal';
 import { ErrorState, LoadingState } from '../components/shared';
@@ -222,6 +223,12 @@ export default function FunnelLibraryPage() {
                             la columna tiene espacio de sobra. Editable en línea.
                           */}
                           <td className="lbl bp-wrap">
+                            {/*
+                              Etapa BP21: el icono que se elige en el formulario,
+                              visible en la tabla. Sin esto no habia forma de
+                              saber cual tenia cada funnel sin abrir el editor.
+                            */}
+                            <FunnelGlyph icon={f.icon} size={15} tone="strong" />
                             <input
                               className="bp-inline-input bp-inline-input--name"
                               defaultValue={f.name}
@@ -393,6 +400,7 @@ export default function FunnelLibraryPage() {
                       return (
                         <tr key={n.node_key} className="metric">
                           <td className="lbl bp-wrap">
+                            <FunnelGlyph icon={n.icon} size={15} tone="strong" />
                             <input
                               className="bp-inline-input bp-inline-input--name"
                               defaultValue={n.name}

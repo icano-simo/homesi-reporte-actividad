@@ -172,6 +172,77 @@ export function initialsOf(fullName: string): string {
   return (words[0][0] + words[words.length - 1][0]).toUpperCase();
 }
 
+/**
+ * ============================================================================
+ * COLOR DEL AVATAR — etapa BP21
+ * ============================================================================
+ *
+ * Ocho iniciales idénticas en navy no distinguen a nadie: la lista de pasos se
+ * leía como una columna de círculos oscuros y había que ir letra por letra.
+ *
+ * ---------------------------------------------------------------------------
+ * ⚠ DETERMINISTA A PARTIR DEL NOMBRE, NO POR POSICIÓN EN LA LISTA
+ * ---------------------------------------------------------------------------
+ * Es la parte que importa. Si el tono saliera del índice, Angela sería azul en
+ * el plan y ámbar en el catálogo según en qué orden viniera cada consulta -- y
+ * un color que cambia entre pantallas es PEOR que todos iguales: deja de ser
+ * información y pasa a ser ruido. Con el hash del nombre, cada persona tiene
+ * siempre el mismo tono en todo el módulo.
+ *
+ * ⚠ La normalización es la misma que la de `initialsOf` -- se quita el apellido
+ * entre paréntesis, y no distingue mayúsculas ni espacios sobrantes -- pero eso
+ * NO alcanza para unificar dos grafías distintas del mismo nombre: "Ana Peña" y
+ * "Ana Zegarra (Peña)" quedan en tonos distintos, igual que ya daban iniciales
+ * distintas (AP y AZ) desde BP12.
+ *
+ * No es un problema en la práctica, y conviene saber por qué: todos los
+ * avatares se dibujan con `dim_employee.full_name`, que es UN valor por
+ * persona. Las grafías alternativas viven en los archivos de origen y las
+ * resuelve `aliasIndex` antes de llegar acá. Si algún día una pantalla pintara
+ * un avatar con un nombre crudo de una fuente, ahí sí habría dos colores para
+ * la misma persona -- y la solución sería pasar por el alias, no complicar este
+ * hash.
+ *
+ * Los seis tonos salen de las escalas que ya existen en tokens.css --navy/sky,
+ * emerald, amber, coral, slate y sky pleno--. Índigo y púrpura, que pedía el
+ * prompt original, no están en la paleta de marca y meterlos habría roto la
+ * consistencia que costó varias rondas alinear.
+ */
+export const AVATAR_TONES = 6;
+
+export function avatarToneOf(fullName: string): number {
+  const norm = fullName.replace(/\(.*?\)/g, ' ').trim().toLowerCase();
+  let h = 7;
+  for (let i = 0; i < norm.length; i++) h = (h * 31 + norm.charCodeAt(i)) | 0;
+  return Math.abs(h) % AVATAR_TONES;
+}
+
+/**
+ * El avatar, en un solo lugar.
+ *
+ * Antes cada pantalla escribía a mano `<span className="bp-avatar…">` con las
+ * iniciales, y por eso el color tenía que ser el mismo en las siete: cualquiera
+ * que se olvidara del tono rompía la promesa de arriba.
+ */
+export function Avatar({
+  name,
+  size = 'sm',
+  title,
+}: {
+  name: string;
+  size?: 'sm' | 'md';
+  title?: string;
+}) {
+  return (
+    <span
+      className={'bp-avatar' + (size === 'sm' ? ' bp-avatar--sm' : '') + ' bp-avatar--t' + avatarToneOf(name)}
+      title={title ?? name}
+    >
+      {initialsOf(name)}
+    </span>
+  );
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
  * REDONDEO — etapa BP7
  * ═══════════════════════════════════════════════════════════════════════════

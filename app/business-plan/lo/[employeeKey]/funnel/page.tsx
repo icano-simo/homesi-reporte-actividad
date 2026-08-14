@@ -8,7 +8,8 @@ import { useFunnelLibrary } from '@/lib/business-plan/useFunnelLibrary';
 import { buildEnrollmentPlan, checkActivation, funnelStats, type Funnel, type FunnelCategory } from '@/lib/business-plan/funnels';
 import { AlertTriangleIcon } from '@/components/ui/icons';
 import Breadcrumbs from '../../../components/Breadcrumbs';
-import { ErrorState, LoadingState, VerdictBadge, initialsOf } from '../../../components/shared';
+import { FunnelGlyph } from '../../../components/funnelIcons';
+import { Avatar, ErrorState, LoadingState, VerdictBadge } from '../../../components/shared';
 import FunnelExplorer from './FunnelExplorer';
 
 /**
@@ -65,8 +66,14 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
     };
   }, [lib]);
 
-  async function activate() {
-    if (!lib || picked === null || !lo) return;
+  /*
+   * Etapa BP21: recibe el funnel por argumento en vez de leer `picked`. El
+   * modal de exploración ahora también activa, y con dos llamadores el estado
+   * compartido era justamente la clase de ambigüedad que BP16 quiso sacar --
+   * cuál de los dos gana si no coinciden.
+   */
+  async function activate(funnelKey: number) {
+    if (!lib || !lo) return;
     setBusy(true);
     setOpError(null);
     try {
@@ -76,7 +83,7 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
       const email = userData.user?.email;
       if (!email) throw new Error('No authenticated session.');
 
-      const funnel = lib.funnels.find((f) => f.funnel_key === picked);
+      const funnel = lib.funnels.find((f) => f.funnel_key === funnelKey);
       if (!funnel) throw new Error('That funnel no longer exists.');
 
       /*
@@ -91,11 +98,11 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
        * que la pantalla cargó y alguien hizo clic, otro pudo haber vaciado el
        * funnel desde la biblioteca.
        */
-      const check = checkActivation(picked, lib.links, lib.milestones);
+      const check = checkActivation(funnelKey, lib.links, lib.milestones);
       if (!check.ok) throw new Error(check.reason ?? 'This funnel cannot be activated.');
 
       const ordered = lib.links
-        .filter((l) => l.funnel_key === picked)
+        .filter((l) => l.funnel_key === funnelKey)
         .sort((a, b) => a.position - b.position)
         .map((l) => l.node_key);
 
@@ -125,7 +132,7 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
           .from('enrollment')
           .insert({
             employee_key: employeeKey,
-            funnel_key: picked,
+            funnel_key: funnelKey,
             funnel_name: funnel.name,
             status: 'active',
             activated_by: email,
@@ -182,7 +189,7 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
         const { error: e4 } = await bp.from('intervention').insert({
           employee_key: employeeKey,
           status: 'active',
-          funnel_key: picked,
+          funnel_key: funnelKey,
           activated_at: new Date().toISOString(),
           activated_by: email,
         });
@@ -196,7 +203,15 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
       }
 
       reload();
-      router.push('/business-plan/lo/' + employeeKey + '/plan');
+      /*
+       * ⚠ `?activated=1` — etapa BP20: cae en el plan CON EL EDITOR ABIERTO.
+       *
+       * Es el único momento en que personalizar tiene sentido y no es
+       * peligroso: el plan ya es una copia propia. Antes de activar no se puede
+       * editar nada, porque lo único que existe es la plantilla y tocarla
+       * cambiaría el plan de todos los enrolados.
+       */
+      router.push('/business-plan/lo/' + employeeKey + '/plan?activated=1');
     } catch (err) {
       setOpError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -297,10 +312,21 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
                   onClick={() => setExploring(f.funnel_key)}
                 >
                   {picked === f.funnel_key && <span className="bp-catalog__check" aria-hidden="true">✓</span>}
-                  <div className="bp-catalog__name">{f.name}</div>
+                  {/*
+                    Etapa BP21: el nombre es LO QUE SE ESTÁ ELIGIENDO, así que
+                    domina su tarjeta -- antes competía en tamaño con el conteo de
+                    nodos y con la descripción. Y a la izquierda el icono que se
+                    guardó en la biblioteca, que hasta ahora no se dibujaba en
+                    ninguna pantalla.
+                  */}
+                  <div className="bp-catalog__ident">
+                    <FunnelGlyph icon={f.icon} size={20} tone="strong" />
+                    <div className="bp-catalog__name">{f.name}</div>
+                  </div>
                   <div className="bp-catalog__meta">
-                    {s.nodeCount} nodes · {s.subMilestoneCount} sub-milestones
-                    {f.duration_weeks && <> · ~{f.duration_weeks} weeks</>}
+                    <span className="bp-pill bp-pill--sky">{s.nodeCount} nodes</span>
+                    <span className="bp-pill bp-pill--sky">{s.subMilestoneCount} sub-milestones</span>
+                    {f.duration_weeks && <span className="bp-pill bp-pill--sky">~{f.duration_weeks} weeks</span>}
                   </div>
                   <p className="bp-catalog__desc">{f.description ?? ''}</p>
                   <div className="bp-catalog__chain">
@@ -341,9 +367,7 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
                   {team.length > 0 && (
                     <div className="bp-catalog__team" title={team.map((p) => p.full_name).join(', ')}>
                       {team.slice(0, 4).map((p) => (
-                        <span key={p.employee_key} className="bp-avatar bp-avatar--sm">
-                          {initialsOf(p.full_name)}
-                        </span>
+                        <Avatar key={p.employee_key} name={p.full_name} />
                       ))}
                       {team.length > 4 && <span className="bp-catalog__more">+{team.length - 4}</span>}
                     </div>
@@ -366,12 +390,29 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
                 owners={lib.owners}
                 support={lib.support}
                 onClose={() => setExploring(null)}
+                busy={busy}
+                /*
+                  Etapa BP21: el modal vuelve a tener "Select this funnel", pero
+                  ahora ACTÚA. En BP16 se lo quitó porque no hacía nada al
+                  apretarlo, que es peor que no estar; el problema no era tener
+                  la acción ahí sino que fuera decorativa. Selecciona y activa en
+                  un solo gesto, para poder decidir sin volver atrás.
+                */
+                onSelect={() => {
+                  setPicked(f.funnel_key);
+                  activate(f.funnel_key);
+                }}
               />
             );
           })()}
 
           <div className="bp-catalog__actions">
-            <button type="button" className="bp-btn bp-btn--primary" disabled={picked === null || busy} onClick={activate}>
+            <button
+              type="button"
+              className="bp-btn bp-btn--primary"
+              disabled={picked === null || busy}
+              onClick={() => picked !== null && activate(picked)}
+            >
               {busy
                 ? 'Activating…'
                 : picked === null

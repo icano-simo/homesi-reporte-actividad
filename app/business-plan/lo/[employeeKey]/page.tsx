@@ -10,6 +10,8 @@ import MonthlyBarChart from '../../components/MonthlyBarChart';
 import LoanDetailModal, { type ModalKind } from '../../components/LoanDetailModal';
 import BenchmarkEditor from '../../components/BenchmarkEditor';
 import DecisionBar from '../../components/DecisionBar';
+import NotesPanel from '../../components/NotesPanel';
+import { FunnelGlyph } from '../../components/funnelIcons';
 import {
   CalcNote,
   ErrorState,
@@ -22,7 +24,7 @@ import {
   fmtGap,
   fmtLoans,
   exactTitle,
-  initialsOf,
+  Avatar,
 } from '../../components/shared';
 
 /**
@@ -92,9 +94,12 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
           {/* ── 1. Identidad y veredicto ─────────────────────────────────── */}
           <div className="bp-profile">
             <div className="bp-profile__id">
-              <div className="bp-avatar" aria-hidden="true">
-                {initialsOf(lo.fullName)}
-              </div>
+              {/*
+                Etapa BP21: el mismo componente que el resto del modulo, para
+                que esta persona tenga el mismo tono aca y en cualquier otra
+                pantalla donde aparezca su avatar.
+              */}
+              <Avatar name={lo.fullName} size="md" />
               <div className="bp-profile__text">
                 <h1 className="bp-profile__name">
                   {lo.fullName}
@@ -132,7 +137,11 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
               onClick={() => router.push('/business-plan/lo/' + lo.employeeKey + '/plan')}
             >
               <span className="bp-plan-banner__label">Active business plan</span>
-              <span className="bp-plan-banner__name">{lo.activePlan.funnelName}</span>
+              <span className="bp-plan-banner__name">
+                {/* Etapa BP21: el icono del funnel, tambien aca. */}
+                <FunnelGlyph icon={lo.activePlan.funnelIcon} size={18} tone="strong" />
+                {lo.activePlan.funnelName}
+              </span>
               <span className="bp-plan-banner__meta">
                 {lo.activePlan.doneMilestones} of {lo.activePlan.totalMilestones} steps · since{' '}
                 {lo.activePlan.activatedAt.slice(0, 10)}
@@ -383,6 +392,19 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
             onChooseFunnel={() => router.push('/business-plan/lo/' + lo.employeeKey + '/funnel')}
             onReviewed={reload}
             onSeeProgress={() => router.push('/business-plan/lo/' + lo.employeeKey + '/plan')}
+          />
+
+          {/*
+            ── 5. Notas del perfil — etapa BP20 ────────────────────────────
+            El nivel más alto de los cuatro: lo que no cuelga de ningún paso ni
+            de ninguna etapa. Contexto de la persona, acuerdos generales, por
+            qué se la pasó a Watch. Va después de la barra de decisión porque se
+            escribe DESPUÉS de decidir, no antes.
+          */}
+          <NotesPanel
+            target={{ kind: 'employee', key: lo.employeeKey }}
+            title={'Notes on ' + lo.fullName}
+            placeholder="What was discussed with this loan officer, what was agreed…"
           />
 
           {/* Etapa BP16: el diagnóstico se mudó a Settings. Acá queda sólo la
