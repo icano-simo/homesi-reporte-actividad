@@ -736,6 +736,18 @@ table.piv td.val.cl {
   color: var(--emerald-700);
   font-weight: 700;
 }
+/* Drill-down (Fase 1): celda con click habilitado -- affordance discreto,
+   solo cursor + hover + subrayado punteado, sin convertir la tabla entera en
+   botones (celdas con valor 0 no llevan esta clase, ver PivotRow.tsx). */
+table.piv td.val.drillable {
+  cursor: pointer;
+  text-decoration: underline dotted 1px;
+  text-underline-offset: 2px;
+}
+table.piv td.val.drillable:hover {
+  background: rgba(166, 222, 255, 0.35);
+  color: var(--navy);
+}
 
 /* ---- Filas de grupo / subtotal ---- */
 

@@ -9,6 +9,7 @@ import type { LoanRecord } from '@/lib/domain/types';
 import { buildReportTree } from '@/lib/aggregation/buildReportTree';
 import { buildLoanOfficerTree } from '@/lib/aggregation/buildLoanOfficerTree';
 import { deriveMonthRange, ymLabel } from '@/lib/aggregation/months';
+import { loansForCell, type DrillDownContext } from '@/lib/aggregation/loansForCell';
 import type { Measure } from '@/lib/aggregation/types';
 import { exportToExcel } from '@/lib/export/exportToExcel';
 import { saveUpload } from '@/lib/supabase/saveUpload';
@@ -19,6 +20,7 @@ import { UploadIcon, DownloadIcon, FileSheetIcon } from '@/components/ui/icons';
 import SummaryCards from '@/components/report/SummaryCards';
 import PivotTable from '@/components/report/PivotTable';
 import LoanOfficerTable from '@/components/report/LoanOfficerTable';
+import LoanDetailModal from '@/components/report/LoanDetailModal';
 import Toolbar, { type GroupBy, type ChannelFilter } from '@/components/report/Toolbar';
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
@@ -72,6 +74,12 @@ export default function Home() {
   const [start, setStart] = useState<YearMonth | null>(null);
   const [branchFilter, setBranchFilter] = useState<Branch | 'all'>('all');
   const [collapsed, setCollapsed] = useState<Set<string>>(() => defaultCollapsed());
+  // Drill-down (Fase 1): contexto de la celda clickeada, o null si el modal
+  // está cerrado. Los loans se derivan de filteredRecords en cada render
+  // (ver drillDownLoans más abajo) -- no se guarda una copia de la lista acá,
+  // así que si el usuario cambia un filtro con el modal abierto, la lista se
+  // actualiza sola en vez de quedar desincronizada de la tabla.
+  const [drillDown, setDrillDown] = useState<DrillDownContext | null>(null);
   // No estaba en la lista de estado del brief; se agrega porque el criterio
   // de éxito 6 exige mostrar el error de readWorkbook sin crashear la página.
   const [error, setError] = useState<string | null>(null);
@@ -97,6 +105,7 @@ export default function Home() {
     setStart(null);
     setBranchFilter('all');
     setCollapsed(defaultCollapsed());
+    setDrillDown(null);
     setError(null);
   }
 
@@ -283,6 +292,12 @@ export default function Home() {
   // que ocultarlo explícitamente cuando hay un branch específico elegido.
   const showTotal = branchFilter === 'all';
 
+  // Drill-down (Fase 1): loansForCell() filtra sobre filteredRecords -- los
+  // mismos records que ya alimentaron tree/loanOfficerTree arriba, con
+  // B2B/Channel ya aplicados. No se vuelve a evaluar ninguna regla de
+  // negocio acá (ver lib/aggregation/loansForCell.ts).
+  const drillDownLoans = drillDown && filteredRecords ? loansForCell(filteredRecords, drillDown) : [];
+
   // Rótulo del KPI strip: describe qué filtros/agrupación/medida están activos.
   // Micro-etapa (Channel vacío como categoría): 'empty' es sentinel de
   // ChannelFilter, no el label a mostrar -- ver CHANNEL_OPTIONS en
@@ -429,6 +444,7 @@ export default function Home() {
               onToggleCollapse={handleToggleCollapse}
               sortBy={sortBy}
               onSortByChange={setSortBy}
+              onDrillDown={setDrillDown}
             />
           ) : (
             <div className="tbl-card">
@@ -441,6 +457,7 @@ export default function Home() {
                   collapsed={collapsed}
                   onToggleCollapse={handleToggleCollapse}
                   b2bOnly={b2bOnly}
+                  onDrillDown={setDrillDown}
                 />
               </div>
             </div>
@@ -453,6 +470,13 @@ export default function Home() {
           </div>
         </div>
       )}
+
+      <LoanDetailModal
+        isOpen={drillDown !== null}
+        context={drillDown}
+        loans={drillDownLoans}
+        onClose={() => setDrillDown(null)}
+      />
     </div>
   );
 }
