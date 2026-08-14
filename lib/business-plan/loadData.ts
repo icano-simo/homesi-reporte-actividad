@@ -581,17 +581,26 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
      * sobre el promedio en vez del mes en curso, se cambia el argumento de acá
      * y nada más.
      */
+    /*
+     * Promedio mensual sobre los meses CERRADOS. Se calcula una vez y se usa en
+     * dos lados: el Qualifier 2 lo muestra como "usually 29.7/month" y el
+     * directorio del branch lo usa como columna. Antes la tabla mostraba el
+     * acumulado del mes en curso (52 / 222 / 293 para Ana Peña en agosto), que
+     * no se puede comparar ni entre personas ni entre meses.
+     */
+    const trailingActivityAvg = {
+      fileCreations: sumOver(activity.filesByMonth, closedMonths) / WINDOW_MONTHS,
+      creditReports: sumOver(activity.creditReportsByMonth, closedMonths) / WINDOW_MONTHS,
+      applications: sumOver(activity.applicationsByMonth, closedMonths) / WINDOW_MONTHS,
+    };
+
     const q2 = evaluateQualifier2(
       {
         fileCreations: activity.filesByMonth[thisMonth] ?? 0,
         creditReports: activity.creditReportsByMonth[thisMonth] ?? 0,
         applications: activity.applicationsByMonth[thisMonth] ?? 0,
       },
-      {
-        fileCreations: sumOver(activity.filesByMonth, closedMonths) / WINDOW_MONTHS,
-        creditReports: sumOver(activity.creditReportsByMonth, closedMonths) / WINDOW_MONTHS,
-        applications: sumOver(activity.applicationsByMonth, closedMonths) / WINDOW_MONTHS,
-      },
+      trailingActivityAvg,
       benchmark,
       rates
     );
@@ -616,6 +625,7 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
       benchmarkHistory: benchmarkHistoryByEmployee.get(employeeKey) ?? [],
       projection,
       avgClosedMonths: sumOver(activity.closingsByMonth, closedMonths) / WINDOW_MONTHS,
+      trailingActivityAvg,
       ytdClosings: Object.entries(activity.closingsByMonth)
         .filter(([m]) => m.startsWith(yearPrefix))
         .reduce((sum, [, n]) => sum + n, 0),

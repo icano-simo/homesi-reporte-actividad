@@ -308,12 +308,13 @@
   width: 20%;
 }
 
-/* Anchos de la tabla de Loan Officers de un branch. */
+/* Anchos del directorio. Etapa BP17: seis columnas en vez de ocho -- salieron
+   Benchmark y GAP. 30 + 4 x 14 + 14 = 100%. */
 .bp-table--los col.bp-col-name {
-  width: 26%;
+  width: 30%;
 }
 .bp-table--los col.bp-col-metric {
-  width: 12%;
+  width: 14%;
 }
 .bp-table--los col.bp-col-status {
   width: 14%;
@@ -2900,4 +2901,80 @@ table.piv.bp-table--cards td.lbl {
 table.piv.bp-table--cards .badge--pill {
   font-size: 10.5px;
   padding: 4px 11px;
+}
+
+/* ===========================================================================
+ * 20. Etapa BP17 — el rojo de marca y el selector de iconos
+ * =========================================================================== */
+
+/*
+ * EL ROJO DE LAS PÍLDORAS.
+ *
+ * `.badge--rose` de components.css pinta con `--rose-700`, que vale un borgoña
+ * oscuro. Es un token `--rose-*` legítimo, pero NO es el rojo que la gente
+ * reconoce como HOMESÍ -- el mismo problema que ya se corrigió en el GAP y en
+ * el número de riesgo.
+ *
+ * Se sobrescribe ACÁ y no en components.css, que es compartido con Commercial
+ * Activity y Forecast y está fuera de alcance. Como `bp-visual.css` sólo se
+ * carga en el módulo, el alcance del override es exactamente el que se quiere;
+ * y como se declara después, gana con la misma especificidad, sin !important.
+ *
+ * Afecta al veredicto On Risk y al Status "Pending (N)", que son los dos que
+ * usan esta clase.
+ */
+.badge--rose {
+  background: var(--rose-50);
+  color: var(--coral);
+}
+
+/* ── Selector de iconos ─────────────────────────────────────────────────── */
+
+.bp-iconpick {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  background: var(--slate-50);
+  padding: 8px;
+}
+@media (max-width: 900px) {
+  .bp-iconpick {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+.bp-iconpick__opt {
+  font-family: inherit;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 8px 4px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  background: var(--canvas);
+  color: var(--slate-500);
+  cursor: pointer;
+  transition: border-color 0.14s ease, color 0.14s ease, background 0.14s ease;
+}
+.bp-iconpick__opt:hover {
+  border-color: var(--sky);
+  color: var(--navy);
+}
+.bp-iconpick__opt:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 2px;
+}
+/* El elegido en coral: es el acento de acción del módulo. */
+.bp-iconpick__opt.is-on {
+  border-color: var(--coral);
+  background: var(--rose-50);
+  color: var(--coral);
+}
+.bp-iconpick__name {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }

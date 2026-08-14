@@ -303,6 +303,16 @@ export interface LoanOfficerRow {
   projection: CurrentMonthProjection;
   /** Promedio de los 3 meses CERRADOS. Contexto: no entra en el GAP. */
   avgClosedMonths: number;
+  /**
+   * Promedio mensual de las tres métricas de actividad sobre los 3 meses
+   * cerrados.
+   *
+   * Etapa BP17. Vive acá y no dentro de `q2` porque el directorio del branch
+   * las muestra SIEMPRE, y `q2.metrics` queda vacío cuando la persona no tiene
+   * benchmark -- la tabla se quedaría sin números por una razón que no tiene
+   * nada que ver con su actividad.
+   */
+  trailingActivityAvg: { fileCreations: number; creditReports: number; applications: number };
   /** Cierres del año en curso. */
   ytdClosings: number;
   q1: Qualifier1;

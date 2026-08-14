@@ -4,6 +4,7 @@ import { useState, type ReactNode } from 'react';
 import type { Funnel, FunnelCategory, FunnelNode, NodeMilestone } from '@/lib/business-plan/funnels';
 import type { SupportPerson } from '@/lib/business-plan/useFunnelLibrary';
 import Modal from '../components/Modal';
+import IconPicker from './IconPicker';
 
 /**
  * ============================================================================
@@ -67,15 +68,17 @@ export function FunnelForm({
         </Field>
         <Field label="Category">
           <select className="field" value={d.category} onChange={(e) => set('category', e.target.value as FunnelCategory)}>
-            <option value="core">core</option>
-            <option value="growth">growth</option>
+            {/* Capitalizado sólo al mostrar; el `value` va en minúscula. */}
+            <option value="core">Core</option>
+            <option value="growth">Growth</option>
           </select>
         </Field>
         <Field label="Duration (weeks)">
           <input type="number" min="1" className="field" value={d.duration_weeks} onChange={(e) => set('duration_weeks', e.target.value)} />
         </Field>
+        {/* Selector visual: escribir "trending" de memoria no era razonable. */}
         <Field label="Icon">
-          <input className="field" value={d.icon} onChange={(e) => set('icon', e.target.value)} placeholder="grid, target, users…" />
+          <IconPicker value={d.icon} onChange={(name) => set('icon', name)} />
         </Field>
         <Field label="Description">
           <textarea className="field bp-form__area" value={d.description} onChange={(e) => set('description', e.target.value)} rows={3} />
@@ -139,7 +142,7 @@ export function NodeForm({
           <input className="field" value={d.name} onChange={(e) => setD((p) => ({ ...p, name: e.target.value }))} autoFocus />
         </Field>
         <Field label="Icon">
-          <input className="field" value={d.icon} onChange={(e) => setD((p) => ({ ...p, icon: e.target.value }))} />
+          <IconPicker value={d.icon} onChange={(name) => setD((p) => ({ ...p, icon: name }))} />
         </Field>
         <Field label="Description">
           <textarea

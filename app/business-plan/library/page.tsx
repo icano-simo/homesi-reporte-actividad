@@ -225,8 +225,11 @@ export default function FunnelLibraryPage() {
                                 run(() => bp().from('funnel').update({ category: e.target.value as FunnelCategory }).eq('funnel_key', f.funnel_key), false)
                               }
                             >
-                              <option value="core">core</option>
-                              <option value="growth">growth</option>
+                              {/* Capitalizado SÓLO al mostrar: el `value` sigue en
+                                  minúscula, que es lo que valida el check de la
+                                  columna. Capitalizarlo al guardar rompería el insert. */}
+                              <option value="core">Core</option>
+                              <option value="growth">Growth</option>
                             </select>
                           </td>
                           {/*

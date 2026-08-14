@@ -11,11 +11,10 @@ import {
   KpiCard,
   LoadingState,
   NotFoundState,
-  ProvisionalTag,
   RoleChip,
   VerdictBadge,
+  fmtActivityAvg,
   fmtAvg,
-  fmtGap,
   exactTitle,
 } from '../../components/shared';
 
@@ -124,11 +123,19 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
           <div className="tbl-card tbl-card--floating">
             <div className="tbl-scroll">
               <table className="piv bp-table--cards bp-table--los">
-                {/* 26 + 6×10 + 14 = 100%. El nombre es lo único largo de la fila. */}
+                {/*
+                  Etapa BP17: se quitaron Benchmark y GAP de esta tabla.
+
+                  El veredicto SIGUE derivando de los dos. Alguien va a ver
+                  "On Risk" sin ver por que, y la explicacion esta en el perfil
+                  -- por eso el benchmark NO se toco alla: es donde se explica.
+
+                  Las tres metricas de actividad pasan a PROMEDIO MENSUAL de los
+                  3 meses cerrados. Antes eran el acumulado del lote, que no se
+                  puede comparar ni entre personas ni entre meses.
+                */}
                 <colgroup>
                   <col className="bp-col-name" />
-                  <col className="bp-col-metric" />
-                  <col className="bp-col-metric" />
                   <col className="bp-col-metric" />
                   <col className="bp-col-metric" />
                   <col className="bp-col-metric" />
@@ -139,11 +146,9 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
                   <tr className="mo-row">
                     <th className="lbl">Loan Officer</th>
                     <th className="bp-center">Avg Closings 3M</th>
-                    <th className="bp-center">Benchmark</th>
-                    <th className="bp-center">GAP</th>
-                    <th className="bp-center">Credit Apps</th>
-                    <th className="bp-center">Pre-Approvals</th>
-                    <th className="bp-center">Files Created</th>
+                    <th className="bp-center">Avg Credit Apps</th>
+                    <th className="bp-center">Avg Pre-Approvals</th>
+                    <th className="bp-center">Avg File Creations</th>
                     <th className="bp-center">Verdict</th>
                   </tr>
                 </thead>
@@ -180,21 +185,25 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
                       <td className="bp-center" title={exactTitle(lo.q1.avgWithCurrent)}>
                         {fmtAvg(lo.q1.avgWithCurrent)}
                       </td>
-                      <td className="bp-center">
-                        {lo.monthlyBenchmark === null ? (
-                          <span className="bp-muted">—</span>
-                        ) : (
-                          <>
-                            {fmtAvg(lo.monthlyBenchmark)}
-                            <ProvisionalTag setBy={lo.benchmarkSetBy} note={lo.benchmarkNote} />
-                          </>
-                        )}
+                      {/* Promedios mensuales, no acumulados: comparables entre personas. */}
+                      <td
+                        className={'bp-center' + (lo.trailingActivityAvg.applications ? '' : ' zero')}
+                        title={exactTitle(lo.trailingActivityAvg.applications)}
+                      >
+                        {fmtActivityAvg(lo.trailingActivityAvg.applications)}
                       </td>
-                      {/* El GAP nunca se redondea a entero: -0,5 pasaría a 0, o sea On Target. */}
-                      <td className="bp-center">{fmtGap(lo.q1.gap)}</td>
-                      <td className={'bp-center' + (lo.activity.creditApplications ? '' : ' zero')}>{lo.activity.creditApplications}</td>
-                      <td className={'bp-center' + (lo.activity.preApprovals ? '' : ' zero')}>{lo.activity.preApprovals}</td>
-                      <td className={'bp-center' + (lo.activity.filesCreated ? '' : ' zero')}>{lo.activity.filesCreated}</td>
+                      <td
+                        className={'bp-center' + (lo.trailingActivityAvg.creditReports ? '' : ' zero')}
+                        title={exactTitle(lo.trailingActivityAvg.creditReports)}
+                      >
+                        {fmtActivityAvg(lo.trailingActivityAvg.creditReports)}
+                      </td>
+                      <td
+                        className={'bp-center' + (lo.trailingActivityAvg.fileCreations ? '' : ' zero')}
+                        title={exactTitle(lo.trailingActivityAvg.fileCreations)}
+                      >
+                        {fmtActivityAvg(lo.trailingActivityAvg.fileCreations)}
+                      </td>
                       <td className="bp-center">
                         <VerdictBadge verdict={lo.verdict} />
                       </td>
@@ -202,7 +211,7 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
                   ))}
                   {!visibleLos.length && (
                     <tr>
-                      <td className="lbl bp-empty-cell" colSpan={8}>
+                      <td className="lbl bp-empty-cell" colSpan={6}>
                         No loan officer matches that search.
                       </td>
                     </tr>
