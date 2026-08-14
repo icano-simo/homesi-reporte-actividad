@@ -246,19 +246,48 @@ export interface Qualifier1 {
   passes: boolean | null;
 }
 
+/**
+ * Banda de cumplimiento del RITMO. Etapa BP29.
+ *
+ * No son los mismos nombres que el veredicto por casualidad: se leen igual y
+ * significan lo mismo un nivel más abajo. Lo que cambia es qué se compara --
+ * acá es el acumulado del mes contra lo esperado A HOY, no contra la meta del
+ * mes entero.
+ */
+export type PaceBand = 'on_track' | 'watch' | 'at_risk';
+
 export interface Qualifier2Metric {
   key: 'fileCreations' | 'creditReports' | 'applications';
   label: string;
   rate: number;
+  /** Meta del MES COMPLETO: ceil(benchmark / rate). */
   required: number;
+  /** Acumulado del mes en curso. */
   actual: number;
+
+  /* ── Progress to date — etapa BP29, lo que decide ───────────────────── */
+  /** `required / 30`. Treinta días fijos, no los del mes: decisión cerrada. */
+  dailyPace: number;
+  /** Día del mes según el reloj del sistema. */
+  dayOfMonth: number;
+  /** `dailyPace * dayOfMonth`. Lo que debería llevar hoy. */
+  expectedToDate: number;
+  /** `actual / expectedToDate`. Null si lo esperado es cero. */
+  paceRatio: number | null;
+  band: PaceBand | null;
+
   /** Promedio de los 3 meses cerrados: lo que esa persona suele producir. */
   trailingAvg: number;
+  /**
+   * ⚠ `actual >= required` — contra la meta del MES ENTERO. Desde BP29 es sólo
+   * visibilidad: ya no decide nada. Ver el comentario de `evaluateQualifier2`.
+   */
   meets: boolean;
 }
 
 export interface Qualifier2 {
   metrics: Qualifier2Metric[];
+  /** Cuántas están en `at_risk`. Con 2 o más, Future performance falla. */
   belowCount: number;
   passes: boolean | null;
 }

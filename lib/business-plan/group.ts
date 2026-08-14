@@ -163,7 +163,9 @@ export function aggregateGroup(
   windowMonths: string[],
   closedMonths: string[],
   thisMonth: string,
-  rates: RateSettings
+  rates: RateSettings,
+  /* Día del mes, para el ritmo prorrateado del Future performance. BP29. */
+  dayOfMonth: number
 ): GroupAggregate {
   const closings = sumClosings(members);
 
@@ -201,7 +203,7 @@ export function aggregateGroup(
   };
 
   const q1 = evaluateQualifier1(closings.byMonth, windowMonths, projection, benchmark);
-  const q2 = evaluateQualifier2(currentActivity, trailingActivityAvg, benchmark, rates);
+  const q2 = evaluateQualifier2(currentActivity, trailingActivityAvg, benchmark, rates, dayOfMonth);
 
   return {
     members,

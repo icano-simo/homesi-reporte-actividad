@@ -79,10 +79,21 @@ export default function DecisionBar({
     );
   }
   if (lo.q2.passes === false) {
-    const short = lo.q2.metrics.filter((m) => !m.meets);
+    /*
+     * ⚠ Etapa BP29: se filtra por BANDA, no por `meets`.
+     *
+     * `meets` compara contra la meta del MES ENTERO, y desde BP29 no es lo que
+     * decide el veredicto -- lo decide el ritmo prorrateado a hoy. Con el
+     * filtro viejo, esta explicación podía nombrar métricas que el veredicto no
+     * había contado, o callar las que sí: alguien leería "short in 1 of 3"
+     * debajo de un veredicto que falló por otras dos.
+     */
+    const short = lo.q2.metrics.filter((m) => m.band === 'at_risk');
     reasons.push(
-      `commercial activity is short in ${short.length} of 3: ` +
-        short.map((m) => `${m.label} ${m.actual} of ${m.required}`).join(', ')
+      `commercial activity is behind pace in ${short.length} of 3: ` +
+        short
+          .map((m) => `${m.label} ${m.actual} against ${m.expectedToDate.toFixed(1)} expected by day ${m.dayOfMonth}`)
+          .join(', ')
     );
   }
 
@@ -118,7 +129,7 @@ export default function DecisionBar({
           {mandatory ? 'Business Plan required' : 'Business Plan suggested'}
         </div>
         <p className="bp-decision__why">
-          {mandatory ? 'Both qualifiers failed — ' : 'One qualifier failed — '}
+          {mandatory ? 'Current and future performance both failed — ' : 'One of the two failed — '}
           {reasons.join('; ')}.
         </p>
         {lo.intervention && (

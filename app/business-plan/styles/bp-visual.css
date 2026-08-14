@@ -1127,17 +1127,17 @@ table.piv.bp-table--los th {
   background: var(--slate-100);
   overflow: hidden;
 }
+/*
+ * El relleno no trae color propio: lo pone la clase de banda (seccion 28,
+ * etapa BP29). Antes era `--coral` a fondo pleno, y `--emerald-700` al llegar a
+ * la meta; los dos gritaban mas que los numeros de la tarjeta. El color va
+ * ACA en null y no anulado desde abajo, para no repetir lo que paso con el
+ * fondo del icono.
+ */
 .bp-q2-bar__fill {
   height: 100%;
   border-radius: 999px;
-  background: var(--coral);
   transition: width 0.2s ease;
-}
-/* Al llegar a la meta la barra pasa a verde: el color confirma la píldora.
-   `--emerald-700` y no un tono medio porque la escala del proyecto no tiene
-   500 -- agregar un token nuevo por una barra no se justifica. */
-.bp-q2-card.is-met .bp-q2-bar__fill {
-  background: var(--emerald-700);
 }
 /* Lo que suele producir: contexto, subordinado al conteo del mes. */
 
@@ -4306,4 +4306,135 @@ table.piv tr.metric.is-picked td.lbl {
 .bp-builder__reorder button {
   border-color: var(--slate-200);
   color: var(--slate-500);
+}
+
+/* ===========================================================================
+ * 28. Etapa BP29 — Progress to date, y las barras en tonos suaves
+ * =========================================================================== */
+
+/*
+ * Cada tarjeta de Future performance tiene ahora DOS bloques. El de arriba,
+ * Progress to date, es el que decide; el de abajo, Month to date, quedo como
+ * visibilidad. El orden y el peso visual dicen eso sin tener que escribirlo.
+ */
+.bp-q2-card {
+  align-items: stretch;
+  text-align: left;
+  gap: 10px;
+}
+/* El nombre sigue centrado: es el titulo de la tarjeta, no parte de un bloque. */
+.bp-q2-card__name {
+  text-align: center;
+}
+
+.bp-q2-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+/* Month to date, subordinado: mismo contenido, menos peso. */
+.bp-q2-block--muted {
+  border-top: 1px solid var(--slate-100);
+  padding-top: 9px;
+}
+.bp-q2-block--muted .bp-q2-card__count {
+  font-size: 14px;
+  color: var(--slate-500);
+}
+.bp-q2-block__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.bp-q2-block__title {
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+}
+.bp-q2-block__note {
+  font-size: 10px;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+/* La cuenta escrita: sin ella "9,3 esperado" es un numero caido del cielo. */
+.bp-q2-block__math {
+  font-size: 9.5px;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+.bp-q2-card__req {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--slate-400);
+}
+
+/* ── Las tres bandas ────────────────────────────────────────────────────── */
+
+/*
+ * ⚠ TONOS SUAVES DE LAS ESCALAS QUE YA EXISTEN. El verde y el rojo anteriores
+ * eran `--emerald-700` y `--coral` a fondo pleno, y en una barra de 8px de alto
+ * repetida tres veces gritaban mas que los numeros. Se usan los pasos 200/500
+ * de emerald, amber y rose, que son los mismos que ya visten las pildoras de
+ * estado. Ningun color nuevo, cero hexadecimales.
+ */
+.bp-q2-block__band {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+  padding: 1px 7px;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+.bp-q2-block__band--on_track {
+  background: var(--emerald-50);
+  color: var(--emerald-800);
+  border: 1px solid var(--emerald-200);
+}
+.bp-q2-block__band--watch {
+  background: var(--amber-50);
+  color: var(--amber-800);
+  border: 1px solid var(--amber-200);
+}
+.bp-q2-block__band--at_risk {
+  background: var(--rose-50);
+  color: var(--rose-700);
+  border: 1px solid var(--rose-200);
+}
+
+.bp-q2-bar__fill--on_track {
+  background: var(--emerald-200);
+}
+.bp-q2-bar__fill--watch {
+  background: var(--amber-200);
+}
+.bp-q2-bar__fill--at_risk {
+  background: var(--rose-200);
+}
+/* La de Month to date, todavia mas apagada: acompana, no decide. */
+.bp-q2-bar--muted {
+  height: 5px;
+}
+.bp-q2-bar__fill--muted {
+  background: var(--slate-300);
+}
+
+/*
+ * El borde de la tarjeta toma la banda. Es la unica senal que se ve sin leer,
+ * y por eso va en el borde y no en el fondo: tenir el fondo apagaria las dos
+ * barras y las dos pildoras que viven adentro -- el mismo error que costo
+ * cuatro rondas con el icono.
+ */
+.bp-q2-card.is-on_track {
+  border-color: var(--emerald-200);
+}
+.bp-q2-card.is-watch {
+  border-color: var(--amber-200);
+}
+.bp-q2-card.is-at_risk {
+  border-color: var(--rose-200);
 }

@@ -65,7 +65,11 @@ export default function GroupReviewPage({ params }: { params: Promise<{ keys: st
   const group = useMemo(() => {
     if (!data || members.length === 0) return null;
     const d = data.diagnostics;
-    return aggregateGroup(members, d.windowMonths, d.closedMonths, d.windowMonths[d.windowMonths.length - 1], d.rates);
+    return aggregateGroup(
+      members, d.windowMonths, d.closedMonths, d.windowMonths[d.windowMonths.length - 1], d.rates,
+      /* El dia del mes, para el ritmo prorrateado del Future performance. */
+      new Date().getDate()
+    );
   }, [data, members]);
 
   const branches = useMemo(() => [...new Set(members.flatMap((m) => m.branchCodes))].sort(), [members]);
@@ -136,7 +140,7 @@ export default function GroupReviewPage({ params }: { params: Promise<{ keys: st
           </div>
 
           {/* ── Qualifier 1, sumado ─────────────────────────────────────────── */}
-          <h2 className="bp-section-title">Qualifier 1 — volume, added up</h2>
+          <h2 className="bp-section-title">Current performance — volume, added up</h2>
           <div className="bp-forensic">
             <GroupItem label={'Closings in ' + shortMonth(thisMonth) + ' so far'} value={fmtLoans(group.projection.closedToDate)} />
             <GroupItem label="Total Pipeline" value={fmtLoans(group.projection.totalPipeline)} />
@@ -207,7 +211,7 @@ export default function GroupReviewPage({ params }: { params: Promise<{ keys: st
           </div>
 
           {/* ── Qualifier 2, sumado ─────────────────────────────────────────── */}
-          <h2 className="bp-section-title">Qualifier 2 — activity, added up</h2>
+          <h2 className="bp-section-title">Future performance — activity, added up</h2>
           <div className="bp-q2-grid">
             {[
               { k: 'applications' as const, label: 'Credit applications', rate: data.diagnostics.rates.q2.applications },

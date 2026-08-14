@@ -2373,3 +2373,98 @@ lo primero que se hace en esta pantalla es leer la secuencia, no reordenarla.
 
 La selección se marca por contorno, coherente con el resto del módulo desde
 BP24 -- antes teñía el fondo de rose.
+
+## Etapa BP29 — Progress to date, y el fin de "Qualifier 1 / Qualifier 2"
+
+### Los nombres
+
+`Qualifier 1` → **Current performance**: mide el pipeline del mes en curso.
+`Qualifier 2` → **Future performance**: la actividad de hoy alimenta el pipeline
+de los meses siguientes.
+
+Sólo texto visible. En el código siguen llamándose `q1` y `q2`, y
+`evaluateQualifier1` / `evaluateQualifier2` conservan su nombre: renombrar
+funciones que aparecen en ocho archivos por un cambio de etiqueta habría
+mezclado un rename mecánico con un cambio de lógica en el mismo commit.
+
+### ⚠ Progress to date corrige un defecto real, no es un refinamiento
+
+Hasta BP28, el acumulado del mes se comparaba contra la meta del MES ENTERO. El
+día 2 de cada mes casi todo el mundo fallaba: se le exigía a alguien con dos
+días de trabajo lo mismo que a fin de mes. **El veredicto del módulo dependía de
+qué día se mirara la pantalla.**
+
+Ahora se compara contra lo que corresponde llevar a hoy:
+
+```
+ritmo diario   = requerido del mes / 30
+esperado a hoy = ritmo diario × día del mes
+```
+
+Verificado ejecutando el motor real con los datos de Ana Peña, benchmark 4, día
+14 de agosto de 2026:
+
+| métrica | tasa | requerido | ritmo/día | esperado a hoy | acumulado | % ritmo | banda |
+|---|---|---|---|---|---|---|---|
+| File Creations | 20,0% | 20 | 0,67 | 9,33 | 13 | 139% | on track |
+| Credit Reports | 30,0% | 14 | 0,47 | 6,53 | 16 | 245% | on track |
+| Applications | 66,7% | 6 | 0,20 | 2,80 | 6 | 214% | on track |
+
+El efecto que se buscaba, con los mismos datos: llevando 2 file creations, el
+día 2 da `on track` (esperado 1,33) y el día 30 da `at risk` (esperado 20). Con
+la regla vieja los dos casos decían lo mismo, "short by 18".
+
+### Las tres bandas, y por qué 85%
+
+```
+>= 100%   on track
+85 – 99%  watch
+ < 85%    at risk
+```
+
+Lo esperado es fraccionario (9,33) y lo real es entero. Sin margen, estar en 9
+cuando toca 9,33 pintaría rojo a alguien que está a un tercio de unidad de la
+meta — una distancia que ni siquiera se puede recorrer, porque no existe un
+tercio de file creation. Los cortes, comprobados: 10 → 107% on track · 9 → 96%
+watch · 8 → 86% watch · 7 → 75% at risk.
+
+**Future performance falla con 2 o más en `at_risk`.** La regla de "2 de 3" no
+cambió; lo que cambió es qué se cuenta.
+
+### Tres decisiones cerradas, anotadas para que no se reinterpreten
+
+1. **Treinta días fijos**, no los días reales del mes. Sesgo chico y constante
+   —en febrero exige de menos, en los meses de 31 de más— aceptado a cambio de
+   que la meta diaria sea la misma todo el año.
+2. **Días corridos**, no hábiles. Un mes con más fines de semana pide lo mismo.
+   Queda para revisar.
+3. **El día sale del reloj del sistema**, y llega por parámetro: leerlo dentro
+   del motor lo volvería impuro y no se podría probar sin viajar en el tiempo.
+
+### Dos consecuencias que había que perseguir
+
+**La barra de decisión explicaba la falla con la regla vieja.** Filtraba por
+`meets` —contra la meta del mes entero— mientras el veredicto ya salía de las
+bandas. Podía nombrar métricas que el veredicto no había contado, o callar las
+que sí: alguien leería "short in 1 of 3" debajo de un veredicto que falló por
+otras dos. Ahora filtra por `band === 'at_risk'` y muestra el esperado a hoy.
+
+**El benchmark vigente necesitaba desempate.** La tabla dejó de tener PK
+`(employee_key, effective_from)` — ahora la clave es sustituta y se puede
+cambiar varias veces el mismo día. Con dos filas de la misma vigencia, ordenar
+sólo por `effective_from` dejaba el ganador librado al orden en que PostgREST
+devolviera las filas, que es indefinido. Se agregó `set_at` como segundo
+criterio: gana la registrada después.
+
+### Los colores
+
+`--emerald-*` para on track, `--amber-*` para watch, `--rose-*` para at risk, en
+los pasos 50/200/800 que ya visten las píldoras de estado. El relleno de la
+barra **dejó de traer color propio**: antes era `--coral` a fondo pleno y
+`--emerald-700` al llegar a la meta, los dos gritando más que los números. El
+color se sacó en su origen y no se anuló desde abajo, para no repetir lo que
+pasó con el fondo del icono.
+
+La banda tiñe el BORDE de la tarjeta, nunca el fondo: teñir el fondo apagaría
+las dos barras y las dos píldoras que viven adentro — el mismo error que costó
+cuatro rondas con el icono.

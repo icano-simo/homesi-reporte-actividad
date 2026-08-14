@@ -151,7 +151,7 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
           )}
 
           {/* ── 2. Qualifier 1 ───────────────────────────────────────────── */}
-          <h2 className="bp-section-title">Qualifier 1 — volume</h2>
+          <h2 className="bp-section-title">Current performance — this month&apos;s pipeline</h2>
 
           {/*
            * Bloque forense del mes en curso, en el orden exacto que pidió el
@@ -358,9 +358,17 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
             <div className="bp-q2-cards">
               {lo.q2.metrics.map((m) => {
                 const short = Math.max(0, m.required - m.actual);
-                const pct = m.required <= 0 ? 0 : Math.min(100, (m.actual / m.required) * 100);
+                /* Month to date: contra la meta del MES ENTERO. */
+                const monthPct = m.required <= 0 ? 0 : Math.min(100, (m.actual / m.required) * 100);
+                /*
+                 * Progress to date: contra lo esperado A HOY. La barra puede
+                 * pasarse del 100% -- se recorta al dibujar, pero el número de
+                 * arriba dice el porcentaje real, que es el dato.
+                 */
+                const pacePct = m.paceRatio === null ? 0 : Math.min(100, m.paceRatio * 100);
+                const band = m.band ?? 'at_risk';
                 return (
-                  <div key={m.key} className={'bp-q2-card' + (m.meets ? ' is-met' : '')}>
+                  <div key={m.key} className={'bp-q2-card is-' + band}>
                     <button
                       type="button"
                       className="bp-q2-card__name"
@@ -368,15 +376,56 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
                     >
                       {m.label}
                     </button>
-                    <div className="bp-q2-card__count">
-                      {m.actual} of {m.required}
+
+                    {/*
+                      ⚠ ARRIBA VA LO QUE DECIDE — etapa BP29.
+                      El orden es el argumento: primero el ritmo, que es lo que
+                      define el veredicto, y debajo el acumulado del mes, que
+                      quedó como visibilidad. Al revés, lo primero que se leería
+                      sería el número que ya no manda.
+                    */}
+                    <div className="bp-q2-block">
+                      <div className="bp-q2-block__head">
+                        <span className="bp-q2-block__title">Progress to date</span>
+                        <span className={'bp-q2-block__band bp-q2-block__band--' + band}>
+                          {band === 'on_track' ? 'On track' : band === 'watch' ? 'Watch' : 'At risk'}
+                        </span>
+                      </div>
+                      <div className="bp-q2-card__count">
+                        {m.actual} of {m.expectedToDate.toFixed(1)}
+                        <span className="bp-q2-card__req"> expected by day {m.dayOfMonth}</span>
+                      </div>
+                      <div className="bp-q2-bar">
+                        <div className={'bp-q2-bar__fill bp-q2-bar__fill--' + band} style={{ width: pacePct + '%' }} />
+                      </div>
+                      <div
+                        className="bp-q2-block__math"
+                        title={`${m.required} required ÷ 30 days = ${m.dailyPace.toFixed(2)}/day × day ${m.dayOfMonth}`}
+                      >
+                        {m.required} ÷ 30 = {m.dailyPace.toFixed(2)}/day ·{' '}
+                        {m.paceRatio === null ? '—' : Math.round(m.paceRatio * 100) + '% of pace'}
+                      </div>
                     </div>
-                    <div className="bp-q2-bar">
-                      <div className="bp-q2-bar__fill" style={{ width: pct + '%' }} />
+
+                    {/*
+                      Month to date. Se queda porque sigue siendo la pregunta de
+                      fin de mes -- cuánto falta para la meta completa -- pero ya
+                      no decide nada, y por eso va en gris y sin banda.
+                    */}
+                    <div className="bp-q2-block bp-q2-block--muted">
+                      <div className="bp-q2-block__head">
+                        <span className="bp-q2-block__title">Month to date</span>
+                        <span className="bp-q2-block__note">{m.meets ? 'Met' : short + ' to go'}</span>
+                      </div>
+                      <div className="bp-q2-card__count">
+                        {m.actual} of {m.required}
+                        <span className="bp-q2-card__req"> for the full month</span>
+                      </div>
+                      <div className="bp-q2-bar bp-q2-bar--muted">
+                        <div className="bp-q2-bar__fill bp-q2-bar__fill--muted" style={{ width: monthPct + '%' }} />
+                      </div>
                     </div>
-                    <span className={m.meets ? 'badge badge--pill badge--emerald' : 'badge badge--pill badge--rose'}>
-                      {m.meets ? 'Met' : 'Short by ' + short}
-                    </span>
+
                     <div className="bp-q2-card__avg" title="Average of the three closed months">
                       usually {fmtActivityAvg(m.trailingAvg)}/month
                     </div>

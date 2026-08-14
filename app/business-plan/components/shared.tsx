@@ -91,10 +91,12 @@ export function CalcNote({ data }: { data: BusinessPlanData }) {
         Closing whole, and the remaining healthy ones weighted by the pull-through of their milestone.
       </p>
       <p>
-        <strong>Qualifier 2</strong> requires <code>ceil(benchmark ÷ conversion rate)</code> units of each metric — with
+        <strong>Future performance</strong> requires <code>ceil(benchmark ÷ conversion rate)</code> units of each metric per month — with
         a benchmark of 2 that is {requiredUnits(2, r.q2.fileCreations)} file creations,{' '}
-        {requiredUnits(2, r.q2.creditReports)} credit reports and {requiredUnits(2, r.q2.applications)} applications. It
-        fails when two or more fall short.
+        {requiredUnits(2, r.q2.creditReports)} credit reports and {requiredUnits(2, r.q2.applications)} applications. What
+        is judged is the PACE, not the month total: the monthly requirement ÷ 30 gives a daily pace, and the day of the
+        month gives what should be done by today. Below 85% of that is at risk, and it fails when two or more of the
+        three are.
       </p>
       <p>
         Rates: Started {formatRate(r.milestone.Started)} · Processing {formatRate(r.milestone.Processing)} ·

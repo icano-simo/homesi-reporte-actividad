@@ -2,6 +2,7 @@ import type {
   CurrentMonthProjection,
   MilestoneBucket,
   OpenLoan,
+  PaceBand,
   Qualifier1,
   Qualifier2,
   Qualifier2Metric,
@@ -207,15 +208,75 @@ export function requiredUnits(benchmark: number, rate: number): number {
   return Math.ceil(benchmark / rate);
 }
 
+/**
+ * ============================================================================
+ * PROGRESS TO DATE — el ritmo prorrateado. Etapa BP29.
+ * ============================================================================
+ *
+ * ⚠ ESTO CORRIGE UN DEFECTO REAL, no es un refinamiento.
+ *
+ * Hasta BP28 el acumulado del mes se comparaba contra la meta del MES ENTERO.
+ * El día 2 de cada mes, entonces, casi todo el mundo fallaba: se le exigía a
+ * alguien con dos días de trabajo lo mismo que a fin de mes. El veredicto del
+ * módulo dependía de qué día se mirara la pantalla.
+ *
+ * Ahora se compara contra lo que corresponde llevar A HOY:
+ *
+ *     ritmo diario   = requerido del mes / 30
+ *     esperado a hoy = ritmo diario * día del mes
+ *
+ * Con benchmark 4, File Creations requiere 20 en el mes: 20/30 = 0,67 por día,
+ * y el día 14 lo esperado son 9,33. Quien lleva 11 va por encima.
+ *
+ * ---------------------------------------------------------------------------
+ * TRES DECISIONES CERRADAS POR EL NEGOCIO
+ * ---------------------------------------------------------------------------
+ * 1. TREINTA DÍAS FIJOS, no los días reales del mes. Es un sesgo chico y
+ *    constante -- en febrero exige de menos, en los meses de 31 de más -- y se
+ *    acepta a cambio de que el número sea el mismo todo el año y no haya que
+ *    explicar por qué la meta diaria cambia entre marzo y abril.
+ * 2. DÍAS CORRIDOS, no hábiles. Un mes con más fines de semana pide lo mismo.
+ *    Queda anotado para revisar.
+ * 3. El día del mes sale del RELOJ DEL SISTEMA, y llega por parámetro: leerlo
+ *    acá volvería impura esta función y no se podría probar sin viajar en el
+ *    tiempo.
+ *
+ * ---------------------------------------------------------------------------
+ * LAS TRES BANDAS, Y POR QUÉ EL 85%
+ * ---------------------------------------------------------------------------
+ *     >= 100%   on track
+ *     85 – 99%  watch
+ *      < 85%    at risk
+ *
+ * El umbral del 85% no es decorativo: lo esperado es fraccionario (9,33) y lo
+ * real es entero (9). Sin margen, estar en 9 cuando toca 9,33 pintaría rojo a
+ * alguien que está a un tercio de unidad de la meta -- una distancia que ni
+ * siquiera se puede recorrer, porque no existe un tercio de file creation.
+ */
+export const PACE_WATCH_THRESHOLD = 0.85;
+
+export function paceBandOf(ratio: number | null): PaceBand | null {
+  if (ratio === null) return null;
+  if (ratio >= 1) return 'on_track';
+  return ratio >= PACE_WATCH_THRESHOLD ? 'watch' : 'at_risk';
+}
+
+/** Treinta días fijos. Ver el punto 1 de arriba. */
+export const PACE_DAYS_IN_MONTH = 30;
+
 export function evaluateQualifier2(
   current: { fileCreations: number; creditReports: number; applications: number },
   trailingAvg: { fileCreations: number; creditReports: number; applications: number },
   benchmark: number | null,
-  rates: RateSettings
+  rates: RateSettings,
+  /** Día del mes, 1-31. Llega por parámetro para que esto siga siendo puro. */
+  dayOfMonth: number
 ): Qualifier2 {
   if (benchmark === null) {
     return { metrics: [], belowCount: 0, passes: null };
   }
+  const day = Math.min(Math.max(1, Math.round(dayOfMonth)), 31);
+
   const build = (
     key: Qualifier2Metric['key'],
     label: string,
@@ -224,7 +285,22 @@ export function evaluateQualifier2(
     avg: number
   ): Qualifier2Metric => {
     const required = requiredUnits(benchmark, rate);
-    return { key, label, rate, required, actual, trailingAvg: avg, meets: actual >= required };
+    const dailyPace = Number.isFinite(required) ? required / PACE_DAYS_IN_MONTH : 0;
+    const expectedToDate = dailyPace * day;
+    /*
+     * Sin nada esperado no hay ritmo que medir, y NO es "cumplió": con
+     * benchmark 0 no se le pide nada a nadie, así que la banda queda en null y
+     * la métrica no cuenta ni a favor ni en contra.
+     */
+    const paceRatio = expectedToDate > 0 ? actual / expectedToDate : null;
+    return {
+      key, label, rate, required, actual,
+      dailyPace, dayOfMonth: day, expectedToDate, paceRatio,
+      band: paceBandOf(paceRatio),
+      trailingAvg: avg,
+      /* Contra la meta del mes entero. Desde BP29 sólo se muestra. */
+      meets: actual >= required,
+    };
   };
 
   const metrics: Qualifier2Metric[] = [
@@ -233,8 +309,12 @@ export function evaluateQualifier2(
     build('applications', 'Applications', rates.q2.applications, current.applications, trailingAvg.applications),
   ];
 
-  const belowCount = metrics.filter((m) => !m.meets).length;
-  // Una sola métrica por debajo no lo tumba; dos o más sí.
+  /*
+   * ⚠ EL VEREDICTO SALE DE LA BANDA, NO DE `meets`. La regla de "2 o más" no
+   * cambió; lo que cambió es qué se cuenta: antes, métricas por debajo de la
+   * meta del mes entero; ahora, métricas en `at_risk` según el ritmo.
+   */
+  const belowCount = metrics.filter((m) => m.band === 'at_risk').length;
   return { metrics, belowCount, passes: belowCount < 2 };
 }
 

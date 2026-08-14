@@ -186,7 +186,20 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
     const { data, error } = await org
       .from('employee_benchmark')
       .select('employee_key, monthly_benchmark, effective_from, set_by, set_at, note')
-      .order('effective_from', { ascending: true });
+      /*
+       * ⚠ DOS CRITERIOS DE ORDEN, no uno — etapa BP29.
+       *
+       * La tabla dejó de tener PK (employee_key, effective_from): ahora la clave
+       * es sustituta y se puede cambiar el benchmark VARIAS VECES EL MISMO DÍA,
+       * lo que antes chocaba contra la primaria.
+       *
+       * Con dos filas de la misma vigencia, ordenar sólo por `effective_from`
+       * dejaba el ganador librado al orden en que PostgREST devolviera las
+       * filas -- indefinido. `set_at` como desempate hace que gane la registrada
+       * después, que es la regla del negocio.
+       */
+      .order('effective_from', { ascending: true })
+      .order('set_at', { ascending: true });
     if (!error && data) {
       benchmarkTableAvailable = true;
       const today = reference.toISOString().slice(0, 10);
@@ -608,7 +621,9 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
       },
       trailingActivityAvg,
       benchmark,
-      rates
+      rates,
+      /* El día del mes viaja como argumento: el motor no lee el reloj. */
+      reference.getDate()
     );
 
     loanOfficers.push({
