@@ -602,6 +602,7 @@ table.piv.bp-table--los th {
   background: var(--navy);
   border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   min-height: 1px;
+  transition: opacity 0.12s ease;
 }
 /* La del mes actual apila tres segmentos que suman la proyección. */
 .bp-chart__bar--current {
@@ -1148,8 +1149,14 @@ table.piv.bp-table--los th {
   cursor: pointer;
   transition: box-shadow 0.14s ease, background 0.14s ease, color 0.14s ease;
 }
-.bp-forensic__item:hover,
-.bp-chart__col:hover {
+/*
+ * ⚠ La columna del gráfico NO va acá. Etapa BP19: `.bp-chart__col` es un botón
+ * TRANSPARENTE de altura completa, así que una `box-shadow` grande le pintaba
+ * un halo claro a lo largo de todo el alto del área y además se derramaba sobre
+ * la columna vecina -- por eso se veían dos "encendidas" a la vez. El hover de
+ * la columna se resuelve más abajo, sobre la barra.
+ */
+.bp-forensic__item:hover {
   box-shadow: var(--shadow-lg);
 }
 .bp-forensic__item:focus-visible,
@@ -1255,6 +1262,18 @@ table.piv.bp-table--los th {
   background: none;
   padding: 0;
   border-radius: var(--radius-sm);
+}
+/*
+ * El hover afecta SÓLO a la barra: se aclara un poco y el `title` hace de
+ * tooltip. El fondo del área no cambia. La opacidad y no un color nuevo, para
+ * que sirva igual sobre la barra navy de un mes cerrado y sobre los tres
+ * segmentos del mes en curso, sin declarar una variante por cada uno.
+ */
+.bp-chart__col:hover .bp-chart__bar {
+  opacity: 0.72;
+}
+.bp-chart__col:hover .bp-chart__value {
+  color: var(--navy);
 }
 
 /* ── Caja destacada de Benchmark + GAP ──────────────────────────────────── */
@@ -2930,27 +2949,32 @@ table.piv.bp-table--cards .badge--pill {
 
 /* ── Selector de iconos ─────────────────────────────────────────────────── */
 
+/*
+ * Etapa BP19: más columnas y sin etiqueta debajo. Con 21 opciones y texto, el
+ * selector ocupaba media pantalla y había que scrollear el formulario para
+ * llegar al botón de guardar. Las etiquetas viven en el `title`.
+ */
 .bp-iconpick {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 6px;
+  grid-template-columns: repeat(11, minmax(0, 1fr));
+  gap: 4px;
   border: 1px solid var(--slate-200);
   border-radius: var(--radius-md);
   background: var(--slate-50);
-  padding: 8px;
+  padding: 7px;
 }
 @media (max-width: 900px) {
   .bp-iconpick {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(7, minmax(0, 1fr));
   }
 }
 .bp-iconpick__opt {
   font-family: inherit;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 3px;
-  padding: 8px 4px;
+  justify-content: center;
+  aspect-ratio: 1;
+  padding: 0;
   border: 1px solid var(--slate-200);
   border-radius: var(--radius-md);
   background: var(--canvas);
@@ -2971,12 +2995,6 @@ table.piv.bp-table--cards .badge--pill {
   border-color: var(--coral);
   background: var(--rose-50);
   color: var(--coral);
-}
-.bp-iconpick__name {
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 /* ===========================================================================
