@@ -248,6 +248,102 @@ export function canToggleMilestone(sessionEmail: string | null, accountableEmail
   return sessionEmail.trim().toLowerCase() === accountableEmail.trim().toLowerCase();
 }
 
+/**
+ * ============================================================================
+ * ¿SE PUEDE ACTIVAR ESTE FUNNEL?
+ * ============================================================================
+ *
+ * Etapa BP13. Antes no se preguntaba, y el resultado fue un enrolamiento con 5
+ * nodos copiados y CERO milestones, guardado como activo y sin una sola
+ * advertencia. La persona quedaba con un plan que no le pedía hacer nada y un
+ * anillo de progreso en 0 de 0.
+ *
+ * La causa inmediata fue activar antes de sembrar los milestones, pero el
+ * escenario se repite solo: alguien crea un funnel en la biblioteca, lo deja a
+ * medio armar y otro lo activa. Un funnel sin pasos no es un plan.
+ *
+ * Se valida ANTES de escribir nada. Detectarlo después dejaría un enrolamiento
+ * huérfano que hay que ir a borrar a mano -- que es exactamente lo que pasó.
+ */
+export interface ActivationCheck {
+  ok: boolean;
+  /** Por qué no, para mostrarlo en el botón y en la tarjeta. */
+  reason: string | null;
+  nodeCount: number;
+  milestoneCount: number;
+}
+
+export function checkActivation(
+  funnelKey: number,
+  links: FunnelNodeLink[],
+  milestones: NodeMilestone[]
+): ActivationCheck {
+  const nodeKeys = links.filter((l) => l.funnel_key === funnelKey).map((l) => l.node_key);
+  const nodeSet = new Set(nodeKeys);
+  const milestoneCount = milestones.filter((m) => nodeSet.has(m.node_key)).length;
+
+  if (nodeKeys.length === 0) {
+    return { ok: false, reason: 'This funnel has no nodes yet.', nodeCount: 0, milestoneCount: 0 };
+  }
+  if (milestoneCount === 0) {
+    return {
+      ok: false,
+      reason: 'This funnel has nodes but no milestones — there would be nothing to do.',
+      nodeCount: nodeKeys.length,
+      milestoneCount: 0,
+    };
+  }
+  return { ok: true, reason: null, nodeCount: nodeKeys.length, milestoneCount };
+}
+
+/**
+ * ¿Se puede borrar este nodo de la BIBLIOTECA?
+ *
+ * Borrarlo lo saca en cascada de todos los funnels que lo usan -- `funnel_node`
+ * es ON DELETE CASCADE. Eso está bien para una plantilla, pero NO si alguno de
+ * esos funnels tiene gente enrolada: el funnel quedaría con un paso menos para
+ * quien lo elija después, sin que nadie lo haya decidido.
+ *
+ * Devuelve además en qué funnels está, para poder avisarlo antes de confirmar.
+ */
+export interface NodeDeleteCheck {
+  ok: boolean;
+  reason: string | null;
+  usedIn: { funnel_key: number; name: string; enrollments: number }[];
+}
+
+export function checkNodeDelete(
+  nodeKey: number,
+  links: FunnelNodeLink[],
+  funnels: Funnel[],
+  enrollmentsByFunnel: Record<number, number>
+): NodeDeleteCheck {
+  const usedIn = links
+    .filter((l) => l.node_key === nodeKey)
+    .map((l) => {
+      const f = funnels.find((x) => x.funnel_key === l.funnel_key);
+      return {
+        funnel_key: l.funnel_key,
+        name: f?.name ?? 'unknown funnel',
+        enrollments: enrollmentsByFunnel[l.funnel_key] ?? 0,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const blocked = usedIn.filter((u) => u.enrollments > 0);
+  if (blocked.length > 0) {
+    return {
+      ok: false,
+      reason:
+        'It is used by ' +
+        blocked.map((b) => `${b.name} (${b.enrollments} active plan${b.enrollments === 1 ? '' : 's'})`).join(', ') +
+        '. Remove it from those funnels first.',
+      usedIn,
+    };
+  }
+  return { ok: true, reason: null, usedIn };
+}
+
 /** Un milestone ya hecho no se reabre ni se borra: marcarlo fue un hecho. */
 export function canEditMilestone(status: MilestoneStatus): boolean {
   return status !== 'done';

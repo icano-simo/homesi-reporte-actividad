@@ -3,32 +3,65 @@
 import { useMemo, useState } from 'react';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { useFunnelLibrary } from '@/lib/business-plan/useFunnelLibrary';
-import { canDeleteFunnel, funnelStats } from '@/lib/business-plan/funnels';
-import { AlertTriangleIcon } from '@/components/ui/icons';
+import {
+  canDeleteFunnel,
+  checkNodeDelete,
+  funnelStats,
+  type Funnel,
+  type FunnelCategory,
+  type FunnelNode,
+  type NodeMilestone,
+} from '@/lib/business-plan/funnels';
+import { AlertTriangleIcon, CloseIcon } from '@/components/ui/icons';
 import Breadcrumbs from '../components/Breadcrumbs';
 import Modal from '../components/Modal';
 import { ErrorState, LoadingState } from '../components/shared';
 import SequenceBuilder from './SequenceBuilder';
+import { ConfirmDelete, FunnelForm, MilestoneForm, NodeForm } from './LibraryForms';
 
 /**
  * ============================================================================
  * BIBLIOTECA DE FUNNELS Y NODOS
  * ============================================================================
  *
- * Etapa BP12 — reemplaza al placeholder de BP2.
+ * Etapa BP12, ampliada a CRUD completo en BP13.
  *
- * Tres secciones: los funnels, los nodos con sus milestones, y el constructor
- * de secuencia. Todo lo que se ve acá son PLANTILLAS: editarlas no toca ningún
- * plan ya activado, porque al enrolarse el plan se copia. Ver `funnels.ts`.
+ * Todo lo que se ve acá son PLANTILLAS: editarlas no toca ningún plan ya
+ * activado, porque al enrolarse el plan se copia. Ver `funnels.ts`.
+ *
+ * ---------------------------------------------------------------------------
+ * LA RELACIÓN NODO ↔ FUNNEL ES DE MUCHOS A MUCHOS, Y SE VE
+ * ---------------------------------------------------------------------------
+ * Un nodo NO pertenece a un funnel: puede estar en varios. Hoy "Sales Call"
+ * está en 4 y "Social Media Setup" en 2, con UNA sola fila cada uno.
+ *
+ * Si cada nodo perteneciera a un solo funnel harían falta 4 copias de Sales
+ * Call con sus milestones duplicados, y cambiar un paso obligaría a editarlo en
+ * cuatro lados. Por eso el modelo no cambia -- lo que faltaba era hacerlo
+ * visible, y ahora se ve desde los dos lados:
+ *
+ *   pestaña Funnels  lista los NOMBRES de sus nodos, en orden
+ *   pestaña Nodes    lista en qué funnels se usa cada nodo, y marca huérfanos
+ *   detalle del nodo casillas para agregarlo o quitarlo de cada funnel
  */
 
 type Tab = 'funnels' | 'nodes' | 'builder';
+type Dialog =
+  | { kind: 'funnel-form'; funnel: Funnel | null }
+  | { kind: 'funnel-delete'; funnel: Funnel }
+  | { kind: 'node-form'; node: FunnelNode | null }
+  | { kind: 'node-delete'; node: FunnelNode }
+  | { kind: 'node-detail'; node: FunnelNode }
+  | { kind: 'ms-form'; nodeKey: number; milestone: NodeMilestone | null }
+  | { kind: 'ms-delete'; milestone: NodeMilestone }
+  | null;
 
 export default function FunnelLibraryPage() {
   const { data, isLoading, available, error, reload } = useFunnelLibrary();
   const [tab, setTab] = useState<Tab>('funnels');
   const [busy, setBusy] = useState(false);
   const [opError, setOpError] = useState<string | null>(null);
+  const [dialog, setDialog] = useState<Dialog>(null);
   const [selectedFunnel, setSelectedFunnel] = useState<number | null>(null);
   const [selectedNode, setSelectedNode] = useState<number | null>(null);
 
@@ -38,15 +71,15 @@ export default function FunnelLibraryPage() {
    * Envuelve cualquier escritura: marca ocupado, captura el error y recarga.
    *
    * `PromiseLike` y no `Promise`: los builders de PostgREST son thenables, no
-   * promesas, así que pedir `Promise` los rechazaría y obligaría a envolver
-   * cada llamada en un `await` extra sin ganar nada.
+   * promesas.
    */
-  async function run(fn: () => PromiseLike<{ error: { message: string } | null }>) {
+  async function run(fn: () => PromiseLike<{ error: { message: string } | null }>, close = true) {
     setBusy(true);
     setOpError(null);
     try {
       const { error: e } = await fn();
       if (e) throw new Error(e.message);
+      if (close) setDialog(null);
       reload();
     } catch (err) {
       setOpError(err instanceof Error ? err.message : String(err));
@@ -62,6 +95,22 @@ export default function FunnelLibraryPage() {
     );
   }, [data]);
 
+  /** Nombres de los nodos de un funnel, en orden de secuencia. */
+  const nodeNamesOf = (funnelKey: number) =>
+    (data?.links ?? [])
+      .filter((l) => l.funnel_key === funnelKey)
+      .sort((a, b) => a.position - b.position)
+      .map((l) => data?.nodes.find((n) => n.node_key === l.node_key)?.name ?? '?');
+
+  /** Funnels en los que se usa un nodo. Vacío = huérfano. */
+  const funnelsOf = (nodeKey: number) =>
+    (data?.links ?? [])
+      .filter((l) => l.node_key === nodeKey)
+      .map((l) => data?.funnels.find((f) => f.funnel_key === l.funnel_key))
+      .filter(Boolean) as Funnel[];
+
+  const dlgNode = dialog && 'node' in dialog ? dialog.node : null;
+
   return (
     <>
       <Breadcrumbs items={[{ label: 'Branch Portfolio', href: '/business-plan' }, { label: 'Funnel & Node Library' }]} />
@@ -73,11 +122,6 @@ export default function FunnelLibraryPage() {
       {isLoading && <LoadingState />}
       {error && <ErrorState message={error} />}
 
-      {/*
-        Las tablas las aplica el revisor. Entre el deploy y la migración esta
-        pantalla existe pero no tiene de dónde leer -- decirlo es mejor que
-        mostrarla vacía y que parezca que no hay funnels cargados.
-      */}
       {!isLoading && !error && !available && (
         <div className="bp-pending" role="status">
           <AlertTriangleIcon size={14} />
@@ -102,6 +146,18 @@ export default function FunnelLibraryPage() {
                 Sequence builder
               </button>
             </div>
+            <div className="control-group">
+              {tab === 'funnels' && (
+                <button type="button" className="bp-btn bp-btn--primary" onClick={() => setDialog({ kind: 'funnel-form', funnel: null })}>
+                  + New funnel
+                </button>
+              )}
+              {tab === 'nodes' && (
+                <button type="button" className="bp-btn bp-btn--primary" onClick={() => setDialog({ kind: 'node-form', node: null })}>
+                  + New node
+                </button>
+              )}
+            </div>
           </div>
 
           {opError && (
@@ -111,17 +167,26 @@ export default function FunnelLibraryPage() {
             </div>
           )}
 
-          {/* ── 2a. Funnels ───────────────────────────────────────────────── */}
+          {/* ── Funnels ───────────────────────────────────────────────────── */}
           {tab === 'funnels' && (
             <div className="tbl-card">
               <div className="tbl-scroll">
-                <table className="piv bp-table--library">
+                <table className="piv bp-table--funnels">
+                  <colgroup>
+                    <col className="bp-col-fname" />
+                    <col className="bp-col-fcat" />
+                    <col className="bp-col-fnodes" />
+                    <col className="bp-col-fnum" />
+                    <col className="bp-col-fnum" />
+                    <col className="bp-col-fnum" />
+                    <col className="bp-col-facts" />
+                  </colgroup>
                   <thead>
                     <tr className="mo-row">
                       <th className="lbl">Funnel</th>
                       <th className="bp-center">Category</th>
-                      <th className="bp-center">Nodes</th>
-                      <th className="bp-center">Sub-milestones</th>
+                      <th className="bp-left">Nodes, in order</th>
+                      <th className="bp-center">Sub-ms</th>
                       <th className="bp-center">Weeks</th>
                       <th className="bp-center">In use</th>
                       <th className="bp-center">Actions</th>
@@ -131,62 +196,106 @@ export default function FunnelLibraryPage() {
                     {data.funnels.map((f) => {
                       const s = stats.get(f.funnel_key);
                       const inUse = data.enrollmentsByFunnel[f.funnel_key] ?? 0;
-                      const deletable = canDeleteFunnel(inUse);
+                      const names = nodeNamesOf(f.funnel_key);
                       return (
                         <tr key={f.funnel_key} className="metric">
-                          <td className="lbl">
-                            {f.name}
+                          {/*
+                            Nombre completo, sin ellipsis: son nombres cortos y
+                            la columna tiene espacio de sobra. Editable en línea.
+                          */}
+                          <td className="lbl bp-wrap">
+                            <input
+                              className="bp-inline-input bp-inline-input--name"
+                              defaultValue={f.name}
+                              disabled={busy}
+                              onBlur={(e) => {
+                                if (e.target.value !== f.name && e.target.value.trim() !== '')
+                                  run(() => bp().from('funnel').update({ name: e.target.value.trim() }).eq('funnel_key', f.funnel_key), false);
+                              }}
+                            />
                             {!f.is_active && <span className="bp-chip">inactive</span>}
                             {f.is_example && <span className="bp-chip">example</span>}
                           </td>
                           <td className="bp-center">
-                            <span className={'badge badge--pill ' + (f.category === 'core' ? 'badge--sky' : 'badge--neutral')}>
-                              {f.category}
-                            </span>
+                            <select
+                              className="bp-inline-input"
+                              value={f.category}
+                              disabled={busy}
+                              onChange={(e) =>
+                                run(() => bp().from('funnel').update({ category: e.target.value as FunnelCategory }).eq('funnel_key', f.funnel_key), false)
+                              }
+                            >
+                              <option value="core">core</option>
+                              <option value="growth">growth</option>
+                            </select>
                           </td>
-                          {/* Contados de las filas, nunca de un campo guardado. */}
-                          <td className="bp-center">{s?.nodeCount ?? 0}</td>
+                          {/*
+                            Los NOMBRES, no sólo el número: "5 nodos" no dice si
+                            el funnel está bien armado. No es editable acá --
+                            los nodos se agregan y quitan desde el constructor
+                            o desde el detalle del nodo.
+                          */}
+                          <td className="bp-left bp-wrap">
+                            {names.length === 0 ? (
+                              <span className="bp-muted">no nodes yet</span>
+                            ) : (
+                              <span className="bp-seq">{names.join(' → ')}</span>
+                            )}
+                          </td>
                           <td className="bp-center">{s?.subMilestoneCount ?? 0}</td>
-                          <td className="bp-center">{f.duration_weeks ?? '—'}</td>
-                          <td className="bp-center">{inUse === 0 ? <span className="bp-muted">0</span> : inUse}</td>
                           <td className="bp-center">
-                            <div className="bp-row-actions">
+                            <input
+                              type="number"
+                              min="1"
+                              className="bp-inline-input bp-inline-input--num"
+                              defaultValue={f.duration_weeks ?? ''}
+                              disabled={busy}
+                              onBlur={(e) => {
+                                const v = e.target.value === '' ? null : Number(e.target.value);
+                                if (v !== f.duration_weeks)
+                                  run(() => bp().from('funnel').update({ duration_weeks: v }).eq('funnel_key', f.funnel_key), false);
+                              }}
+                            />
+                          </td>
+                          <td className="bp-center">{inUse === 0 ? <span className="bp-muted">0</span> : inUse}</td>
+                          {/* Acciones EN LÍNEA: apiladas, cada fila medía el triple. */}
+                          <td className="bp-center">
+                            <div className="bp-actions">
                               <button
                                 type="button"
-                                className="bp-btn bp-btn--small"
+                                className="bp-icon-btn"
+                                title="Edit all fields"
+                                onClick={() => setDialog({ kind: 'funnel-form', funnel: f })}
+                              >
+                                ✎
+                              </button>
+                              <button
+                                type="button"
+                                className="bp-icon-btn"
+                                title="Open in the sequence builder"
                                 onClick={() => {
                                   setSelectedFunnel(f.funnel_key);
                                   setTab('builder');
                                 }}
                               >
-                                Sequence
+                                ⇄
                               </button>
                               <button
                                 type="button"
-                                className="bp-btn bp-btn--small"
+                                className="bp-icon-btn"
+                                title={f.is_active ? 'Deactivate' : 'Activate'}
                                 disabled={busy}
-                                onClick={() =>
-                                  run(() =>
-                                    bp().from('funnel').update({ is_active: !f.is_active }).eq('funnel_key', f.funnel_key)
-                                  )
-                                }
+                                onClick={() => run(() => bp().from('funnel').update({ is_active: !f.is_active }).eq('funnel_key', f.funnel_key), false)}
                               >
-                                {f.is_active ? 'Deactivate' : 'Activate'}
+                                {f.is_active ? '◉' : '○'}
                               </button>
-                              {/*
-                                Un funnel con enrolamientos NO se borra. La base ya lo
-                                impide con una FK RESTRICT, pero la interfaz tiene que
-                                saberlo antes: que el usuario descubra la regla por un
-                                error de Postgres es una forma pobre de explicarla.
-                              */}
                               <button
                                 type="button"
-                                className="bp-btn bp-btn--small"
-                                disabled={busy || !deletable}
-                                title={deletable ? 'Delete this funnel' : `${inUse} active plan(s) use it — deactivate instead`}
-                                onClick={() => run(() => bp().from('funnel').delete().eq('funnel_key', f.funnel_key))}
+                                className="bp-icon-btn bp-icon-btn--danger"
+                                title="Delete"
+                                onClick={() => setDialog({ kind: 'funnel-delete', funnel: f })}
                               >
-                                Delete
+                                <CloseIcon size={13} />
                               </button>
                             </div>
                           </td>
@@ -206,30 +315,91 @@ export default function FunnelLibraryPage() {
             </div>
           )}
 
-          {/* ── 2b. Nodos y sus milestones ────────────────────────────────── */}
+          {/* ── Nodos ─────────────────────────────────────────────────────── */}
           {tab === 'nodes' && (
-            <div className="bp-node-grid">
-              {data.nodes.map((n) => {
-                const mine = data.milestones.filter((m) => m.node_key === n.node_key);
-                const nodeOwners = data.owners
-                  .filter((o) => o.node_key === n.node_key)
-                  .map((o) => data.support.find((s) => s.employee_key === o.employee_key)?.full_name)
-                  .filter(Boolean);
-                return (
-                  <button key={n.node_key} type="button" className="bp-node-card" onClick={() => setSelectedNode(n.node_key)}>
-                    <div className="bp-node-card__name">{n.name}</div>
-                    <div className="bp-node-card__desc">{n.description ?? '—'}</div>
-                    <div className="bp-node-card__meta">
-                      {mine.length} milestones
-                      {nodeOwners.length > 0 && <> · {nodeOwners.join(', ')}</>}
-                    </div>
-                  </button>
-                );
-              })}
+            <div className="tbl-card">
+              <div className="tbl-scroll">
+                <table className="piv bp-table--nodes">
+                  <colgroup>
+                    <col className="bp-col-fname" />
+                    <col className="bp-col-fnum" />
+                    <col className="bp-col-fnodes" />
+                    <col className="bp-col-fcat" />
+                    <col className="bp-col-facts" />
+                  </colgroup>
+                  <thead>
+                    <tr className="mo-row">
+                      <th className="lbl">Node</th>
+                      <th className="bp-center">Milestones</th>
+                      {/* La columna que faltaba: la relación, visible. */}
+                      <th className="bp-left">Used in funnels</th>
+                      <th className="bp-center">Accountable</th>
+                      <th className="bp-center">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.nodes.map((n) => {
+                      const mine = data.milestones.filter((m) => m.node_key === n.node_key);
+                      const inF = funnelsOf(n.node_key);
+                      const owners = data.owners
+                        .filter((o) => o.node_key === n.node_key)
+                        .map((o) => data.support.find((s) => s.employee_key === o.employee_key)?.full_name)
+                        .filter(Boolean);
+                      return (
+                        <tr key={n.node_key} className="metric">
+                          <td className="lbl bp-wrap">
+                            <input
+                              className="bp-inline-input bp-inline-input--name"
+                              defaultValue={n.name}
+                              disabled={busy}
+                              onBlur={(e) => {
+                                if (e.target.value !== n.name && e.target.value.trim() !== '')
+                                  run(() => bp().from('node').update({ name: e.target.value.trim() }).eq('node_key', n.node_key), false);
+                              }}
+                            />
+                          </td>
+                          <td className="bp-center">{mine.length}</td>
+                          <td className="bp-left bp-wrap">
+                            {inF.length === 0 ? (
+                              /* Huérfano: existe pero no lo usa ningún funnel. */
+                              <span className="bp-orphan" title="This node is not part of any funnel">
+                                orphan
+                              </span>
+                            ) : (
+                              <span className="bp-seq">{inF.map((f) => f.name).join(' · ')}</span>
+                            )}
+                          </td>
+                          <td className="bp-center bp-wrap">
+                            {owners.length ? owners.join(', ') : <span className="bp-muted">—</span>}
+                          </td>
+                          <td className="bp-center">
+                            <div className="bp-actions">
+                              <button type="button" className="bp-icon-btn" title="Milestones" onClick={() => setDialog({ kind: 'node-detail', node: n })}>
+                                ☰
+                              </button>
+                              <button type="button" className="bp-icon-btn" title="Edit node" onClick={() => setDialog({ kind: 'node-form', node: n })}>
+                                ✎
+                              </button>
+                              <button
+                                type="button"
+                                className="bp-icon-btn bp-icon-btn--danger"
+                                title="Delete node"
+                                onClick={() => setDialog({ kind: 'node-delete', node: n })}
+                              >
+                                <CloseIcon size={13} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
 
-          {/* ── 2c. Constructor de secuencia ──────────────────────────────── */}
+          {/* ── Constructor ───────────────────────────────────────────────── */}
           {tab === 'builder' && (
             <>
               <div className="control-bar">
@@ -262,86 +432,227 @@ export default function FunnelLibraryPage() {
                   busy={busy}
                   onChangeSequence={(ordered) =>
                     run(async () => {
-                      /*
-                       * Se reescribe la secuencia entera: borrar y volver a
-                       * insertar es más simple y más seguro que calcular qué
-                       * posiciones cambiaron, y son cinco filas.
-                       */
                       const del = await bp().from('funnel_node').delete().eq('funnel_key', selectedFunnel);
                       if (del.error) return del;
                       return bp()
                         .from('funnel_node')
                         .insert(ordered.map((node_key, i) => ({ funnel_key: selectedFunnel, node_key, position: i + 1 })));
-                    })
+                    }, false)
                   }
                 />
               )}
             </>
           )}
 
-          {/* Detalle de un nodo: sus milestones en orden, con responsable y SLA. */}
-          {selectedNode !== null && (
-            <Modal
-              title={data.nodes.find((n) => n.node_key === selectedNode)?.name ?? 'Node'}
-              onClose={() => setSelectedNode(null)}
-            >
+          {/* ══ Diálogos ═══════════════════════════════════════════════════ */}
+
+          {dialog?.kind === 'funnel-form' && (
+            <FunnelForm
+              initial={dialog.funnel}
+              busy={busy}
+              onClose={() => setDialog(null)}
+              onSave={(d) => {
+                const row = {
+                  name: d.name.trim(),
+                  category: d.category,
+                  description: d.description.trim() || null,
+                  duration_weeks: d.duration_weeks === '' ? null : Number(d.duration_weeks),
+                  icon: d.icon.trim() || null,
+                };
+                run(() =>
+                  dialog.funnel
+                    ? bp().from('funnel').update(row).eq('funnel_key', dialog.funnel.funnel_key)
+                    : bp().from('funnel').insert({ ...row, position: data.funnels.length + 1 })
+                );
+              }}
+            />
+          )}
+
+          {dialog?.kind === 'funnel-delete' && (
+            <ConfirmDelete
+              what={'funnel "' + dialog.funnel.name + '"'}
+              busy={busy}
+              blockedReason={
+                canDeleteFunnel(data.enrollmentsByFunnel[dialog.funnel.funnel_key] ?? 0)
+                  ? null
+                  : `${data.enrollmentsByFunnel[dialog.funnel.funnel_key]} active plan(s) use this funnel. Deactivate it instead — the plans in progress keep working and it stops appearing in the catalogue.`
+              }
+              onClose={() => setDialog(null)}
+              onConfirm={() => run(() => bp().from('funnel').delete().eq('funnel_key', dialog.funnel.funnel_key))}
+            />
+          )}
+
+          {dialog?.kind === 'node-form' && (
+            <NodeForm
+              initial={dialog.node}
+              initialOwners={dialog.node ? data.owners.filter((o) => o.node_key === dialog.node!.node_key).map((o) => o.employee_key) : []}
+              initialFunnels={dialog.node ? funnelsOf(dialog.node.node_key).map((f) => f.funnel_key) : []}
+              funnels={data.funnels}
+              support={data.support}
+              busy={busy}
+              onClose={() => setDialog(null)}
+              onSave={(d) =>
+                run(async () => {
+                  const row = { name: d.name.trim(), description: d.description.trim() || null, icon: d.icon.trim() || null };
+                  let nodeKey = dialog.node?.node_key;
+                  if (nodeKey) {
+                    const up = await bp().from('node').update(row).eq('node_key', nodeKey);
+                    if (up.error) return up;
+                  } else {
+                    const ins = await bp().from('node').insert(row).select('node_key').single();
+                    if (ins.error) return ins;
+                    nodeKey = (ins.data as { node_key: number }).node_key;
+                  }
+                  // Responsables: se reescriben enteros, son pocos.
+                  const delO = await bp().from('node_owner').delete().eq('node_key', nodeKey);
+                  if (delO.error) return delO;
+                  if (d.owners.length) {
+                    const insO = await bp().from('node_owner').insert(d.owners.map((employee_key) => ({ node_key: nodeKey, employee_key })));
+                    if (insO.error) return insO;
+                  }
+                  /*
+                   * Pertenencia a funnels desde ACÁ: es el otro lado del
+                   * constructor. Se quita de los que se destildaron y se agrega
+                   * al final de los nuevos -- agregarlo en medio cambiaría una
+                   * secuencia que alguien ya ordenó.
+                   */
+                  const current = funnelsOf(nodeKey).map((f) => f.funnel_key);
+                  const toRemove = current.filter((k) => !d.funnels.includes(k));
+                  const toAdd = d.funnels.filter((k) => !current.includes(k));
+                  for (const k of toRemove) {
+                    const r = await bp().from('funnel_node').delete().eq('funnel_key', k).eq('node_key', nodeKey);
+                    if (r.error) return r;
+                  }
+                  for (const k of toAdd) {
+                    const last = Math.max(0, ...data.links.filter((l) => l.funnel_key === k).map((l) => l.position));
+                    const r = await bp().from('funnel_node').insert({ funnel_key: k, node_key: nodeKey, position: last + 1 });
+                    if (r.error) return r;
+                  }
+                  return { error: null };
+                })
+              }
+            />
+          )}
+
+          {dialog?.kind === 'node-delete' && dlgNode && (
+            <ConfirmDelete
+              what={'node "' + dlgNode.name + '"'}
+              busy={busy}
+              warning={(() => {
+                const chk = checkNodeDelete(dlgNode.node_key, data.links, data.funnels, data.enrollmentsByFunnel);
+                if (chk.usedIn.length === 0) return 'This node is not used by any funnel.';
+                return `It will be removed from ${chk.usedIn.length} funnel(s): ${chk.usedIn.map((u) => u.name).join(', ')}. Its ${
+                  data.milestones.filter((m) => m.node_key === dlgNode.node_key).length
+                } milestones go with it.`;
+              })()}
+              blockedReason={checkNodeDelete(dlgNode.node_key, data.links, data.funnels, data.enrollmentsByFunnel).reason}
+              onClose={() => setDialog(null)}
+              onConfirm={() => run(() => bp().from('node').delete().eq('node_key', dlgNode.node_key))}
+            />
+          )}
+
+          {dialog?.kind === 'node-detail' && dlgNode && (
+            <Modal title={dlgNode.name + ' — milestones'} onClose={() => setDialog(null)}>
+              <p className="bp-modal__lead">
+                Used in: {funnelsOf(dlgNode.node_key).map((f) => f.name).join(', ') || 'no funnel yet'} ·{' '}
+                <button type="button" className="bp-linkish" onClick={() => setDialog({ kind: 'node-form', node: dlgNode })}>
+                  change funnels and accountable people
+                </button>
+              </p>
               <table className="piv">
                 <thead>
                   <tr className="mo-row">
                     <th className="lbl">Milestone</th>
                     <th className="bp-left">Accountable</th>
-                    <th className="bp-center">SLA (days)</th>
-                    <th className="bp-center">Resource</th>
+                    <th className="bp-center">SLA</th>
+                    <th className="bp-center">Pos</th>
+                    <th className="bp-center">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.milestones
-                    .filter((m) => m.node_key === selectedNode)
+                    .filter((m) => m.node_key === dlgNode.node_key)
                     .sort((a, b) => a.position - b.position)
                     .map((m) => (
                       <tr key={m.milestone_key} className="metric">
-                        <td className="lbl">{m.title}</td>
+                        <td className="lbl bp-wrap">{m.title}</td>
                         <td className="bp-left">
-                          {/* Persona, no rol: con un rol no se puede resolver
-                              quién tiene permiso de marcarlo como hecho. */}
-                          <select
-                            className="field"
-                            value={m.accountable_employee_key ?? ''}
-                            disabled={busy}
-                            onChange={(e) =>
-                              run(() =>
-                                bp()
-                                  .from('node_milestone')
-                                  .update({
-                                    accountable_employee_key: e.target.value === '' ? null : Number(e.target.value),
-                                  })
-                                  .eq('milestone_key', m.milestone_key)
-                              )
-                            }
-                          >
-                            <option value="">— unassigned —</option>
-                            {data.support.map((s) => (
-                              <option key={s.employee_key} value={s.employee_key}>
-                                {s.full_name}
-                              </option>
-                            ))}
-                          </select>
+                          {data.support.find((s) => s.employee_key === m.accountable_employee_key)?.full_name ?? (
+                            <span className="bp-muted">unassigned</span>
+                          )}
                         </td>
                         <td className="bp-center">{m.sla_days ?? '—'}</td>
+                        <td className="bp-center">{m.position}</td>
                         <td className="bp-center">
-                          {m.resource_url ? (
-                            <a href={m.resource_url} target="_blank" rel="noreferrer">
-                              link
-                            </a>
-                          ) : (
-                            <span className="bp-muted">—</span>
-                          )}
+                          <div className="bp-actions">
+                            <button
+                              type="button"
+                              className="bp-icon-btn"
+                              title="Edit"
+                              onClick={() => setDialog({ kind: 'ms-form', nodeKey: dlgNode.node_key, milestone: m })}
+                            >
+                              ✎
+                            </button>
+                            <button
+                              type="button"
+                              className="bp-icon-btn bp-icon-btn--danger"
+                              title="Delete"
+                              onClick={() => setDialog({ kind: 'ms-delete', milestone: m })}
+                            >
+                              <CloseIcon size={13} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
                 </tbody>
               </table>
+              <div className="bp-form__actions">
+                <button
+                  type="button"
+                  className="bp-btn bp-btn--small"
+                  onClick={() => setDialog({ kind: 'ms-form', nodeKey: dlgNode.node_key, milestone: null })}
+                >
+                  + New milestone
+                </button>
+              </div>
             </Modal>
+          )}
+
+          {dialog?.kind === 'ms-form' && (
+            <MilestoneForm
+              initial={dialog.milestone}
+              support={data.support}
+              busy={busy}
+              onClose={() => setDialog(null)}
+              onSave={(d) => {
+                const row = {
+                  node_key: dialog.nodeKey,
+                  title: d.title.trim(),
+                  accountable_employee_key: d.accountable_employee_key === '' ? null : Number(d.accountable_employee_key),
+                  sla_days: d.sla_days === '' ? null : Number(d.sla_days),
+                  resource_url: d.resource_url.trim() || null,
+                  position: Number(d.position) || 1,
+                };
+                run(() =>
+                  dialog.milestone
+                    ? bp().from('node_milestone').update(row).eq('milestone_key', dialog.milestone.milestone_key)
+                    : bp().from('node_milestone').insert(row)
+                );
+              }}
+            />
+          )}
+
+          {dialog?.kind === 'ms-delete' && (
+            <ConfirmDelete
+              what={'milestone "' + dialog.milestone.title + '"'}
+              busy={busy}
+              /* En la plantilla se borra libre: los planes ya activados tienen
+                 su copia y no se ven afectados. */
+              warning="Plans already activated keep their own copy of this milestone."
+              onClose={() => setDialog(null)}
+              onConfirm={() => run(() => bp().from('node_milestone').delete().eq('milestone_key', dialog.milestone.milestone_key))}
+            />
           )}
         </>
       )}

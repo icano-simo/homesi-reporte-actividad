@@ -1751,10 +1751,6 @@ table.piv.bp-table--los th {
   background: var(--accent-soft);
 }
 
-.bp-table--library col {
-  width: auto;
-}
-
 /* ===========================================================================
  * 14. Etapa BP12 fase 3 — catálogo de funnels
  * =========================================================================== */
@@ -2103,4 +2099,220 @@ table.piv.bp-table--los th {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+
+/* ===========================================================================
+ * 16. Etapa BP13 — CRUD de la biblioteca y la relación nodo ↔ funnel visible
+ * =========================================================================== */
+
+/*
+ * Los nombres de funnel se cortaban con ellipsis sin razón: son cortos y la
+ * columna tenía espacio. `.bp-wrap` deshace el `white-space: nowrap` que
+ * `table.piv td` impone para toda la app.
+ */
+table.piv td.bp-wrap,
+table.piv th.bp-wrap {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1.35;
+}
+
+/* Anchos: la columna de acciones se achica y ese espacio va a los nombres. */
+.bp-table--funnels col.bp-col-fname {
+  width: 19%;
+}
+.bp-table--funnels col.bp-col-fcat {
+  width: 9%;
+}
+.bp-table--funnels col.bp-col-fnodes {
+  width: 38%;
+}
+.bp-table--funnels col.bp-col-fnum {
+  width: 7%;
+}
+.bp-table--funnels col.bp-col-facts {
+  width: 13%;
+}
+.bp-table--nodes col.bp-col-fname {
+  width: 22%;
+}
+.bp-table--nodes col.bp-col-fnum {
+  width: 10%;
+}
+.bp-table--nodes col.bp-col-fnodes {
+  width: 34%;
+}
+.bp-table--nodes col.bp-col-fcat {
+  width: 22%;
+}
+.bp-table--nodes col.bp-col-facts {
+  width: 12%;
+}
+
+/* La secuencia de nombres: se lee como una cadena, no como una lista. */
+.bp-seq {
+  font-size: 11px;
+  color: var(--slate-600);
+  line-height: 1.5;
+}
+
+/* Un nodo que no está en ningún funnel: existe pero nadie lo usa. */
+.bp-orphan {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: var(--radius-sm);
+  background: var(--amber-50);
+  border: 1px solid var(--amber-200);
+  color: var(--amber-800);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: help;
+}
+
+/* ── Acciones en línea ──────────────────────────────────────────────────── */
+
+/*
+ * Apiladas en columna, cada fila medía el triple de alto y con seis funnels la
+ * tabla se volvía pesada. En línea y como iconos ocupan un solo renglón.
+ */
+.bp-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.bp-icon-btn {
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-sm);
+  background: var(--canvas);
+  color: var(--slate-500);
+  cursor: pointer;
+  transition: color 0.14s ease, border-color 0.14s ease;
+}
+.bp-icon-btn:hover {
+  color: var(--navy);
+  border-color: var(--slate-300);
+}
+.bp-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+/* El de borrar en coral sólo al pasar por encima: en reposo compite con todo. */
+.bp-icon-btn--danger:hover {
+  color: var(--coral);
+  border-color: var(--coral);
+}
+
+/* ── Edición en la línea ────────────────────────────────────────────────── */
+
+/*
+ * Campos que se ven como texto hasta que se los toca. Un `input` con borde en
+ * cada celda convertiría la tabla en un formulario y se perdería de vista que
+ * lo que se está mirando son datos.
+ */
+.bp-inline-input {
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--navy);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  padding: 2px 5px;
+  width: 100%;
+  max-width: 100%;
+}
+.bp-inline-input:hover {
+  border-color: var(--slate-200);
+}
+.bp-inline-input:focus {
+  border-color: var(--sky);
+  background: var(--canvas);
+  outline: none;
+}
+.bp-inline-input--name {
+  font-weight: 600;
+}
+.bp-inline-input--num {
+  width: 56px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Formularios ────────────────────────────────────────────────────────── */
+
+.bp-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.bp-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.bp-form__label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+}
+.bp-form__area {
+  font-family: inherit;
+  resize: vertical;
+  line-height: 1.5;
+}
+/* Casillas y no un multi-select: con ocho personas o seis funnels, un
+   multi-select obliga a mantener Ctrl apretado para no perder la selección. */
+.bp-form__checks {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 12px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  background: var(--slate-50);
+}
+.bp-form__check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--slate-600);
+  cursor: pointer;
+}
+.bp-form__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+/* Tarjeta del catálogo que no se puede activar. */
+.bp-catalog__card.is-disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.bp-catalog__card.is-disabled:hover {
+  box-shadow: var(--shadow-xs);
+}
+.bp-catalog__blocked {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--amber-800);
+  background: var(--amber-50);
+  border: 1px solid var(--amber-200);
+  border-radius: var(--radius-sm);
+  padding: 5px 9px;
+  margin-bottom: 8px;
 }

@@ -1772,3 +1772,34 @@ que es la pregunta que alguien se hace mirando esa pantalla.
 El drag and drop usa la **API nativa de HTML5**, sin librerías. Como esa API no
 es accesible por teclado, cada tarjeta lleva además botones de mover
 arriba/abajo — sin eso, reordenar sería imposible sin mouse.
+
+### 11. Activación: un funnel sin milestones no se puede activar (BP13)
+
+Quedó un enrolamiento con 5 nodos copiados y **cero milestones**, guardado como
+activo y sin advertencia: la persona tenía un plan que no le pedía hacer nada y
+un anillo de progreso en 0 de 0. Hubo que borrarlo a mano.
+
+`checkActivation()` valida **antes de escribir nada** que el funnel tenga al
+menos un nodo y al menos un milestone. Se aplica en dos lugares: la tarjeta del
+catálogo sale deshabilitada con el motivo, y la función de activar revalida —
+entre que la pantalla cargó y alguien hizo clic, otro pudo haber vaciado el
+funnel desde la biblioteca.
+
+### 12. El borrado en cascada no evalúa RLS del hijo
+
+Corrección del revisor sobre el SQL de BP12, y vale la pena entenderla porque
+es un agujero fácil de repetir: la política que impedía borrar un
+`enrollment_milestone` en `done` **sólo cubría el DELETE directo**. Borrar el
+`enrollment_node` padre arrastraba sus milestones completados por cascada, sin
+que la política del hijo se evaluara.
+
+Ahora las políticas de borrado de `enrollment` y `enrollment_node` también
+comprueban que no haya ningún milestone en `done`. Verificado contra la base:
+las dos devuelven 0 filas cuando lo hay.
+
+**Consecuencia para el código**: no se puede asumir que un nodo del plan siempre
+se puede borrar. Con pasos ya completados falla, y eso es lo correcto.
+
+Los grants quedaron además explícitos por tabla en vez de
+`all tables in schema`: `settings` no acepta insert ni delete, e `intervention`
+no acepta delete.

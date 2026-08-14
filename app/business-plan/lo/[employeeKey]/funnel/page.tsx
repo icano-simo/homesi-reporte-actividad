@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { useBusinessPlanData } from '@/lib/business-plan/useBusinessPlanData';
 import { useFunnelLibrary } from '@/lib/business-plan/useFunnelLibrary';
-import { buildEnrollmentPlan, funnelStats, type Funnel, type FunnelCategory } from '@/lib/business-plan/funnels';
+import { buildEnrollmentPlan, checkActivation, funnelStats, type Funnel, type FunnelCategory } from '@/lib/business-plan/funnels';
 import { AlertTriangleIcon } from '@/components/ui/icons';
 import Breadcrumbs from '../../../components/Breadcrumbs';
 import { ErrorState, LoadingState, VerdictBadge, initialsOf } from '../../../components/shared';
@@ -75,6 +75,21 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
 
       const funnel = lib.funnels.find((f) => f.funnel_key === picked);
       if (!funnel) throw new Error('That funnel no longer exists.');
+
+      /*
+       * ⚠ SE VALIDA ANTES DE ESCRIBIR NADA.
+       *
+       * Sin esto quedó un enrolamiento con 5 nodos copiados y CERO milestones,
+       * activo y sin una sola advertencia: la persona tenía un plan que no le
+       * pedía hacer nada. Y como la validación faltaba, hubo que ir a borrar el
+       * enrolamiento huérfano a mano.
+       *
+       * El botón ya sale deshabilitado en ese caso, pero se revalida acá: entre
+       * que la pantalla cargó y alguien hizo clic, otro pudo haber vaciado el
+       * funnel desde la biblioteca.
+       */
+      const check = checkActivation(picked, lib.links, lib.milestones);
+      if (!check.ok) throw new Error(check.reason ?? 'This funnel cannot be activated.');
 
       const ordered = lib.links
         .filter((l) => l.funnel_key === picked)
@@ -231,12 +246,20 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
               const team = s.supportTeam
                 .map((k) => lib.support.find((p) => p.employee_key === k))
                 .filter(Boolean) as typeof lib.support;
+              /* Un funnel a medio armar no se puede elegir, y se dice por qué. */
+              const check = checkActivation(f.funnel_key, lib.links, lib.milestones);
 
               return (
                 <button
                   key={f.funnel_key}
                   type="button"
-                  className={'bp-catalog__card' + (picked === f.funnel_key ? ' is-picked' : '')}
+                  className={
+                    'bp-catalog__card' +
+                    (picked === f.funnel_key ? ' is-picked' : '') +
+                    (check.ok ? '' : ' is-disabled')
+                  }
+                  disabled={!check.ok}
+                  title={check.reason ?? undefined}
                   onClick={() => setPicked(f.funnel_key)}
                 >
                   {picked === f.funnel_key && <span className="bp-catalog__check" aria-hidden="true">✓</span>}
@@ -254,6 +277,7 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
                       </span>
                     ))}
                   </div>
+                  {!check.ok && <div className="bp-catalog__blocked">{check.reason}</div>}
                   {team.length > 0 && (
                     <div className="bp-catalog__team" title={team.map((p) => p.full_name).join(', ')}>
                       {team.slice(0, 4).map((p) => (
