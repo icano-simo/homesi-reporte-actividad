@@ -43,6 +43,13 @@ const MILESTONES: MilestoneBucket[] = ['Started', 'Processing', 'Underwriting', 
 
 export default function LoanOfficerDetailPage({ params }: { params: Promise<{ employeeKey: string }> }) {
   const { employeeKey: rawKey } = use(params);
+  /*
+   * `org.dim_employee.employee_key` es `bigint` (etapa BP6). En JavaScript no
+   * hay enteros de 64 bits en `number`, así que el chequeo correcto es
+   * `isSafeInteger` y no `isFinite`: `isFinite` acepta un valor que ya perdió
+   * precisión al convertirse. Con las claves actuales (1..57) da igual, pero el
+   * tipo de la columna admite valores que no darían igual.
+   */
   const employeeKey = Number(rawKey);
   const router = useRouter();
   const { data, isLoading, error, reload } = useBusinessPlanData();
@@ -50,7 +57,8 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
   const [openModal, setOpenModal] = useState<null | 'activity' | 'milestones'>(null);
 
   const lo = useMemo(
-    () => (Number.isFinite(employeeKey) ? (data?.loanOfficers.find((x) => x.employeeKey === employeeKey) ?? null) : null),
+    () =>
+      Number.isSafeInteger(employeeKey) ? (data?.loanOfficers.find((x) => x.employeeKey === employeeKey) ?? null) : null,
     [data, employeeKey]
   );
 

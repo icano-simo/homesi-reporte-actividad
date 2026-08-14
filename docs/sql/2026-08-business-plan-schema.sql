@@ -104,7 +104,8 @@ on conflict (key) do nothing;
 create table if not exists business_plan.intervention (
   id            bigint generated always as identity primary key,
 
-  employee_key  integer not null
+  -- bigint y no integer: iguala el tipo de org.dim_employee.employee_key.
+  employee_key  bigint not null
     references org.dim_employee (employee_key) on delete cascade,
 
   -- Estado del acompañamiento.
@@ -191,27 +192,37 @@ grant usage on all sequences in schema business_plan to authenticated;
 
 
 -- ===========================================================================
--- 4. Exposición a PostgREST
+-- 4. Exposición a PostgREST  ⚠ TODO PARA EL REVISOR — NO HAY COMANDO ACÁ
 -- ===========================================================================
 --
 -- Sin esto el esquema existe pero la app no lo ve: PostgREST sólo sirve los
--- esquemas de su lista. Hay que AGREGAR, no reemplazar -- si se pisa la lista,
--- los otros módulos dejan de funcionar.
+-- esquemas de su lista.
 --
--- En Supabase se hace desde Settings → API → "Exposed schemas", agregando
--- `business_plan` a los que ya estén (`public`, `activity_report`,
--- `pipeline_forecast`, `org`).
+-- ⚠ ACÁ NO VA UN COMANDO LISTO PARA COPIAR, Y ES DELIBERADO.
 --
--- Por SQL, el equivalente es:
+-- `alter role authenticator set pgrst.db_schemas = '...'` REEMPLAZA la lista
+-- entera, no agrega. Quien escribe este archivo no puede ver qué esquemas hay
+-- configurados hoy: esa lista incluye los de OTRAS aplicaciones que comparten
+-- la instancia. Un comando escrito de memoria las deja sin acceso a sus datos.
 --
---   alter role authenticator set pgrst.db_schemas =
---     'public, activity_report, pipeline_forecast, org, business_plan';
---   notify pgrst, 'reload config';
+-- Ya pasó de hecho: una versión anterior de este archivo listaba cuatro
+-- esquemas y la lista real tenía ocho (b2b_metrics, finance_pl, hr_us_payroll
+-- y finance_division son del app de Homesí P&L). Correrlo tal cual habría
+-- roto esa aplicación.
 --
--- ⚠ Verificá primero qué hay configurado, para no perder ninguno:
---   select rolname, rolconfig from pg_roles where rolname = 'authenticator';
-
-
+-- Es la línea con más radio de impacto del proyecto. El procedimiento:
+--
+--   1. Ver qué hay configurado AHORA:
+--        select rolname, rolconfig from pg_roles where rolname = 'authenticator';
+--
+--   2. Agregar `business_plan` a esa lista, conservando todo lo demás. Lo más
+--      seguro es hacerlo desde el panel de Supabase (Settings → API →
+--      "Exposed schemas"), que edita la lista existente en vez de pisarla.
+--
+--   3. Recién si se hace por SQL, escribir el `alter role` con la lista
+--      COMPLETA leída en el paso 1 más `business_plan`, y después:
+--        notify pgrst, 'reload config';
+--
 -- ===========================================================================
 -- VERIFICACIÓN
 -- ===========================================================================

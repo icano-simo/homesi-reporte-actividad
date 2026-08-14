@@ -1616,40 +1616,49 @@ Si el negocio prefiere evaluar sobre ese promedio en vez del mes en curso, se
 cambia el argumento en `loadData.ts` (la llamada a `evaluateQualifier2`) y nada
 más: el motor ya recibe los dos.
 
-### 4. Los números de referencia del brief BP5 no se reproducen
+### 4. Los números de referencia: resuelto en BP6
 
-El brief traía seis promedios "verificados por SQL". El promedio de **meses
-cerrados** coincide en los 6 exactamente, o sea que la fuente de cierres y la
-ventana son correctas. El promedio **con mes actual** no coincide en ninguno, y
-no por un margen de redondeo:
+En BP5 los seis promedios de referencia no se reproducían. La causa fue doble y
+quedó cerrada:
 
-| Loan Officer | esperado | calculado |
-|---|---|---|
-| Nathan Martinez | 7,21 | 7,42 |
-| Ana Peña | 3,54 | 3,45 |
-| Gian Laino | 4,07 | 3,70 |
-| Haydee Tito-Pace | 1,80 | 1,53 |
-| Luis Silva | 0,33 | 0,58 |
-| Jose Arango | 0,00 | 0,54 |
+- **Del lado del negocio**: la tabla esperada se había calculado contra el
+  snapshot 28 y el activo era el 31 (hubo tres cargas el 13/8).
+- **Del lado del código**: tres decisiones que el brief no explicitaba y que yo
+  había resuelto de otra manera.
 
-Se descartó que fuera un error de implementación con dos pruebas:
+Las tres quedaron fijadas así, y con ellas el motor coincide **6/6**:
 
-- **Ningún snapshot reproduce el conjunto.** Luis Silva y Jose Arango sólo dan
-  los valores esperados en los snapshots 29 y 30 (donde no tienen préstamos
-  healthy); en el snapshot activo (31) Luis tiene 1 healthy en agosto, así que
-  su proyección no puede ser 0 con ninguna tasa positiva.
-- **Gian Laino es imposible en el snapshot 30**: necesitaría un aporte de 4,21
-  a partir de 4 préstamos healthy, o sea una tasa media mayor que 1,0.
+1. **Sólo entran los préstamos que cierran ESTE mes.** Un healthy con cierre
+   estimado en septiembre no aporta a la proyección de agosto. Antes entraban
+   todos los healthy, lo que adelantaba producción de meses siguientes.
 
-La hipótesis más probable es que los seis números se calcularon en momentos
-distintos del día — hubo tres cargas de snapshot el 13/8 (13:49, 19:54, 20:53)
-— y por eso no son consistentes entre sí.
+2. **Brokered usa la misma cascada que Banked.** La tasa plana del 40% sigue en
+   `business_plan.settings` porque pertenece al modelo de Forecast, pero **no se
+   aplica** en la proyección del Loan Officer.
 
-**La fórmula quedó implementada tal como está especificada en el brief.** No se
-ajustó para hacer coincidir los números, siguiendo la instrucción explícita de
-parar y reportar la diferencia.
+   ⚠ Vale la pena revisarlo con el negocio: para alguien con pipeline
+   mayormente Brokered la diferencia casi duplica la proyección (Haydee
+   Tito-Pace aporta 2,24 con cascada contra 1,20 con la plana). Hoy no cambia
+   ningún veredicto, pero es una decisión de modelo, no de implementación.
 
-### 5. Fuera de alcance en BP5
+3. **`cerradosALaFecha` sale de `pipeline_forecast.pipeline_resolved_loans`**
+   (funded con disbursement en el mes), **no** de Commercial Activity.
+
+   La proyección del mes es "lo que ya cerró + lo que sigue abierto", y las dos
+   mitades tienen que venir del mismo sistema: cuando un préstamo cierra sale de
+   `pipeline_loans` y entra en `pipeline_resolved_loans` en el mismo snapshot,
+   mientras que Commercial Activity se carga aparte y puede ir atrasada. Con
+   activity_report, un préstamo ya fundeado que el SLQuery todavía no trajo
+   desaparece de las dos mitades. Pasa hoy: Gian Laino tiene 3 cerrados en
+   agosto según el pipeline y 2 según Commercial Activity.
+
+   **Contrapartida**: las barras de los meses anteriores del gráfico sí salen de
+   Commercial Activity, que es la única fuente con la serie mensual completa. La
+   barra del mes en curso y las demás no vienen del mismo lado. Es aceptable
+   porque una es pronóstico y las otras hechos cerrados, pero si algún día los
+   totales no cuadran mirando hacia atrás, la explicación está acá.
+
+### 5. Fuera de alcance
 
 El catálogo de funnels, la biblioteca de nodos y el portal del plan activo.
 `/business-plan/lo/[key]/funnel` existe como placeholder honesto para que el

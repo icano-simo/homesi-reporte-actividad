@@ -37,6 +37,28 @@ import type { RateSettings } from './rates';
  * A los préstamos en CTC y en Closing NO se les aplica tasa. Se muestran
  * aparte en la pantalla y aplicarles el pull-through los contaría con
  * descuento además de contarlos dos veces.
+ *
+ * ---------------------------------------------------------------------------
+ * TRES DECISIONES QUE SE FIJARON EN BP6 (antes eran lecturas mías)
+ * ---------------------------------------------------------------------------
+ * Los números de referencia del negocio permitieron cerrar tres cosas que el
+ * brief no decía y que yo había resuelto de otra manera:
+ *
+ *  1. SÓLO ENTRAN LOS QUE CIERRAN ESTE MES. Un préstamo healthy con cierre
+ *     estimado en septiembre no aporta a la proyección de agosto. Antes
+ *     entraban todos los healthy, lo que adelantaba producción de meses
+ *     siguientes al mes en curso.
+ *
+ *  2. BROKERED USA LA MISMA CASCADA QUE BANKED. La tasa plana del 40% sigue
+ *     existiendo en `business_plan.settings` porque es de Forecast, pero NO se
+ *     aplica acá. ⚠ Vale la pena mirarlo con el negocio: para alguien con
+ *     pipeline mayormente Brokered la diferencia casi duplica la proyección
+ *     (Haydee Tito-Pace: 2,24 con cascada contra 1,20 con la plana).
+ *
+ *  3. `cerradosALaFecha` sale de `pipeline_forecast.pipeline_resolved_loans`
+ *     (funded con disbursement en el mes), no de Commercial Activity. Ver la
+ *     nota en `loadData.ts`: son dos fuentes para el mismo concepto y la
+ *     elección tiene que ser deliberada.
  */
 
 /** Milestone crudo que Salesforce reporta como Clear To Close. */
@@ -52,7 +74,9 @@ const RAW_CLEAR_TO_CLOSE = 'Clear To Close';
 export function projectCurrentMonth(
   closedToDate: number,
   openLoans: OpenLoan[],
-  rates: RateSettings
+  rates: RateSettings,
+  /** 'YYYY-MM' del mes que se está proyectando. */
+  currentMonth: string
 ): CurrentMonthProjection {
   const byMilestone: Record<MilestoneBucket, number> = { Started: 0, Processing: 0, Underwriting: 0, Closing: 0 };
   let total = 0;
@@ -62,10 +86,17 @@ export function projectCurrentMonth(
   let projectedFromRest = 0;
 
   for (const loan of openLoans) {
+    /*
+     * `totalPipeline` y `healthyPipeline` cuentan TODO el pipeline abierto de
+     * la persona, cierre cuando cierre: es lo que la pantalla muestra como
+     * "Total Pipeline" y "Healthy", y sería engañoso recortarlo al mes.
+     * El filtro por mes se aplica sólo a lo que aporta a la proyección.
+     */
     total += 1;
     byMilestone[loan.milestone] += 1;
     if (!loan.healthy) continue;
     healthy += 1;
+    if (loan.closeMonth !== currentMonth) continue;
 
     if (loan.milestone === 'Closing') {
       // CTC y Closing entran enteros, sin tasa. Ver la nota de arriba.
@@ -74,11 +105,11 @@ export function projectCurrentMonth(
       continue;
     }
     /*
-     * Brokered no pasa por la cascada por milestone: el negocio le fijó una
-     * tasa plana propia. Mezclarlo con la cascada de Banked sobreestimaría su
-     * cierre, que es exactamente el motivo por el que existe la tasa aparte.
+     * Misma cascada para Brokered y para Banked (ver decisión 2 arriba). La
+     * tasa plana de `rates.brokeredFlat` queda sin usar en este cálculo, a
+     * propósito: pertenece al modelo de Forecast.
      */
-    projectedFromRest += loan.channel === 'Brokered' ? rates.brokeredFlat : rates.milestone[loan.milestone];
+    projectedFromRest += rates.milestone[loan.milestone];
   }
 
   return {

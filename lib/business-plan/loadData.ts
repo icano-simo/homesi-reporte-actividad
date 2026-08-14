@@ -265,11 +265,16 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
           .range(from, to)
       )
     : [];
-  const resolvedRows: { loan_officer: string | null; status: string | null }[] = snapshotId
-    ? await readAll((from, to) =>
-        pf.from('pipeline_resolved_loans').select('loan_officer, status').eq('snapshot_id', snapshotId).range(from, to)
-      )
-    : [];
+  const resolvedRows: { loan_officer: string | null; status: string | null; disbursement_date: string | null }[] =
+    snapshotId
+      ? await readAll((from, to) =>
+          pf
+            .from('pipeline_resolved_loans')
+            .select('loan_officer, status, disbursement_date')
+            .eq('snapshot_id', snapshotId)
+            .range(from, to)
+        )
+      : [];
 
   // ── 5. Atribución por alias ──────────────────────────────────────────────
   const activityByEmployee = new Map<number, ActivityMetrics>();
@@ -335,6 +340,30 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
     });
     openLoansByEmployee.set(key, list);
   }
+  /*
+   * ── DE DÓNDE SALEN LOS "CERRADOS A LA FECHA" DEL MES EN CURSO ──────────
+   *
+   * De acá, `pipeline_resolved_loans`, y NO de Commercial Activity. Son dos
+   * fuentes para el mismo concepto y la elección es deliberada (etapa BP6):
+   *
+   * La proyección del mes es "lo que ya cerró + lo que sigue abierto". Las dos
+   * mitades tienen que venir del MISMO sistema. Cuando un préstamo cierra, sale
+   * de `pipeline_loans` y entra en `pipeline_resolved_loans` en el mismo
+   * snapshot; Commercial Activity se carga por separado y puede ir atrasada.
+   *
+   * Con activity_report, un préstamo que ya fundeó pero que el SLQuery todavía
+   * no trajo desaparece de las dos mitades y la proyección lo pierde. Pasa hoy:
+   * Gian Laino tiene 3 cerrados en agosto según el pipeline y 2 según
+   * Commercial Activity.
+   *
+   * ⚠ CONTRAPARTIDA, que hay que tener presente: las barras de los meses
+   * ANTERIORES del gráfico sí salen de Commercial Activity, porque es la única
+   * fuente con la serie mensual completa del año. O sea que la barra del mes en
+   * curso y las demás no vienen del mismo lado. Es aceptable porque la del mes
+   * en curso es un pronóstico y las otras son hechos cerrados, pero si algún
+   * día los totales no cuadran al mirar hacia atrás, la explicación está acá.
+   */
+  const closedThisMonthByEmployee = new Map<number, number>();
   for (const row of resolvedRows) {
     if (row.status !== 'funded') continue;
     const key = resolve('salesforce', row.loan_officer);
@@ -342,6 +371,9 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
     const m = pipelineByEmployee.get(key) ?? emptyPipeline();
     m.resolvedFunded += 1;
     pipelineByEmployee.set(key, m);
+    if ((row.disbursement_date ?? '').slice(0, 7) === thisMonth) {
+      closedThisMonthByEmployee.set(key, (closedThisMonthByEmployee.get(key) ?? 0) + 1);
+    }
   }
 
   // ── 6. Filas de Loan Officer ─────────────────────────────────────────────
@@ -382,7 +414,12 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
     const benchmarkRow = benchmarkByEmployee.get(employeeKey) ?? null;
     const benchmark = benchmarkRow === null ? null : Number(benchmarkRow.monthly_benchmark);
 
-    const projection = projectCurrentMonth(activity.closingsByMonth[thisMonth] ?? 0, openLoanDetail, rates);
+    const projection = projectCurrentMonth(
+      closedThisMonthByEmployee.get(employeeKey) ?? 0,
+      openLoanDetail,
+      rates,
+      thisMonth
+    );
     const q1 = evaluateQualifier1(activity.closingsByMonth, windowMonths, projection, benchmark);
 
     /*
@@ -492,6 +529,7 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
       attributionOverrideTableAvailable,
       settingsTableAvailable,
       interventionTableAvailable,
+      rates,
     },
   };
 }

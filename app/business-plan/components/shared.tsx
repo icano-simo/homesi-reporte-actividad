@@ -1,7 +1,7 @@
 'use client';
 
 import { VERDICT_CLASS, VERDICT_LABEL, requiredUnits } from '@/lib/business-plan/qualifiers';
-import { DEFAULT_RATE_SETTINGS, formatRate } from '@/lib/business-plan/rates';
+import { formatRate } from '@/lib/business-plan/rates';
 import type { BusinessPlanData, Verdict } from '@/lib/business-plan/types';
 import { formatYearMonth } from '@/lib/business-plan/months';
 
@@ -79,14 +79,16 @@ export function NotFoundState({ what, backHref, backLabel }: { what: string; bac
  */
 export function CalcNote({ data }: { data: BusinessPlanData }) {
   const d = data.diagnostics;
-  const r = DEFAULT_RATE_SETTINGS;
+  /* Las tasas REALMENTE aplicadas, no los defaults del código: desde BP6 salen
+     de `business_plan.settings` y alguien puede haberlas editado en Settings. */
+  const r = d.rates;
   const win = d.windowMonths.map(formatYearMonth);
   return (
     <div className="bp-calc-note">
       <p>
         <strong>GAP</strong> = average of {win.slice(0, -1).join(', ')} and {win[win.length - 1]} projected, minus the
-        benchmark. The projection is closings to date + loans in CTC and Closing (no rate applied) + remaining healthy
-        loans weighted by the pull-through of their milestone.
+        benchmark. The projection counts closings to date plus the loans due to close this month: those in CTC and
+        Closing whole, and the remaining healthy ones weighted by the pull-through of their milestone.
       </p>
       <p>
         <strong>Qualifier 2</strong> requires <code>ceil(benchmark ÷ conversion rate)</code> units of each metric — with
@@ -96,9 +98,8 @@ export function CalcNote({ data }: { data: BusinessPlanData }) {
       </p>
       <p>
         Rates: Started {formatRate(r.milestone.Started)} · Processing {formatRate(r.milestone.Processing)} ·
-        Underwriting {formatRate(r.milestone.Underwriting)} · Closing {formatRate(r.milestone.Closing)} · Brokered{' '}
-        {formatRate(r.brokeredFlat)}.{' '}
-        {d.settingsTableAvailable ? 'Editable in Settings.' : 'Defaults — business_plan.settings is not available yet.'}
+        Underwriting {formatRate(r.milestone.Underwriting)} · Closing {formatRate(r.milestone.Closing)}. Editable in
+        Settings.
       </p>
     </div>
   );

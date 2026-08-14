@@ -1,3 +1,5 @@
+import type { RateSettings } from './rates';
+
 /**
  * ============================================================================
  * BUSINESS PLAN OS — contrato de datos
@@ -279,6 +281,12 @@ export interface BusinessPlanData {
     attributionOverrideTableAvailable: boolean;
     /** false = las tasas salen de los defaults del código, no de la base. */
     settingsTableAvailable: boolean;
+    /**
+     * Las tasas REALMENTE usadas en esta corrida. La nota de cálculo las lee de
+     * acá y no de los defaults del código: si alguien edita una en Settings, la
+     * nota al pie tiene que mostrar la que se aplicó, no la de fábrica.
+     */
+    rates: RateSettings;
     interventionTableAvailable: boolean;
   };
 }

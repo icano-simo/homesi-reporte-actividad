@@ -32,7 +32,8 @@
 
 
 create table if not exists org.employee_benchmark (
-  employee_key      integer not null
+  -- bigint y no integer: iguala el tipo de org.dim_employee.employee_key.
+  employee_key      bigint not null
     references org.dim_employee (employee_key) on delete cascade,
 
   -- Cierres mensuales esperados. `numeric` y no `integer`: el negocio podría
