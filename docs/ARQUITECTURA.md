@@ -1719,3 +1719,56 @@ guiones, y el lector no podía distinguir "este préstamo no tiene programa" de
 Cuando una columna falta por eso, el modal lo dice en una línea en vez de
 mostrarla vacía. Hoy los modales de actividad muestran **monto y canal**; las
 otras aparecen desde la próxima carga del archivo.
+
+### 9. Funnels: plantilla vs instancia (etapa BP12)
+
+El módulo tiene **dos mitades que no se tocan**:
+
+| | tablas | se edita | quién la ve |
+|---|---|---|---|
+| **Plantilla** | `funnel` · `node` · `funnel_node` · `node_milestone` · `node_owner` | libremente, con DELETE | la biblioteca |
+| **Instancia** | `enrollment` · `enrollment_node` · `enrollment_milestone` | por persona | el portal del plan |
+
+**Al enrolarse, el plan se COPIA.** Si apuntara a la plantilla, editar un funnel
+en la biblioteca cambiaría retroactivamente el plan de todos los enrolados:
+alguien con 11 de 19 milestones hechos pasaría de golpe a otro plan y su
+progreso dejaría de significar nada. Es el mismo principio que ya rige el
+histórico de forecast — lo que pasó no se recalcula cuando cambian las reglas.
+
+Eso es también lo que permite **editar el plan de una persona sin afectar a
+nadie más**, y por eso no hace falta una plantilla por cada variación: si cada
+personalización fuera una plantilla nueva, en un año habría cuarenta funnels
+casi idénticos y nadie sabría cuál usar.
+
+**Lo que NO se guarda, a propósito:**
+
+- Los **rangos de días** de cada nodo (`DAY 1-5`) se calculan de los SLA y de la
+  posición. Guardados, reordenar la secuencia dejaría todas las fechas
+  mintiendo.
+- Los **conteos** de la tarjeta del catálogo (`N NODES`, `N SUB-MILESTONES`) se
+  cuentan de las filas.
+- El **equipo de soporte** de una tarjeta se deriva de los responsables de sus
+  nodos y milestones. Guardado, seguiría mostrando a quien ya no participa.
+
+**Lo que sí se copia al activar**: el nombre del funnel y las fechas límite
+resueltas. Las dos son fotos del momento de la activación.
+
+### 10. El constructor de secuencia no es un lienzo
+
+La interacción es sobre una **lista ordenada**: arrastrar desde la biblioteca
+agrega, arrastrar dentro reordena. No hay coordenadas, ni zoom, ni posiciones
+libres.
+
+Un lienzo tiene sentido cuando el flujo se ramifica. Estos funnels son lineales
+—cinco nodos en fila— y un lienzo agregaría estado (x/y por nodo), migración y
+complejidad sin cambiar nada de lo que el usuario puede expresar. Si más
+adelante hacen falta bifurcaciones, se extiende sobre esto.
+
+Por eso **no hay botones de zoom**, aunque el mockup los muestre: sin un lienzo
+real no hay nada que acercar, y un zoom que sólo escala el texto promete una
+manipulación espacial que no existe. En su lugar va la duración total calculada,
+que es la pregunta que alguien se hace mirando esa pantalla.
+
+El drag and drop usa la **API nativa de HTML5**, sin librerías. Como esa API no
+es accesible por teclado, cada tarjeta lleva además botones de mover
+arriba/abajo — sin eso, reordenar sería imposible sin mouse.
