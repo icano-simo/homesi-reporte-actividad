@@ -275,10 +275,3 @@ export const GAP_STATE_LABEL: Record<NonNullable<Qualifier1['state']>, string> =
   on_risk: 'On Risk',
   need_attention: 'Need Attention',
 };
-
-/** Clase de color del número del GAP, según su estado. */
-export const GAP_STATE_CLASS: Record<NonNullable<Qualifier1['state']>, string> = {
-  on_target: 'bp-gap--ok',
-  on_risk: 'bp-gap--warn',
-  need_attention: 'bp-gap--risk',
-};

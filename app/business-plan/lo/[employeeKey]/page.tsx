@@ -3,7 +3,7 @@
 import { useMemo, useState, use, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { useBusinessPlanData } from '@/lib/business-plan/useBusinessPlanData';
-import { GAP_STATE_CLASS, GAP_STATE_LABEL } from '@/lib/business-plan/qualifiers';
+import { GAP_STATE_LABEL } from '@/lib/business-plan/qualifiers';
 import { monthsOfYear, currentYearMonth, shortMonth } from '@/lib/business-plan/months';
 import Breadcrumbs from '../../components/Breadcrumbs';
 import MonthlyBarChart from '../../components/MonthlyBarChart';
@@ -242,6 +242,16 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
              * derecha. Antes cada una ocupaba dos renglones y el panel se leía
              * como una lista de párrafos en vez de una ficha de datos.
              */}
+            {/*
+             * JERARQUÍA DEL PANEL — etapa BP10, y el cambio es deliberado.
+             *
+             * Hasta BP9 el número grande era el promedio con mes actual. Estaba
+             * mal: el promedio es el INSUMO y el GAP es la CONCLUSIÓN -- es lo
+             * que decide el veredicto. Con dos números grandes en el mismo
+             * panel no había ninguno destacado.
+             *
+             * Ahora todas las filas son normales y sólo el GAP sale del renglón.
+             */}
             <div className="mcard bp-stats">
               {/*
                * Los DOS promedios, y no para suavizar el veredicto: son
@@ -249,56 +259,51 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
                *   histórico bajo + proyección baja  = problema sostenido
                *   histórico bueno + proyección baja = se le secó el pipeline
                *   histórico bajo + proyección buena = ya está reaccionando
-               * El GAP sale SIEMPRE del que incluye el mes actual, y por eso
-               * ese va notablemente más grande que el resto.
+               * El GAP sale SIEMPRE del que incluye el mes actual.
                */}
-              <div className="bp-stat bp-stat--hero">
+              <div className="bp-stat">
                 <span className="bp-stat__label">Avg 3M (with current month)</span>
                 <span className="bp-stat__value" title={exactTitle(lo.q1.avgWithCurrent)}>
                   {fmtAvg(lo.q1.avgWithCurrent)}
                 </span>
               </div>
-              <div className="bp-stat">
+              <div className="bp-stat bp-stat--muted">
                 <span className="bp-stat__label">Avg 3M (closed months)</span>
                 <span className="bp-stat__value" title={exactTitle(lo.avgClosedMonths)}>
                   {fmtAvg(lo.avgClosedMonths)}
                 </span>
               </div>
-              {/*
-                Benchmark y GAP van juntos en una caja destacada: son las dos
-                cifras que definen el problema, y el ojo tiene que saltar ahí.
-                El color sale del ESTADO, no fijo en rojo -- un recuadro rojo
-                sobre alguien On Target diría lo contrario de su veredicto.
-              */}
-              <div className={'bp-stat-highlight' + (lo.q1.state ? ' bp-highlight--' + lo.q1.state : '')}>
+              {/* Neutro a propósito: el benchmark es una referencia, no una alerta. */}
               <div className="bp-stat">
                 <span className="bp-stat__label">Benchmark</span>
                 <BenchmarkEditor lo={lo} onSaved={reload} />
               </div>
-              <div className="bp-stat">
+
+              {/*
+               * GAP: su propio contenedor, número grande y la píldora del estado
+               * al lado. El color viene del ESTADO y no fijo en rojo -- alguien
+               * On Target con GAP +0,6 dentro de un recuadro rojo leería lo
+               * contrario de su veredicto.
+               *
+               * Un decimal siempre: redondear a entero convertiría un −0,5 en 0,
+               * o sea On Target, y eso cambia veredictos, no la presentación.
+               */}
+              <div className={'bp-gap-hero' + (lo.q1.state ? ' bp-gap-hero--' + lo.q1.state : '')}>
                 <span className="bp-stat__label">GAP</span>
-                {/*
-                 * Número y estado en la MISMA píldora: separados en dos
-                 * renglones había que unirlos mentalmente para leer "−0,5 está
-                 * en riesgo". Un decimal siempre -- redondear a entero
-                 * convertiría un −0,5 en 0, o sea On Target, y cambiaría el
-                 * veredicto en vez de la presentación.
-                 */}
                 {lo.q1.gap === null ? (
                   <span className="bp-muted">—</span>
                 ) : (
-                  <span
-                    className={'bp-gap-pill ' + (lo.q1.state ? GAP_STATE_CLASS[lo.q1.state] : '')}
-                    title={exactTitle(lo.q1.gap)}
-                  >
-                    <strong>{fmtGap(lo.q1.gap)}</strong>
-                    {lo.q1.state && <span className="bp-gap-pill__state">{GAP_STATE_LABEL[lo.q1.state]}</span>}
-                  </span>
+                  <div className="bp-gap-hero__row">
+                    <span className="bp-gap-hero__value" title={exactTitle(lo.q1.gap)}>
+                      {fmtGap(lo.q1.gap)}
+                    </span>
+                    {lo.q1.state && <span className="bp-gap-hero__state">{GAP_STATE_LABEL[lo.q1.state]}</span>}
+                  </div>
                 )}
               </div>
-              </div>
+
               <div className="bp-stat">
-                <span className="bp-stat__label">YTD</span>
+                <span className="bp-stat__label">YTD closings</span>
                 <span className="bp-stat__value">{lo.ytdClosings}</span>
               </div>
             </div>

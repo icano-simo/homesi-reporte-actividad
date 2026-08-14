@@ -567,17 +567,6 @@ table.piv.bp-table--los th {
 /* El promedio CON mes actual es el que alimenta el GAP: va grande. El de meses
    cerrados va al lado, más chico, porque es contexto y no entra en el cálculo. */
 
-/* Color del GAP según su estado. */
-.bp-gap--ok {
-  color: var(--emerald-700);
-}
-.bp-gap--warn {
-  color: var(--amber-800);
-}
-.bp-gap--risk {
-  color: var(--coral);
-}
-
 /* ── Gráfico de barras ──────────────────────────────────────────────────── */
 
 .bp-chart__plot {
@@ -1071,49 +1060,13 @@ table.piv.bp-table--los th {
  * grande que el resto. La jerarquía es el mensaje -- de todas las cifras del
  * panel, esta es la que decide.
  */
-.bp-stat--hero .bp-stat__value {
-  font-size: 32px;
-  line-height: 1;
-}
 
 /*
  * GAP: número y estado en la MISMA píldora, con el fondo del color del estado.
  * Separados en dos renglones había que unirlos mentalmente para leer que −0,5
  * está en riesgo.
  */
-.bp-gap-pill {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-  padding: 3px 10px;
-  border-radius: 999px;
-  font-family: var(--font-display);
-  font-size: 15px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.bp-gap-pill__state {
-  font-family: var(--font-body);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  opacity: 0.85;
-}
 /* Los tres estados reusan las mismas escalas que el resto del módulo. */
-.bp-gap-pill.bp-gap--ok {
-  background: var(--emerald-50);
-  color: var(--emerald-700);
-}
-.bp-gap-pill.bp-gap--warn {
-  background: var(--amber-50);
-  color: var(--amber-800);
-}
-.bp-gap-pill.bp-gap--risk {
-  background: var(--rose-50);
-  color: var(--coral);
-}
 
 /* ── Qualifier 2: una tarjeta por métrica ───────────────────────────────── */
 
@@ -1273,28 +1226,6 @@ table.piv.bp-table--los th {
  * El color viene del ESTADO del GAP, no fijo. Un recuadro rojo sobre alguien
  * On Target diría lo contrario de su veredicto.
  */
-.bp-stat-highlight {
-  border: 1px solid var(--slate-200);
-  border-radius: var(--radius-md);
-  background: var(--slate-50);
-  padding: 2px 10px;
-  margin: 6px 0;
-}
-.bp-stat-highlight .bp-stat:last-child {
-  border-bottom: none;
-}
-.bp-highlight--on_target {
-  background: var(--emerald-50);
-  border-color: var(--emerald-200);
-}
-.bp-highlight--on_risk {
-  background: var(--amber-50);
-  border-color: var(--amber-200);
-}
-.bp-highlight--need_attention {
-  background: var(--rose-50);
-  border-color: var(--rose-200);
-}
 
 /* ── Qualifier 2: tres tarjetas lado a lado ─────────────────────────────── */
 
@@ -1436,4 +1367,99 @@ table.piv.bp-table--los th {
   border-top: 1px solid var(--slate-200);
   margin-top: 3px;
   padding-top: 3px;
+}
+
+/* ===========================================================================
+ * 12. Etapa BP10 — el GAP es la métrica héroe del panel
+ * ===========================================================================
+ *
+ * Hasta BP9 el número grande del panel era el promedio con mes actual. El
+ * cambio: el promedio es el INSUMO y el GAP es la CONCLUSIÓN -- es lo que
+ * decide el veredicto. Con dos números grandes en el mismo panel no había
+ * ninguno destacado, así que ahora todas las filas son iguales y sólo el GAP
+ * sale del renglón.
+ */
+
+/* El promedio de meses cerrados es contexto: no entra en el GAP. */
+.bp-stat--muted .bp-stat__value {
+  font-size: 14px;
+  color: var(--slate-500);
+}
+
+.bp-gap-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  background: var(--slate-50);
+}
+.bp-gap-hero__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.bp-gap-hero__value {
+  font-family: var(--font-display);
+  font-size: 34px;
+  font-weight: 700;
+  line-height: 1;
+  /* tabular-nums sobre Inter, como el resto de la app. Nada de monoespaciada. */
+  font-variant-numeric: tabular-nums;
+}
+/* La píldora del estado, al lado del número y no debajo. */
+.bp-gap-hero__state {
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/*
+ * El color sale del ESTADO, nunca fijo. Alguien On Target con GAP +0,6 dentro
+ * de un recuadro rojo leería lo contrario de su propio veredicto.
+ */
+.bp-gap-hero--on_target {
+  background: var(--emerald-50);
+  border-color: var(--emerald-200);
+}
+.bp-gap-hero--on_target .bp-gap-hero__value,
+.bp-gap-hero--on_target .bp-stat__label {
+  color: var(--emerald-700);
+}
+.bp-gap-hero--on_target .bp-gap-hero__state {
+  background: var(--emerald-700);
+  color: var(--canvas);
+}
+
+.bp-gap-hero--on_risk {
+  background: var(--amber-50);
+  border-color: var(--amber-200);
+}
+.bp-gap-hero--on_risk .bp-gap-hero__value,
+.bp-gap-hero--on_risk .bp-stat__label {
+  color: var(--amber-800);
+}
+.bp-gap-hero--on_risk .bp-gap-hero__state {
+  background: var(--amber-800);
+  color: var(--canvas);
+}
+
+.bp-gap-hero--need_attention {
+  background: var(--rose-50);
+  border-color: var(--rose-200);
+}
+.bp-gap-hero--need_attention .bp-gap-hero__value,
+.bp-gap-hero--need_attention .bp-stat__label {
+  color: var(--coral);
+}
+.bp-gap-hero--need_attention .bp-gap-hero__state {
+  background: var(--coral);
+  color: var(--canvas);
 }
