@@ -8,7 +8,7 @@ import { nodeDayRanges, type FunnelNode, type FunnelNodeLink, type NodeMilestone
  * CONSTRUCTOR DE SECUENCIA — el "Timeline Builder"
  * ============================================================================
  *
- * Etapa BP12 — ARCHIVO NUEVO.
+ * Etapa BP12 — ARCHIVO NUEVO. Etapa BP16 — el arrastre, arreglado.
  *
  * ---------------------------------------------------------------------------
  * POR QUÉ UNA LISTA ORDENADA Y NO UN LIENZO
@@ -20,27 +20,31 @@ import { nodeDayRanges, type FunnelNode, type FunnelNodeLink, type NodeMilestone
  * Un lienzo con posiciones persistidas tiene sentido cuando el flujo se
  * ramifica. Estos funnels son lineales -- cinco nodos en fila. Un lienzo
  * agregaría estado (x, y por nodo), migración y complejidad sin cambiar NADA de
- * lo que el usuario puede expresar. Si más adelante hacen falta bifurcaciones,
- * se extiende sobre esto.
+ * lo que el usuario puede expresar.
  *
- * SOBRE LOS BOTONES DE ZOOM del mockup: no están, y es deliberado. Sin un
- * lienzo real no hay nada que acercar -- un botón de zoom que sólo escala el
- * texto promete una manipulación espacial que no existe. En su lugar va lo que
- * sí aporta en una secuencia lineal: el rango de días calculado de cada nodo y
- * la duración total, que es la pregunta que alguien se hace mirando esta
- * pantalla ("¿cuánto dura este funnel?").
+ * En lugar de los botones de Zoom del mockup va la duración total calculada,
+ * que es la pregunta que alguien se hace mirando esta pantalla.
  *
  * ---------------------------------------------------------------------------
- * DRAG AND DROP CON LA API NATIVA
+ * ⚠ POR QUÉ EL ARRASTRE NO FUNCIONABA (etapa BP16)
  * ---------------------------------------------------------------------------
- * Sin librería. `draggable` + `dragstart` / `dragover` / `drop` de HTML5 alcanza
- * para reordenar una lista, y una dependencia nueva en el bundle del cliente
- * para esto no se justifica -- el repo ya evita ese tipo de dependencias (ver
- * la nota de `components/ui/icons.tsx`).
+ * El código de drag está desde BP12 y nunca se quitó. Tenía tres defectos que
+ * juntos lo volvían inservible:
  *
- * Como la API nativa no es accesible por teclado, cada tarjeta lleva además
- * botones de mover arriba/abajo. No es un adorno: sin eso, reordenar sería
- * imposible sin mouse.
+ *  1. `onDragStart` no llamaba a `e.dataTransfer.setData()`. Chrome tolera esa
+ *     omisión; FIREFOX NO INICIA EL ARRASTRE SIN ELLA. En Firefox la función
+ *     simplemente no existía.
+ *  2. Las zonas de soltado entre tarjetas medían 10px de ancho. Aun donde el
+ *     arrastre arrancaba, acertarles era cuestión de suerte.
+ *  3. No había ninguna señal visual de que las tarjetas se pudieran arrastrar.
+ *     Sin un asa ni una pista, nadie lo intenta.
+ *
+ * Ahora: se llama a `setData`, las zonas se ensanchan mientras hay algo en
+ * vuelo, y cada tarjeta lleva un asa visible.
+ *
+ * Los botones de flecha se QUEDAN. La API nativa de arrastre no es accesible
+ * por teclado, así que son la única vía sin mouse -- no son un reemplazo del
+ * arrastre sino su complemento.
  */
 
 interface Props {
@@ -75,9 +79,21 @@ export default function SequenceBuilder({
   const byKey = new Map(nodes.map((n) => [n.node_key, n]));
   const ranges = nodeDayRanges(sequence, milestones);
   const totalDays = ranges.length ? ranges[ranges.length - 1].toDay : 0;
-
-  /** Nodos de la biblioteca que todavía no están en esta secuencia. */
   const available = nodes.filter((n) => !sequence.includes(n.node_key));
+
+  /**
+   * Arranca un arrastre.
+   *
+   * `dataTransfer.setData` es OBLIGATORIO: sin al menos un dato asociado,
+   * Firefox no considera que haya empezado un arrastre y no dispara ningún
+   * `dragover` ni `drop`. El payload real viaja en el estado de React -- esto
+   * es sólo para que el navegador acepte iniciar la operación.
+   */
+  function startDrag(e: React.DragEvent, from: 'library' | 'sequence', nodeKey: number) {
+    e.dataTransfer.setData('text/plain', String(nodeKey));
+    e.dataTransfer.effectAllowed = 'move';
+    setDragging({ from, nodeKey });
+  }
 
   function drop(atIndex: number) {
     if (!dragging || busy) return;
@@ -105,28 +121,52 @@ export default function SequenceBuilder({
     onChangeSequence(next);
   }
 
+  /** Props comunes de una zona de soltado. */
+  const dropZone = (index: number) => ({
+    className:
+      'bp-builder__gap' + (dragging ? ' is-armed' : '') + (overIndex === index ? ' is-over' : ''),
+    onDragOver: (e: React.DragEvent) => {
+      e.preventDefault(); // sin esto el navegador rechaza el drop
+      e.dataTransfer.dropEffect = 'move';
+      setOverIndex(index);
+    },
+    onDragLeave: () => setOverIndex((cur) => (cur === index ? null : cur)),
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault();
+      drop(index);
+    },
+  });
+
   return (
     <div className="bp-builder">
       {/* ── Biblioteca de nodos, a la izquierda ─────────────────────────── */}
       <aside className="bp-builder__library">
         <div className="bp-builder__title">Node library</div>
+        <p className="bp-builder__howto">Drag a node into the sequence, or use “add”.</p>
         {available.length === 0 && <p className="bp-muted-line">Every node is already in this sequence.</p>}
         {available.map((n) => (
           <div
             key={n.node_key}
-            className="bp-builder__chip"
+            className={'bp-builder__chip' + (dragging?.nodeKey === n.node_key ? ' is-dragging' : '')}
             draggable={!busy}
-            onDragStart={() => setDragging({ from: 'library', nodeKey: n.node_key })}
-            onDragEnd={() => setDragging(null)}
+            onDragStart={(e) => startDrag(e, 'library', n.node_key)}
+            onDragEnd={() => {
+              setDragging(null);
+              setOverIndex(null);
+            }}
             title={n.description ?? undefined}
           >
+            {/* Asa visible: sin ella nadie descubre que se puede arrastrar. */}
+            <span className="bp-grip" aria-hidden="true">
+              ⠿
+            </span>
             <span className="bp-builder__chip-name">{n.name}</span>
             <button
               type="button"
               className="bp-linkish"
               onClick={() => onChangeSequence([...sequence, n.node_key])}
               disabled={busy}
-              /* El botón es la alternativa por teclado al arrastre. */
+              /* La vía por teclado: la API nativa de arrastre no la tiene. */
               title="Add to the end of the sequence"
             >
               add
@@ -145,16 +185,11 @@ export default function SequenceBuilder({
           </div>
         </div>
 
-        <div className="bp-builder__flow">
+        <div className={'bp-builder__flow' + (dragging ? ' is-dragging' : '')}>
           {sequence.length === 0 && (
-            <div
-              className={'bp-builder__drop' + (overIndex === 0 ? ' is-over' : '')}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setOverIndex(0);
-              }}
-              onDrop={() => drop(0)}
-            >
+            /* El `className` viene del propio `dropZone`; sobrescribirlo acá
+               dejaba fuera el estado `is-armed`. */
+            <div {...dropZone(0)} className={'bp-builder__drop' + (overIndex === 0 ? ' is-over' : '')}>
               Drag a node here to start the sequence
             </div>
           )}
@@ -166,22 +201,24 @@ export default function SequenceBuilder({
             return (
               <div key={nodeKey} className="bp-builder__slot">
                 {/* Zona de soltado ANTES de esta tarjeta. */}
+                <div {...dropZone(i)} />
                 <div
-                  className={'bp-builder__gap' + (overIndex === i ? ' is-over' : '')}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    setOverIndex(i);
-                  }}
-                  onDragLeave={() => setOverIndex(null)}
-                  onDrop={() => drop(i)}
-                />
-                <div
-                  className={'bp-builder__card' + (selectedNodeKey === nodeKey ? ' is-selected' : '')}
+                  className={
+                    'bp-builder__card' +
+                    (selectedNodeKey === nodeKey ? ' is-selected' : '') +
+                    (dragging?.nodeKey === nodeKey ? ' is-dragging' : '')
+                  }
                   draggable={!busy}
-                  onDragStart={() => setDragging({ from: 'sequence', nodeKey })}
-                  onDragEnd={() => setDragging(null)}
+                  onDragStart={(e) => startDrag(e, 'sequence', nodeKey)}
+                  onDragEnd={() => {
+                    setDragging(null);
+                    setOverIndex(null);
+                  }}
                   onClick={() => onSelectNode(nodeKey)}
                 >
+                  <span className="bp-grip bp-grip--card" aria-hidden="true">
+                    ⠿
+                  </span>
                   {/* El rango se CALCULA de los SLA y la posición: al reordenar
                       se recalcula solo, no hay nada guardado que corregir. */}
                   <div className="bp-builder__day">
@@ -190,30 +227,40 @@ export default function SequenceBuilder({
                   <div className="bp-builder__card-name">{node?.name ?? 'unknown node'}</div>
                   <div className="bp-builder__card-sub">{count} milestones</div>
                   <div className="bp-builder__reorder">
-                    <button type="button" onClick={(e) => { e.stopPropagation(); move(nodeKey, -1); }} disabled={busy || i === 0} aria-label="Move earlier">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        move(nodeKey, -1);
+                      }}
+                      disabled={busy || i === 0}
+                      aria-label="Move earlier"
+                    >
                       ↑
                     </button>
-                    <button type="button" onClick={(e) => { e.stopPropagation(); move(nodeKey, 1); }} disabled={busy || i === sequence.length - 1} aria-label="Move later">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        move(nodeKey, 1);
+                      }}
+                      disabled={busy || i === sequence.length - 1}
+                      aria-label="Move later"
+                    >
                       ↓
                     </button>
                   </div>
                 </div>
-                {i < sequence.length - 1 && <span className="bp-builder__arrow" aria-hidden="true">→</span>}
+                {i < sequence.length - 1 && (
+                  <span className="bp-builder__arrow" aria-hidden="true">
+                    →
+                  </span>
+                )}
               </div>
             );
           })}
 
-          {sequence.length > 0 && (
-            <div
-              className={'bp-builder__gap bp-builder__gap--end' + (overIndex === sequence.length ? ' is-over' : '')}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setOverIndex(sequence.length);
-              }}
-              onDragLeave={() => setOverIndex(null)}
-              onDrop={() => drop(sequence.length)}
-            />
-          )}
+          {sequence.length > 0 && <div {...dropZone(sequence.length)} />}
         </div>
       </div>
     </div>

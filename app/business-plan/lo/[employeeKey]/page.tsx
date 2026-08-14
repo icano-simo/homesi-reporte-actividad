@@ -12,7 +12,6 @@ import BenchmarkEditor from '../../components/BenchmarkEditor';
 import DecisionBar from '../../components/DecisionBar';
 import {
   CalcNote,
-  Diagnostics,
   ErrorState,
   LoadingState,
   NotFoundState,
@@ -386,8 +385,9 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
             onSeeProgress={() => router.push('/business-plan/lo/' + lo.employeeKey + '/plan')}
           />
 
+          {/* Etapa BP16: el diagnóstico se mudó a Settings. Acá queda sólo la
+              nota de cálculo, que explica los números de ESTA pantalla. */}
           <CalcNote data={data} />
-          <Diagnostics data={data} />
 
           {/* ── Modales: detalle complementario, nunca navegación ─────────── */}
           {openModal !== null && (

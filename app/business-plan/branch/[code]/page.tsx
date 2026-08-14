@@ -7,7 +7,6 @@ import { branchStatusClass, branchStatusLabel } from '@/lib/business-plan/interv
 import Breadcrumbs from '../../components/Breadcrumbs';
 import {
   CalcNote,
-  Diagnostics,
   ErrorState,
   KpiCard,
   LoadingState,
@@ -122,9 +121,9 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
            * sólo lo de este branch daría un número que no coincide con el de su
            * propia ficha.
            */}
-          <div className="tbl-card">
+          <div className="tbl-card tbl-card--floating">
             <div className="tbl-scroll">
-              <table className="piv bp-table--los">
+              <table className="piv bp-table--cards bp-table--los">
                 {/* 26 + 6×10 + 14 = 100%. El nombre es lo único largo de la fila. */}
                 <colgroup>
                   <col className="bp-col-name" />
@@ -213,8 +212,9 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
             </div>
           </div>
 
+          {/* Etapa BP16: el diagnóstico se mudó a Settings. Acá queda sólo la
+              nota de cálculo, que explica los números de ESTA pantalla. */}
           <CalcNote data={data} />
-          <Diagnostics data={data} />
         </>
       )}
     </>

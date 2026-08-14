@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useBusinessPlanData } from '@/lib/business-plan/useBusinessPlanData';
 import { branchStatusClass, branchStatusLabel } from '@/lib/business-plan/intervention';
 import Breadcrumbs from './components/Breadcrumbs';
-import { CalcNote, Diagnostics, ErrorState, KpiCard, LoadingState } from './components/shared';
+import { CalcNote, ErrorState, KpiCard, LoadingState } from './components/shared';
 
 /**
  * ============================================================================
@@ -106,9 +106,9 @@ export default function BranchPortfolioPage() {
             )}
           </div>
 
-          <div className="tbl-card">
+          <div className="tbl-card tbl-card--floating">
             <div className="tbl-scroll">
-              <table className="piv bp-table--branches">
+              <table className="piv bp-table--cards bp-table--branches">
                 {/*
                   El reparto de ancho lo fija el `<colgroup>`, no las celdas:
                   `table.piv` usa `table-layout: fixed`, donde un `min-width` en
@@ -183,8 +183,9 @@ export default function BranchPortfolioPage() {
             </div>
           </div>
 
+          {/* Etapa BP16: el diagnóstico se mudó a Settings. Acá queda sólo la
+              nota de cálculo, que explica los números de ESTA pantalla. */}
           <CalcNote data={data} />
-          <Diagnostics data={data} />
         </>
       )}
     </>

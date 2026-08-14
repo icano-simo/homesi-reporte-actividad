@@ -5,8 +5,9 @@ import { getSupabaseClient } from '@/lib/supabase/client';
 import { invalidateBusinessPlanData } from '@/lib/business-plan/useBusinessPlanData';
 import { DEFAULT_RATES, RATE_KEYS, SHARED_KEYS, formatRate, type RateKey } from '@/lib/business-plan/rates';
 import { AlertTriangleIcon } from '@/components/ui/icons';
+import { useBusinessPlanData } from '@/lib/business-plan/useBusinessPlanData';
 import Breadcrumbs from '../components/Breadcrumbs';
-import { ErrorState, LoadingState } from '../components/shared';
+import { Diagnostics, ErrorState, LoadingState } from '../components/shared';
 
 /**
  * ============================================================================
@@ -30,6 +31,12 @@ import { ErrorState, LoadingState } from '../components/shared';
  * Forecast consuma la tabla.
  */
 export default function SettingsPage() {
+  /*
+   * El diagnóstico de la corrida se mudó acá en BP16. En el perfil competía con
+   * los números de la persona; acá es lo que alguien viene a consultar cuando
+   * se pregunta CÓMO se está calculando, que es de lo que trata esta pantalla.
+   */
+  const { data: bpData } = useBusinessPlanData();
   const [values, setValues] = useState<Record<RateKey, number> | null>(null);
   const [available, setAvailable] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -170,6 +177,14 @@ export default function SettingsPage() {
               </p>
             )}
           </div>
+        </>
+      )}
+
+      {/* ── Cómo se está calculando ─────────────────────────────────────── */}
+      {bpData && (
+        <>
+          <h2 className="bp-section-title">How this is being calculated</h2>
+          <Diagnostics data={bpData} />
         </>
       )}
     </>

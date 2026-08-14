@@ -312,8 +312,31 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
                     ))}
                   </div>
                   {!check.ok && <div className="bp-catalog__blocked">{check.reason}</div>}
-                  <div className="bp-catalog__explore">
-                    {picked === f.funnel_key ? 'Selected · click to review' : 'Click to explore'}
+                  {/*
+                    Elegir vive ACÁ, en la tarjeta, y explorar en el modal. Tener
+                    el mismo acto en los dos lugares obligaba a mirar cuál ganó.
+                    `stopPropagation` para que elegir no abra además el detalle.
+                  */}
+                  <div className="bp-catalog__foot">
+                    <span className="bp-catalog__explore">Click to explore</span>
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      className={'bp-btn bp-btn--small' + (picked === f.funnel_key ? '' : ' bp-btn--primary')}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPicked(f.funnel_key);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setPicked(f.funnel_key);
+                        }
+                      }}
+                    >
+                      {picked === f.funnel_key ? '✓ Selected' : 'Select'}
+                    </span>
                   </div>
                   {team.length > 0 && (
                     <div className="bp-catalog__team" title={team.map((p) => p.full_name).join(', ')}>
@@ -342,8 +365,6 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
                 milestones={lib.milestones}
                 owners={lib.owners}
                 support={lib.support}
-                isPicked={picked === exploring}
-                onPick={() => setPicked(exploring)}
                 onClose={() => setExploring(null)}
               />
             );

@@ -2640,3 +2640,264 @@ table.piv th.bp-wrap {
   vertical-align: middle;
   font-variant-numeric: tabular-nums;
 }
+
+/* ===========================================================================
+ * 19. Etapa BP16 — arrastre visible, stepper del preview y tablas-tarjeta
+ * =========================================================================== */
+
+/* ── Arrastre del constructor ───────────────────────────────────────────── */
+
+/*
+ * El asa. Sin una señal visible nadie descubre que las tarjetas se arrastran --
+ * el `cursor: grab` sólo aparece cuando el puntero ya está encima.
+ */
+.bp-grip {
+  color: var(--slate-300);
+  font-size: 13px;
+  line-height: 1;
+  letter-spacing: -1px;
+  cursor: grab;
+  flex-shrink: 0;
+}
+.bp-grip--card {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+.bp-builder__howto {
+  font-size: 10.5px;
+  color: var(--slate-400);
+  margin: 0 0 4px;
+  line-height: 1.4;
+}
+/* Lo que está en vuelo se atenúa: se ve de dónde salió. */
+.bp-builder__chip.is-dragging,
+.bp-builder__card.is-dragging {
+  opacity: 0.4;
+}
+
+/*
+ * Las zonas de soltado medían 10px y acertarles era cuestión de suerte. Sólo se
+ * ensanchan mientras hay algo en vuelo (`is-armed`), para que en reposo no
+ * separen las tarjetas.
+ */
+.bp-builder__gap.is-armed {
+  width: 26px;
+  border: 1.5px dashed var(--slate-300);
+}
+.bp-builder__gap.is-armed.is-over {
+  border-color: var(--sky);
+  background: var(--accent-soft);
+}
+
+/* ── Preview del funnel: stepper horizontal ─────────────────────────────── */
+
+.bp-fstep {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 2px;
+  margin-bottom: 14px;
+}
+.bp-fstep__slot {
+  display: flex;
+  align-items: center;
+}
+.bp-fstep__card {
+  font-family: inherit;
+  text-align: left;
+  min-width: 150px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  background: var(--slate-50);
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+.bp-fstep__card:hover {
+  border-color: var(--sky);
+}
+.bp-fstep__card:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 2px;
+}
+/* El nodo abierto, en navy: es el que se está mirando abajo. */
+.bp-fstep__card.is-active {
+  background: var(--navy);
+  border-color: var(--navy);
+}
+.bp-fstep__n {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+.bp-fstep__card.is-active .bp-fstep__n {
+  color: var(--sky);
+}
+.bp-fstep__name {
+  font-family: var(--font-display);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--navy);
+}
+.bp-fstep__card.is-active .bp-fstep__name {
+  color: var(--canvas);
+}
+.bp-fstep__meta {
+  font-size: 10px;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+.bp-fstep__card.is-active .bp-fstep__meta {
+  color: var(--sky);
+}
+.bp-fstep__owners {
+  display: flex;
+  gap: 3px;
+  margin-top: 2px;
+}
+.bp-fstep__arrow {
+  color: var(--slate-300);
+  padding: 0 5px;
+  font-size: 14px;
+}
+
+.bp-fdetail {
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  background: var(--canvas);
+  padding: 14px 16px;
+}
+.bp-fdetail__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.bp-fdetail__title {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--navy);
+  margin: 0;
+}
+.bp-fdetail__owners {
+  font-size: 11px;
+  color: var(--slate-500);
+}
+.bp-fdetail__desc {
+  font-size: 12px;
+  color: var(--slate-500);
+  margin: 4px 0 10px;
+  line-height: 1.5;
+}
+.bp-fdetail__steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.bp-fdetail__steps li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 190px 90px;
+  gap: 12px;
+  align-items: center;
+  padding: 7px 0;
+  border-top: 1px solid var(--slate-100);
+  font-size: 12px;
+}
+@media (max-width: 900px) {
+  .bp-fdetail__steps li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.bp-fdetail__step-title {
+  color: var(--navy);
+}
+.bp-fdetail__step-who {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--slate-500);
+  font-size: 11px;
+}
+.bp-fdetail__step-day {
+  text-align: right;
+  font-size: 11px;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Pie de la tarjeta del catálogo: explorar a la izquierda, elegir a la derecha. */
+.bp-catalog__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+/* ── Tablas como tarjetas flotantes ─────────────────────────────────────── */
+
+/*
+ * Branch Portfolio y el directorio se seguían leyendo como una planilla. Cada
+ * fila pasa a ser una tarjeta blanca independiente: `border-collapse: separate`
+ * con `border-spacing` vertical es lo que permite separarlas sin recurrir a
+ * márgenes falsos en las celdas.
+ *
+ * El contenedor pierde su propio fondo y borde -- si no, quedaría una tarjeta
+ * grande con tarjetas adentro.
+ */
+.tbl-card--floating {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  overflow: visible;
+}
+table.piv.bp-table--cards {
+  border-collapse: separate;
+  border-spacing: 0 8px;
+}
+/* Encabezados flotando: sin fondo ni línea, sólo las etiquetas. */
+table.piv.bp-table--cards thead tr.mo-row th {
+  background: transparent;
+  border: none;
+  padding-bottom: 2px;
+  color: var(--slate-400);
+}
+table.piv.bp-table--cards tbody tr.metric td {
+  background: var(--canvas);
+  border-top: 1px solid var(--slate-200);
+  border-bottom: 1px solid var(--slate-200);
+  /* Más aire vertical: la fila ya no es un renglón, es una tarjeta. */
+  padding: 13px 12px;
+}
+/* Las esquinas redondeadas sólo se pueden pedir en las celdas de los extremos. */
+table.piv.bp-table--cards tbody tr.metric td:first-child {
+  border-left: 1px solid var(--slate-200);
+  border-top-left-radius: var(--radius-lg);
+  border-bottom-left-radius: var(--radius-lg);
+}
+table.piv.bp-table--cards tbody tr.metric td:last-child {
+  border-right: 1px solid var(--slate-200);
+  border-top-right-radius: var(--radius-lg);
+  border-bottom-right-radius: var(--radius-lg);
+}
+table.piv.bp-table--cards tbody tr.metric:hover td {
+  background: var(--accent-soft);
+}
+/* La primera celda deja de ser sticky: dentro de una tarjeta se despegaría. */
+table.piv.bp-table--cards td.lbl {
+  position: static;
+}
+/* Píldoras de estado un poco más grandes, ahora que la fila tiene aire. */
+table.piv.bp-table--cards .badge--pill {
+  font-size: 10.5px;
+  padding: 4px 11px;
+}
