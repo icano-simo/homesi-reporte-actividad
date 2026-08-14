@@ -2568,3 +2568,105 @@ perfil de cada miembro — que además es donde alguien la va a buscar después.
 El título de Future performance en el perfil seguía diciendo "Qualifier 2":
 BP29 buscó la cadena `'Qualifier 2 — '` y ahí el JSX está partido
 (`Qualifier 2 —{' '}` con un botón dentro), así que no coincidió. Corregido.
+
+## Etapa BP32 — la activación dejaba estado parcial
+
+### Qué escritura fallaba, y por qué la pregunta tiene dos respuestas
+
+**Ninguna, en el caso que produjo estas dos huérfanas.** El diagnóstico que
+importa es más simple y peor: `business_plan.intervention` **no tiene FK contra
+`enrollment`** — referencia a `dim_employee` y a `funnel`, no al plan — así que
+**borrar un enrolamiento nunca se lleva su intervención**. Cada plan borrado a
+mano durante las pruebas dejó una intervención activa flotando. No hizo falta
+que fallara nada.
+
+**Y aparte existía el defecto real que describe el brief**, reproducido contra
+la base para no afirmarlo de memoria: con `intervention` como cuarta de cinco
+escrituras y fuera del rollback, basta que falle la línea base para que el
+enrolamiento se borre y la intervención sobreviva. Reproducido forzando un
+`avg_closings` negativo:
+
+```
+intervention insert            -> HTTP 201
+enrollment_baseline invalida   -> HTTP 400  (check avg_closings >= 0)
+rollback viejo (solo enrollment)
+   -> queda 1 intervencion activa con 0 enrolamientos   ← el estado reportado
+```
+
+### ⚠ Lo que encontró la prueba del arreglo, y era peor que el arreglo
+
+Al verificar el rollback nuevo, el borrado de la intervención **no borraba
+nada**: PostgREST devuelve **403** y la fila queda.
+
+`business_plan.intervention` tiene policies de `select`, `insert` y `update`
+desde BP5, y **ninguna de `delete`**; el grant tampoco la incluye. O sea: el
+rollback que este mismo brief pedía agregar habría sido código inerte, y las
+huérfanas seguían necesitando limpieza a mano desde el editor de SQL — que es
+exactamente como se limpiaron.
+
+Se arregla en los dos lados: la migración agrega la policy que falta, y mientras
+no esté aplicada el código cae a marcar la fila como `closed`, que es lo que la
+sesión de la app sí puede hacer. Alcanza para el invariante que importa: una
+intervención `closed` no cuenta como atendido, así que nadie queda marcado como
+que tiene plan cuando no lo tiene.
+
+### El orden nuevo
+
+```
+1 enrollment · 2 nodos · 3 stages · 4 línea base · 5 intervención
+```
+
+`intervention` pasó de cuarta a **última**, por dos razones distintas:
+
+- es la fila menos importante y la más barata de reponer;
+- yendo última, **cualquier fallo anterior ni siquiera la escribe**, así que el
+  caso frecuente deja de depender de que el rollback funcione. Es el arreglo de
+  verdad; el rollback es defensa en profundidad.
+
+Y entra al rollback, que ahora cubre las cinco: la intervención explícitamente
+—no cuelga de nada—, y nodos, stages y línea base por cascada al borrar el
+enrolamiento. Cada borrado en su propio `try`: si el primero falla por red, el
+segundo tiene que intentarse igual, o deshacer dejaría más residuo que el que
+limpia.
+
+### Los dos SQL, sin ejecutar
+
+`2026-08-intervention-one-active.sql` — cierra duplicados, crea
+`intervention_one_active_idx` (mismo patrón y mismo nombre que
+`enrollment_one_active_idx`), agrega la policy de delete que falta, y repone las
+dos intervenciones que les faltan a los enrolamientos 24 y 26 **desde la propia
+fila del enrolamiento**: la fecha y el autor salen de ahí, porque inventar un
+`now()` diría que se los atendió hoy.
+
+No se agrega una FK a `enrollment`, y el motivo está en el diseño de BP5: el
+estado `reviewed` —"alguien lo miró, todavía sin funnel"— existe sin
+enrolamiento y es el que alimenta el "Revisado" del Status del branch. Una FK
+obligatoria lo volvería imposible.
+
+`2026-08-activate-funnel-rpc.sql` — la solución definitiva.
+
+### Sobre la función: sí, vale hacerla ahora
+
+Está escrita. El rollback manual cubre el rechazo de la base, que es el caso
+frecuente, pero no es una transacción: si se corta la red entre escribir y
+deshacer queda residuo, si el navegador se cierra no hay quien deshaga, y entre
+una cosa y otra hay un instante en que otro usuario ve un estado que no debió
+existir.
+
+⚠ **La función no calcula nada: recibe el plan ya armado como `jsonb`.** Es la
+decisión de diseño que importa y va contra el instinto. El plan lo arma
+`buildEnrollmentPlan` —función pura, con su lógica de SLA acumulados, probada
+sin base— y la línea base sale del lote activo de Commercial Activity, que la
+función no puede leer sin duplicar toda la resolución de alias. Reescribirlo en
+SQL sería tener la misma regla en dos lenguajes, y la que se olvide de
+actualizar es la que decidiría las fechas de alguien: el mismo defecto que BP31
+tuvo que arreglar en la vista de grupo. El trabajo de la función es la
+atomicidad, no la lógica.
+
+`security invoker`, no `definer`: con `definer` correría con los permisos de su
+dueño y sería un agujero alrededor de RLS. `activated_by` sale del JWT y no de
+un argumento, para que nadie pueda firmar una activación con el email de otro.
+
+**El cambio en la app va en su propio paso, después de que la función esté
+aplicada.** No se dejan los dos caminos conviviendo: dos formas de activar es
+exactamente la duplicación que BP31 tuvo que deshacer.

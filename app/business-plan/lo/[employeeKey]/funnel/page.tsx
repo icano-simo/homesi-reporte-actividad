@@ -111,21 +111,37 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
       const draft = buildEnrollmentPlan(ordered, lib.nodes, lib.milestones, today);
 
       /*
-       * ⚠ TODO O NADA.
+       * ⚠ TODO O NADA — Y NO ES UNA TRANSACCIÓN.
        *
-       * PostgREST no da transacciones entre llamadas, así que si el insert de
-       * los milestones falla después del de la cabecera, queda un enrolamiento
-       * con nodos y CERO milestones -- exactamente el estado roto que motivó
-       * `checkActivation`. Pasó de verdad al probar: la columna `sla_days`
-       * todavía no estaba aplicada, el insert devolvió 400 y el enrolamiento
-       * quedó vivo igual.
+       * PostgREST no da transacciones entre llamadas, así que la activación son
+       * CINCO escrituras que pueden fallar a mitad. Cada paso deshace lo
+       * anterior si falla. Cubre el caso que ocurre de verdad -- un rechazo de
+       * la base -- pero si se corta la red en medio del rollback queda residuo.
        *
-       * Por eso cada paso posterior deshace lo anterior si falla. No es una
-       * transacción real -- si se cae la red en medio del rollback puede quedar
-       * residuo -- pero cubre el caso que ocurre de verdad: un rechazo de la
-       * base.
+       * ⚠ LA SOLUCIÓN DEFINITIVA ES UNA FUNCIÓN EN LA BASE, y ya está escrita:
+       * `docs/sql/2026-08-activate-funnel-rpc.sql`. Una sola llamada, una sola
+       * transacción, mismo patrón que `save_pipeline_snapshot`. Cuando el
+       * revisor la aplique, todo este bloque se reemplaza por un `.rpc()`. No se
+       * dejan los dos caminos conviviendo: dos formas de activar es exactamente
+       * el tipo de duplicación que hizo falta arreglar en BP31.
+       *
+       * ---------------------------------------------------------------------
+       * ORDEN DE LAS ESCRITURAS — etapa BP32, y el orden es el arreglo
+       * ---------------------------------------------------------------------
+       * `intervention` era la CUARTA de cinco y quedaba fuera del rollback: si
+       * la línea base fallaba después, se borraba el enrolamiento y la
+       * intervención sobrevivía. Resultado: una persona marcada como atendida,
+       * sin plan detrás, y la app volviendo a ofrecerle elegir funnel -- que al
+       * intentarlo choca contra `enrollment_one_active_idx`.
+       *
+       * Ahora va ÚLTIMA, y por dos razones:
+       *   · es la fila menos importante y la más barata de reponer;
+       *   · yendo última, cualquier fallo anterior no la alcanza a escribir, así
+       *     que el caso más común deja de necesitar rollback.
+       * Y además entra al rollback, para el caso que sí queda: que falle ella.
        */
       let enrollmentKey: number | null = null;
+      let interventionId: number | null = null;
       try {
         // 1. El enrolamiento. `funnel_name` se copia: si mañana renombran la
         //    plantilla, el plan sigue diciendo con qué se activó.
@@ -185,19 +201,8 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
           if (e3) throw new Error(e3.message);
         }
 
-        // 4. La intervención pasa a activa, que es lo que mueve el Status del
-        //    branch de "Pendiente" a "Atendido".
-        const { error: e4 } = await bp.from('intervention').insert({
-          employee_key: employeeKey,
-          status: 'active',
-          funnel_key: funnelKey,
-          activated_at: new Date().toISOString(),
-          activated_by: email,
-        });
-        if (e4) throw new Error(e4.message);
-
         /*
-         * 5. ⚠ LA LÍNEA BASE, CONGELADA — etapa BP22.
+         * 4. ⚠ LA LÍNEA BASE, CONGELADA — etapa BP22.
          *
          * Va DENTRO del bloque de todo-o-nada, junto con la copia del plan, y
          * ese es el punto: si se escribiera después, un fallo dejaría un plan
@@ -233,10 +238,68 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
          * está. Cualquier otro error sí aborta y dispara el rollback.
          */
         if (e5 && !['42P01', 'PGRST205', 'PGRST106'].includes(e5.code ?? '')) throw new Error(e5.message);
+
+        /*
+         * 5. La intervención pasa a activa, que es lo que mueve el Status del
+         *    branch de "Pendiente" a "Atendido".
+         *
+         * ⚠ ÚLTIMA A PROPÓSITO. Ver el comentario del bloque. Se pide el `id`
+         * de vuelta porque sin él el rollback no la puede borrar: `intervention`
+         * NO tiene FK contra `enrollment`, así que no se va en cascada con
+         * nada -- hay que borrarla explícitamente.
+         */
+        const { data: ivRow, error: e6 } = await bp
+          .from('intervention')
+          .insert({
+            employee_key: employeeKey,
+            status: 'active',
+            funnel_key: funnelKey,
+            activated_at: new Date().toISOString(),
+            activated_by: email,
+          })
+          .select('id')
+          .single();
+        if (e6) throw new Error(e6.message);
+        interventionId = (ivRow as { id: number }).id;
       } catch (inner) {
+        /*
+         * ⚠ EL ROLLBACK CUBRE LAS CINCO ESCRITURAS.
+         *
+         * La intervención primero: es la única que no cuelga del enrolamiento.
+         * Los nodos, los stages y la línea base sí se van en cascada al borrar
+         * el enrolamiento -- las tres tienen `on delete cascade`.
+         *
+         * Cada borrado va en su propio try: si el primero falla por red, el
+         * segundo tiene que intentarse igual. Sin esto, un fallo al deshacer
+         * dejaría MÁS residuo que el que se está limpiando.
+         */
+        if (interventionId !== null) {
+          try {
+            /*
+             * ⚠ EL DELETE PUEDE NO PODER. Comprobado contra la base: PostgREST
+             * devuelve 403 y la fila queda. `business_plan.intervention` tiene
+             * políticas de select, insert y update, pero NO de delete -- viene
+             * así desde BP5, y por eso las intervenciones huérfanas hubo que
+             * limpiarlas a mano desde el editor de SQL.
+             *
+             * `2026-08-intervention-one-active.sql` agrega la policy que falta.
+             * Hasta que se aplique, el fallback deja la fila en `closed`, que es
+             * lo que sí puede hacer la sesión de la app y lo que importa: una
+             * intervención `closed` no cuenta como atendido, así que la persona
+             * no queda marcada como que tiene plan cuando no lo tiene.
+             */
+            const { error: eDel } = await bp.from('intervention').delete().eq('id', interventionId);
+            if (eDel) await bp.from('intervention').update({ status: 'closed' }).eq('id', interventionId);
+          } catch {
+            /* se reporta el error original, que es el que explica qué pasó */
+          }
+        }
         if (enrollmentKey !== null) {
-          // Los nodos y milestones se van en cascada con el enrolamiento.
-          await bp.from('enrollment').delete().eq('enrollment_key', enrollmentKey);
+          try {
+            await bp.from('enrollment').delete().eq('enrollment_key', enrollmentKey);
+          } catch {
+            /* idem */
+          }
         }
         throw inner;
       }
