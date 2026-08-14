@@ -1515,3 +1515,242 @@ table.piv.bp-table--los th {
   background: var(--rose-700);
   color: var(--canvas);
 }
+
+/* ===========================================================================
+ * 13. Etapa BP12 — biblioteca de funnels y constructor de secuencia
+ * =========================================================================== */
+
+.bp-row-actions {
+  display: inline-flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* ── Nodos ──────────────────────────────────────────────────────────────── */
+
+.bp-node-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (max-width: 900px) {
+  .bp-node-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.bp-node-card {
+  font-family: inherit;
+  text-align: left;
+  background: var(--canvas);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: box-shadow 0.14s ease;
+}
+.bp-node-card:hover {
+  box-shadow: var(--shadow-lg);
+}
+.bp-node-card:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 2px;
+}
+.bp-node-card__name {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--navy);
+}
+.bp-node-card__desc {
+  font-size: 11.5px;
+  color: var(--slate-500);
+  margin: 4px 0 6px;
+  line-height: 1.45;
+}
+.bp-node-card__meta {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--slate-400);
+}
+
+/* ── Constructor de secuencia ───────────────────────────────────────────── */
+
+/*
+ * Dos columnas: la biblioteca de nodos a la izquierda y la secuencia a la
+ * derecha. No es un lienzo -- es una lista ordenada, porque estos funnels son
+ * lineales. Ver la nota de SequenceBuilder.tsx.
+ */
+.bp-builder {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .bp-builder {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.bp-builder__library {
+  background: var(--slate-50);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.bp-builder__title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+}
+.bp-builder__chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--canvas);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  padding: 7px 10px;
+  font-size: 11.5px;
+  /* `grab` y no `pointer`: la acción principal es arrastrar, no hacer clic. */
+  cursor: grab;
+}
+.bp-builder__chip:active {
+  cursor: grabbing;
+}
+.bp-builder__chip-name {
+  font-weight: 600;
+  color: var(--navy);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bp-builder__canvas {
+  background: var(--canvas);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+  padding: 14px 16px;
+}
+.bp-builder__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+/* Lo que reemplaza a los botones de zoom del mockup: la duración calculada. */
+.bp-builder__total {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--slate-500);
+  font-variant-numeric: tabular-nums;
+}
+.bp-builder__flow {
+  display: flex;
+  align-items: stretch;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+.bp-builder__slot {
+  display: flex;
+  align-items: center;
+}
+.bp-builder__card {
+  position: relative;
+  min-width: 150px;
+  background: var(--slate-50);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  padding: 10px 12px;
+  cursor: grab;
+}
+.bp-builder__card:active {
+  cursor: grabbing;
+}
+.bp-builder__card.is-selected {
+  border-color: var(--coral);
+  background: var(--rose-50);
+}
+.bp-builder__day {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--coral);
+  font-variant-numeric: tabular-nums;
+}
+.bp-builder__card-name {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--navy);
+  margin: 2px 0;
+}
+.bp-builder__card-sub {
+  font-size: 10.5px;
+  color: var(--slate-400);
+}
+/* Alternativa por teclado al arrastre: la API nativa no es accesible. */
+.bp-builder__reorder {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+}
+.bp-builder__reorder button {
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px 6px;
+  border: 1px solid var(--slate-300);
+  border-radius: var(--radius-sm);
+  background: var(--canvas);
+  color: var(--slate-600);
+  cursor: pointer;
+}
+.bp-builder__reorder button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.bp-builder__arrow {
+  color: var(--slate-300);
+  font-size: 15px;
+  padding: 0 4px;
+}
+/* Zona de soltado entre tarjetas: invisible hasta que algo pasa por encima. */
+.bp-builder__gap {
+  width: 10px;
+  align-self: stretch;
+  border-radius: var(--radius-sm);
+}
+.bp-builder__gap.is-over {
+  background: var(--sky);
+}
+.bp-builder__gap--end {
+  width: 28px;
+}
+.bp-builder__drop {
+  flex: 1;
+  border: 1.5px dashed var(--slate-300);
+  border-radius: var(--radius-lg);
+  padding: 22px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--slate-400);
+}
+.bp-builder__drop.is-over {
+  border-color: var(--sky);
+  background: var(--accent-soft);
+}
+
+.bp-table--library col {
+  width: auto;
+}
