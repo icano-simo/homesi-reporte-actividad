@@ -294,15 +294,15 @@
   outline-offset: -2px;
 }
 
-/* Anchos de la tabla de branches: 12 + 38 + 15 + 15 + 20 = 100%. */
+/* Anchos: 11 + 33 + 12 × 3 + 20 = 100%. Etapa BP15 sumó "With plan". */
 .bp-table--branches col.bp-col-branch {
-  width: 12%;
+  width: 11%;
 }
 .bp-table--branches col.bp-col-manager {
-  width: 38%;
+  width: 33%;
 }
 .bp-table--branches col.bp-col-count {
-  width: 15%;
+  width: 12%;
 }
 .bp-table--branches col.bp-col-status {
   width: 20%;
@@ -2433,5 +2433,210 @@ table.piv th.bp-wrap {
   font-size: 10.5px;
   color: var(--slate-400);
   text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===========================================================================
+ * 18. Etapa BP15 — explorar un funnel, y el plan visible desde el perfil
+ * =========================================================================== */
+
+/* ── Explorador del funnel ──────────────────────────────────────────────── */
+
+.bp-explore {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.bp-explore__node {
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  background: var(--canvas);
+  overflow: hidden;
+}
+.bp-explore__node.is-open {
+  border-color: var(--sky);
+}
+.bp-explore__head {
+  font-family: inherit;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto auto 16px;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.bp-explore__head:hover {
+  background: var(--slate-50);
+}
+.bp-explore__pos {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+.bp-explore__body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.bp-explore__name {
+  font-family: var(--font-display);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--navy);
+}
+.bp-explore__desc {
+  font-size: 11px;
+  color: var(--slate-500);
+  line-height: 1.4;
+}
+.bp-explore__meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-size: 10.5px;
+  color: var(--slate-500);
+  white-space: nowrap;
+}
+.bp-explore__days {
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+.bp-explore__owners {
+  display: flex;
+  gap: 3px;
+}
+.bp-explore__chev {
+  color: var(--slate-400);
+  font-size: 11px;
+}
+.bp-explore__steps {
+  list-style: none;
+  margin: 0;
+  padding: 4px 12px 10px 46px;
+  border-top: 1px solid var(--slate-100);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.bp-explore__steps li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px 66px;
+  gap: 10px;
+  font-size: 11.5px;
+  color: var(--slate-600);
+}
+@media (max-width: 900px) {
+  .bp-explore__steps li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.bp-explore__step-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bp-explore__step-who {
+  color: var(--slate-500);
+}
+.bp-explore__step-day {
+  text-align: right;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Pista en la tarjeta de que el clic abre y no selecciona. */
+.bp-catalog__explore {
+  margin-top: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+}
+.bp-catalog__card.is-picked .bp-catalog__explore {
+  color: var(--coral);
+}
+
+/* ── El plan, visible desde el perfil ───────────────────────────────────── */
+
+/*
+ * Banner en la parte de arriba del perfil. Antes el perfil se veía igual antes
+ * y después de activar: no había forma de saber desde acá que la persona ya
+ * estaba cursando algo.
+ */
+.bp-plan-banner {
+  font-family: inherit;
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  text-align: left;
+  border: 1px solid var(--sky);
+  border-radius: var(--radius-lg);
+  background: var(--accent-soft);
+  padding: 11px 16px;
+  margin-bottom: 16px;
+  cursor: pointer;
+  transition: box-shadow 0.14s ease;
+}
+.bp-plan-banner:hover {
+  box-shadow: var(--shadow-lg);
+}
+.bp-plan-banner:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 2px;
+}
+.bp-plan-banner__label {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--slate-500);
+}
+.bp-plan-banner__name {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--navy);
+}
+.bp-plan-banner__meta {
+  font-size: 11.5px;
+  color: var(--slate-600);
+  font-variant-numeric: tabular-nums;
+}
+.bp-plan-banner__cta {
+  margin-left: auto;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--coral);
+}
+
+/* La barra de decisión cuando ya hay plan: informa, no pide decidir. */
+.bp-decision--plan {
+  background: var(--navy);
+}
+
+/* Marca de plan activo en el directorio del branch. */
+.bp-plan-chip {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  border: 1px solid var(--sky);
+  color: var(--navy);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  vertical-align: middle;
   font-variant-numeric: tabular-nums;
 }

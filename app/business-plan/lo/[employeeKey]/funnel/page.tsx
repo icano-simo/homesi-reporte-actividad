@@ -9,6 +9,7 @@ import { buildEnrollmentPlan, checkActivation, funnelStats, type Funnel, type Fu
 import { AlertTriangleIcon } from '@/components/ui/icons';
 import Breadcrumbs from '../../../components/Breadcrumbs';
 import { ErrorState, LoadingState, VerdictBadge, initialsOf } from '../../../components/shared';
+import FunnelExplorer from './FunnelExplorer';
 
 /**
  * ============================================================================
@@ -43,6 +44,8 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
 
   const [category, setCategory] = useState<FunnelCategory>('core');
   const [picked, setPicked] = useState<number | null>(null);
+  /* Explorar y elegir son dos actos distintos: este estado es sólo el de mirar. */
+  const [exploring, setExploring] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [opError, setOpError] = useState<string | null>(null);
 
@@ -171,28 +174,7 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
         );
         if (milestoneRows.length > 0) {
           const { error: e3 } = await bp.from('enrollment_milestone').insert(milestoneRows);
-          if (e3) {
-            /*
-             * `sla_days` es de BP14 y la migración la aplica el revisor. Hasta
-             * que esté, se reintenta sin esa columna: mejor un plan sin la
-             * información para recalcular fechas que no poder activar ninguno.
-             * El aviso queda en la pantalla del plan.
-             */
-            if (/sla_days/i.test(e3.message)) {
-              const { error: e3b } = await bp
-                .from('enrollment_milestone')
-                .insert(
-                  milestoneRows.map((row) => {
-                    const copy: Record<string, unknown> = { ...row };
-                    delete copy.sla_days;
-                    return copy;
-                  })
-                );
-              if (e3b) throw new Error(e3b.message);
-            } else {
-              throw new Error(e3.message);
-            }
-          }
+          if (e3) throw new Error(e3.message);
         }
 
         // 4. La intervención pasa a activa, que es lo que mueve el Status del
@@ -297,6 +279,11 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
               const check = checkActivation(f.funnel_key, lib.links, lib.milestones);
 
               return (
+                /*
+                  El clic ABRE el detalle; elegir es un botón aparte, adentro.
+                  Antes el clic seleccionaba, y como la tarjeta no mostraba qué
+                  pedía el funnel, la única forma de enterarse era activarlo.
+                */
                 <button
                   key={f.funnel_key}
                   type="button"
@@ -306,8 +293,8 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
                     (check.ok ? '' : ' is-disabled')
                   }
                   disabled={!check.ok}
-                  title={check.reason ?? undefined}
-                  onClick={() => setPicked(f.funnel_key)}
+                  title={check.ok ? 'See what this funnel asks for' : check.reason ?? undefined}
+                  onClick={() => setExploring(f.funnel_key)}
                 >
                   {picked === f.funnel_key && <span className="bp-catalog__check" aria-hidden="true">✓</span>}
                   <div className="bp-catalog__name">{f.name}</div>
@@ -325,6 +312,9 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
                     ))}
                   </div>
                   {!check.ok && <div className="bp-catalog__blocked">{check.reason}</div>}
+                  <div className="bp-catalog__explore">
+                    {picked === f.funnel_key ? 'Selected · click to review' : 'Click to explore'}
+                  </div>
                   {team.length > 0 && (
                     <div className="bp-catalog__team" title={team.map((p) => p.full_name).join(', ')}>
                       {team.slice(0, 4).map((p) => (
@@ -341,9 +331,31 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
             {shown.length === 0 && <p className="bp-muted-line">No active funnels in this category.</p>}
           </div>
 
+          {exploring !== null && (() => {
+            const f = lib.funnels.find((x) => x.funnel_key === exploring);
+            if (!f) return null;
+            return (
+              <FunnelExplorer
+                funnel={f}
+                nodes={lib.nodes}
+                links={lib.links}
+                milestones={lib.milestones}
+                owners={lib.owners}
+                support={lib.support}
+                isPicked={picked === exploring}
+                onPick={() => setPicked(exploring)}
+                onClose={() => setExploring(null)}
+              />
+            );
+          })()}
+
           <div className="bp-catalog__actions">
             <button type="button" className="bp-btn bp-btn--primary" disabled={picked === null || busy} onClick={activate}>
-              {busy ? 'Activating…' : 'Activate Business Plan'}
+              {busy
+                ? 'Activating…'
+                : picked === null
+                  ? 'Pick a funnel to activate'
+                  : 'Activate ' + (lib.funnels.find((f) => f.funnel_key === picked)?.name ?? '')}
             </button>
             <span className="bp-catalog__hint">
               The plan is copied from the template, so editing the library later will not change it.

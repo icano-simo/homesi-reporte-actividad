@@ -309,6 +309,27 @@ export interface LoanOfficerRow {
   q2: Qualifier2;
   verdict: Verdict;
   intervention: InterventionRow | null;
+  /**
+   * Resumen del plan activo, si tiene uno.
+   *
+   * Etapa BP15. Viaja con cada Loan Officer para que el perfil y las listas
+   * puedan mostrarlo sin una consulta aparte por persona -- son pocos
+   * enrolamientos y ya se leen enteros para el Status de intervención.
+   *
+   * `null` significa "no tiene plan activo", que es distinto de "no se pudo
+   * leer": eso último se refleja en `diagnostics.enrollmentTableAvailable`.
+   */
+  activePlan: ActivePlanSummary | null;
+}
+
+export interface ActivePlanSummary {
+  enrollmentKey: number;
+  funnelKey: number;
+  /** Nombre copiado al activar, no el actual de la plantilla. */
+  funnelName: string;
+  activatedAt: string;
+  doneMilestones: number;
+  totalMilestones: number;
 }
 
 /**
@@ -366,5 +387,7 @@ export interface BusinessPlanData {
      */
     inactiveExcluded: number;
     interventionTableAvailable: boolean;
+    /** false = las tablas de funnels todavía no están aplicadas. */
+    enrollmentTableAvailable: boolean;
   };
 }

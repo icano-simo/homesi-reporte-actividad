@@ -112,11 +112,12 @@ export default function BranchPortfolioPage() {
                 {/*
                   El reparto de ancho lo fija el `<colgroup>`, no las celdas:
                   `table.piv` usa `table-layout: fixed`, donde un `min-width` en
-                  el `td` se ignora. 12 + 38 + 15 + 15 + 20 = 100%.
+                  el `td` se ignora. Etapa BP15 sumó la columna "With plan".
                 */}
                 <colgroup>
                   <col className="bp-col-branch" />
                   <col className="bp-col-manager" />
+                  <col className="bp-col-count" />
                   <col className="bp-col-count" />
                   <col className="bp-col-count" />
                   <col className="bp-col-status" />
@@ -127,6 +128,7 @@ export default function BranchPortfolioPage() {
                     <th className="bp-left">Branch Manager</th>
                     <th className="bp-center">Loan Officers</th>
                     <th className="bp-center">At Risk</th>
+                    <th className="bp-center">With plan</th>
                     <th className="bp-center">Status</th>
                   </tr>
                 </thead>
@@ -154,6 +156,16 @@ export default function BranchPortfolioPage() {
                       <td className="bp-center">
                         {b.atRiskCount === 0 ? <span className="bp-muted">0</span> : <span className="bp-emphasis">{b.atRiskCount}</span>}
                       </td>
+                      {/* Cuántos ya están cursando un plan. Es lo que explica que
+                          un branch con gente en riesgo pueda estar "Atendido" en
+                          vez de "Pendiente". */}
+                      <td className="bp-center">
+                        {b.loanOfficers.filter((lo) => lo.activePlan !== null).length === 0 ? (
+                          <span className="bp-muted">0</span>
+                        ) : (
+                          b.loanOfficers.filter((lo) => lo.activePlan !== null).length
+                        )}
+                      </td>
                       <td className="bp-center">
                         <span className={branchStatusClass(b.status)}>{branchStatusLabel(b.status, b.pendingCount)}</span>
                       </td>
@@ -161,7 +173,7 @@ export default function BranchPortfolioPage() {
                   ))}
                   {!visibleBranches.length && (
                     <tr>
-                      <td className="lbl bp-empty-cell" colSpan={5}>
+                      <td className="lbl bp-empty-cell" colSpan={6}>
                         No branch matches that search.
                       </td>
                     </tr>

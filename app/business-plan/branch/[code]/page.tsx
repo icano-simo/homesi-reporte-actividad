@@ -167,6 +167,16 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
                         {/* Siempre el nombre canónico del roster, nunca el crudo de la fuente. */}
                         {lo.fullName}
                         <RoleChip isBranchManager={lo.isBranchManager} isProducing={lo.isProducing} />
+                        {/* Quién ya está cursando un plan: el mismo dato que
+                            alimenta el Status de intervención del branch. */}
+                        {lo.activePlan && (
+                          <span
+                            className="bp-plan-chip"
+                            title={`${lo.activePlan.funnelName} · ${lo.activePlan.doneMilestones} of ${lo.activePlan.totalMilestones} steps`}
+                          >
+                            plan {lo.activePlan.doneMilestones}/{lo.activePlan.totalMilestones}
+                          </span>
+                        )}
                       </td>
                       <td className="bp-center" title={exactTitle(lo.q1.avgWithCurrent)}>
                         {fmtAvg(lo.q1.avgWithCurrent)}

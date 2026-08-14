@@ -180,17 +180,6 @@ export default function PlanEditor({
 
       {error && <p className="bp-modal__lead bp-modal__lead--warn">{error}</p>}
 
-      {/*
-        Sin `sla_days` no se pueden recalcular las fechas al reordenar. Pasa en
-        planes activados antes de la migración de BP14: se dice en vez de
-        reordenar en silencio dejando fechas que ya no corresponden.
-      */}
-      {plan.nodes.some((n) => n.milestones.some((m) => m.sla_days === null && m.status !== 'done')) && (
-        <p className="bp-modal__lead bp-modal__lead--warn">
-          Some milestones have no SLA stored, so reordering will not move their due dates. Apply{' '}
-          <code>docs/sql/2026-08-enrollment-milestone-sla.sql</code> and re-activate to get them.
-        </p>
-      )}
 
       <ul className="bp-editor__nodes">
         {ordered.map((n, i) => {

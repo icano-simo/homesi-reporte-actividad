@@ -13,6 +13,12 @@ import type { LoanOfficerRow } from '@/lib/business-plan/types';
  *
  * Aparece SÓLO cuando hay algo que decidir:
  *
+ *   con plan activo -> el resumen del plan y "See progress". NUNCA "Choose a
+ *                      funnel": la base sólo permite un enrolamiento activo por
+ *                      persona (índice único parcial), así que ese botón
+ *                      llevaría derecho a un error. Cambiar de funnel sería
+ *                      cerrar el actual y activar otro, que es una acción
+ *                      distinta y todavía no está pedida.
  *   On Risk  -> fondo navy, con el motivo y dos acciones. El Business Plan es
  *               obligatorio.
  *   Watch    -> la misma barra en tono de sugerencia. Falló un qualifier, no
@@ -27,13 +33,40 @@ export default function DecisionBar({
   lo,
   onChooseFunnel,
   onReviewed,
+  onSeeProgress,
 }: {
   lo: LoanOfficerRow;
   onChooseFunnel: () => void;
   onReviewed: () => void;
+  onSeeProgress: () => void;
 }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  /*
+   * Con plan activo la barra cambia de propósito: ya no hay que decidir nada,
+   * hay que seguirlo. Se muestra aunque el veredicto sea On Track -- alguien
+   * que mejoró mientras cursaba su plan sigue teniendo un plan.
+   */
+  if (lo.activePlan) {
+    const p = lo.activePlan;
+    const pct = p.totalMilestones === 0 ? 0 : Math.round((p.doneMilestones / p.totalMilestones) * 100);
+    return (
+      <div className="bp-decision bp-decision--plan">
+        <div className="bp-decision__text">
+          <div className="bp-decision__title">{p.funnelName}</div>
+          <p className="bp-decision__why">
+            {p.doneMilestones} of {p.totalMilestones} steps · {pct}% · started {p.activatedAt.slice(0, 10)}
+          </p>
+        </div>
+        <div className="bp-decision__actions">
+          <button type="button" className="bp-btn bp-btn--primary" onClick={onSeeProgress}>
+            See progress
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (lo.verdict === 'on_track' || lo.verdict === 'not_evaluable') return null;
   const mandatory = lo.verdict === 'on_risk';

@@ -121,6 +121,27 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
             <VerdictPanel verdict={lo.verdict} />
           </div>
 
+          {/*
+            Si ya tiene plan, se dice ARRIBA y visible. Sin esto el perfil se veía
+            igual antes y después de activar, y no había forma de saber desde acá
+            que la persona ya estaba cursando algo.
+          */}
+          {lo.activePlan && (
+            <button
+              type="button"
+              className="bp-plan-banner"
+              onClick={() => router.push('/business-plan/lo/' + lo.employeeKey + '/plan')}
+            >
+              <span className="bp-plan-banner__label">Active business plan</span>
+              <span className="bp-plan-banner__name">{lo.activePlan.funnelName}</span>
+              <span className="bp-plan-banner__meta">
+                {lo.activePlan.doneMilestones} of {lo.activePlan.totalMilestones} steps · since{' '}
+                {lo.activePlan.activatedAt.slice(0, 10)}
+              </span>
+              <span className="bp-plan-banner__cta">See progress →</span>
+            </button>
+          )}
+
           {/* ── 2. Qualifier 1 ───────────────────────────────────────────── */}
           <h2 className="bp-section-title">Qualifier 1 — volume</h2>
 
@@ -362,6 +383,7 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
             lo={lo}
             onChooseFunnel={() => router.push('/business-plan/lo/' + lo.employeeKey + '/funnel')}
             onReviewed={reload}
+            onSeeProgress={() => router.push('/business-plan/lo/' + lo.employeeKey + '/plan')}
           />
 
           <CalcNote data={data} />

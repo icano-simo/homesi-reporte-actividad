@@ -1832,3 +1832,32 @@ deshace lo anterior si falla.
 
 No es una transacción real: si se corta la red en medio del rollback puede
 quedar residuo. Cubre el caso que ocurre de verdad, que es un rechazo de la base.
+
+### 14. Explorar no es elegir (etapa BP15)
+
+Hasta BP14 el clic en una tarjeta del catálogo la **seleccionaba**, y la tarjeta
+sólo mostraba los nombres de los nodos. Nadie puede decidir entre dos funnels
+sin saber qué le van a pedir, así que la única forma de enterarse era activar
+uno — un compromiso de ocho semanas.
+
+Ahora son dos actos: el clic **abre** el detalle (nodos, pasos, responsables y
+día de vencimiento dentro del nodo) y elegir tiene su propio botón dentro.
+
+Va en un modal y **no en una página**: se exploran varios seguidos para
+compararlos, y una página obligaría a volver atrás entre uno y otro perdiendo
+la lista.
+
+### 15. Nunca "Choose a funnel" a quien ya tiene plan
+
+`enrollment` tiene un índice único parcial sobre `employee_key where status =
+'active'`, así que ofrecer elegir otro funnel llevaría derecho a un 409.
+Verificado: intentar un segundo enrolamiento devuelve
+`duplicate key value violates unique constraint "enrollment_one_active_idx"`.
+
+Con plan activo, la barra de decisión muestra el resumen y **See progress**.
+Cambiar de funnel sería cerrar el actual y activar otro — una acción distinta,
+todavía no pedida.
+
+El resumen del plan (`LoanOfficerRow.activePlan`) viaja con cada Loan Officer
+desde `loadData`, así que el perfil, el directorio del branch y el portfolio lo
+muestran sin una consulta por persona.

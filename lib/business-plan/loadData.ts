@@ -5,6 +5,7 @@ import { combineVerdict, evaluateQualifier1, evaluateQualifier2, projectCurrentM
 import { DEFAULT_RATES, toRateSettings, type RateKey, type RateSettings } from './rates';
 import { branchStatus } from './intervention';
 import type {
+  ActivePlanSummary,
   ActivityLoan,
   ActivityMetrics,
   AttributionOverride,
@@ -229,6 +230,62 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
     }
   } catch {
     /* sin tabla, todos los que estén en riesgo cuentan como pendientes */
+  }
+
+  /*
+   * Plan activo por persona. Se leen las tres tablas enteras: hoy son unos
+   * pocos enrolamientos, y hacer una consulta por Loan Officer serían 37
+   * viajes para mostrar una línea en cada fila.
+   */
+  const activePlanByEmployee = new Map<number, ActivePlanSummary>();
+  let enrollmentTableAvailable = false;
+  try {
+    const { data: enrRows, error: enrErr } = await bp
+      .from('enrollment')
+      .select('enrollment_key, employee_key, funnel_key, funnel_name, activated_at')
+      .eq('status', 'active');
+    if (!enrErr && enrRows) {
+      enrollmentTableAvailable = true;
+      const enrollments = enrRows as {
+        enrollment_key: number;
+        employee_key: number;
+        funnel_key: number;
+        funnel_name: string;
+        activated_at: string;
+      }[];
+      if (enrollments.length > 0) {
+        const [{ data: nodeRows }, { data: msRows }] = await Promise.all([
+          bp.from('enrollment_node').select('enrollment_node_key, enrollment_key'),
+          bp.from('enrollment_milestone').select('enrollment_node_key, status'),
+        ]);
+        const enrollmentOfNode = new Map<number, number>();
+        for (const n of (nodeRows ?? []) as { enrollment_node_key: number; enrollment_key: number }[]) {
+          enrollmentOfNode.set(n.enrollment_node_key, n.enrollment_key);
+        }
+        const tally = new Map<number, { done: number; total: number }>();
+        for (const m of (msRows ?? []) as { enrollment_node_key: number; status: string }[]) {
+          const key = enrollmentOfNode.get(m.enrollment_node_key);
+          if (key === undefined) continue;
+          const t = tally.get(key) ?? { done: 0, total: 0 };
+          t.total += 1;
+          if (m.status === 'done') t.done += 1;
+          tally.set(key, t);
+        }
+        for (const e of enrollments) {
+          const t = tally.get(e.enrollment_key) ?? { done: 0, total: 0 };
+          activePlanByEmployee.set(e.employee_key, {
+            enrollmentKey: e.enrollment_key,
+            funnelKey: e.funnel_key,
+            funnelName: e.funnel_name,
+            activatedAt: e.activated_at,
+            doneMilestones: t.done,
+            totalMilestones: t.total,
+          });
+        }
+      }
+    }
+  } catch {
+    /* tablas de funnels sin aplicar: nadie tiene plan y se dice en el pie */
   }
 
   const forcedBranchByEmployee = new Map<number, { branchKey: number; reason: string | null }>();
@@ -566,6 +623,7 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
       q2,
       verdict: combineVerdict(q1, q2),
       intervention: interventionByEmployee.get(employeeKey) ?? null,
+      activePlan: activePlanByEmployee.get(employeeKey) ?? null,
     });
   }
   loanOfficers.sort((a, b) => a.fullName.localeCompare(b.fullName));
@@ -626,6 +684,7 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
       attributionOverrideTableAvailable,
       settingsTableAvailable,
       interventionTableAvailable,
+      enrollmentTableAvailable,
       rates,
       inactiveExcluded,
     },
