@@ -359,7 +359,7 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
                     ninguna pantalla.
                   */}
                   <div className="bp-catalog__ident">
-                    <FunnelGlyph icon={f.icon} size={20} tone="strong" />
+                    <FunnelGlyph icon={f.icon} size={20} />
                     <div className="bp-catalog__name">{f.name}</div>
                   </div>
                   <div className="bp-catalog__meta">

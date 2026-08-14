@@ -139,7 +139,7 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
               <span className="bp-plan-banner__label">Active business plan</span>
               <span className="bp-plan-banner__name">
                 {/* Etapa BP21: el icono del funnel, tambien aca. */}
-                <FunnelGlyph icon={lo.activePlan.funnelIcon} size={18} tone="strong" />
+                <FunnelGlyph icon={lo.activePlan.funnelIcon} size={18} />
                 {lo.activePlan.funnelName}
               </span>
               <span className="bp-plan-banner__meta">

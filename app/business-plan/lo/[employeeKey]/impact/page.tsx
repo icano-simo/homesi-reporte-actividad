@@ -112,7 +112,7 @@ export default function ImpactPage({ params }: { params: Promise<{ employeeKey: 
           <div className="page-head">
             <div>
               <h1 className="bp-funnel-title">
-                <FunnelGlyph icon={plan.funnel_icon} size={22} tone="strong" />
+                <FunnelGlyph icon={plan.funnel_icon} size={22} />
                 {plan.funnel_name}
               </h1>
               <p className="page-head__subtitle">

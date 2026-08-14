@@ -3045,29 +3045,38 @@ table.piv.bp-table--cards .badge--pill {
 /* ── El icono del funnel y del nodo ─────────────────────────────────────── */
 
 /*
- * Etapa BP21. La chapa del icono, idéntica en las cinco pantallas donde ahora
- * aparece: catálogo, preview, banner del perfil, portal del plan y biblioteca.
- * Sin `flex-shrink: 0` se aplasta cuando el nombre del funnel es largo.
+ * ⚠ EL GLIFO VA SOLO. SIN RECUADRO, SIN FONDO, SIN PADDING.
+ *
+ * Etapa BP21 lo dibujó como una "chapa": un cuadrado relleno con el icono
+ * encima. Eran dos clases, y ESTAS DOS SON LAS QUE PINTABAN EL FONDO:
+ *
+ *     .bp-glyph--soft    background: var(--accent-soft)
+ *     .bp-glyph--strong  background: var(--navy);  color: var(--sky)
+ *
+ * Se pidió sacarlo en BP24, BP25, BP26, BP27 y BP28. Las veces anteriores se
+ * "arregló" agregando `background: transparent` en un selector más específico
+ * -- `table.piv td .bp-glyph--strong` -- que sólo alcanzaba a las tablas. Las
+ * dos reglas de arriba seguían vivas, así que en el catálogo, en el preview, en
+ * el banner y en el portal el cuadrado seguía ahí.
+ *
+ * Por eso ahora se borran EN SU ORIGEN y con ellas la variante `tone` del
+ * componente: anular una regla desde abajo deja las dos en el archivo, y la
+ * que gana depende de dónde se dibuje el icono. Es lo que hizo falta repetir el
+ * pedido cuatro veces.
+ *
+ * `flex-shrink: 0` se queda: sin él el icono se aplasta cuando el nombre del
+ * funnel es largo.
  */
 .bp-glyph {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-sm);
   flex-shrink: 0;
-  padding: 4px;
+  color: var(--navy);
   vertical-align: middle;
 }
-.bp-glyph--soft {
-  background: var(--accent-soft);
-  color: var(--slate-600);
-}
-.bp-glyph--strong {
-  background: var(--navy);
-  color: var(--sky);
-}
 
-/* ── Avatares con tono propio ───────────────────────────────────────────── */
+/* ── Avatares ───────────────────────────────────────────────────────────── */
 
 /*
  * ⚠ El tono lo elige `avatarToneOf(nombre)` en `components/shared.tsx`, a
@@ -4022,19 +4031,10 @@ table.piv tr.metric.is-picked td.lbl {
  * =========================================================================== */
 
 /*
- * ⚠ EL ICONO DENTRO DE UNA TABLA VA EN CLARO.
- *
- * `.bp-glyph--strong` es navy pleno, y funciona junto a un titulo grande -- ahi
- * es una chapa. Repetido en cada fila de una tabla se convertia en una columna
- * de cuadrados navy que pesaba mas que los nombres, que es lo que la tabla
- * existe para mostrar. Dentro de una celda se dibuja el glifo solo.
+ * Aca vivia la anulacion del fondo del glifo dentro de las tablas. Se fue con
+ * la causa: desde BP28 `.bp-glyph` no pinta fondo en ningun lado, asi que no
+ * hay nada que anular. Ver el comentario de `.bp-glyph` en la seccion 22.
  */
-table.piv td .bp-glyph--strong,
-table.piv td .bp-glyph--soft {
-  background: transparent;
-  color: var(--slate-600);
-  padding: 0;
-}
 
 /*
  * El nombre AL LADO del icono, no debajo.
@@ -4136,4 +4136,174 @@ table.piv td .bp-glyph--soft {
 .bp-flow__empty {
   font-size: 12px;
   color: var(--slate-400);
+}
+
+/* ===========================================================================
+ * 25. Etapa BP26 — los dias del preview, con encabezado y contexto
+ * =========================================================================== */
+
+/* Mismo lenguaje que la fila de encabezados de la lista de stages del plan. */
+.bp-fdetail__steps-head {
+  border-top: 0;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+  padding-bottom: 2px;
+}
+.bp-fdetail__steps-head span {
+  white-space: nowrap;
+}
+.bp-fdetail__note {
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--slate-500);
+  margin: 10px 0 0;
+  max-width: 76ch;
+}
+
+/* ===========================================================================
+ * 26. Etapa BP27 — el impacto, en la cabecera del plan
+ * =========================================================================== */
+
+/*
+ * Bloque propio al lado del anillo, no un enlace. Mismo tamano y peso que el
+ * anillo para que la cabecera se lea como un resumen de dos partes: cuanto se
+ * hizo, y que resultado dio.
+ */
+/* El anillo y el bloque de impacto, uno al lado del otro. */
+.bp-plan-head__summary {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.bp-impact-cta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  text-decoration: none;
+  border: 1.5px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  background: var(--canvas);
+  box-shadow: var(--shadow-xs);
+  padding: 12px 18px;
+  min-width: 150px;
+  transition: border-color 0.14s ease, box-shadow 0.14s ease;
+}
+.bp-impact-cta:hover {
+  border-color: var(--coral);
+  box-shadow: var(--shadow-lg);
+}
+.bp-impact-cta:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 2px;
+}
+.bp-impact-cta__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--slate-500);
+}
+.bp-impact-cta__value {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+}
+.bp-impact-cta__value.is-up {
+  color: var(--emerald-700);
+}
+.bp-impact-cta__value.is-down {
+  color: var(--coral);
+}
+/* Sin dato todavia: el texto no puede tener el tamano de un numero, porque no
+   lo es. Se muestra igual -- el boton tiene que estar aunque no haya cifra. */
+.bp-impact-cta__value.is-none {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--slate-400);
+}
+.bp-impact-cta__hint {
+  font-size: 10px;
+  color: var(--slate-400);
+  text-align: center;
+}
+
+/* ===========================================================================
+ * 27. Etapa BP28 — las tarjetas del Sequence builder, con mas presencia
+ * ===========================================================================
+ *
+ * Se veian chicas y apagadas al lado de las del catalogo. No se inventa un
+ * lenguaje nuevo: se les da el mismo tamano de fuente, el mismo radio y la
+ * misma sombra que ya usa `.bp-catalog__card`, con los mismos tokens.
+ */
+
+.bp-builder__card {
+  min-width: 196px;
+  background: var(--canvas);
+  border: 1.5px solid var(--slate-200);
+  box-shadow: var(--shadow-xs);
+  padding: 16px 18px 12px;
+  transition: border-color 0.14s ease, box-shadow 0.14s ease;
+}
+.bp-builder__card:hover {
+  box-shadow: var(--shadow-lg);
+}
+/* Seleccion por CONTORNO, como en el resto del modulo desde BP24: el fondo es
+   el mismo este o no elegida. */
+.bp-builder__card.is-selected {
+  background: var(--canvas);
+  border: 2px solid var(--coral);
+}
+
+/* ── Jerarquia: el nombre manda ── */
+
+.bp-builder__day {
+  font-size: 9.5px;
+  color: var(--slate-400);
+}
+.bp-builder__card-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  line-height: 1.2;
+  margin: 6px 0 4px;
+}
+.bp-builder__card-sub {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+}
+
+/*
+ * Subir, bajar y quitar: mas discretos. Compiten con el contenido porque estan
+ * siempre a la vista, y son la accion secundaria -- lo primero que hace alguien
+ * en esta pantalla es leer la secuencia, no reordenarla. Se aclaran al pasar
+ * por la tarjeta, que es cuando efectivamente se los va a usar.
+ */
+.bp-builder__reorder {
+  margin-top: 10px;
+  opacity: 0.45;
+  transition: opacity 0.14s ease;
+}
+.bp-builder__card:hover .bp-builder__reorder,
+.bp-builder__card:focus-within .bp-builder__reorder {
+  opacity: 1;
+}
+.bp-builder__reorder button {
+  border-color: var(--slate-200);
+  color: var(--slate-500);
 }

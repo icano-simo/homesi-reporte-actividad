@@ -107,27 +107,23 @@ export function iconByName(name: string | null | undefined, size = 16): ReactNod
 }
 
 /**
- * El icono del funnel o del nodo, en su chapa.
+ * El icono del funnel o del nodo, junto a su nombre.
  *
- * Componente y no una llamada suelta a `iconByName` porque las cinco pantallas
- * lo muestran igual: cuadrado redondeado, tinte suave, junto al nombre. Sin
- * icono guardado no se dibuja NADA -- ni un cuadrado vacío, que se leería como
- * una imagen rota.
+ * ⚠ Etapa BP28: SE FUE LA PROP `tone`, y no por limpieza. Sus dos valores eran
+ * los que pintaban el recuadro de fondo -- `soft` un tinte celeste, `strong` un
+ * cuadrado navy -- y mientras existieran, cada pantalla nueva podía volver a
+ * pedir el cuadrado sin darse cuenta. El glifo va solo, en navy, y ahora no hay
+ * forma de pedir otra cosa.
+ *
+ * Componente y no una llamada suelta a `iconByName` porque las nueve pantallas
+ * que lo usan lo muestran igual. Sin icono guardado no se dibuja NADA -- ni un
+ * cuadrado vacío, que se leería como una imagen rota.
  */
-export function FunnelGlyph({
-  icon,
-  size = 16,
-  tone = 'soft',
-}: {
-  icon: string | null | undefined;
-  size?: number;
-  /** `soft` = tinte celeste. `strong` = navy pleno, para cabeceras grandes. */
-  tone?: 'soft' | 'strong';
-}) {
+export function FunnelGlyph({ icon, size = 16 }: { icon: string | null | undefined; size?: number }) {
   const drawn = iconByName(icon, size);
   if (!drawn) return null;
   return (
-    <span className={'bp-glyph bp-glyph--' + tone} aria-hidden="true">
+    <span className="bp-glyph" aria-hidden="true">
       {drawn}
     </span>
   );

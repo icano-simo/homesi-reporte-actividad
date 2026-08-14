@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { nodeDayRanges, type FunnelNode, type FunnelNodeLink, type NodeMilestone } from '@/lib/business-plan/funnels';
 import { CloseIcon } from '@/components/ui/icons';
+import { FunnelGlyph } from '../components/funnelIcons';
 
 /**
  * ============================================================================
@@ -247,7 +248,17 @@ export default function SequenceBuilder({
                   <div className="bp-builder__day">
                     DAY {range.fromDay}-{range.toDay}
                   </div>
-                  <div className="bp-builder__card-name">{node?.name ?? 'unknown node'}</div>
+                  {/*
+                    Etapa BP28: el icono del nodo, que acá no estaba. Es el mismo
+                    componente que en el resto del módulo, así que hereda su
+                    forma -- glifo solo, sin recuadro -- sin nada que sincronizar.
+                    El nombre es lo principal de la tarjeta y el icono lo
+                    acompaña; por eso van en la misma línea y el conteo debajo.
+                  */}
+                  <div className="bp-builder__card-name">
+                    <FunnelGlyph icon={node?.icon} size={18} />
+                    {node?.name ?? 'unknown node'}
+                  </div>
                   <div className="bp-builder__card-sub">{count} stages</div>
 
                   <div className="bp-builder__reorder">

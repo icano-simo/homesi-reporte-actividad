@@ -92,7 +92,7 @@ export default function FunnelExplorer({
     */
     <Modal title={funnel.name} hideTitle onClose={onClose}>
       <div className="bp-fhead">
-        <FunnelGlyph icon={funnel.icon} size={26} tone="strong" />
+        <FunnelGlyph icon={funnel.icon} size={26} />
         <div>
           <h2 className="bp-fhead__name">{funnel.name}</h2>
           <div className="bp-fhead__meta">
@@ -155,7 +155,7 @@ export default function FunnelExplorer({
         <div className="bp-fdetail">
           <div className="bp-fdetail__head">
             <h3 className="bp-fdetail__title">
-              <FunnelGlyph icon={activeNode.icon} size={16} tone="strong" />
+              <FunnelGlyph icon={activeNode.icon} size={16} />
               {activeIndex + 1}. {activeNode.name}
             </h3>
             {ownersOf(activeNode.node_key).length > 0 && (
@@ -174,7 +174,20 @@ export default function FunnelExplorer({
           </div>
           {activeNode.description && <p className="bp-fdetail__desc">{activeNode.description}</p>}
 
+          {/*
+            ⚠ ENCABEZADOS Y LA ACLARACIÓN DEL DÍA — etapa BP26.
+            "Day 3" solo no dice de qué. No es una fecha, no es el día 3 del
+            plan: es el SLA acumulado desde que ARRANCA ESTE NODO, que es como
+            está guardado. Y son días relativos justamente porque acá todavía no
+            hay nada activado -- sin fecha de activación, una fecha sería
+            inventada. En el plan activo esa misma columna ya son fechas reales.
+          */}
           <ul className="bp-fdetail__steps">
+            <li className="bp-fdetail__steps-head" aria-hidden="true">
+              <span>Stage</span>
+              <span>Accountable</span>
+              <span>Due (day of node)</span>
+            </li>
             {activeSteps.map((m) => {
               const p = personOf(m.accountable_employee_key);
               return (
@@ -205,6 +218,10 @@ export default function FunnelExplorer({
             })}
             {activeSteps.length === 0 && <li className="bp-muted">This node has no stages yet.</li>}
           </ul>
+          <p className="bp-fdetail__note">
+            Days are counted from the start of this node, not from the start of the plan — nothing is activated yet, so
+            there are no real dates. Activating turns each of them into a target date.
+          </p>
         </div>
       )}
 

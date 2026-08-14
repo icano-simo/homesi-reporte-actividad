@@ -16,7 +16,16 @@ import {
   progressOf,
   type MilestoneStatus,
 } from '@/lib/business-plan/funnels';
-import { AlertTriangleIcon, MessageIcon } from '@/components/ui/icons';
+import { AlertTriangleIcon, MessageIcon, TrendingUpIcon } from '@/components/ui/icons';
+import { useBaseline } from '@/lib/business-plan/useBaseline';
+import {
+  averageOver,
+  completeMonthsAfter,
+  fmtPct,
+  monthOf,
+  pctChange,
+} from '@/lib/business-plan/impact';
+import { monthsOfYear, currentYearMonth } from '@/lib/business-plan/months';
 import Breadcrumbs from '../../../components/Breadcrumbs';
 import Modal from '../../../components/Modal';
 import NotesPanel from '../../../components/NotesPanel';
@@ -156,6 +165,31 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
     return Math.max(1, Math.floor(days / 7) + 1);
   }, [plan, mountedAt]);
 
+  /*
+   * ⚠ EL DATO DE LA CABECERA ES EL RESULTADO, NO EL AVANCE — etapa BP27.
+   *
+   * El anillo ya dice cuánto del plan se hizo. Poner al lado otro número que
+   * también hable del avance sería decir dos veces lo mismo y no responder la
+   * pregunta que justifica el módulo entero: ¿sirvió?
+   *
+   * Por eso se adelanta la variación de CIERRES contra la línea base congelada.
+   * Es una sola de las cuatro métricas -- la que decide el veredicto -- y la
+   * pantalla de impacto tiene las otras tres.
+   *
+   * Si todavía no hay un mes completo posterior al enrolamiento, no hay
+   * variación y el botón va sin número. NO se rellena con un cero ni con un
+   * −100%: es el mismo cuidado que tiene la pantalla de impacto, y romperlo acá
+   * lo rompería igual.
+   */
+  const { baseline } = useBaseline(plan?.enrollment_key ?? null);
+  const impactDelta = useMemo(() => {
+    if (!plan || !lo || !baseline) return null;
+    const now = new Date(mountedAt);
+    const afterMonths = completeMonthsAfter(monthsOfYear(now), monthOf(plan.activated_at), currentYearMonth(now));
+    if (afterMonths.length === 0) return null;
+    return pctChange(baseline.closings, averageOver(lo.activity, afterMonths).closings);
+  }, [plan, lo, baseline, mountedAt]);
+
   const nodeProgress = (n: PlanNode) => ({
     done: n.milestones.filter((m) => m.status === 'done').length,
     total: n.milestones.length,
@@ -221,7 +255,7 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
             <div>
               <h1 className="bp-funnel-title">
                 {/* Etapa BP21: el icono elegido en la biblioteca, al fin dibujado. */}
-                <FunnelGlyph icon={plan.funnel_icon} size={22} tone="strong" />
+                <FunnelGlyph icon={plan.funnel_icon} size={22} />
                 {plan.funnel_name}
               </h1>
               <p className="page-head__subtitle">
@@ -229,6 +263,12 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                 {branch && <> · Branch {branch}</>} · started {plan.activated_at.slice(0, 10)} · week {weekNumber}
               </p>
             </div>
+            {/*
+              Anillo y impacto van juntos en un contenedor: la cabecera es un
+              flex con `space-between`, y sueltos como dos hijos el del medio
+              habria quedado centrado entre el titulo y el borde.
+            */}
+            <div className="bp-plan-head__summary">
             <div className="bp-ring">
               {/*
                 Anillo con `conic-gradient`: un SVG con stroke-dasharray daría
@@ -246,6 +286,29 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
               <div className="bp-ring__label">
                 {totals.done} of {totals.total} stages
               </div>
+            </div>
+
+            {/*
+              El impacto, arriba y como bloque propio. Era un enlace subrayado al
+              pie, menos visible que "Edit plan" -- y es la pregunta que
+              justifica el módulo: si el plan sirvió. Un enlace al pie la
+              convertía en un detalle.
+            */}
+            <Link href={'/business-plan/lo/' + employeeKey + '/impact'} className="bp-impact-cta">
+              <span className="bp-impact-cta__label">
+                <TrendingUpIcon size={14} />
+                BP Impact
+              </span>
+              <span className={
+                'bp-impact-cta__value' +
+                (impactDelta === null ? ' is-none' : impactDelta > 0 ? ' is-up' : impactDelta < 0 ? ' is-down' : '')
+              }>
+                {impactDelta === null ? 'no data yet' : fmtPct(impactDelta)}
+              </span>
+              <span className="bp-impact-cta__hint">
+                {impactDelta === null ? 'needs a full month after enrolment' : 'closings vs baseline'}
+              </span>
+            </Link>
             </div>
           </div>
 
@@ -293,7 +356,7 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                 <div className="bp-plan-node__head">
                   <div className="bp-plan-node__ident">
                     <h2 className="bp-plan-node__title">
-                      <FunnelGlyph icon={node.icon} size={18} tone="strong" />
+                      <FunnelGlyph icon={node.icon} size={18} />
                       {node.name}
                     </h2>
                     {node.description && <p className="bp-plan-node__desc">{node.description}</p>}
@@ -488,10 +551,8 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
             <button type="button" className="bp-btn bp-btn--small" onClick={() => setEditing((v) => !v)}>
               {editing ? 'Close editor' : 'Edit plan'}
             </button>
-            {/* Etapa BP22: el resultado, al lado del avance. */}
-            <Link href={'/business-plan/lo/' + employeeKey + '/impact'} className="bp-btn bp-btn--small">
-              See impact
-            </Link>
+            {/* Etapa BP27: "See impact" se fue de acá a la cabecera. Abajo
+                quedan las dos acciones de gestión del plan. */}
             <div className="bp-team-bar__stack">
               {plan.support.slice(0, 4).map((p) => (
                 <Avatar key={p.employee_key} name={p.full_name} />

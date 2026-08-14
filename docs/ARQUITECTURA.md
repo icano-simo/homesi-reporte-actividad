@@ -2265,3 +2265,111 @@ aparece en columnas que uno no tocó.
 una chapa. Repetido en cada fila armaba una columna de cuadrados oscuros que
 pesaba más que los nombres, que es lo que la tabla existe para mostrar. Dentro
 de una celda se dibuja el glifo solo.
+
+## Etapas BP26, BP27 y BP28 — el recuadro del icono, el impacto arriba y el constructor
+
+### ⚠ El recuadro del icono: qué regla lo pintaba, y por qué volvía
+
+Se pidió sacarlo en BP24, BP25, BP26, BP27 y BP28. Estas son las dos
+declaraciones que lo pintaban, las dos en `app/business-plan/styles/bp-visual.css`:
+
+```css
+.bp-glyph--soft   { background: var(--accent-soft); color: var(--slate-600); }
+.bp-glyph--strong { background: var(--navy);        color: var(--sky); }
+```
+
+Existían desde BP21, cuando el icono se diseñó como una "chapa" -- un cuadrado
+relleno con el glifo encima. `FunnelGlyph` recibía una prop `tone` que elegía
+entre las dos, y casi todas las pantallas pasaban `tone="strong"`: de ahí el
+cuadrado navy con el glifo claro.
+
+**Por qué volvió tres veces.** En BP25 lo "arreglé" agregando una regla más
+específica en vez de tocar la causa:
+
+```css
+table.piv td .bp-glyph--strong,
+table.piv td .bp-glyph--soft { background: transparent; ... }
+```
+
+Eso sólo alcanzaba a las tablas. Las dos declaraciones de arriba seguían vivas,
+así que en el catálogo, en la cabecera del preview, en el banner del perfil y en
+el portal del plan el cuadrado seguía exactamente donde estaba. Anular una regla
+desde abajo deja las dos en el archivo y la que gana depende de dónde se dibuje
+el icono — es la mecánica que hizo falta repetir el pedido cuatro veces.
+
+**El arreglo, ahora en el origen.** Se borraron las dos variantes, se borró la
+anulación de BP25 (ya no hay nada que anular), y se borró la prop `tone` del
+componente. `.bp-glyph` quedó sin `background`, sin `padding` y sin
+`border-radius`: sólo `color: var(--navy)` y el `flex-shrink: 0` que impide que
+el icono se aplaste cuando el nombre es largo.
+
+Sacar la prop es la mitad que importa: mientras existiera, cualquier pantalla
+nueva podía volver a pedir el cuadrado sin darse cuenta. Ahora no hay forma de
+pedir otra cosa.
+
+Alcanza a las nueve pantallas donde aparece: tarjeta del catálogo, cabecera del
+preview, tarjetas de nodo del preview, tabla de funnels, tabla de nodos, banner
+del plan en el perfil, cabecera del portal, tarjeta del nodo activo y —nuevo en
+BP28— las tarjetas del Sequence builder.
+
+### Los días del preview, con contexto
+
+`Day 3` solo no dice de qué. No es una fecha ni el día 3 del plan: es el SLA
+acumulado desde que arranca **ese nodo**, que es como está guardado.
+
+Se le puso encabezado a las tres columnas (`Stage · Accountable · Due (day of
+node)`) y una línea al pie que dice por qué son días y no fechas: en el preview
+todavía no hay nada activado, y sin fecha de activación una fecha sería
+inventada. En el plan activo esa misma columna ya son fechas reales, así que ahí
+no cambió nada.
+
+### El impacto sube a la cabecera del plan
+
+Era un enlace subrayado al pie, menos visible que "Edit plan". Es la pregunta
+que justifica el módulo -- si el plan sirvió -- y al pie quedaba como un detalle.
+
+Ahora es un bloque propio junto al anillo de progreso, con la variación de
+cierres contra la línea base congelada.
+
+⚠ **El dato de la cabecera es el RESULTADO, no el avance.** El anillo ya dice
+cuánto del plan se hizo; poner al lado otro número que también hable del avance
+sería decir dos veces lo mismo. Se adelanta la variación de cierres, que es la
+métrica que decide el veredicto; las otras tres están en la pantalla de impacto.
+
+Si todavía no hay un mes completo posterior al enrolamiento, el botón se muestra
+igual pero sin cifra: dice "no data yet" y explica qué falta. **No se rellena
+con un cero ni con un −100%** -- es el mismo cuidado que tiene la pantalla de
+impacto, y romperlo acá lo rompería igual.
+
+El anillo y el bloque van dentro de un contenedor común: la cabecera es un flex
+con `space-between`, y sueltos como dos hijos el del medio habría quedado
+centrado entre el título y el borde.
+
+### Los cuatro paneles de notas
+
+Los cuatro están puestos, y cada uno escribe en su propia columna vía el mapa
+`COLUMN` de `useNotes` -- no hay lógica repetida que pueda divergir:
+
+| Nivel | Pantalla | Dónde exactamente | Columna |
+|---|---|---|---|
+| funnel | Catálogo | modal de preview, al pie | `funnel_key` |
+| nodo | Portal del plan | tarjeta del nodo activo, bajo la lista | `enrollment_node_key` |
+| stage | Portal del plan | dentro de la fila, tras el botón de notas | `enrollment_milestone_key` |
+| loan officer | Perfil del LO | tras la barra de decisión | `employee_key` |
+
+### El Sequence builder
+
+Las tarjetas se veían chicas y apagadas al lado de las del catálogo. Se les dio
+el mismo lenguaje que ya existe, con los mismos tokens: fondo `--canvas`, borde
+de 1,5px, `--shadow-xs` y sombra al pasar, radio `--radius-lg`.
+
+Jerarquía: el nombre pasó de 12px a 15px y es lo principal; el rango de días
+dejó el coral y bajó a gris de apoyo; el conteo de stages quedó como etiqueta
+chica en mayúsculas. Se sumó el icono del nodo al lado del nombre.
+
+Subir, bajar y quitar quedan al 45% de opacidad y se aclaran al pasar por la
+tarjeta o al recibir foco. Están siempre a la vista y son la acción secundaria:
+lo primero que se hace en esta pantalla es leer la secuencia, no reordenarla.
+
+La selección se marca por contorno, coherente con el resto del módulo desde
+BP24 -- antes teñía el fondo de rose.
