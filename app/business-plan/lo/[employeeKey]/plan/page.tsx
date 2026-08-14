@@ -5,12 +5,13 @@ import Link from 'next/link';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { useBusinessPlanData } from '@/lib/business-plan/useBusinessPlanData';
 import { useEnrollment, type PlanMilestone } from '@/lib/business-plan/useEnrollment';
-import { useSessionEmail } from '@/lib/business-plan/useFunnelLibrary';
+import { useFunnelLibrary, useSessionEmail } from '@/lib/business-plan/useFunnelLibrary';
 import { canEditMilestone, canToggleMilestone, progressOf } from '@/lib/business-plan/funnels';
 import { AlertTriangleIcon } from '@/components/ui/icons';
 import Breadcrumbs from '../../../components/Breadcrumbs';
 import Modal from '../../../components/Modal';
 import { ErrorState, LoadingState, initialsOf } from '../../../components/shared';
+import PlanEditor from './PlanEditor';
 
 /**
  * ============================================================================
@@ -36,6 +37,10 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
   const { plan, isLoading, available, error, reload } = useEnrollment(employeeKey);
   const sessionEmail = useSessionEmail();
 
+  /* La biblioteca sólo se usa para el editor: de ahí salen los nodos que se
+     pueden agregar al plan. */
+  const { data: lib } = useFunnelLibrary();
+  const [editing, setEditing] = useState(false);
   const [activeNode, setActiveNode] = useState<number | null>(null);
   const [showTeam, setShowTeam] = useState(false);
   const [busy, setBusy] = useState<number | null>(null);
@@ -300,6 +305,14 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
             <button type="button" className="bp-btn bp-btn--small" onClick={() => setShowTeam(true)}>
               See support team
             </button>
+            {/*
+              Editar el plan de ESTA persona. Va detrás de un botón porque no es
+              lo que se hace todos los días: lo habitual es marcar pasos, no
+              reestructurar el plan.
+            */}
+            <button type="button" className="bp-btn bp-btn--small" onClick={() => setEditing((v) => !v)}>
+              {editing ? 'Close editor' : 'Edit plan'}
+            </button>
             <div className="bp-team-bar__stack">
               {plan.support.slice(0, 4).map((p) => (
                 <span key={p.employee_key} className="bp-avatar bp-avatar--sm" title={p.full_name}>
@@ -309,6 +322,16 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
               {plan.support.length > 4 && <span className="bp-catalog__more">+{plan.support.length - 4}</span>}
             </div>
           </div>
+
+          {editing && lib && (
+            <PlanEditor
+              plan={plan}
+              libraryNodes={lib.nodes}
+              libraryMilestones={lib.milestones}
+              support={plan.support}
+              onDone={reload}
+            />
+          )}
 
           {showTeam && (
             <Modal title="Support team" onClose={() => setShowTeam(false)}>

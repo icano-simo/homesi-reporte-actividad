@@ -80,6 +80,8 @@ export interface EnrollmentMilestoneDraft {
   resource_url: string | null;
   due_date: string;
   position: number;
+  /** Copia del SLA: sin él no se pueden recalcular las fechas al reordenar. */
+  sla_days: number | null;
 }
 
 /* ─────────────────────── Conteos de la tarjeta ─────────────────────────── */
@@ -223,6 +225,7 @@ export function buildEnrollmentPlan(
            */
           due_date: addDays(activationDate, range.fromDay - 1 + (m.sla_days ?? 0)),
           position: j + 1,
+          sla_days: m.sla_days,
         })),
       },
     ];
@@ -342,6 +345,100 @@ export function checkNodeDelete(
     };
   }
   return { ok: true, reason: null, usedIn };
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * EDICIÓN DEL PLAN DE UNA PERSONA (etapa BP14)
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ * El plan es una COPIA, así que agregar, quitar o reordenar acá no toca la
+ * plantilla ni el plan de nadie más. Es lo que reemplaza la idea de crear una
+ * plantilla por cada variación.
+ */
+
+/** Lo mínimo que el cálculo necesita saber de un milestone del plan. */
+export interface PlanMilestoneLike {
+  enrollment_milestone_key: number;
+  status: MilestoneStatus;
+  sla_days: number | null;
+  due_date: string | null;
+}
+
+export interface PlanNodeLike {
+  enrollment_node_key: number;
+  position: number;
+  milestones: PlanMilestoneLike[];
+}
+
+/**
+ * ¿Se puede quitar este nodo del plan?
+ *
+ * NO si tiene algún milestone en `done`. La base ya lo impide -- la política de
+ * borrado de `enrollment_node` comprueba que no haya ninguno completado,
+ * justamente porque el borrado en cascada NO evalúa la RLS del hijo y si no
+ * arrastraría milestones históricos.
+ *
+ * Pero la base devuelve 0 filas, en silencio. Sin esta comprobación el botón
+ * parecería no funcionar. Mismo patrón que `checkActivation`: se valida antes
+ * de mostrar y se revalida al ejecutar.
+ */
+export interface RemoveNodeCheck {
+  ok: boolean;
+  reason: string | null;
+  doneCount: number;
+}
+
+export function canRemovePlanNode(node: PlanNodeLike): RemoveNodeCheck {
+  const doneCount = node.milestones.filter((m) => m.status === 'done').length;
+  if (doneCount > 0) {
+    return {
+      ok: false,
+      reason: `${doneCount} milestone${doneCount === 1 ? '' : 's'} in this node ${
+        doneCount === 1 ? 'is' : 'are'
+      } already done. Completed work is history and cannot be removed.`,
+      doneCount,
+    };
+  }
+  return { ok: true, reason: null, doneCount: 0 };
+}
+
+/** Una fecha nueva para un milestone del plan. */
+export interface DueDateUpdate {
+  enrollment_milestone_key: number;
+  due_date: string;
+}
+
+/**
+ * Recalcula las fechas límite después de reordenar los nodos del plan.
+ *
+ * Misma fórmula que la activación -- fecha de activación + los SLA acumulados
+ * -- pero sobre el orden NUEVO. Un nodo que pasa del cuarto al primer lugar
+ * arranca el día 1 y sus milestones vencen antes.
+ *
+ * ⚠ LOS QUE YA ESTÁN EN `done` NO SE TOCAN. Su fecha es historia: decir que un
+ * paso completado el 3 de septiembre "vence" el 20 de agosto porque alguien
+ * reordenó después sería reescribir el pasado. Y además la base los rechazaría,
+ * porque una fila en `done` es invisible para UPDATE.
+ *
+ * Un milestone sin `sla_days` conserva su fecha en vez de recibir una
+ * inventada: son los de planes activados antes de que la columna existiera.
+ * Devuelve sólo los que CAMBIAN, para no mandar updates que no hacen nada.
+ */
+export function recalcDueDates(orderedNodes: PlanNodeLike[], activationDate: string): DueDateUpdate[] {
+  const out: DueDateUpdate[] = [];
+  let cursor = 1; // día de inicio del nodo, 1-based
+
+  for (const node of orderedNodes) {
+    const span = Math.max(1, ...node.milestones.map((m) => m.sla_days ?? 0));
+    for (const m of node.milestones) {
+      if (m.status === 'done') continue;
+      if (m.sla_days === null) continue;
+      const next = addDays(activationDate, cursor - 1 + m.sla_days);
+      if (next !== m.due_date) out.push({ enrollment_milestone_key: m.enrollment_milestone_key, due_date: next });
+    }
+    cursor += span;
+  }
+  return out;
 }
 
 /** Un milestone ya hecho no se reabre ni se borra: marcarlo fue un hecho. */

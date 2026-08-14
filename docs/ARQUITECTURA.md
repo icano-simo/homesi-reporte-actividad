@@ -1803,3 +1803,32 @@ se puede borrar. Con pasos ya completados falla, y eso es lo correcto.
 Los grants quedaron además explícitos por tabla en vez de
 `all tables in schema`: `settings` no acepta insert ni delete, e `intervention`
 no acepta delete.
+
+### 13. Editar el plan de una persona (etapa BP14)
+
+El plan es una copia, así que agregar, quitar o reordenar nodos y milestones
+toca **sólo** a esa persona. Es lo que reemplaza la idea de crear una plantilla
+por cada variación.
+
+**El SLA se copia a la instancia.** `enrollment_milestone.sla_days` es nuevo. Sin
+él no se pueden recalcular las fechas al reordenar: `sla_days` vivía sólo en la
+plantilla, y el plan está deliberadamente desconectado de ella. Se evaluó
+derivarlo restando la fecha de activación a la `due_date`, pero eso funciona
+sólo la primera vez — después del primer reordenamiento las fechas ya no
+reflejan el orden original y el cálculo se desalinea sin avisar.
+
+**Al reordenar se recalculan las fechas**, con la misma fórmula de la
+activación pero sobre el orden nuevo. **Los milestones en `done` conservan la
+suya**: decir que un paso completado el 3 de septiembre "vence" el 20 de agosto
+porque alguien reordenó después sería reescribir el pasado. Y la base los
+rechazaría igual, porque una fila en `done` es invisible para UPDATE.
+
+**La activación es todo-o-nada.** PostgREST no da transacciones entre llamadas,
+así que si el insert de los milestones falla después del de la cabecera queda un
+enrolamiento con nodos y cero milestones — el estado roto que motivó
+`checkActivation`. Pasó de verdad al probar: la columna `sla_days` no estaba
+aplicada, el insert devolvió 400 y el enrolamiento quedó vivo. Ahora cada paso
+deshace lo anterior si falla.
+
+No es una transacción real: si se corta la red en medio del rollback puede
+quedar residuo. Cubre el caso que ocurre de verdad, que es un rechazo de la base.

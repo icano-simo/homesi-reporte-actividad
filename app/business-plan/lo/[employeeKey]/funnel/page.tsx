@@ -99,72 +99,119 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
       const today = new Date().toISOString().slice(0, 10);
       const draft = buildEnrollmentPlan(ordered, lib.nodes, lib.milestones, today);
 
-      // 1. El enrolamiento. `funnel_name` se copia: si mañana renombran la
-      //    plantilla, el plan sigue diciendo con qué se activó.
-      const { data: enr, error: e1 } = await bp
-        .from('enrollment')
-        .insert({
-          employee_key: employeeKey,
-          funnel_key: picked,
-          funnel_name: funnel.name,
-          status: 'active',
-          activated_by: email,
-        })
-        .select('enrollment_key')
-        .single();
-      if (e1) throw new Error(e1.message);
-      const enrollmentKey = (enr as { enrollment_key: number }).enrollment_key;
+      /*
+       * ⚠ TODO O NADA.
+       *
+       * PostgREST no da transacciones entre llamadas, así que si el insert de
+       * los milestones falla después del de la cabecera, queda un enrolamiento
+       * con nodos y CERO milestones -- exactamente el estado roto que motivó
+       * `checkActivation`. Pasó de verdad al probar: la columna `sla_days`
+       * todavía no estaba aplicada, el insert devolvió 400 y el enrolamiento
+       * quedó vivo igual.
+       *
+       * Por eso cada paso posterior deshace lo anterior si falla. No es una
+       * transacción real -- si se cae la red en medio del rollback puede quedar
+       * residuo -- pero cubre el caso que ocurre de verdad: un rechazo de la
+       * base.
+       */
+      let enrollmentKey: number | null = null;
+      try {
+        // 1. El enrolamiento. `funnel_name` se copia: si mañana renombran la
+        //    plantilla, el plan sigue diciendo con qué se activó.
+        const { data: enr, error: e1 } = await bp
+          .from('enrollment')
+          .insert({
+            employee_key: employeeKey,
+            funnel_key: picked,
+            funnel_name: funnel.name,
+            status: 'active',
+            activated_by: email,
+          })
+          .select('enrollment_key')
+          .single();
+        if (e1) throw new Error(e1.message);
+        enrollmentKey = (enr as { enrollment_key: number }).enrollment_key;
 
-      // 2. Los nodos copiados, en orden.
-      const { data: nodeRows, error: e2 } = await bp
-        .from('enrollment_node')
-        .insert(
-          draft.map((n) => ({
-            enrollment_key: enrollmentKey,
-            source_node_key: n.source_node_key,
-            name: n.name,
-            description: n.description,
-            icon: n.icon,
-            position: n.position,
+        // 2. Los nodos copiados, en orden.
+        const { data: nodeRows, error: e2 } = await bp
+          .from('enrollment_node')
+          .insert(
+            draft.map((n) => ({
+              enrollment_key: enrollmentKey,
+              source_node_key: n.source_node_key,
+              name: n.name,
+              description: n.description,
+              icon: n.icon,
+              position: n.position,
+            }))
+          )
+          .select('enrollment_node_key, source_node_key');
+        if (e2) throw new Error(e2.message);
+
+        // 3. Los milestones copiados, con su fecha límite ya resuelta.
+        const keyBySource = new Map(
+          (nodeRows as { enrollment_node_key: number; source_node_key: number }[]).map((r) => [
+            r.source_node_key,
+            r.enrollment_node_key,
+          ])
+        );
+        const milestoneRows = draft.flatMap((n) =>
+          n.milestones.map((m) => ({
+            enrollment_node_key: keyBySource.get(n.source_node_key),
+            source_milestone_key: m.source_milestone_key,
+            title: m.title,
+            accountable_employee_key: m.accountable_employee_key,
+            resource_url: m.resource_url,
+            due_date: m.due_date,
+            status: 'pending',
+            position: m.position,
+            /* Se copia para poder recalcular fechas si el plan se reordena. */
+            sla_days: m.sla_days,
           }))
-        )
-        .select('enrollment_node_key, source_node_key');
-      if (e2) throw new Error(e2.message);
+        );
+        if (milestoneRows.length > 0) {
+          const { error: e3 } = await bp.from('enrollment_milestone').insert(milestoneRows);
+          if (e3) {
+            /*
+             * `sla_days` es de BP14 y la migración la aplica el revisor. Hasta
+             * que esté, se reintenta sin esa columna: mejor un plan sin la
+             * información para recalcular fechas que no poder activar ninguno.
+             * El aviso queda en la pantalla del plan.
+             */
+            if (/sla_days/i.test(e3.message)) {
+              const { error: e3b } = await bp
+                .from('enrollment_milestone')
+                .insert(
+                  milestoneRows.map((row) => {
+                    const copy: Record<string, unknown> = { ...row };
+                    delete copy.sla_days;
+                    return copy;
+                  })
+                );
+              if (e3b) throw new Error(e3b.message);
+            } else {
+              throw new Error(e3.message);
+            }
+          }
+        }
 
-      // 3. Los milestones copiados, con su fecha límite ya resuelta.
-      const keyBySource = new Map(
-        (nodeRows as { enrollment_node_key: number; source_node_key: number }[]).map((r) => [
-          r.source_node_key,
-          r.enrollment_node_key,
-        ])
-      );
-      const milestoneRows = draft.flatMap((n) =>
-        n.milestones.map((m) => ({
-          enrollment_node_key: keyBySource.get(n.source_node_key),
-          source_milestone_key: m.source_milestone_key,
-          title: m.title,
-          accountable_employee_key: m.accountable_employee_key,
-          resource_url: m.resource_url,
-          due_date: m.due_date,
-          status: 'pending',
-          position: m.position,
-        }))
-      );
-      if (milestoneRows.length > 0) {
-        const { error: e3 } = await bp.from('enrollment_milestone').insert(milestoneRows);
-        if (e3) throw new Error(e3.message);
+        // 4. La intervención pasa a activa, que es lo que mueve el Status del
+        //    branch de "Pendiente" a "Atendido".
+        const { error: e4 } = await bp.from('intervention').insert({
+          employee_key: employeeKey,
+          status: 'active',
+          funnel_key: picked,
+          activated_at: new Date().toISOString(),
+          activated_by: email,
+        });
+        if (e4) throw new Error(e4.message);
+      } catch (inner) {
+        if (enrollmentKey !== null) {
+          // Los nodos y milestones se van en cascada con el enrolamiento.
+          await bp.from('enrollment').delete().eq('enrollment_key', enrollmentKey);
+        }
+        throw inner;
       }
-
-      // 4. La intervención pasa a activa, que es lo que mueve el Status del
-      //    branch de "Pendiente" a "Atendido".
-      const { error: e4 } = await bp.from('intervention').insert({
-        employee_key: employeeKey,
-        status: 'active',
-        funnel_key: picked,
-        activated_at: new Date().toISOString(),
-        activated_by: email,
-      });
-      if (e4) throw new Error(e4.message);
 
       reload();
       router.push('/business-plan/lo/' + employeeKey + '/plan');

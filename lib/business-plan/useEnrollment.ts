@@ -27,6 +27,8 @@ export interface PlanMilestone {
   accountable_employee_key: number | null;
   resource_url: string | null;
   due_date: string | null;
+  /** Nulo en planes activados antes de BP14; ver el SQL de esa etapa. */
+  sla_days: number | null;
   status: MilestoneStatus;
   completed_at: string | null;
   completed_by: string | null;

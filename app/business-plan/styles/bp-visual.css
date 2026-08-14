@@ -2316,3 +2316,122 @@ table.piv th.bp-wrap {
   padding: 5px 9px;
   margin-bottom: 8px;
 }
+
+/* ===========================================================================
+ * 17. Etapa BP14 — editor del plan de una persona
+ * =========================================================================== */
+
+/*
+ * Va debajo del portal, no reemplazándolo: lo habitual es marcar pasos, no
+ * reestructurar el plan, así que el editor no compite con la lista de
+ * milestones -- se abre cuando hace falta.
+ */
+.bp-editor {
+  margin-top: 18px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  background: var(--slate-50);
+  padding: 14px 16px;
+}
+.bp-editor__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.bp-editor__title {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--navy);
+}
+.bp-editor__hint {
+  flex: 1;
+  font-size: 11px;
+  color: var(--slate-400);
+}
+.bp-editor__nodes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.bp-editor__node {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  background: var(--canvas);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  padding: 9px 12px;
+}
+.bp-editor__pos {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+.bp-editor__name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--navy);
+}
+.bp-editor__count {
+  font-size: 10.5px;
+  color: var(--slate-400);
+  white-space: nowrap;
+}
+/* El motivo del rechazo, en la fila y no sólo en un title que hay que buscar. */
+.bp-editor__blocked {
+  grid-column: 1 / -1;
+  font-size: 10.5px;
+  color: var(--amber-800);
+  background: var(--amber-50);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+}
+.bp-editor__ms {
+  grid-column: 1 / -1;
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0 0 0 10px;
+  border-left: 2px solid var(--slate-100);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.bp-editor__ms li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px 84px auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+}
+@media (max-width: 900px) {
+  .bp-editor__ms li {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}
+/* Un paso hecho se ve inerte: sus controles están deshabilitados. */
+.bp-editor__ms li.is-locked {
+  opacity: 0.55;
+}
+.bp-editor__ms-title {
+  color: var(--slate-600);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bp-editor__due {
+  font-size: 10.5px;
+  color: var(--slate-400);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
