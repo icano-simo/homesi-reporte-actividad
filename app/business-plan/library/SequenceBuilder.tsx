@@ -1,50 +1,57 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { nodeDayRanges, type FunnelNode, type FunnelNodeLink, type NodeMilestone } from '@/lib/business-plan/funnels';
+import { CloseIcon } from '@/components/ui/icons';
 
 /**
  * ============================================================================
  * CONSTRUCTOR DE SECUENCIA — el "Timeline Builder"
  * ============================================================================
  *
- * Etapa BP12 — ARCHIVO NUEVO. Etapa BP16 — el arrastre, arreglado.
+ * Etapa BP12 — ARCHIVO NUEVO. BP16 — arreglo del arrastre. BP18 — rendimiento
+ * y el botón de quitar.
  *
  * ---------------------------------------------------------------------------
  * POR QUÉ UNA LISTA ORDENADA Y NO UN LIENZO
  * ---------------------------------------------------------------------------
- * La interacción es sobre una LISTA: arrastrar desde la biblioteca agrega,
- * arrastrar dentro de la secuencia reordena. No hay coordenadas, ni posiciones
- * libres, ni zoom.
- *
- * Un lienzo con posiciones persistidas tiene sentido cuando el flujo se
- * ramifica. Estos funnels son lineales -- cinco nodos en fila. Un lienzo
- * agregaría estado (x, y por nodo), migración y complejidad sin cambiar NADA de
- * lo que el usuario puede expresar.
- *
- * En lugar de los botones de Zoom del mockup va la duración total calculada,
- * que es la pregunta que alguien se hace mirando esta pantalla.
+ * Arrastrar desde la biblioteca AGREGA; arrastrar dentro REORDENA. No hay
+ * coordenadas, ni posiciones libres, ni zoom: estos funnels son lineales y un
+ * lienzo agregaría estado (x, y por nodo) sin cambiar nada de lo que el usuario
+ * puede expresar. En lugar de los botones de Zoom del mockup va la duración
+ * total calculada.
  *
  * ---------------------------------------------------------------------------
- * ⚠ POR QUÉ EL ARRASTRE NO FUNCIONABA (etapa BP16)
+ * ⚠ POR QUÉ EL ARRASTRE SE SENTÍA PESADO (etapa BP18)
  * ---------------------------------------------------------------------------
- * El código de drag está desde BP12 y nunca se quitó. Tenía tres defectos que
- * juntos lo volvían inservible:
+ * `dragover` se dispara decenas de veces por segundo, y cada disparo terminaba
+ * re-renderizando TODO el componente. Dos causas, las dos reales:
  *
- *  1. `onDragStart` no llamaba a `e.dataTransfer.setData()`. Chrome tolera esa
- *     omisión; FIREFOX NO INICIA EL ARRASTRE SIN ELLA. En Firefox la función
- *     simplemente no existía.
- *  2. Las zonas de soltado entre tarjetas medían 10px de ancho. Aun donde el
- *     arrastre arrancaba, acertarles era cuestión de suerte.
- *  3. No había ninguna señal visual de que las tarjetas se pudieran arrastrar.
- *     Sin un asa ni una pista, nadie lo intenta.
+ *  1. NADA ESTABA MEMOIZADO. En cada render se recalculaban `sequence` (filter
+ *     + sort + map sobre los vínculos), `byKey` (un Map nuevo sobre los 18
+ *     nodos), `available` (otro filter) y sobre todo `nodeDayRanges`, que
+ *     recorre los 48 milestones una vez por nodo. Todo eso, decenas de veces
+ *     por segundo, durante el arrastre.
  *
- * Ahora: se llama a `setData`, las zonas se ensanchan mientras hay algo en
- * vuelo, y cada tarjeta lleva un asa visible.
+ *  2. `onDragLeave` HACÍA OSCILAR EL ESTADO. Al mover el puntero dentro de una
+ *     misma zona, `dragleave` y `dragover` se alternan al cruzar los bordes de
+ *     los hijos: `overIndex` iba índice → null → índice → null. React no puede
+ *     descartar esos cambios porque el valor SÍ cambia, así que cada oscilación
+ *     era un render completo con las cuatro recomputaciones de arriba.
  *
- * Los botones de flecha se QUEDAN. La API nativa de arrastre no es accesible
- * por teclado, así que son la única vía sin mouse -- no son un reemplazo del
- * arrastre sino su complemento.
+ * Ahora los cuatro derivados van en `useMemo` y la zona activa se limpia sólo
+ * al soltar o al terminar el arrastre. Mover el puntero dentro de una zona ya
+ * no cambia nada, y React descarta el `setOverIndex` repetido por sí solo.
+ *
+ * ---------------------------------------------------------------------------
+ * QUITAR NO SE HACE ARRASTRANDO
+ * ---------------------------------------------------------------------------
+ * Sacar un elemento arrastrándolo fuera del contenedor es un patrón poco
+ * confiable: no hay un destino visible, el navegador no da señal de dónde
+ * termina el gesto, y nadie lo descubre solo. Cada tarjeta lleva un botón de
+ * quitar, con confirmación si el nodo tiene pasos.
+ *
+ * Las flechas se quedan: la API nativa de arrastre no es accesible por teclado.
  */
 
 interface Props {
@@ -70,29 +77,47 @@ export default function SequenceBuilder({
 }: Props) {
   const [dragging, setDragging] = useState<{ from: 'library' | 'sequence'; nodeKey: number } | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState<number | null>(null);
 
-  const sequence = links
-    .filter((l) => l.funnel_key === funnelKey)
-    .sort((a, b) => a.position - b.position)
-    .map((l) => l.node_key);
+  /*
+   * Los cuatro derivados, memoizados. Sin esto se recalculaban en CADA
+   * `dragover` -- ver la nota de rendimiento del encabezado.
+   */
+  const sequence = useMemo(
+    () =>
+      links
+        .filter((l) => l.funnel_key === funnelKey)
+        .sort((a, b) => a.position - b.position)
+        .map((l) => l.node_key),
+    [links, funnelKey]
+  );
+  const byKey = useMemo(() => new Map(nodes.map((n) => [n.node_key, n])), [nodes]);
+  const ranges = useMemo(() => nodeDayRanges(sequence, milestones), [sequence, milestones]);
+  const available = useMemo(() => nodes.filter((n) => !sequence.includes(n.node_key)), [nodes, sequence]);
+  const stepsOf = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const ms of milestones) m.set(ms.node_key, (m.get(ms.node_key) ?? 0) + 1);
+    return m;
+  }, [milestones]);
 
-  const byKey = new Map(nodes.map((n) => [n.node_key, n]));
-  const ranges = nodeDayRanges(sequence, milestones);
   const totalDays = ranges.length ? ranges[ranges.length - 1].toDay : 0;
-  const available = nodes.filter((n) => !sequence.includes(n.node_key));
 
   /**
    * Arranca un arrastre.
    *
    * `dataTransfer.setData` es OBLIGATORIO: sin al menos un dato asociado,
    * Firefox no considera que haya empezado un arrastre y no dispara ningún
-   * `dragover` ni `drop`. El payload real viaja en el estado de React -- esto
-   * es sólo para que el navegador acepte iniciar la operación.
+   * `dragover` ni `drop`. El payload real viaja en el estado de React.
    */
   function startDrag(e: React.DragEvent, from: 'library' | 'sequence', nodeKey: number) {
     e.dataTransfer.setData('text/plain', String(nodeKey));
     e.dataTransfer.effectAllowed = 'move';
     setDragging({ from, nodeKey });
+  }
+
+  function endDrag() {
+    setDragging(null);
+    setOverIndex(null);
   }
 
   function drop(atIndex: number) {
@@ -107,8 +132,7 @@ export default function SequenceBuilder({
       if (next.includes(dragging.nodeKey)) return;
       next.splice(atIndex, 0, dragging.nodeKey);
     }
-    setDragging(null);
-    setOverIndex(null);
+    endDrag();
     onChangeSequence(next);
   }
 
@@ -121,16 +145,27 @@ export default function SequenceBuilder({
     onChangeSequence(next);
   }
 
-  /** Props comunes de una zona de soltado. */
+  function remove(nodeKey: number) {
+    setConfirmRemove(null);
+    onChangeSequence(sequence.filter((k) => k !== nodeKey));
+  }
+
+  /**
+   * Props de una zona de soltado.
+   *
+   * SIN `onDragLeave`: era lo que hacía oscilar `overIndex` al cruzar los
+   * bordes de los hijos. La zona activa se limpia al soltar o al terminar el
+   * arrastre, que son los dos momentos en que realmente deja de haber una.
+   */
   const dropZone = (index: number) => ({
-    className:
-      'bp-builder__gap' + (dragging ? ' is-armed' : '') + (overIndex === index ? ' is-over' : ''),
+    className: 'bp-builder__gap' + (dragging ? ' is-armed' : '') + (overIndex === index ? ' is-over' : ''),
     onDragOver: (e: React.DragEvent) => {
       e.preventDefault(); // sin esto el navegador rechaza el drop
       e.dataTransfer.dropEffect = 'move';
+      /* React descarta el set si el valor no cambió, así que mover el puntero
+         dentro de la misma zona no produce ningún render. */
       setOverIndex(index);
     },
-    onDragLeave: () => setOverIndex((cur) => (cur === index ? null : cur)),
     onDrop: (e: React.DragEvent) => {
       e.preventDefault();
       drop(index);
@@ -150,13 +185,9 @@ export default function SequenceBuilder({
             className={'bp-builder__chip' + (dragging?.nodeKey === n.node_key ? ' is-dragging' : '')}
             draggable={!busy}
             onDragStart={(e) => startDrag(e, 'library', n.node_key)}
-            onDragEnd={() => {
-              setDragging(null);
-              setOverIndex(null);
-            }}
+            onDragEnd={endDrag}
             title={n.description ?? undefined}
           >
-            {/* Asa visible: sin ella nadie descubre que se puede arrastrar. */}
             <span className="bp-grip" aria-hidden="true">
               ⠿
             </span>
@@ -166,7 +197,6 @@ export default function SequenceBuilder({
               className="bp-linkish"
               onClick={() => onChangeSequence([...sequence, n.node_key])}
               disabled={busy}
-              /* La vía por teclado: la API nativa de arrastre no la tiene. */
               title="Add to the end of the sequence"
             >
               add
@@ -179,7 +209,6 @@ export default function SequenceBuilder({
       <div className="bp-builder__canvas">
         <div className="bp-builder__head">
           <div className="bp-builder__title">Sequence</div>
-          {/* Lo que reemplaza al zoom: la duración, que es la pregunta real. */}
           <div className="bp-builder__total">
             {sequence.length} nodes · {totalDays} days ≈ {Math.max(1, Math.round(totalDays / 7))} weeks
           </div>
@@ -187,8 +216,6 @@ export default function SequenceBuilder({
 
         <div className={'bp-builder__flow' + (dragging ? ' is-dragging' : '')}>
           {sequence.length === 0 && (
-            /* El `className` viene del propio `dropZone`; sobrescribirlo acá
-               dejaba fuera el estado `is-armed`. */
             <div {...dropZone(0)} className={'bp-builder__drop' + (overIndex === 0 ? ' is-over' : '')}>
               Drag a node here to start the sequence
             </div>
@@ -197,10 +224,9 @@ export default function SequenceBuilder({
           {sequence.map((nodeKey, i) => {
             const node = byKey.get(nodeKey);
             const range = ranges[i];
-            const count = milestones.filter((m) => m.node_key === nodeKey).length;
+            const count = stepsOf.get(nodeKey) ?? 0;
             return (
               <div key={nodeKey} className="bp-builder__slot">
-                {/* Zona de soltado ANTES de esta tarjeta. */}
                 <div {...dropZone(i)} />
                 <div
                   className={
@@ -210,10 +236,7 @@ export default function SequenceBuilder({
                   }
                   draggable={!busy}
                   onDragStart={(e) => startDrag(e, 'sequence', nodeKey)}
-                  onDragEnd={() => {
-                    setDragging(null);
-                    setOverIndex(null);
-                  }}
+                  onDragEnd={endDrag}
                   onClick={() => onSelectNode(nodeKey)}
                 >
                   <span className="bp-grip bp-grip--card" aria-hidden="true">
@@ -226,6 +249,7 @@ export default function SequenceBuilder({
                   </div>
                   <div className="bp-builder__card-name">{node?.name ?? 'unknown node'}</div>
                   <div className="bp-builder__card-sub">{count} milestones</div>
+
                   <div className="bp-builder__reorder">
                     <button
                       type="button"
@@ -249,7 +273,44 @@ export default function SequenceBuilder({
                     >
                       ↓
                     </button>
+                    {/*
+                      Quitar con un botón, no arrastrando fuera: arrastrar fuera
+                      no tiene destino visible y nadie lo descubre solo.
+                    */}
+                    <button
+                      type="button"
+                      className="bp-builder__remove"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        /* Confirmación sólo si hay pasos que se van con él.
+                           Un nodo vacío no vale una pregunta. */
+                        if (count > 0) setConfirmRemove(nodeKey);
+                        else remove(nodeKey);
+                      }}
+                      disabled={busy}
+                      aria-label="Remove from this funnel"
+                      title="Remove from this funnel"
+                    >
+                      <CloseIcon size={11} />
+                    </button>
                   </div>
+
+                  {confirmRemove === nodeKey && (
+                    <div className="bp-builder__confirm" onClick={(e) => e.stopPropagation()}>
+                      <p>
+                        Remove <strong>{node?.name}</strong> from this funnel? Its {count} steps go with it.
+                      </p>
+                      <p className="bp-builder__confirm-note">The node stays in the library.</p>
+                      <div className="bp-builder__confirm-actions">
+                        <button type="button" className="bp-btn bp-btn--small bp-btn--primary" onClick={() => remove(nodeKey)}>
+                          Remove
+                        </button>
+                        <button type="button" className="bp-linkish" onClick={() => setConfirmRemove(null)}>
+                          cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 {i < sequence.length - 1 && (
                   <span className="bp-builder__arrow" aria-hidden="true">

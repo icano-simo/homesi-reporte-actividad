@@ -64,6 +64,12 @@ export default function FunnelLibraryPage() {
   const [dialog, setDialog] = useState<Dialog>(null);
   const [selectedFunnel, setSelectedFunnel] = useState<number | null>(null);
   const [selectedNode, setSelectedNode] = useState<number | null>(null);
+  /*
+   * Filtro de la pestaña Nodes. 'all' = todos; 'none' = huérfanos, que hasta
+   * ahora sólo se distinguían por la marca ámbar y había que ir a buscarlos a
+   * ojo entre 18 filas.
+   */
+  const [nodeFilter, setNodeFilter] = useState<'all' | 'none' | number>('all');
 
   const bp = () => getSupabaseClient().schema('business_plan');
 
@@ -108,6 +114,18 @@ export default function FunnelLibraryPage() {
       .filter((l) => l.node_key === nodeKey)
       .map((l) => data?.funnels.find((f) => f.funnel_key === l.funnel_key))
       .filter(Boolean) as Funnel[];
+
+  /*
+   * Un nodo puede estar en VARIOS funnels -- "Sales Call" está en 4 -- así que
+   * filtrar por uno lo MUESTRA; no lo oculta por pertenecer también a otros.
+   */
+  const visibleNodes = useMemo(() => {
+    const all = data?.nodes ?? [];
+    if (nodeFilter === 'all') return all;
+    const linked = new Set((data?.links ?? []).filter((l) => l.node_key !== undefined).map((l) => l.node_key));
+    if (nodeFilter === 'none') return all.filter((n) => !linked.has(n.node_key));
+    return all.filter((n) => (data?.links ?? []).some((l) => l.funnel_key === nodeFilter && l.node_key === n.node_key));
+  }, [data, nodeFilter]);
 
   const dlgNode = dialog && 'node' in dialog ? dialog.node : null;
 
@@ -320,6 +338,30 @@ export default function FunnelLibraryPage() {
 
           {/* ── Nodos ─────────────────────────────────────────────────────── */}
           {tab === 'nodes' && (
+            <>
+            <div className="control-bar">
+              <div className="control-group">
+                <span className="label-chip">In funnel</span>
+                <select
+                  className="field"
+                  value={String(nodeFilter)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setNodeFilter(v === 'all' || v === 'none' ? v : Number(v));
+                  }}
+                >
+                  <option value="all">All funnels ({data.nodes.length})</option>
+                  {data.funnels.map((f) => (
+                    <option key={f.funnel_key} value={f.funnel_key}>
+                      {f.name} ({data.links.filter((l) => l.funnel_key === f.funnel_key).length})
+                    </option>
+                  ))}
+                  <option value="none">
+                    No funnel · orphans ({data.nodes.filter((n) => funnelsOf(n.node_key).length === 0).length})
+                  </option>
+                </select>
+              </div>
+            </div>
             <div className="tbl-card">
               <div className="tbl-scroll">
                 <table className="piv bp-table--nodes">
@@ -341,7 +383,7 @@ export default function FunnelLibraryPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {data.nodes.map((n) => {
+                    {visibleNodes.map((n) => {
                       const mine = data.milestones.filter((m) => m.node_key === n.node_key);
                       const inF = funnelsOf(n.node_key);
                       const owners = data.owners
@@ -396,10 +438,18 @@ export default function FunnelLibraryPage() {
                         </tr>
                       );
                     })}
+                    {visibleNodes.length === 0 && (
+                      <tr>
+                        <td className="lbl bp-empty-cell" colSpan={5}>
+                          No node in that funnel.
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
             </div>
+            </>
           )}
 
           {/* ── Constructor ───────────────────────────────────────────────── */}

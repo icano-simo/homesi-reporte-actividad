@@ -2978,3 +2978,57 @@ table.piv.bp-table--cards .badge--pill {
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
+
+/* ===========================================================================
+ * 21. Etapa BP18 — quitar con botón y confirmación en la tarjeta
+ * =========================================================================== */
+
+/*
+ * Quitar NO se hace arrastrando fuera: ese gesto no tiene destino visible, el
+ * navegador no señala dónde termina, y nadie lo descubre solo. Un botón en la
+ * tarjeta es más rápido y no se puede fallar.
+ *
+ * En coral sólo al pasar por encima: en reposo competiría con las flechas, que
+ * son la acción frecuente.
+ */
+.bp-builder__remove {
+  margin-left: 2px;
+  color: var(--slate-400);
+}
+.bp-builder__remove:hover:not(:disabled) {
+  color: var(--coral);
+  border-color: var(--coral);
+}
+
+/*
+ * La confirmación aparece sobre la propia tarjeta, no en un modal: el objeto
+ * del que se pregunta está justo debajo, y un modal lo taparía.
+ */
+.bp-builder__confirm {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: var(--canvas);
+  border: 1.5px solid var(--coral);
+  border-radius: var(--radius-lg);
+  padding: 9px 11px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--slate-600);
+}
+.bp-builder__confirm p {
+  margin: 0;
+}
+.bp-builder__confirm-note {
+  color: var(--slate-400);
+}
+.bp-builder__confirm-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
