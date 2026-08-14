@@ -45,6 +45,75 @@ File Creations, Credit Reports, Applications, Closings — por branch, loan offi
 - `Branch` tipado como `string` (abierto), `MetricKey` como unión estricta (`'fc'|'cr'|'ap'|'cl'`).
 - Un bug real del HTML legado se corrigió con aprobación explícita de Heather: el drill-down por Loan Officer ignoraba el toggle Cantidad/Monto (siempre mostraba cantidad); ya corregido.
 
+### Etapa 2 — filtros de datos (B2B + Channel)
+
+Reemplaza el `view: 'main'|'b2b'|'loanOfficer'` excluyente por dos conceptos
+separados, en `app/page.tsx` (estado) y `components/report/Toolbar.tsx`
+(tipos `GroupBy`/`ChannelFilter`):
+
+- `groupBy` (`'branch' | 'loanOfficer'`) — modo de PRESENTACIÓN de la tabla,
+  sigue siendo único a la vez (Branch × Metric o Loan Officer).
+- `b2bOnly` (boolean) y `channelFilter` (`ChannelFilter`) — FILTROS DE DATOS,
+  independientes entre sí y del `groupBy`, y **combinables** entre sí y con
+  cualquier `groupBy` (antes B2B y "Por Loan Officer" eran excluyentes).
+
+El filtrado se aplica en `app/page.tsx` (`filteredRecords`) antes de agregar;
+`buildReportTree` y `buildLoanOfficerTree` ya no filtran nada internamente,
+solo agregan lo que reciben.
+
+**Opciones de Channel** (`CHANNEL_OPTIONS`, Toolbar.tsx):
+- All channels
+- Banked - Retail
+- Brokered
+- Unclassified / Empty
+
+**Regla de negocio — Unclassified / Empty** (confirmada por Isabella): representa
+loans cuyo `loanInfoChannel` viene vacío (`''`). No se reasignan a Banked ni a
+Brokered, ni se normaliza el dato original — se muestran como categoría propia
+únicamente para dar visibilidad al problema de calidad de datos.
+
+**Hallazgo validado**: existen 7 loans con `loanInfoChannel` vacío, que explican
+la diferencia observada en File Creations entre Banked + Brokered y All
+channels. Ejemplo validado: Banked 2,911 + Brokered 173 + Empty 7 = All 3,091.
+
+Etapa 2 y esta corrección de Channel vacío quedaron validadas funcionalmente
+en localhost con datos reales.
+
+### Closed por Disbursement Date
+
+Regla de negocio confirmada por Isabella: para ser consistente con
+Salesforce, el MES de Closed debe salir de la columna opcional
+`CLOSING DOCS REGZ LOAN INFO DISBURSEMENT DATE` (agregada a
+`OPTIONAL_COLUMNS`, `config/requiredColumns.ts`) cuando el archivo la trae,
+en vez de Milestone Date - Funding/Completion. Implementado en
+`lib/domain/classifyLoan.ts`; el nuevo campo crudo vive en
+`RawLoanRow.disbursementMonth` (`lib/parsing/types.ts`/`workbookReader.ts`).
+`LoanRecord.closingMonth` sigue siendo el único campo que consume el resto
+del módulo — sin cambios en `lib/aggregation/` ni en los componentes.
+
+**No cambia SI un loan cuenta como Closed** — eso lo sigue decidiendo el
+milestone del canal (Banked-Retail necesita Funding, Brokered necesita
+Completion; sin eso, `closingMonth` es `null` sin importar si hay
+Disbursement Date, para no convertir en Closed a un loan que sigue en
+Started).
+
+**Sí cambia el MES**, una vez que el loan ya cumplió su milestone:
+- Con Disbursement Date presente para esa fila → ese es el mes de Closed
+  (ejemplo confirmado: Brokered 747002047932, Completion 2026-08,
+  Disbursement 2026-07 → Closed 2026-07).
+- Sin Disbursement Date para esa fila (columna ausente del archivo o celda
+  vacía) → se conserva Funding/Completion, mismo comportamiento que antes de
+  este cambio — alternativa conservadora, no se inventó una regla nueva para
+  este caso.
+
+Columna opcional a propósito (no `REQUIRED_COLUMNS`): un archivo que no la
+traiga sigue parseando igual que antes, cayendo siempre al respaldo de
+arriba.
+
+`tsc`/`build`/`lint` pasaron limpios sobre este cambio. **Pendiente de
+validación manual contra Salesforce/SL Query antes de commit** — no
+documentado como cerrado hasta esa validación.
+
 ### Pendiente
 - Redeploy en Vercel desde la cuenta de equipo de Isa (SimoLogic), no la personal de Heather.
 - Auto-registro de branch nuevo: el roster vive en `config/roster.ts` como archivo estático, **no** como tabla en Supabase — a diferencia de Forecast, este módulo nunca necesitó branches dinámicos.

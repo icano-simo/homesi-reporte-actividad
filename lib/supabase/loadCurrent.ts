@@ -72,6 +72,13 @@ export async function loadCurrentReport(): Promise<CurrentReport | null> {
     loanOfficer: row.loan_officer,
     bd: row.bd,
     isB2B: row.is_b2b,
+    // loan_records no tiene columna loan_info_channel todavía -- campo nuevo
+    // en LoanRecord (cambio aislado en lib/domain, ver classifyLoan.ts), sin
+    // tocar el schema de Supabase acá. Queda '' al restaurar un batch
+    // guardado antes de este cambio (o mientras la tabla no tenga la
+    // columna); no afecta ningún cálculo existente, closingMonth ya viene
+    // resuelto de antes.
+    loanInfoChannel: '',
     fileCreationMonth: row.file_creation_month,
     creditReportMonth: row.credit_report_month,
     appDateMonth: row.app_date_month,
@@ -79,6 +86,16 @@ export async function loadCurrentReport(): Promise<CurrentReport | null> {
     // numeric/decimal en Postgres puede volver como string vía PostgREST;
     // Number(...) lo normaliza sin asumir cuál es el caso.
     totalLoanAmount: Number(row.total_loan_amount) || 0,
+    // Mismo caso que loanInfoChannel arriba: loan_records tampoco tiene
+    // columnas para loan_number/loan_program/loan_folder_name/affinity
+    // todavía (campos nuevos en LoanRecord, ver classifyLoan.ts) -- quedan
+    // en '' al restaurar un batch guardado antes de este cambio. El modal de
+    // detalle de préstamo que use loanNumber como id no debe confiar en un
+    // reporte restaurado desde Supabase hasta que se agregue la columna.
+    loanNumber: '',
+    loanProgram: '',
+    loanFolderName: '',
+    affinity: '',
   }));
 
   return {
