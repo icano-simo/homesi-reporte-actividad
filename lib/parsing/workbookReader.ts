@@ -8,9 +8,21 @@ const LOAN_PROGRAM_COLUMN = OPTIONAL_COLUMNS[1];
 const LOAN_FOLDER_NAME_COLUMN = OPTIONAL_COLUMNS[2];
 const AFFINITY_COLUMN = OPTIONAL_COLUMNS[3];
 const DISBURSEMENT_DATE_COLUMN = OPTIONAL_COLUMNS[4];
+const HELOC_LIEN_POSITION_COLUMN = OPTIONAL_COLUMNS[5];
 
 function toRawString(value: unknown): string {
   return String(value === null || value === undefined ? '' : value).trim();
+}
+
+/**
+ * Solo acepta valores que ya vinieron como number desde la celda (raw: true
+ * en readSheetAsRows -- una celda numérica de Excel llega como JS number).
+ * Celda vacía o cualquier otro tipo (texto, etc.) -> null, sin intentar
+ * parsear ni coercionar: la regla de negocio (isHelocLien2) solo debe actuar
+ * sobre 1/2 reales, nunca sobre una interpretación adivinada.
+ */
+function toHelocLienPosition(value: unknown): number | null {
+  return typeof value === 'number' ? value : null;
 }
 
 function readSheetAsRows(workbook: WorkBook, sheetName: string): unknown[][] {
@@ -69,6 +81,7 @@ export function readWorkbook(workbook: WorkBook): RawLoanRow[] {
   const loanFolderNameIndex = header.indexOf(LOAN_FOLDER_NAME_COLUMN);
   const affinityIndex = header.indexOf(AFFINITY_COLUMN);
   const disbursementDateIndex = header.indexOf(DISBURSEMENT_DATE_COLUMN);
+  const helocLienPositionIndex = header.indexOf(HELOC_LIEN_POSITION_COLUMN);
 
   const result: RawLoanRow[] = [];
   for (let i = 1; i < rows.length; i++) {
@@ -95,6 +108,11 @@ export function readWorkbook(workbook: WorkBook): RawLoanRow[] {
     const disbursementMonth =
       disbursementDateIndex >= 0 ? excelValueToYearMonth(row[disbursementDateIndex]) : null;
 
+    // Igual patrón que disbursementMonth arriba: null si el archivo no trae
+    // la columna (índice -1) o la celda está vacía.
+    const helocLienPosition =
+      helocLienPositionIndex >= 0 ? toHelocLienPosition(row[helocLienPositionIndex]) : null;
+
     result.push({
       trueOrgId: toRawString(cell('True OrgID')),
       loanOfficer: toRawString(cell('loan_officer')),
@@ -112,6 +130,7 @@ export function readWorkbook(workbook: WorkBook): RawLoanRow[] {
       loanProgram,
       loanFolderName,
       affinity,
+      helocLienPosition,
     });
   }
 

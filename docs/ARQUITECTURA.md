@@ -114,6 +114,114 @@ arriba.
 validación manual contra Salesforce/SL Query antes de commit** — no
 documentado como cerrado hasta esa validación.
 
+### Exclusión global — HELOC Lien Position 2
+
+Regla de negocio confirmada por Isabella (2026-08-18): los loans con
+`HELOC LIEN POSITION = 2` no se cuentan en Commercial Activity — no dejan
+utilidad para la empresa y confunden los reportes si se incluyen.
+
+**Es una exclusión GLOBAL del universo de Activity**, no un filtro visual ni
+solo del drill-down: ocurre durante la ingesta, en `app/page.tsx`
+(`handleFileChange`), filtrando `RawLoanRow[]` con
+`lib/domain/isHelocLien2.ts` **antes** de `classifyLoan()` — el loan nunca
+llega a convertirse en `LoanRecord`, nunca entra al estado `records` y nunca
+se guarda vía `saveUpload()`. Por eso queda fuera, sin excepción, de Branch,
+Metric, Loan Officer, BD, filtros (Channel/B2B/Year/Branch), drill-down/modal
+y export — todos derivan del mismo `records` filtrado una sola vez (ver
+Etapa 2 arriba).
+
+**Campo crudo**: `RawLoanRow.helocLienPosition` (`lib/parsing/types.ts`),
+poblado desde la columna opcional `HELOC LIEN POSITION`
+(`config/requiredColumns.ts`, `OPTIONAL_COLUMNS[5]`) — opcional a propósito,
+mismo criterio que Disbursement Date: un archivo que no la traiga sigue
+parseando igual, simplemente ningún loan de ese archivo queda excluido por
+esta regla. Solo acepta el valor numérico real de la celda (`1`/`2`); una
+celda vacía o de otro tipo da `null`, que NO excluye.
+
+**Condición única e intencional**: `helocLienPosition === 2`. Sin
+condiciones adicionales sobre Channel, Loan Program, Branch, B2B, Loan
+Officer o milestone.
+
+**Validado** contra el archivo real (`SLQUERY 08.14.AM.xlsx`, 4.609 filas):
+distribución `1`=4.566, `2`=42, vacío=1 → 4.609 rawRows − 42 excluidos =
+4.567 `LoanRecord` elegibles, cero fugas (ningún `loan_number` excluido
+sobrevive en el resultado).
+
+**Específica de Commercial Activity** — no debe interpretarse
+automáticamente como una regla de Forecast/Pipeline: ese módulo ya excluye
+SL/HELOC por alcance propio (ver "Módulo 2 — Forecast/Pipeline · Alcance"),
+así que no existía lógica que reutilizar ni riesgo de conflicto.
+
+**Pendiente conocido, no bloqueante**: el batch actualmente persistido en
+Supabase (subido antes de esta regla) puede seguir teniendo loans HELOC=2
+latentes hasta el próximo upload — no se tocó Supabase ni se corrió SQL para
+limpiarlo retroactivamente (decisión explícita); se resuelve solo con el
+próximo archivo subido.
+
+### Drill-down de Activity (Fase 1 — sin persistencia Supabase)
+
+Reemplaza progresivamente la expansión inline por un modal: click en una
+celda de métrica con valor > 0 (`components/report/PivotRow.tsx`, clase CSS
+`.drillable`) abre `components/report/LoanDetailModal.tsx` con los
+`LoanRecord` individuales que forman esa celda. Funciona tanto en
+`PivotTable` (Branch × Metric, incluida la fila Total y el desglose por Loan
+Officer/BD) como en `LoanOfficerTable`.
+
+**Cómo determina los loans** (`lib/aggregation/loansForCell.ts`, función
+pura nueva): filtra sobre `filteredRecords` -- los mismos records que ya
+alimentan `tree`/`loanOfficerTree` en `app/page.tsx`, con B2B/Channel ya
+aplicados -- comparando `record[METRIC_MONTH_FIELD[metric]] === month` (mismo
+mapeo que ya usa `computeMetricMaps`), más `branch`/`drillBy`+`drillName`
+cuando corresponden. No se tocó `buildReportTree.ts` ni
+`buildLoanOfficerTree.ts`: el drill-down solo *selecciona* sobre la misma
+lista que la tabla ya usó para *sumar*, nunca recalcula.
+
+**Closed usa `closingMonth` directamente** -- ya resuelto por `classifyLoan()`
+(incluida la regla de Disbursement Date). El modal no vuelve a mirar
+Funding/Completion/Disbursement por separado.
+
+**Filtros que respeta:** Year/rango (acota `months`, ya aplicado antes de
+llegar al drill-down), Branch (vía `context.branch`), B2B y Channel (ya
+aplicados en `filteredRecords`), Loan Officer/BD (vía `context.drillBy`+
+`drillName` cuando el click viene de una fila de desglose).
+
+**Validado exhaustivamente** con el archivo real (`SLQUERY 08.13AM.xlsx`,
+4.590 filas): para cada celda no-cero de `tree`/`loanOfficerTree`, bajo 6
+combinaciones de filtros (All/Banked/Brokered/Empty/B2B only/B2B+Brokered),
+`loansForCell().length` coincide exactamente con el valor de la celda (con
+`measure='count'`) -- cero discrepancias. Caso puntual confirmado: Branch
+747 → Closed → Julio 2026 incluye al loan `747002047932`
+(`closingMonth=2026-07`, por Disbursement Date); Agosto 2026 no lo incluye.
+
+**Fechas:** solo Mes/Año en el header (`"Closed · July 2026"`), sin día --
+no hay columna de fecha en la tabla del modal porque todos los loans de una
+celda comparten el mismo mes por definición.
+
+**Columnas del modal:** Loan Number, Loan Officer, Branch, Channel, B2B,
+Loan Program, Affinity -- literal de la tabla pedida en el brief de esta
+etapa (BD y Loan Folder Name quedaron fuera de la tabla, aunque están
+disponibles en `LoanRecord`, para no ensanchar la tabla).
+
+**Limitación conocida, no resuelta acá:** la vista Loan Officer
+(`buildLoanOfficerTree`) siempre agrupa por el campo `loanOfficer`, nunca por
+`bd`, sin importar si `b2bOnly` está activo -- comportamiento preexistente
+desde la Etapa 12, sin cambios. El drill-down de esa vista hereda la misma
+limitación (`drillBy` fijo en `'loanOfficer'`).
+
+**Con `measure==='amount'`**, el número de loans del modal (`N loans`) no
+coincide con el valor en dólares de la celda -- son unidades distintas
+(conteo de préstamos vs. suma de `totalLoanAmount`). El *conjunto* de loans
+sigue siendo exactamente el correcto; solo el número que se muestra arriba
+del modal es un conteo, no una suma.
+
+**PENDIENTE — persistencia Supabase:** `loanNumber`, `loanProgram`,
+`loanFolderName`, `affinity` y `loanInfoChannel` procesado NO sobreviven un
+refresh que dispare `loadCurrentReport()` -- mismo gap ya documentado en
+Etapa 2/Closed por Disbursement Date (`lib/supabase/loadCurrent.ts` los deja
+en `''`). Esta fase deliberadamente no tocó `saveUpload.ts`/`loadCurrent.ts`
+ni Supabase -- queda para una fase posterior, después de confirmar el schema
+real con Isa (ver auditoría previa).
+
 ### Pendiente
 - Redeploy en Vercel desde la cuenta de equipo de Isa (SimoLogic), no la personal de Heather.
 - Auto-registro de branch nuevo: el roster vive en `config/roster.ts` como archivo estático, **no** como tabla en Supabase — a diferencia de Forecast, este módulo nunca necesitó branches dinámicos.

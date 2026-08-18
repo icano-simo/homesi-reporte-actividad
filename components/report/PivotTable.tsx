@@ -3,6 +3,8 @@
 import type { ReactNode } from 'react';
 import type { ReportTree, ReportTreeBranch, ReportTreeMetricGroup, Measure } from '@/lib/aggregation/types';
 import type { YearMonth } from '@/lib/parsing/types';
+import type { Branch } from '@/config/roster';
+import type { DrillDownContext } from '@/lib/aggregation/loansForCell';
 import { METRICS, MONTH_NAMES } from '@/config/metrics';
 import { ChevronRightIcon } from '@/components/ui/icons';
 import PivotRow from './PivotRow';
@@ -24,6 +26,12 @@ export interface PivotTableProps {
    * combinación de filtros/agrupación.
    */
   b2bOnly: boolean;
+  /**
+   * Drill-down (Fase 1): dispara la apertura del modal con el contexto de la
+   * celda clickeada. Opcional a propósito -- si no se provee, ninguna celda
+   * queda clicable (mismo patrón que toggleId/onToggle en PivotRow).
+   */
+  onDrillDown?: (context: DrillDownContext) => void;
 }
 
 function monthAbbrev(ym: YearMonth): string {
@@ -78,18 +86,24 @@ function GroupHeaderRow({
 
 function MetricGroupRows({
   branchId,
+  branch,
   group,
   months,
   measure,
   collapsed,
   onToggleCollapse,
+  drillBy,
+  onDrillDown,
 }: {
   branchId: string;
+  branch: Branch;
   group: ReportTreeMetricGroup;
   months: YearMonth[];
   measure: Measure;
   collapsed: Set<string>;
   onToggleCollapse: (id: string) => void;
+  drillBy: 'loanOfficer' | 'bd';
+  onDrillDown?: (context: DrillDownContext) => void;
 }) {
   const isClosed = group.metric === 'cl';
   const hasItems = group.items.length > 0;
@@ -109,6 +123,7 @@ function MetricGroupRows({
         toggleId={hasItems ? groupId : undefined}
         collapsed={groupCollapsed}
         onToggle={onToggleCollapse}
+        onCellClick={onDrillDown ? (ym) => onDrillDown({ metric: group.metric, month: ym, branch }) : undefined}
       />
       {hasItems &&
         !groupCollapsed &&
@@ -122,6 +137,11 @@ function MetricGroupRows({
             isClosedMetric={isClosed}
             rowClassName="metric drow"
             indentPx={46}
+            onCellClick={
+              onDrillDown
+                ? (ym) => onDrillDown({ metric: group.metric, month: ym, branch, drillBy, drillName: item.name })
+                : undefined
+            }
           />
         ))}
     </>
@@ -134,12 +154,16 @@ function BranchRows({
   measure,
   collapsed,
   onToggleCollapse,
+  drillBy,
+  onDrillDown,
 }: {
   branch: ReportTreeBranch;
   months: YearMonth[];
   measure: Measure;
   collapsed: Set<string>;
   onToggleCollapse: (id: string) => void;
+  drillBy: 'loanOfficer' | 'bd';
+  onDrillDown?: (context: DrillDownContext) => void;
 }) {
   const branchId = 'br::' + branch.branch;
   const branchCollapsed = collapsed.has(branchId);
@@ -158,11 +182,14 @@ function BranchRows({
           <MetricGroupRows
             key={g.metric}
             branchId={branchId}
+            branch={branch.branch}
             group={g}
             months={months}
             measure={measure}
             collapsed={collapsed}
             onToggleCollapse={onToggleCollapse}
+            drillBy={drillBy}
+            onDrillDown={onDrillDown}
           />
         ))}
     </>
@@ -185,10 +212,24 @@ function BranchRows({
  * y `total.label` ('Total (B2B)' vs 'Total'). Es solo texto -- ReportTree no
  * necesita saber qué filtro está activo, el cálculo no cambia.
  */
-export default function PivotTable({ tree, months, measure, showTotal, collapsed, onToggleCollapse, b2bOnly }: PivotTableProps) {
+export default function PivotTable({
+  tree,
+  months,
+  measure,
+  showTotal,
+  collapsed,
+  onToggleCollapse,
+  b2bOnly,
+  onDrillDown,
+}: PivotTableProps) {
   const totalCollapsed = collapsed.has('total');
   const drillLabel = b2bOnly ? 'BD' : 'Loan Officer';
   const totalLabel = b2bOnly ? 'Total (B2B)' : 'Total';
+  // Mismo criterio que ya usa app/page.tsx para construir el ReportTree
+  // (drillBy = b2bOnly ? 'bd' : 'loanOfficer') -- se deriva acá también,
+  // igual que ya hacía drillLabel un renglón arriba, para saber qué campo de
+  // LoanRecord corresponde al nombre de cada item del desglose.
+  const drillBy: 'loanOfficer' | 'bd' = b2bOnly ? 'bd' : 'loanOfficer';
 
   return (
     <table className="piv piv--tree" id="pivot">
@@ -227,6 +268,9 @@ export default function PivotTable({ tree, months, measure, showTotal, collapsed
                   isClosedMetric={key === 'cl'}
                   rowClassName="metric"
                   indentPx={26}
+                  // Fila Total: sin branch (tree.total.maps nunca está filtrado
+                  // por branch -- ver comentario de showTotal más abajo).
+                  onCellClick={onDrillDown ? (ym) => onDrillDown({ metric: key, month: ym }) : undefined}
                 />
               ))}
           </>
@@ -240,6 +284,8 @@ export default function PivotTable({ tree, months, measure, showTotal, collapsed
             measure={measure}
             collapsed={collapsed}
             onToggleCollapse={onToggleCollapse}
+            drillBy={drillBy}
+            onDrillDown={onDrillDown}
           />
         ))}
 

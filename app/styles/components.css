@@ -247,10 +247,31 @@ select.field {
   margin-bottom: 20px;
   box-shadow: var(--shadow-xs);
   display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/*
+ * Ajuste de UX: cada nivel de la barra (antes todo era un único
+ * `.control-bar` en fila, que en la práctica ya se envolvía sola a 2-3
+ * líneas sin ninguna organización -- ver Toolbar.tsx). Mismo `flex-wrap` +
+ * `justify-content: space-between` + `gap` que ya tenía `.control-bar`
+ * entera, ahora por fila -- no es una clase nueva conceptualmente, es la
+ * misma regla aplicada 2 veces.
+ */
+.control-bar__row {
+  display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 14px;
+  width: 100%;
+}
+/* Nivel 2 (filtros): separación sutil del Nivel 1, sin agregar altura real
+   más que la línea + su padding mínimo. */
+.control-bar__row--filters {
+  padding-top: 10px;
+  border-top: 1px solid var(--slate-100);
 }
 
 /* Grupo de controles relacionados dentro de la barra. */
@@ -736,6 +757,26 @@ table.piv td.val.cl {
   color: var(--emerald-700);
   font-weight: 700;
 }
+/*
+ * Drill-down: celda con click habilitado -- mismo concepto visual que
+ * `.cell-trigger` de Forecast (arriba en este archivo, sección 6): sin
+ * subrayado permanente, `cursor: pointer`, y en :hover un resaltado suave
+ * sobre el valor (mismo color/opacidad que `.cell-trigger:hover`) en vez de
+ * una línea de texto. No es la misma clase porque acá el elemento clickeable
+ * sigue siendo el <td> (PivotRow.tsx no se tocó -- sin componente/botón
+ * nuevo), mientras que `.cell-trigger` envuelve un <button> inline propio de
+ * Forecast; por eso el highlight usa `border-radius` para no leerse como un
+ * bloque a filo del borde de la celda. Celdas con valor 0 no llevan esta
+ * clase (ver PivotRow.tsx), y el hover nunca alcanza el resto de la fila.
+ */
+table.piv td.val.drillable {
+  cursor: pointer;
+}
+table.piv td.val.drillable:hover {
+  background: rgba(166, 222, 255, 0.3);
+  color: var(--navy);
+  border-radius: var(--radius-sm);
+}
 
 /* ---- Filas de grupo / subtotal ---- */
 
@@ -764,11 +805,27 @@ tr.grp.togg:hover td.lbl {
   background: rgba(166, 222, 255, 0.28);
 }
 
-/* Filas de métrica agrupada / detalle. */
-tr.mrow td,
-tr.mrow td.lbl,
-tr.mrow td.mname {
-  background: #fbfcfe;
+/*
+ * Filas de métrica agrupada / detalle -- jerarquía visual Branch > Metric >
+ * Loan Officer/BD.
+ *
+ * Selector `tr.metric.mrow`/`tr.metric.drow` (ambas clases, no solo
+ * `.mrow`/`.drow`) a propósito: el zebra striping de más arriba
+ * (`tr.metric:nth-child(odd) td`) tiene la MISMA especificidad que un
+ * selector de una sola clase (`tr.mrow td`/`tr.drow td`), así que en filas
+ * IMPARES el zebra ganaba por orden de aparición y el fondo propio de cada
+ * nivel solo se veía en las pares -- esa inconsistencia (no el valor de color
+ * en sí) era buena parte de por qué Metric y Loan Officer/BD se confundían.
+ * Con las dos clases combinadas queda la misma especificidad que el zebra
+ * PERO más abajo en el archivo, así que gana siempre, en todas las filas.
+ * `app/pipeline/PivotTable.tsx` (Forecast) también usa `tr.metric` para sus
+ * propias filas -- no se tocó esa regla base ni su especificidad, solo se
+ * reforzaron acá las de Activity.
+ */
+tr.metric.mrow td,
+tr.metric.mrow td.lbl,
+tr.metric.mrow td.mname {
+  background: var(--slate-50);
   font-weight: 600;
   color: var(--slate-700);
 }
@@ -776,15 +833,28 @@ tr.mrow:hover td,
 tr.mrow:hover td.lbl {
   background: rgba(166, 222, 255, 0.2);
 }
-tr.drow td {
+tr.metric.drow td {
+  background: #fff;
   color: var(--slate-500);
+  font-size: 11px;
+  font-weight: 400;
 }
-tr.drow td.lbl {
-  font-weight: 500;
+tr.metric.drow td.lbl {
+  font-weight: 400;
   color: var(--slate-700);
 }
-tr.drow td.val {
+tr.metric.drow td.val {
   color: var(--slate-800);
+  font-weight: 400;
+}
+/*
+ * Hover propio, con más especificidad que el fondo blanco de arriba Y que el
+ * hover genérico de `tr.metric:hover` -- sin esto, el blanco explícito de
+ * `.drow` tapaba el resaltado celeste al pasar el mouse.
+ */
+tr.metric.drow:hover td,
+tr.metric.drow:hover td.lbl {
+  background: rgba(166, 222, 255, 0.2);
 }
 
 /* Chevron y sangría del árbol. */
@@ -964,6 +1034,36 @@ tr.mrow .chev {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+/*
+ * Context header del modal de Drill-down de Activity (Branch/Loan Officer +
+ * Metric + Month + Loans, ver components/report/LoanDetailModal.tsx) -- fila
+ * de campos label/valor, no una tabla. `.modal-eyebrow` (arriba) se reutiliza
+ * tal cual como label de cada campo; estas 2 clases son las únicas nuevas.
+ * `flex-wrap` para responsive: en una caja angosta los campos bajan de línea
+ * en vez de recortarse, sin agregar altura en el caso normal (2 líneas:
+ * labels arriba, valores abajo, igual que el eyebrow+title que reemplaza).
+ */
+.modal-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  column-gap: 22px;
+  row-gap: 10px;
+}
+.modal-context__field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.modal-context__value {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--navy);
+  line-height: 1.3;
+  word-break: break-word;
 }
 .modal-close {
   border: 1px solid var(--slate-200);

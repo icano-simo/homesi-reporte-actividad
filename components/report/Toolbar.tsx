@@ -119,126 +119,140 @@ export default function Toolbar({
 }: ToolbarProps) {
   return (
     <div className="control-bar">
-      <div className="control-group">
-        <span className="label-chip">Group by</span>
-        <div className="seg">
-          {GROUP_BY_OPTIONS.map((option) => (
-            <button
-              key={option.value}
-              className={groupBy === option.value ? 'on' : ''}
-              onClick={() => onGroupByChange(option.value)}
-              aria-pressed={groupBy === option.value}
-            >
-              {option.label}
-            </button>
-          ))}
+      {/*
+       * Ajuste de UX: la barra pasa de una sola fila (que en la práctica ya
+       * se envolvía sola en 2-3 líneas según el ancho, sin ninguna
+       * organización intencional) a 2 niveles explícitos vía `.control-bar__row`
+       * -- mismos estilos existentes (.seg/.field/.label-chip/.mini-btn), sin
+       * componentes nuevos:
+       *   Nivel 1 -- configuración principal: Group by, Measure, B2B.
+       *   Nivel 2 -- filtros: Branch, Channel, From, Year, y Expand/Collapse
+       *   all al extremo derecho (mismo `justify-content: space-between` que
+       *   ya usaba la barra entera).
+       */}
+      <div className="control-bar__row">
+        <div className="control-group">
+          <span className="label-chip">Group by</span>
+          <div className="seg">
+            {GROUP_BY_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                className={groupBy === option.value ? 'on' : ''}
+                onClick={() => onGroupByChange(option.value)}
+                aria-pressed={groupBy === option.value}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <span className="label-chip" style={{ marginLeft: '6px' }}>
-          Measure
-        </span>
-        <div className="seg">
-          {MEASURE_OPTIONS.map((option) => (
-            <button
-              key={option.value}
-              className={measure === option.value ? 'on' : ''}
-              onClick={() => onMeasureChange(option.value)}
-              aria-pressed={measure === option.value}
-            >
-              {option.label}
-            </button>
-          ))}
+        <div className="control-group">
+          <span className="label-chip">Measure</span>
+          <div className="seg">
+            {MEASURE_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                className={measure === option.value ? 'on' : ''}
+                onClick={() => onMeasureChange(option.value)}
+                aria-pressed={measure === option.value}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="control-group">
+          <span className="label-chip">B2B</span>
+          <div className="seg">
+            {B2B_OPTIONS.map((option) => (
+              <button
+                key={String(option.value)}
+                className={b2bOnly === option.value ? 'on' : ''}
+                onClick={() => onB2bOnlyChange(option.value)}
+                aria-pressed={b2bOnly === option.value}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Etapa 2: filtros de datos, combinables entre sí y con Group by/Branch/
-          From/Year -- separado del grupo de arriba (que es medida/presentación),
-          mismo patrón visual (.seg / .field / .label-chip), sin rediseño. */}
-      <div className="control-group">
-        <span className="label-chip">B2B</span>
-        <div className="seg">
-          {B2B_OPTIONS.map((option) => (
-            <button
-              key={String(option.value)}
-              className={b2bOnly === option.value ? 'on' : ''}
-              onClick={() => onB2bOnlyChange(option.value)}
-              aria-pressed={b2bOnly === option.value}
-            >
-              {option.label}
-            </button>
-          ))}
+      <div className="control-bar__row control-bar__row--filters">
+        <div className="control-group">
+          {/* La agrupación "Loan Officer" cruza todos los branches por diseño --
+              el filtro de Branch no aplica y se oculta (sin cambios desde Etapa 12,
+              solo se renombró `view` a `groupBy`). */}
+          {groupBy !== 'loanOfficer' && (
+            <>
+              <span className="label-chip">Branch</span>
+              <select
+                className="field"
+                style={{ maxWidth: '180px' }}
+                value={branchFilter}
+                onChange={(e) => onBranchFilterChange(e.target.value)}
+              >
+                <option value="all">All branches</option>
+                {availableBranches.map((b) => (
+                  <option key={b} value={b}>
+                    {b}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
+
+          <span className="label-chip" style={{ marginLeft: groupBy !== 'loanOfficer' ? '6px' : '0' }}>
+            Channel
+          </span>
+          <select
+            className="field"
+            style={{ maxWidth: '170px' }}
+            value={channelFilter}
+            onChange={(e) => onChannelFilterChange(e.target.value as ChannelFilter)}
+          >
+            {CHANNEL_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+
+          <span className="label-chip" style={{ marginLeft: '6px' }}>
+            From
+          </span>
+          <select className="field" value={start ?? ''} onChange={(e) => onStartChange(e.target.value || null)}>
+            <option value="">{'Start (' + (months.length ? ymLabel(months[0]) : '—') + ')'}</option>
+            {months.map((ym) => (
+              <option key={ym} value={ym}>
+                {ymLabel(ym)}
+              </option>
+            ))}
+          </select>
+
+          <span className="label-chip">Year</span>
+          <select className="field" value={year} onChange={(e) => onYearChange(e.target.value)}>
+            <option value="all">All years</option>
+            {availableYears.map((y) => (
+              <option key={y} value={y}>
+                {y}
+              </option>
+            ))}
+          </select>
         </div>
 
-        <span className="label-chip" style={{ marginLeft: '6px' }}>
-          Channel
-        </span>
-        <select
-          className="field"
-          style={{ maxWidth: '170px' }}
-          value={channelFilter}
-          onChange={(e) => onChannelFilterChange(e.target.value as ChannelFilter)}
-        >
-          {CHANNEL_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="control-group">
-        {/* La agrupación "Loan Officer" cruza todos los branches por diseño --
-            el filtro de Branch no aplica y se oculta (sin cambios desde Etapa 12,
-            solo se renombró `view` a `groupBy`). */}
-        {groupBy !== 'loanOfficer' && (
-          <>
-            <span className="label-chip">Branch</span>
-            <select
-              className="field"
-              style={{ maxWidth: '180px' }}
-              value={branchFilter}
-              onChange={(e) => onBranchFilterChange(e.target.value)}
-            >
-              <option value="all">All branches</option>
-              {availableBranches.map((b) => (
-                <option key={b} value={b}>
-                  {b}
-                </option>
-              ))}
-            </select>
-          </>
-        )}
-
-        <span className="label-chip">From</span>
-        <select className="field" value={start ?? ''} onChange={(e) => onStartChange(e.target.value || null)}>
-          <option value="">{'Start (' + (months.length ? ymLabel(months[0]) : '—') + ')'}</option>
-          {months.map((ym) => (
-            <option key={ym} value={ym}>
-              {ymLabel(ym)}
-            </option>
-          ))}
-        </select>
-
-        <span className="label-chip">Year</span>
-        <select className="field" value={year} onChange={(e) => onYearChange(e.target.value)}>
-          <option value="all">All years</option>
-          {availableYears.map((y) => (
-            <option key={y} value={y}>
-              {y}
-            </option>
-          ))}
-        </select>
-
-        <span style={{ width: '1px', height: '22px', background: 'var(--slate-200)', margin: '0 2px' }} />
-
-        <button className="mini-btn" onClick={onExpandAll}>
-          <ExpandIcon size={13} />
-          Expand all
-        </button>
-        <button className="mini-btn" onClick={onCollapseAll}>
-          <CollapseIcon size={13} />
-          Collapse all
-        </button>
+        <div className="control-group">
+          <button className="mini-btn" onClick={onExpandAll}>
+            <ExpandIcon size={13} />
+            Expand all
+          </button>
+          <button className="mini-btn" onClick={onCollapseAll}>
+            <CollapseIcon size={13} />
+            Collapse all
+          </button>
+        </div>
       </div>
     </div>
   );
