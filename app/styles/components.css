@@ -1102,6 +1102,101 @@ tr.mrow .chev {
   min-width: 0;
 }
 
+/*
+ * Fase urgente (Forecast, revisión post-validación visual): modal de
+ * Forecast (app/pipeline/LoanDetailModal.tsx) con 8 columnas -- a 768px
+ * (el máximo compartido de `.modal-box`) varias quedaban truncadas.
+ *
+ * `.modal-box--wide` y `.modal-table-scroll` son clases NUEVAS, agregadas
+ * solo en el JSX de ese modal -- el modal de Activity
+ * (components/report/LoanDetailModal.tsx, 6 columnas) no las lleva y sigue
+ * exactamente en 768px, sin ningún cambio acá. `.modal-box`/`.modal-body`
+ * base tampoco se tocan -- estas reglas solo se activan cuando la clase
+ * nueva está presente.
+ */
+.modal-box.modal-box--wide {
+  max-width: min(92vw, 1400px);
+}
+/*
+ * Envuelve la tabla (no `.modal-body`, que sigue con overflow-x:hidden para
+ * Activity): si el viewport es angosto y ni 92vw alcanza para las columnas
+ * legibles, este contenedor scrollea en vez de comprimir el contenido.
+ */
+.modal-table-scroll {
+  overflow-x: auto;
+}
+/*
+ * Refinamiento visual (revisión post-validación visual, ancho de columnas):
+ * `table.piv` base usa `table-layout: fixed` + `width: 100%` (sin tocar acá
+ * -- regla compartida, ver arriba de este archivo) -- con columnas en %
+ * (como estaba antes) cada columna se estira proporcional al ancho ENTERO
+ * del modal (92vw/1400px), dejando aire vacío entre campos cortos (Loan #,
+ * Amount, Status) aunque su contenido no lo necesite. `table-layout: auto`
+ * es el mismo mecanismo que ya usa `.piv--tree` más abajo en este archivo
+ * para Activity (no es una técnica nueva) -- el ancho de cada columna pasa
+ * a decidirlo el contenido real (los <col> del modal, LoanDetailModal.tsx,
+ * ahora dan un ancho de referencia en px por columna, ya no un % del
+ * contenedor). `width: auto` hace que la tabla en sí se dimensione por
+ * contenido (shrink-to-fit) en vez de forzarse a ocupar el modal entero --
+ * si el modal queda más ancho que la tabla, el espacio sobrante rodea la
+ * tabla (margen normal de una tarjeta), no se reparte ENTRE columnas.
+ * `min-width` es un piso de seguridad para no comprimir por debajo de un
+ * ancho legible, ya no el mecanismo principal de ancho.
+ */
+.modal-table-scroll table.piv {
+  table-layout: auto;
+  width: auto;
+  min-width: 700px;
+}
+
+/*
+ * Fase urgente (Notes en el modal de Forecast): clases nuevas, exclusivas de
+ * esta columna -- no tocan `table.piv td` base (nowrap + ellipsis,
+ * compartida con Activity y el resto de tablas de la app).
+ *
+ * `.note-cell`: override explícito de esa regla compartida, solo para la
+ * celda de Notes -- necesita envolver texto largo en vez de recortarlo con
+ * "...". `table.piv td.note-cell` ((0,2,2): table+td tipos, piv+note-cell
+ * clases) es más específico que `table.piv td` ((0,1,2): piv es la única
+ * clase ahí), así que gana sin depender de en qué orden aparezcan las
+ * reglas en el archivo. `white-space: pre-wrap` hace las dos cosas que pide
+ * el spec a la vez: envuelve líneas largas Y respeta los saltos de línea
+ * reales que ya trae el texto (el historial de notas del origen viene con
+ * `\n` entre entradas).
+ */
+table.piv td.note-cell {
+  white-space: pre-wrap;
+  overflow: visible;
+  text-overflow: clip;
+  text-align: left;
+  vertical-align: top;
+  line-height: 1.4;
+}
+/*
+ * "Show more"/"Hide note": mismo lenguaje visual que `.drill-value`/
+ * `.cell-trigger` (arriba en este archivo) -- fondo transparente, texto
+ * navy, hover con el mismo tono `--sky` -- pero es su propia clase porque
+ * es un <button> de ACCIÓN (alterna estado), no un valor numérico
+ * clickeable; comparte el concepto, no la clase literal.
+ */
+.note-toggle {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 5px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  color: var(--navy);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.note-toggle:hover {
+  background: rgba(166, 222, 255, 0.42);
+}
+
 
 /*
  * `.toast` se BORRÓ en la etapa UX1: venía del HTML legado y ningún componente

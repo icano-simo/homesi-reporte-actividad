@@ -236,6 +236,26 @@
   text-align: center;
 }
 
+/*
+ * Fase urgente, punto 2: Combined Total by Branch centrado, Banked/Brokered
+ * SIN tocar -- `piv--combined` (PivotTable.tsx) marca solamente esa tercera
+ * tabla, las otras dos siguen con `piv--exec` nada más.
+ *
+ * La regla de arriba (`.piv--exec td.col-pipeline`, etc.) ya centra estas
+ * columnas por especificidad de GRUPO, pero pierde contra
+ * `table.piv td.val` (components.css, compartida con Activity) porque esa
+ * es más específica ((0,2,2): table+piv+td+val vs (0,2,1) acá) -- por eso
+ * hoy las 3 tablas se ven alineadas a la derecha en la práctica, pese a la
+ * regla de arriba. Acá se agrega `.val`/`.totcol` explícitos + `piv--combined`
+ * para llegar a (0,3,2), más específico que `table.piv td.val`, y así ganar
+ * SOLO en esta tabla -- Banked/Brokered no llevan `piv--combined`, no se ven
+ * afectadas. NO se toca `table.piv td.val` (regla compartida con Activity).
+ */
+table.piv.piv--combined td.val,
+table.piv.piv--combined td.totcol {
+  text-align: center;
+}
+
 /* --- Encabezado: claro, con acento pastel por grupo --- */
 .piv--exec thead .mo-row th.col-pipeline {
   background: rgba(248, 250, 252, 0.6); /* slate-50/60 */

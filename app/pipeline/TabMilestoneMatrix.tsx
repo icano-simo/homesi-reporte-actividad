@@ -237,6 +237,9 @@ export default function TabMilestoneMatrix({
         rawMilestone: loan.rawMilestone,
         rawHealthiness: loan.rawHealthiness,
         branchTransferred: loan.branchTransferred,
+        loanType: loan.loanType,
+        loanProgram: loan.loanProgram,
+        noteHistory: loan.noteHistory,
       })),
     });
   }

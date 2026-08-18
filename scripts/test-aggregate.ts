@@ -26,6 +26,9 @@ function makeLoan(
     borrowerName: 'TEST BORROWER',
     milestoneDate: null,
     branchTransferred: false,
+    loanType: '',
+    loanProgram: '',
+    noteHistory: '',
   };
 }
 

@@ -131,6 +131,21 @@ export async function GET() {
       borrowerName: r.borrower_name,
       milestoneDate: r.milestone_date,
       branchTransferred: r.branch_transferred,
+      // Fase urgente (drill-down modal): mismo caso que rawMilestone en
+      // resolvedLoans más abajo -- pipeline_loans no tiene columnas
+      // loan_type/loan_program todavía (no se persisten, ver
+      // toPipelineLoanRow en /api/pipeline/parse, sin tocar). Queda '' al
+      // restaurar desde Supabase; en la carga recién subida sí llega el
+      // dato real (ver salesforce-file.ts). Fuera de alcance de esta fase:
+      // requeriría columnas nuevas en Supabase.
+      loanType: '',
+      loanProgram: '',
+      // Fase urgente (Notes en el modal): mismo motivo -- pipeline_loans no
+      // tiene columna para "Production Support Note History" todavía. Queda
+      // '' al restaurar desde Supabase (el modal muestra el guion largo
+      // existente, no texto inventado); en la carga recién subida sí llega
+      // el dato real.
+      noteHistory: '',
     }));
 
     // milestoneDate/branchTransferred quedan en su default (null/false): la
@@ -164,6 +179,14 @@ export async function GET() {
       estClosingDate: r.est_closing_date,
       rawMilestone: '',
       rawLoanFolder: r.raw_loan_folder,
+      // Fase urgente (drill-down modal): mismo motivo que rawMilestone
+      // arriba en esta misma función -- pipeline_resolved_loans tampoco
+      // tiene loan_type/loan_program todavía. Queda '' al restaurar.
+      loanType: '',
+      loanProgram: '',
+      // Fase urgente (Notes en el modal): mismo motivo -- pipeline_resolved_loans
+      // tampoco tiene esa columna. Queda '' al restaurar.
+      noteHistory: '',
     }));
 
     return NextResponse.json({

@@ -34,6 +34,9 @@ function makeLoan(
     borrowerName: 'Demo Borrower',
     milestoneDate: '2026-08-01',
     branchTransferred: false,
+    loanType: '',
+    loanProgram: '',
+    noteHistory: '',
   };
 }
 

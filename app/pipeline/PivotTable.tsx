@@ -290,6 +290,9 @@ function openLoanToModalLoan(loan: PipelineLoan): LoanDetailModalLoan {
     rawMilestone: loan.rawMilestone,
     rawHealthiness: loan.rawHealthiness,
     branchTransferred: loan.branchTransferred,
+    loanType: loan.loanType,
+    loanProgram: loan.loanProgram,
+    noteHistory: loan.noteHistory,
   };
 }
 
@@ -307,6 +310,9 @@ function closedLoanToModalLoan(loan: ResolvedLoan): LoanDetailModalLoan {
     amount: loan.amount,
     rawMilestone: loan.rawMilestone || 'Closed (Funded)',
     branchTransferred: loan.branchTransferred,
+    loanType: loan.loanType,
+    loanProgram: loan.loanProgram,
+    noteHistory: loan.noteHistory,
   };
 }
 
@@ -617,6 +623,53 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
     });
   }
 
+  /** Contexto del modal para una fila de "Combined Total by Branch" -- mismo formato que contextFor(), sin canal (combina los 2). */
+  function contextForBranch(branch: string): string {
+    return `Branch ${branch} — Combined (Banked - Retail + Brokered)`;
+  }
+
+  /**
+   * Combined Total by Branch: mismo patrón que openTotalPipeline/
+   * openHealthyPipeline/openClosed de arriba, sin filtrar por canal -- junta
+   * las filas de `branchRows` de ese branch (como mucho 2: Banked + Brokered,
+   * cada una con su propio array `loans` de PipelineLoan, nunca solapado
+   * entre canales) en vez de una sola fila. No recalcula nada de
+   * aggregate.ts ni de buildCombinedByBranch -- solo re-arma la LISTA de
+   * préstamos detrás de un número que buildCombinedByBranch ya sumó.
+   */
+  function branchRowsFor(branch: string): BranchRow[] {
+    return branchRows.filter((r) => r.branch === branch);
+  }
+
+  function openCombinedTotalPipeline(branch: string) {
+    const loans = branchRowsFor(branch)
+      .flatMap((r) => r.branchForecastRow.loans)
+      .map(openLoanToModalLoan);
+    setModal({ context: contextForBranch(branch), metric: 'Total Pipeline', loans });
+  }
+
+  function openCombinedHealthyPipeline(branch: string) {
+    const loans = branchRowsFor(branch)
+      .flatMap((r) => r.branchForecastRow.loans.filter((l) => l.healthy === true))
+      .map(openLoanToModalLoan);
+    setModal({ context: contextForBranch(branch), metric: 'Healthy Pipeline', loans });
+  }
+
+  // Mismo filtro que openClosed() de arriba, sin la condición de canal --
+  // une los cerrados de Banked y Brokered de este branch (ResolvedLoan no
+  // puede pertenecer a los 2 canales a la vez, así que no hay riesgo de
+  // duplicar un préstamo al no filtrar por canal).
+  function openCombinedClosed(branch: string) {
+    const closedLoans = resolvedLoans.filter(
+      (loan) =>
+        loan.status === 'funded' &&
+        loan.branch === branch &&
+        loan.disbursementDate >= dateRange.startDate &&
+        loan.disbursementDate <= dateRange.endDate
+    );
+    setModal({ context: contextForBranch(branch), metric: 'Closed', loans: closedLoans.map(closedLoanToModalLoan) });
+  }
+
   return (
     <>
       {/* Spec §4C.2: grilla de 2 columnas, un canal por columna. */}
@@ -670,7 +723,10 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
           <span className="tbl-card__title">Combined Total by Branch</span>
         </div>
         <div className="tbl-scroll">
-          <table className="piv piv--exec">
+          {/* `piv--combined` (Fase urgente): solo agrega el centrado de columnas
+              numéricas de ESTA tabla (components.css) -- no cambia nada más,
+              Banked/Brokered arriba siguen usando table.piv td.val sin tocar. */}
+          <table className="piv piv--exec piv--combined">
             <ExecColgroup />
             <ExecHead />
             <tbody>
@@ -680,10 +736,14 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
                   <td className="th-left manager-cell" title={branchManagers.get(row.branch) ?? UNASSIGNED_MANAGER}>
                     {branchManagers.get(row.branch) ?? UNASSIGNED_MANAGER}
                   </td>
-                  <td className="val col-pipeline group-start">{fmtInt(row.totalCount)}</td>
-                  <td className="val col-pipeline">{fmtInt(row.healthyCount)}</td>
+                  <td className="val col-pipeline group-start">
+                    <CountCell value={row.totalCount} onClick={() => openCombinedTotalPipeline(row.branch)} />
+                  </td>
+                  <td className="val col-pipeline">
+                    <CountCell value={row.healthyCount} onClick={() => openCombinedHealthyPipeline(row.branch)} />
+                  </td>
                   <td className="val col-forecast group-start">
-                    <ClosedValue value={row.closedCount} />
+                    <CountCell value={row.closedCount} onClick={() => openCombinedClosed(row.branch)} variant="closed" />
                   </td>
                   <td className="val col-forecast">
                     <span className="ctc-cell">
@@ -710,21 +770,13 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
       </div>
 
       {/*
-       * Etapa UX8, hallazgo: este texto describía un comportamiento que ya no
-       * existe. Databa de antes de F5j-b, cuando `forecastTotal` viajaba en
-       * decimal hasta el final y cada subtotal (de canal y Combinado) se
-       * redondeaba por separado -- podían no coincidir. Desde F5j-b,
-       * `forecastTotal` ya llega redondeado POR BRANCH (page.tsx), así que
-       * todo lo que suma esos valores (subtotal de canal, Combined Total)
-       * sí cuadra exacto con la suma de las filas mostradas -- verificado en
-       * el reporte de esta etapa, no solo asumido. Se reemplaza el texto en
-       * vez de dejarlo, porque contradecía directamente la garantía que esta
-       * etapa pide verificar.
+       * Fase urgente, punto 5: Isabella pidió explícitamente sacar de la UI
+       * el texto explicativo que iba acá ("Closed + Projected to Close
+       * always add up to Forecast..."). Es solo el párrafo de presentación
+       * -- la garantía que describía (subtotales = suma exacta, ver
+       * ExecTotalRow/addSubtotal más arriba) sigue intacta en el cálculo,
+       * no se tocó nada de eso, solo se dejó de mostrar el texto.
        */}
-      <p className="foot-note">
-        Closed + Projected to Close always add up to Forecast, and subtotals are the exact sum of the rows shown above
-        -- no rows are hidden by rounding.
-      </p>
 
       <LoanDetailModal
         isOpen={modal !== null}

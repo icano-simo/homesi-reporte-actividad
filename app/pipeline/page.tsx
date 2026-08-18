@@ -792,21 +792,14 @@ export default function PipelinePage() {
   }
 
   // resolvedLoans (Funded/Adverse) no entran a ningún OTRO cálculo -- los
-  // 'adverse' nunca se suman a nada; solo una línea informativa, sin tabla
-  // ni drill-down (eso es una etapa futura).
-  let resolvedSummary: string | null = null;
-  if (data && filteredResolvedLoans.length > 0) {
-    const funded = filteredResolvedLoans.filter((l) => l.status === 'funded').length;
-    const adverse = filteredResolvedLoans.filter((l) => l.status === 'adverse').length;
-    resolvedSummary =
-      'Additionally, ' +
-      filteredResolvedLoans.length.toLocaleString('en-US') +
-      ' loans already resolved (' +
-      adverse.toLocaleString('en-US') +
-      ' adverse, ' +
-      funded.toLocaleString('en-US') +
-      ' funded) in this file -- they do not count toward the Forecast.';
-  }
+  // 'adverse' nunca se suman a nada. Antes había una variable local
+  // (`resolvedSummary`) que armaba un texto informativo con este mismo
+  // dato ("Additionally, N loans already resolved...") -- Fase urgente:
+  // Isabella pidió sacar ese texto de la UI, y sin ningún otro consumidor
+  // (nunca alimentó ningún cálculo, ver comentario de arriba) la variable
+  // quedó muerta -- se borra en vez de dejarla asignada sin uso.
+  // `filteredResolvedLoans` en sí SIGUE usándose (Closed/Adverse/AdverseTable
+  // más abajo, sin tocar).
 
   return (
     <div className="hub-container">
@@ -934,7 +927,17 @@ export default function PipelinePage() {
             />
           )}
 
-          {resolvedSummary && <div className="foot-note">{resolvedSummary}</div>}
+          {/*
+           * Fase urgente, punto 5: Isabella pidió explícitamente sacar de la
+           * UI el texto "Additionally, N loans already resolved (...) --
+           * they do not count toward the Forecast." Ese texto vivía en una
+           * variable local (`resolvedSummary`) que ya no existe -- se borró
+           * junto con el render, al no quedar ningún otro consumidor (ver
+           * el comentario donde se calculaba `filteredResolvedLoans`, más
+           * arriba). No afecta ningún cálculo de Forecast/Closed/Funded/
+           * Adverse -- `filteredResolvedLoans` sigue alimentando Closed y
+           * Adverse exactamente igual que antes.
+           */}
 
           {data.warnings.length > 0 && (
             <div className="foot-note">
