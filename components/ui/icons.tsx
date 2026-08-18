@@ -204,6 +204,29 @@ export function AlertTriangleIcon(props: IconProps) {
   );
 }
 
+/** lucide: target — tab "Business Plan" (objetivos vs. producción real). */
+export function TargetIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <circle cx="12" cy="12" r="10" />
+      <circle cx="12" cy="12" r="6" />
+      <circle cx="12" cy="12" r="2" />
+    </Icon>
+  );
+}
+
+/** lucide: users — directorio de personas. */
+export function UsersIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </Icon>
+  );
+}
+
 /** lucide: log-out — cerrar sesión. */
 export function LogOutIcon(props: IconProps) {
   return (
@@ -237,6 +260,166 @@ export function BuildingIcon(props: IconProps) {
       <path d="M10 6h4" />
       <path d="M10 10h4" />
       <path d="M10 14h4" />
+    </Icon>
+  );
+}
+
+/* ===========================================================================
+ * Iconos de canal y actividad comercial — etapa BP19
+ * ===========================================================================
+ *
+ * Los agrega el módulo Business Plan para marcar funnels y nodos. El set que
+ * había era de INTERFAZ -- subir, descargar, avisar -- y ninguno de esos
+ * significa nada como marca de una estrategia comercial: un funnel de llamadas
+ * en frío no se representa con una flecha de descarga.
+ *
+ * Mismo estilo que el resto del archivo: trazo simple sin relleno, viewBox de
+ * 24, `currentColor` heredado del envoltorio `Icon`. Sin librerías nuevas ni
+ * assets externos -- los paths son de Lucide (ISC), como los de arriba.
+ */
+
+/** lucide: phone — Cold Calling, Sales Call. */
+export function PhoneIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92Z" />
+    </Icon>
+  );
+}
+
+/** lucide: message-circle — AI WhatsApp, seguimiento por chat. */
+export function MessageIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
+    </Icon>
+  );
+}
+
+/** lucide: megaphone — Social Media Setup, campañas. */
+export function MegaphoneIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="m3 11 18-5v12L3 14v-3z" />
+      <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" />
+    </Icon>
+  );
+}
+
+/** lucide: mail — secuencias de contacto. */
+export function MailIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect width="20" height="16" x="2" y="4" rx="2" />
+      <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+    </Icon>
+  );
+}
+
+/** lucide: handshake — Realtor Activation, Builder Partnership. */
+export function HandshakeIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="m11 17 2 2a1 1 0 1 0 3-3" />
+      <path d="m14 14 2.5 2.5a1 1 0 1 0 3-3l-3.88-3.88a3 3 0 0 0-4.24 0l-.88.88a1 1 0 1 1-3-3l2.81-2.81a5.79 5.79 0 0 1 7.06-.87l.47.28a2 2 0 0 0 1.42.25L21 4" />
+      <path d="m21 3 1 11h-2" />
+      <path d="M3 3 2 14l6.5 6.5a1 1 0 1 0 3-3" />
+      <path d="M3 4h8" />
+    </Icon>
+  );
+}
+
+/** lucide: home — lo hipotecario en general. */
+export function HomeIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+      <path d="M9 22V12h6v10" />
+    </Icon>
+  );
+}
+
+/** lucide: file-signature — Application, documento firmado. */
+export function SignedDocIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+      <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+      <path d="M8 18c1.5-2 3-2 4 0s2.5 2 4 0" />
+      <path d="M8 13h4" />
+    </Icon>
+  );
+}
+
+/** lucide: database — Database Segmentation. */
+export function DatabaseIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <ellipse cx="12" cy="5" rx="9" ry="3" />
+      <path d="M3 5v14a9 3 0 0 0 18 0V5" />
+      <path d="M3 12a9 3 0 0 0 18 0" />
+    </Icon>
+  );
+}
+
+/** lucide: door-open — Door Knocking. */
+export function DoorIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M13 4h3a2 2 0 0 1 2 2v14" />
+      <path d="M2 20h20" />
+      <path d="M13 2v20l-8-2V4Z" />
+      <path d="M10 12v.01" />
+    </Icon>
+  );
+}
+
+/** lucide: calendar — Consultative Mtg, Event Hosting. */
+export function CalendarIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect width="18" height="18" x="3" y="4" rx="2" />
+      <path d="M16 2v4" />
+      <path d="M8 2v4" />
+      <path d="M3 10h18" />
+    </Icon>
+  );
+}
+
+/** lucide: map-pin — Community Presence, territorio. */
+export function MapPinIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
+      <circle cx="12" cy="10" r="3" />
+    </Icon>
+  );
+}
+
+/** lucide: filter — el concepto de embudo. */
+export function FunnelIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M22 3H2l8 9.46V19l4 2v-8.54Z" />
+    </Icon>
+  );
+}
+
+/** lucide: award — logro, referidos. */
+export function AwardIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="m15.477 12.89 1.515 8.526a.5.5 0 0 1-.81.47l-3.58-2.687a1 1 0 0 0-1.197 0l-3.586 2.686a.5.5 0 0 1-.81-.469l1.514-8.526" />
+      <circle cx="12" cy="8" r="6" />
+    </Icon>
+  );
+}
+
+/** lucide: star — destacado, referido. */
+export function StarIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M11.5 2.5a.6.6 0 0 1 1 0l2.4 5a.6.6 0 0 0 .45.33l5.4.8a.6.6 0 0 1 .34 1l-3.9 3.9a.6.6 0 0 0-.17.53l.92 5.4a.6.6 0 0 1-.87.63l-4.8-2.55a.6.6 0 0 0-.56 0l-4.8 2.55a.6.6 0 0 1-.87-.63l.92-5.4a.6.6 0 0 0-.17-.53l-3.9-3.9a.6.6 0 0 1 .34-1l5.4-.8a.6.6 0 0 0 .45-.33Z" />
     </Icon>
   );
 }

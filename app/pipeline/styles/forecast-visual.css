@@ -577,3 +577,61 @@
   background: var(--amber);
   color: var(--amber-text);
 }
+
+/* ===========================================================================
+ * Etapa BP16 — encabezado más limpio
+ * ===========================================================================
+ *
+ * La franja de control tenía cuatro controles del mismo peso y empujaba el
+ * banner de KPIs hacia abajo, que es lo primero que hay que leer. Subir archivo
+ * se fue arriba junto a descargar, y los dos parámetros que casi nadie cambia
+ * quedaron detrás de un desplegable.
+ */
+
+/* El mes del forecast, en lugar de la descripción de las tres pestañas. */
+.fc-month {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--slate-500);
+  margin: 2px 0 0;
+}
+
+/* Subir y descargar juntos: son el par de acciones de archivo. */
+.fc-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/*
+ * El resumen va EN el botón: plegado no es oculto. Sin él habría que abrir el
+ * panel sólo para saber en qué rango está el reporte.
+ */
+.fc-params__toggle {
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--slate-500);
+  background: none;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  padding: 6px 12px;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.fc-params__toggle:hover {
+  color: var(--navy);
+  border-color: var(--slate-300);
+}
+.fc-params {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--slate-100);
+}

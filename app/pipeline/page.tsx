@@ -22,7 +22,7 @@ import type { PipelineLoan, ResolvedLoan } from '@/lib/pipeline/types';
 import SummaryCards, { type SummaryBlock } from './SummaryCards';
 import type { MilestoneCascadeRow } from './MilestoneCascade';
 import PivotTable, { type BranchForecastRow } from './PivotTable';
-import { PIPELINE_FILE_INPUT_ID } from './UploadButton';
+import UploadButton, { PIPELINE_FILE_INPUT_ID } from './UploadButton';
 import AdverseTable from './AdverseTable';
 import Topbar from './Topbar';
 import TabNavigation, { type TabType } from './TabNavigation';
@@ -810,27 +810,35 @@ export default function PipelinePage() {
 
   return (
     <div className="hub-container">
+      {/*
+        Etapa BP16. El subtítulo decía "Projected forecast, milestone pipeline
+        matrix and adverse loans — August 2026": una descripción de las tres
+        pestañas que ya están ahí abajo, con el único dato útil -- de qué mes es
+        el forecast -- escondido al final. Queda sólo el mes, en grande.
+
+        Y las dos acciones de archivo van juntas arriba a la derecha. Subir
+        tenía su propia franja abajo, lejos de descargar, que es su par.
+      */}
       <div className="page-head">
         <div>
           <h1 className="page-head__title">Forecast &amp; Pipeline</h1>
-          <p className="page-head__subtitle">
-            Projected forecast, milestone pipeline matrix and adverse loans — {forecastMonthLabel}
-          </p>
+          <p className="fc-month">{forecastMonthLabel}</p>
         </div>
-        {data && (
-          <button type="button" className="btn primary" onClick={handleExport} disabled={isExporting}>
-            <DownloadIcon />
-            {isExporting ? 'Generating…' : 'Download Excel'}
-          </button>
-        )}
+        <div className="fc-actions">
+          <UploadButton onFileSelected={handleFileSelected} isLoading={isLoading} />
+          {data && (
+            <button type="button" className="btn primary" onClick={handleExport} disabled={isExporting}>
+              <DownloadIcon />
+              {isExporting ? 'Generating…' : 'Download Excel'}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Etapa UX1: el Topbar dejó de ser una franja a todo el ancho por encima
           del contenido -- ahora es la tarjeta de control (spec §3B) dentro del
           mismo contenedor de 1440px que el resto de la vista. */}
       <Topbar
-        onFileSelected={handleFileSelected}
-        isLoading={isLoading}
         fileName={fileName}
         pipelineDateRange={pipelineDateRange}
         onPipelineDateRangeChange={setPipelineDateRange}
