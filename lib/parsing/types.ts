@@ -46,4 +46,12 @@ export interface RawLoanRow {
   loanFolderName: string;
   /** Columna 'Affinity' (optional), valor crudo. '' si el archivo no la trae. */
   affinity: string;
+  /**
+   * Columna opcional 'HELOC LIEN POSITION', valor numérico tal cual (1 o 2
+   * en los datos reales vistos). `null` si el archivo no trae la columna o
+   * la celda está vacía -- no se asume ningún valor por defecto. Usada
+   * exclusivamente por lib/domain/isHelocLien2.ts para decidir exclusión
+   * (regla confirmada por Isabella); no se transforma ni normaliza acá.
+   */
+  helocLienPosition: number | null;
 }

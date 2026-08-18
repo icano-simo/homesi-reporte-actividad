@@ -5,6 +5,7 @@ import { read } from 'xlsx';
 import { readWorkbook } from '@/lib/parsing/workbookReader';
 import type { RawLoanRow, YearMonth } from '@/lib/parsing/types';
 import { classifyLoan } from '@/lib/domain/classifyLoan';
+import { isHelocLien2 } from '@/lib/domain/isHelocLien2';
 import type { LoanRecord } from '@/lib/domain/types';
 import { buildReportTree } from '@/lib/aggregation/buildReportTree';
 import { buildLoanOfficerTree } from '@/lib/aggregation/buildLoanOfficerTree';
@@ -160,8 +161,15 @@ export default function Home() {
         const result = ev.target?.result;
         if (!(result instanceof ArrayBuffer)) throw new Error('No se pudo leer el archivo.');
         const workbook = read(new Uint8Array(result), { type: 'array' });
-        const rawRows: RawLoanRow[] = readWorkbook(workbook);
-        if (!rawRows.length) throw new Error('El archivo no tiene filas de datos');
+        const parsedRows: RawLoanRow[] = readWorkbook(workbook);
+        if (!parsedRows.length) throw new Error('El archivo no tiene filas de datos');
+        // Exclusión global (regla de negocio confirmada por Isabella,
+        // 2026-08-18): HELOC LIEN POSITION = 2 nunca debe convertirse en
+        // LoanRecord ni guardarse en Supabase -- se filtra ACÁ, sobre
+        // RawLoanRow, antes de classifyLoan() y antes de saveUpload(), para
+        // que quede fuera del universo entero de Activity (ver
+        // lib/domain/isHelocLien2.ts).
+        const rawRows = parsedRows.filter((r) => !isHelocLien2(r));
         const loanRecords = rawRows.map(classifyLoan);
 
         applyLoadedReport(loanRecords, file.name);

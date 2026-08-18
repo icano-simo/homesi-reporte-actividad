@@ -114,6 +114,50 @@ arriba.
 validación manual contra Salesforce/SL Query antes de commit** — no
 documentado como cerrado hasta esa validación.
 
+### Exclusión global — HELOC Lien Position 2
+
+Regla de negocio confirmada por Isabella (2026-08-18): los loans con
+`HELOC LIEN POSITION = 2` no se cuentan en Commercial Activity — no dejan
+utilidad para la empresa y confunden los reportes si se incluyen.
+
+**Es una exclusión GLOBAL del universo de Activity**, no un filtro visual ni
+solo del drill-down: ocurre durante la ingesta, en `app/page.tsx`
+(`handleFileChange`), filtrando `RawLoanRow[]` con
+`lib/domain/isHelocLien2.ts` **antes** de `classifyLoan()` — el loan nunca
+llega a convertirse en `LoanRecord`, nunca entra al estado `records` y nunca
+se guarda vía `saveUpload()`. Por eso queda fuera, sin excepción, de Branch,
+Metric, Loan Officer, BD, filtros (Channel/B2B/Year/Branch), drill-down/modal
+y export — todos derivan del mismo `records` filtrado una sola vez (ver
+Etapa 2 arriba).
+
+**Campo crudo**: `RawLoanRow.helocLienPosition` (`lib/parsing/types.ts`),
+poblado desde la columna opcional `HELOC LIEN POSITION`
+(`config/requiredColumns.ts`, `OPTIONAL_COLUMNS[5]`) — opcional a propósito,
+mismo criterio que Disbursement Date: un archivo que no la traiga sigue
+parseando igual, simplemente ningún loan de ese archivo queda excluido por
+esta regla. Solo acepta el valor numérico real de la celda (`1`/`2`); una
+celda vacía o de otro tipo da `null`, que NO excluye.
+
+**Condición única e intencional**: `helocLienPosition === 2`. Sin
+condiciones adicionales sobre Channel, Loan Program, Branch, B2B, Loan
+Officer o milestone.
+
+**Validado** contra el archivo real (`SLQUERY 08.14.AM.xlsx`, 4.609 filas):
+distribución `1`=4.566, `2`=42, vacío=1 → 4.609 rawRows − 42 excluidos =
+4.567 `LoanRecord` elegibles, cero fugas (ningún `loan_number` excluido
+sobrevive en el resultado).
+
+**Específica de Commercial Activity** — no debe interpretarse
+automáticamente como una regla de Forecast/Pipeline: ese módulo ya excluye
+SL/HELOC por alcance propio (ver "Módulo 2 — Forecast/Pipeline · Alcance"),
+así que no existía lógica que reutilizar ni riesgo de conflicto.
+
+**Pendiente conocido, no bloqueante**: el batch actualmente persistido en
+Supabase (subido antes de esta regla) puede seguir teniendo loans HELOC=2
+latentes hasta el próximo upload — no se tocó Supabase ni se corrió SQL para
+limpiarlo retroactivamente (decisión explícita); se resuelve solo con el
+próximo archivo subido.
+
 ### Drill-down de Activity (Fase 1 — sin persistencia Supabase)
 
 Reemplaza progresivamente la expansión inline por un modal: click en una
