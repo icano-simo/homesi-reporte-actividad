@@ -74,6 +74,17 @@ function toPipelineLoanRow(loan: PipelineLoan, snapshotId: number) {
     borrower_name: loan.borrowerName,
     milestone_date: loan.milestoneDate,
     branch_transferred: loan.branchTransferred,
+    // Fase de persistencia (Loan Type/Loan Program): columnas ya creadas en
+    // Supabase (text, nullable) -- mismo patrón que production_support_note_history
+    // abajo: paso directo, sin transformar/truncar/normalizar.
+    loan_type: loan.loanType,
+    loan_program: loan.loanProgram,
+    // Fase de persistencia (Notes): columna ya creada en Supabase
+    // (text, nullable). Mismo patrón que raw_loan_folder/branch/etc. más
+    // abajo en toResolvedLoanRow -- paso directo, sin coerción a null (esa
+    // coerción solo aplica a disbursement_date, por ser columna `date`).
+    // Valor real de loan.noteHistory, sin resumir/truncar/limpiar.
+    production_support_note_history: loan.noteHistory,
   };
 }
 
@@ -107,6 +118,13 @@ function toResolvedLoanRow(loan: ResolvedLoan, snapshotId: number) {
     // milestone_date y branch_transferred (ver comentario arriba), esta sí
     // se puede guardar.
     raw_loan_folder: loan.rawLoanFolder,
+    // Fase de persistencia (Loan Type/Loan Program): mismo motivo/patrón que
+    // raw_loan_folder arriba -- columnas ya creadas, paso directo.
+    loan_type: loan.loanType,
+    loan_program: loan.loanProgram,
+    // Fase de persistencia (Notes): mismo motivo/patrón que raw_loan_folder
+    // arriba -- columna text/nullable ya creada, paso directo del valor real.
+    production_support_note_history: loan.noteHistory,
   };
 }
 

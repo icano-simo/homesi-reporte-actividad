@@ -43,6 +43,9 @@ interface PipelineLoanRow {
   borrower_name: string;
   milestone_date: string | null;
   branch_transferred: boolean;
+  loan_type: string | null;
+  loan_program: string | null;
+  production_support_note_history: string | null;
 }
 
 interface ResolvedLoanRow {
@@ -57,6 +60,9 @@ interface ResolvedLoanRow {
   loan_status: string;
   est_closing_date: string | null;
   raw_loan_folder: string;
+  loan_type: string | null;
+  loan_program: string | null;
+  production_support_note_history: string | null;
 }
 
 /**
@@ -107,12 +113,12 @@ export async function GET() {
 
     const loanRows = await fetchAllPages<PipelineLoanRow>(
       'pipeline_loans',
-      'source_loan_id, branch, channel, milestone, raw_milestone, healthy, raw_healthiness, close_month, est_closing_date, amount, loan_officer, borrower_name, milestone_date, branch_transferred',
+      'source_loan_id, branch, channel, milestone, raw_milestone, healthy, raw_healthiness, close_month, est_closing_date, amount, loan_officer, borrower_name, milestone_date, branch_transferred, loan_type, loan_program, production_support_note_history',
       snapshotId
     );
     const resolvedRows = await fetchAllPages<ResolvedLoanRow>(
       'pipeline_resolved_loans',
-      'source_loan_id, branch, channel, status, disbursement_date, amount, loan_officer, borrower_name, loan_status, est_closing_date, raw_loan_folder',
+      'source_loan_id, branch, channel, status, disbursement_date, amount, loan_officer, borrower_name, loan_status, est_closing_date, raw_loan_folder, loan_type, loan_program, production_support_note_history',
       snapshotId
     );
 
@@ -131,21 +137,21 @@ export async function GET() {
       borrowerName: r.borrower_name,
       milestoneDate: r.milestone_date,
       branchTransferred: r.branch_transferred,
-      // Fase urgente (drill-down modal): mismo caso que rawMilestone en
-      // resolvedLoans más abajo -- pipeline_loans no tiene columnas
-      // loan_type/loan_program todavía (no se persisten, ver
-      // toPipelineLoanRow en /api/pipeline/parse, sin tocar). Queda '' al
-      // restaurar desde Supabase; en la carga recién subida sí llega el
-      // dato real (ver salesforce-file.ts). Fuera de alcance de esta fase:
-      // requeriría columnas nuevas en Supabase.
-      loanType: '',
-      loanProgram: '',
-      // Fase urgente (Notes en el modal): mismo motivo -- pipeline_loans no
-      // tiene columna para "Production Support Note History" todavía. Queda
-      // '' al restaurar desde Supabase (el modal muestra el guion largo
-      // existente, no texto inventado); en la carga recién subida sí llega
-      // el dato real.
-      noteHistory: '',
+      // Bug fix (persistencia Loan Type/Loan Program): la columna ya existe
+      // y ya se lee (ver el SELECT más arriba) -- `?? ''` cubre únicamente
+      // el NULL real de Postgres, mismo criterio que noteHistory abajo. Ya
+      // no queda hardcodeado en '' -- ese era exactamente el bug: el valor
+      // llegaba bien recién subido el Excel, pero se perdía al recargar
+      // porque acá nunca se leía la columna aunque el INSERT (una vez
+      // corregido en /api/pipeline/parse) sí la escribe.
+      loanType: r.loan_type ?? '',
+      loanProgram: r.loan_program ?? '',
+      // Fase de persistencia (Notes): la columna ya existe y ya se lee (ver
+      // el SELECT más arriba) -- `?? ''` cubre únicamente el NULL real de
+      // Postgres (nota vacía o filas guardadas antes de que existiera la
+      // columna), mismo criterio que el resto de los campos opcionales de
+      // este mapeo. Ya no queda hardcodeado.
+      noteHistory: r.production_support_note_history ?? '',
     }));
 
     // milestoneDate/branchTransferred quedan en su default (null/false): la
@@ -179,14 +185,13 @@ export async function GET() {
       estClosingDate: r.est_closing_date,
       rawMilestone: '',
       rawLoanFolder: r.raw_loan_folder,
-      // Fase urgente (drill-down modal): mismo motivo que rawMilestone
-      // arriba en esta misma función -- pipeline_resolved_loans tampoco
-      // tiene loan_type/loan_program todavía. Queda '' al restaurar.
-      loanType: '',
-      loanProgram: '',
-      // Fase urgente (Notes en el modal): mismo motivo -- pipeline_resolved_loans
-      // tampoco tiene esa columna. Queda '' al restaurar.
-      noteHistory: '',
+      // Bug fix (persistencia Loan Type/Loan Program): mismo motivo que en
+      // openLoans arriba -- la columna ya existe y ya se lee.
+      loanType: r.loan_type ?? '',
+      loanProgram: r.loan_program ?? '',
+      // Fase de persistencia (Notes): mismo motivo que en openLoans arriba --
+      // la columna ya existe y ya se lee, `?? ''` solo cubre NULL real.
+      noteHistory: r.production_support_note_history ?? '',
     }));
 
     return NextResponse.json({

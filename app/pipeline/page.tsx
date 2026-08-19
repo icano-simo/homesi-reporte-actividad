@@ -205,6 +205,19 @@ export default function PipelinePage() {
       .then((res) => res.json())
       .then((body) => {
         if (cancelled) return;
+        // Manejo explícito de errores del restore de Forecast: un 500 real
+        // de /api/pipeline/latest ({error: "..."}) es un caso distinto de
+        // {snapshot: null} ("todavía no se subió nada") -- fetch() no
+        // rechaza en un status de error, así que el .catch() de abajo
+        // (fallos de red) nunca se entera de esto. Se separa acá para
+        // mostrar el mensaje real con el mecanismo de error ya existente
+        // (setError), en vez de que un error real se muestre como si no
+        // hubiera Forecast guardado. No toca la rama de éxito ni la de
+        // snapshot:null, ninguna query, ninguna columna.
+        if (body && body.error) {
+          setError(String(body.error));
+          return;
+        }
         if (!body || !body.snapshot) return;
         setData({ openLoans: body.openLoans, resolvedLoans: body.resolvedLoans, warnings: body.warnings ?? [] });
         setFileName(body.snapshot.fileName);

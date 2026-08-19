@@ -1165,12 +1165,32 @@ tr.mrow .chev {
  * `\n` entre entradas).
  */
 table.piv td.note-cell {
-  white-space: pre-wrap;
   overflow: visible;
   text-overflow: clip;
   text-align: left;
   vertical-align: top;
   line-height: 1.4;
+}
+/*
+ * Preview colapsado: clamp VISUAL a 3 líneas vía `-webkit-line-clamp`, no un
+ * recorte por cantidad de caracteres -- el texto completo sigue en el DOM
+ * (NoteCell no lo corta), el navegador decide cuánto entra en 3 líneas según
+ * el ancho real de la columna. Soportado en todos los motores actuales
+ * (Chromium/Firefox/Safari), no solo WebKit pese al nombre de la propiedad.
+ * `white-space: pre-wrap` acá (no en `.note-cell`) porque solo hace falta
+ * donde efectivamente hay texto -- respeta los saltos de línea reales del
+ * origen Y envuelve líneas largas, ambos cuentan para las 3 líneas del clamp.
+ */
+.note-text--clamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  white-space: pre-wrap;
+}
+/* Expandido: mismo respeto de saltos de línea, sin clamp ni límite de alto. */
+.note-text--full {
+  white-space: pre-wrap;
 }
 /*
  * "Show more"/"Hide note": mismo lenguaje visual que `.drill-value`/
@@ -1181,7 +1201,10 @@ table.piv td.note-cell {
  */
 .note-toggle {
   display: inline-block;
-  margin-left: 6px;
+  /* `margin-top`, no `margin-left`: `.note-text--clamped`/`.note-text--full`
+     son de ancho completo (line-clamp/pre-wrap con wrap), así que el botón
+     siempre cae en su propia línea debajo del texto, nunca al lado. */
+  margin-top: 4px;
   padding: 1px 5px;
   border: none;
   background: transparent;

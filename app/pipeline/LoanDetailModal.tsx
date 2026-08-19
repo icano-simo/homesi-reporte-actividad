@@ -33,7 +33,8 @@ import { CloseIcon } from '@/components/ui/icons';
  * el comentario del colgroup para el detalle.
  *
  * Fase urgente (Notes): agrega la columna "Notes" (Production Support Note
- * History) al final -- preview corto + "Show more"/"Hide note" POR FILA,
+ * History) al final -- preview de ~3 líneas visuales (CSS line-clamp, ver
+ * NoteCell/.note-text--clamped) + "Show more"/"Hide note" POR FILA,
  * expandiendo/contrayendo dentro de la misma celda (nunca otro modal). El
  * ancho extra del modal ampliado (`.modal-box--wide`) se destina
  * principalmente a esta columna; el resto de columnas conserva su ancho
@@ -68,9 +69,9 @@ export interface LoanDetailModalLoan {
   /**
    * Fase urgente (Notes): columna "Production Support Note History" del
    * origen. '' si el archivo/loan no la trae -- se muestra '—', nunca se
-   * inventa texto. Valor completo, sin recortar -- el recorte de preview es
-   * solo de presentación (ver notePreview() más abajo), este campo siempre
-   * conserva el texto real completo.
+   * inventa texto. Valor completo, sin recortar -- el recorte visual a ~3
+   * líneas es puramente de presentación (CSS line-clamp, ver NoteCell más
+   * abajo), este campo siempre conserva el texto real completo.
    */
   noteHistory: string;
 }
@@ -97,32 +98,57 @@ function HealthBadge({ rawHealthiness }: { rawHealthiness?: string }) {
   return <span className={'badge badge--pill ' + healthStatusVariant(label)}>{label}</span>;
 }
 
-/** Largo del preview -- solo de PRESENTACIÓN, nunca se aplica al valor guardado (loan.noteHistory). */
-const NOTE_PREVIEW_LENGTH = 140;
-
-/** Recorte determinístico: mismo input, mismo output siempre. No altera el string original, solo lo que se muestra colapsado. */
-function notePreview(note: string): string {
-  if (note.length <= NOTE_PREVIEW_LENGTH) return note;
-  return note.slice(0, NOTE_PREVIEW_LENGTH).trimEnd() + '…';
-}
-
 /**
- * Celda de Notes: preview corto + toggle "Show more"/"Hide note" cuando el
- * texto es más largo que el preview -- si no hay nota, el guion largo
- * existente (mismo criterio que Loan Type/Loan Program/etc., nunca se
- * inventa texto). El toggle solo aparece si hay algo real que ocultar/
- * mostrar (nota más larga que el preview) -- con una nota corta no habría
- * nada distinto que "Show more" fuera a revelar.
+ * Celda de Notes: preview de ~3 líneas VISUALES (CSS `-webkit-line-clamp`,
+ * `.note-text--clamped` en components.css) -- no un recorte por cantidad de
+ * caracteres. El texto completo (`note`) va siempre en el DOM, colapsado o
+ * expandido; lo único que cambia es la clase CSS que lo clampea o no.
+ *
+ * "Show more" solo debe aparecer si el navegador REALMENTE clampeó algo --
+ * un recorte por caracteres no puede saber eso (una nota de 200 caracteres
+ * puede entrar en 3 líneas si son cortas, y una de 80 puede no entrar si
+ * tiene saltos de línea reales). Se mide el nodo clampeado apenas se monta
+ * (`scrollHeight > clientHeight` = hay contenido oculto) con un CALLBACK
+ * REF, no con un efecto: un ref callback corre en el commit, no es un
+ * Effect, así que llamar a `setState` ahí no dispara el lint de "setState
+ * dentro de un effect" (react-hooks/set-state-in-effect) que si aplicaría
+ * a un useEffect/useLayoutEffect haciendo lo mismo.
+ *
+ * `isOverflowing` es estado LOCAL de este componente -- cada <NoteCell> ya
+ * es una instancia por fila (una por <tr>, ver el .map() de abajo), así que
+ * no hace falta un Set con sourceLoanId para que quede por fila: React ya
+ * aísla el estado de cada instancia.
  */
 function NoteCell({ note, expanded, onToggle }: { note: string; expanded: boolean; onToggle: () => void }) {
+  const [isOverflowing, setIsOverflowing] = useState(false);
+
+  function measureClamp(node: HTMLSpanElement | null) {
+    if (!node) return;
+    const overflowing = node.scrollHeight > node.clientHeight + 1;
+    setIsOverflowing((prev) => (prev === overflowing ? prev : overflowing));
+  }
+
   if (!note) return <span style={{ color: 'var(--slate-400)' }}>—</span>;
-  const isLong = note.length > NOTE_PREVIEW_LENGTH;
+
+  if (expanded) {
+    return (
+      <>
+        <span className="note-text note-text--full">{note}</span>
+        <button type="button" className="note-toggle" onClick={onToggle}>
+          Hide note
+        </button>
+      </>
+    );
+  }
+
   return (
     <>
-      <span className="note-text">{expanded ? note : notePreview(note)}</span>
-      {isLong && (
+      <span ref={measureClamp} className="note-text note-text--clamped">
+        {note}
+      </span>
+      {isOverflowing && (
         <button type="button" className="note-toggle" onClick={onToggle}>
-          {expanded ? 'Hide note' : 'Show more'}
+          Show more
         </button>
       )}
     </>
