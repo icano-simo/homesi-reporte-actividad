@@ -1659,6 +1659,8 @@ intermedio de triage, sin tocar los dos que ya estaban en uso.
 
 ---
 
+## Glosario rápido (para no repetir la investigación)
+
 - **CL / SL** en nombres de archivo = residuo histórico de cuando existían dos empresas (City Lending / Supreme Lending); hoy solo existe Supreme Lending, no hay distinción de marca activa.
 - **Healthy / Delayed / Out of Scope / Never / Adverse** — estados de un préstamo en pipeline. Adverse = terminal (rechazado). Never = provisional, "ya sabemos que no va a cerrar pero Encompash no lo refleja aún" — se trata igual que Adverse para el forecast.
 - **Loan Folder** ≠ milestone — es una carpeta operativa (Current Prospects, My Pipeline, Underwriting, Brokered, Funded, Adverse Loans), no la secuencia de avance del préstamo.
@@ -2996,3 +2998,192 @@ de `org` en vez de mantener su propia copia** en `pipeline_forecast.branches`/
 - [ ] Confirmar que el branch 703 se actualice a "Ana Peña" en `pipeline_forecast.branch_managers` cuando se aborde la etapa de unificación — no ahora, no como parte de esta rama.
 - [ ] Confirmar que el branch 733 se normalice el acento ("Stephanie García" → "Stephanie Garcia", o viceversa, según cuál fuente se declare canónica) cuando corresponda.
 - [ ] Revisar el criterio de negocio de Affinity (branch con manager en Forecast pero fuera de división en `org`) antes de cualquier cambio futuro de unificación — no es un error de datos, es una decisión intencional que la unificación tiene que respetar o revisar explícitamente, no sobrescribir.
+
+## Etapa S1 — escritura atómica de snapshot + `data_as_of`
+
+Cimiento para el histórico diario del Executive Branch Forecast (S2/S3, no en esta etapa).
+Arregla dos defectos verificados contra producción, no supuestos:
+
+1. **Escritura no transaccional.** `app/api/pipeline/parse/route.ts` insertaba el snapshot y
+   después los hijos en tandas de 500, sin transacción. El rol `authenticator` tiene
+   `statement_timeout=8s`. El snapshot **13** en producción quedó con 80 filas en
+   `pipeline_loans` y **0** en `pipeline_resolved_loans` (el resto trae 711-754) — y aun así
+   `is_active=true`: alguien vio un pipeline sin cerrados sin ninguna advertencia.
+2. **`snapshot_date` era la fecha de subida, no la del dato.** `new Date().toISOString().slice(0,10)`.
+   Los snapshots **9 y 11** (subidos el 2026-08-03) son el mismo export
+   `Forecast - Pipeline Report-2026-07-30-...` que el snapshot 6 — datos del 30 de julio
+   archivados como si fueran del 3 de agosto.
+
+### `lib/pipeline/dataAsOf.ts` — nuevo
+
+`parseDataAsOf(fileName)` extrae de `file_name` el instante en que Salesforce generó el
+export, en vez de usar la fecha de subida. Dos formatos, **cada uno en una zona horaria
+distinta**:
+
+- Formato A, `report<13 dígitos>.xls`: los dígitos son epoch **ms UTC** — directo.
+- Formato B, `Forecast - Pipeline Report-YYYY-MM-DD-HH-MM-SS.xlsx` (con sufijo opcional
+  ` (1)`, ` (2)`...): el sello es hora **local America/Chicago**, hay que convertirlo a UTC.
+  Sin instalar una librería de zonas horarias (America/Chicago no tiene offset fijo: CDT=-5 en
+  verano, CST=-6 en invierno) — se resuelve por búsqueda determinista: se prueban los 2
+  offsets posibles y se usa el que, formateado de vuelta a hora de Chicago con
+  `Intl.DateTimeFormat`, reproduce exactamente el sello local del nombre de archivo.
+
+Regla dura: formato no reconocido, o fecha fuera de rango (anterior a 2020-01-01 o posterior a
+`ahora + 24h`), devuelve `{ dataAsOf: null, source: 'unknown' }` — **nunca** cae a `new Date()`
+como fallback silencioso, que es exactamente el bug que esta etapa arregla. `dataAsOf === null`
+y `source === 'unknown'` van siempre juntos.
+
+Verificado en `scripts/test-dataAsOf.ts` (mismo patrón que `test-aggregate.ts`/`test-parser.ts`,
+no hay test runner en el proyecto — confirmado en `package.json` antes de asumirlo) contra los 8
+casos reales de producción del brief S1 + 1 sintético de invierno (CST, sin archivo real todavía
+para ese caso). Los 10 pasan.
+
+### `app/api/pipeline/parse/route.ts` — reescrito
+
+El bloque de persistencia (`update is_active=false` → `insert` en `pipeline_snapshots` →
+`insertInBatches` ×2, sin transacción) se reemplaza por una sola llamada a la función SQL
+`pipeline_forecast.save_pipeline_snapshot()` — ya aplicada y verificada en la base por fuera de
+esta etapa (firma confirmada contra `pg_proc` antes de escribir el código: coincide exacto con
+el contrato del brief, `SECURITY INVOKER`). Garantías que la función asume, y que por eso no se
+replican en TS: todo en una transacción, `snapshot_date` derivado de `data_as_of` en
+America/Chicago, `snapshot_id` asignado por la función (los mapeadores `toPipelineLoanRow`/
+`toResolvedLoanRow` dejan de recibirlo).
+
+**Compuerta de activación** — el arreglo puntual del snapshot 13:
+`shouldActivate = openLoans.length > 0 && resolvedLoans.length > 0`. Si alguna mitad vino
+vacía, el snapshot se guarda igual (`p_activate=false`, no se pierde el trabajo) pero no se
+activa, con un warning explícito y `needsReview: true` en la respuesta — visible en vez de
+silencioso. Un `dataAsOf` nulo también agrega warning, pero **no** bloquea la activación: es un
+nombre de archivo no estándar, no un archivo roto. Un fallo de persistencia sigue sin romper la
+respuesta (mismo comportamiento de antes): el usuario ya tiene el archivo parseado esta sesión,
+el error va a `warnings` con `errorMessage(err)`.
+
+### Verificación — qué se hizo y qué se delegó
+
+`tsc`/`eslint` limpios. La tabla de los 9 casos reales (+1 sintético) de `parseDataAsOf` corrió
+completa (ver arriba). La firma de la RPC se confirmó leyendo `pg_proc` en `simoOS-prod` — sin
+escribir nada — antes de dar por buena la Tarea 2.
+
+**No se hizo desde este entorno, a pedido explícito:** ninguna escritura de prueba contra
+producción. La carga real contra la rama (punto 3 del brief) queda **delegada** — la corre
+Isabella en localhost con datos reales. La prueba negativa (punto 4, `shouldActivate=false`)
+también queda **delegada** — la corre el revisor por SQL directo, con limpieza posterior. Esta
+etapa no cierra sin esos dos resultados; los reporta quien los corra.
+
+
+### Cierre de S1 (2026-08-20) — merge de main y verificación end-to-end
+
+**El merge chocó UN archivo, no dos.** `app/api/pipeline/parse/route.ts` no chocó:
+`git log $(git merge-base main feat/s1-snapshots)..main -- app/api/pipeline/parse/route.ts`
+sale vacío. Main no tocó ese archivo desde la base.
+
+⚠ **`loan_type`, `loan_program` y `production_support_note_history` no están en
+main.** `git grep` sobre todo el árbol de main da cero. Viven en
+`feat/forecast-combined-drilldown`, que sigue sin mergear. Así que el requisito
+"los dos cambios tienen que sobrevivir" es vacío para este merge: no hay nada de
+main que preservar en ese archivo.
+
+⚠ **Y la RPC NO persiste esos tres campos. Verificado.** Se la llamó con las tres
+claves presentes en el jsonb y con un `data_as_of_source` válido; devolvió 200,
+insertó las filas, y las tres columnas quedaron en **null**. Las columnas SÍ
+existen en las dos tablas hijas — la base va adelante de main — pero la función
+mapea una lista explícita que no las incluye, así que **descarta las claves en
+silencio**.
+
+Eso es peor que un parámetro faltante: si `feat/forecast-combined-drilldown` se
+mergea encima de S1 sin ampliar la función, la app parece funcionar y deja de
+persistir tres columnas sin un solo error. **Ampliar la función la hace el
+revisor**; hasta entonces no se toca el mapper de esta rama, porque agregar
+claves que la función tira sería escribir código que finge guardar algo.
+
+**Los valores de `data_as_of_source` que la función acepta** son exactamente los
+tres que produce `parseDataAsOf` — `filename_epoch`, `filename_label`,
+`unknown` — más `null`. Cualquier otro string se rechaza con
+`P0001 data_as_of_source invalido`. Comprobado uno por uno.
+
+#### El lado de lectura, que faltaba
+
+S1 guardaba `data_as_of` y **nadie lo leía**: `/api/pipeline/latest` devolvía
+sólo `uploaded_at`, y `app/pipeline/page.tsx` lo mostraba como fecha del
+snapshot. El arreglo estaba en la base y no llegaba a la pantalla — el mismo
+paso que este proyecto ya se olvidó cuatro veces. Ahora el select trae
+`data_as_of` y `data_as_of_source`, y la página usa la fecha del dato con
+fallback a la de subida para los archivos de nombre no estándar.
+
+También se dejó de descartar el retorno de la RPC: devuelve
+`{ snapshot_id, snapshot_date, loans_inserted, resolved_inserted, is_active }` y
+ahora viaja en la respuesta como `saved`. Con los conteos a la vista, un caso
+como el del snapshot 13 se ve desde el cliente en vez de descubrirse semanas
+después mirando la base.
+
+#### ⚠ Un borrado accidental durante la verificación, y cómo se recuperó
+
+Un script de prueba tenía un fallback: "si la respuesta no trae `snapshot_id`,
+usá el último id de la tabla". La llamada falló por un `data_as_of_source`
+inventado, el fallback resolvió al snapshot **activo de producción (57)**, y la
+limpieza lo borró.
+
+Se recuperó reactivando el snapshot **56**, que es el mismo export
+(`Forecast - Pipeline Report-2026-08-20-09-47-31.xlsx`), con el mismo
+`row_count` 880 y sus hijos intactos (106 abiertos + 774 resueltos). No se
+perdió ningún dato; se perdió una fila duplicada.
+
+La lección quedó en los scripts siguientes: **se borra únicamente el id que
+devolvió la función, y si no lo devolvió no se borra nada.** Un fallback a
+"el último" en un script de limpieza es una bomba con temporizador.
+
+De paso quedó a la vista que `pipeline_snapshots` permite DELETE a
+`authenticated` y que no hay índice de snapshot activo único — el snapshot 51,
+por ejemplo, tiene 0 hijos, otra instancia del defecto que S1 arregla.
+
+### S1b (2026-08-20) — los tres campos, y el merge a main
+
+La función ampliada por el revisor ya acepta `loan_type`, `loan_program` y
+`production_support_note_history`. Y el mapper **no hizo falta editarlo**: los
+tres campos llegaron con la segunda pasada de main, que trae el merge de
+`feat/forecast-combined-drilldown`. Git combinó bien las dos mitades — los
+mappers de main con los tres campos, y la llamada RPC de S1 sin `snapshotId` —
+pero se leyeron las dos funciones enteras antes de confiar en que no se quejara.
+
+**Carga real con los tres campos poblados**, snapshot 62, archivo
+`Forecast - Pipeline Report-2026-08-20-16-05-00.xlsx` con las tres columnas
+agregadas al demo:
+
+```
+saved: {"is_active":true,"snapshot_id":62,"loans_inserted":47,"resolved_inserted":17}
+data_as_of=2026-08-20T21:05:00+00:00  src=filename_label
+
+pipeline_loans          47 filas · loan_type NULL=0 · loan_program NULL=0 · nota NULL=0
+pipeline_resolved_loans 17 filas · loan_type NULL=0 · loan_program NULL=0 · nota NULL=0
+```
+
+`/api/pipeline/latest` los devuelve en las dos mitades
+(`loanType`, `loanProgram`, `noteHistory`).
+
+⚠ Un detalle que conviene saber: el parser cae a `''` -- cadena vacía, no
+`null` -- cuando el archivo no trae esas columnas, porque son opcionales. Así
+que "no vino la columna" y "vino vacía" se guardan igual. No se cambió: tocar
+esa coerción es del lado del parser y afecta a otras etapas.
+
+#### La anomalía de zona horaria: sigue siendo un solo caso
+
+De los 46 snapshots, **uno** tiene `data_as_of` posterior a `uploaded_at`: el
+**56**, por 50 minutos. El dato dice 09:47:31 CT y la subida fue 08:57:41 CT.
+Si ese export vino con hora del **Este**, el dato serían las 08:47:31 CT — diez
+minutos antes de la subida, que es coherente.
+
+El reparto por formato apoya la hipótesis: los 22 de formato `filename_epoch`
+no tienen ni un caso (epoch es UTC sin ambigüedad) y la anomalía aparece sólo
+en uno de los 24 de `filename_label`. No hay casos nuevos.
+
+#### Cinco snapshots menos, y no fue esta rama
+
+La tabla pasó de 51 a 46 filas entre el cierre de S1 y S1b. Los cinco que
+faltan son **47, 48, 49, 50 y 51**: exactamente los cinco que tenían **cero
+hijos**, el defecto de la clase del snapshot 13. No quedaron filas huérfanas en
+ninguna de las dos tablas hijas, no se perdió ningún snapshot con datos, y los
+46 restantes tienen `data_as_of` derivado.
+
+No lo hizo esta rama -- su única escritura fue el snapshot 62, borrado al
+terminar. Queda anotado como observación para que quien aplicó las migraciones
+lo confirme.

@@ -103,7 +103,17 @@ export async function GET() {
   try {
     const { data: snapshot, error: snapshotError } = await supabase
       .from('pipeline_snapshots')
-      .select('id, file_name, uploaded_at')
+      /*
+       * ⚠ `data_as_of` — etapa S1, y este select ES la mitad que faltaba.
+       *
+       * S1 existe para arreglar que `snapshot_date` fuera la fecha de SUBIDA y
+       * no la del dato. Guardaba `data_as_of` correctamente, pero acá se seguía
+       * devolviendo sólo `uploaded_at`, y la página lo mostraba como fecha del
+       * snapshot: el arreglo estaba escrito en la base y no llegaba a la
+       * pantalla. Es exactamente el paso de lectura que este proyecto ya se
+       * olvidó cuatro veces.
+       */
+      .select('id, file_name, uploaded_at, data_as_of, data_as_of_source')
       .eq('is_active', true)
       .maybeSingle();
     if (snapshotError) throw snapshotError;
@@ -195,7 +205,14 @@ export async function GET() {
     }));
 
     return NextResponse.json({
-      snapshot: { fileName: snapshot.file_name, uploadedAt: snapshot.uploaded_at },
+      snapshot: {
+        fileName: snapshot.file_name,
+        uploadedAt: snapshot.uploaded_at,
+        /* Puede ser null: nombre de archivo no estándar. Quien lo consume
+           decide el fallback -- acá no se inventa una fecha. */
+        dataAsOf: snapshot.data_as_of ?? null,
+        dataAsOfSource: snapshot.data_as_of_source ?? null,
+      },
       openLoans,
       resolvedLoans,
       warnings: [],

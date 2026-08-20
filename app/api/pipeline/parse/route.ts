@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getServerClient } from '@/lib/supabase/server';
 import { parseSalesforcePipelineFile } from '@/lib/pipeline/sources/salesforce-file';
+import { parseDataAsOf } from '@/lib/pipeline/dataAsOf';
 import type { PipelineLoan, ResolvedLoan } from '@/lib/pipeline/types';
 
 /**
@@ -25,8 +26,6 @@ function errorMessage(err: unknown): string {
 // vez de en el cliente. El cálculo de aggregate.ts (puro, sin I/O) sí corre
 // en el cliente, sobre el JSON que devuelve este endpoint.
 export const runtime = 'nodejs';
-
-const INSERT_BATCH_SIZE = 500;
 
 /**
  * Etapa F5a: cliente propio apuntando al schema 'pipeline_forecast' (mismo
@@ -56,9 +55,8 @@ async function getSupabaseForecast() {
  * dejarlo null (la columna existe en pipeline_loans, no hay motivo para
  * perder ese dato).
  */
-function toPipelineLoanRow(loan: PipelineLoan, snapshotId: number) {
+function toPipelineLoanRow(loan: PipelineLoan) {
   return {
-    snapshot_id: snapshotId,
     source_loan_id: loan.sourceLoanId,
     branch: loan.branch,
     raw_org_id: loan.branch,
@@ -96,9 +94,8 @@ function toPipelineLoanRow(loan: PipelineLoan, snapshotId: number) {
  * Forecast), así que se omiten acá en vez de bloquear toda la etapa por
  * esto. Reportado explícito en la respuesta de esta etapa, no silenciado.
  */
-function toResolvedLoanRow(loan: ResolvedLoan, snapshotId: number) {
+function toResolvedLoanRow(loan: ResolvedLoan) {
   return {
-    snapshot_id: snapshotId,
     source_loan_id: loan.sourceLoanId,
     branch: loan.branch,
     channel: loan.channel,
@@ -128,6 +125,21 @@ function toResolvedLoanRow(loan: ResolvedLoan, snapshotId: number) {
   };
 }
 
+/**
+ * Lo que devuelve `pipeline_forecast.save_pipeline_snapshot`.
+ *
+ * Se declara acá y no se infiere: `supabase.rpc()` devuelve `any` para una
+ * función que el cliente no conoce, y con `any` un error de tipeo en el nombre
+ * de un campo no lo caza nadie.
+ */
+interface SaveResult {
+  snapshot_id: number;
+  snapshot_date: string;
+  loans_inserted: number;
+  resolved_inserted: number;
+  is_active: boolean;
+}
+
 export async function POST(request: Request) {
   try {
     const formData = await request.formData();
@@ -143,60 +155,75 @@ export async function POST(request: Request) {
     const result = parseSalesforcePipelineFile(buffer);
     const warnings = [...result.warnings];
 
+    // Etapa S1: cuándo generó Salesforce el export, no cuándo se subió (ver
+    // lib/pipeline/dataAsOf.ts). `dataAsOf === null` es un resultado válido
+    // (nombre de archivo no estándar) -- no bloquea nada, solo se avisa.
+    const { dataAsOf, source: dataAsOfSource } = parseDataAsOf(file.name);
+    if (!dataAsOf) {
+      warnings.push(
+        'No se pudo determinar la fecha real del export a partir del nombre de archivo ("' +
+          file.name +
+          '") -- el snapshot se guarda igual, pero sin fecha de referencia (data_as_of).'
+      );
+    }
+
+    // Etapa S1: el arreglo del snapshot 13 (80 filas en pipeline_loans, 0 en
+    // pipeline_resolved_loans, y aun así guardado como is_active=true -- lo
+    // vio el negocio como un pipeline sin cerrados, sin ninguna advertencia).
+    // Si cualquiera de las 2 mitades vino vacía, el snapshot se guarda igual
+    // (no se pierde el trabajo) pero no se activa.
+    const shouldActivate = result.openLoans.length > 0 && result.resolvedLoans.length > 0;
+    const needsReview = !shouldActivate;
+    if (needsReview) {
+      const emptyHalf = result.openLoans.length === 0 ? 'openLoans (pipeline_loans)' : 'resolvedLoans (pipeline_resolved_loans)';
+      warnings.push(
+        'El archivo vino con ' + emptyHalf + ' vacío -- el snapshot se guardó, pero no se activó. Requiere revisión.'
+      );
+    }
+
     // Etapa F5a: persistir en Supabase después de parsear. Un fallo acá NO
     // debe romper la respuesta -- el usuario ya tiene el archivo parseado y
     // puede seguir usándolo esta sesión, solo no va a sobrevivir un reload.
     // El error se agrega a `warnings` (misma lista que ya renderiza la UI),
     // en vez de tragárselo en silencio.
     let persisted = false;
+    let saved: SaveResult | null = null;
     const supabase = await getSupabaseForecast();
     if (!supabase) {
       warnings.push('No se pudo guardar en Supabase: faltan las variables de entorno de conexión.');
     } else {
-      // Función interna (no un helper top-level): así el tipo de `supabase`
-      // (ya angosto a "no null" acá adentro) se captura por inferencia de
-      // closure, sin tener que escribir a mano el tipo genérico completo de
-      // SupabaseClient<...> con schema fijo -- eso es lo que rompía el build
-      // (mismatch de tipos entre versiones del generic de supabase-js).
-      const insertInBatches = async (table: string, rows: Record<string, unknown>[]): Promise<void> => {
-        for (let i = 0; i < rows.length; i += INSERT_BATCH_SIZE) {
-          const chunk = rows.slice(i, i + INSERT_BATCH_SIZE);
-          const { error } = await supabase.from(table).insert(chunk);
-          if (error) throw error;
-        }
-      };
-
       try {
-        // Solo puede haber UN snapshot con is_active=true a la vez.
-        const { error: clearActiveError } = await supabase
-          .from('pipeline_snapshots')
-          .update({ is_active: false })
-          .eq('is_active', true);
-        if (clearActiveError) throw clearActiveError;
+        // Etapa S1: una sola llamada RPC transaccional, reemplaza el
+        // update+insert+insertInBatches x2 sin transacción de antes -- ese
+        // era el bug raíz del snapshot 13 (el `statement_timeout=8s` del rol
+        // `authenticator` podía cortar a mitad de las tandas, dejando
+        // snapshot y algunas filas hijas pero no todas). `snapshot_id` lo
+        // asigna la función, no se manda desde acá. Contrato completo
+        // (garantías de atomicidad, cálculo de `snapshot_date`, activación)
+        // documentado en docs/ARQUITECTURA.md / brief S1 -- no se replica
+        // acá para no tener 2 fuentes de verdad.
+        const { data: rpcResult, error } = await supabase.rpc('save_pipeline_snapshot', {
+          p_file_name: file.name,
+          p_data_as_of: dataAsOf ? dataAsOf.toISOString() : null,
+          p_data_as_of_source: dataAsOfSource,
+          p_loans: result.openLoans.map(toPipelineLoanRow),
+          p_resolved: result.resolvedLoans.map(toResolvedLoanRow),
+          p_activate: shouldActivate,
+        });
+        if (error) throw error;
 
-        const { data: snapshot, error: snapshotError } = await supabase
-          .from('pipeline_snapshots')
-          .insert({
-            file_name: file.name,
-            row_count: result.openLoans.length + result.resolvedLoans.length,
-            uploaded_at: new Date().toISOString(),
-            snapshot_date: new Date().toISOString().slice(0, 10),
-            is_active: true,
-          })
-          .select('id')
-          .single();
-        if (snapshotError) throw snapshotError;
-        if (!snapshot) throw new Error('No se pudo crear el snapshot (sin id de retorno).');
-
-        await insertInBatches(
-          'pipeline_loans',
-          result.openLoans.map((loan) => toPipelineLoanRow(loan, snapshot.id as number))
-        );
-        await insertInBatches(
-          'pipeline_resolved_loans',
-          result.resolvedLoans.map((loan) => toResolvedLoanRow(loan, snapshot.id as number))
-        );
-
+        /*
+         * La función devuelve un jsonb con lo que efectivamente escribió:
+         * `{ snapshot_id, snapshot_date, loans_inserted, resolved_inserted,
+         * is_active }`. Antes se descartaba con `const { error } = ...`, y con
+         * él se perdía la única forma de saber CUÁNTO se guardó.
+         *
+         * Importa justamente por el defecto que motivó esta etapa: el snapshot
+         * 13 quedó con 80 abiertos y 0 cerrados. Con los conteos en la
+         * respuesta, un caso así se puede ver desde el cliente en vez de
+         * descubrirlo semanas después mirando la base.
+         */
+        saved = (rpcResult ?? null) as SaveResult | null;
         persisted = true;
       } catch (persistErr) {
         const msg = errorMessage(persistErr);
@@ -208,7 +235,7 @@ export async function POST(request: Request) {
       }
     }
 
-    return NextResponse.json({ ...result, warnings, persisted });
+    return NextResponse.json({ ...result, warnings, persisted, needsReview, saved });
   } catch (err) {
     return NextResponse.json({ error: errorMessage(err) }, { status: 400 });
   }
