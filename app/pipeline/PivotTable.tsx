@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type { PipelineLoan, ResolvedLoan } from '@/lib/pipeline/types';
 import {
   calculateTotalForecastWithClosed,
+  splitCtcAndClosing,
   type BucketCounts,
   type ForecastByBucket,
   type PullThroughRates,
@@ -64,6 +65,17 @@ interface BranchRow {
    * de eso.
    */
   closingCount: number;
+  /**
+   * Aditivo, no reemplaza a `closingCount` de arriba (el punto CtcDot sigue
+   * usando ese, sin tocar). Desglose de "Projected to Close": cuántos de los
+   * loans HEALTHY (no bucketTotal -- Projected to Close nunca incluye
+   * Delayed, ver el bug fix en buildBranchRows) tenían milestone crudo
+   * "Clear To Close" vs "Closing" (ver `splitCtcAndClosing`, aggregate.ts).
+   * `ctcRawCount + closingRawCount` == `branchForecastRow.bucketHealthy.Closing`,
+   * NO `closingCount`. Mismo criterio de canal: 0 para Brokered.
+   */
+  ctcRawCount: number;
+  closingRawCount: number;
   totalForecast: number;
   branchForecastRow: BranchForecastRow;
 }
@@ -74,6 +86,9 @@ interface BlockSubtotal {
   healthyCount: number;
   projectedToClose: number;
   closingCount: number;
+  /** Aditivo -- ver el comentario en BranchRow. Suma de ctcRawCount/closingRawCount de las filas. */
+  ctcRawCount: number;
+  closingRawCount: number;
   totalForecast: number;
 }
 
@@ -99,6 +114,8 @@ const EMPTY_SUBTOTAL: BlockSubtotal = {
   healthyCount: 0,
   projectedToClose: 0,
   closingCount: 0,
+  ctcRawCount: 0,
+  closingRawCount: 0,
   totalForecast: 0,
 };
 const EMPTY_BUCKETS: BucketCounts = { Started: 0, Processing: 0, Underwriting: 0, Closing: 0 };
@@ -113,6 +130,8 @@ function addSubtotal(a: BlockSubtotal, b: BranchRow | BlockSubtotal): BlockSubto
     healthyCount: a.healthyCount + b.healthyCount,
     projectedToClose: a.projectedToClose + b.projectedToClose,
     closingCount: a.closingCount + b.closingCount,
+    ctcRawCount: a.ctcRawCount + b.ctcRawCount,
+    closingRawCount: a.closingRawCount + b.closingRawCount,
     totalForecast: a.totalForecast + b.totalForecast,
   };
 }
@@ -177,6 +196,8 @@ function buildOrphanBranchRows(rows: BranchForecastRow[], resolvedLoans: Resolve
       healthyCount: 0,
       projectedToClose: 0,
       closingCount: 0,
+      ctcRawCount: 0,
+      closingRawCount: 0,
       totalForecast: count,
       branchForecastRow: emptyBranchForecastRow,
     };
@@ -208,6 +229,37 @@ function buildBranchRows(
       branchForecastRow.forecastTotal,
       dateRange
     );
+    // Etapa F5k, Parte 3: solo Banked -- ver el comentario en BranchRow.
+    const isBanked = branchForecastRow.channel === 'Banked - Retail';
+    // `closingCount` (el que alimenta el punto CtcDot, sin tocar -- Tarea 5
+    // del brief anterior) sigue siendo bucketTotal.Closing, TODOS los loans:
+    // es un indicador de presencia ("¿hay algún préstamo en CTC en esta
+    // fila?"), no una cuenta que tenga que cuadrar con Projected to Close.
+    const closingCount = isBanked ? branchForecastRow.bucketTotal.Closing : 0;
+    // Bug fix (desglose CTC/Closing mostraba Delayed): "Projected to Close"
+    // -- la columna donde vive este desglose -- usa ÚNICAMENTE bucketHealthy
+    // (`branchForecastRow.forecastTotal`, calculado sobre `bucketHealthy` en
+    // page.tsx, nunca sobre bucketTotal/Delayed). El desglose CTC+Closing
+    // tiene que explicar ESE número, no el de la columna vecina (Total
+    // Pipeline/CtcDot) -- por eso se filtra `healthy === true` ANTES de
+    // separar por rawMilestone, y se compara contra `bucketHealthy.Closing`
+    // (no contra `closingCount` de arriba, que a propósito sigue incluyendo
+    // Delayed para el punto). Misma fuente cruda de siempre
+    // (`branchForecastRow.loans`), solo que ahora filtrada por healthy antes
+    // de contar -- sin tocar bucketTotal/bucketHealthy/closingCount.
+    const healthyClosingCount = isBanked ? branchForecastRow.bucketHealthy.Closing : 0;
+    const ctcSplit = isBanked
+      ? splitCtcAndClosing(branchForecastRow.loans.filter((loan) => loan.healthy === true))
+      : { ctcCount: 0, closingCount: 0 };
+    if (process.env.NODE_ENV !== 'production' && ctcSplit.ctcCount + ctcSplit.closingCount !== healthyClosingCount) {
+      console.warn('CTC+Closing (healthy) no coincide con bucketHealthy.Closing', {
+        branch: branchForecastRow.branch,
+        channel: branchForecastRow.channel,
+        ctcCount: ctcSplit.ctcCount,
+        closingCount: ctcSplit.closingCount,
+        bucketHealthyClosingTotal: healthyClosingCount,
+      });
+    }
     return {
       branch: branchForecastRow.branch,
       channel: branchForecastRow.channel,
@@ -215,8 +267,9 @@ function buildBranchRows(
       totalCount: branchForecastRow.totalCount,
       healthyCount: branchForecastRow.healthyCount,
       projectedToClose: branchForecastRow.forecastTotal,
-      // Etapa F5k, Parte 3: solo Banked -- ver el comentario en BranchRow.
-      closingCount: branchForecastRow.channel === 'Banked - Retail' ? branchForecastRow.bucketTotal.Closing : 0,
+      closingCount,
+      ctcRawCount: ctcSplit.ctcCount,
+      closingRawCount: ctcSplit.closingCount,
       totalForecast,
       branchForecastRow,
     };
@@ -416,7 +469,7 @@ function ExecTotalRow({ label, subtotal }: { label: string; subtotal: BlockSubto
           <CtcDot count={0} />
           {fmtForecast(subtotal.projectedToClose)}
         </span>
-        <CtcSubtotalNote count={subtotal.closingCount} />
+        <CtcSubtotalNote ctcCount={subtotal.ctcRawCount} closingCount={subtotal.closingRawCount} />
       </td>
       <td className="totcol col-forecast">
         <span className="badge badge--pill badge--emerald">{fmtForecast(subtotal.totalForecast)}</span>
@@ -457,13 +510,22 @@ function CtcDot({ count }: { count: number }) {
 /**
  * Etapa UX12: la fila de subtotal no lleva punto -- un punto binario no
  * puede representar "6 préstamos" sin perder información, así que en el
- * subtotal se muestra el número exacto en texto chico ("6 CTC"), subordinado
- * al total de Projected to Close de arriba: mismo verde que el punto, sin
- * negrita.
+ * subtotal se muestra el número exacto en texto chico, subordinado al total
+ * de Projected to Close de arriba: mismo verde que el punto, sin negrita.
+ *
+ * Ajuste (desglose CTC/Closing): antes mostraba un solo número combinado
+ * ("6 CTC"); ahora desglosa ese mismo total en sus dos etiquetas crudas
+ * ("4 CTC + 2 Closing", ver splitCtcAndClosing/ctcRawCount/closingRawCount)
+ * -- el número combinado (`closingCount`, sin tocar) sigue siendo el que
+ * alimenta pull-through/forecast, esto es solo el texto de este renglón.
  */
-function CtcSubtotalNote({ count }: { count: number }) {
-  if (count <= 0) return null;
-  return <div className="ctc-subtotal-note">{fmtInt(count)} CTC</div>;
+function CtcSubtotalNote({ ctcCount, closingCount }: { ctcCount: number; closingCount: number }) {
+  if (ctcCount + closingCount <= 0) return null;
+  return (
+    <div className="ctc-subtotal-note">
+      {fmtInt(ctcCount)} CTC + {fmtInt(closingCount)} Closing
+    </div>
+  );
 }
 
 /**

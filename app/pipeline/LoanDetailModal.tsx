@@ -62,19 +62,40 @@ export interface LoanDetailModalLoan {
    * branch ni cálculos.
    */
   branchTransferred?: boolean;
-  /** Fase urgente: columna "Loan Type" del origen. '' si el archivo/loan no la trae -- se muestra '—', nunca se inventa un valor. */
+  /**
+   * Columna "Loan Type" del origen. '' cuando no hay valor real -- ya sea
+   * porque el snapshot restaurado es anterior al fix que empezó a guardar
+   * esta columna (dato nunca capturado, no "vacío a propósito"), o porque el
+   * Excel de origen realmente no traía nada en esa celda. Se muestra
+   * `NOT_AVAILABLE_TEXT`, nunca se inventa un valor.
+   */
   loanType: string;
-  /** Fase urgente: columna "Loan Program" del origen. '' si el archivo/loan no la trae -- se muestra '—', nunca se inventa un valor. */
+  /** Columna "Loan Program" del origen. Mismo criterio que `loanType` de arriba. */
   loanProgram: string;
   /**
-   * Fase urgente (Notes): columna "Production Support Note History" del
-   * origen. '' si el archivo/loan no la trae -- se muestra '—', nunca se
-   * inventa texto. Valor completo, sin recortar -- el recorte visual a ~3
-   * líneas es puramente de presentación (CSS line-clamp, ver NoteCell más
-   * abajo), este campo siempre conserva el texto real completo.
+   * Columna "Production Support Note History" del origen. Mismo criterio que
+   * `loanType`/`loanProgram` de arriba. Valor completo, sin recortar -- el
+   * recorte visual a ~3 líneas es puramente de presentación (CSS line-clamp,
+   * ver NoteCell más abajo), este campo siempre conserva el texto real
+   * completo.
    */
   noteHistory: string;
 }
+
+/**
+ * Bug fix -- ver checklist de la fase: los snapshots restaurados desde
+ * Supabase de ANTES de que `loan_type`/`loan_program`/
+ * `production_support_note_history` existieran como columnas quedan en NULL
+ * (`?? ''` en app/api/pipeline/latest/route.ts) -- eso es indistinguible de
+ * "el préstamo no tiene programa asignado" si se muestra como el mismo '—'
+ * ambiguo que usan otros campos de esta tabla. Estos 3 campos usan este
+ * texto explícito en su lugar, tanto para ese caso (histórico, no capturado)
+ * como para un valor genuinamente vacío en el Excel de origen (mismo texto
+ * para los dos -- distinguirlos requeriría guardar metadata adicional por
+ * snapshot que hoy no existe, y ninguno de los dos casos debe leerse como
+ * "se verificó y no tiene").
+ */
+const NOT_AVAILABLE_TEXT = 'Not available for this snapshot';
 
 export interface LoanDetailModalProps {
   isOpen: boolean;
@@ -128,7 +149,7 @@ function NoteCell({ note, expanded, onToggle }: { note: string; expanded: boolea
     setIsOverflowing((prev) => (prev === overflowing ? prev : overflowing));
   }
 
-  if (!note) return <span style={{ color: 'var(--slate-400)' }}>—</span>;
+  if (!note) return <span style={{ color: 'var(--slate-400)' }}>{NOT_AVAILABLE_TEXT}</span>;
 
   if (expanded) {
     return (
@@ -303,11 +324,11 @@ export default function LoanDetailModal({ isOpen, onClose, context, metric, loan
                   <td style={{ textAlign: 'left' }} title={loan.loanOfficer}>
                     {loan.loanOfficer || '—'}
                   </td>
-                  <td style={{ textAlign: 'left' }} title={loan.loanType}>
-                    {loan.loanType || '—'}
+                  <td style={{ textAlign: 'left' }} title={loan.loanType || NOT_AVAILABLE_TEXT}>
+                    {loan.loanType || NOT_AVAILABLE_TEXT}
                   </td>
-                  <td style={{ textAlign: 'left' }} title={loan.loanProgram}>
-                    {loan.loanProgram || '—'}
+                  <td style={{ textAlign: 'left' }} title={loan.loanProgram || NOT_AVAILABLE_TEXT}>
+                    {loan.loanProgram || NOT_AVAILABLE_TEXT}
                   </td>
                   <td className="val">{fmtAmount(loan.amount)}</td>
                   <td style={{ textAlign: 'left' }} title={loan.rawMilestone}>

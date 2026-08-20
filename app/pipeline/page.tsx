@@ -11,6 +11,7 @@ import {
   countByBrokeredMilestoneBucket,
   BROKERED_FLAT_PULL_THROUGH_RATE,
   apportionByWeight,
+  splitCtcAndClosing,
   type BucketCounts,
   type PullThroughRates,
   type BrokeredPullThroughRates,
@@ -424,6 +425,25 @@ export default function PipelinePage() {
   // rawMilestone real de Brokered mapea al bucket Closing de Banked -- así
   // que sumar sobre los 2 canales sin filtrar por channel es seguro.
   const projectedToCloseSoon = filteredBranchRows.reduce((sum, r) => sum + r.bucketTotal.Closing, 0);
+
+  // Bug fix (desglose CTC/Closing mostraba Delayed, mismo bug ya corregido
+  // en PivotTable.tsx/buildBranchRows): la tarjeta Closed ("Projected to
+  // close soon") vive junto al Forecast Estimated de Banked, que usa
+  // ÚNICAMENTE bucketHealthy -- nunca bucketTotal/Delayed. El desglose tiene
+  // que explicar esa población healthy, no `projectedToCloseSoon` (que sigue
+  // sin tocarse: sigue siendo bucketTotal, y sigue siendo lo que se le pasa
+  // a SummaryCards sin cambios -- sólo el desglose de abajo cambia de
+  // fuente). MISMA fuente cruda de siempre (`r.loans` de cada branchRow),
+  // filtrada por `healthy === true` ANTES de separar por rawMilestone.
+  const healthyClosingBucketTotal = filteredBranchRows.reduce((sum, r) => sum + r.bucketHealthy.Closing, 0);
+  const ctcClosingSplit = splitCtcAndClosing(filteredBranchRows.flatMap((r) => r.loans).filter((loan) => loan.healthy === true));
+  if (process.env.NODE_ENV !== 'production' && ctcClosingSplit.ctcCount + ctcClosingSplit.closingCount !== healthyClosingBucketTotal) {
+    console.warn('CTC+Closing (healthy) no coincide con bucketHealthy.Closing', {
+      ctcCount: ctcClosingSplit.ctcCount,
+      closingCount: ctcClosingSplit.closingCount,
+      bucketHealthyClosingTotal: healthyClosingBucketTotal,
+    });
+  }
 
   // Etapa F5i: antes esto agregaba bucketTotal/bucketHealthy/forecastByBucket
   // de TODOS los branchRows (ambos canales) para alimentar una única cascada
@@ -899,6 +919,8 @@ export default function PipelinePage() {
             banked={bankedSummary}
             brokered={brokeredSummary}
             projectedToCloseSoon={projectedToCloseSoon}
+            ctcCount={ctcClosingSplit.ctcCount}
+            closingCount={ctcClosingSplit.closingCount}
           />
 
           <TabNavigation activeTab={activeTab} onTabChange={setActiveTab} adverseCount={adverseInRange.length} />
