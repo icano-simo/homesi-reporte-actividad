@@ -2744,3 +2744,68 @@ Isabella en localhost con datos reales. La prueba negativa (punto 4, `shouldActi
 también queda **delegada** — la corre el revisor por SQL directo, con limpieza posterior. Esta
 etapa no cierra sin esos dos resultados; los reporta quien los corra.
 
+
+### Cierre de S1 (2026-08-20) — merge de main y verificación end-to-end
+
+**El merge chocó UN archivo, no dos.** `app/api/pipeline/parse/route.ts` no chocó:
+`git log $(git merge-base main feat/s1-snapshots)..main -- app/api/pipeline/parse/route.ts`
+sale vacío. Main no tocó ese archivo desde la base.
+
+⚠ **`loan_type`, `loan_program` y `production_support_note_history` no están en
+main.** `git grep` sobre todo el árbol de main da cero. Viven en
+`feat/forecast-combined-drilldown`, que sigue sin mergear. Así que el requisito
+"los dos cambios tienen que sobrevivir" es vacío para este merge: no hay nada de
+main que preservar en ese archivo.
+
+⚠ **Y la RPC NO persiste esos tres campos. Verificado.** Se la llamó con las tres
+claves presentes en el jsonb y con un `data_as_of_source` válido; devolvió 200,
+insertó las filas, y las tres columnas quedaron en **null**. Las columnas SÍ
+existen en las dos tablas hijas — la base va adelante de main — pero la función
+mapea una lista explícita que no las incluye, así que **descarta las claves en
+silencio**.
+
+Eso es peor que un parámetro faltante: si `feat/forecast-combined-drilldown` se
+mergea encima de S1 sin ampliar la función, la app parece funcionar y deja de
+persistir tres columnas sin un solo error. **Ampliar la función la hace el
+revisor**; hasta entonces no se toca el mapper de esta rama, porque agregar
+claves que la función tira sería escribir código que finge guardar algo.
+
+**Los valores de `data_as_of_source` que la función acepta** son exactamente los
+tres que produce `parseDataAsOf` — `filename_epoch`, `filename_label`,
+`unknown` — más `null`. Cualquier otro string se rechaza con
+`P0001 data_as_of_source invalido`. Comprobado uno por uno.
+
+#### El lado de lectura, que faltaba
+
+S1 guardaba `data_as_of` y **nadie lo leía**: `/api/pipeline/latest` devolvía
+sólo `uploaded_at`, y `app/pipeline/page.tsx` lo mostraba como fecha del
+snapshot. El arreglo estaba en la base y no llegaba a la pantalla — el mismo
+paso que este proyecto ya se olvidó cuatro veces. Ahora el select trae
+`data_as_of` y `data_as_of_source`, y la página usa la fecha del dato con
+fallback a la de subida para los archivos de nombre no estándar.
+
+También se dejó de descartar el retorno de la RPC: devuelve
+`{ snapshot_id, snapshot_date, loans_inserted, resolved_inserted, is_active }` y
+ahora viaja en la respuesta como `saved`. Con los conteos a la vista, un caso
+como el del snapshot 13 se ve desde el cliente en vez de descubrirse semanas
+después mirando la base.
+
+#### ⚠ Un borrado accidental durante la verificación, y cómo se recuperó
+
+Un script de prueba tenía un fallback: "si la respuesta no trae `snapshot_id`,
+usá el último id de la tabla". La llamada falló por un `data_as_of_source`
+inventado, el fallback resolvió al snapshot **activo de producción (57)**, y la
+limpieza lo borró.
+
+Se recuperó reactivando el snapshot **56**, que es el mismo export
+(`Forecast - Pipeline Report-2026-08-20-09-47-31.xlsx`), con el mismo
+`row_count` 880 y sus hijos intactos (106 abiertos + 774 resueltos). No se
+perdió ningún dato; se perdió una fila duplicada.
+
+La lección quedó en los scripts siguientes: **se borra únicamente el id que
+devolvió la función, y si no lo devolvió no se borra nada.** Un fallback a
+"el último" en un script de limpieza es una bomba con temporizador.
+
+De paso quedó a la vista que `pipeline_snapshots` permite DELETE a
+`authenticated` y que no hay índice de snapshot activo único — el snapshot 51,
+por ejemplo, tiene 0 hijos, otra instancia del defecto que S1 arregla.

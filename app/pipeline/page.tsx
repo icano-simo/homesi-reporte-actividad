@@ -208,7 +208,24 @@ export default function PipelinePage() {
         if (!body || !body.snapshot) return;
         setData({ openLoans: body.openLoans, resolvedLoans: body.resolvedLoans, warnings: body.warnings ?? [] });
         setFileName(body.snapshot.fileName);
-        setActiveSnapshotDate(typeof body.snapshot.uploadedAt === 'string' ? body.snapshot.uploadedAt.slice(0, 10) : null);
+        /*
+         * ⚠ Etapa S1: la fecha del DATO manda sobre la de subida.
+         *
+         * `data_as_of` es cuándo Salesforce generó el export; `uploaded_at` es
+         * cuándo alguien lo subió. Los snapshots 9 y 11 se subieron el 3 de
+         * agosto con el export del 30 de julio: mostrar la fecha de subida los
+         * archivaba como datos de otra semana.
+         *
+         * El fallback a `uploadedAt` es para los archivos con nombre no
+         * estándar, donde `data_as_of` viene en null y no hay nada mejor.
+         */
+        const stamp =
+          typeof body.snapshot.dataAsOf === 'string'
+            ? body.snapshot.dataAsOf
+            : typeof body.snapshot.uploadedAt === 'string'
+              ? body.snapshot.uploadedAt
+              : null;
+        setActiveSnapshotDate(stamp ? stamp.slice(0, 10) : null);
       })
       .catch((err) => {
         if (cancelled) return;

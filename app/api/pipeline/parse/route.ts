@@ -107,6 +107,21 @@ function toResolvedLoanRow(loan: ResolvedLoan) {
   };
 }
 
+/**
+ * Lo que devuelve `pipeline_forecast.save_pipeline_snapshot`.
+ *
+ * Se declara acá y no se infiere: `supabase.rpc()` devuelve `any` para una
+ * función que el cliente no conoce, y con `any` un error de tipeo en el nombre
+ * de un campo no lo caza nadie.
+ */
+interface SaveResult {
+  snapshot_id: number;
+  snapshot_date: string;
+  loans_inserted: number;
+  resolved_inserted: number;
+  is_active: boolean;
+}
+
 export async function POST(request: Request) {
   try {
     const formData = await request.formData();
@@ -154,6 +169,7 @@ export async function POST(request: Request) {
     // El error se agrega a `warnings` (misma lista que ya renderiza la UI),
     // en vez de tragárselo en silencio.
     let persisted = false;
+    let saved: SaveResult | null = null;
     const supabase = await getSupabaseForecast();
     if (!supabase) {
       warnings.push('No se pudo guardar en Supabase: faltan las variables de entorno de conexión.');
@@ -168,7 +184,7 @@ export async function POST(request: Request) {
         // (garantías de atomicidad, cálculo de `snapshot_date`, activación)
         // documentado en docs/ARQUITECTURA.md / brief S1 -- no se replica
         // acá para no tener 2 fuentes de verdad.
-        const { error } = await supabase.rpc('save_pipeline_snapshot', {
+        const { data: rpcResult, error } = await supabase.rpc('save_pipeline_snapshot', {
           p_file_name: file.name,
           p_data_as_of: dataAsOf ? dataAsOf.toISOString() : null,
           p_data_as_of_source: dataAsOfSource,
@@ -178,6 +194,18 @@ export async function POST(request: Request) {
         });
         if (error) throw error;
 
+        /*
+         * La función devuelve un jsonb con lo que efectivamente escribió:
+         * `{ snapshot_id, snapshot_date, loans_inserted, resolved_inserted,
+         * is_active }`. Antes se descartaba con `const { error } = ...`, y con
+         * él se perdía la única forma de saber CUÁNTO se guardó.
+         *
+         * Importa justamente por el defecto que motivó esta etapa: el snapshot
+         * 13 quedó con 80 abiertos y 0 cerrados. Con los conteos en la
+         * respuesta, un caso así se puede ver desde el cliente en vez de
+         * descubrirlo semanas después mirando la base.
+         */
+        saved = (rpcResult ?? null) as SaveResult | null;
         persisted = true;
       } catch (persistErr) {
         const msg = errorMessage(persistErr);
@@ -189,7 +217,7 @@ export async function POST(request: Request) {
       }
     }
 
-    return NextResponse.json({ ...result, warnings, persisted, needsReview });
+    return NextResponse.json({ ...result, warnings, persisted, needsReview, saved });
   } catch (err) {
     return NextResponse.json({ error: errorMessage(err) }, { status: 400 });
   }
