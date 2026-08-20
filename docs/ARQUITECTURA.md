@@ -2778,3 +2778,221 @@ un argumento, para que nadie pueda firmar una activación con el email de otro.
 **El cambio en la app va en su propio paso, después de que la función esté
 aplicada.** No se dejan los dos caminos conviviendo: dos formas de activar es
 exactamente la duplicación que BP31 tuvo que deshacer.
+
+---
+
+## Auditoría — Unificación de branches/managers (pipeline_forecast vs org)
+
+Auditoría de solo lectura, sin cambios de código ni de Supabase. Evalúa si conviene
+unificar `pipeline_forecast.branches`/`branch_managers` (que consume Forecast) con
+`org.dim_branch`/`employee_branch` (que consume Business Plan, vía `org.employee_alias`
+para resolver nombres — ver Etapa BP1 más arriba). No decide nada: la decisión final
+queda para quien apruebe infraestructura.
+
+Los datos reales de `org` (bloqueados en el primer intento de esta auditoría por
+permisos de la credencial usada) fueron confirmados aparte, corriendo las consultas
+directamente en Supabase. Esta sección refleja esos datos ya verificados.
+
+### Acceso a `org` / `business_plan`
+
+Ambos schemas tienen RLS y solo permiten lectura a sesiones `authenticated` con el
+claim `commercial_activity` — **por diseño, no es un bloqueo a resolver.** Ninguna key
+pública (`anon` ni `service_role`) puede consultarlos directamente vía PostgREST; así
+quedó confirmado también en el primer intento de esta auditoría (`permission denied
+for schema org`, código `42501`, consistente en las cuatro tablas). Cualquier consulta
+futura contra `org`/`business_plan` debe solicitarse a quien tiene acceso admin, o
+ejecutarse desde el SQL Editor del dashboard de Supabase.
+
+### 1. Estructura real (corrige el supuesto inicial de esta auditoría)
+
+- `org.dim_branch` usa `branch_code` como clave; `pipeline_forecast.branches` usa
+  `code`. No se llaman igual — cualquier join/comparación tiene que mapear un nombre de
+  columna al otro explícitamente, no asumir que coinciden.
+- `org.employee_branch` es una tabla **puente** (`employee_key`, `branch_key`,
+  `role_in_branch`) — no contiene el nombre del manager directamente.
+- El nombre completo vive en `org.dim_employee.full_name`. Comparar managers requiere
+  el join `employee_branch → dim_employee` (por `employee_key`), no una lectura directa.
+- `org.employee_alias` mapea `(source_system, name_raw) → employee_key`: **117 filas
+  para 65 personas** — no es una fila por persona, es una fila por cada forma distinta
+  en que una fuente nombra a esa persona (confirma el diseño ya descrito en la Etapa
+  BP1: una persona puede tener varios alias, de varias fuentes).
+
+**`pipeline_forecast.branches`**
+
+| Columna | Tipo | Constraint |
+|---|---|---|
+| `code` | text | PK |
+| `label` | text | NOT NULL |
+| `sort_order` | integer | NOT NULL |
+| `active` | boolean | default `true` |
+| `created_at` | timestamptz | default `now()` |
+
+**`pipeline_forecast.branch_managers`**
+
+| Columna | Tipo | Constraint |
+|---|---|---|
+| `branch` | text | PK, FK → `branches.code` |
+| `manager_name` | text | NOT NULL |
+
+**`org.dim_branch`**
+
+| Columna | Tipo | Constraint |
+|---|---|---|
+| `branch_key` | bigint | PK |
+| `branch_code` | text | NOT NULL |
+| `is_division_branch` | boolean | NOT NULL, default `false` |
+| `is_active` | boolean | NOT NULL, default `true` |
+| `notes` | text | — |
+
+**`org.employee_branch`**
+
+| Columna | Tipo | Constraint |
+|---|---|---|
+| `employee_key` | bigint | PK compuesta, FK → `dim_employee.employee_key` |
+| `branch_key` | bigint | PK compuesta, FK → `dim_branch.branch_key` |
+| `role_in_branch` | text | PK compuesta |
+
+**`org.employee_alias`**
+
+| Columna | Tipo | Constraint |
+|---|---|---|
+| `source_system` | text | PK compuesta |
+| `name_raw` | text | PK compuesta |
+| `employee_key` | integer | FK → `dim_employee.employee_key` |
+| `match_method` | text | — |
+
+**Diferencia estructural de fondo:** `pipeline_forecast` usa el código de branch
+(texto) como clave directa en las dos tablas (`branches.code` es PK,
+`branch_managers.branch` es FK a esa PK). `org` en cambio usa una clave subrogada
+(`branch_key`, `employee_key`, ambos `bigint`) y resuelve el código de branch/nombre de
+persona como un atributo aparte, con `employee_branch` como tabla puente
+many-to-many-por-rol y `employee_alias` como capa adicional de resolución de nombres.
+Son dos modelos de datos distintos, no solo dos copias de la misma tabla — unificar no
+es un simple `UNION`, implica decidir cuál de los dos modelos sobrevive (ver Riesgos).
+
+### 2. Comparación de branches
+
+`org.dim_branch` tiene **22 branches**; `pipeline_forecast.branches` tiene **14**.
+
+Los 8 de diferencia — **700, 701, 702, 718, 721, 741, 771, "Branch Out of Division"**
+— tienen `is_division_branch = false` en `org`. **Forecast correctamente no los
+incluye — no es un error ni una brecha a corregir**, es el comportamiento esperado: la
+lista de `pipeline_forecast.branches` siempre fue, de hecho, la lista de branches de
+división, aunque nunca tuvo una columna explícita `is_division_branch` que lo
+declarara.
+
+Los 14 branches de división coinciden en ambas fuentes.
+
+### 3. Comparación de managers (de los 14 branches de división)
+
+| Branch | pipeline_forecast | org | Clasificación |
+|---|---|---|---|
+| 703 | Ana Zegarra | **Ana Peña** | **Discrepancia real, sin resolver.** `org` tiene el nombre canónico corregido, coincide con el email registrado (`ana.pena@`). `pipeline_forecast` conserva el nombre anterior, sin actualizar — no es un caso ya resuelto por alias, es una desincronización pendiente. |
+| 733 | Stephanie García | Stephanie Garcia | Diferencia solo de tilde — misma persona, sin ambigüedad. |
+| 711 | Ana Manjarres | Ana Manjarres | Ya sincronizado en ambas fuentes. |
+| 707 | Armando Tejeda | Armando Tejeda | Coincide |
+| 710 | Pier Laino | Pier Laino | Coincide |
+| 716 | Pier Laino | Pier Laino | Coincide |
+| 724 | Mariano Claudio | Mariano Claudio | Coincide |
+| 728 | Abel Berrocal | Abel Berrocal | Coincide |
+| 747 | Galo Rizzo | Galo Rizzo | Coincide |
+| 760 | Julymar Castro | Julymar Castro | Coincide |
+| 770 | Steve Badovinac | Steve Badovinac | Coincide |
+| 776 | Silvio Arteaga | Silvio Arteaga | Coincide |
+| 777 | Jonathan Valenzuela | Jonathan Valenzuela | Coincide |
+
+**La desincronización real es menor de lo que sugería el supuesto inicial: de 14
+branches de división, solo 2 tienen un nombre de manager distinto entre fuentes** (703
+real, 733 solo de formato) — los 11 restantes coinciden exactos.
+
+### Caso Affinity
+
+`pipeline_forecast.branch_managers` tiene manager asignado para Affinity (**Pier
+Laino**). `org` no tiene manager asignado para Affinity, y Affinity está marcado como
+**no de división por decisión de negocio** (no un branch de división sin cargar, sino
+uno que se decidió que no lo es).
+
+**Es una diferencia de criterio, no un error de datos** — se documenta así, sin
+tratarla como una discrepancia a corregir junto con 703/733. Cualquier unificación
+futura tiene que resolver primero ese criterio de negocio (¿Affinity debería tener
+manager en el modelo unificado o no?) antes de tocar el dato.
+
+### 4. Consumidores en código (grep estático, sin ejecutar la app)
+
+| Tabla | Archivo | Función/componente | Uso |
+|---|---|---|---|
+| `pipeline_forecast.branches` | `app/pipeline/page.tsx` | efecto de carga inicial (`useEffect`, `getForecastDb().from('branches').select('code')`) | Construye `knownBranches: Set<string>` — whitelist para no ocultar una fila de branch en cero en `PivotTable.tsx` (ver auditoría anterior sobre Branch 711 en este mismo documento/sesión). |
+| `pipeline_forecast.branch_managers` | `app/pipeline/page.tsx` | mismo efecto (`getForecastDb().from('branch_managers').select('branch, manager_name')`) | Construye `branchManagers: Map<string, string>`, pasado a `PivotTable.tsx` para mostrar el nombre del Branch Manager en la columna "Branch Manager" de las tablas Executive. |
+| `org.dim_branch` | `lib/business-plan/loadData.ts` | `loadBusinessPlanData()` (o equivalente, carga inicial del módulo) | Roster canónico de branches para todo Business Plan — Branch Portfolio, páginas de branch/LO. |
+| `org.employee_branch` | `lib/business-plan/loadData.ts` | misma función | Relación empleado↔branch↔rol (`role_in_branch='LO'`/`'BM'`) — arma las listas de Loan Officers y Branch Managers de cada branch. |
+| `org.employee_alias` | `lib/business-plan/loadData.ts` | misma función, consumido por `lib/business-plan/aliasIndex.ts` (`buildAliasIndex`) | Resuelve el mismo empleado citado con nombres distintos entre `roster`/`salesforce`/`slquery` (ver Etapa BP1). Búsqueda por clave exacta, sin heurísticas de similitud — a propósito, para no fusionar personas distintas con nombres parecidos. |
+| `org.dim_employee` | `lib/business-plan/loadData.ts` | misma función | Fuente de `full_name` y flags (`is_loan_officer`, `is_branch_manager`, `is_active`, etc.) para cada `employee_key`. |
+
+**Confirmado explícitamente: `app/pipeline/page.tsx` (Forecast) NO importa ni consume
+`org.employee_alias` en ningún punto** — ni directa ni indirectamente (no importa nada
+de `lib/business-plan/**`). Esto ya está documentado como deuda deliberada en la Etapa
+BP5 de este mismo documento ("Que Forecast consuma la tabla es una etapa aparte"),
+aunque esa nota se refiere a `business_plan.settings` (tasas de pull-through) — el mismo
+principio aplica acá: Forecast tiene su propia fuente de branches/managers, separada e
+independiente de todo el mecanismo de resolución de alias que ya existe para Business
+Plan.
+
+### Recomendación (registrada, sin ejecutar — la decisión final es de quien apruebe infraestructura)
+
+Con los datos ya confirmados, la desincronización real entre las dos fuentes es menor
+de lo esperado: solo 2 nombres de manager distintos entre los 14 branches de división
+(uno real sin resolver, uno solo de formato), más el caso de criterio de Affinity —
+nada catastrófico.
+
+**El problema estructural de fondo persiste de todos modos:** hay dos fuentes de
+verdad, y cada cambio de manager requiere actualizarse en ambos lados por separado —
+así fue como 703 quedó desactualizado en `pipeline_forecast` mientras `org` ya tenía el
+nombre corregido.
+
+`org` es la fuente más completa — tiene el roster completo de la organización, el
+mecanismo de alias de nombre ya construido y en producción (Etapa BP1), y las
+correcciones ya confirmadas (703). Por lo tanto, **a largo plazo Forecast debería leer
+de `org` en vez de mantener su propia copia** en `pipeline_forecast.branches`/
+`branch_managers`.
+
+**Se decide NO implementar esto ahora:** es una etapa aparte, toca
+`app/pipeline/page.tsx`, que ya tiene otros cambios en curso en esta misma rama
+(persistencia de Loan Detail). Queda anotado para una etapa futura.
+
+### Riesgos de unificar en una sola fuente
+
+- **Modelos de datos incompatibles.** `pipeline_forecast` usa el código de branch como
+  clave de texto directa (`code`); `org` usa claves subrogadas (`branch_key`/
+  `employee_key`, `bigint`) y resuelve el código (`branch_code`) y el nombre
+  (`dim_employee.full_name`) como atributos aparte. Migrar `app/pipeline/page.tsx` a
+  leer de `org` implica cambiar de un `SELECT` simple por código a un join a través de
+  `employee_branch` → `dim_branch`/`dim_employee`, no un cambio trivial de nombre de
+  tabla.
+- **Acceso.** `org` hoy solo se lee con sesión de usuario autenticado (RLS por el claim
+  `commercial_activity`), nunca con `service_role` — confirmado, no es un supuesto. Si
+  Forecast pasara a leer de `org`, tendría que adoptar el mismo patrón de autenticación
+  que ya usa `getServerClient()`/`getForecastDb()` para `pipeline_forecast`, y confirmar
+  que el usuario de Forecast realmente tenga ese claim, o la migración rompería la
+  carga de branches/managers para quien no lo tenga.
+- **`org.employee_branch` permite más de un manager por branch** (ya documentado en la
+  Etapa BP1: "el 716 tiene Pier Laino + Nelson Calderón. Nunca se asume uno solo").
+  `pipeline_forecast.branch_managers` asume exactamente un manager por branch (PK
+  simple sobre `branch`). Unificar sin resolver esto rompería el caso de branches con
+  más de un BM — Forecast tendría que decidir cuál mostrar, o rediseñar la columna
+  "Branch Manager" para aceptar más de un nombre.
+- **Affinity necesita una decisión de negocio explícita antes de unificar** (ver Caso
+  Affinity arriba) — hoy tiene manager en `pipeline_forecast` pero no en `org` (que lo
+  marca fuera de división por decisión de negocio, no por falta de datos). Un modelo
+  unificado tiene que decidir si Affinity conserva su Branch Manager o no, antes de
+  migrar el dato, no después.
+- **117 filas de alias para 65 personas** en `org.employee_alias` — el mecanismo de
+  resolución de nombres es más complejo que un simple `nombre viejo → nombre nuevo` por
+  persona; cualquier consumo de esta tabla desde Forecast necesita el mismo criterio de
+  coincidencia exacta por `(source_system, name_raw)` que ya usa
+  `lib/business-plan/aliasIndex.ts`, no una heurística propia.
+
+### Puntos de Verificación
+
+- [ ] Confirmar que el branch 703 se actualice a "Ana Peña" en `pipeline_forecast.branch_managers` cuando se aborde la etapa de unificación — no ahora, no como parte de esta rama.
+- [ ] Confirmar que el branch 733 se normalice el acento ("Stephanie García" → "Stephanie Garcia", o viceversa, según cuál fuente se declare canónica) cuando corresponda.
+- [ ] Revisar el criterio de negocio de Affinity (branch con manager en Forecast pero fuera de división en `org`) antes de cualquier cambio futuro de unificación — no es un error de datos, es una decisión intencional que la unificación tiene que respetar o revisar explícitamente, no sobrescribir.
