@@ -13,6 +13,11 @@ interface LoanRecordRow {
   app_date_month: string | null;
   closing_month: string | null;
   total_loan_amount: number | string | null;
+  /* Etapa BP9/BP11: nullable porque los lotes cargados antes no las tienen. */
+  loan_number: string | null;
+  loan_program: string | null;
+  loan_folder_name: string | null;
+  affinity: string | null;
 }
 
 export interface CurrentReport {
@@ -56,7 +61,7 @@ export async function loadCurrentReport(): Promise<CurrentReport | null> {
     const { data: page, error: pageError } = await supabase
       .from('loan_records')
       .select(
-        'branch, loan_officer, bd, is_b2b, file_creation_month, credit_report_month, app_date_month, closing_month, total_loan_amount'
+        'branch, loan_officer, bd, is_b2b, file_creation_month, credit_report_month, app_date_month, closing_month, total_loan_amount, loan_number, loan_program, loan_folder_name, affinity'
       )
       .eq('upload_batch_id', batch.id)
       .range(from, from + PAGE_SIZE - 1);
@@ -72,6 +77,13 @@ export async function loadCurrentReport(): Promise<CurrentReport | null> {
     loanOfficer: row.loan_officer,
     bd: row.bd,
     isB2B: row.is_b2b,
+    // loan_records no tiene columna loan_info_channel todavía -- campo nuevo
+    // en LoanRecord (cambio aislado en lib/domain, ver classifyLoan.ts), sin
+    // tocar el schema de Supabase acá. Queda '' al restaurar un batch
+    // guardado antes de este cambio (o mientras la tabla no tenga la
+    // columna); no afecta ningún cálculo existente, closingMonth ya viene
+    // resuelto de antes.
+    loanInfoChannel: '',
     fileCreationMonth: row.file_creation_month,
     creditReportMonth: row.credit_report_month,
     appDateMonth: row.app_date_month,
@@ -79,6 +91,15 @@ export async function loadCurrentReport(): Promise<CurrentReport | null> {
     // numeric/decimal en Postgres puede volver como string vía PostgREST;
     // Number(...) lo normaliza sin asumir cuál es el caso.
     totalLoanAmount: Number(row.total_loan_amount) || 0,
+    /*
+     * Etapa BP9/BP11: estas cuatro YA se persisten (ver saveUpload.ts). El
+     * `?? ''` cubre las filas cargadas ANTES de ese cambio, que las tienen en
+     * NULL -- no es un placeholder, es compatibilidad con los lotes viejos.
+     */
+    loanNumber: row.loan_number ?? '',
+    loanProgram: row.loan_program ?? '',
+    loanFolderName: row.loan_folder_name ?? '',
+    affinity: row.affinity ?? '',
   }));
 
   return {

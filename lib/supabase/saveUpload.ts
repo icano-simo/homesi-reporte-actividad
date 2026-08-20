@@ -68,6 +68,28 @@ export async function saveUpload(records: LoanRecord[], rawRows: RawLoanRow[], f
       credit_report_month: record.creditReportMonth,
       app_date_month: record.appDateMonth,
       closing_month: record.closingMonth,
+      /*
+       * Etapa BP9. El parser ya leía estas tres del archivo (están en
+       * OPTIONAL_COLUMNS) pero no se guardaban: vivían en memoria y se perdían
+       * al recargar. Las columnas ya existen en `activity_report.loan_records`.
+       *
+       * Sin esto, el detalle de Applications de Business Plan no puede
+       * desagregar por folder -- que es exactamente lo que se pidió.
+       *
+       * ⚠ Las filas ya cargadas quedan en NULL: se guardaron antes. El desglose
+       * por folder recién tiene datos completos desde la próxima carga.
+       */
+      /*
+       * Etapa BP11. `loan_number` está en REQUIRED_COLUMNS -- el archivo lo trae
+       * SIEMPRE y el parser lo leía; lo que faltaba era guardarlo, igual que las
+       * otras tres. (En BP9 se reportó por error que Commercial Activity no
+       * traía el número de préstamo: sí lo trae. Lo que no trae es el nombre del
+       * prestatario, y eso sigue siendo cierto.)
+       */
+      loan_number: record.loanNumber || null,
+      loan_program: record.loanProgram || null,
+      loan_folder_name: record.loanFolderName || null,
+      affinity: record.affinity || null,
     };
   });
 

@@ -20,13 +20,6 @@ export interface AdverseTableProps {
 
 type ChannelFilter = 'all' | PipelineLoan['channel'];
 
-/**
- * Umbral a partir del cual el monto se resalta con badge rosa suave
- * (spec §4E). Constante nombrada en vez del literal 300000 suelto dentro del
- * JSX, que era donde estaba antes.
- */
-const HIGH_AMOUNT_THRESHOLD = 300_000;
-
 function fmtAmount(n: number): string {
   return n.toLocaleString('en-US', { maximumFractionDigits: 0 });
 }
@@ -61,80 +54,96 @@ export default function AdverseTable({ resolvedLoans, forecastMonthLabel, firstS
   const filtered = channelFilter === 'all' ? adverseLoans : adverseLoans.filter((loan) => loan.channel === channelFilter);
 
   return (
-    <div className="tbl-card">
-      <div className="tbl-card__head">
-        <span className="tbl-card__title">
-          Adverse ({filtered.length.toLocaleString('en-US')}){forecastMonthLabel ? ' — ' + forecastMonthLabel : ''}
-        </span>
-        <select
-          className="field"
-          value={channelFilter}
-          onChange={(e) => setChannelFilter(e.target.value as ChannelFilter)}
-        >
-          <option value="all">All channels</option>
-          <option value="Banked - Retail">Banked - Retail</option>
-          <option value="Brokered">Brokered</option>
-        </select>
-      </div>
-      <div className="tbl-scroll">
-        <table className="piv piv--adverse">
-          {/* 7 columnas con ancho explícito -- suma 100%. */}
-          <colgroup>
-            <col style={{ width: '15%' }} />
-            <col style={{ width: '9%' }} />
-            <col style={{ width: '18%' }} />
-            <col style={{ width: '18%' }} />
-            <col style={{ width: '12%' }} />
-            <col style={{ width: '15%' }} />
-            <col style={{ width: '13%' }} />
-          </colgroup>
-          <thead>
-            {/* Etapa UX1: se quitó `.adverse-header` (header navy sólido con
-                !important). El spec §3C fija un header claro para TODAS las
-                tablas, así que esta ya no necesita su propia excepción. */}
-            <tr className="mo-row">
-              <th className="lbl">Loan Number</th>
-              <th style={{ textAlign: 'left' }}>Branch</th>
-              <th style={{ textAlign: 'left' }}>Borrower Name</th>
-              <th style={{ textAlign: 'left' }}>Loan Officer</th>
-              <th>Amount</th>
-              <th style={{ textAlign: 'left' }}>Last Finished Milestone</th>
-              <th style={{ textAlign: 'left' }}>First Seen As Adverse</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((loan) => {
-              const firstSeen = firstSeenAsAdverse?.[loan.sourceLoanId];
-              return (
-                <tr className="metric" key={loan.sourceLoanId}>
-                  <td className="lbl">{loan.sourceLoanId}</td>
-                  <td style={{ textAlign: 'left' }}>{loan.branch}</td>
-                  <td style={{ textAlign: 'left' }}>{loan.borrowerName}</td>
-                  <td style={{ textAlign: 'left' }}>{loan.loanOfficer}</td>
-                  <td className="val">
-                    {loan.amount >= HIGH_AMOUNT_THRESHOLD ? (
-                      <span className="badge badge--rose">{fmtAmount(loan.amount)}</span>
-                    ) : (
-                      fmtAmount(loan.amount)
-                    )}
-                  </td>
-                  <td style={{ textAlign: 'left' }}>{loan.rawMilestone || '—'}</td>
-                  <td style={{ textAlign: 'left' }}>
-                    {firstSeen === undefined ? '—' : firstSeen === null ? 'New this period' : firstSeen}
+    <>
+      {/*
+       * Etapa UX10: se reemplaza el texto -- ya no habla de "risk loans"
+       * (esa categoría nunca existió en el código: la tabla filtra solo por
+       * status === 'adverse', nada de "en riesgo"). Motivo del mismo ajuste
+       * que renombra la tab de "Adverse & Risk Loans" a "Adverse Loans".
+       */}
+      <p className="foot-note" style={{ marginBottom: '16px' }}>
+        Loans marked Closed Lost in Salesforce &mdash; deals that left the pipeline without closing. They&apos;re
+        listed by the month they were first detected as lost, not by their original expected closing date.
+        &ldquo;New this period&rdquo; means the loan turned up as lost for the first time in the current upload. None
+        of these count toward Pipeline or Forecast.
+      </p>
+      <div className="tbl-card">
+        <div className="tbl-card__head">
+          <span className="tbl-card__title">
+            {/* Etapa UX10: "Adverse" -> "Adverse Loans", mismo renombre que la tab (ya no promete "Risk"). */}
+            Adverse Loans ({filtered.length.toLocaleString('en-US')}){forecastMonthLabel ? ' — ' + forecastMonthLabel : ''}
+          </span>
+          <select
+            className="field"
+            value={channelFilter}
+            onChange={(e) => setChannelFilter(e.target.value as ChannelFilter)}
+          >
+            <option value="all">All channels</option>
+            <option value="Banked - Retail">Banked - Retail</option>
+            <option value="Brokered">Brokered</option>
+          </select>
+        </div>
+        <div className="tbl-scroll">
+          <table className="piv piv--adverse">
+            {/* Etapa UX10: 8 columnas con ancho explícito -- suma 100%. Se
+                agregó Loan Folder; Borrower Name/Loan Officer quedan en 18%
+                sin cambios (ver min-width de forecast-visual.css, calculado
+                sobre ese 18%) -- el resto se achicó para hacerle lugar. */}
+            <colgroup>
+              <col style={{ width: '12%' }} />
+              <col style={{ width: '7%' }} />
+              <col style={{ width: '18%' }} />
+              <col style={{ width: '18%' }} />
+              <col style={{ width: '10%' }} />
+              <col style={{ width: '13%' }} />
+              <col style={{ width: '12%' }} />
+              <col style={{ width: '10%' }} />
+            </colgroup>
+            <thead>
+              {/* Etapa UX1: se quitó `.adverse-header` (header navy sólido con
+                  !important). El spec §3C fija un header claro para TODAS las
+                  tablas, así que esta ya no necesita su propia excepción. */}
+              <tr className="mo-row">
+                <th className="lbl">Loan Number</th>
+                <th style={{ textAlign: 'left' }}>Branch</th>
+                <th style={{ textAlign: 'left' }}>Borrower Name</th>
+                <th style={{ textAlign: 'left' }}>Loan Officer</th>
+                <th>Amount</th>
+                <th style={{ textAlign: 'left' }}>Loan Folder</th>
+                <th style={{ textAlign: 'left' }}>Last Finished Milestone</th>
+                <th style={{ textAlign: 'left' }}>First Seen As Adverse</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((loan) => {
+                const firstSeen = firstSeenAsAdverse?.[loan.sourceLoanId];
+                return (
+                  <tr className="metric" key={loan.sourceLoanId}>
+                    <td className="lbl">{loan.sourceLoanId}</td>
+                    <td style={{ textAlign: 'left' }}>{loan.branch}</td>
+                    <td style={{ textAlign: 'left' }}>{loan.borrowerName}</td>
+                    <td style={{ textAlign: 'left' }}>{loan.loanOfficer}</td>
+                    <td className="val">{fmtAmount(loan.amount)}</td>
+                    <td style={{ textAlign: 'left' }}>{loan.rawLoanFolder || '—'}</td>
+                    <td style={{ textAlign: 'left' }}>{loan.rawMilestone || '—'}</td>
+                    <td style={{ textAlign: 'left' }}>
+                      {firstSeen === undefined ? '—' : firstSeen === null ? 'New this period' : firstSeen}
+                    </td>
+                  </tr>
+                );
+              })}
+              {!filtered.length && (
+                <tr>
+                  <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={8}>
+                    No adverse loans{channelFilter !== 'all' ? ' in this channel' : ''}.
                   </td>
                 </tr>
-              );
-            })}
-            {!filtered.length && (
-              <tr>
-                <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={7}>
-                  No adverse loans{channelFilter !== 'all' ? ' in this channel' : ''}.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
+
