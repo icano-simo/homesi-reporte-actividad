@@ -247,10 +247,31 @@ select.field {
   margin-bottom: 20px;
   box-shadow: var(--shadow-xs);
   display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/*
+ * Ajuste de UX: cada nivel de la barra (antes todo era un único
+ * `.control-bar` en fila, que en la práctica ya se envolvía sola a 2-3
+ * líneas sin ninguna organización -- ver Toolbar.tsx). Mismo `flex-wrap` +
+ * `justify-content: space-between` + `gap` que ya tenía `.control-bar`
+ * entera, ahora por fila -- no es una clase nueva conceptualmente, es la
+ * misma regla aplicada 2 veces.
+ */
+.control-bar__row {
+  display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 14px;
+  width: 100%;
+}
+/* Nivel 2 (filtros): separación sutil del Nivel 1, sin agregar altura real
+   más que la línea + su padding mínimo. */
+.control-bar__row--filters {
+  padding-top: 10px;
+  border-top: 1px solid var(--slate-100);
 }
 
 /* Grupo de controles relacionados dentro de la barra. */
@@ -736,6 +757,26 @@ table.piv td.val.cl {
   color: var(--emerald-700);
   font-weight: 700;
 }
+/*
+ * Drill-down: celda con click habilitado -- mismo concepto visual que
+ * `.cell-trigger` de Forecast (arriba en este archivo, sección 6): sin
+ * subrayado permanente, `cursor: pointer`, y en :hover un resaltado suave
+ * sobre el valor (mismo color/opacidad que `.cell-trigger:hover`) en vez de
+ * una línea de texto. No es la misma clase porque acá el elemento clickeable
+ * sigue siendo el <td> (PivotRow.tsx no se tocó -- sin componente/botón
+ * nuevo), mientras que `.cell-trigger` envuelve un <button> inline propio de
+ * Forecast; por eso el highlight usa `border-radius` para no leerse como un
+ * bloque a filo del borde de la celda. Celdas con valor 0 no llevan esta
+ * clase (ver PivotRow.tsx), y el hover nunca alcanza el resto de la fila.
+ */
+table.piv td.val.drillable {
+  cursor: pointer;
+}
+table.piv td.val.drillable:hover {
+  background: rgba(166, 222, 255, 0.3);
+  color: var(--navy);
+  border-radius: var(--radius-sm);
+}
 
 /* ---- Filas de grupo / subtotal ---- */
 
@@ -764,11 +805,27 @@ tr.grp.togg:hover td.lbl {
   background: rgba(166, 222, 255, 0.28);
 }
 
-/* Filas de métrica agrupada / detalle. */
-tr.mrow td,
-tr.mrow td.lbl,
-tr.mrow td.mname {
-  background: #fbfcfe;
+/*
+ * Filas de métrica agrupada / detalle -- jerarquía visual Branch > Metric >
+ * Loan Officer/BD.
+ *
+ * Selector `tr.metric.mrow`/`tr.metric.drow` (ambas clases, no solo
+ * `.mrow`/`.drow`) a propósito: el zebra striping de más arriba
+ * (`tr.metric:nth-child(odd) td`) tiene la MISMA especificidad que un
+ * selector de una sola clase (`tr.mrow td`/`tr.drow td`), así que en filas
+ * IMPARES el zebra ganaba por orden de aparición y el fondo propio de cada
+ * nivel solo se veía en las pares -- esa inconsistencia (no el valor de color
+ * en sí) era buena parte de por qué Metric y Loan Officer/BD se confundían.
+ * Con las dos clases combinadas queda la misma especificidad que el zebra
+ * PERO más abajo en el archivo, así que gana siempre, en todas las filas.
+ * `app/pipeline/PivotTable.tsx` (Forecast) también usa `tr.metric` para sus
+ * propias filas -- no se tocó esa regla base ni su especificidad, solo se
+ * reforzaron acá las de Activity.
+ */
+tr.metric.mrow td,
+tr.metric.mrow td.lbl,
+tr.metric.mrow td.mname {
+  background: var(--slate-50);
   font-weight: 600;
   color: var(--slate-700);
 }
@@ -776,15 +833,28 @@ tr.mrow:hover td,
 tr.mrow:hover td.lbl {
   background: rgba(166, 222, 255, 0.2);
 }
-tr.drow td {
+tr.metric.drow td {
+  background: #fff;
   color: var(--slate-500);
+  font-size: 11px;
+  font-weight: 400;
 }
-tr.drow td.lbl {
-  font-weight: 500;
+tr.metric.drow td.lbl {
+  font-weight: 400;
   color: var(--slate-700);
 }
-tr.drow td.val {
+tr.metric.drow td.val {
   color: var(--slate-800);
+  font-weight: 400;
+}
+/*
+ * Hover propio, con más especificidad que el fondo blanco de arriba Y que el
+ * hover genérico de `tr.metric:hover` -- sin esto, el blanco explícito de
+ * `.drow` tapaba el resaltado celeste al pasar el mouse.
+ */
+tr.metric.drow:hover td,
+tr.metric.drow:hover td.lbl {
+  background: rgba(166, 222, 255, 0.2);
 }
 
 /* Chevron y sangría del árbol. */
@@ -965,6 +1035,36 @@ tr.mrow .chev {
   gap: 10px;
   flex-wrap: wrap;
 }
+/*
+ * Context header del modal de Drill-down de Activity (Branch/Loan Officer +
+ * Metric + Month + Loans, ver components/report/LoanDetailModal.tsx) -- fila
+ * de campos label/valor, no una tabla. `.modal-eyebrow` (arriba) se reutiliza
+ * tal cual como label de cada campo; estas 2 clases son las únicas nuevas.
+ * `flex-wrap` para responsive: en una caja angosta los campos bajan de línea
+ * en vez de recortarse, sin agregar altura en el caso normal (2 líneas:
+ * labels arriba, valores abajo, igual que el eyebrow+title que reemplaza).
+ */
+.modal-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  column-gap: 22px;
+  row-gap: 10px;
+}
+.modal-context__field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.modal-context__value {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--navy);
+  line-height: 1.3;
+  word-break: break-word;
+}
 .modal-close {
   border: 1px solid var(--slate-200);
   background: #fff;
@@ -1000,6 +1100,124 @@ tr.mrow .chev {
 .modal-body table.piv th.lbl,
 .modal-body table.piv td.lbl {
   min-width: 0;
+}
+
+/*
+ * Fase urgente (Forecast, revisión post-validación visual): modal de
+ * Forecast (app/pipeline/LoanDetailModal.tsx) con 8 columnas -- a 768px
+ * (el máximo compartido de `.modal-box`) varias quedaban truncadas.
+ *
+ * `.modal-box--wide` y `.modal-table-scroll` son clases NUEVAS, agregadas
+ * solo en el JSX de ese modal -- el modal de Activity
+ * (components/report/LoanDetailModal.tsx, 6 columnas) no las lleva y sigue
+ * exactamente en 768px, sin ningún cambio acá. `.modal-box`/`.modal-body`
+ * base tampoco se tocan -- estas reglas solo se activan cuando la clase
+ * nueva está presente.
+ */
+.modal-box.modal-box--wide {
+  max-width: min(92vw, 1400px);
+}
+/*
+ * Envuelve la tabla (no `.modal-body`, que sigue con overflow-x:hidden para
+ * Activity): si el viewport es angosto y ni 92vw alcanza para las columnas
+ * legibles, este contenedor scrollea en vez de comprimir el contenido.
+ */
+.modal-table-scroll {
+  overflow-x: auto;
+}
+/*
+ * Refinamiento visual (revisión post-validación visual, ancho de columnas):
+ * `table.piv` base usa `table-layout: fixed` + `width: 100%` (sin tocar acá
+ * -- regla compartida, ver arriba de este archivo) -- con columnas en %
+ * (como estaba antes) cada columna se estira proporcional al ancho ENTERO
+ * del modal (92vw/1400px), dejando aire vacío entre campos cortos (Loan #,
+ * Amount, Status) aunque su contenido no lo necesite. `table-layout: auto`
+ * es el mismo mecanismo que ya usa `.piv--tree` más abajo en este archivo
+ * para Activity (no es una técnica nueva) -- el ancho de cada columna pasa
+ * a decidirlo el contenido real (los <col> del modal, LoanDetailModal.tsx,
+ * ahora dan un ancho de referencia en px por columna, ya no un % del
+ * contenedor). `width: auto` hace que la tabla en sí se dimensione por
+ * contenido (shrink-to-fit) en vez de forzarse a ocupar el modal entero --
+ * si el modal queda más ancho que la tabla, el espacio sobrante rodea la
+ * tabla (margen normal de una tarjeta), no se reparte ENTRE columnas.
+ * `min-width` es un piso de seguridad para no comprimir por debajo de un
+ * ancho legible, ya no el mecanismo principal de ancho.
+ */
+.modal-table-scroll table.piv {
+  table-layout: auto;
+  width: auto;
+  min-width: 700px;
+}
+
+/*
+ * Fase urgente (Notes en el modal de Forecast): clases nuevas, exclusivas de
+ * esta columna -- no tocan `table.piv td` base (nowrap + ellipsis,
+ * compartida con Activity y el resto de tablas de la app).
+ *
+ * `.note-cell`: override explícito de esa regla compartida, solo para la
+ * celda de Notes -- necesita envolver texto largo en vez de recortarlo con
+ * "...". `table.piv td.note-cell` ((0,2,2): table+td tipos, piv+note-cell
+ * clases) es más específico que `table.piv td` ((0,1,2): piv es la única
+ * clase ahí), así que gana sin depender de en qué orden aparezcan las
+ * reglas en el archivo. `white-space: pre-wrap` hace las dos cosas que pide
+ * el spec a la vez: envuelve líneas largas Y respeta los saltos de línea
+ * reales que ya trae el texto (el historial de notas del origen viene con
+ * `\n` entre entradas).
+ */
+table.piv td.note-cell {
+  overflow: visible;
+  text-overflow: clip;
+  text-align: left;
+  vertical-align: top;
+  line-height: 1.4;
+}
+/*
+ * Preview colapsado: clamp VISUAL a 3 líneas vía `-webkit-line-clamp`, no un
+ * recorte por cantidad de caracteres -- el texto completo sigue en el DOM
+ * (NoteCell no lo corta), el navegador decide cuánto entra en 3 líneas según
+ * el ancho real de la columna. Soportado en todos los motores actuales
+ * (Chromium/Firefox/Safari), no solo WebKit pese al nombre de la propiedad.
+ * `white-space: pre-wrap` acá (no en `.note-cell`) porque solo hace falta
+ * donde efectivamente hay texto -- respeta los saltos de línea reales del
+ * origen Y envuelve líneas largas, ambos cuentan para las 3 líneas del clamp.
+ */
+.note-text--clamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  white-space: pre-wrap;
+}
+/* Expandido: mismo respeto de saltos de línea, sin clamp ni límite de alto. */
+.note-text--full {
+  white-space: pre-wrap;
+}
+/*
+ * "Show more"/"Hide note": mismo lenguaje visual que `.drill-value`/
+ * `.cell-trigger` (arriba en este archivo) -- fondo transparente, texto
+ * navy, hover con el mismo tono `--sky` -- pero es su propia clase porque
+ * es un <button> de ACCIÓN (alterna estado), no un valor numérico
+ * clickeable; comparte el concepto, no la clase literal.
+ */
+.note-toggle {
+  display: inline-block;
+  /* `margin-top`, no `margin-left`: `.note-text--clamped`/`.note-text--full`
+     son de ancho completo (line-clamp/pre-wrap con wrap), así que el botón
+     siempre cae en su propia línea debajo del texto, nunca al lado. */
+  margin-top: 4px;
+  padding: 1px 5px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  color: var(--navy);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.note-toggle:hover {
+  background: rgba(166, 222, 255, 0.42);
 }
 
 

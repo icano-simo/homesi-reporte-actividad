@@ -16,6 +16,20 @@ export type PipelineLoan = {
   milestoneDate: string | null;
   /** Etapa F4d: de la columna "Branch Transfer" (1/true -> true). Solo informativo, no afecta branch ni cálculos. */
   branchTransferred: boolean;
+  /** Fase urgente (drill-down modal): columna "Loan Type". '' si el archivo no la trae. */
+  loanType: string;
+  /** Fase urgente (drill-down modal): columna "Loan Program". '' si el archivo no la trae. */
+  loanProgram: string;
+  /**
+   * Fase urgente (Notes en el modal): columna "Production Support Note
+   * History" -- historial de comentarios operativos concatenados (puede
+   * traer varias entradas con timestamp en un solo string, separadas por
+   * salto de línea). '' si el archivo no trae la columna o la celda está
+   * vacía. Se expone tal cual, sin recortar ni reinterpretar -- el recorte
+   * de preview es solo de presentación (LoanDetailModal.tsx), nunca se
+   * altera este valor.
+   */
+  noteHistory: string;
 };
 
 /**
@@ -66,4 +80,10 @@ export type ResolvedLoan = {
    * no trae la columna.
    */
   rawLoanFolder: string;
+  /** Fase urgente (drill-down modal): columna "Loan Type". '' si el archivo no la trae. */
+  loanType: string;
+  /** Fase urgente (drill-down modal): columna "Loan Program". '' si el archivo no la trae. */
+  loanProgram: string;
+  /** Fase urgente (Notes en el modal): mismo campo que PipelineLoan.noteHistory -- ver ese comentario. */
+  noteHistory: string;
 };

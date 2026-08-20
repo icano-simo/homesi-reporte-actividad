@@ -18,6 +18,16 @@ export interface PivotRowProps {
   toggleId?: string;
   collapsed?: boolean;
   onToggle?: (id: string) => void;
+  /**
+   * Drill-down (Fase 1): si se provee, cada celda de mes con valor > 0 abre
+   * el modal de detalle -- independiente de toggleId/onToggle (que sigue
+   * colapsando/expandiendo el desglose inline, sin cambios). Las dos
+   * interacciones conviven en la misma fila: click en la celda de valor abre
+   * el modal (con stopPropagation, para no disparar también el toggle de la
+   * fila); click en el resto de la fila sigue colapsando/expandiendo como
+   * antes.
+   */
+  onCellClick?: (ym: YearMonth) => void;
 }
 
 /**
@@ -37,6 +47,7 @@ export default function PivotRow({
   toggleId,
   collapsed = false,
   onToggle,
+  onCellClick,
 }: PivotRowProps) {
   const total = sumMonths(map, months);
   const canToggle = toggleId !== undefined && onToggle !== undefined;
@@ -59,9 +70,26 @@ export default function PivotRow({
       </td>
       {months.map((ym) => {
         const value = map[ym] || 0;
-        const cellClass = ['val', isClosedMetric && value ? 'cl' : '', value ? '' : 'zero'].filter(Boolean).join(' ');
+        // Drill-down (Fase 1): solo celdas con valor > 0 son clicables -- 0
+        // loans no amerita abrir un modal vacío (ver PivotRowProps.onCellClick).
+        const drillable = Boolean(onCellClick) && value > 0;
+        const cellClass = ['val', isClosedMetric && value ? 'cl' : '', value ? '' : 'zero', drillable ? 'drillable' : '']
+          .filter(Boolean)
+          .join(' ');
         return (
-          <td key={ym} className={cellClass}>
+          <td
+            key={ym}
+            className={cellClass}
+            onClick={
+              drillable
+                ? (e) => {
+                    // No debe también disparar el onClick de la fila (toggle).
+                    e.stopPropagation();
+                    onCellClick!(ym);
+                  }
+                : undefined
+            }
+          >
             {fmtVal(value, measure)}
           </td>
         );

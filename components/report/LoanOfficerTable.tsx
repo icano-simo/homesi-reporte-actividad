@@ -4,6 +4,7 @@ import { useState, type ReactNode } from 'react';
 import type { YearMonth } from '@/lib/parsing/types';
 import type { Measure } from '@/lib/aggregation/types';
 import type { LoanOfficerTree, LoanOfficerTreeItem } from '@/lib/aggregation/buildLoanOfficerTree';
+import type { DrillDownContext } from '@/lib/aggregation/loansForCell';
 import { METRICS, MONTH_NAMES, type MetricKey } from '@/config/metrics';
 import { ChevronRightIcon } from '@/components/ui/icons';
 import PivotRow from './PivotRow';
@@ -17,6 +18,8 @@ export interface LoanOfficerTableProps {
   /** Etapa 12 (agregado): criterio de orden de la lista -- 'total' = suma de las 4 métricas (default), o una métrica específica. */
   sortBy: MetricKey | 'total';
   onSortByChange: (sortBy: MetricKey | 'total') => void;
+  /** Drill-down (Fase 1): mismo contrato que en PivotTable -- ver ese archivo. */
+  onDrillDown?: (context: DrillDownContext) => void;
 }
 
 function monthAbbrev(ym: YearMonth): string {
@@ -77,12 +80,14 @@ function OfficerRows({
   measure,
   collapsed,
   onToggleCollapse,
+  onDrillDown,
 }: {
   officer: LoanOfficerTreeItem;
   months: YearMonth[];
   measure: Measure;
   collapsed: Set<string>;
   onToggleCollapse: (id: string) => void;
+  onDrillDown?: (context: DrillDownContext) => void;
 }) {
   const officerId = 'lo::' + officer.name;
   const officerCollapsed = collapsed.has(officerId);
@@ -111,6 +116,16 @@ function OfficerRows({
             isClosedMetric={g.metric === 'cl'}
             rowClassName={'metric mrow' + (g.metric === 'cl' ? ' clm' : '')}
             indentPx={20}
+            // Sin branch: buildLoanOfficerTree() cruza todos los branches por
+            // diseño (sin cambios, ver ese archivo). drillBy fijo en
+            // 'loanOfficer': esta vista siempre agrupa por ese campo,
+            // independiente de b2bOnly -- ver limitación documentada en
+            // docs/ARQUITECTURA.md tras esta etapa.
+            onCellClick={
+              onDrillDown
+                ? (ym) => onDrillDown({ metric: g.metric, month: ym, drillBy: 'loanOfficer', drillName: officer.name })
+                : undefined
+            }
           />
         ))}
     </>
@@ -142,6 +157,7 @@ export default function LoanOfficerTable({
   onToggleCollapse,
   sortBy,
   onSortByChange,
+  onDrillDown,
 }: LoanOfficerTableProps) {
   const [search, setSearch] = useState('');
 
@@ -205,6 +221,7 @@ export default function LoanOfficerTable({
                   measure={measure}
                   collapsed={collapsed}
                   onToggleCollapse={onToggleCollapse}
+                  onDrillDown={onDrillDown}
                 />
               ))}
 

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type { PipelineLoan, ResolvedLoan } from '@/lib/pipeline/types';
 import {
   calculateTotalForecastWithClosed,
+  splitCtcAndClosing,
   type BucketCounts,
   type ForecastByBucket,
   type PullThroughRates,
@@ -64,6 +65,17 @@ interface BranchRow {
    * de eso.
    */
   closingCount: number;
+  /**
+   * Aditivo, no reemplaza a `closingCount` de arriba (el punto CtcDot sigue
+   * usando ese, sin tocar). Desglose de "Projected to Close": cuántos de los
+   * loans HEALTHY (no bucketTotal -- Projected to Close nunca incluye
+   * Delayed, ver el bug fix en buildBranchRows) tenían milestone crudo
+   * "Clear To Close" vs "Closing" (ver `splitCtcAndClosing`, aggregate.ts).
+   * `ctcRawCount + closingRawCount` == `branchForecastRow.bucketHealthy.Closing`,
+   * NO `closingCount`. Mismo criterio de canal: 0 para Brokered.
+   */
+  ctcRawCount: number;
+  closingRawCount: number;
   totalForecast: number;
   branchForecastRow: BranchForecastRow;
 }
@@ -74,6 +86,9 @@ interface BlockSubtotal {
   healthyCount: number;
   projectedToClose: number;
   closingCount: number;
+  /** Aditivo -- ver el comentario en BranchRow. Suma de ctcRawCount/closingRawCount de las filas. */
+  ctcRawCount: number;
+  closingRawCount: number;
   totalForecast: number;
 }
 
@@ -99,6 +114,8 @@ const EMPTY_SUBTOTAL: BlockSubtotal = {
   healthyCount: 0,
   projectedToClose: 0,
   closingCount: 0,
+  ctcRawCount: 0,
+  closingRawCount: 0,
   totalForecast: 0,
 };
 const EMPTY_BUCKETS: BucketCounts = { Started: 0, Processing: 0, Underwriting: 0, Closing: 0 };
@@ -113,6 +130,8 @@ function addSubtotal(a: BlockSubtotal, b: BranchRow | BlockSubtotal): BlockSubto
     healthyCount: a.healthyCount + b.healthyCount,
     projectedToClose: a.projectedToClose + b.projectedToClose,
     closingCount: a.closingCount + b.closingCount,
+    ctcRawCount: a.ctcRawCount + b.ctcRawCount,
+    closingRawCount: a.closingRawCount + b.closingRawCount,
     totalForecast: a.totalForecast + b.totalForecast,
   };
 }
@@ -177,6 +196,8 @@ function buildOrphanBranchRows(rows: BranchForecastRow[], resolvedLoans: Resolve
       healthyCount: 0,
       projectedToClose: 0,
       closingCount: 0,
+      ctcRawCount: 0,
+      closingRawCount: 0,
       totalForecast: count,
       branchForecastRow: emptyBranchForecastRow,
     };
@@ -208,6 +229,37 @@ function buildBranchRows(
       branchForecastRow.forecastTotal,
       dateRange
     );
+    // Etapa F5k, Parte 3: solo Banked -- ver el comentario en BranchRow.
+    const isBanked = branchForecastRow.channel === 'Banked - Retail';
+    // `closingCount` (el que alimenta el punto CtcDot, sin tocar -- Tarea 5
+    // del brief anterior) sigue siendo bucketTotal.Closing, TODOS los loans:
+    // es un indicador de presencia ("¿hay algún préstamo en CTC en esta
+    // fila?"), no una cuenta que tenga que cuadrar con Projected to Close.
+    const closingCount = isBanked ? branchForecastRow.bucketTotal.Closing : 0;
+    // Bug fix (desglose CTC/Closing mostraba Delayed): "Projected to Close"
+    // -- la columna donde vive este desglose -- usa ÚNICAMENTE bucketHealthy
+    // (`branchForecastRow.forecastTotal`, calculado sobre `bucketHealthy` en
+    // page.tsx, nunca sobre bucketTotal/Delayed). El desglose CTC+Closing
+    // tiene que explicar ESE número, no el de la columna vecina (Total
+    // Pipeline/CtcDot) -- por eso se filtra `healthy === true` ANTES de
+    // separar por rawMilestone, y se compara contra `bucketHealthy.Closing`
+    // (no contra `closingCount` de arriba, que a propósito sigue incluyendo
+    // Delayed para el punto). Misma fuente cruda de siempre
+    // (`branchForecastRow.loans`), solo que ahora filtrada por healthy antes
+    // de contar -- sin tocar bucketTotal/bucketHealthy/closingCount.
+    const healthyClosingCount = isBanked ? branchForecastRow.bucketHealthy.Closing : 0;
+    const ctcSplit = isBanked
+      ? splitCtcAndClosing(branchForecastRow.loans.filter((loan) => loan.healthy === true))
+      : { ctcCount: 0, closingCount: 0 };
+    if (process.env.NODE_ENV !== 'production' && ctcSplit.ctcCount + ctcSplit.closingCount !== healthyClosingCount) {
+      console.warn('CTC+Closing (healthy) no coincide con bucketHealthy.Closing', {
+        branch: branchForecastRow.branch,
+        channel: branchForecastRow.channel,
+        ctcCount: ctcSplit.ctcCount,
+        closingCount: ctcSplit.closingCount,
+        bucketHealthyClosingTotal: healthyClosingCount,
+      });
+    }
     return {
       branch: branchForecastRow.branch,
       channel: branchForecastRow.channel,
@@ -215,8 +267,9 @@ function buildBranchRows(
       totalCount: branchForecastRow.totalCount,
       healthyCount: branchForecastRow.healthyCount,
       projectedToClose: branchForecastRow.forecastTotal,
-      // Etapa F5k, Parte 3: solo Banked -- ver el comentario en BranchRow.
-      closingCount: branchForecastRow.channel === 'Banked - Retail' ? branchForecastRow.bucketTotal.Closing : 0,
+      closingCount,
+      ctcRawCount: ctcSplit.ctcCount,
+      closingRawCount: ctcSplit.closingCount,
       totalForecast,
       branchForecastRow,
     };
@@ -290,6 +343,9 @@ function openLoanToModalLoan(loan: PipelineLoan): LoanDetailModalLoan {
     rawMilestone: loan.rawMilestone,
     rawHealthiness: loan.rawHealthiness,
     branchTransferred: loan.branchTransferred,
+    loanType: loan.loanType,
+    loanProgram: loan.loanProgram,
+    noteHistory: loan.noteHistory,
   };
 }
 
@@ -307,6 +363,9 @@ function closedLoanToModalLoan(loan: ResolvedLoan): LoanDetailModalLoan {
     amount: loan.amount,
     rawMilestone: loan.rawMilestone || 'Closed (Funded)',
     branchTransferred: loan.branchTransferred,
+    loanType: loan.loanType,
+    loanProgram: loan.loanProgram,
+    noteHistory: loan.noteHistory,
   };
 }
 
@@ -410,7 +469,7 @@ function ExecTotalRow({ label, subtotal }: { label: string; subtotal: BlockSubto
           <CtcDot count={0} />
           {fmtForecast(subtotal.projectedToClose)}
         </span>
-        <CtcSubtotalNote count={subtotal.closingCount} />
+        <CtcSubtotalNote ctcCount={subtotal.ctcRawCount} closingCount={subtotal.closingRawCount} />
       </td>
       <td className="totcol col-forecast">
         <span className="badge badge--pill badge--emerald">{fmtForecast(subtotal.totalForecast)}</span>
@@ -451,13 +510,22 @@ function CtcDot({ count }: { count: number }) {
 /**
  * Etapa UX12: la fila de subtotal no lleva punto -- un punto binario no
  * puede representar "6 préstamos" sin perder información, así que en el
- * subtotal se muestra el número exacto en texto chico ("6 CTC"), subordinado
- * al total de Projected to Close de arriba: mismo verde que el punto, sin
- * negrita.
+ * subtotal se muestra el número exacto en texto chico, subordinado al total
+ * de Projected to Close de arriba: mismo verde que el punto, sin negrita.
+ *
+ * Ajuste (desglose CTC/Closing): antes mostraba un solo número combinado
+ * ("6 CTC"); ahora desglosa ese mismo total en sus dos etiquetas crudas
+ * ("4 CTC + 2 Closing", ver splitCtcAndClosing/ctcRawCount/closingRawCount)
+ * -- el número combinado (`closingCount`, sin tocar) sigue siendo el que
+ * alimenta pull-through/forecast, esto es solo el texto de este renglón.
  */
-function CtcSubtotalNote({ count }: { count: number }) {
-  if (count <= 0) return null;
-  return <div className="ctc-subtotal-note">{fmtInt(count)} CTC</div>;
+function CtcSubtotalNote({ ctcCount, closingCount }: { ctcCount: number; closingCount: number }) {
+  if (ctcCount + closingCount <= 0) return null;
+  return (
+    <div className="ctc-subtotal-note">
+      {fmtInt(ctcCount)} CTC + {fmtInt(closingCount)} Closing
+    </div>
+  );
 }
 
 /**
@@ -617,6 +685,53 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
     });
   }
 
+  /** Contexto del modal para una fila de "Combined Total by Branch" -- mismo formato que contextFor(), sin canal (combina los 2). */
+  function contextForBranch(branch: string): string {
+    return `Branch ${branch} — Combined (Banked - Retail + Brokered)`;
+  }
+
+  /**
+   * Combined Total by Branch: mismo patrón que openTotalPipeline/
+   * openHealthyPipeline/openClosed de arriba, sin filtrar por canal -- junta
+   * las filas de `branchRows` de ese branch (como mucho 2: Banked + Brokered,
+   * cada una con su propio array `loans` de PipelineLoan, nunca solapado
+   * entre canales) en vez de una sola fila. No recalcula nada de
+   * aggregate.ts ni de buildCombinedByBranch -- solo re-arma la LISTA de
+   * préstamos detrás de un número que buildCombinedByBranch ya sumó.
+   */
+  function branchRowsFor(branch: string): BranchRow[] {
+    return branchRows.filter((r) => r.branch === branch);
+  }
+
+  function openCombinedTotalPipeline(branch: string) {
+    const loans = branchRowsFor(branch)
+      .flatMap((r) => r.branchForecastRow.loans)
+      .map(openLoanToModalLoan);
+    setModal({ context: contextForBranch(branch), metric: 'Total Pipeline', loans });
+  }
+
+  function openCombinedHealthyPipeline(branch: string) {
+    const loans = branchRowsFor(branch)
+      .flatMap((r) => r.branchForecastRow.loans.filter((l) => l.healthy === true))
+      .map(openLoanToModalLoan);
+    setModal({ context: contextForBranch(branch), metric: 'Healthy Pipeline', loans });
+  }
+
+  // Mismo filtro que openClosed() de arriba, sin la condición de canal --
+  // une los cerrados de Banked y Brokered de este branch (ResolvedLoan no
+  // puede pertenecer a los 2 canales a la vez, así que no hay riesgo de
+  // duplicar un préstamo al no filtrar por canal).
+  function openCombinedClosed(branch: string) {
+    const closedLoans = resolvedLoans.filter(
+      (loan) =>
+        loan.status === 'funded' &&
+        loan.branch === branch &&
+        loan.disbursementDate >= dateRange.startDate &&
+        loan.disbursementDate <= dateRange.endDate
+    );
+    setModal({ context: contextForBranch(branch), metric: 'Closed', loans: closedLoans.map(closedLoanToModalLoan) });
+  }
+
   return (
     <>
       {/* Spec §4C.2: grilla de 2 columnas, un canal por columna. */}
@@ -670,7 +785,10 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
           <span className="tbl-card__title">Combined Total by Branch</span>
         </div>
         <div className="tbl-scroll">
-          <table className="piv piv--exec">
+          {/* `piv--combined` (Fase urgente): solo agrega el centrado de columnas
+              numéricas de ESTA tabla (components.css) -- no cambia nada más,
+              Banked/Brokered arriba siguen usando table.piv td.val sin tocar. */}
+          <table className="piv piv--exec piv--combined">
             <ExecColgroup />
             <ExecHead />
             <tbody>
@@ -680,10 +798,14 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
                   <td className="th-left manager-cell" title={branchManagers.get(row.branch) ?? UNASSIGNED_MANAGER}>
                     {branchManagers.get(row.branch) ?? UNASSIGNED_MANAGER}
                   </td>
-                  <td className="val col-pipeline group-start">{fmtInt(row.totalCount)}</td>
-                  <td className="val col-pipeline">{fmtInt(row.healthyCount)}</td>
+                  <td className="val col-pipeline group-start">
+                    <CountCell value={row.totalCount} onClick={() => openCombinedTotalPipeline(row.branch)} />
+                  </td>
+                  <td className="val col-pipeline">
+                    <CountCell value={row.healthyCount} onClick={() => openCombinedHealthyPipeline(row.branch)} />
+                  </td>
                   <td className="val col-forecast group-start">
-                    <ClosedValue value={row.closedCount} />
+                    <CountCell value={row.closedCount} onClick={() => openCombinedClosed(row.branch)} variant="closed" />
                   </td>
                   <td className="val col-forecast">
                     <span className="ctc-cell">
@@ -710,21 +832,13 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
       </div>
 
       {/*
-       * Etapa UX8, hallazgo: este texto describía un comportamiento que ya no
-       * existe. Databa de antes de F5j-b, cuando `forecastTotal` viajaba en
-       * decimal hasta el final y cada subtotal (de canal y Combinado) se
-       * redondeaba por separado -- podían no coincidir. Desde F5j-b,
-       * `forecastTotal` ya llega redondeado POR BRANCH (page.tsx), así que
-       * todo lo que suma esos valores (subtotal de canal, Combined Total)
-       * sí cuadra exacto con la suma de las filas mostradas -- verificado en
-       * el reporte de esta etapa, no solo asumido. Se reemplaza el texto en
-       * vez de dejarlo, porque contradecía directamente la garantía que esta
-       * etapa pide verificar.
+       * Fase urgente, punto 5: Isabella pidió explícitamente sacar de la UI
+       * el texto explicativo que iba acá ("Closed + Projected to Close
+       * always add up to Forecast..."). Es solo el párrafo de presentación
+       * -- la garantía que describía (subtotales = suma exacta, ver
+       * ExecTotalRow/addSubtotal más arriba) sigue intacta en el cálculo,
+       * no se tocó nada de eso, solo se dejó de mostrar el texto.
        */}
-      <p className="foot-note">
-        Closed + Projected to Close always add up to Forecast, and subtotals are the exact sum of the rows shown above
-        -- no rows are hidden by rounding.
-      </p>
 
       <LoanDetailModal
         isOpen={modal !== null}

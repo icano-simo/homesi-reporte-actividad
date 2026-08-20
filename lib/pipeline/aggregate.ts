@@ -87,6 +87,39 @@ export function countByMilestoneBucket(loans: PipelineLoan[]): BucketCounts {
   return counts;
 }
 
+export interface CtcClosingSplit {
+  ctcCount: number;
+  closingCount: number;
+}
+
+/**
+ * Desglose informativo de display: cuántos loans de un set tienen milestone
+ * CRUDO "Clear To Close" vs "Closing" -- las dos etiquetas que
+ * `MILESTONE_BUCKET` (`lib/pipeline/sources/salesforce-file.ts`, NO acá --
+ * ese es el punto real donde el crudo se colapsa a `milestone: 'Closing'`,
+ * antes de que un PipelineLoan llegue a esta función) fusiona en un único
+ * bucket combinado. Ese bucket combinado (`countByMilestoneBucket(...).Closing`)
+ * sigue siendo la única fuente que alimenta pull-through/forecast/totales --
+ * esta función es puramente aditiva, solo separa para MOSTRAR lo que ya está
+ * adentro del bucket combinado, nunca cambia qué cuenta como Closing ni
+ * reclasifica nada.
+ *
+ * Recibe el mismo array de `PipelineLoan[]` que ya recibe
+ * `countByMilestoneBucket` (misma fuente cruda, `rawMilestone` ya viene
+ * poblado por el parser) -- quien la llama es responsable de pasarle el
+ * mismo set de loans, para que `ctcCount + closingCount` sea comparable
+ * 1:1 contra `countByMilestoneBucket(loans).Closing`.
+ */
+export function splitCtcAndClosing(loans: PipelineLoan[]): CtcClosingSplit {
+  let ctcCount = 0;
+  let closingCount = 0;
+  for (const loan of loans) {
+    if (loan.rawMilestone === 'Clear To Close') ctcCount++;
+    else if (loan.rawMilestone === 'Closing') closingCount++;
+  }
+  return { ctcCount, closingCount };
+}
+
 /**
  * Cascada de pull-through: cada bucket forecastea hacia adelante multiplicando
  * su propio count por las tasas de todos los buckets que le faltan por pasar

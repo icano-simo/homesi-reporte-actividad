@@ -18,6 +18,7 @@ interface LoanRecordRow {
   loan_program: string | null;
   loan_folder_name: string | null;
   affinity: string | null;
+  loan_info_channel_raw: string | null;
 }
 
 export interface CurrentReport {
@@ -61,7 +62,7 @@ export async function loadCurrentReport(): Promise<CurrentReport | null> {
     const { data: page, error: pageError } = await supabase
       .from('loan_records')
       .select(
-        'branch, loan_officer, bd, is_b2b, file_creation_month, credit_report_month, app_date_month, closing_month, total_loan_amount, loan_number, loan_program, loan_folder_name, affinity'
+        'branch, loan_officer, bd, is_b2b, file_creation_month, credit_report_month, app_date_month, closing_month, total_loan_amount, loan_number, loan_program, loan_folder_name, affinity, loan_info_channel_raw'
       )
       .eq('upload_batch_id', batch.id)
       .range(from, from + PAGE_SIZE - 1);
@@ -77,13 +78,12 @@ export async function loadCurrentReport(): Promise<CurrentReport | null> {
     loanOfficer: row.loan_officer,
     bd: row.bd,
     isB2B: row.is_b2b,
-    // loan_records no tiene columna loan_info_channel todavía -- campo nuevo
-    // en LoanRecord (cambio aislado en lib/domain, ver classifyLoan.ts), sin
-    // tocar el schema de Supabase acá. Queda '' al restaurar un batch
-    // guardado antes de este cambio (o mientras la tabla no tenga la
-    // columna); no afecta ningún cálculo existente, closingMonth ya viene
-    // resuelto de antes.
-    loanInfoChannel: '',
+    // Fix post-sync: loan_records SÍ tiene la columna (loan_info_channel_raw,
+    // ver saveUpload.ts) -- lo que faltaba era leerla acá. `?? ''` cubre los
+    // lotes guardados antes de este fix (o de que existiera la columna), que
+    // la tienen en NULL -- mismo criterio que loan_number/loan_program/etc.
+    // más abajo. No afecta closingMonth, que ya viene resuelto de antes.
+    loanInfoChannel: row.loan_info_channel_raw ?? '',
     fileCreationMonth: row.file_creation_month,
     creditReportMonth: row.credit_report_month,
     appDateMonth: row.app_date_month,

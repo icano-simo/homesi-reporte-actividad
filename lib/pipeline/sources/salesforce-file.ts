@@ -109,6 +109,9 @@ function resolveColumnIndexes(headerRow: unknown[]): Record<string, number> {
   idx['Close Month'] = normalized.indexOf('Close Month'); // solo existe en Formato A
   idx['Disbursement Date'] = normalized.indexOf('Disbursement Date'); // Etapa F4e -- no en reportes viejos, ver fallback en classifyRow
   idx['Loan Status'] = normalized.indexOf('Loan Status'); // Etapa F4i -- solo en reportes muy recientes
+  idx['Loan Type'] = normalized.indexOf('Loan Type'); // Fase urgente (drill-down modal): opcional, no rompe el parseo si falta
+  idx['Loan Program'] = normalized.indexOf('Loan Program'); // ídem
+  idx['Production Support Note History'] = normalized.indexOf('Production Support Note History'); // Fase urgente (Notes en el modal): ídem
 
   const missing = REQUIRED_COLUMNS.filter((col) => idx[col] === -1);
   if (missing.length) {
@@ -225,6 +228,12 @@ interface RawRow {
   disbursementDateRaw: unknown;
   /** Etapa F4i -- undefined si el archivo no trae la columna (la mayoría de los reportes hoy). */
   loanStatusRaw: unknown;
+  /** Fase urgente (drill-down modal): '' si el archivo no trae la columna "Loan Type". */
+  loanType: string;
+  /** Fase urgente (drill-down modal): '' si el archivo no trae la columna "Loan Program". */
+  loanProgram: string;
+  /** Fase urgente (Notes en el modal): '' si el archivo no trae la columna "Production Support Note History". */
+  noteHistory: string;
 }
 
 function readAmount(value: unknown): number {
@@ -283,6 +292,9 @@ function extractRowsFormatA(aoa: unknown[][], idx: Record<string, number>, heade
         branchTransferRaw: row[idx['Branch Transfer']],
         disbursementDateRaw: row[idx['Disbursement Date']],
         loanStatusRaw: row[idx['Loan Status']],
+        loanType: String(row[idx['Loan Type']] ?? ''),
+        loanProgram: String(row[idx['Loan Program']] ?? ''),
+        noteHistory: String(row[idx['Production Support Note History']] ?? ''),
       });
     }
     i++;
@@ -315,6 +327,9 @@ function extractRowsFormatB(aoa: unknown[][], idx: Record<string, number>, heade
       branchTransferRaw: row[idx['Branch Transfer']],
       disbursementDateRaw: row[idx['Disbursement Date']],
       loanStatusRaw: row[idx['Loan Status']],
+      loanType: String(row[idx['Loan Type']] ?? ''),
+      loanProgram: String(row[idx['Loan Program']] ?? ''),
+      noteHistory: String(row[idx['Production Support Note History']] ?? ''),
     });
   }
   return rows;
@@ -387,15 +402,36 @@ function classifyRow(
       borrowerName,
       milestoneDate,
       branchTransferred,
+      loanType: row.loanType,
+      loanProgram: row.loanProgram,
+      noteHistory: row.noteHistory,
     };
     return { openLoan };
   }
 
-  if (row.stage === 'Closed Won' || row.stage === 'Closed Lost') {
+  /*
+   * Regla de negocio confirmada: un loan con Stage="Needs Analysis" Y Loan
+   * Folder="Adverse Loans" debe seguir clasificado como Adverse -- Salesforce
+   * cambia el Stage temporalmente a "Needs Analysis" sin que el loan haya
+   * dejado de ser operativamente adverso. Condición exacta, intencionalmente
+   * estricta: los dos campos a la vez. NO es "Needs Analysis === Adverse" --
+   * un "Needs Analysis" con cualquier otro Loan Folder sigue el
+   * comportamiento de siempre (ver el bloque de abajo, después de este).
+   * Ningún otro Stage usa Loan Folder para clasificar -- ver el warning de
+   * "Loan Folder inesperado" más arriba, que sigue siendo solo informativo
+   * para todo lo demás.
+   */
+  const isAdverseViaNeedsAnalysis = row.stage === 'Needs Analysis' && row.loanFolder === 'Adverse Loans';
+
+  if (row.stage === 'Closed Won' || row.stage === 'Closed Lost' || isAdverseViaNeedsAnalysis) {
     const resolvedLoan: ResolvedLoan = {
       sourceLoanId,
       branch: row.branch,
       channel,
+      // isAdverseViaNeedsAnalysis nunca es 'Closed Won', así que este mismo
+      // ternario ya da 'adverse' para ese caso sin necesidad de una rama
+      // aparte -- reusa exactamente la misma construcción de ResolvedLoan
+      // que Closed Lost, sin duplicar el objeto.
       status: row.stage === 'Closed Won' ? 'funded' : 'adverse',
       disbursementDate:
         toISODate(parseDateCell(row.disbursementDateRaw)) ?? toISODate(parseDateCell(row.estClosingDateRaw)) ?? '',
@@ -416,8 +452,35 @@ function classifyRow(
       // valores inesperados (línea ~354) -- solo faltaba conservarlo acá.
       // Este archivo SÍ está en la lista de F5m, a diferencia de F5g.
       rawLoanFolder: row.loanFolder,
+      loanType: row.loanType,
+      loanProgram: row.loanProgram,
+      noteHistory: row.noteHistory,
     };
     return { resolvedLoan };
+  }
+
+  /*
+   * "Needs Analysis" es un Stage VÁLIDO de Salesforce -- no debe caer en el
+   * warning genérico de "Stage desconocido" (línea de abajo), que implica un
+   * valor inesperado/error de parseo. Si llegó hasta acá, ya se descartó
+   * arriba el caso Adverse (Stage="Needs Analysis" + Loan Folder="Adverse
+   * Loans") -- este bloque es exclusivamente el resto: "Needs Analysis" con
+   * cualquier Loan Folder que NO sea "Adverse Loans". No hay ninguna otra
+   * regla existente (aggregate.ts, page.tsx, AdverseTable.tsx) que clasifique
+   * este resto como Pipeline/Healthy/Forecast -- sigue reconocido pero sin
+   * bucket (ni openLoan ni resolvedLoan), mismo efecto numérico de siempre
+   * para este subconjunto, pendiente de una decisión de negocio explícita si
+   * hiciera falta clasificarlo de otra forma.
+   */
+  if (row.stage === 'Needs Analysis') {
+    warnings.push(
+      'Loan ' +
+        sourceLoanId +
+        ': Stage "Needs Analysis" (reconocido, no es un error de parseo) -- Loan Folder "' +
+        row.loanFolder +
+        '" no es "Adverse Loans", así que no se clasifica como Adverse; pendiente de una regla de negocio para el resto. No se cuenta en Total Pipeline, Healthy Pipeline, Forecast ni Adverse.'
+    );
+    return {};
   }
 
   warnings.push('Loan ' + sourceLoanId + ': Stage desconocido "' + row.stage + '" -- fila descartada.');

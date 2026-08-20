@@ -11,6 +11,7 @@ import {
   countByBrokeredMilestoneBucket,
   BROKERED_FLAT_PULL_THROUGH_RATE,
   apportionByWeight,
+  splitCtcAndClosing,
   type BucketCounts,
   type PullThroughRates,
   type BrokeredPullThroughRates,
@@ -205,6 +206,19 @@ export default function PipelinePage() {
       .then((res) => res.json())
       .then((body) => {
         if (cancelled) return;
+        // Manejo explícito de errores del restore de Forecast: un 500 real
+        // de /api/pipeline/latest ({error: "..."}) es un caso distinto de
+        // {snapshot: null} ("todavía no se subió nada") -- fetch() no
+        // rechaza en un status de error, así que el .catch() de abajo
+        // (fallos de red) nunca se entera de esto. Se separa acá para
+        // mostrar el mensaje real con el mecanismo de error ya existente
+        // (setError), en vez de que un error real se muestre como si no
+        // hubiera Forecast guardado. No toca la rama de éxito ni la de
+        // snapshot:null, ninguna query, ninguna columna.
+        if (body && body.error) {
+          setError(String(body.error));
+          return;
+        }
         if (!body || !body.snapshot) return;
         setData({ openLoans: body.openLoans, resolvedLoans: body.resolvedLoans, warnings: body.warnings ?? [] });
         setFileName(body.snapshot.fileName);
@@ -428,6 +442,25 @@ export default function PipelinePage() {
   // rawMilestone real de Brokered mapea al bucket Closing de Banked -- así
   // que sumar sobre los 2 canales sin filtrar por channel es seguro.
   const projectedToCloseSoon = filteredBranchRows.reduce((sum, r) => sum + r.bucketTotal.Closing, 0);
+
+  // Bug fix (desglose CTC/Closing mostraba Delayed, mismo bug ya corregido
+  // en PivotTable.tsx/buildBranchRows): la tarjeta Closed ("Projected to
+  // close soon") vive junto al Forecast Estimated de Banked, que usa
+  // ÚNICAMENTE bucketHealthy -- nunca bucketTotal/Delayed. El desglose tiene
+  // que explicar esa población healthy, no `projectedToCloseSoon` (que sigue
+  // sin tocarse: sigue siendo bucketTotal, y sigue siendo lo que se le pasa
+  // a SummaryCards sin cambios -- sólo el desglose de abajo cambia de
+  // fuente). MISMA fuente cruda de siempre (`r.loans` de cada branchRow),
+  // filtrada por `healthy === true` ANTES de separar por rawMilestone.
+  const healthyClosingBucketTotal = filteredBranchRows.reduce((sum, r) => sum + r.bucketHealthy.Closing, 0);
+  const ctcClosingSplit = splitCtcAndClosing(filteredBranchRows.flatMap((r) => r.loans).filter((loan) => loan.healthy === true));
+  if (process.env.NODE_ENV !== 'production' && ctcClosingSplit.ctcCount + ctcClosingSplit.closingCount !== healthyClosingBucketTotal) {
+    console.warn('CTC+Closing (healthy) no coincide con bucketHealthy.Closing', {
+      ctcCount: ctcClosingSplit.ctcCount,
+      closingCount: ctcClosingSplit.closingCount,
+      bucketHealthyClosingTotal: healthyClosingBucketTotal,
+    });
+  }
 
   // Etapa F5i: antes esto agregaba bucketTotal/bucketHealthy/forecastByBucket
   // de TODOS los branchRows (ambos canales) para alimentar una única cascada
@@ -809,21 +842,14 @@ export default function PipelinePage() {
   }
 
   // resolvedLoans (Funded/Adverse) no entran a ningún OTRO cálculo -- los
-  // 'adverse' nunca se suman a nada; solo una línea informativa, sin tabla
-  // ni drill-down (eso es una etapa futura).
-  let resolvedSummary: string | null = null;
-  if (data && filteredResolvedLoans.length > 0) {
-    const funded = filteredResolvedLoans.filter((l) => l.status === 'funded').length;
-    const adverse = filteredResolvedLoans.filter((l) => l.status === 'adverse').length;
-    resolvedSummary =
-      'Additionally, ' +
-      filteredResolvedLoans.length.toLocaleString('en-US') +
-      ' loans already resolved (' +
-      adverse.toLocaleString('en-US') +
-      ' adverse, ' +
-      funded.toLocaleString('en-US') +
-      ' funded) in this file -- they do not count toward the Forecast.';
-  }
+  // 'adverse' nunca se suman a nada. Antes había una variable local
+  // (`resolvedSummary`) que armaba un texto informativo con este mismo
+  // dato ("Additionally, N loans already resolved...") -- Fase urgente:
+  // Isabella pidió sacar ese texto de la UI, y sin ningún otro consumidor
+  // (nunca alimentó ningún cálculo, ver comentario de arriba) la variable
+  // quedó muerta -- se borra en vez de dejarla asignada sin uso.
+  // `filteredResolvedLoans` en sí SIGUE usándose (Closed/Adverse/AdverseTable
+  // más abajo, sin tocar).
 
   return (
     <div className="hub-container">
@@ -910,6 +936,8 @@ export default function PipelinePage() {
             banked={bankedSummary}
             brokered={brokeredSummary}
             projectedToCloseSoon={projectedToCloseSoon}
+            ctcCount={ctcClosingSplit.ctcCount}
+            closingCount={ctcClosingSplit.closingCount}
           />
 
           <TabNavigation activeTab={activeTab} onTabChange={setActiveTab} adverseCount={adverseInRange.length} />
@@ -951,7 +979,17 @@ export default function PipelinePage() {
             />
           )}
 
-          {resolvedSummary && <div className="foot-note">{resolvedSummary}</div>}
+          {/*
+           * Fase urgente, punto 5: Isabella pidió explícitamente sacar de la
+           * UI el texto "Additionally, N loans already resolved (...) --
+           * they do not count toward the Forecast." Ese texto vivía en una
+           * variable local (`resolvedSummary`) que ya no existe -- se borró
+           * junto con el render, al no quedar ningún otro consumidor (ver
+           * el comentario donde se calculaba `filteredResolvedLoans`, más
+           * arriba). No afecta ningún cálculo de Forecast/Closed/Funded/
+           * Adverse -- `filteredResolvedLoans` sigue alimentando Closed y
+           * Adverse exactamente igual que antes.
+           */}
 
           {data.warnings.length > 0 && (
             <div className="foot-note">

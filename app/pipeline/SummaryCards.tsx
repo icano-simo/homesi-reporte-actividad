@@ -24,6 +24,16 @@ export interface SummaryCardsProps {
    * Close/Closing (ya posicionados para cerrar pronto).
    */
   projectedToCloseSoon: number;
+  /**
+   * Ajuste (desglose CTC/Closing), aditivo -- ver `splitCtcAndClosing`
+   * (aggregate.ts) y el mismo desglose en PivotTable.tsx (CtcSubtotalNote).
+   * `ctcCount + closingCount` debería ser exactamente `projectedToCloseSoon`
+   * (page.tsx ya valida esto con un console.warn de desarrollo, no acá) --
+   * `projectedToCloseSoon` no se toca ni se deja de pasar, sigue siendo la
+   * fuente real del bucket combinado.
+   */
+  ctcCount: number;
+  closingCount: number;
 }
 
 function fmtInt(n: number): string {
@@ -97,7 +107,14 @@ function ChannelSplit({
  *
  * Sin cambios de cálculo: los 3 bloques llegan ya calculados desde page.tsx.
  */
-export default function SummaryCards({ combined, banked, brokered, projectedToCloseSoon }: SummaryCardsProps) {
+/**
+ * `projectedToCloseSoon` queda en `SummaryCardsProps` sin desestructurarse
+ * acá -- page.tsx la sigue calculando y pasando (es la fuente real del
+ * bucket combinado, ver el comentario de esa prop), pero el componente ya no
+ * necesita leerla: el texto de la tarjeta pasó a mostrar `ctcCount`/
+ * `closingCount` en su lugar.
+ */
+export default function SummaryCards({ combined, banked, brokered, ctcCount, closingCount }: SummaryCardsProps) {
   const healthyPct = combined.totalCount ? Math.round((combined.healthyCount / combined.totalCount) * 100) : 0;
 
   return (
@@ -130,9 +147,17 @@ export default function SummaryCards({ combined, banked, brokered, projectedToCl
             la sigla. Etapa UX10: color `--ctc-dot` (forecast-visual.css,
             misma variable que el punto en PivotTable.tsx) -- se lee como la
             misma cosa en los dos lugares, y no se pueden desincronizar
-            porque ambos leen la misma variable. */}
+            porque ambos leen la misma variable.
+
+            Ajuste (desglose CTC/Closing): antes mostraba el total combinado
+            ("N Loans Projected to close soon (CTC)"); ahora desglosa ese
+            mismo total en sus dos etiquetas crudas -- el "(CTC)" ya no hace
+            falta como aclaración porque CTC queda explícito en el número.
+            El total combinado (`projectedToCloseSoon`) no se toca, sigue
+            siendo lo que page.tsx calcula y valida contra este mismo
+            desglose (ver console.warn de desarrollo ahí). */}
         <div className="kpi-hero__sub kpi-hero__sub--ctc">
-          {loansLabel(projectedToCloseSoon)} Projected to close soon (CTC)
+          {fmtInt(ctcCount)} CTC + {fmtInt(closingCount)} Closing projected to close soon
         </div>
       </div>
 

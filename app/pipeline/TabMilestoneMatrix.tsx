@@ -139,13 +139,19 @@ function fmtPct(rate: number): string {
  * "FileCreation" -> "File Creation" -- transformación genérica por regex, no
  * una lista de nombres hardcodeados (funciona igual para las keys de Banked o
  * de Brokered, cualquiera sea el set real). Etapa UX9: 'Closing' es la única
- * excepción explícita -- el rótulo visible pasa a ser "Clear to Close" (acá y
+ * excepción explícita -- el rótulo visible pasa a ser "CTC + Closing" (acá y
  * en el título del modal de celda, que reusa esta misma función), pero la key
  * `Closing` de BucketCounts (aggregate.ts) y toda la lógica que la usa NO
  * cambian, solo este texto de display.
+ *
+ * Ajuste posterior: el rótulo era "Clear to Close" (ocultaba la palabra
+ * "Closing" del todo, pese a que la columna combina AMBOS milestones crudos
+ * -- mismo bucket combinado que el desglose "X CTC + X Closing" ya muestra
+ * en Forecast/PivotTable.tsx). Pasa a "CTC + Closing" para que quede
+ * explícito que son las dos etiquetas fusionadas, no solo una de ellas.
  */
 function labelFromKey(key: string): string {
-  if (key === 'Closing') return 'Clear to Close';
+  if (key === 'Closing') return 'CTC + Closing';
   return key.replace(/([a-z])([A-Z])/g, '$1 $2');
 }
 
@@ -237,6 +243,9 @@ export default function TabMilestoneMatrix({
         rawMilestone: loan.rawMilestone,
         rawHealthiness: loan.rawHealthiness,
         branchTransferred: loan.branchTransferred,
+        loanType: loan.loanType,
+        loanProgram: loan.loanProgram,
+        noteHistory: loan.noteHistory,
       })),
     });
   }

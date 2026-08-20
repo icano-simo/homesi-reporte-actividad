@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import type { DateRange } from '@/lib/pipeline/aggregate';
+import { SettingsGearIcon } from '@/components/ui/icons';
 import DateRangeInput from './DateRangeInput';
 import MonthSelector from './MonthSelector';
 
@@ -77,10 +78,43 @@ export default function Topbar({
       <div className="control-group">
         {/*
           Plegado no es oculto: el botón dice en qué quedaron los dos
-          parámetros, para que nadie tenga que abrirlo sólo para saberlo.
+          parámetros, para que nadie tenga que abrirlo sólo para saberlo. El
+          engranaje (ícono de marca, ver components/ui/icons.tsx) reemplaza el
+          texto "Settings" + el chevron -- el resumen de rango/mes se
+          conserva igual, es lo que hace que "plegado" no sea "oculto"; solo
+          el afordance de "esto es Settings, clickeable" cambió de texto a
+          ícono. aria-label/title cubren la accesibilidad que el texto daba
+          gratis.
+
+          Ajuste de seguimiento: el resumen ("· ") no distinguía Pipeline
+          Range de Forecast Month -- dos controles independientes (ver
+          DateRangeInput.tsx/MonthSelector.tsx, cada uno filtra cosas
+          distintas). Se separan con el mismo divisor vertical que ya usa
+          SummaryCards.tsx (.kpi-hero__split-divider) entre dos valores
+          agrupados, y "Forecast" se rotula con `.label-chip` -- la misma
+          clase que ya usa MonthSelector.tsx para su propio input ("Forecast
+          Month"), reutilizada acá en vez de un estilo nuevo. El rango de
+          fechas no lleva chip: un rango de fechas ya se lee como tal por su
+          propia forma (el "–" entre las dos fechas), y MonthSelector.tsx
+          también rotula solo "Forecast Month", no "Pipeline Range" repetido
+          dos veces en la misma fila. `white-space: nowrap` en el botón
+          (forecast-visual.css) evita que el resumen se quiebre en dos líneas.
         */}
-        <button type="button" className="fc-params__toggle" onClick={() => setShowParams((v) => !v)} aria-expanded={showParams}>
-          {showParams ? '▾' : '▸'} Settings · {pipelineDateRange.startDate} → {pipelineDateRange.endDate} · {forecastMonth}
+        <button
+          type="button"
+          className="fc-params__toggle"
+          onClick={() => setShowParams((v) => !v)}
+          aria-expanded={showParams}
+          aria-label="Settings"
+          title="Settings"
+        >
+          <SettingsGearIcon size={16} />
+          <span>
+            {pipelineDateRange.startDate} – {pipelineDateRange.endDate}
+          </span>
+          <span className="fc-params__toggle-divider" aria-hidden="true" />
+          <span className="label-chip">Forecast</span>
+          <span>{forecastMonth}</span>
         </button>
       </div>
 
@@ -88,11 +122,14 @@ export default function Topbar({
         <div className="fc-params">
           <DateRangeInput value={pipelineDateRange} onChange={onPipelineDateRangeChange} />
           <MonthSelector value={forecastMonth} onChange={onForecastMonthChange} />
+          {/* Nombre de archivo: antes vivía siempre visible en control-bar__status;
+              se mueve acá adentro (mismo panel que Range/Month) para que el
+              engranaje sea el único punto de entrada a "detalles de esta carga". */}
+          {fileName && <span className="pill">File: {fileName}</span>}
         </div>
       )}
 
       <div className="control-bar__status">
-        {fileName && <span className="pill">File: {fileName}</span>}
         {formatDetected && <span className="pill">Format detected: {formatDetected}</span>}
         {saveStatus === 'saving' && <span className="pill">Saving to Supabase…</span>}
         {saveStatus === 'saved' && <span className="pill ok">Saved to Supabase</span>}

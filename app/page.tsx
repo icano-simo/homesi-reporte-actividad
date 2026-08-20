@@ -5,10 +5,12 @@ import { read } from 'xlsx';
 import { readWorkbook } from '@/lib/parsing/workbookReader';
 import type { RawLoanRow, YearMonth } from '@/lib/parsing/types';
 import { classifyLoan } from '@/lib/domain/classifyLoan';
+import { isHelocLien2 } from '@/lib/domain/isHelocLien2';
 import type { LoanRecord } from '@/lib/domain/types';
 import { buildReportTree } from '@/lib/aggregation/buildReportTree';
 import { buildLoanOfficerTree } from '@/lib/aggregation/buildLoanOfficerTree';
 import { deriveMonthRange, ymLabel } from '@/lib/aggregation/months';
+import { loansForCell, type DrillDownContext } from '@/lib/aggregation/loansForCell';
 import type { Measure } from '@/lib/aggregation/types';
 import { exportToExcel } from '@/lib/export/exportToExcel';
 import { saveUpload } from '@/lib/supabase/saveUpload';
@@ -19,6 +21,7 @@ import { UploadIcon, DownloadIcon, FileSheetIcon } from '@/components/ui/icons';
 import SummaryCards from '@/components/report/SummaryCards';
 import PivotTable from '@/components/report/PivotTable';
 import LoanOfficerTable from '@/components/report/LoanOfficerTable';
+import LoanDetailModal from '@/components/report/LoanDetailModal';
 import Toolbar, { type GroupBy, type ChannelFilter } from '@/components/report/Toolbar';
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
@@ -37,19 +40,35 @@ function errorMessage(err: unknown): string {
 }
 
 /**
+ * Todos los ids de nivel Metric ('br::'+branch+'::m::'+metric), uno por
+ * combinación branch×métrica -- el mismo esquema que ya usa PivotTable para
+ * togglear el desglose de Loan Officer/BD de cada metric group. Factorizado
+ * para que defaultCollapsed() y handleCollapseAll() (más abajo) partan de la
+ * MISMA enumeración -- antes handleCollapseAll() la omitía por completo, que
+ * era la causa real de que reabrir un branch después de "Collapse all"
+ * mostrara sus Metrics ya expandidas (con Loan Officers visibles): sus ids no
+ * estaban en el Set, y "no está en el Set" se lee como "no colapsado" en
+ * todo el árbol (ver PivotTable.tsx/PivotRow.tsx, ninguno de los dos se
+ * tocó).
+ */
+function allMetricIds(): string[] {
+  const ids: string[] = [];
+  for (const b of BRANCH_ORDER) {
+    for (const { key } of METRICS) {
+      ids.push('br::' + b + '::m::' + key);
+    }
+  }
+  return ids;
+}
+
+/**
  * Port de defaultCollapsed() del legacy: al cargar un archivo, los headers
  * de Total/Branch quedan expandidos, pero el desglose de Loan Officer/BD de
  * cada métrica de cada branch empieza colapsado -- mismo esquema de ids
  * ('br::'+branch+'::m::'+metric) que usa PivotTable para togglearlos.
  */
 function defaultCollapsed(): Set<string> {
-  const s = new Set<string>();
-  for (const b of BRANCH_ORDER) {
-    for (const { key } of METRICS) {
-      s.add('br::' + b + '::m::' + key);
-    }
-  }
-  return s;
+  return new Set(allMetricIds());
 }
 
 export default function Home() {
@@ -72,6 +91,12 @@ export default function Home() {
   const [start, setStart] = useState<YearMonth | null>(null);
   const [branchFilter, setBranchFilter] = useState<Branch | 'all'>('all');
   const [collapsed, setCollapsed] = useState<Set<string>>(() => defaultCollapsed());
+  // Drill-down (Fase 1): contexto de la celda clickeada, o null si el modal
+  // está cerrado. Los loans se derivan de filteredRecords en cada render
+  // (ver drillDownLoans más abajo) -- no se guarda una copia de la lista acá,
+  // así que si el usuario cambia un filtro con el modal abierto, la lista se
+  // actualiza sola en vez de quedar desincronizada de la tabla.
+  const [drillDown, setDrillDown] = useState<DrillDownContext | null>(null);
   // No estaba en la lista de estado del brief; se agrega porque el criterio
   // de éxito 6 exige mostrar el error de readWorkbook sin crashear la página.
   const [error, setError] = useState<string | null>(null);
@@ -97,6 +122,7 @@ export default function Home() {
     setStart(null);
     setBranchFilter('all');
     setCollapsed(defaultCollapsed());
+    setDrillDown(null);
     setError(null);
   }
 
@@ -135,8 +161,15 @@ export default function Home() {
         const result = ev.target?.result;
         if (!(result instanceof ArrayBuffer)) throw new Error('No se pudo leer el archivo.');
         const workbook = read(new Uint8Array(result), { type: 'array' });
-        const rawRows: RawLoanRow[] = readWorkbook(workbook);
-        if (!rawRows.length) throw new Error('El archivo no tiene filas de datos');
+        const parsedRows: RawLoanRow[] = readWorkbook(workbook);
+        if (!parsedRows.length) throw new Error('El archivo no tiene filas de datos');
+        // Exclusión global (regla de negocio confirmada por Isabella,
+        // 2026-08-18): HELOC LIEN POSITION = 2 nunca debe convertirse en
+        // LoanRecord ni guardarse en Supabase -- se filtra ACÁ, sobre
+        // RawLoanRow, antes de classifyLoan() y antes de saveUpload(), para
+        // que quede fuera del universo entero de Activity (ver
+        // lib/domain/isHelocLien2.ts).
+        const rawRows = parsedRows.filter((r) => !isHelocLien2(r));
         const loanRecords = rawRows.map(classifyLoan);
 
         applyLoadedReport(loanRecords, file.name);
@@ -174,11 +207,19 @@ export default function Home() {
     setCollapsed(new Set());
   }
 
-  // Port de collapseAll del legacy: colapsa 'total' y cada header de branch
-  // (lo que también oculta sus metric-groups, sin necesidad de listarlos).
+  // Port de collapseAll del legacy: colapsa 'total' y cada header de branch.
   // Etapa 12: en la vista "Por Loan Officer" no hay 'total' ni branches --
   // colapsa cada Loan Officer visible en su lugar (mismo esquema de id
   // 'lo::'+nombre que usa LoanOfficerTable).
+  //
+  // Fix (jerarquía de expansión): además de 'total' y cada branch, ahora
+  // también agrega TODOS los ids de Metric (allMetricIds(), misma lista que
+  // defaultCollapsed()) -- antes se omitían, así que después de "Collapse
+  // all" el Set no tenía ninguna entrada de Metric, y al reabrir un branch
+  // sus 4 Metrics aparecían ya expandidas (con el desglose de Loan
+  // Officer/BD visible) en vez de colapsadas. Cada nivel (Branch, Metric)
+  // sigue teniendo su propio id independiente -- esto no cambia esa
+  // arquitectura, solo corrige qué ids quedan en el Set al colapsar todo.
   function handleCollapseAll() {
     const s = new Set<string>();
     if (groupBy === 'loanOfficer') {
@@ -188,6 +229,7 @@ export default function Home() {
     } else {
       s.add('total');
       for (const b of BRANCH_ORDER) s.add('br::' + b);
+      for (const id of allMetricIds()) s.add(id);
     }
     setCollapsed(s);
   }
@@ -282,6 +324,12 @@ export default function Home() {
   // ReportTree existe siempre (no está filtrado por branch), así que hay
   // que ocultarlo explícitamente cuando hay un branch específico elegido.
   const showTotal = branchFilter === 'all';
+
+  // Drill-down (Fase 1): loansForCell() filtra sobre filteredRecords -- los
+  // mismos records que ya alimentaron tree/loanOfficerTree arriba, con
+  // B2B/Channel ya aplicados. No se vuelve a evaluar ninguna regla de
+  // negocio acá (ver lib/aggregation/loansForCell.ts).
+  const drillDownLoans = drillDown && filteredRecords ? loansForCell(filteredRecords, drillDown) : [];
 
   // Rótulo del KPI strip: describe qué filtros/agrupación/medida están activos.
   // Micro-etapa (Channel vacío como categoría): 'empty' es sentinel de
@@ -429,6 +477,7 @@ export default function Home() {
               onToggleCollapse={handleToggleCollapse}
               sortBy={sortBy}
               onSortByChange={setSortBy}
+              onDrillDown={setDrillDown}
             />
           ) : (
             <div className="tbl-card">
@@ -441,6 +490,7 @@ export default function Home() {
                   collapsed={collapsed}
                   onToggleCollapse={handleToggleCollapse}
                   b2bOnly={b2bOnly}
+                  onDrillDown={setDrillDown}
                 />
               </div>
             </div>
@@ -453,6 +503,13 @@ export default function Home() {
           </div>
         </div>
       )}
+
+      <LoanDetailModal
+        isOpen={drillDown !== null}
+        context={drillDown}
+        loans={drillDownLoans}
+        onClose={() => setDrillDown(null)}
+      />
     </div>
   );
 }

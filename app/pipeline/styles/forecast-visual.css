@@ -236,6 +236,26 @@
   text-align: center;
 }
 
+/*
+ * Fase urgente, punto 2: Combined Total by Branch centrado, Banked/Brokered
+ * SIN tocar -- `piv--combined` (PivotTable.tsx) marca solamente esa tercera
+ * tabla, las otras dos siguen con `piv--exec` nada más.
+ *
+ * La regla de arriba (`.piv--exec td.col-pipeline`, etc.) ya centra estas
+ * columnas por especificidad de GRUPO, pero pierde contra
+ * `table.piv td.val` (components.css, compartida con Activity) porque esa
+ * es más específica ((0,2,2): table+piv+td+val vs (0,2,1) acá) -- por eso
+ * hoy las 3 tablas se ven alineadas a la derecha en la práctica, pese a la
+ * regla de arriba. Acá se agrega `.val`/`.totcol` explícitos + `piv--combined`
+ * para llegar a (0,3,2), más específico que `table.piv td.val`, y así ganar
+ * SOLO en esta tabla -- Banked/Brokered no llevan `piv--combined`, no se ven
+ * afectadas. NO se toca `table.piv td.val` (regla compartida con Activity).
+ */
+table.piv.piv--combined td.val,
+table.piv.piv--combined td.totcol {
+  text-align: center;
+}
+
 /* --- Encabezado: claro, con acento pastel por grupo --- */
 .piv--exec thead .mo-row th.col-pipeline {
   background: rgba(248, 250, 252, 0.6); /* slate-50/60 */
@@ -375,10 +395,29 @@
  * to Close que ya muestra la celda arriba.
  */
 .ctc-subtotal-note {
-  font-size: 10px;
+  /* Ajuste (Opción 1 -- más chico y apagado): antes 10px/var(--ctc-dot)
+     (verde), igual de prominente que el punto de las filas normales. El
+     verde --ctc-dot queda exclusivo del CtcDot de las filas de datos, sin
+     tocar -- acá pasa a slate-400, el mismo gris apagado que ya usa
+     .label-chip (Topbar.tsx) para texto secundario en esta misma app. */
+  font-size: 9px;
   font-weight: 400;
-  color: var(--ctc-dot);
+  color: var(--slate-400);
   margin-top: 2px;
+  /*
+   * Bug fix (texto cortado, "4 CTC + 2 Closin" sin la "g"): la regla base
+   * `table.piv th, table.piv td` (components.css) pone `white-space: nowrap`
+   * en la celda -- como `white-space` es una propiedad heredada y este `div`
+   * no traía su propio valor, heredaba `nowrap` del `<td>`. El texto de una
+   * sola línea sin permiso de wrap se desbordaba del `<td>` y el
+   * `overflow: hidden` de esa misma regla base lo recortaba en seco, sin
+   * "..." (el `text-overflow: ellipsis` de la regla base aplica al propio
+   * `<td>`, no a un `<div>` hijo que se desborda -- por eso el corte era un
+   * corte duro, no una elipsis). `white-space: normal` reactiva el wrap: en
+   * la columna más angosta el texto pasa a 2 líneas en vez de cortarse: la
+   * fila crece (el `<td>` no tiene alto fijo), nunca se pierde texto.
+   */
+  white-space: normal;
 }
 
 /*
@@ -610,6 +649,17 @@
  * panel sólo para saber en qué rango está el reporte.
  */
 .fc-params__toggle {
+  /* Etapa gear icon: display:flex + gap agregados -- antes el botón sólo
+     tenía texto ("▾ Settings · ..."), ahora antepone el engranaje de marca
+     (SettingsGearIcon) al resumen de rango/mes; sin flex el SVG y el texto
+     quedaban en su baseline por defecto, ligeramente desalineados. */
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  /* Ajuste de seguimiento: con el divisor + chip "Forecast" agregados, el
+     resumen tiene más piezas -- nowrap asegura que siga en una sola fila
+     (antes ya cabía de sobra siendo un solo string corrido). */
+  white-space: nowrap;
   font-family: inherit;
   font-size: 11.5px;
   font-weight: 600;
@@ -624,6 +674,16 @@
 .fc-params__toggle:hover {
   color: var(--navy);
   border-color: var(--slate-300);
+}
+/* Ajuste de seguimiento: separa visualmente Pipeline Range de Forecast Month
+   dentro del resumen colapsado -- mismo lenguaje visual que
+   .kpi-hero__split-divider (SummaryCards.tsx) entre dos valores agrupados,
+   como clase propia porque el contexto (alto de línea, tamaño) es distinto. */
+.fc-params__toggle-divider {
+  width: 1px;
+  align-self: stretch;
+  background: var(--slate-200);
+  flex-shrink: 0;
 }
 .fc-params {
   flex-basis: 100%;

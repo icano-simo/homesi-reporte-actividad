@@ -423,3 +423,108 @@ export function StarIcon(props: IconProps) {
     </Icon>
   );
 }
+
+/* ===========================================================================
+ * Ícono de marca — engranaje de Settings (Brand Book HomeSí)
+ * ===========================================================================
+ *
+ * A diferencia de todo lo de arriba (paths de Lucide, ISC, transcritos a
+ * mano), esto es el vector OFICIAL provisto (`HOMESI_Icon_Line_205.svg`,
+ * rojo de marca #FF4040). Fuente de verdad versionada en
+ * `public/brand/settings-gear.svg` -- mismo criterio que
+ * `public/brand/homesi-lockup.*`/`homesi-mark.*` (HomesiLogo.tsx): el archivo
+ * en /public es lo que se entregó, esto de acá es cómo se renderiza.
+ *
+ * RECHAZADO EN REVISIÓN VISUAL, se mantiene sin usar (no se borra): a tamaño
+ * real de botón (16-20px) los dientes redondeados del engranaje se leen como
+ * pétalos de una flor, y la casa del centro deja de distinguirse por
+ * completo. `HomesiGearWithHouseIcon`/`GearOnlyIcon` de acá abajo quedan
+ * intactos por si sirven en otro contexto (un tamaño más grande, por
+ * ejemplo) -- el botón de Settings de Topbar.tsx usa ahora el
+ * `SettingsGearIcon` nuevo, más abajo en este archivo, que sí pasó revisión.
+ *
+ * No pasan por el envoltorio `Icon()` de arriba: ese wrapper fuerza
+ * `viewBox="0 0 24 24"` + `stroke="currentColor"`, pensado para los paths de
+ * Lucide -- estos son íconos rellenos (`fill`), con su propio viewBox
+ * (0 0 816 816) y color de marca fijo, no heredado del sitio de uso.
+ *
+ * El archivo original trae 3 `<path>`: el contorno dentado del engranaje, el
+ * círculo interior, y una casa en el centro. `HomesiGearWithHouseIcon` usa
+ * los 3; `GearOnlyIcon` omite el tercero (la casa).
+ */
+const SETTINGS_GEAR_OUTLINE_PATH =
+  'M3305 7965 c-109 -29 -125 -81 -125 -403 0 -378 -31 -432 -297 -518 -65 -20 -149 -51 -187 -67 -148 -62 -192 -42 -431 199 -294 295 -374 300 -635 36 -75 -75 -216 -215 -315 -311 -98 -96 -204 -204 -235 -241 -32 -36 -105 -113 -162 -170 -132 -132 -153 -172 -153 -290 0 -122 19 -156 175 -312 277 -275 291 -305 215 -472 -19 -42 -47 -118 -61 -168 -67 -240 -100 -258 -499 -268 -461 -11 -420 76 -420 -895 0 -983 -42 -895 430 -906 390 -8 418 -20 470 -196 14 -48 44 -137 65 -196 75 -202 53 -255 -204 -517 -143 -146 -169 -190 -174 -297 -7 -132 51 -208 513 -661 104 -103 255 -253 335 -334 298 -302 381 -294 704 65 178 199 252 213 506 97 58 -26 128 -55 157 -65 171 -54 203 -130 203 -477 0 -451 -70 -418 875 -418 955 0 885 -33 895 430 7 369 13 380 230 484 311 149 421 142 583 -37 384 -425 437 -416 1042 188 545 544 585 591 585 685 0 91 -42 147 -284 385 -214 210 -219 225 -132 454 151 396 160 403 561 411 359 7 403 24 435 175 20 96 9 1432 -13 1480 -55 123 -99 138 -422 146 -384 9 -415 31 -550 394 -81 215 -89 194 166 451 262 265 295 339 223 494 -33 73 -886 932 -1001 1010 -186 125 -301 92 -548 -156 -230 -231 -240 -234 -515 -144 -348 114 -352 119 -360 535 -7 351 -16 378 -141 404 -79 17 -1439 14 -1504 -4z m1217 -316 c119 -26 138 -80 138 -394 0 -352 5 -361 253 -454 177 -67 337 -136 481 -207 l139 -69 86 0 c108 0 143 16 225 104 352 377 335 379 784 -78 332 -337 336 -365 79 -623 -198 -198 -222 -297 -120 -508 28 -58 58 -130 68 -160 10 -30 33 -89 51 -130 18 -42 43 -112 55 -155 77 -285 137 -325 485 -325 429 0 414 20 414 -575 0 -599 23 -566 -415 -575 -362 -7 -384 -18 -465 -240 -17 -46 -45 -115 -61 -152 -16 -37 -41 -106 -54 -153 -14 -47 -48 -136 -76 -197 -111 -242 -90 -341 118 -546 218 -216 229 -292 61 -447 -40 -37 -106 -106 -147 -154 -40 -47 -115 -121 -165 -164 -50 -43 -108 -98 -129 -122 -118 -137 -152 -128 -392 108 -252 247 -296 254 -615 95 -134 -67 -229 -106 -303 -128 -117 -33 -269 -104 -304 -141 -42 -46 -46 -73 -53 -354 -9 -424 26 -400 -580 -400 -606 0 -571 -24 -580 400 -6 289 -11 315 -61 362 -37 34 -204 109 -307 138 -139 38 -207 66 -322 132 -277 156 -359 143 -610 -102 -256 -249 -245 -252 -627 128 -406 403 -405 395 -129 671 204 204 232 294 145 462 -158 303 -193 379 -235 512 -89 276 -103 285 -464 292 -410 9 -390 -19 -390 575 0 597 -22 566 405 575 365 7 354 1 444 256 69 198 139 363 212 499 120 226 103 302 -114 517 -278 276 -277 281 118 674 384 383 396 385 670 102 209 -216 299 -230 555 -87 110 61 352 164 455 194 235 67 255 102 255 450 0 307 17 361 125 390 66 18 817 21 897 4z';
+
+const SETTINGS_GEAR_INNER_RING_PATH =
+  'M3725 6600 c-99 -6 -139 -14 -225 -43 -58 -19 -175 -54 -260 -78 -683 -187 -1375 -874 -1554 -1544 -21 -77 -56 -196 -78 -264 -83 -253 -82 -944 1 -1181 23 -63 41 -123 41 -132 1 -132 243 -637 377 -784 37 -42 91 -108 119 -148 101 -142 312 -326 504 -441 36 -21 99 -62 140 -91 123 -84 152 -97 635 -261 l190 -65 190 -9 c385 -20 715 0 852 50 43 16 119 42 168 59 394 133 494 180 702 335 54 40 134 97 177 127 94 63 227 187 280 262 282 396 437 695 561 1078 l47 145 10 243 c7 163 7 315 0 465 l-10 222 -47 145 c-75 230 -239 632 -297 727 -135 222 -258 307 -368 251 -112 -58 -107 -185 13 -362 38 -57 229 -439 267 -537 10 -26 24 -83 30 -127 6 -44 24 -120 41 -169 67 -200 67 -556 -1 -757 -16 -49 -35 -116 -41 -150 -6 -33 -24 -95 -41 -136 -16 -41 -45 -121 -63 -177 -80 -244 -225 -465 -412 -629 -43 -38 -107 -100 -143 -139 -143 -154 -191 -195 -313 -267 -249 -147 -407 -216 -568 -246 -57 -11 -142 -35 -189 -54 l-85 -33 -320 0 -320 0 -105 37 c-58 21 -148 47 -200 58 -187 40 -278 74 -358 135 -39 30 -102 72 -140 92 -300 162 -559 426 -729 741 -20 37 -59 98 -86 136 -66 90 -147 294 -195 491 l-37 150 0 350 c0 376 8 450 77 675 32 106 300 579 377 664 35 39 90 108 122 153 46 63 76 93 131 130 40 26 108 80 153 120 48 45 111 89 160 115 44 22 125 67 180 98 180 103 319 169 375 179 30 6 87 15 125 21 39 6 99 18 135 26 350 82 871 -3 1305 -212 160 -77 238 -71 302 25 112 166 -95 339 -527 440 -47 11 -123 34 -170 51 -123 46 -517 63 -905 40z';
+
+const SETTINGS_GEAR_HOUSE_PATH =
+  'M2977 5446 c-110 -31 -119 -57 -127 -381 -9 -360 -19 -380 -235 -513 -173 -106 -235 -178 -222 -259 15 -89 65 -115 230 -118 225 -4 226 -8 227 -725 0 -640 -32 -600 486 -600 519 0 496 -20 504 435 7 408 25 440 255 440 213 0 235 -36 245 -380 7 -263 14 -298 81 -398 58 -88 75 -92 437 -95 549 -5 505 -63 512 668 6 671 -1 648 205 635 298 -17 326 238 41 374 -60 29 -136 76 -188 117 -48 38 -137 96 -198 129 -131 71 -229 129 -575 340 -543 331 -594 342 -799 181 -117 -92 -187 -83 -284 37 -91 114 -112 121 -352 124 -137 2 -209 -1 -243 -11z m1362 -554 c119 -56 194 -98 270 -154 59 -42 153 -105 210 -140 243 -147 226 -92 226 -748 0 -592 0 -590 -63 -638 -49 -38 -150 -39 -201 -3 -61 44 -65 63 -71 401 -9 482 17 463 -617 458 -588 -4 -573 7 -583 -473 -5 -235 -9 -297 -22 -326 -51 -116 -244 -116 -297 0 -20 46 -30 1004 -11 1098 17 82 59 128 178 198 57 33 198 117 315 186 455 269 410 260 666 141z';
+
+/**
+ * Envoltorio compartido de los dos íconos de abajo: mismo viewBox/transform/
+ * color que trae el SVG original, para no reescalar los paths a mano.
+ */
+function BrandGear({ size = 18, children }: { size?: number; children: ReactNode }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 816 816" aria-hidden="true" focusable="false">
+      <g transform="translate(0,816) scale(0.1,-0.1)" fill="#FF4040">
+        {children}
+      </g>
+    </svg>
+  );
+}
+
+/** Engranaje + casa, íntegro tal como lo trae el Brand Book. Rechazado en revisión visual (ver nota arriba) -- no usado hoy, se conserva sin borrar. */
+export function HomesiGearWithHouseIcon({ size }: { size?: number }) {
+  return (
+    <BrandGear size={size}>
+      <path d={SETTINGS_GEAR_OUTLINE_PATH} />
+      <path d={SETTINGS_GEAR_INNER_RING_PATH} />
+      <path d={SETTINGS_GEAR_HOUSE_PATH} />
+    </BrandGear>
+  );
+}
+
+/** Mismo engranaje, sin la casa. No usado hoy, se conserva sin borrar (ver nota arriba). */
+export function GearOnlyIcon({ size }: { size?: number }) {
+  return (
+    <BrandGear size={size}>
+      <path d={SETTINGS_GEAR_OUTLINE_PATH} />
+      <path d={SETTINGS_GEAR_INNER_RING_PATH} />
+    </BrandGear>
+  );
+}
+
+/* ===========================================================================
+ * Ícono de marca — Settings, reemplazo aprobado (sin casa, sin engranaje de flor)
+ * ===========================================================================
+ *
+ * Reemplaza a `HomesiGearWithHouseIcon` como ícono real del botón Settings de
+ * Topbar.tsx. Es el "settings" clásico de Lucide (mismos 2 `<path>` que
+ * cualquier ícono de tuerca de 8 dientes cuadrados) -- geometría distinta a
+ * la del Brand Book de arriba, sin el problema de "se ve como flor" a tamaño
+ * chico. Igual que `HomesiGearWithHouseIcon`, no pasa por el envoltorio
+ * `Icon()`: el stroke es el rojo de marca fijo (#FF4040), no `currentColor`
+ * -- pedido explícito, no una omisión (un ícono de marca no debería heredar
+ * cualquier color del sitio donde se use).
+ */
+export function SettingsGearIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="#FF4040"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  );
+}
