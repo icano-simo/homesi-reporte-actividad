@@ -3135,3 +3135,55 @@ devolvió la función, y si no lo devolvió no se borra nada.** Un fallback a
 De paso quedó a la vista que `pipeline_snapshots` permite DELETE a
 `authenticated` y que no hay índice de snapshot activo único — el snapshot 51,
 por ejemplo, tiene 0 hijos, otra instancia del defecto que S1 arregla.
+
+### S1b (2026-08-20) — los tres campos, y el merge a main
+
+La función ampliada por el revisor ya acepta `loan_type`, `loan_program` y
+`production_support_note_history`. Y el mapper **no hizo falta editarlo**: los
+tres campos llegaron con la segunda pasada de main, que trae el merge de
+`feat/forecast-combined-drilldown`. Git combinó bien las dos mitades — los
+mappers de main con los tres campos, y la llamada RPC de S1 sin `snapshotId` —
+pero se leyeron las dos funciones enteras antes de confiar en que no se quejara.
+
+**Carga real con los tres campos poblados**, snapshot 62, archivo
+`Forecast - Pipeline Report-2026-08-20-16-05-00.xlsx` con las tres columnas
+agregadas al demo:
+
+```
+saved: {"is_active":true,"snapshot_id":62,"loans_inserted":47,"resolved_inserted":17}
+data_as_of=2026-08-20T21:05:00+00:00  src=filename_label
+
+pipeline_loans          47 filas · loan_type NULL=0 · loan_program NULL=0 · nota NULL=0
+pipeline_resolved_loans 17 filas · loan_type NULL=0 · loan_program NULL=0 · nota NULL=0
+```
+
+`/api/pipeline/latest` los devuelve en las dos mitades
+(`loanType`, `loanProgram`, `noteHistory`).
+
+⚠ Un detalle que conviene saber: el parser cae a `''` -- cadena vacía, no
+`null` -- cuando el archivo no trae esas columnas, porque son opcionales. Así
+que "no vino la columna" y "vino vacía" se guardan igual. No se cambió: tocar
+esa coerción es del lado del parser y afecta a otras etapas.
+
+#### La anomalía de zona horaria: sigue siendo un solo caso
+
+De los 46 snapshots, **uno** tiene `data_as_of` posterior a `uploaded_at`: el
+**56**, por 50 minutos. El dato dice 09:47:31 CT y la subida fue 08:57:41 CT.
+Si ese export vino con hora del **Este**, el dato serían las 08:47:31 CT — diez
+minutos antes de la subida, que es coherente.
+
+El reparto por formato apoya la hipótesis: los 22 de formato `filename_epoch`
+no tienen ni un caso (epoch es UTC sin ambigüedad) y la anomalía aparece sólo
+en uno de los 24 de `filename_label`. No hay casos nuevos.
+
+#### Cinco snapshots menos, y no fue esta rama
+
+La tabla pasó de 51 a 46 filas entre el cierre de S1 y S1b. Los cinco que
+faltan son **47, 48, 49, 50 y 51**: exactamente los cinco que tenían **cero
+hijos**, el defecto de la clase del snapshot 13. No quedaron filas huérfanas en
+ninguna de las dos tablas hijas, no se perdió ningún snapshot con datos, y los
+46 restantes tienen `data_as_of` derivado.
+
+No lo hizo esta rama -- su única escritura fue el snapshot 62, borrado al
+terminar. Queda anotado como observación para que quien aplicó las migraciones
+lo confirme.
