@@ -857,6 +857,46 @@ tr.metric.drow:hover td.lbl {
   background: rgba(166, 222, 255, 0.2);
 }
 
+/*
+ * Jerarquía visual del bloque Total (Total > Branch > Metric/Loan
+ * Officer-BD): las filas de métrica bajo el header "Total"
+ * (PivotTable.tsx, bloque `showTotal`) son las ÚNICAS `tr.metric` de ESTE
+ * módulo (Activity) que NO llevan `.mrow` ni `.drow` -- Branch usa
+ * `tr.metric.mrow` (arriba), Loan Officer/BD usa `tr.metric.drow` (arriba),
+ * y LoanOfficerTable.tsx tampoco genera nunca una fila `tr.metric` bare
+ * (siempre `mrow`, ver OfficerRows).
+ *
+ * Fix (sangrado a Forecast): la premisa de arriba es cierta DENTRO de
+ * Activity, pero `tr.metric` sin `.mrow`/`.drow` NO es exclusivo de este
+ * módulo -- app/pipeline/PivotTable.tsx (Forecast) también usa `tr.metric`
+ * bare para sus propias filas (Combined Total by Branch y las tablas
+ * Banked/Brokered), sin ese esquema mrow/drow porque nunca lo necesitó.
+ * El `:not()` de abajo, sin ancestro, matcheaba esas filas también --
+ * fondo `--accent-soft` filtrándose a tablas de Forecast que nunca lo
+ * pidieron. Se acota con `.piv--tree` (ancestro que solo lleva la tabla de
+ * Activity, `components/report/PivotTable.tsx:235` -- Forecast usa
+ * `piv piv--exec`/`piv piv--exec piv--combined`, nunca `piv--tree`), sin
+ * tocar el comportamiento visual de Activity en absoluto.
+ *
+ * `color: var(--navy)` queda acotado a la etiqueta (igual que pide el
+ * spec, "para la etiqueta") a propósito: aplicarlo también a `td.val`
+ * pisaría el verde de Closed (`td.val.cl`) y el gris apagado de los ceros
+ * (`td.val.zero`), dos convenciones de color ya existentes que esta etapa
+ * no pidió tocar. El único cambio en los valores es `font-weight: 700`
+ * (excluyendo ceros, que siguen apagados) -- destaca por peso, no por
+ * color nuevo.
+ */
+table.piv--tree tr.metric:not(.mrow):not(.drow) td {
+  background: var(--accent-soft);
+}
+table.piv--tree tr.metric:not(.mrow):not(.drow) td.lbl {
+  color: var(--navy);
+  font-weight: 600;
+}
+table.piv--tree tr.metric:not(.mrow):not(.drow) td.val:not(.zero) {
+  font-weight: 700;
+}
+
 /* Chevron y sangría del árbol. */
 .chev {
   display: inline-flex;
@@ -1147,6 +1187,21 @@ tr.mrow .chev {
   table-layout: auto;
   width: auto;
   min-width: 700px;
+}
+
+/*
+ * Encabezado de sección DENTRO del tbody (modal CTC/Closing del punto
+ * CtcDot, LoanDetailModal.tsx `sections`): agrupa loans por milestone real
+ * ("Clear to Close:"/"Closing:") sin ser un <thead> nuevo -- un <tr> normal
+ * con una sola <td colSpan> de ancho completo, mismo patrón estructural que
+ * la fila "No loans." (colSpan+texto), pero en bold/navy para leerse como
+ * encabezado de grupo en vez de estado vacío.
+ */
+table.piv tr.modal-section-row td {
+  background: var(--slate-100);
+  color: var(--navy);
+  font-weight: 700;
+  text-align: left;
 }
 
 /*
