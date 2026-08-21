@@ -82,8 +82,16 @@ export default function LoanDetailModal({
      * Commercial Activity, que es la única con la serie mensual completa. Por
      * eso las columnas cambian entre una y otra.
      */
+    /*
+     * ⚠ Etapa BP33: `lo.openLoanDetail` YA viene filtrado al mes en curso
+     * (`closesInMonth`, aplicado una sola vez en `loadData`). Los filtros por
+     * `closeMonth` que había acá eran una SEGUNDA copia de la misma regla,
+     * escrita con otro campo -- y las dos copias fueron el bug: el motor
+     * filtraba para la proyección, el modal filtraba para dos de sus vistas, y
+     * las tarjetas de Total pipeline / Healthy no filtraban nada.
+     */
     if (isCurrent) {
-      const openThisMonth = lo.openLoanDetail.filter((l) => l.closeMonth === month);
+      const openThisMonth = lo.openLoanDetail;
       return (
         <Modal title={`${name} — ${formatYearMonth(month)}`} onClose={onClose}>
           <p className="bp-modal__lead">
@@ -124,9 +132,8 @@ export default function LoanDetailModal({
              * Banked healthy, y Brokered healthy o no (la tasa plana va sobre
              * el total). Es exactamente el conjunto que alimenta el número.
              */
-            lo.openLoanDetail.filter(
-              (l) => l.closeMonth === thisMonth && (l.channel === 'Brokered' || l.healthy)
-            );
+            /* Sólo queda la condición de canal/healthy: el mes ya está aplicado. */
+            lo.openLoanDetail.filter((l) => l.channel === 'Brokered' || l.healthy);
     const title =
       kind === 'pipeline' ? 'total pipeline' : kind === 'healthy' ? 'healthy pipeline' : 'loans behind the projection';
     return (
@@ -142,9 +149,8 @@ export default function LoanDetailModal({
     );
   }
   if (kind === 'forecast') {
-    const openThisMonth = lo.openLoanDetail.filter(
-      (l) => l.closeMonth === thisMonth && (l.channel === 'Brokered' || l.healthy)
-    );
+    /* Ídem: el mes ya viene aplicado desde `loadData`. */
+    const openThisMonth = lo.openLoanDetail.filter((l) => l.channel === 'Brokered' || l.healthy);
     return (
       <Modal title={`${name} — forecast total for ${shortMonth(thisMonth)}`} onClose={onClose}>
         <p className="bp-modal__lead">

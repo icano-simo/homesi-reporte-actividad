@@ -23,6 +23,28 @@ import type { BranchStatus, LoanOfficerRow } from './types';
  * branch entero quede Pendiente -- si no, un branch con nueve atendidos y uno
  * abandonado se vería igual que uno con diez atendidos.
  */
+/**
+ * ============================================================================
+ * ⚠ ETAPA BP34 — ESTO YA NO SE MUESTRA EN NINGUNA PANTALLA, Y NO ES CÓDIGO MUERTO
+ * ============================================================================
+ *
+ * `branchStatus`, `branchStatusLabel` y `branchStatusClass` siguen calculándose
+ * y viajando en `BranchRow.status` / `pendingCount`, pero **ninguna vista los
+ * dibuja**: se quitaron los tres lugares donde aparecían -- la cabecera del
+ * branch, la tarjeta STATUS y la columna Status del Branch Portfolio.
+ *
+ * Se quitó de la INTERFAZ, no del modelo. Dos razones para no borrarlos:
+ *
+ *   · `business_plan.intervention` se sigue leyendo y escribiendo igual -- la
+ *     barra de decisión sigue registrando "revisado" y la activación de un
+ *     funnel sigue creando su intervención. El dato se acumula.
+ *   · El indicador vuelve, en otra forma, en un módulo aparte que ya está
+ *     definido. Borrar el cálculo obligaría a reescribirlo desde cero.
+ *
+ * Si alguien pasa por acá buscando código sin usar: esto es deliberado. Lo que
+ * se retiró fue el "Pending (N)" de la pantalla, porque aparecía dos veces y su
+ * texto no decía de qué era pendiente.
+ */
 export function branchStatus(atRisk: LoanOfficerRow[]): { status: BranchStatus; pendingCount: number } {
   if (atRisk.length === 0) return { status: 'no_risk', pendingCount: 0 };
 
