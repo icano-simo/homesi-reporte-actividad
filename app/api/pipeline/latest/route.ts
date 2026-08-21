@@ -46,6 +46,12 @@ interface PipelineLoanRow {
   loan_type: string | null;
   loan_program: string | null;
   production_support_note_history: string | null;
+  /* Etapa F6 -- los cinco crudos de la estrategia. */
+  strategy_raw: string | null;
+  opportunity_owner_title: string | null;
+  nppm_realtor: string | null;
+  referred_by: string | null;
+  affinity_program: string | null;
 }
 
 interface ResolvedLoanRow {
@@ -63,6 +69,12 @@ interface ResolvedLoanRow {
   loan_type: string | null;
   loan_program: string | null;
   production_support_note_history: string | null;
+  /* Etapa F6 -- los cinco crudos de la estrategia. */
+  strategy_raw: string | null;
+  opportunity_owner_title: string | null;
+  nppm_realtor: string | null;
+  referred_by: string | null;
+  affinity_program: string | null;
 }
 
 /**
@@ -123,12 +135,12 @@ export async function GET() {
 
     const loanRows = await fetchAllPages<PipelineLoanRow>(
       'pipeline_loans',
-      'source_loan_id, branch, channel, milestone, raw_milestone, healthy, raw_healthiness, close_month, est_closing_date, amount, loan_officer, borrower_name, milestone_date, branch_transferred, loan_type, loan_program, production_support_note_history',
+      'source_loan_id, branch, channel, milestone, raw_milestone, healthy, raw_healthiness, close_month, est_closing_date, amount, loan_officer, borrower_name, milestone_date, branch_transferred, loan_type, loan_program, production_support_note_history, strategy_raw, opportunity_owner_title, nppm_realtor, referred_by, affinity_program',
       snapshotId
     );
     const resolvedRows = await fetchAllPages<ResolvedLoanRow>(
       'pipeline_resolved_loans',
-      'source_loan_id, branch, channel, status, disbursement_date, amount, loan_officer, borrower_name, loan_status, est_closing_date, raw_loan_folder, loan_type, loan_program, production_support_note_history',
+      'source_loan_id, branch, channel, status, disbursement_date, amount, loan_officer, borrower_name, loan_status, est_closing_date, raw_loan_folder, loan_type, loan_program, production_support_note_history, strategy_raw, opportunity_owner_title, nppm_realtor, referred_by, affinity_program',
       snapshotId
     );
 
@@ -163,26 +175,24 @@ export async function GET() {
       // este mapeo. Ya no queda hardcodeado.
       noteHistory: r.production_support_note_history ?? '',
       /*
-       * ⚠ ETAPA F6 — LOS CINCO CRUDOS DE LA ESTRATEGIA TODAVÍA NO SE RESTAURAN.
+       * Etapa F6 — el paso 4 de la cadena, ya cerrado.
        *
-       * Van en `''` a propósito, y NO es un olvido: las columnas no existen
-       * todavía en `pipeline_loans` / `pipeline_resolved_loans` (el SQL está en
-       * docs/sql/, lo aplica el revisor) y la RPC `save_pipeline_snapshot`
-       * tampoco las mapea, así que hoy no hay nada que traer.
+       * ⚠ `?? ''` y no `?? null`: el dominio los tipa como `string`, y un NULL
+       * de la base tiene que llegar como `''` para que se comporte igual que
+       * "el export no traía la columna". La distinción NULL/'' sirve para
+       * DIAGNOSTICAR la persistencia (ver el mapper del insert), no para que la
+       * pantalla tenga que manejar tres estados.
        *
-       * Consecuencia visible, y por eso existe `hasStrategyData()`: un snapshot
-       * restaurado tras un refresh NO tiene datos de estrategia, y la pantalla
-       * lo dice en vez de clasificar los 883 préstamos como "Own production"
-       * -- que es lo que daría el default si se los dejara pasar en silencio.
-       *
-       * Cuando estén la migración y la RPC ampliada, esto son cinco líneas:
-       * agregar las columnas al `select` de arriba y leerlas acá.
+       * Un snapshot viejo -- guardado antes de que existieran las columnas --
+       * devuelve los cinco en `''`, y ahí `hasStrategyData()` hace que la
+       * pantalla diga que no hay datos de estrategia en vez de clasificar todo
+       * como "Own production" por default.
        */
-      strategyRaw: '',
-      opportunityOwnerTitle: '',
-      nppmRealtor: '',
-      referredBy: '',
-      affinityProgram: '',
+      strategyRaw: r.strategy_raw ?? '',
+      opportunityOwnerTitle: r.opportunity_owner_title ?? '',
+      nppmRealtor: r.nppm_realtor ?? '',
+      referredBy: r.referred_by ?? '',
+      affinityProgram: r.affinity_program ?? '',
     }));
 
     // milestoneDate/branchTransferred quedan en su default (null/false): la
@@ -224,26 +234,24 @@ export async function GET() {
       // la columna ya existe y ya se lee, `?? ''` solo cubre NULL real.
       noteHistory: r.production_support_note_history ?? '',
       /*
-       * ⚠ ETAPA F6 — LOS CINCO CRUDOS DE LA ESTRATEGIA TODAVÍA NO SE RESTAURAN.
+       * Etapa F6 — el paso 4 de la cadena, ya cerrado.
        *
-       * Van en `''` a propósito, y NO es un olvido: las columnas no existen
-       * todavía en `pipeline_loans` / `pipeline_resolved_loans` (el SQL está en
-       * docs/sql/, lo aplica el revisor) y la RPC `save_pipeline_snapshot`
-       * tampoco las mapea, así que hoy no hay nada que traer.
+       * ⚠ `?? ''` y no `?? null`: el dominio los tipa como `string`, y un NULL
+       * de la base tiene que llegar como `''` para que se comporte igual que
+       * "el export no traía la columna". La distinción NULL/'' sirve para
+       * DIAGNOSTICAR la persistencia (ver el mapper del insert), no para que la
+       * pantalla tenga que manejar tres estados.
        *
-       * Consecuencia visible, y por eso existe `hasStrategyData()`: un snapshot
-       * restaurado tras un refresh NO tiene datos de estrategia, y la pantalla
-       * lo dice en vez de clasificar los 883 préstamos como "Own production"
-       * -- que es lo que daría el default si se los dejara pasar en silencio.
-       *
-       * Cuando estén la migración y la RPC ampliada, esto son cinco líneas:
-       * agregar las columnas al `select` de arriba y leerlas acá.
+       * Un snapshot viejo -- guardado antes de que existieran las columnas --
+       * devuelve los cinco en `''`, y ahí `hasStrategyData()` hace que la
+       * pantalla diga que no hay datos de estrategia en vez de clasificar todo
+       * como "Own production" por default.
        */
-      strategyRaw: '',
-      opportunityOwnerTitle: '',
-      nppmRealtor: '',
-      referredBy: '',
-      affinityProgram: '',
+      strategyRaw: r.strategy_raw ?? '',
+      opportunityOwnerTitle: r.opportunity_owner_title ?? '',
+      nppmRealtor: r.nppm_realtor ?? '',
+      referredBy: r.referred_by ?? '',
+      affinityProgram: r.affinity_program ?? '',
     }));
 
     return NextResponse.json({

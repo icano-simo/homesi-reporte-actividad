@@ -83,6 +83,45 @@ function toPipelineLoanRow(loan: PipelineLoan) {
     // coerción solo aplica a disbursement_date, por ser columna `date`).
     // Valor real de loan.noteHistory, sin resumir/truncar/limpiar.
     production_support_note_history: loan.noteHistory,
+    /*
+     * ============================================================================
+     * ⚠ ETAPA F6 — LOS CINCO CRUDOS DE LA ESTRATEGIA
+     * ============================================================================
+     *
+     * Se mandan AHORA y no antes: `save_pipeline_snapshot` ya está ampliada con
+     * estos cinco nombres en sus dos `jsonb_to_recordset`. Verificado contra la
+     * base antes de tocar esta línea -- se llamó a la función con los cinco y se
+     * releyeron las filas para confirmar que llegan, en vez de confiar en que
+     * devuelva 200.
+     *
+     * ⚠ POR QUÉ IMPORTABA ESPERAR: la RPC mapea una lista EXPLÍCITA de
+     * columnas. Una clave que no esté en esa lista se descarta en silencio --
+     * responde 200 y la columna queda en NULL. Ya pasó con `loan_type`,
+     * `loan_program` y `production_support_note_history`. Mandarlas antes de
+     * ampliar la función habría sido código que finge guardar.
+     *
+     * ⚠ '' NO ES LO MISMO QUE NULL, y la diferencia es la herramienta de
+     * diagnóstico de esta cadena:
+     *
+     *     ''    el export no traía la columna, o la celda venía vacía
+     *     NULL  la función descartó la clave
+     *
+     * El parser cae a `''` (columnas opcionales, ver salesforce-file.ts) y la
+     * RPC preserva el `''` tal cual -- comprobado. Así que una columna en NULL
+     * después de una carga real significa que la cadena se rompió, y se puede
+     * ver con un `count(*) filter (where ... is null)`. Si el parser cayera a
+     * NULL, los dos fallos se verían idénticos y no habría forma de
+     * distinguirlos. Ver docs/sql/2026-08-pipeline-strategy-columns.sql.
+     *
+     * Paso directo, sin transformar: la clasificación se hace al mostrar
+     * (lib/pipeline/strategy.ts), nunca al guardar. Si mañana cambia una regla,
+     * con los crudos se recalcula el histórico completo.
+     */
+    strategy_raw: loan.strategyRaw,
+    opportunity_owner_title: loan.opportunityOwnerTitle,
+    nppm_realtor: loan.nppmRealtor,
+    referred_by: loan.referredBy,
+    affinity_program: loan.affinityProgram,
   };
 }
 
@@ -122,6 +161,13 @@ function toResolvedLoanRow(loan: ResolvedLoan) {
     // Fase de persistencia (Notes): mismo motivo/patrón que raw_loan_folder
     // arriba -- columna text/nullable ya creada, paso directo del valor real.
     production_support_note_history: loan.noteHistory,
+    /* Etapa F6: mismos cinco crudos que en `toPipelineLoanRow` -- ver el
+       comentario largo de allá arriba, incluida la diferencia entre '' y NULL. */
+    strategy_raw: loan.strategyRaw,
+    opportunity_owner_title: loan.opportunityOwnerTitle,
+    nppm_realtor: loan.nppmRealtor,
+    referred_by: loan.referredBy,
+    affinity_program: loan.affinityProgram,
   };
 }
 

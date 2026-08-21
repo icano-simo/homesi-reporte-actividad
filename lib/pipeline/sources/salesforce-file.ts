@@ -249,7 +249,13 @@ interface RawRow {
   opportunityOwnerTitle: string;
   nppmRealtor: string;
   referredBy: string;
-  affinityProgram: string;
+  /**
+   * ⚠ `unknown` y no `string`: en el export "Affinity Program" es una CASILLA,
+   * no texto -- en el archivo del 2026-08-20 son 815 `false` y 68 `true`.
+   * `String(false)` daba `"false"` guardado 815 veces, que se lee como si cada
+   * préstamo tuviera un programa de afinidad. Se convierte en `classifyRow`.
+   */
+  affinityProgramRaw: unknown;
 }
 
 function readAmount(value: unknown): number {
@@ -316,7 +322,7 @@ function extractRowsFormatA(aoa: unknown[][], idx: Record<string, number>, heade
         opportunityOwnerTitle: String(row[idx['Opportunity Owner: Title']] ?? ''),
         nppmRealtor: String(row[idx['NPPM Realtor']] ?? ''),
         referredBy: String(row[idx['Referred By']] ?? ''),
-        affinityProgram: String(row[idx['Affinity Program']] ?? ''),
+        affinityProgramRaw: row[idx['Affinity Program']],
       });
     }
     i++;
@@ -357,7 +363,7 @@ function extractRowsFormatB(aoa: unknown[][], idx: Record<string, number>, heade
       opportunityOwnerTitle: String(row[idx['Opportunity Owner: Title']] ?? ''),
       nppmRealtor: String(row[idx['NPPM Realtor']] ?? ''),
       referredBy: String(row[idx['Referred By']] ?? ''),
-      affinityProgram: String(row[idx['Affinity Program']] ?? ''),
+      affinityProgramRaw: row[idx['Affinity Program']],
     });
   }
   return rows;
@@ -439,7 +445,23 @@ function classifyRow(
       opportunityOwnerTitle: row.opportunityOwnerTitle,
       nppmRealtor: row.nppmRealtor,
       referredBy: row.referredBy,
-      affinityProgram: row.affinityProgram,
+      /*
+       * ⚠ La casilla se guarda como `'true'` o `''`, NUNCA como `'false'`.
+       *
+       * `false` es el estado negativo de una casilla, o sea "no hay programa de
+       * afinidad" -- exactamente lo mismo que dice `''` en los otros cuatro
+       * crudos. Guardar la cadena `"false"` en 815 de 883 filas convertía la
+       * ausencia de dato en un valor, y hacía que un `count(*) where
+       * affinity_program <> ''` diera 883 en vez de 68.
+       *
+       * Se reusa `parseBranchTransfer`, que ya resuelve casilla/número/texto
+       * para "Branch Transfer" -- el mismo problema, un año antes.
+       *
+       * Nota de datos: 68 préstamos tienen la casilla marcada y 71 están en el
+       * branch 'Affinity'. NO son la misma población, que es otra razón para que
+       * esta columna no decida nada: la estrategia Affinity la da el branch.
+       */
+      affinityProgram: parseBranchTransfer(row.affinityProgramRaw) ? 'true' : '',
     };
     return { openLoan };
   }
@@ -496,7 +518,23 @@ function classifyRow(
       opportunityOwnerTitle: row.opportunityOwnerTitle,
       nppmRealtor: row.nppmRealtor,
       referredBy: row.referredBy,
-      affinityProgram: row.affinityProgram,
+      /*
+       * ⚠ La casilla se guarda como `'true'` o `''`, NUNCA como `'false'`.
+       *
+       * `false` es el estado negativo de una casilla, o sea "no hay programa de
+       * afinidad" -- exactamente lo mismo que dice `''` en los otros cuatro
+       * crudos. Guardar la cadena `"false"` en 815 de 883 filas convertía la
+       * ausencia de dato en un valor, y hacía que un `count(*) where
+       * affinity_program <> ''` diera 883 en vez de 68.
+       *
+       * Se reusa `parseBranchTransfer`, que ya resuelve casilla/número/texto
+       * para "Branch Transfer" -- el mismo problema, un año antes.
+       *
+       * Nota de datos: 68 préstamos tienen la casilla marcada y 71 están en el
+       * branch 'Affinity'. NO son la misma población, que es otra razón para que
+       * esta columna no decida nada: la estrategia Affinity la da el branch.
+       */
+      affinityProgram: parseBranchTransfer(row.affinityProgramRaw) ? 'true' : '',
     };
     return { resolvedLoan };
   }

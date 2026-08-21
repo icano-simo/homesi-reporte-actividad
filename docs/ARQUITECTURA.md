@@ -3301,3 +3301,58 @@ siempre. Va debajo del prestatario.
 dos con el mismo valor dan una sola línea, distintos dan dos, uno solo da ese, y
 ninguno da lista vacía — sin placeholder, porque un guion ocuparía una línea
 para decir que no hay nada.
+
+### F6b — la cadena de cinco pasos, cerrada
+
+Las columnas y la RPC ya están aplicadas, así que el mapper del insert manda las
+cinco claves. **El orden importó:** primero se comprobó contra la base que la
+función las acepta —llamándola con los cinco y releyendo las filas— y sólo
+después se tocó el mapper. Verificar con un 200 no alcanza: la RPC responde 200
+igual cuando descarta claves.
+
+Estado final de la cadena, con una carga real del export del 2026-08-20:
+
+| paso | resultado |
+|---|---|
+| columna en la tabla | las 5 en las dos tablas hijas |
+| mapper del insert | manda las 5 |
+| RPC | las guarda; `loan_type`/`loan_program`/`note_history` intactos |
+| select de `/api/pipeline/latest` | trae las 5 |
+| mapeo al dominio | 107 de 107 abiertos con datos de estrategia |
+
+`NULL = 0` en las cinco columnas, en las dos tablas. La distribución leída **de
+la base** da 560 / 173 / 71 / 55 / 24 = 883, idéntica a la del archivo.
+
+#### ⚠ `''` contra NULL, y por qué se documenta
+
+    ''    el export no traía la columna, o la celda venía vacía
+    NULL  la RPC descartó la clave
+
+El parser cae a `''` y la función preserva el `''` tal cual —comprobado—, así que
+una columna en NULL **después de una carga real** significa que la cadena se
+rompió, y se ve con un `count(*) filter (where ... is null)`. Si el parser cayera
+a NULL, los dos fallos serían indistinguibles.
+
+#### ⚠ `Affinity Program` es una CASILLA, no texto
+
+Encontrado en la primera carga real: la columna llegó como la cadena `"false"`
+en 815 de 883 filas. En el export es un checkbox — 815 `false` y 68 `true` — y
+`String(false)` produce `"false"`, que se lee como si cada préstamo tuviera un
+programa de afinidad. Un `count(*) where affinity_program <> ''` daba 883.
+
+Se guarda `'true'` o `''`, nunca `'false'`: en una casilla, `false` ES el estado
+negativo, o sea lo mismo que dice `''` en los otros cuatro crudos. Se reusa
+`parseBranchTransfer`, que ya resolvía casilla/número/texto para "Branch
+Transfer" — el mismo problema, un año antes. Tras el arreglo: 11 + 57 = **68 con
+valor**, exactamente los 68 marcados.
+
+Nota de datos: 68 préstamos tienen la casilla marcada y 71 están en el branch
+`Affinity`. **No son la misma población**, que es otra razón para que esta
+columna no decida nada — la estrategia Affinity la da el branch.
+
+#### Sin ejercitar: 711 y 777
+
+De las tres branches de Recruitment, en este export sólo existe el **710** (55
+préstamos). El 711 y el 777 no tienen préstamos hoy, así que esa parte de la
+regla está escrita y probada por código pero no ejercitada con datos reales. Si
+algún día aparecen y no se clasifican, el motivo está acá.
