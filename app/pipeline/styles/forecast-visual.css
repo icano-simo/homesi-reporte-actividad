@@ -390,6 +390,38 @@ table.piv.piv--combined td.totcol {
   background: transparent;
 }
 /*
+ * Fix visual: la primera versión de esta regla usaba `padding: 5px; margin:
+ * -5px;` para agrandar el área de click sin desplazar el layout (mismo
+ * truco que `.drill-value` en Activity, PivotRow.tsx) -- pero acá rompía,
+ * porque `app/styles/base.css` fija `box-sizing: border-box` GLOBAL, y
+ * `.ctc-dot` ya define `width/height: 6px` fijo. Con border-box, el padding
+ * se resta del `width` ya fijado -- 5px de padding por lado (10px) contra un
+ * width de 6px deja el content-box en 0/negativo (el navegador lo recorta a
+ * 0), así que el punto visible se achicaba a casi nada y el `margin: -5px`
+ * corría toda la caja fuera de su posición: eso era el "mal posicionado".
+ * En vez de pelear con el sizing, este <button> queda con el MISMO
+ * footprint 6x6 que el <span> de siempre (visualmente idéntico a
+ * `.dot-healthy`, el otro punto de 6px ya existente en esta tabla) -- sin
+ * padding/margin extra, solo reseteando el chrome nativo del <button>
+ * (`border`, `padding: 0`, `font: inherit`, mismo criterio que
+ * `.cell-trigger` más arriba en components.css). `.ctc-cell` (el `<span>`
+ * padre, `display: inline-flex; align-items: center; gap: 4px;`, sin
+ * tocar) ya centra verticalmente y separa el punto del número -- mismo gap
+ * que tenía el <span> no-clickeable, sin cambios de espaciado.
+ */
+.ctc-dot--clickable {
+  cursor: pointer;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  background: var(--ctc-dot);
+  border-radius: 50%;
+}
+.ctc-dot--clickable:hover {
+  box-shadow: 0 0 0 3px rgba(166, 222, 255, 0.42);
+}
+/*
  * Fila de subtotal: no lleva punto (ver PivotTable.tsx, CtcSubtotalNote) --
  * el número exacto, chico y sin negrita, subordinado al total de Projected
  * to Close que ya muestra la celda arriba.
