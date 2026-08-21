@@ -758,24 +758,35 @@ table.piv td.val.cl {
   font-weight: 700;
 }
 /*
- * Drill-down: celda con click habilitado -- mismo concepto visual que
- * `.cell-trigger` de Forecast (arriba en este archivo, sección 6): sin
- * subrayado permanente, `cursor: pointer`, y en :hover un resaltado suave
- * sobre el valor (mismo color/opacidad que `.cell-trigger:hover`) en vez de
- * una línea de texto. No es la misma clase porque acá el elemento clickeable
- * sigue siendo el <td> (PivotRow.tsx no se tocó -- sin componente/botón
- * nuevo), mientras que `.cell-trigger` envuelve un <button> inline propio de
- * Forecast; por eso el highlight usa `border-radius` para no leerse como un
- * bloque a filo del borde de la celda. Celdas con valor 0 no llevan esta
- * clase (ver PivotRow.tsx), y el hover nunca alcanza el resto de la fila.
+ * Drill-down: valor numérico con click habilitado -- mismo concepto visual
+ * que `.cell-trigger` de Forecast (arriba en este archivo, sección 6): sin
+ * subrayado, `cursor: pointer`, y en :hover un resaltado suave (mismo hue
+ * `--sky` que Forecast, algo más intenso -- ver abajo). Clase propia (no
+ * `.cell-trigger`) porque el elemento clickeable de Activity es un <span>
+ * inline dentro de un <td class="val"> alineado a la derecha
+ * (text-align:right), no un <button inline-flex> como en Forecast --
+ * compartir la clase forzaría un override de alineación que además
+ * afectaría a Forecast (mismo archivo, sin namespace). Visual polish
+ * (etapa siguiente a Fase 1): antes el <td> completo era el target de
+ * onClick/:hover (ver PivotRow.tsx); ahora es este <span>, así el highlight
+ * queda acotado al número, no al rectángulo entero de la celda.
+ *
+ * `padding` + `margin` negativo del mismo valor: pintan el "aire" de la
+ * píldora del highlight sin que el <span> aporte ancho neto a la línea --
+ * el dígito no se desplaza de su posición alineada a la derecha (el <td>
+ * sigue viéndose exactamente igual que una celda no-drillable en reposo).
  */
-table.piv td.val.drillable {
+.drill-value {
   cursor: pointer;
-}
-table.piv td.val.drillable:hover {
-  background: rgba(166, 222, 255, 0.3);
-  color: var(--navy);
+  padding: 2px 5px;
+  margin: -2px -5px;
   border-radius: var(--radius-sm);
+  background: transparent;
+  transition: background 0.15s ease;
+}
+.drill-value:hover {
+  background: rgba(166, 222, 255, 0.42);
+  color: var(--navy);
 }
 
 /* ---- Filas de grupo / subtotal ---- */
