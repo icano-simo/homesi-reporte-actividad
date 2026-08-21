@@ -3188,6 +3188,78 @@ No lo hizo esta rama -- su única escritura fue el snapshot 62, borrado al
 terminar. Queda anotado como observación para que quien aplicó las migraciones
 lo confirme.
 
+## Etapas BP33 y BP34 — el pipeline del perfil no filtraba por mes, y se quita el Status
+
+### ⚠ BP33 — dónde estaba el filtro, y por qué unas vistas lo tenían y otras no
+
+El filtro del mes existía **sólo en el camino de la proyección**, y escrito por
+separado en dos lugares:
+
+1. `projectCurrentMonth` (qualifiers.ts): contaba `totalPipeline` y
+   `healthyPipeline` sobre **todos** los préstamos abiertos y recién entonces
+   hacía `if (loan.closeMonth !== currentMonth) continue;` para el tramo del
+   forecast. O sea: dos poblaciones distintas dentro de la misma función.
+2. `LoanDetailModal`: los modales de `projected` y `forecast` repetían la
+   condición a mano; los de `pipeline` y `healthy` no filtraban nada.
+
+Y no era un descuido: había un comentario declarándolo intencional —"cuentan
+TODO el pipeline abierto, cierre cuando cierre"—. La decisión del negocio
+cambió, porque la proyección se compara contra un benchmark **mensual**: contar
+pipeline que cierra en octubre contra un objetivo de agosto sobreevalúa a la
+persona.
+
+Medido contra el snapshot activo (66): de **110** préstamos abiertos sólo **65**
+cierran en agosto. **45 eran de meses futuros — el 41%.**
+
+#### El arreglo: una sola definición, en el punto donde se arma la lista
+
+`closesInMonth(loan, yearMonth)`, exportada de `qualifiers.ts`, y aplicada en
+`loadData` justo donde se construye `openLoansByEmployee`. Ese es el único punto
+por el que pasan todas las vistas del módulo, así que ninguna puede quedarse
+afuera: las cinco tarjetas, el desglose Banked/Brokered, los modales, el
+directorio del branch, el Branch Portfolio y la revisión conjunta.
+
+Con eso desaparecieron las dos copias de la regla: el `continue` a mitad del
+bucle de `projectCurrentMonth` y las condiciones del modal. Y como la función ya
+no mira meses, **se le quitó el parámetro `currentMonth`** — un parámetro que
+nadie lee es una mentira sobre lo que hace la función, y habría dejado la puerta
+abierta a que alguien volviera a filtrar adentro.
+
+#### `estClosingDate` y no `closeMonth`
+
+`closeMonth` lo **deriva** el parser y queda en `''` cuando la derivación falla:
+un préstamo así desaparece de todos los meses, en silencio. `estClosingDate` es
+el dato crudo, y es además el criterio que ya usa Forecast en `splitHealthyTotal`
+— así los dos módulos definen "el pipeline del mes" igual.
+
+Verificado: sobre las 110 filas del snapshot los dos criterios **coinciden**,
+cero discrepancias. El cambio de campo no mueve ningún número por sí solo; sólo
+cierra el agujero y elimina el modo de fallo silencioso.
+
+#### Los veredictos que cambian: 3
+
+Corrido con el motor real sobre el snapshot activo: **Aimmee buendia**, **Julymar
+Castro** y **Nathan Martinez**, los tres `on_track → watch`. Ninguno llega a
+`on_risk`.
+
+Estaban sobreevaluados porque se les contaba pipeline que no cierra este mes.
+Ejemplo: Nathan pasa de 16 préstamos a 9, y su GAP de +0,2 a −0,1 — cruzaba el
+cero por préstamos de septiembre.
+
+### BP34 — se quita el Status de intervención
+
+Aparecía **dos veces en la misma pantalla** (cabecera del branch y tarjeta
+STATUS) y el texto no decía de qué era pendiente. Se quitaron los tres lugares:
+esos dos más la columna Status del Branch Portfolio. La tarjeta de KPIs pasa de
+cuatro a tres.
+
+⚠ **Se quitó de la interfaz, no del modelo.** `business_plan.intervention` se
+sigue leyendo y escribiendo igual — la barra de decisión sigue registrando
+"revisado" y la activación de un funnel sigue creando su intervención.
+`branchStatus`, `branchStatusLabel` y `branchStatusClass` siguen existiendo y
+calculándose, con un comentario en `intervention.ts` que explica por qué no son
+código muerto: el indicador vuelve, en otra forma, en un módulo aparte.
+
 ---
 
 ## Aprendizajes de sesión — CTC/Closing (punto vs. modal), columna Channel, SL Query sin DELETE

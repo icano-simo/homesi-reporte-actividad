@@ -1,7 +1,7 @@
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { buildAliasIndex, buildExcludedIndex } from './aliasIndex';
 import { lastCompleteMonths, currentWindowMonths, currentYearMonth } from './months';
-import { combineVerdict, evaluateQualifier1, evaluateQualifier2, projectCurrentMonth } from './qualifiers';
+import { closesInMonth, combineVerdict, evaluateQualifier1, evaluateQualifier2, projectCurrentMonth } from './qualifiers';
 import { DEFAULT_RATES, toRateSettings, type RateKey, type RateSettings } from './rates';
 import { branchStatus } from './intervention';
 import type {
@@ -455,6 +455,25 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
     const m = pipelineByEmployee.get(key) ?? emptyPipeline();
     m.openLoans += 1;
     pipelineByEmployee.set(key, m);
+
+    /*
+     * ⚠ EL FILTRO DEL MES, UNA SOLA VEZ Y ACÁ — etapa BP33.
+     *
+     * Este es el punto donde se arma la lista que consumen TODAS las vistas del
+     * módulo: las cinco tarjetas del perfil, el desglose Banked/Brokered, los
+     * modales de detalle, el directorio del branch, el Branch Portfolio y la
+     * revisión conjunta. Filtrando acá, ninguna puede quedarse afuera.
+     *
+     * El bug de BP33 fue exactamente lo contrario: el filtro vivía en el motor
+     * (sólo para el tramo de la proyección) y otra vez, escrito aparte, en el
+     * modal. Las vistas que no lo tenían mostraban el pipeline completo -- 110
+     * préstamos donde sólo 65 cierran este mes.
+     *
+     * `m.openLoans` de arriba NO se filtra a propósito: es el conteo crudo de
+     * presencia en Forecast que usa el diagnóstico, no un número de pantalla.
+     */
+    if (!closesInMonth({ estClosingDate: row.est_closing_date }, thisMonth)) continue;
+
     const list = openLoansByEmployee.get(key) ?? [];
     list.push({
       sourceLoanId: row.source_loan_id,
@@ -581,12 +600,7 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
     const benchmarkRow = benchmarkByEmployee.get(employeeKey) ?? null;
     const benchmark = benchmarkRow === null ? null : Number(benchmarkRow.monthly_benchmark);
 
-    const projection = projectCurrentMonth(
-      closedThisMonthByEmployee.get(employeeKey) ?? 0,
-      openLoanDetail,
-      rates,
-      thisMonth
-    );
+    const projection = projectCurrentMonth(closedThisMonthByEmployee.get(employeeKey) ?? 0, openLoanDetail, rates);
     const q1 = evaluateQualifier1(activity.closingsByMonth, windowMonths, projection, benchmark);
 
     /*

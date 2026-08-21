@@ -90,12 +90,63 @@ const CHANNEL_BROKERED = 'Brokered';
  * `loadData.ts`): la proyección es "lo que cerró + lo que sigue abierto" y las
  * dos mitades tienen que venir del mismo sistema.
  */
+/**
+ * ============================================================================
+ * ⚠ ¿ESTE PRÉSTAMO CIERRA EN EL MES QUE SE ESTÁ MIRANDO? — etapa BP33
+ * ============================================================================
+ *
+ * LA definición del pipeline del mes. Una sola, exportada, para que ninguna
+ * pantalla vuelva a escribir la suya.
+ *
+ * ---------------------------------------------------------------------------
+ * EL BUG QUE LA HIZO NECESARIA
+ * ---------------------------------------------------------------------------
+ * Hasta BP32, `Total pipeline` y `Healthy` del perfil contaban TODO el pipeline
+ * abierto de la persona, sin filtrar por fecha. El filtro existía sólo en el
+ * camino de la proyección, y escrito por separado en dos lados -- acá dentro y
+ * otra vez en `LoanDetailModal`. Resultado medido contra el snapshot activo: de
+ * 110 préstamos abiertos, sólo 65 cierran en agosto. **Casi el 40% del pipeline
+ * que se mostraba era de meses futuros.**
+ *
+ * Y no era un descuido: había un comentario que lo declaraba intencional
+ * ("cuentan TODO el pipeline abierto, cierre cuando cierre"). La decisión del
+ * negocio cambió: Current performance mide el pipeline DE ESTE MES, porque la
+ * proyección se compara contra un benchmark MENSUAL. Contar pipeline que cierra
+ * en octubre contra un objetivo de agosto sobreevalúa a la persona.
+ *
+ * ---------------------------------------------------------------------------
+ * POR QUÉ `estClosingDate` Y NO `closeMonth`
+ * ---------------------------------------------------------------------------
+ * `closeMonth` lo DERIVA el parser; `estClosingDate` es el dato crudo. Cuando la
+ * derivación falla, `closeMonth` queda en '' y el préstamo desaparece de
+ * cualquier mes -- se pierde en silencio. Con la fecha cruda, un préstamo sin
+ * fecha se excluye explícitamente y eso es una decisión visible.
+ *
+ * Es además el mismo criterio que usa Forecast en `splitHealthyTotal`
+ * (lib/pipeline/aggregate.ts), así que los dos módulos definen "el pipeline del
+ * mes" igual. Verificado contra el snapshot activo: los dos criterios coinciden
+ * hoy en las 110 filas, cero discrepancias -- así que el cambio de criterio no
+ * mueve ningún número por sí mismo, sólo cierra el agujero.
+ *
+ * Sin fecha estimada no entra: no se puede afirmar que cierre este mes.
+ */
+export function closesInMonth(loan: { estClosingDate: string | null }, yearMonth: string): boolean {
+  return loan.estClosingDate !== null && loan.estClosingDate.slice(0, 7) === yearMonth;
+}
+
 export function projectCurrentMonth(
   closedToDate: number,
+  /**
+   * ⚠ Etapa BP33: ya filtrados al mes por `closesInMonth` en `loadData`.
+   *
+   * Se fue el parámetro `currentMonth` que había acá: la función dejó de saber
+   * de meses, y eso es lo correcto -- un parámetro que ya nadie lee es una
+   * mentira sobre lo que hace la función, y habría dejado abierta la puerta a
+   * que alguien volviera a filtrar adentro, que es el bug que se acaba de
+   * cerrar.
+   */
   openLoans: OpenLoan[],
-  rates: RateSettings,
-  /** 'YYYY-MM' del mes que se está proyectando. */
-  currentMonth: string
+  rates: RateSettings
 ): CurrentMonthProjection {
   const byMilestone: Record<MilestoneBucket, number> = { Started: 0, Processing: 0, Underwriting: 0, Closing: 0 };
   let total = 0;
@@ -106,18 +157,24 @@ export function projectCurrentMonth(
   let bankedLoans = 0;
   let brokeredLoans = 0;
 
+  /*
+   * ⚠ `openLoans` YA VIENE FILTRADO al mes -- lo filtra `loadData` con
+   * `closesInMonth`, una sola vez, para todas las vistas.
+   *
+   * Antes esta función contaba los cinco números sobre el conjunto completo y
+   * aplicaba el filtro sólo en el tramo de la proyección, con un `continue` a
+   * mitad del bucle. Eso hacía que `totalPipeline` y `healthyPipeline` midieran
+   * una población distinta de la que alimentaba el forecast: dos poblaciones en
+   * una misma tarjeta, imposible de cuadrar mirando la pantalla.
+   *
+   * Ahora los cinco salen del mismo conjunto y el `continue` ya no existe. Si
+   * alguien le pasa préstamos sin filtrar, los va a contar todos -- por eso el
+   * filtro vive en el punto donde se arma la lista y no acá.
+   */
   for (const loan of openLoans) {
-    /*
-     * `totalPipeline` y `healthyPipeline` cuentan TODO el pipeline abierto de
-     * la persona, cierre cuando cierre: es lo que la pantalla muestra como
-     * "Total Pipeline" y "Healthy", y sería engañoso recortarlo al mes.
-     * El filtro por mes se aplica sólo a lo que aporta a la proyección.
-     */
     total += 1;
     byMilestone[loan.milestone] += 1;
     if (loan.healthy) healthy += 1;
-
-    if (loan.closeMonth !== currentMonth) continue;
 
     if (loan.channel === CHANNEL_BROKERED) {
       // Tasa plana sobre el total: no se filtra por healthy (ver arriba).

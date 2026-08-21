@@ -3,7 +3,6 @@
 import { useMemo, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { useBusinessPlanData } from '@/lib/business-plan/useBusinessPlanData';
-import { branchStatusClass, branchStatusLabel } from '@/lib/business-plan/intervention';
 import { serializeKeys } from '@/lib/business-plan/group';
 import Breadcrumbs from '../../components/Breadcrumbs';
 import {
@@ -90,9 +89,15 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
                 {branch.branchManagers.length ? branch.branchManagers.join(' + ') : '—'}
               </p>
             </div>
-            <span className={branchStatusClass(branch.status)}>
-              {branchStatusLabel(branch.status, branch.pendingCount)}
-            </span>
+            {/*
+              ⚠ Etapa BP34: acá iba el estado de intervención del branch
+              ("Pending (N)" / Atendido / Revisado / Sin riesgo). Se quitó de la
+              interfaz, no de la base.
+              Dos motivos: aparecía DOS VECES en esta misma pantalla -- acá y en
+              la tarjeta STATUS de abajo -- y el texto no decía de qué era
+              pendiente. `business_plan.intervention` se sigue escribiendo igual;
+              el indicador vuelve en otra forma, en un módulo aparte.
+            */}
           </div>
 
           <div className="bp-kpis">
@@ -103,8 +108,8 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
               con la MISMA ventana del Qualifier 1 (dos meses cerrados más el
               actual proyectado). Es un pronóstico, por eso es fraccionario.
             */}
+            {/* Etapa BP34: la tarjeta STATUS se fue. De cuatro KPIs a tres. */}
             <KpiCard label="Avg Closings 3M" value={fmtAvg(branch.avgClosings3m)} />
-            <KpiCard label="Status" value={branchStatusLabel(branch.status, branch.pendingCount)} />
           </div>
 
           <div className="control-bar">
