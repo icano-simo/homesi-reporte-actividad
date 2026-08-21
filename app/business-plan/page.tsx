@@ -3,7 +3,6 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useBusinessPlanData } from '@/lib/business-plan/useBusinessPlanData';
-import { branchStatusClass, branchStatusLabel } from '@/lib/business-plan/intervention';
 import Breadcrumbs from './components/Breadcrumbs';
 import { CalcNote, ErrorState, KpiCard, LoadingState } from './components/shared';
 
@@ -120,7 +119,6 @@ export default function BranchPortfolioPage() {
                   <col className="bp-col-count" />
                   <col className="bp-col-count" />
                   <col className="bp-col-count" />
-                  <col className="bp-col-status" />
                 </colgroup>
                 <thead>
                   <tr className="mo-row">
@@ -128,8 +126,9 @@ export default function BranchPortfolioPage() {
                     <th className="bp-left">Branch Manager</th>
                     <th className="bp-center">Loan Officers</th>
                     <th className="bp-center">At Risk</th>
+                    {/* Etapa BP34: la columna Status se fue -- es el mismo
+                        indicador de intervención que se quitó del branch. */}
                     <th className="bp-center">With plan</th>
-                    <th className="bp-center">Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -165,9 +164,6 @@ export default function BranchPortfolioPage() {
                         ) : (
                           b.loanOfficers.filter((lo) => lo.activePlan !== null).length
                         )}
-                      </td>
-                      <td className="bp-center">
-                        <span className={branchStatusClass(b.status)}>{branchStatusLabel(b.status, b.pendingCount)}</span>
                       </td>
                     </tr>
                   ))}
