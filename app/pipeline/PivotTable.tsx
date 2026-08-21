@@ -339,6 +339,7 @@ function openLoanToModalLoan(loan: PipelineLoan): LoanDetailModalLoan {
     sourceLoanId: loan.sourceLoanId,
     borrowerName: loan.borrowerName,
     loanOfficer: loan.loanOfficer,
+    channel: loan.channel,
     amount: loan.amount,
     rawMilestone: loan.rawMilestone,
     rawHealthiness: loan.rawHealthiness,
@@ -360,6 +361,7 @@ function closedLoanToModalLoan(loan: ResolvedLoan): LoanDetailModalLoan {
     sourceLoanId: loan.sourceLoanId,
     borrowerName: loan.borrowerName,
     loanOfficer: loan.loanOfficer,
+    channel: loan.channel,
     amount: loan.amount,
     rawMilestone: loan.rawMilestone || 'Closed (Funded)',
     branchTransferred: loan.branchTransferred,
@@ -846,6 +848,7 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
         context={modal?.context ?? ''}
         metric={modal?.metric ?? ''}
         loans={modal?.loans ?? []}
+        showChannelColumn
       />
     </>
   );

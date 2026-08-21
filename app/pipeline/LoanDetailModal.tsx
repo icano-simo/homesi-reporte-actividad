@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { healthStatusLabel, healthStatusVariant } from './healthStatus';
 import { CloseIcon } from '@/components/ui/icons';
+import type { PipelineLoan } from '@/lib/pipeline/types';
 
 /*
  * ============================================================================
@@ -50,6 +51,13 @@ export interface LoanDetailModalLoan {
   sourceLoanId: string;
   borrowerName: string;
   loanOfficer: string;
+  /**
+   * Columna "Channel" del origen -- dato real del loan (PipelineLoan/
+   * ResolvedLoan), nunca inferido del tab/toggle activo. Opcional: el modal
+   * de Milestone Matrix (TabMilestoneMatrix.tsx) no lo provee -- ausente =
+   * badge '—', mismo criterio que rawHealthiness más abajo.
+   */
+  channel?: PipelineLoan['channel'];
   amount: number;
   rawMilestone: string;
   /**
@@ -105,6 +113,14 @@ export interface LoanDetailModalProps {
   /** Métrica auditada, ej. "Total Pipeline". El conteo lo agrega este componente. */
   metric: string;
   loans: LoanDetailModalLoan[];
+  /**
+   * Combined Total by Branch (PivotTable.tsx) sí tiene channel real por loan;
+   * Milestone Matrix (TabMilestoneMatrix.tsx) ya filtra por un solo canal vía
+   * su propio toggle banked/brokered, así que la columna sería redundante
+   * ahí -- se omite del todo (no solo se oculta con CSS), no solo su celda.
+   * Default true: los demás callers no necesitan pasarlo.
+   */
+  showChannelColumn?: boolean;
 }
 
 function fmtAmount(n: number): string {
@@ -176,7 +192,14 @@ function NoteCell({ note, expanded, onToggle }: { note: string; expanded: boolea
   );
 }
 
-export default function LoanDetailModal({ isOpen, onClose, context, metric, loans }: LoanDetailModalProps) {
+export default function LoanDetailModal({
+  isOpen,
+  onClose,
+  context,
+  metric,
+  loans,
+  showChannelColumn = true,
+}: LoanDetailModalProps) {
   /**
    * Expansión de Notes POR FILA -- Set de sourceLoanId (identificador
    * estable ya usado como `key` en cada <tr>, ver el .map() más abajo), NO
@@ -287,6 +310,7 @@ export default function LoanDetailModal({ isOpen, onClose, context, metric, loan
                 <col style={{ width: '115px' }} />
                 <col style={{ width: '190px' }} />
                 <col style={{ width: '175px' }} />
+                {showChannelColumn && <col style={{ width: '130px' }} />}
                 <col style={{ width: '120px' }} />
                 <col style={{ width: '145px' }} />
                 <col style={{ width: '95px' }} />
@@ -299,6 +323,7 @@ export default function LoanDetailModal({ isOpen, onClose, context, metric, loan
                 <th className="lbl">Loan #</th>
                 <th style={{ textAlign: 'left' }}>Borrower</th>
                 <th style={{ textAlign: 'left' }}>Loan Officer</th>
+                {showChannelColumn && <th style={{ textAlign: 'left' }}>Channel</th>}
                 <th style={{ textAlign: 'left' }}>Loan Type</th>
                 <th style={{ textAlign: 'left' }}>Loan Program</th>
                 <th>Amount</th>
@@ -324,6 +349,11 @@ export default function LoanDetailModal({ isOpen, onClose, context, metric, loan
                   <td style={{ textAlign: 'left' }} title={loan.loanOfficer}>
                     {loan.loanOfficer || '—'}
                   </td>
+                  {showChannelColumn && (
+                    <td style={{ textAlign: 'left' }} title={loan.channel ?? '—'}>
+                      {loan.channel ?? '—'}
+                    </td>
+                  )}
                   <td style={{ textAlign: 'left' }} title={loan.loanType || NOT_AVAILABLE_TEXT}>
                     {loan.loanType || NOT_AVAILABLE_TEXT}
                   </td>
@@ -348,7 +378,11 @@ export default function LoanDetailModal({ isOpen, onClose, context, metric, loan
               ))}
               {!loans.length && (
                 <tr>
-                  <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={9}>
+                  <td
+                    className="lbl"
+                    style={{ color: 'var(--slate-500)', fontWeight: 500 }}
+                    colSpan={showChannelColumn ? 10 : 9}
+                  >
                     No loans.
                   </td>
                 </tr>
