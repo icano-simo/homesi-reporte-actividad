@@ -237,6 +237,12 @@ export default function TabMilestoneMatrix({
       metric: labelFromKey(key),
       loans: loans.map((loan) => ({
         sourceLoanId: loan.sourceLoanId,
+        // Etapa F6: crudos para el realtor del NPPM. Ver LoanDetailModalLoan.
+        branch: loan.branch,
+        strategyRaw: loan.strategyRaw,
+        opportunityOwnerTitle: loan.opportunityOwnerTitle,
+        nppmRealtor: loan.nppmRealtor,
+        referredBy: loan.referredBy,
         borrowerName: loan.borrowerName,
         loanOfficer: loan.loanOfficer,
         amount: loan.amount,

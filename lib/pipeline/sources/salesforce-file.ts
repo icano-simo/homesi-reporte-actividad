@@ -112,6 +112,16 @@ function resolveColumnIndexes(headerRow: unknown[]): Record<string, number> {
   idx['Loan Type'] = normalized.indexOf('Loan Type'); // Fase urgente (drill-down modal): opcional, no rompe el parseo si falta
   idx['Loan Program'] = normalized.indexOf('Loan Program'); // ídem
   idx['Production Support Note History'] = normalized.indexOf('Production Support Note History'); // Fase urgente (Notes en el modal): ídem
+  /*
+   * Etapa F6 (estrategia comercial): las cinco opcionales. Igual que las tres
+   * de arriba, `indexOf` devuelve -1 si el export no las trae y el parseo sigue
+   * -- un reporte viejo se lee sin estrategia en vez de fallar.
+   */
+  idx['Strategy'] = normalized.indexOf('Strategy');
+  idx['Opportunity Owner: Title'] = normalized.indexOf('Opportunity Owner: Title');
+  idx['NPPM Realtor'] = normalized.indexOf('NPPM Realtor');
+  idx['Referred By'] = normalized.indexOf('Referred By');
+  idx['Affinity Program'] = normalized.indexOf('Affinity Program');
 
   const missing = REQUIRED_COLUMNS.filter((col) => idx[col] === -1);
   if (missing.length) {
@@ -234,6 +244,12 @@ interface RawRow {
   loanProgram: string;
   /** Fase urgente (Notes en el modal): '' si el archivo no trae la columna "Production Support Note History". */
   noteHistory: string;
+  /** Etapa F6: crudos de la estrategia -- '' si el export no trae la columna. */
+  strategyRaw: string;
+  opportunityOwnerTitle: string;
+  nppmRealtor: string;
+  referredBy: string;
+  affinityProgram: string;
 }
 
 function readAmount(value: unknown): number {
@@ -295,6 +311,12 @@ function extractRowsFormatA(aoa: unknown[][], idx: Record<string, number>, heade
         loanType: String(row[idx['Loan Type']] ?? ''),
         loanProgram: String(row[idx['Loan Program']] ?? ''),
         noteHistory: String(row[idx['Production Support Note History']] ?? ''),
+        // Etapa F6: crudos de la estrategia. Ver lib/pipeline/strategy.ts.
+        strategyRaw: String(row[idx['Strategy']] ?? ''),
+        opportunityOwnerTitle: String(row[idx['Opportunity Owner: Title']] ?? ''),
+        nppmRealtor: String(row[idx['NPPM Realtor']] ?? ''),
+        referredBy: String(row[idx['Referred By']] ?? ''),
+        affinityProgram: String(row[idx['Affinity Program']] ?? ''),
       });
     }
     i++;
@@ -330,6 +352,12 @@ function extractRowsFormatB(aoa: unknown[][], idx: Record<string, number>, heade
       loanType: String(row[idx['Loan Type']] ?? ''),
       loanProgram: String(row[idx['Loan Program']] ?? ''),
       noteHistory: String(row[idx['Production Support Note History']] ?? ''),
+      // Etapa F6: crudos de la estrategia. Ver lib/pipeline/strategy.ts.
+      strategyRaw: String(row[idx['Strategy']] ?? ''),
+      opportunityOwnerTitle: String(row[idx['Opportunity Owner: Title']] ?? ''),
+      nppmRealtor: String(row[idx['NPPM Realtor']] ?? ''),
+      referredBy: String(row[idx['Referred By']] ?? ''),
+      affinityProgram: String(row[idx['Affinity Program']] ?? ''),
     });
   }
   return rows;
@@ -405,6 +433,13 @@ function classifyRow(
       loanType: row.loanType,
       loanProgram: row.loanProgram,
       noteHistory: row.noteHistory,
+      // Etapa F6: pasan crudos hasta el dominio; la clasificación se hace al
+      // mostrar (lib/pipeline/strategy.ts), nunca acá.
+      strategyRaw: row.strategyRaw,
+      opportunityOwnerTitle: row.opportunityOwnerTitle,
+      nppmRealtor: row.nppmRealtor,
+      referredBy: row.referredBy,
+      affinityProgram: row.affinityProgram,
     };
     return { openLoan };
   }
@@ -455,6 +490,13 @@ function classifyRow(
       loanType: row.loanType,
       loanProgram: row.loanProgram,
       noteHistory: row.noteHistory,
+      // Etapa F6: pasan crudos hasta el dominio; la clasificación se hace al
+      // mostrar (lib/pipeline/strategy.ts), nunca acá.
+      strategyRaw: row.strategyRaw,
+      opportunityOwnerTitle: row.opportunityOwnerTitle,
+      nppmRealtor: row.nppmRealtor,
+      referredBy: row.referredBy,
+      affinityProgram: row.affinityProgram,
     };
     return { resolvedLoan };
   }

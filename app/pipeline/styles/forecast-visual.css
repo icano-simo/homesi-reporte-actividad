@@ -695,3 +695,107 @@ table.piv.piv--combined td.totcol {
   padding-top: 10px;
   border-top: 1px solid var(--slate-100);
 }
+
+/* ===========================================================================
+ * Etapa F6 — corte por estrategia comercial en Projected Forecast
+ * ===========================================================================
+ *
+ * Cero hexadecimales y sin cambio de familia tipografica: los numeros siguen en
+ * Inter con `tabular-nums`, igual que el resto de la tabla.
+ */
+
+/* La barra de control, arriba de la grilla de canales: es UNA sola para las
+   dos tablas, y por eso vive fuera de las tarjetas. */
+.strat-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.strat-pills {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.strat-pill {
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--slate-600);
+  background: var(--canvas);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-full);
+  padding: 4px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.14s ease, color 0.14s ease;
+}
+.strat-pill:hover {
+  border-color: var(--sky);
+  color: var(--navy);
+}
+.strat-pill:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 2px;
+}
+/* La elegida se marca por CONTORNO, no por relleno: adentro de la tabla
+   conviven pildoras verdes de Forecast y el punto de CTC, y un fondo pleno
+   competiria con ellos. */
+.strat-pill.is-on {
+  border-color: var(--coral);
+  color: var(--coral);
+  box-shadow: inset 0 0 0 1px var(--coral);
+}
+
+/* La celda combinada del branch: abarca las filas de sus estrategias. */
+table.piv td.strat-branch-cell {
+  vertical-align: middle;
+  border-right: 1px solid var(--slate-100);
+}
+
+/* El nombre de la estrategia ocupa el lugar del Branch Manager -- misma
+   columna, mismo ancho, para que el desglose quede alineado con la vista por
+   branch sin repetir anchos. */
+table.piv td.strat-name-cell {
+  color: var(--slate-700);
+  font-weight: 500;
+}
+
+/* Caso B: el encabezado del desglose. En mayusculas y apagado -- es un rotulo,
+   no una fila de datos. */
+table.piv tr.strat-break-head td {
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+  padding-top: 10px;
+  padding-bottom: 2px;
+  border-top: 1px solid var(--slate-100);
+}
+
+/* Las filas del desglose, subordinadas a la del branch que explican. */
+table.piv tr.strat-break-row td {
+  background: var(--slate-50);
+}
+
+/* El realtor del NPPM, debajo del prestatario en el modal de detalle. Una
+   linea por valor: con los dos nombres distintos son dos, con uno solo es una. */
+.nppm-realtor {
+  display: block;
+  font-size: 10.5px;
+  color: var(--slate-600);
+  margin-top: 2px;
+}
+.nppm-realtor__label {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+  margin-right: 5px;
+}

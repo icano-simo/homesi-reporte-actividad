@@ -30,6 +30,30 @@ export type PipelineLoan = {
    * altera este valor.
    */
   noteHistory: string;
+  /**
+   * ============================================================================
+   * ⚠ ETAPA F6 — LOS CINCO CRUDOS DE LA ESTRATEGIA COMERCIAL
+   * ============================================================================
+   *
+   * Se guardan CRUDOS, no la estrategia calculada, y es la decisión que importa
+   * de esta etapa: si mañana cambia una regla -- que se sume una branch a
+   * recruitment, que B2B pase a mirar otra columna -- con los crudos se
+   * recalcula todo al vuelo. Con la estrategia guardada habría que recargar
+   * todos los archivos históricos, y los viejos ya no están.
+   *
+   * `''` cuando el export no trae la columna, igual que `loanType`. Son
+   * opcionales: un reporte viejo sin ellas se sigue parseando.
+   *
+   * La clasificación vive en `lib/pipeline/strategy.ts`, que sólo lee tres de
+   * los cinco. Los otros dos -- `nppmRealtor` y `referredBy` -- son para el
+   * modal, y `affinityProgram` se guarda porque es el dato que explica POR QUÉ
+   * una branch es Affinity, aunque hoy no lo consuma nadie.
+   */
+  strategyRaw: string;
+  opportunityOwnerTitle: string;
+  nppmRealtor: string;
+  referredBy: string;
+  affinityProgram: string;
 };
 
 /**
@@ -86,4 +110,17 @@ export type ResolvedLoan = {
   loanProgram: string;
   /** Fase urgente (Notes en el modal): mismo campo que PipelineLoan.noteHistory -- ver ese comentario. */
   noteHistory: string;
+  /**
+   * Etapa F6: los cinco crudos de la estrategia, mismo significado que en
+   * `PipelineLoan` -- ver ese comentario.
+   *
+   * Hacen falta también acá porque el desglose por estrategia abre la columna
+   * Closed, y esa sale de los resueltos. Sin ellos, un branch mostraría sus
+   * cerrados enteros en una estrategia y el subtotal no cuadraría.
+   */
+  strategyRaw: string;
+  opportunityOwnerTitle: string;
+  nppmRealtor: string;
+  referredBy: string;
+  affinityProgram: string;
 };

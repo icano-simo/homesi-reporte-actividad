@@ -162,6 +162,27 @@ export async function GET() {
       // columna), mismo criterio que el resto de los campos opcionales de
       // este mapeo. Ya no queda hardcodeado.
       noteHistory: r.production_support_note_history ?? '',
+      /*
+       * ⚠ ETAPA F6 — LOS CINCO CRUDOS DE LA ESTRATEGIA TODAVÍA NO SE RESTAURAN.
+       *
+       * Van en `''` a propósito, y NO es un olvido: las columnas no existen
+       * todavía en `pipeline_loans` / `pipeline_resolved_loans` (el SQL está en
+       * docs/sql/, lo aplica el revisor) y la RPC `save_pipeline_snapshot`
+       * tampoco las mapea, así que hoy no hay nada que traer.
+       *
+       * Consecuencia visible, y por eso existe `hasStrategyData()`: un snapshot
+       * restaurado tras un refresh NO tiene datos de estrategia, y la pantalla
+       * lo dice en vez de clasificar los 883 préstamos como "Own production"
+       * -- que es lo que daría el default si se los dejara pasar en silencio.
+       *
+       * Cuando estén la migración y la RPC ampliada, esto son cinco líneas:
+       * agregar las columnas al `select` de arriba y leerlas acá.
+       */
+      strategyRaw: '',
+      opportunityOwnerTitle: '',
+      nppmRealtor: '',
+      referredBy: '',
+      affinityProgram: '',
     }));
 
     // milestoneDate/branchTransferred quedan en su default (null/false): la
@@ -202,6 +223,27 @@ export async function GET() {
       // Fase de persistencia (Notes): mismo motivo que en openLoans arriba --
       // la columna ya existe y ya se lee, `?? ''` solo cubre NULL real.
       noteHistory: r.production_support_note_history ?? '',
+      /*
+       * ⚠ ETAPA F6 — LOS CINCO CRUDOS DE LA ESTRATEGIA TODAVÍA NO SE RESTAURAN.
+       *
+       * Van en `''` a propósito, y NO es un olvido: las columnas no existen
+       * todavía en `pipeline_loans` / `pipeline_resolved_loans` (el SQL está en
+       * docs/sql/, lo aplica el revisor) y la RPC `save_pipeline_snapshot`
+       * tampoco las mapea, así que hoy no hay nada que traer.
+       *
+       * Consecuencia visible, y por eso existe `hasStrategyData()`: un snapshot
+       * restaurado tras un refresh NO tiene datos de estrategia, y la pantalla
+       * lo dice en vez de clasificar los 883 préstamos como "Own production"
+       * -- que es lo que daría el default si se los dejara pasar en silencio.
+       *
+       * Cuando estén la migración y la RPC ampliada, esto son cinco líneas:
+       * agregar las columnas al `select` de arriba y leerlas acá.
+       */
+      strategyRaw: '',
+      opportunityOwnerTitle: '',
+      nppmRealtor: '',
+      referredBy: '',
+      affinityProgram: '',
     }));
 
     return NextResponse.json({

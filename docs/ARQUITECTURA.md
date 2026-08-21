@@ -3187,3 +3187,117 @@ ninguna de las dos tablas hijas, no se perdió ningún snapshot con datos, y los
 No lo hizo esta rama -- su única escritura fue el snapshot 62, borrado al
 terminar. Queda anotado como observación para que quien aplicó las migraciones
 lo confirme.
+
+## Etapa F6 — estrategia comercial como dimensión de corte en Projected Forecast
+
+Una segunda forma de cortar los mismos datos. **Ninguna regla de cálculo cambia:**
+pipeline, healthy, pull-through por canal, CTC/Closing, forecast y adverse quedan
+idénticos. La estrategia es una dimensión, no una fórmula.
+
+Alcance: sólo la pestaña Projected Forecast.
+
+### ⚠ El orden de evaluación ES la regla
+
+`lib/pipeline/strategy.ts`, función pura. Se para en la primera que coincide:
+
+| # | Estrategia | Regla |
+|---|---|---|
+| 1 | NPPM | `Strategy` = `NPPM` |
+| 2 | Affinity | `Branch` = `Affinity` |
+| 3 | Recruitment | `Branch` ∈ {710, 711, 777} |
+| 4 | B2B | `Opportunity Owner: Title` = `Business Developer` |
+| 5 | Own production | ninguna de las anteriores |
+
+Cada prioridad existe por un choque REAL, verificado contra el export del
+2026-08-20 (883 filas):
+
+- Los **24 NPPM tienen todos** `title = Business Developer`. Sin la prioridad
+  caerían en B2B y NPPM quedaría en cero.
+- **20 préstamos de las branches de recruitment dicen `B2B Strategy`** en la
+  columna. Recruitment va antes, así que quedan como Recruitment.
+
+⚠ **La columna `Strategy` se usa SÓLO para detectar NPPM.** Los 171 que dicen
+`B2B Strategy` no determinan B2B — eso lo define el title. Son poblaciones
+distintas: 171 con `B2B Strategy`, 205 con `Business Developer`, **77 en las
+dos**.
+
+Comparación por igualdad exacta, sin `trim` ni normalización, igual que el canal.
+**Riesgo conocido y anotado en el código:** un `business developer` en minúscula
+en un export futuro no coincidiría y caería en `Own production` sin aviso.
+Normalizar es una decisión de negocio — define qué valores son el mismo — y este
+módulo no la puede tomar solo.
+
+### ⚠ El forecast no se recalcula por estrategia: se aporciona
+
+Es la decisión que hace que los subtotales cuadren SIEMPRE, no por suerte.
+
+`projectedToClose` de un branch **ya viene redondeado** desde `page.tsx`
+(`Math.round`, etapa F5j). Redondear-y-sumar no es asociativo: recalcular el
+forecast de cada estrategia y redondear cada uno NO daría el entero del branch.
+Es el mismo problema que F5j-b ya había encontrado entre Executive y Matrix.
+
+Así que se usa el mismo remedio: `apportionByWeight` reparte el entero del
+branch usando como pesos los forecasts EXACTOS de cada estrategia, con las
+MISMAS fórmulas por canal (cascada de milestone para Banked, 40% plano sobre el
+total para Brokered). La suma de las partes ES el entero, por construcción.
+
+Todo lo demás — total, healthy, closed, CTC, Closing — son conteos enteros, y
+esos son aditivos solos.
+
+Hay además una red de seguridad en desarrollo: si un subtotal por estrategia no
+da la fila del branch, `console.warn`. Un desglose que no cuadra significa un
+préstamo contado dos veces o ninguna.
+
+### ⚠ Un bug propio, encontrado al verificar el Caso B
+
+La primera versión decidía qué estrategias mostrar mirando **todos** los
+cerrados del branch, sin el filtro de mes. Resultado: aparecía `NPPM 0 0 0 0` en
+703/Banked, una fila entera en cero, porque su único cerrado caía fuera del mes
+de forecast.
+
+La regla es que las estrategias en cero no se muestran, así que el criterio para
+decidir si la fila EXISTE tiene que ser el mismo que produce los números que la
+fila MUESTRA — status funded y disbursement dentro del mes. Si no, la condición
+de existir y el contenido discrepan, que es exactamente lo que se veía.
+
+`Own production` es la única excepción: va siempre, incluso en cero. Es el 63%
+de los préstamos, y esconderla dejaría un subtotal sin explicar.
+
+### Persistencia: la cadena de cinco pasos, y en qué paso quedó
+
+`docs/sql/2026-08-pipeline-strategy-columns.sql`, **sin ejecutar**: las cinco
+columnas en las dos tablas hijas. Se guardan los CRUDOS, no la estrategia
+calculada — si cambia una regla, con los crudos se recalcula el histórico
+completo; con la conclusión guardada habría que recargar archivos que ya no
+existen. Mismo criterio que `data_as_of` frente a `snapshot_date` en S1.
+
+Estado de la cadena hoy:
+
+| paso | estado |
+|---|---|
+| columna en la tabla | SQL entregado, sin aplicar |
+| mapper del insert | **NO tocado, a propósito** |
+| RPC `save_pipeline_snapshot` | pendiente del revisor |
+| select de `/api/pipeline/latest` | los cinco en `''`, con el motivo escrito |
+| mapeo al dominio | hecho |
+
+El mapper NO manda las cinco claves todavía: la RPC descarta en silencio lo que
+no está en su lista — devuelve 200 y deja NULL, verificado en S1 con
+`loan_type`. Agregarlas antes de ampliar la función sería escribir código que
+finge guardar.
+
+Consecuencia visible, y por eso existe `hasStrategyData()`: un snapshot
+restaurado tras un refresh no trae los crudos, y clasificar daría `Own
+production` para los 883. La pantalla dice que no hay datos de estrategia en vez
+de mostrar una distribución inventada.
+
+### El realtor del NPPM
+
+En el modal de detalle, no en la tabla: son 24 de 883, y una columna estaría
+vacía en el 97% de las filas robándole ancho a las ocho que sí tienen dato
+siempre. Va debajo del prestatario.
+
+`nppmRealtors()` resuelve los cuatro casos y devuelve una lista ya lista: los
+dos con el mismo valor dan una sola línea, distintos dan dos, uno solo da ese, y
+ninguno da lista vacía — sin placeholder, porque un guion ocuparía una línea
+para decir que no hay nada.
