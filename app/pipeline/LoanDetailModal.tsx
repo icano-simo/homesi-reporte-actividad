@@ -121,6 +121,18 @@ export interface LoanDetailModalProps {
    * Default true: los demás callers no necesitan pasarlo.
    */
   showChannelColumn?: boolean;
+  /**
+   * CTC/Closing (punto CtcDot, PivotTable.tsx): agrupa `loans` por milestone
+   * real en vez de una sola tabla plana -- cada sección trae su propio
+   * encabezado ("Clear to Close:"/"Closing:") dentro del tbody. `loans` de
+   * arriba sigue siendo obligatorio (el count del header y el caso "No
+   * loans." lo siguen usando tal cual, sin duplicar esa lógica acá) y debe
+   * ser la unión de todas las secciones. Si se omite, se renderiza la tabla
+   * plana de siempre (comportamiento sin cambios para el resto de modales).
+   * El caller ya excluye secciones vacías (un branch con solo CTC no manda
+   * una sección "Closing" vacía) -- este componente no decide eso.
+   */
+  sections?: { label: string; loans: LoanDetailModalLoan[] }[];
 }
 
 function fmtAmount(n: number): string {
@@ -199,6 +211,7 @@ export default function LoanDetailModal({
   metric,
   loans,
   showChannelColumn = true,
+  sections,
 }: LoanDetailModalProps) {
   /**
    * Expansión de Notes POR FILA -- Set de sourceLoanId (identificador
@@ -262,6 +275,53 @@ export default function LoanDetailModal({
   if (!isOpen) return null;
 
   const countLabel = loans.length.toLocaleString('en-US') + (loans.length === 1 ? ' Loan' : ' Loans');
+
+  /** Una <tr> de préstamo -- extraído para reusarse tanto en la tabla plana (loans.map) como dentro de cada sección agrupada (sections), sin duplicar el JSX de la fila. */
+  function renderLoanRow(loan: LoanDetailModalLoan) {
+    return (
+      <tr className="metric" key={loan.sourceLoanId}>
+        <td className="lbl" title={loan.sourceLoanId}>
+          {loan.sourceLoanId}
+          {loan.branchTransferred && (
+            <span className="branch-transfer-chip" title="Branch reassigned due to license (Branch Transfer)">
+              T
+            </span>
+          )}
+        </td>
+        <td style={{ textAlign: 'left' }} title={loan.borrowerName}>
+          {loan.borrowerName}
+        </td>
+        <td style={{ textAlign: 'left' }} title={loan.loanOfficer}>
+          {loan.loanOfficer || '—'}
+        </td>
+        {showChannelColumn && (
+          <td style={{ textAlign: 'left' }} title={loan.channel ?? '—'}>
+            {loan.channel ?? '—'}
+          </td>
+        )}
+        <td style={{ textAlign: 'left' }} title={loan.loanType || NOT_AVAILABLE_TEXT}>
+          {loan.loanType || NOT_AVAILABLE_TEXT}
+        </td>
+        <td style={{ textAlign: 'left' }} title={loan.loanProgram || NOT_AVAILABLE_TEXT}>
+          {loan.loanProgram || NOT_AVAILABLE_TEXT}
+        </td>
+        <td className="val">{fmtAmount(loan.amount)}</td>
+        <td style={{ textAlign: 'left' }} title={loan.rawMilestone}>
+          {loan.rawMilestone || '—'}
+        </td>
+        <td style={{ textAlign: 'left' }}>
+          <HealthBadge rawHealthiness={loan.rawHealthiness} />
+        </td>
+        <td className="note-cell">
+          <NoteCell
+            note={loan.noteHistory}
+            expanded={expandedNotes.has(loan.sourceLoanId)}
+            onToggle={() => toggleNote(loan.sourceLoanId)}
+          />
+        </td>
+      </tr>
+    );
+  }
 
   return (
     <div className="modal-overlay" onClick={handleClose}>
@@ -333,49 +393,16 @@ export default function LoanDetailModal({
               </tr>
             </thead>
             <tbody>
-              {loans.map((loan) => (
-                <tr className="metric" key={loan.sourceLoanId}>
-                  <td className="lbl" title={loan.sourceLoanId}>
-                    {loan.sourceLoanId}
-                    {loan.branchTransferred && (
-                      <span className="branch-transfer-chip" title="Branch reassigned due to license (Branch Transfer)">
-                        T
-                      </span>
-                    )}
-                  </td>
-                  <td style={{ textAlign: 'left' }} title={loan.borrowerName}>
-                    {loan.borrowerName}
-                  </td>
-                  <td style={{ textAlign: 'left' }} title={loan.loanOfficer}>
-                    {loan.loanOfficer || '—'}
-                  </td>
-                  {showChannelColumn && (
-                    <td style={{ textAlign: 'left' }} title={loan.channel ?? '—'}>
-                      {loan.channel ?? '—'}
-                    </td>
-                  )}
-                  <td style={{ textAlign: 'left' }} title={loan.loanType || NOT_AVAILABLE_TEXT}>
-                    {loan.loanType || NOT_AVAILABLE_TEXT}
-                  </td>
-                  <td style={{ textAlign: 'left' }} title={loan.loanProgram || NOT_AVAILABLE_TEXT}>
-                    {loan.loanProgram || NOT_AVAILABLE_TEXT}
-                  </td>
-                  <td className="val">{fmtAmount(loan.amount)}</td>
-                  <td style={{ textAlign: 'left' }} title={loan.rawMilestone}>
-                    {loan.rawMilestone || '—'}
-                  </td>
-                  <td style={{ textAlign: 'left' }}>
-                    <HealthBadge rawHealthiness={loan.rawHealthiness} />
-                  </td>
-                  <td className="note-cell">
-                    <NoteCell
-                      note={loan.noteHistory}
-                      expanded={expandedNotes.has(loan.sourceLoanId)}
-                      onToggle={() => toggleNote(loan.sourceLoanId)}
-                    />
-                  </td>
-                </tr>
-              ))}
+              {sections
+                ? sections
+                    .filter((section) => section.loans.length > 0)
+                    .flatMap((section) => [
+                      <tr className="modal-section-row" key={'section:' + section.label}>
+                        <td colSpan={showChannelColumn ? 10 : 9}>{section.label}:</td>
+                      </tr>,
+                      ...section.loans.map((loan) => renderLoanRow(loan)),
+                    ])
+                : loans.map((loan) => renderLoanRow(loan))}
               {!loans.length && (
                 <tr>
                   <td
