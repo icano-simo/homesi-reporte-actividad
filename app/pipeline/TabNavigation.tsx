@@ -1,9 +1,9 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { BuildingIcon, GridIcon, AlertTriangleIcon } from '@/components/ui/icons';
+import { BuildingIcon, GridIcon, AlertTriangleIcon, BarChartIcon } from '@/components/ui/icons';
 
-export type TabType = 'executive' | 'matrix' | 'adverse';
+export type TabType = 'executive' | 'matrix' | 'adverse' | 'analytics';
 
 export interface TabNavigationProps {
   activeTab: TabType;
@@ -35,6 +35,10 @@ const TABS: TabDefinition[] = [
   // ninguna noción de "riesgo" en el código; el rótulo viejo prometía algo
   // que no está.
   { id: 'adverse', label: 'Adverse Loans', icon: <AlertTriangleIcon size={14} />, badge: 'adverseCount' },
+  // Etapa F7, Parte 1: selector de período + rankings de Loan Program/Loan
+  // Type. Solo lectura sobre pipeline_resolved_loans, sin badge (no hay un
+  // contador equivalente a adverseCount para este tab).
+  { id: 'analytics', label: 'Analytics', icon: <BarChartIcon size={14} /> },
 ];
 
 /**

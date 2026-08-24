@@ -3639,3 +3639,95 @@ garantice "un solo `month_open` por mes". La clave sería el mes derivado de
 `data_as_of at time zone 'America/Chicago'`, y esa conversión es `STABLE`, no
 `IMMUTABLE` — Postgres no la indexa. La invariante se comprueba con una consulta
 de verificación en lugar de imponerse con un índice.
+
+---
+
+## Etapa F7, Parte 1 — 4ta pestaña Analytics: selector de período + rankings de Programa y Tipo
+
+Nueva pestaña "Analytics" en Forecast & Pipeline, junto a Projected Forecast,
+Pipeline by Milestone y Adverse Loans. Solo lectura sobre
+`pipeline_forecast.pipeline_resolved_loans` (snapshot activo), `status =
+'funded'`. No toca ninguna regla de cálculo existente -- pull-through,
+Healthy, Adverse y las estrategias comerciales quedan idénticos.
+
+### Sin consulta nueva a Supabase
+
+`resolvedLoans` ya vive en el estado del cliente (`/api/pipeline/latest`,
+mismo array que ya consumen `PivotTable`/`AdverseTable`) -- la pestaña nueva
+reutiliza `filteredResolvedLoans` (ya acotado por el branch seleccionado) y
+filtra por `status === 'funded'` + `disbursementDate` en el cliente. Ningún
+archivo nuevo habla con Supabase.
+
+### Selector de período (`lib/pipeline/period.ts`)
+
+Tres modos -- Mes / Quarter / Año a la fecha (`PeriodMode`) -- diseñado para
+reusarse en las etapas F7 siguientes (scorecards, tendencias), no solo en
+esta pestaña. Default: mes en curso, derivado con `getUTCFullYear`/
+`getUTCMonth`/`getUTCDate` -- nunca los métodos locales (`getFullYear`/
+`getMonth`), a propósito: el equipo opera en UTC-5 y un cálculo en hora local
+puede desplazar el mes cerca de medianoche (misma regla ya aplicada en el
+parser, `lib/pipeline/sources/salesforce-file.ts`).
+
+"Año a la fecha" corta siempre en el día de hoy (UTC) cuando el año elegido
+es el año en curso -- es lo que significa "a la fecha", no el año completo.
+
+### Historial real -- verificado contra el snapshot activo
+
+Consulta de solo lectura (`service_role`, mismo criterio que auditorías
+anteriores) contra el snapshot activo (id 72 al momento de esta etapa,
+`data_as_of` 2026-08-24):
+
+- **450** préstamos funded en total (de 781 filas en `pipeline_resolved_loans`).
+- `disbursementDate` más antigua: **2025-09-04**. Más reciente: **2026-08-21**.
+
+Si el período pedido empieza antes de esa fecha más antigua, la pantalla
+muestra un mensaje explícito (`.pill.warn`) aclarando que el total no cubre
+el período completo pedido -- nunca un total incompleto disfrazado de
+completo. Con el default (mes en curso, agosto 2026) esto no se dispara,
+porque agosto 2026 es posterior a la fecha más antigua disponible.
+
+### Rankings -- números reales del snapshot activo, no los de referencia del brief
+
+El brief citaba cifras de un archivo de referencia distinto (F30EEP 167, C30
+142, F30 122, B30ACC 65; Conventional 512, FHA 361, VA 7,
+FarmersHomeAdministration 2, HELOC 1) -- **no coinciden con el snapshot
+activo real**, tal como el propio brief anticipaba que podía pasar. Contra
+los 450 funded de todo el historial disponible en este snapshot:
+
+**Loan Program** (top 4, mismo orden relativo que el brief):
+F30EEP 100 · C30 90 · F30 73 · B30ACC 25 (51 programas distintos en total,
+ninguno vacío en este snapshot).
+
+**Loan Type**: Conventional 228 · FHA 215 · VA 6 · FarmersHomeAdministration 1
+(sin HELOC en este snapshot -- 0, no un error, simplemente no hay ninguno
+cargado hoy).
+
+Los dos rankings suman exactamente 450 en ambos casos -- coincide con el
+total de funded del período, verificado explícitamente (y con un
+`console.warn` de red de seguridad en desarrollo si alguna vez no coincidiera,
+mismo criterio que el desglose CTC/Closing).
+
+### `loanProgram`/`loanType` vacío -> agrupado, nunca descartado
+
+El brief solo pedía el placeholder `"Sin programa"` para `loan_program`
+vacío; se aplicó el mismo criterio a `loan_type` (`"Sin tipo"`) por simetría
+y para no descartar en silencio un loan sin ese dato -- decisión propia de
+esta etapa, no un pedido explícito del brief. En el snapshot verificado
+ninguno de los dos campos vino vacío, así que esta rama de código no se
+ejercitó con datos reales todavía.
+
+### Diseño
+
+Cero hexadecimales nuevos, cero `font-mono` -- reusa `table.piv`/`.tbl-card`/
+`.seg`/`.field`/`.pill`/`.label-chip` ya existentes en `components.css`
+(compartido, no se tocó ese archivo). Inter + `tabular-nums` ya son globales
+desde `base.css`, no hizo falta CSS nuevo para eso.
+
+### Archivos
+
+Solo dentro del alcance declarado: `lib/pipeline/period.ts` y
+`lib/pipeline/analytics.ts` (nuevos, puros, sin UI ni Supabase),
+`app/pipeline/PeriodSelector.tsx` y `app/pipeline/TabAnalytics.tsx` (nuevos),
+`app/pipeline/TabNavigation.tsx` y `app/pipeline/page.tsx` (editados -- un
+tab más en la lista existente, sin tocar los otros tres). Nada fuera de
+`app/pipeline/**`/`lib/pipeline/**`.
