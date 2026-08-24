@@ -266,7 +266,7 @@ Solo CL (First Lien) por ahora. Fuente única: el reporte que Alejandra/Isabella
 ### Supabase — schema `pipeline_forecast` (separado de `activity_report`)
 - `branches` — catálogo con auto-registro de branch nuevo (a diferencia de Actividad, aquí sí es tabla, porque Isabella lo pidió explícito para este módulo)
 - `branch_managers` — mapeo fijo branch→manager (asignado a mano por Isabella, no calculado; **pendiente de permisos** — ver Riesgos)
-- `pipeline_snapshots` — un snapshot por carga; retención: 90 días excepto `is_month_start`/`is_month_end`, que se conservan siempre
+- `pipeline_snapshots` — un snapshot por carga; retención (S2): el día 15 se borra, de todo mes anterior al actual, lo que no sea uno de los tres anclajes (`is_month_open`, `is_first_day_close`, `is_month_close`), que se conservan siempre. `is_month_start`/`is_month_end` quedaron obsoletas
 - `pipeline_loans` — un registro por préstamo por snapshot
 
 ### El contrato de datos (por qué importa)
@@ -3512,3 +3512,130 @@ De las tres branches de Recruitment, en este export sólo existe el **710** (55
 préstamos). El 711 y el 777 no tienen préstamos hoy, así que esa parte de la
 regla está escrita y probada por código pero no ejercitada con datos reales. Si
 algún día aparecen y no se clasifican, el motivo está acá.
+
+---
+
+## Etapa S2 — anclajes de mes, calendario hábil y retención del día 15
+
+Etapa de base de datos. **Ninguna pantalla cambia.** El SQL está en
+`docs/sql/2026-08-snapshot-month-anchors.sql`, sin aplicar — lo corre el revisor.
+
+Objetivo: poder responder en enero "cómo estaba el pipeline el último día hábil
+de agosto" con certeza, y "cómo arrancó el mes".
+
+### Qué significaban `is_month_start` / `is_month_end`
+
+`min(id)` y `max(id)` del mes: el primer y el último snapshot **que tenemos**, no
+el del primer y el último día hábil. Con los datos reales, el snapshot marcado
+como inicio de julio es del **30 de julio** — el penúltimo día del mes.
+
+Las dos columnas quedan **obsoletas y congeladas** (nadie las escribe más). No se
+borran en esta migración: son el único registro de lo que marcó el job viejo. El
+`drop` está escrito al final del archivo SQL, para más adelante.
+
+### Los tres anclajes, y por qué son tres booleanos
+
+| Anclaje | Qué es |
+|---|---|
+| `is_month_open` | primer snapshot del primer día hábil del mes |
+| `is_first_day_close` | último snapshot de ese mismo primer día hábil |
+| `is_month_close` | último snapshot del último día hábil del mes (nunca en el mes en curso) |
+
+Más `is_day_close` (último snapshot de cada día, informativo — **no** protege del
+borrado), `anchor_fallback` y `anchor_note`.
+
+**No es una columna `anchor_type`** porque un snapshot puede ser dos anclajes a la
+vez: si el primer día hábil tuvo una sola carga, esa fila es `month_open` **y**
+`first_day_close`. No es hipotético — 3 de los 18 días con datos tienen
+exactamente un snapshot. Un enum obligaría a inventar valores compuestos.
+
+### `data_as_of` en `America/Chicago`, nunca `uploaded_at` ni UTC
+
+`data_as_of` es cuándo Salesforce generó el export; `uploaded_at`, cuándo alguien
+lo subió. Los snapshots 9 y 11 tienen datos del 30 de julio y se cargaron el 3 de
+agosto: por `uploaded_at` caerían en agosto.
+
+Y la zona no es una precaución teórica: el snapshot activo (id 71) tiene
+`data_as_of` = 2026-08-23 20:05 CST, que en UTC es 2026-08-24. **Ya hay una fila
+que cambia de día según la zona.**
+
+### El desempate `(data_as_of, id)`
+
+Dentro de un mismo día hay `data_as_of` repetidos, porque el mismo export se sube
+varias veces: `2026-08-18 17:19` lo comparten cinco snapshots (43, 44, 45, 46,
+52). Ordenar sólo por `data_as_of` deja el anclaje no determinista. `id` desempata
+y gana la carga más reciente del mismo export.
+
+### La regla vive en una función aparte
+
+`maintenance.pipeline_snapshot_anchor_targets()` devuelve, sin escribir nada, qué
+anclajes le tocan a cada snapshot. El job la usa **dos veces** —para marcar y para
+decidir el borrado— así que las dos mitades no pueden separarse. Tres
+consecuencias:
+
+- **"Marcar antes de borrar" es estructural**, no depende del orden de las
+  sentencias como en la función vieja.
+- **El `p_dry_run` es exacto**: mira el mismo conjunto que la corrida real, sin
+  escribir una fila.
+- Es **inspeccionable sola**, antes de aplicar la migración.
+
+### Recalcula, no acumula
+
+El marcado asigna el estado completo de las 6 columnas en cada corrida. La
+función vieja sólo ponía flags en `true` y nunca los quitaba, así que una carga
+atrasada (como los ids 9 y 11) dejaba el anclaje pegado en el snapshot anterior
+para siempre.
+
+Eso abre una pregunta: después de la purga sólo sobreviven 3 filas por mes —
+¿recalcular sobre esas 3 devuelve las mismas 3? Sí. El conjunto de anclajes es un
+**punto fijo** del recálculo, verificado contra los datos de julio. Sin esa
+propiedad cada purga desplazaría los anclajes del mes anterior.
+
+### Retención: el día 15, y por qué reemplaza al job viejo
+
+Todos los días se marcan anclajes y cierres diarios. El día 15 se borra, de todo
+mes **anterior al actual**, lo que no sea anclaje. "Anterior al actual" y no "el
+mes pasado": si el job no corre un día 15, el siguiente limpia el atraso solo.
+
+`run_pipeline_snapshot_retention` **se desprograma y se borra**, no convive. Borra
+por 90 días mirando las columnas viejas, así que el 29 de octubre —cuando los
+snapshots del 30 de julio cumplan 90 días— se llevaría los tres anclajes de julio.
+
+Tres salvaguardas en el borrado: el snapshot **activo** nunca se borra (con el
+antecedente de S1, donde se borró el activo de producción); un snapshot **sin
+`data_as_of`** nunca se borra (no se puede ubicar, así que no puede ser anclaje y
+se perdería en silencio); y `= false` estricto, para que un NULL proteja la fila.
+
+### El calendario es una tabla
+
+`maintenance.us_holidays`, sembrada con los 11 feriados federales de 2026 y 2027.
+Tabla y no reglas en código porque los prestamistas cierran días que no son
+feriado federal. **Viernes Santo no se observa** — confirmado con el negocio.
+
+Se guarda la fecha **observada**, no la nominal: si el feriado cae fin de semana,
+ese día ya es no hábil, y la fila que sirve es la del día que la oficina cierra.
+Tres corrimientos en este período (2026-07-03, 2027-06-18, 2027-07-05, más
+2027-12-24).
+
+`extract(isodow)` y no `dow`: con `dow` el domingo es 0 y `< 6` lo dejaría entrar
+como día hábil.
+
+### Consecuencia en Adverse & Risk
+
+`/api/pipeline/adverse-history` infiere la primera detección de un préstamo del
+snapshot más viejo que sobrevivió. S2 **agrava** esa limitación ya documentada: la
+ventana pasa de ~3 meses (90 días) a ~6 semanas (hasta el día 15 del mes
+siguiente). Es el precio deliberado de tener certeza sobre los días hábiles; la
+solución de fondo es registrar la primera detección cuando ocurre. Queda anotado
+en el comentario de ese endpoint.
+
+### Sin índices, a propósito
+
+52 filas: cualquier consulta de anclajes recorre la tabla en microsegundos y un
+índice parcial sólo agrega costo de escritura en cada carga.
+
+Lo que **no se puede** hacer, y quedó escrito: un índice único parcial que
+garantice "un solo `month_open` por mes". La clave sería el mes derivado de
+`data_as_of at time zone 'America/Chicago'`, y esa conversión es `STABLE`, no
+`IMMUTABLE` — Postgres no la indexa. La invariante se comprueba con una consulta
+de verificación en lugar de imponerse con un índice.

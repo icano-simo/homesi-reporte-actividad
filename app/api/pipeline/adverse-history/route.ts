@@ -52,12 +52,24 @@ function chunk<T>(items: T[], size: number): T[][] {
  * restaurado), así que no hace falta que el cliente lo pase.
  *
  * LIMITACIÓN CONOCIDA Y ACEPTADA (no se corrige acá, ver brief de F5g): la
- * retención de 90 días (F5b) borra snapshots viejos que no sean
- * is_month_start/is_month_end. Si el snapshot donde un préstamo apareció
+ * retención borra snapshots viejos. Si el snapshot donde un préstamo apareció
  * como adverse por primera vez ya fue borrado, esta función devuelve la
  * fecha del snapshot más viejo que SÍ sobrevivió -- no la fecha real de
  * primera detección. No hay forma de distinguir ese caso de una primera
  * detección genuina sin guardar el historial completo indefinidamente.
+ *
+ * ⚠ La etapa S2 AGRAVA esta limitación, y conviene que quede dicho acá.
+ * Antes la regla era "90 días, salvo is_month_start/is_month_end": un
+ * snapshot de julio sobrevivía hasta fines de octubre. Ahora la purga corre
+ * el día 15 y borra todo lo que no sea uno de los tres anclajes del mes, así
+ * que los snapshots de julio se van el 15 de septiembre. La ventana en la que
+ * se puede reconstruir la primera detección real pasa de ~3 meses a ~6
+ * semanas.
+ *
+ * Es el precio deliberado de S2 --certeza sobre el primer y el último día
+ * hábil, en lugar de un colchón de 90 días de todo-- y no se compensa acá:
+ * la solución de fondo es guardar la primera detección cuando ocurre, no
+ * inferirla del historial que haya sobrevivido.
  */
 export async function GET() {
   const supabase = await getSupabaseForecast();
