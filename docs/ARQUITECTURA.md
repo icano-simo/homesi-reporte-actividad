@@ -3259,3 +3259,87 @@ sigue leyendo y escribiendo igual — la barra de decisión sigue registrando
 `branchStatus`, `branchStatusLabel` y `branchStatusClass` siguen existiendo y
 calculándose, con un comentario en `intervention.ts` que explica por qué no son
 código muerto: el indicador vuelve, en otra forma, en un módulo aparte.
+
+---
+
+## Aprendizajes de sesión — CTC/Closing (punto vs. modal), columna Channel, SL Query sin DELETE
+
+Consolida tres piezas de contexto que quedaron repartidas en comentarios de
+código y briefs de tareas, para que no haya que reconstruirlas leyendo el
+historial de commits la próxima vez.
+
+### CTC/Closing — el punto, el modal y el contador de texto son 3 poblaciones distintas, a propósito
+
+Las tres piezas leen el mismo bucket combinado "Closing" (fusiona los
+milestones crudos "Clear To Close" y "Closing"), pero cada una con una
+población distinta:
+
+- **El punto (`CtcDot`, `PivotTable.tsx`)** -- indicador de PRESENCIA. Usa
+  `closingCount` = `bucketTotal.Closing`, SIN filtrar por healthy. Un loan
+  Delayed en Closing SÍ prende el punto. Esto es intencional y preexistente
+  (ver Etapas F5k/UX10/UX12 arriba) -- el punto contesta "¿hay algo en
+  Closing en esta fila?", no "¿cuánto se proyecta que cierre?".
+- **El modal que abre el punto al hacer click** -- SÍ filtra
+  `healthy === true` antes de mostrar nada (`ctcClosingEligibleLoans()` +
+  `buildCtcClosingSections()`, `PivotTable.tsx`). Agrupa los loans elegibles
+  por milestone real, con un header de sección ("Clear to Close:"/
+  "Closing:") por cada uno que tenga al menos un loan -- una sección con
+  cero loans no se muestra. El tooltip del punto (`title`) usa la MISMA
+  población que el modal (mismas 2 funciones) -- si alguna vez el tooltip
+  vuelve a decir un número o milestone que no coincide con lo que el modal
+  muestra, la causa más probable es que alguien reintrodujo un cálculo
+  separado en vez de reusar esas 2 funciones.
+- **El contador de texto ("X CTC + X Closing", subtotal/tarjeta Closed)**
+  -- también healthy-only (`splitCtcAndClosing`, `lib/pipeline/aggregate.ts`),
+  misma población que el modal, pero es un cálculo independiente -- no
+  comparte código con `ctcClosingEligibleLoans`/`buildCtcClosingSections`,
+  así que si se toca uno hay que verificar el otro a mano contra datos
+  reales.
+
+**ADVERTENCIA:** no "corregir" el punto (`closingCount`, sin filtrar) para
+que coincida con el modal o el contador (healthy-only) sin una decisión de
+negocio explícita. Son métricas con propósitos distintos -- presencia vs.
+proyección real -- y ya hubo confusión real sobre esto en sesión (el punto
+encendido por un loan Delayed que no aparecía en el desglose de texto,
+tratado al principio como si fuera un bug, cuando es el comportamiento
+esperado).
+
+### Channel column en LoanDetailModal — aditivo, no exclusivo con `sections`
+
+- `showChannelColumn?: boolean` (default `true`) en `LoanDetailModalProps`
+  controla si la columna "Channel" se renderiza -- se OMITE del DOM entera
+  (`<col>`/`<th>`/`<td>` condicionales), no se oculta con CSS.
+- Se muestra (`showChannelColumn` en `true`, explícito o por default) en:
+  Total Pipeline, Healthy Pipeline, Closed, y sus 3 variantes de Combined
+  Total by Branch -- todos los openers de `PivotTable.tsx`.
+- NO se muestra en Milestone Matrix (`TabMilestoneMatrix.tsx` pasa
+  `showChannelColumn={false}` explícito) -- esa vista ya filtra por un solo
+  canal vía su propio toggle banked/brokered, así que la columna sería
+  redundante ahí.
+- `sections?: { label: string; loans: LoanDetailModalLoan[] }[]` (usado por
+  el modal de CTC/Closing, arriba) agrupa las filas del modal por milestone
+  -- coexiste con `showChannelColumn` sin conflicto, son props
+  independientes y aditivos. El modal de CTC/Closing en el punto Combined
+  pasa `showChannelColumn={true}` (mezcla Banked + Brokered); en el punto de
+  una sola tabla de canal pasa `showChannelColumn={false}` (todos los loans
+  ya son del mismo canal, la columna no aportaría nada).
+- El campo `channel` en `LoanDetailModalLoan` es opcional (`channel?:`)
+  porque Milestone Matrix nunca lo provee -- si algún día se agrega un
+  caller nuevo que tampoco tenga el dato, el modal ya sabe mostrar `'—'` en
+  su lugar (mismo criterio que `rawHealthiness`).
+
+### SL Query — DELETE removido permanentemente del lado de la app
+
+- `activity_report` (schema de Supabase) solo tiene políticas de
+  `select`/`insert`/`update` -- nunca `delete`. Es una decisión de
+  infraestructura ya tomada, no un permiso pendiente de otorgar ni un 403 a
+  resolver pidiendo el grant.
+- La limpieza de batches viejos corre por un `pg_cron` externo, administrado
+  aparte de la app (`maintenance.run_activity_batch_retention(days,
+  dry_run)` -- ver `.claude/skills/activity-sl-query/SKILL.md` para las 2
+  salvaguardas de esa función: el batch vigente nunca se borra, y siempre se
+  conservan los N batches más recientes).
+- No reintroducir ningún `.delete()` contra `loan_records`/`upload_batches`
+  desde código de la app -- si aparece un 403/42501 en un intento de DELETE
+  contra esas tablas, la solución es remover el DELETE del código, no pedir
+  el permiso.
