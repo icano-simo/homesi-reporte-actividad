@@ -37,6 +37,13 @@ function makeLoan(
     loanType: '',
     loanProgram: '',
     noteHistory: '',
+    // Etapa F6: los cinco crudos de la estrategia. Vacios en el fixture -- no
+    // se prueba la clasificacion aca (eso vive en scripts/test-strategy.ts).
+    strategyRaw: '',
+    opportunityOwnerTitle: '',
+    nppmRealtor: '',
+    referredBy: '',
+    affinityProgram: '',
   };
 }
 

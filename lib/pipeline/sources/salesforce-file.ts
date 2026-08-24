@@ -112,6 +112,16 @@ function resolveColumnIndexes(headerRow: unknown[]): Record<string, number> {
   idx['Loan Type'] = normalized.indexOf('Loan Type'); // Fase urgente (drill-down modal): opcional, no rompe el parseo si falta
   idx['Loan Program'] = normalized.indexOf('Loan Program'); // ídem
   idx['Production Support Note History'] = normalized.indexOf('Production Support Note History'); // Fase urgente (Notes en el modal): ídem
+  /*
+   * Etapa F6 (estrategia comercial): las cinco opcionales. Igual que las tres
+   * de arriba, `indexOf` devuelve -1 si el export no las trae y el parseo sigue
+   * -- un reporte viejo se lee sin estrategia en vez de fallar.
+   */
+  idx['Strategy'] = normalized.indexOf('Strategy');
+  idx['Opportunity Owner: Title'] = normalized.indexOf('Opportunity Owner: Title');
+  idx['NPPM Realtor'] = normalized.indexOf('NPPM Realtor');
+  idx['Referred By'] = normalized.indexOf('Referred By');
+  idx['Affinity Program'] = normalized.indexOf('Affinity Program');
 
   const missing = REQUIRED_COLUMNS.filter((col) => idx[col] === -1);
   if (missing.length) {
@@ -234,6 +244,18 @@ interface RawRow {
   loanProgram: string;
   /** Fase urgente (Notes en el modal): '' si el archivo no trae la columna "Production Support Note History". */
   noteHistory: string;
+  /** Etapa F6: crudos de la estrategia -- '' si el export no trae la columna. */
+  strategyRaw: string;
+  opportunityOwnerTitle: string;
+  nppmRealtor: string;
+  referredBy: string;
+  /**
+   * ⚠ `unknown` y no `string`: en el export "Affinity Program" es una CASILLA,
+   * no texto -- en el archivo del 2026-08-20 son 815 `false` y 68 `true`.
+   * `String(false)` daba `"false"` guardado 815 veces, que se lee como si cada
+   * préstamo tuviera un programa de afinidad. Se convierte en `classifyRow`.
+   */
+  affinityProgramRaw: unknown;
 }
 
 function readAmount(value: unknown): number {
@@ -295,6 +317,12 @@ function extractRowsFormatA(aoa: unknown[][], idx: Record<string, number>, heade
         loanType: String(row[idx['Loan Type']] ?? ''),
         loanProgram: String(row[idx['Loan Program']] ?? ''),
         noteHistory: String(row[idx['Production Support Note History']] ?? ''),
+        // Etapa F6: crudos de la estrategia. Ver lib/pipeline/strategy.ts.
+        strategyRaw: String(row[idx['Strategy']] ?? ''),
+        opportunityOwnerTitle: String(row[idx['Opportunity Owner: Title']] ?? ''),
+        nppmRealtor: String(row[idx['NPPM Realtor']] ?? ''),
+        referredBy: String(row[idx['Referred By']] ?? ''),
+        affinityProgramRaw: row[idx['Affinity Program']],
       });
     }
     i++;
@@ -330,6 +358,12 @@ function extractRowsFormatB(aoa: unknown[][], idx: Record<string, number>, heade
       loanType: String(row[idx['Loan Type']] ?? ''),
       loanProgram: String(row[idx['Loan Program']] ?? ''),
       noteHistory: String(row[idx['Production Support Note History']] ?? ''),
+      // Etapa F6: crudos de la estrategia. Ver lib/pipeline/strategy.ts.
+      strategyRaw: String(row[idx['Strategy']] ?? ''),
+      opportunityOwnerTitle: String(row[idx['Opportunity Owner: Title']] ?? ''),
+      nppmRealtor: String(row[idx['NPPM Realtor']] ?? ''),
+      referredBy: String(row[idx['Referred By']] ?? ''),
+      affinityProgramRaw: row[idx['Affinity Program']],
     });
   }
   return rows;
@@ -405,6 +439,29 @@ function classifyRow(
       loanType: row.loanType,
       loanProgram: row.loanProgram,
       noteHistory: row.noteHistory,
+      // Etapa F6: pasan crudos hasta el dominio; la clasificación se hace al
+      // mostrar (lib/pipeline/strategy.ts), nunca acá.
+      strategyRaw: row.strategyRaw,
+      opportunityOwnerTitle: row.opportunityOwnerTitle,
+      nppmRealtor: row.nppmRealtor,
+      referredBy: row.referredBy,
+      /*
+       * ⚠ La casilla se guarda como `'true'` o `''`, NUNCA como `'false'`.
+       *
+       * `false` es el estado negativo de una casilla, o sea "no hay programa de
+       * afinidad" -- exactamente lo mismo que dice `''` en los otros cuatro
+       * crudos. Guardar la cadena `"false"` en 815 de 883 filas convertía la
+       * ausencia de dato en un valor, y hacía que un `count(*) where
+       * affinity_program <> ''` diera 883 en vez de 68.
+       *
+       * Se reusa `parseBranchTransfer`, que ya resuelve casilla/número/texto
+       * para "Branch Transfer" -- el mismo problema, un año antes.
+       *
+       * Nota de datos: 68 préstamos tienen la casilla marcada y 71 están en el
+       * branch 'Affinity'. NO son la misma población, que es otra razón para que
+       * esta columna no decida nada: la estrategia Affinity la da el branch.
+       */
+      affinityProgram: parseBranchTransfer(row.affinityProgramRaw) ? 'true' : '',
     };
     return { openLoan };
   }
@@ -455,6 +512,29 @@ function classifyRow(
       loanType: row.loanType,
       loanProgram: row.loanProgram,
       noteHistory: row.noteHistory,
+      // Etapa F6: pasan crudos hasta el dominio; la clasificación se hace al
+      // mostrar (lib/pipeline/strategy.ts), nunca acá.
+      strategyRaw: row.strategyRaw,
+      opportunityOwnerTitle: row.opportunityOwnerTitle,
+      nppmRealtor: row.nppmRealtor,
+      referredBy: row.referredBy,
+      /*
+       * ⚠ La casilla se guarda como `'true'` o `''`, NUNCA como `'false'`.
+       *
+       * `false` es el estado negativo de una casilla, o sea "no hay programa de
+       * afinidad" -- exactamente lo mismo que dice `''` en los otros cuatro
+       * crudos. Guardar la cadena `"false"` en 815 de 883 filas convertía la
+       * ausencia de dato en un valor, y hacía que un `count(*) where
+       * affinity_program <> ''` diera 883 en vez de 68.
+       *
+       * Se reusa `parseBranchTransfer`, que ya resuelve casilla/número/texto
+       * para "Branch Transfer" -- el mismo problema, un año antes.
+       *
+       * Nota de datos: 68 préstamos tienen la casilla marcada y 71 están en el
+       * branch 'Affinity'. NO son la misma población, que es otra razón para que
+       * esta columna no decida nada: la estrategia Affinity la da el branch.
+       */
+      affinityProgram: parseBranchTransfer(row.affinityProgramRaw) ? 'true' : '',
     };
     return { resolvedLoan };
   }

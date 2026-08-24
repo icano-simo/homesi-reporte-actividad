@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { healthStatusLabel, healthStatusVariant } from './healthStatus';
+import { classifyStrategy, nppmRealtors } from '@/lib/pipeline/strategy';
 import { CloseIcon } from '@/components/ui/icons';
 import type { PipelineLoan } from '@/lib/pipeline/types';
 
@@ -88,6 +89,25 @@ export interface LoanDetailModalLoan {
    * completo.
    */
   noteHistory: string;
+  /**
+   * ============================================================================
+   * ⚠ ETAPA F6 — LO QUE HACE FALTA PARA EL REALTOR DEL NPPM
+   * ============================================================================
+   *
+   * Los dos primeros son para CLASIFICAR (el realtor sólo se muestra en
+   * préstamos de estrategia NPPM) y los dos últimos son el dato en sí.
+   *
+   * Se pasan los CRUDOS y se clasifica acá, en vez de recibir un booleano
+   * `isNppm` ya resuelto: así la regla vive en un solo lugar
+   * (`lib/pipeline/strategy.ts`) y no hay dos formas de decidir qué es NPPM.
+   */
+  /* `branch` hace falta para clasificar: Affinity y Recruitment se deciden
+     por branch, no por una columna del préstamo. */
+  branch: string;
+  strategyRaw: string;
+  opportunityOwnerTitle: string;
+  nppmRealtor: string;
+  referredBy: string;
 }
 
 /**
@@ -290,6 +310,28 @@ export default function LoanDetailModal({
         </td>
         <td style={{ textAlign: 'left' }} title={loan.borrowerName}>
           {loan.borrowerName}
+          {/*
+            ⚠ EL REALTOR DEL NPPM — etapa F6.
+            Sólo en préstamos de estrategia NPPM (24 de 883), y por eso va debajo
+            del prestatario y NO como columna propia: una columna estaría vacía
+            en el 97% de las filas y le robaría ancho a las nueve que sí tienen
+            dato siempre. `nppmRealtors()` resuelve los cuatro casos -- si no hay
+            ninguno devuelve lista vacía y acá no se dibuja nada, sin placeholder.
+
+            ⚠ Va ACÁ y no en el `loans.map` de abajo: Heather extrajo la fila a
+            `renderLoanRow` para reusarla en la tabla plana y en las secciones
+            agrupadas del modal del punto de CTC. Si el bloque se quedara en el
+            map, el realtor aparecería en la vista plana y desaparecería en la
+            agrupada -- la misma fila con dos contenidos según por dónde se
+            entre. Una sola plantilla de fila, un solo lugar.
+          */}
+          {classifyStrategy(loan) === 'NPPM' &&
+            nppmRealtors(loan).map((r) => (
+              <span className="nppm-realtor" key={r.label} title={r.label + ': ' + r.value}>
+                <span className="nppm-realtor__label">{r.label}</span>
+                {r.value}
+              </span>
+            ))}
         </td>
         <td style={{ textAlign: 'left' }} title={loan.loanOfficer}>
           {loan.loanOfficer || '—'}

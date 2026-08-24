@@ -956,6 +956,7 @@ export default function PipelinePage() {
               dateRange={forecastRange}
               branchManagers={branchManagers}
               knownBranches={knownBranches}
+              selectedBranch={selectedBranch}
             />
           )}
 

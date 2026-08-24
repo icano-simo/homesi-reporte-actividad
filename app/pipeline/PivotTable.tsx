@@ -1,9 +1,19 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import type { PipelineLoan, ResolvedLoan } from '@/lib/pipeline/types';
 import {
+  STRATEGY_ORDER,
+  classifyStrategy,
+  hasStrategyData,
+  type Strategy,
+} from '@/lib/pipeline/strategy';
+import {
+  BROKERED_FLAT_PULL_THROUGH_RATE,
+  apportionByWeight,
+  calculateForecast,
   calculateTotalForecastWithClosed,
+  countByMilestoneBucket,
   splitCtcAndClosing,
   type BucketCounts,
   type ForecastByBucket,
@@ -38,6 +48,16 @@ export interface PivotTableProps {
   branchManagers: Map<string, string>;
   /** Etapa F4g: set de branch codes conocidos (pipeline_forecast.branches). Vacío si no cargó. */
   knownBranches: Set<string>;
+  /**
+   * Etapa F6: el branch elegido en el Topbar, o 'ALL'.
+   *
+   * Hace falta acá porque la vista por estrategia sólo existe SIN branch
+   * seleccionado (Caso A). Con un branch elegido la tabla se queda en `By
+   * branch` y el desglose va como bloque debajo (Caso B) -- un conmutador que
+   * ofreciera "abrir por estrategia" un único branch estaría ofreciendo lo
+   * mismo que el bloque de abajo ya muestra.
+   */
+  selectedBranch: string;
 }
 
 interface BranchRow {
@@ -78,6 +98,37 @@ interface BranchRow {
   closingRawCount: number;
   totalForecast: number;
   branchForecastRow: BranchForecastRow;
+  /**
+   * Etapa F6: el mismo dato abierto por estrategia. Se calcula en
+   * `buildBranchRows`, donde están a mano las DOS mitades -- los préstamos
+   * abiertos y los resueltos del branch. Fuera de ahí no se puede: `BranchRow`
+   * sólo lleva `closedCount`, un número, y de un número ya no se puede saber
+   * qué estrategia tenía cada cerrado.
+   */
+  strategyRows: StrategyRow[];
+}
+
+/**
+ * ============================================================================
+ * UNA FILA DE ESTRATEGIA DENTRO DE UN BRANCH — etapa F6
+ * ============================================================================
+ *
+ * Mismos campos que `BranchRow`, porque es el MISMO dato abierto: la vista por
+ * estrategia no calcula nada nuevo, reparte lo que ya está calculado.
+ */
+interface StrategyRow {
+  strategy: Strategy;
+  closedCount: number;
+  totalCount: number;
+  healthyCount: number;
+  projectedToClose: number;
+  closingCount: number;
+  ctcRawCount: number;
+  closingRawCount: number;
+  totalForecast: number;
+  /** Los préstamos detrás, para que el modal de auditoría siga funcionando. */
+  loans: PipelineLoan[];
+  closedLoans: ResolvedLoan[];
 }
 
 interface BlockSubtotal {
@@ -168,7 +219,12 @@ function fmtForecast(n: number): string {
  * branch+canal que solo tenga cerrados -- aparece como una fila normal,
  * auditables sus cerrados desde el modal (no una fila genérica "Otros").
  */
-function buildOrphanBranchRows(rows: BranchForecastRow[], resolvedLoans: ResolvedLoan[], dateRange: DateRange): BranchRow[] {
+function buildOrphanBranchRows(
+  rows: BranchForecastRow[],
+  resolvedLoans: ResolvedLoan[],
+  dateRange: DateRange,
+  rates: PullThroughRates
+): BranchRow[] {
   const knownKeys = new Set(rows.map((r) => r.branch + '::' + r.channel));
 
   const orphanFunded = resolvedLoans.filter(
@@ -199,6 +255,13 @@ function buildOrphanBranchRows(rows: BranchForecastRow[], resolvedLoans: Resolve
       forecastTotal: 0,
       loans: [],
     };
+    /*
+     * Etapa F6: estas filas también se abren por estrategia. Son branch+canal
+     * que SÓLO tienen cerrados, así que su desglose sale entero de los
+     * resueltos -- sin esto, un branch huérfano mostraría su Closed sin poder
+     * explicar de qué estrategia vino.
+     */
+    const closedForThis = resolvedLoans.filter((l) => l.branch === branch && l.channel === channel);
     return {
       branch,
       channel,
@@ -211,6 +274,7 @@ function buildOrphanBranchRows(rows: BranchForecastRow[], resolvedLoans: Resolve
       closingRawCount: 0,
       totalForecast: count,
       branchForecastRow: emptyBranchForecastRow,
+      strategyRows: buildStrategyRows(emptyBranchForecastRow, closedForThis, dateRange, 0, count, rates),
     };
   });
 }
@@ -225,11 +289,157 @@ function buildOrphanBranchRows(rows: BranchForecastRow[], resolvedLoans: Resolve
  * que da CERO en Closed/Total Pipeline/Healthy Pipeline y no está en el roster
  * conocido (`knownBranches`) no aporta información, es ruido.
  */
+/**
+ * ============================================================================
+ * ⚠ EL REPARTO DEL FORECAST NO SE RECALCULA: SE APORCIONA
+ * ============================================================================
+ *
+ * Etapa F6. Es la decisión que hace que los subtotales cuadren SIEMPRE, y no
+ * por suerte.
+ *
+ * `projectedToClose` de un branch ya viene REDONDEADO desde `page.tsx`
+ * (`Math.round`, etapa F5j). Redondear-y-sumar no es asociativo: si se
+ * recalculara el forecast de cada estrategia y se redondeara cada uno, la suma
+ * de las cinco NO daría el entero del branch. Es exactamente el problema que
+ * F5j-b ya había encontrado y resuelto entre las vistas Executive y Matrix.
+ *
+ * Así que se usa el mismo remedio, `apportionByWeight`: los pesos son los
+ * forecasts EXACTOS de cada estrategia (sin redondear), y la función reparte el
+ * entero del branch entre ellos garantizando que la suma cierre. Los pesos se
+ * calculan con las MISMAS fórmulas por canal que usa `page.tsx` -- cascada de
+ * milestone para Banked, 40% plano sobre el total para Brokered -- porque si
+ * acá se usara otra fórmula el reparto sería proporcional a algo que no es el
+ * número que se está repartiendo.
+ *
+ * Todo lo demás son CONTEOS ENTEROS -- total, healthy, closed, CTC, Closing --
+ * y esos son aditivos por construcción: no hace falta apocionar nada.
+ */
+function buildStrategyRows(
+  branchForecastRow: BranchForecastRow,
+  closedLoansForBranch: ResolvedLoan[],
+  dateRange: DateRange,
+  branchProjectedToClose: number,
+  branchClosedCount: number,
+  /* Las MISMAS tasas que usa page.tsx, por prop -- no una copia local. */
+  rates: PullThroughRates
+): StrategyRow[] {
+  const isBanked = branchForecastRow.channel === 'Banked - Retail';
+
+  /*
+   * Qué estrategias se muestran. `Own production` va SIEMPRE, incluso en cero:
+   * es el 63% de los préstamos y esconderla dejaría un subtotal sin explicar
+   * (en 703/Banked son 31 de 57). Las otras sólo si tienen algo -- abierto o
+   * cerrado, porque un branch puede tener cerrados de una estrategia y ningún
+   * abierto, y esa fila igual tiene que existir para que Closed cuadre.
+   */
+  const present = new Set<Strategy>(['Own production']);
+  for (const loan of branchForecastRow.loans) present.add(classifyStrategy(loan));
+  /*
+   * ⚠ Los cerrados se cuentan con el MISMO filtro que la columna Closed --
+   * status funded y disbursement dentro del mes de forecast.
+   *
+   * Sin ese filtro entraban estrategias cuyo único cerrado cae FUERA del mes, y
+   * aparecía una fila entera en cero: `NPPM 0 0 0 0` en 703/Banked. La regla es
+   * que las estrategias en cero no se muestran, así que el criterio para
+   * decidir si existe la fila tiene que ser el mismo que el de los números que
+   * la fila va a mostrar. Si no, la condición de existir y el contenido
+   * discrepan, que es exactamente lo que se veía.
+   */
+  for (const loan of closedLoansForBranch) {
+    if (
+      loan.status === 'funded' &&
+      loan.disbursementDate >= dateRange.startDate &&
+      loan.disbursementDate <= dateRange.endDate
+    ) {
+      present.add(classifyStrategy(loan));
+    }
+  }
+  const strategies = STRATEGY_ORDER.filter((st) => present.has(st));
+
+  const perStrategy = strategies.map((strategy) => {
+    const loans = branchForecastRow.loans.filter((l) => classifyStrategy(l) === strategy);
+    const healthy = loans.filter((l) => l.healthy === true);
+    const closedLoans = closedLoansForBranch.filter((l) => classifyStrategy(l) === strategy);
+
+    /* Mismo criterio de fecha y de status que la fila del branch. */
+    const { closedCount } = calculateTotalForecastWithClosed(closedLoans, 0, dateRange);
+
+    /* El peso: el forecast EXACTO, con la fórmula del canal. Sin redondear. */
+    const exactForecast = isBanked
+      ? calculateForecast(countByMilestoneBucket(healthy), rates).forecastTotal
+      : loans.length * BROKERED_FLAT_PULL_THROUGH_RATE;
+
+    const ctcSplit = isBanked ? splitCtcAndClosing(healthy) : { ctcCount: 0, closingCount: 0 };
+
+    return {
+      strategy,
+      closedCount,
+      totalCount: loans.length,
+      healthyCount: healthy.length,
+      closingCount: isBanked ? countByMilestoneBucket(loans).Closing : 0,
+      ctcRawCount: ctcSplit.ctcCount,
+      closingRawCount: ctcSplit.closingCount,
+      loans,
+      closedLoans,
+      exactForecast,
+    };
+  });
+
+  /* El entero del branch, repartido. La suma de las partes ES el entero. */
+  const parts = apportionByWeight(
+    branchProjectedToClose,
+    perStrategy.map((r) => r.exactForecast)
+  );
+
+  const rows: StrategyRow[] = perStrategy.map((r, i) => ({
+    strategy: r.strategy,
+    closedCount: r.closedCount,
+    totalCount: r.totalCount,
+    healthyCount: r.healthyCount,
+    projectedToClose: parts[i],
+    closingCount: r.closingCount,
+    ctcRawCount: r.ctcRawCount,
+    closingRawCount: r.closingRawCount,
+    totalForecast: r.closedCount + parts[i],
+    loans: r.loans,
+    closedLoans: r.closedLoans,
+  }));
+
+  /*
+   * Red de seguridad en desarrollo: si un subtotal por estrategia no da la fila
+   * del branch, hay un préstamo contado dos veces o ninguna. Se avisa en vez de
+   * dejarlo pasar -- es el chequeo más importante de esta etapa.
+   */
+  if (process.env.NODE_ENV !== 'production') {
+    const suma = (pick: (r: StrategyRow) => number) => rows.reduce((a, r) => a + pick(r), 0);
+    const checks: [string, number, number][] = [
+      ['totalCount', suma((r) => r.totalCount), branchForecastRow.totalCount],
+      ['healthyCount', suma((r) => r.healthyCount), branchForecastRow.healthyCount],
+      ['closedCount', suma((r) => r.closedCount), branchClosedCount],
+      ['projectedToClose', suma((r) => r.projectedToClose), branchProjectedToClose],
+    ];
+    for (const [name, got, want] of checks) {
+      if (got !== want) {
+        console.warn('F6: el desglose por estrategia no cuadra', {
+          branch: branchForecastRow.branch,
+          channel: branchForecastRow.channel,
+          field: name,
+          strategiesSum: got,
+          branchValue: want,
+        });
+      }
+    }
+  }
+
+  return rows;
+}
+
 function buildBranchRows(
   rows: BranchForecastRow[],
   resolvedLoans: ResolvedLoan[],
   dateRange: DateRange,
-  knownBranches: Set<string>
+  knownBranches: Set<string>,
+  rates: PullThroughRates
 ): BranchRow[] {
   const matched = rows.map((branchForecastRow) => {
     const closedLoansForBranch = resolvedLoans.filter(
@@ -283,10 +493,20 @@ function buildBranchRows(
       closingRawCount: ctcSplit.closingCount,
       totalForecast,
       branchForecastRow,
+      /* Etapa F6: el mismo dato, abierto. Se reparte `forecastTotal` (ya
+         redondeado) -- ver el comentario de `buildStrategyRows`. */
+      strategyRows: buildStrategyRows(
+        branchForecastRow,
+        closedLoansForBranch,
+        dateRange,
+        branchForecastRow.forecastTotal,
+        closedCount,
+        rates
+      ),
     };
   });
 
-  const orphans = buildOrphanBranchRows(rows, resolvedLoans, dateRange);
+  const orphans = buildOrphanBranchRows(rows, resolvedLoans, dateRange, rates);
 
   const visible = [...matched, ...orphans].filter(
     (row) => row.totalCount > 0 || row.healthyCount > 0 || row.closedCount > 0 || knownBranches.has(row.branch)
@@ -348,6 +568,12 @@ function buildCombinedByBranch(branchRows: BranchRow[]): CombinedBranchRow[] {
 function openLoanToModalLoan(loan: PipelineLoan): LoanDetailModalLoan {
   return {
     sourceLoanId: loan.sourceLoanId,
+    // Etapa F6: crudos para el realtor del NPPM. Ver LoanDetailModalLoan.
+    branch: loan.branch,
+    strategyRaw: loan.strategyRaw,
+    opportunityOwnerTitle: loan.opportunityOwnerTitle,
+    nppmRealtor: loan.nppmRealtor,
+    referredBy: loan.referredBy,
     borrowerName: loan.borrowerName,
     loanOfficer: loan.loanOfficer,
     channel: loan.channel,
@@ -414,6 +640,12 @@ function formatCtcClosingTooltip(loans: PipelineLoan[]): string | undefined {
 function closedLoanToModalLoan(loan: ResolvedLoan): LoanDetailModalLoan {
   return {
     sourceLoanId: loan.sourceLoanId,
+    // Etapa F6: crudos para el realtor del NPPM. Ver LoanDetailModalLoan.
+    branch: loan.branch,
+    strategyRaw: loan.strategyRaw,
+    opportunityOwnerTitle: loan.opportunityOwnerTitle,
+    nppmRealtor: loan.nppmRealtor,
+    referredBy: loan.referredBy,
     borrowerName: loan.borrowerName,
     loanOfficer: loan.loanOfficer,
     channel: loan.channel,
@@ -675,6 +907,140 @@ function BranchDataRow({
 }
 
 /**
+ * ============================================================================
+ * LAS FILAS DE ESTRATEGIA DE UN BRANCH — etapa F6
+ * ============================================================================
+ *
+ * El branch va como CELDA COMBINADA (`rowSpan`) abarcando sus filas: sin eso el
+ * código de branch se repetiría en cada línea y la tabla se leería como si
+ * hubiera cinco branches distintos con el mismo nombre.
+ *
+ * Las columnas son exactamente las mismas que `BranchDataRow`. No hay una
+ * segunda plantilla: si mañana se agrega una columna, se agrega en los dos
+ * lados o el desglose deja de alinearse -- por eso las dos comparten el
+ * `<ExecColgroup />` y el `<ExecHead />` de la tabla que las contiene.
+ */
+function StrategyRowsGroup({
+  row,
+  strategyRows,
+  managerName,
+  onOpenTotal,
+  onOpenHealthy,
+  onOpenClosed,
+  onOpenCtcClosing,
+}: {
+  row: BranchRow;
+  strategyRows: StrategyRow[];
+  managerName: string;
+  onOpenTotal: (row: BranchRow, sr: StrategyRow) => void;
+  onOpenHealthy: (row: BranchRow, sr: StrategyRow) => void;
+  onOpenClosed: (row: BranchRow, sr: StrategyRow) => void;
+  onOpenCtcClosing: (row: BranchRow, sr: StrategyRow) => void;
+}) {
+  return (
+    <>
+      {strategyRows.map((sr, i) => (
+        <tr className="metric" key={row.branch + '::' + row.channel + '::' + sr.strategy}>
+          {i === 0 && (
+            <td className="lbl strat-branch-cell" rowSpan={strategyRows.length}>
+              {row.branch}
+            </td>
+          )}
+          <td className="th-left manager-cell strat-name-cell" title={managerName}>
+            {sr.strategy}
+          </td>
+          <td className="val col-pipeline group-start">
+            <CountCell value={sr.totalCount} onClick={() => onOpenTotal(row, sr)} />
+          </td>
+          <td className="val col-pipeline">
+            <CountCell value={sr.healthyCount} onClick={() => onOpenHealthy(row, sr)} />
+          </td>
+          <td className="val col-forecast group-start">
+            <CountCell value={sr.closedCount} onClick={() => onOpenClosed(row, sr)} variant="closed" />
+          </td>
+          <td className="val col-forecast">
+            <span className="ctc-cell">
+              <CtcDot
+                count={sr.closingCount}
+                onClick={sr.closingCount > 0 ? () => onOpenCtcClosing(row, sr) : undefined}
+                title={formatCtcClosingTooltip(sr.loans)}
+              />
+              {fmtForecast(sr.projectedToClose)}
+            </span>
+          </td>
+          <td className="totcol col-forecast">
+            <span className="badge badge--pill badge--emerald">{fmtForecast(sr.totalForecast)}</span>
+          </td>
+        </tr>
+      ))}
+    </>
+  );
+}
+
+/**
+ * Caso B — el desglose debajo de la fila del branch.
+ *
+ * Va en la MISMA tabla, no en una aparte: así las columnas quedan alineadas con
+ * las de arriba sin tener que repetir anchos, que es lo que pidió el negocio.
+ * La fila de encabezado se distingue por estilo, no por indentación.
+ */
+function StrategyBreakdown({
+  row,
+  strategyRows,
+  onOpenTotal,
+  onOpenHealthy,
+  onOpenClosed,
+  onOpenCtcClosing,
+}: {
+  row: BranchRow;
+  strategyRows: StrategyRow[];
+  onOpenTotal: (row: BranchRow, sr: StrategyRow) => void;
+  onOpenHealthy: (row: BranchRow, sr: StrategyRow) => void;
+  onOpenClosed: (row: BranchRow, sr: StrategyRow) => void;
+  onOpenCtcClosing: (row: BranchRow, sr: StrategyRow) => void;
+}) {
+  if (!strategyRows.length) return null;
+  return (
+    <>
+      <tr className="strat-break-head">
+        <td className="lbl" colSpan={7}>
+          Breakdown by strategy
+        </td>
+      </tr>
+      {strategyRows.map((sr) => (
+        <tr className="metric strat-break-row" key={'brk::' + row.channel + '::' + sr.strategy}>
+          <td className="lbl strat-name-cell" colSpan={2}>
+            {sr.strategy}
+          </td>
+          <td className="val col-pipeline group-start">
+            <CountCell value={sr.totalCount} onClick={() => onOpenTotal(row, sr)} />
+          </td>
+          <td className="val col-pipeline">
+            <CountCell value={sr.healthyCount} onClick={() => onOpenHealthy(row, sr)} />
+          </td>
+          <td className="val col-forecast group-start">
+            <CountCell value={sr.closedCount} onClick={() => onOpenClosed(row, sr)} variant="closed" />
+          </td>
+          <td className="val col-forecast">
+            <span className="ctc-cell">
+              <CtcDot
+                count={sr.closingCount}
+                onClick={sr.closingCount > 0 ? () => onOpenCtcClosing(row, sr) : undefined}
+                title={formatCtcClosingTooltip(sr.loans)}
+              />
+              {fmtForecast(sr.projectedToClose)}
+            </span>
+          </td>
+          <td className="totcol col-forecast">
+            <span className="badge badge--pill badge--emerald">{fmtForecast(sr.totalForecast)}</span>
+          </td>
+        </tr>
+      ))}
+    </>
+  );
+}
+
+/**
  * Celda numérica que abre el modal de auditoría. En cero no es clickeable y
  * se muestra apagada (spec §3C/§4D.2): no hay nada que auditar detrás de un 0,
  * y ofrecer el click igual solo produce paneles vacíos.
@@ -721,13 +1087,128 @@ function CountCell({
  * (y ahora por el modal). Si hiciera falta recuperarlos, están en el
  * historial de git de este archivo.
  */
-export default function PivotTable({ rows, resolvedLoans, dateRange, branchManagers, knownBranches }: PivotTableProps) {
+export default function PivotTable({
+  rows,
+  resolvedLoans,
+  rates,
+  dateRange,
+  branchManagers,
+  knownBranches,
+  selectedBranch,
+}: PivotTableProps) {
   const [modal, setModal] = useState<ModalState | null>(null);
 
-  const branchRows = buildBranchRows(rows, resolvedLoans, dateRange, knownBranches);
+  /*
+   * ⚠ UN SOLO CONTROL PARA LAS DOS TABLAS — etapa F6.
+   *
+   * El estado vive acá, en el padre de los dos bloques de canal, no adentro de
+   * cada tabla. Banked y Brokered se conmutan juntas: son dos mitades de la
+   * misma pregunta, y verlas en modos distintos al mismo tiempo no responde
+   * ninguna.
+   */
+  const [view, setView] = useState<'branch' | 'strategy'>('branch');
+  const [pill, setPill] = useState<Strategy | 'All'>('All');
+
+  const branchRows = buildBranchRows(rows, resolvedLoans, dateRange, knownBranches, rates);
   const blocks = buildChannelBlocks(branchRows);
   const grandTotal = blocks.reduce((acc, block) => addSubtotal(acc, block.subtotal), EMPTY_SUBTOTAL);
   const combinedByBranch = buildCombinedByBranch(branchRows);
+
+  /*
+   * ¿Hay datos de estrategia? Si el snapshot se restauró desde Supabase, los
+   * cinco crudos vienen vacíos (las columnas todavía no existen -- ver
+   * docs/sql/ y el comentario en /api/pipeline/latest) y clasificar daría
+   * `Own production` para todo. Sin datos no se ofrece el conmutador: mejor no
+   * mostrar el corte que mostrarlo mintiendo.
+   */
+  const strategyAvailable = hasStrategyData(rows.flatMap((r) => r.loans));
+  /* Caso A: sin branch elegido. Caso B: con branch elegido, sin conmutador. */
+  const isAllBranches = selectedBranch === 'ALL';
+  const showStrategyControls = isAllBranches && strategyAvailable;
+  const byStrategy = showStrategyControls && view === 'strategy';
+
+  /** Las estrategias que existen en los datos visibles, para las píldoras. */
+  const strategiesPresent = STRATEGY_ORDER.filter((st) =>
+    branchRows.some((r) => r.strategyRows.some((sr) => sr.strategy === st && (sr.totalCount > 0 || sr.closedCount > 0)))
+  );
+
+  /**
+   * Las sub-filas que se muestran de un branch, según la píldora.
+   *
+   * Con una píldora elegida queda sólo esa estrategia, y los branches que no la
+   * tienen desaparecen de la tabla (se filtran al renderizar, con `length`).
+   */
+  function shownStrategyRows(row: BranchRow): StrategyRow[] {
+    if (pill === 'All') return row.strategyRows;
+    return row.strategyRows.filter((sr) => sr.strategy === pill && (sr.totalCount > 0 || sr.closedCount > 0));
+  }
+
+  /*
+   * Etapa F6: los mismos tres modales, con el contexto de la estrategia. No se
+   * reimplementa nada -- se reusan `openLoanToModalLoan` /
+   * `closedLoanToModalLoan`, y los préstamos ya vienen filtrados en la sub-fila.
+   */
+  function contextForStrategy(row: BranchRow, sr: StrategyRow): string {
+    return `Branch ${row.branch} — ${row.channel} — ${sr.strategy}`;
+  }
+
+  function openStrategyTotal(row: BranchRow, sr: StrategyRow) {
+    setModal({
+      context: contextForStrategy(row, sr),
+      metric: 'Total Pipeline',
+      loans: sr.loans.map(openLoanToModalLoan),
+    });
+  }
+
+  function openStrategyHealthy(row: BranchRow, sr: StrategyRow) {
+    setModal({
+      context: contextForStrategy(row, sr),
+      metric: 'Healthy Pipeline',
+      loans: sr.loans.filter((l) => l.healthy === true).map(openLoanToModalLoan),
+    });
+  }
+
+  function openStrategyClosed(row: BranchRow, sr: StrategyRow) {
+    /* Mismo filtro de status y fecha que `openClosed`, sobre los cerrados que
+       ya trae la sub-fila. */
+    const closed = sr.closedLoans.filter(
+      (loan) =>
+        loan.status === 'funded' &&
+        loan.disbursementDate >= dateRange.startDate &&
+        loan.disbursementDate <= dateRange.endDate
+    );
+    setModal({
+      context: contextForStrategy(row, sr),
+      metric: 'Closed',
+      loans: closed.map(closedLoanToModalLoan),
+    });
+  }
+
+  /*
+   * ⚠ EL PUNTO DE CTC TAMBIÉN EN LAS FILAS DE ESTRATEGIA — al combinar F6 con
+   * la mitad de Heather.
+   *
+   * No estaba pedido en ninguno de los dos briefs, y hace falta igual: Heather
+   * hizo el punto clickeable en las filas de branch, y F6 agregó filas de
+   * estrategia que dibujan el MISMO punto. Sin esto, el mismo indicador visual
+   * abre un modal en una vista y no responde al clic en la otra -- que es
+   * exactamente la clase de inconsistencia que este módulo viene persiguiendo
+   * (el filtro del mes de BP33 era eso mismo).
+   *
+   * Reusa `ctcClosingEligibleLoans` y `buildCtcClosingSections`, los helpers de
+   * Heather, sobre los préstamos de la sub-fila. Cero lógica nueva: si mañana
+   * cambia qué cuenta como elegible, cambia en los dos lados a la vez.
+   */
+  function openStrategyCtcClosing(row: BranchRow, sr: StrategyRow) {
+    const eligible = ctcClosingEligibleLoans(sr.loans);
+    setModal({
+      context: contextForStrategy(row, sr),
+      metric: 'CTC + Closing',
+      loans: eligible.map(openLoanToModalLoan),
+      sections: buildCtcClosingSections(eligible),
+      showChannelColumn: false,
+    });
+  }
 
   /** Contexto que se muestra como "eyebrow" del modal. */
   function contextFor(row: BranchRow): string {
@@ -859,6 +1340,53 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
 
   return (
     <>
+      {/*
+        ⚠ UN SOLO CONTROL PARA LAS DOS TABLAS — etapa F6. Va arriba de la
+        grilla, no dentro de cada tarjeta: Banked y Brokered se conmutan juntas.
+        Sólo aparece sin branch seleccionado (Caso A) y sólo si el snapshot trae
+        los datos de estrategia.
+      */}
+      {showStrategyControls && (
+        <div className="strat-bar">
+          <div className="seg">
+            <button type="button" className={view === 'branch' ? 'on' : ''} onClick={() => setView('branch')}>
+              By branch
+            </button>
+            <button type="button" className={view === 'strategy' ? 'on' : ''} onClick={() => setView('strategy')}>
+              By strategy
+            </button>
+          </div>
+          {byStrategy && (
+            <div className="strat-pills">
+              <button type="button" className={'strat-pill' + (pill === 'All' ? ' is-on' : '')} onClick={() => setPill('All')}>
+                All
+              </button>
+              {strategiesPresent.map((st) => (
+                <button
+                  key={st}
+                  type="button"
+                  className={'strat-pill' + (pill === st ? ' is-on' : '')}
+                  onClick={() => setPill(st)}
+                >
+                  {st}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/*
+        Sin datos de estrategia se dice, en vez de ofrecer un corte que
+        clasificaría los préstamos como "Own production" por default.
+      */}
+      {isAllBranches && !strategyAvailable && (
+        <p className="foot-note" style={{ marginBottom: '10px' }}>
+          This snapshot has no strategy data — the columns are not persisted yet, so the breakdown is only available right
+          after an upload.
+        </p>
+      )}
+
       {/* Spec §4C.2: grilla de 2 columnas, un canal por columna. */}
       <div className="channel-grid">
         {blocks.map((block) => (
@@ -872,17 +1400,51 @@ export default function PivotTable({ rows, resolvedLoans, dateRange, branchManag
                 <ExecColgroup />
                 <ExecHead />
                 <tbody>
-                  {block.rows.map((row) => (
-                    <BranchDataRow
-                      key={row.branch + '::' + row.channel}
-                      row={row}
-                      managerName={branchManagers.get(row.branch) ?? UNASSIGNED_MANAGER}
-                      onOpenClosed={openClosed}
-                      onOpenTotal={openTotalPipeline}
-                      onOpenHealthy={openHealthyPipeline}
-                      onOpenCtcClosing={openCtcClosing}
-                    />
-                  ))}
+                  {byStrategy
+                    ? /* Caso A, `By strategy`: cada branch abierto en sus
+                         estrategias. Con una píldora elegida, los branches sin
+                         préstamos en esa estrategia no se renderizan. */
+                      block.rows
+                        .map((row) => ({ row, srs: shownStrategyRows(row) }))
+                        .filter(({ srs }) => srs.length > 0)
+                        .map(({ row, srs }) => (
+                          <StrategyRowsGroup
+                            key={row.branch + '::' + row.channel}
+                            row={row}
+                            strategyRows={srs}
+                            managerName={branchManagers.get(row.branch) ?? UNASSIGNED_MANAGER}
+                            onOpenTotal={openStrategyTotal}
+                            onOpenHealthy={openStrategyHealthy}
+                            onOpenClosed={openStrategyClosed}
+                            onOpenCtcClosing={openStrategyCtcClosing}
+                          />
+                        ))
+                    : block.rows.map((row) => (
+                        <React.Fragment key={row.branch + '::' + row.channel}>
+                          <BranchDataRow
+                            row={row}
+                            managerName={branchManagers.get(row.branch) ?? UNASSIGNED_MANAGER}
+                            onOpenClosed={openClosed}
+                            onOpenTotal={openTotalPipeline}
+                            onOpenHealthy={openHealthyPipeline}
+                            /* De la mitad de Heather: el punto de CTC abre su
+                               modal de healthy-only agrupado por milestone. */
+                            onOpenCtcClosing={openCtcClosing}
+                          />
+                          {/* Caso B: con un branch elegido, el desglose va
+                              debajo de su fila, en la misma tabla. */}
+                          {!isAllBranches && strategyAvailable && (
+                            <StrategyBreakdown
+                              row={row}
+                              strategyRows={row.strategyRows}
+                              onOpenTotal={openStrategyTotal}
+                              onOpenHealthy={openStrategyHealthy}
+                              onOpenClosed={openStrategyClosed}
+                              onOpenCtcClosing={openStrategyCtcClosing}
+                            />
+                          )}
+                        </React.Fragment>
+                      ))}
                   {!block.rows.length && (
                     <tr>
                       <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={7}>

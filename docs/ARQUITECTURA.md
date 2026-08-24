@@ -3343,3 +3343,172 @@ esperado).
   desde código de la app -- si aparece un 403/42501 en un intento de DELETE
   contra esas tablas, la solución es remover el DELETE del código, no pedir
   el permiso.
+
+## Etapa F6 — estrategia comercial como dimensión de corte en Projected Forecast
+
+Una segunda forma de cortar los mismos datos. **Ninguna regla de cálculo cambia:**
+pipeline, healthy, pull-through por canal, CTC/Closing, forecast y adverse quedan
+idénticos. La estrategia es una dimensión, no una fórmula.
+
+Alcance: sólo la pestaña Projected Forecast.
+
+### ⚠ El orden de evaluación ES la regla
+
+`lib/pipeline/strategy.ts`, función pura. Se para en la primera que coincide:
+
+| # | Estrategia | Regla |
+|---|---|---|
+| 1 | NPPM | `Strategy` = `NPPM` |
+| 2 | Affinity | `Branch` = `Affinity` |
+| 3 | Recruitment | `Branch` ∈ {710, 711, 777} |
+| 4 | B2B | `Opportunity Owner: Title` = `Business Developer` |
+| 5 | Own production | ninguna de las anteriores |
+
+Cada prioridad existe por un choque REAL, verificado contra el export del
+2026-08-20 (883 filas):
+
+- Los **24 NPPM tienen todos** `title = Business Developer`. Sin la prioridad
+  caerían en B2B y NPPM quedaría en cero.
+- **20 préstamos de las branches de recruitment dicen `B2B Strategy`** en la
+  columna. Recruitment va antes, así que quedan como Recruitment.
+
+⚠ **La columna `Strategy` se usa SÓLO para detectar NPPM.** Los 171 que dicen
+`B2B Strategy` no determinan B2B — eso lo define el title. Son poblaciones
+distintas: 171 con `B2B Strategy`, 205 con `Business Developer`, **77 en las
+dos**.
+
+Comparación por igualdad exacta, sin `trim` ni normalización, igual que el canal.
+**Riesgo conocido y anotado en el código:** un `business developer` en minúscula
+en un export futuro no coincidiría y caería en `Own production` sin aviso.
+Normalizar es una decisión de negocio — define qué valores son el mismo — y este
+módulo no la puede tomar solo.
+
+### ⚠ El forecast no se recalcula por estrategia: se aporciona
+
+Es la decisión que hace que los subtotales cuadren SIEMPRE, no por suerte.
+
+`projectedToClose` de un branch **ya viene redondeado** desde `page.tsx`
+(`Math.round`, etapa F5j). Redondear-y-sumar no es asociativo: recalcular el
+forecast de cada estrategia y redondear cada uno NO daría el entero del branch.
+Es el mismo problema que F5j-b ya había encontrado entre Executive y Matrix.
+
+Así que se usa el mismo remedio: `apportionByWeight` reparte el entero del
+branch usando como pesos los forecasts EXACTOS de cada estrategia, con las
+MISMAS fórmulas por canal (cascada de milestone para Banked, 40% plano sobre el
+total para Brokered). La suma de las partes ES el entero, por construcción.
+
+Todo lo demás — total, healthy, closed, CTC, Closing — son conteos enteros, y
+esos son aditivos solos.
+
+Hay además una red de seguridad en desarrollo: si un subtotal por estrategia no
+da la fila del branch, `console.warn`. Un desglose que no cuadra significa un
+préstamo contado dos veces o ninguna.
+
+### ⚠ Un bug propio, encontrado al verificar el Caso B
+
+La primera versión decidía qué estrategias mostrar mirando **todos** los
+cerrados del branch, sin el filtro de mes. Resultado: aparecía `NPPM 0 0 0 0` en
+703/Banked, una fila entera en cero, porque su único cerrado caía fuera del mes
+de forecast.
+
+La regla es que las estrategias en cero no se muestran, así que el criterio para
+decidir si la fila EXISTE tiene que ser el mismo que produce los números que la
+fila MUESTRA — status funded y disbursement dentro del mes. Si no, la condición
+de existir y el contenido discrepan, que es exactamente lo que se veía.
+
+`Own production` es la única excepción: va siempre, incluso en cero. Es el 63%
+de los préstamos, y esconderla dejaría un subtotal sin explicar.
+
+### Persistencia: la cadena de cinco pasos, y en qué paso quedó
+
+`docs/sql/2026-08-pipeline-strategy-columns.sql`, **sin ejecutar**: las cinco
+columnas en las dos tablas hijas. Se guardan los CRUDOS, no la estrategia
+calculada — si cambia una regla, con los crudos se recalcula el histórico
+completo; con la conclusión guardada habría que recargar archivos que ya no
+existen. Mismo criterio que `data_as_of` frente a `snapshot_date` en S1.
+
+Estado de la cadena hoy:
+
+| paso | estado |
+|---|---|
+| columna en la tabla | SQL entregado, sin aplicar |
+| mapper del insert | **NO tocado, a propósito** |
+| RPC `save_pipeline_snapshot` | pendiente del revisor |
+| select de `/api/pipeline/latest` | los cinco en `''`, con el motivo escrito |
+| mapeo al dominio | hecho |
+
+El mapper NO manda las cinco claves todavía: la RPC descarta en silencio lo que
+no está en su lista — devuelve 200 y deja NULL, verificado en S1 con
+`loan_type`. Agregarlas antes de ampliar la función sería escribir código que
+finge guardar.
+
+Consecuencia visible, y por eso existe `hasStrategyData()`: un snapshot
+restaurado tras un refresh no trae los crudos, y clasificar daría `Own
+production` para los 883. La pantalla dice que no hay datos de estrategia en vez
+de mostrar una distribución inventada.
+
+### El realtor del NPPM
+
+En el modal de detalle, no en la tabla: son 24 de 883, y una columna estaría
+vacía en el 97% de las filas robándole ancho a las ocho que sí tienen dato
+siempre. Va debajo del prestatario.
+
+`nppmRealtors()` resuelve los cuatro casos y devuelve una lista ya lista: los
+dos con el mismo valor dan una sola línea, distintos dan dos, uno solo da ese, y
+ninguno da lista vacía — sin placeholder, porque un guion ocuparía una línea
+para decir que no hay nada.
+
+### F6b — la cadena de cinco pasos, cerrada
+
+Las columnas y la RPC ya están aplicadas, así que el mapper del insert manda las
+cinco claves. **El orden importó:** primero se comprobó contra la base que la
+función las acepta —llamándola con los cinco y releyendo las filas— y sólo
+después se tocó el mapper. Verificar con un 200 no alcanza: la RPC responde 200
+igual cuando descarta claves.
+
+Estado final de la cadena, con una carga real del export del 2026-08-20:
+
+| paso | resultado |
+|---|---|
+| columna en la tabla | las 5 en las dos tablas hijas |
+| mapper del insert | manda las 5 |
+| RPC | las guarda; `loan_type`/`loan_program`/`note_history` intactos |
+| select de `/api/pipeline/latest` | trae las 5 |
+| mapeo al dominio | 107 de 107 abiertos con datos de estrategia |
+
+`NULL = 0` en las cinco columnas, en las dos tablas. La distribución leída **de
+la base** da 560 / 173 / 71 / 55 / 24 = 883, idéntica a la del archivo.
+
+#### ⚠ `''` contra NULL, y por qué se documenta
+
+    ''    el export no traía la columna, o la celda venía vacía
+    NULL  la RPC descartó la clave
+
+El parser cae a `''` y la función preserva el `''` tal cual —comprobado—, así que
+una columna en NULL **después de una carga real** significa que la cadena se
+rompió, y se ve con un `count(*) filter (where ... is null)`. Si el parser cayera
+a NULL, los dos fallos serían indistinguibles.
+
+#### ⚠ `Affinity Program` es una CASILLA, no texto
+
+Encontrado en la primera carga real: la columna llegó como la cadena `"false"`
+en 815 de 883 filas. En el export es un checkbox — 815 `false` y 68 `true` — y
+`String(false)` produce `"false"`, que se lee como si cada préstamo tuviera un
+programa de afinidad. Un `count(*) where affinity_program <> ''` daba 883.
+
+Se guarda `'true'` o `''`, nunca `'false'`: en una casilla, `false` ES el estado
+negativo, o sea lo mismo que dice `''` en los otros cuatro crudos. Se reusa
+`parseBranchTransfer`, que ya resolvía casilla/número/texto para "Branch
+Transfer" — el mismo problema, un año antes. Tras el arreglo: 11 + 57 = **68 con
+valor**, exactamente los 68 marcados.
+
+Nota de datos: 68 préstamos tienen la casilla marcada y 71 están en el branch
+`Affinity`. **No son la misma población**, que es otra razón para que esta
+columna no decida nada — la estrategia Affinity la da el branch.
+
+#### Sin ejercitar: 711 y 777
+
+De las tres branches de Recruitment, en este export sólo existe el **710** (55
+préstamos). El 711 y el 777 no tienen préstamos hoy, así que esa parte de la
+regla está escrita y probada por código pero no ejercitada con datos reales. Si
+algún día aparecen y no se clasifican, el motivo está acá.
