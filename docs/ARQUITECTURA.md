@@ -3731,3 +3731,195 @@ Solo dentro del alcance declarado: `lib/pipeline/period.ts` y
 `app/pipeline/TabNavigation.tsx` y `app/pipeline/page.tsx` (editados -- un
 tab más en la lista existente, sin tocar los otros tres). Nada fuera de
 `app/pipeline/**`/`lib/pipeline/**`.
+
+---
+
+## F7 — decisión de acceso a `org` desde Forecast (pendiente de confirmación de quien administra infraestructura)
+
+F7 es el primer consumidor de `org.dim_branch`/`org.employee_alias` dentro
+de `app/pipeline/**`. La auditoría anterior ("Auditoría — Unificación de
+branches/managers", más arriba en este documento) había pausado la
+migración de las tres pestañas YA EXISTENTES (Projected Forecast, Milestone,
+Adverse) hacia `org`, dejándola como etapa aparte. **Esta decisión no
+cambia eso** -- las tres pestañas existentes siguen leyendo
+`pipeline_forecast.branches`/`branch_managers` exactamente igual, sin
+tocarse. Lo que decide es, específicamente, cómo debe leer `org` la
+pestaña NUEVA (Analytics/F7), que no reemplaza ni comparte código con esa
+lectura existente.
+
+**Decidido, sujeto a revisión:**
+
+- **Patrón client-side existente**, no uno nuevo: `getSupabaseClient().schema('org')`
+  -- el mismo mecanismo que ya usa `getForecastDb()` para leer
+  `pipeline_forecast` (`lib/supabase/client.ts`, sin editar). Confirmado en
+  la auditoría complementaria: el cliente devuelto por `getSupabaseClient()`
+  ya expone `.schema(string)` sin restricción de tipo, así que `'org'`
+  funciona hoy sin tocar ese archivo.
+- **No se toca `lib/supabase/server.ts` ni `app/api/pipeline/**`** -- la
+  variante server-side (`getServerClient`) tiene el `schema` restringido a
+  `'activity_report' | 'pipeline_forecast'`, y ampliarla quedaría fuera del
+  alcance de archivos de F7. Se evita ese camino en vez de ampliarlo.
+- **Reusar `buildAliasIndex`/`buildExcludedIndex`** de
+  `lib/business-plan/aliasIndex.ts` vía import directo -- es lógica pura
+  (sin Supabase, sin acoplamiento a Business Plan más allá de sus propios
+  tipos), y no se modifica ese archivo. Es una dependencia cruzada entre
+  módulos (`lib/pipeline/**` importando de `lib/business-plan/**`) que hoy
+  no existe en el repo -- nueva, pero no requiere tocar ningún archivo fuera
+  del alcance declarado de F7.
+
+**Lo que esta decisión explícitamente NO resuelve:** si las tres pestañas
+existentes deberían migrar de `pipeline_forecast.branches`/`branch_managers`
+a `org` -- eso sigue siendo la recomendación ya registrada en la auditoría
+anterior ("a largo plazo Forecast debería leer de `org`"), y sigue
+pendiente de una decisión de negocio explícita antes de tocar esas tres
+pestañas, y antes de mergear cualquier cambio de F7 a `main`.
+
+---
+
+## Etapa F7, Parte 2 — Scorecards por Branch, Loan Officer y Business Developer
+
+Implementa el patrón decidido en la Parte 1 de arriba. `lib/pipeline/scorecards.ts`
+(nuevo, puro) agrupa `resolvedLoans` ya filtrado a `status='funded'` +
+período por `key` resuelto -- `branch_code` para Branch, `employee_key`
+para Loan Officer/Business Developer -- nunca por el nombre crudo, y nunca
+comparando nombres con `===`. `app/pipeline/useOrgRoster.ts` (nuevo, `'use
+client'`) hace el único fetch a `org` (dim_branch, dim_employee,
+employee_alias, source_name_excluded) una sola vez por sesión de la
+pestaña, vía `getSupabaseClient().schema('org')` -- mismo mecanismo que
+`getForecastDb()`, sin tocar `lib/supabase/client.ts`.
+
+### No hay columna "Opportunity Owner" separada -- es la misma `loan_officer`
+
+Verificado contra el parser (`lib/pipeline/sources/salesforce-file.ts`) y
+contra el esquema real de `pipeline_resolved_loans` (columnas completas de
+una fila real, snapshot activo): no existe ningún campo de nombre de
+"Opportunity Owner" distinto de `loan_officer` -- la columna cruda del
+export se llama literalmente "Loan Officers" (plural), y es el mismo dato
+que ya usa Business Plan para resolver alias. Por eso los scorecards de
+Loan Officer y Business Developer resuelven el mismo campo
+(`resolvedLoans.loanOfficer`) contra `org.employee_alias` con
+`source_system = 'salesforce'` -- Business Developer además filtra por
+`opportunityOwnerTitle === 'Business Developer'` (comparación exacta,
+mismo criterio que ya usa `lib/pipeline/strategy.ts` para B2B, sin
+reinterpretar esa regla).
+
+### "sf integrations" -- no aparece en el snapshot activo real
+
+El brief pedía confirmar cuántos de los 450 funded tienen Opportunity Owner
+= "sf integrations". Verificado con SELECT de solo lectura
+(`service_role`) contra `pipeline_resolved_loans` del snapshot activo (id
+72): **0 filas** -- ni entre los funded, ni entre los abiertos, ni entre
+los resueltos de cualquier status, con o sin distinción de mayúsculas. No
+es un error del código: hoy no hay ningún préstamo cargado con ese valor.
+El mecanismo de exclusión (`buildExcludedIndex`, vía `org.source_name_excluded`)
+queda implementado igual y correctamente para cuando SÍ aparezca -- mismo
+caso que F6b documentó para las branches 711/777 ("la regla está escrita y
+probada por código pero no ejercitada con datos reales").
+
+⚠ **Límite real de esta verificación (desde este entorno, fuera del
+navegador):** el schema `org` devuelve `42501 permission denied` incluso
+con `service_role` (RLS exige sesión `authenticated` con el claim
+`commercial_activity`, confirmado ya en la auditoría de unificación de
+branches/managers) -- no se pudo ejecutar `buildAliasIndex`/
+`buildExcludedIndex` contra datos reales de `org` por esa vía. El código sí
+corre correctamente en el navegador con la sesión real de un usuario
+(mismo mecanismo que ya usa Business Plan en producción hoy) -- y quedó
+**confirmado en pantalla real**, ver abajo.
+
+### Verificación real en navegador (Heather, agosto 2026, 22 loans)
+
+- **Período:** August 2026, 22 loans funded -- coincide exacto con el
+  default del selector y con la query directa contra
+  `pipeline_resolved_loans` (snapshot activo id 72) hecha desde este
+  entorno.
+- **Caso Ana Peña -- confirmado visualmente, no solo por coincidencia de
+  nombre:** el nombre crudo "Ana Milena Zegarra" (branch 703) aparece
+  **resuelto como "Ana Peña"** en el scorecard real de Loan Officer. Es la
+  confirmación en pantalla de que `org.employee_alias` resuelve
+  correctamente el caso ya documentado en BP1 y en la auditoría de
+  unificación de branches/managers -- ya no es solo la coincidencia
+  circunstancial del nombre crudo, es la resolución real ejecutándose.
+- **"1 excluded as known non-person entries" -- identificado por
+  eliminación, NO por consulta directa a `org.source_name_excluded`
+  (sigue bloqueada fuera del navegador):** de los 22 loans de agosto, 21
+  aparecen resueltos en el scorecard; comparando esa lista contra los 14
+  nombres crudos distintos que trae la query directa de este mismo
+  documento (arriba), el nombre que falta es **"Anthony Ditoma"** (branch
+  733, `opportunity_owner_title` crudo = "Salesforce Developer").
+- **Anthony Ditoma es un Loan Officer real, confirmado por revisión
+  manual del reporte de Salesforce** -- tiene préstamos reales en branch
+  733 Y en branch 150 (incluido `150002070914`, funded, disbursement date
+  2026-08-18, ya visible en la query de este documento). No tiene
+  apariencia de cuenta de sistema ni de dato mal capturado, a diferencia
+  del ejemplo "sf integrations" del brief original.
+- **Sin confirmar, a propósito -- pregunta abierta:** el motivo por el que
+  "Anthony Ditoma" está registrado en `org.source_name_excluded` no se
+  verificó (acceso bloqueado fuera del navegador para esa tabla
+  específica). Como es un Loan Officer real y no una cuenta de sistema,
+  **esto puede ser un error de configuración en esa tabla** -- no se
+  documenta ningún motivo porque ninguno fue verificado, y no se asume que
+  excluirlo sea el comportamiento correcto. Queda pendiente de quien
+  administra el schema `org` antes de tratar esta exclusión como
+  intencional.
+
+### Caso real de nombre distinto entre fuentes: "Ana Milena Zegarra" (branch 703)
+
+28 filas reales en el snapshot activo tienen `loan_officer = 'Ana Milena
+Zegarra'` (branch 703, canal mixto) -- 9 de ellas con
+`opportunity_owner_title = 'Business Developer'`. Esta es la MISMA persona
+que la auditoría de unificación de branches/managers (arriba en este
+documento) ya identificó como el manager de 703: `pipeline_forecast`
+guarda "Ana Zegarra", `org` tiene el nombre canónico corregido "Ana Peña",
+y la Etapa BP1 documentó exactamente esta persona como el ejemplo de
+alias multi-fuente ("roster: Ana Zegarra (Peña) / salesforce: Ana Milena
+Zegarra / slquery: ANA ZEGARRA"). **Confirmado en pantalla real** (ver
+arriba) que `org.employee_alias` la resuelve como "Ana Peña" en el
+scorecard de Loan Officer.
+
+### Números reales (SIN resolver contra alias -- ver limitación de arriba)
+
+Contra los 450 funded del período por defecto (todo el historial
+disponible en este snapshot, id 72):
+
+**Branch** (22 branches, sin excepciones -- todo loan tiene branch):
+716 (59) · 747 (52) · 760 (48) · 733 (44) · Affinity (37) · 703 (34) ·
+724 (33) · 770 (22) · 913 (20) · 710 (19) · 707 (18) · 203 (16) · 728 (13)
+· 718 (10) · 741 (9) · 701 (6) · 776 (4) · 150 (2) · 225/276/771/700 (1 c/u).
+Suma = **450**, coincide exacto.
+
+**Loan Officer** (nombre CRUDO, antes de fusionar por alias -- 45 valores
+distintos + 1 vacío): Nathan Martinez (62) · Cristhian A Ramirez (44) ·
+Aimmee Buendia (34) · Ana Milena Zegarra (28) · Galo Rizzo Hinojosa (28) ·
+Mariano Claudio (27) · ... (41 más) · 1 con `loan_officer` vacío. Suma =
+**450**, coincide exacto. Una vez resuelto contra `org.employee_alias`
+(no ejecutable acá), algunos de estos 46 grupos crudos podrían fusionarse
+en una sola fila por persona -- ese es justo el propósito del scorecard.
+
+**Business Developer** (`opportunity_owner_title === 'Business
+Developer'`): 112 de 450 funded. Nombre crudo: Aimmee Buendia (23) ·
+Nathan Martinez (14) · Giancarlo Laino (13) · Ana Milena Zegarra (9) ·
+Mariano Claudio (8) · ... (18 más), 0 vacíos. Suma = **112**, coincide
+exacto con el total BD-titled.
+
+### Reconciliación
+
+Branch: suma de filas = 450 = total funded del período, sin excepción (el
+branch nunca es opcional). Loan Officer/Business Developer: la
+reconciliación real es `resolved + blank + excluded + unmapped =
+totalInput` (implementada en `PersonScorecardDiagnostics`, con
+`console.warn` de red de seguridad en dev si no cuadra) -- no
+`rows.length === totalInput`, porque un loan sin Loan Officer o con un
+nombre excluido/no mapeado no tiene fila propia a propósito. Con los
+números crudos de arriba (sin poder ejecutar la resolución real): 449
+tendrían nombre no vacío + 1 vacío = 450 para Loan Officer; 112 + 0 vacíos
+= 112 para Business Developer -- ambos cuadran ya en esta etapa previa a
+la resolución.
+
+### Archivos
+
+`lib/pipeline/scorecards.ts` (nuevo, puro) y `app/pipeline/useOrgRoster.ts`
+(nuevo, `'use client'`, único punto de acceso a `org` en todo
+`app/pipeline/**`). `app/pipeline/TabAnalytics.tsx` editado (scorecards
+agregados debajo de los rankings de la Parte 1). Ningún archivo de
+`lib/business-plan/**` se modificó -- `buildAliasIndex`/`buildExcludedIndex`/
+los tipos de `org` se importan tal cual.
