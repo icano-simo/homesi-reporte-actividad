@@ -758,24 +758,35 @@ table.piv td.val.cl {
   font-weight: 700;
 }
 /*
- * Drill-down: celda con click habilitado -- mismo concepto visual que
- * `.cell-trigger` de Forecast (arriba en este archivo, sección 6): sin
- * subrayado permanente, `cursor: pointer`, y en :hover un resaltado suave
- * sobre el valor (mismo color/opacidad que `.cell-trigger:hover`) en vez de
- * una línea de texto. No es la misma clase porque acá el elemento clickeable
- * sigue siendo el <td> (PivotRow.tsx no se tocó -- sin componente/botón
- * nuevo), mientras que `.cell-trigger` envuelve un <button> inline propio de
- * Forecast; por eso el highlight usa `border-radius` para no leerse como un
- * bloque a filo del borde de la celda. Celdas con valor 0 no llevan esta
- * clase (ver PivotRow.tsx), y el hover nunca alcanza el resto de la fila.
+ * Drill-down: valor numérico con click habilitado -- mismo concepto visual
+ * que `.cell-trigger` de Forecast (arriba en este archivo, sección 6): sin
+ * subrayado, `cursor: pointer`, y en :hover un resaltado suave (mismo hue
+ * `--sky` que Forecast, algo más intenso -- ver abajo). Clase propia (no
+ * `.cell-trigger`) porque el elemento clickeable de Activity es un <span>
+ * inline dentro de un <td class="val"> alineado a la derecha
+ * (text-align:right), no un <button inline-flex> como en Forecast --
+ * compartir la clase forzaría un override de alineación que además
+ * afectaría a Forecast (mismo archivo, sin namespace). Visual polish
+ * (etapa siguiente a Fase 1): antes el <td> completo era el target de
+ * onClick/:hover (ver PivotRow.tsx); ahora es este <span>, así el highlight
+ * queda acotado al número, no al rectángulo entero de la celda.
+ *
+ * `padding` + `margin` negativo del mismo valor: pintan el "aire" de la
+ * píldora del highlight sin que el <span> aporte ancho neto a la línea --
+ * el dígito no se desplaza de su posición alineada a la derecha (el <td>
+ * sigue viéndose exactamente igual que una celda no-drillable en reposo).
  */
-table.piv td.val.drillable {
+.drill-value {
   cursor: pointer;
-}
-table.piv td.val.drillable:hover {
-  background: rgba(166, 222, 255, 0.3);
-  color: var(--navy);
+  padding: 2px 5px;
+  margin: -2px -5px;
   border-radius: var(--radius-sm);
+  background: transparent;
+  transition: background 0.15s ease;
+}
+.drill-value:hover {
+  background: rgba(166, 222, 255, 0.42);
+  color: var(--navy);
 }
 
 /* ---- Filas de grupo / subtotal ---- */
@@ -855,6 +866,46 @@ tr.metric.drow td.val {
 tr.metric.drow:hover td,
 tr.metric.drow:hover td.lbl {
   background: rgba(166, 222, 255, 0.2);
+}
+
+/*
+ * Jerarquía visual del bloque Total (Total > Branch > Metric/Loan
+ * Officer-BD): las filas de métrica bajo el header "Total"
+ * (PivotTable.tsx, bloque `showTotal`) son las ÚNICAS `tr.metric` de ESTE
+ * módulo (Activity) que NO llevan `.mrow` ni `.drow` -- Branch usa
+ * `tr.metric.mrow` (arriba), Loan Officer/BD usa `tr.metric.drow` (arriba),
+ * y LoanOfficerTable.tsx tampoco genera nunca una fila `tr.metric` bare
+ * (siempre `mrow`, ver OfficerRows).
+ *
+ * Fix (sangrado a Forecast): la premisa de arriba es cierta DENTRO de
+ * Activity, pero `tr.metric` sin `.mrow`/`.drow` NO es exclusivo de este
+ * módulo -- app/pipeline/PivotTable.tsx (Forecast) también usa `tr.metric`
+ * bare para sus propias filas (Combined Total by Branch y las tablas
+ * Banked/Brokered), sin ese esquema mrow/drow porque nunca lo necesitó.
+ * El `:not()` de abajo, sin ancestro, matcheaba esas filas también --
+ * fondo `--accent-soft` filtrándose a tablas de Forecast que nunca lo
+ * pidieron. Se acota con `.piv--tree` (ancestro que solo lleva la tabla de
+ * Activity, `components/report/PivotTable.tsx:235` -- Forecast usa
+ * `piv piv--exec`/`piv piv--exec piv--combined`, nunca `piv--tree`), sin
+ * tocar el comportamiento visual de Activity en absoluto.
+ *
+ * `color: var(--navy)` queda acotado a la etiqueta (igual que pide el
+ * spec, "para la etiqueta") a propósito: aplicarlo también a `td.val`
+ * pisaría el verde de Closed (`td.val.cl`) y el gris apagado de los ceros
+ * (`td.val.zero`), dos convenciones de color ya existentes que esta etapa
+ * no pidió tocar. El único cambio en los valores es `font-weight: 700`
+ * (excluyendo ceros, que siguen apagados) -- destaca por peso, no por
+ * color nuevo.
+ */
+table.piv--tree tr.metric:not(.mrow):not(.drow) td {
+  background: var(--accent-soft);
+}
+table.piv--tree tr.metric:not(.mrow):not(.drow) td.lbl {
+  color: var(--navy);
+  font-weight: 600;
+}
+table.piv--tree tr.metric:not(.mrow):not(.drow) td.val:not(.zero) {
+  font-weight: 700;
 }
 
 /* Chevron y sangría del árbol. */
@@ -1147,6 +1198,21 @@ tr.mrow .chev {
   table-layout: auto;
   width: auto;
   min-width: 700px;
+}
+
+/*
+ * Encabezado de sección DENTRO del tbody (modal CTC/Closing del punto
+ * CtcDot, LoanDetailModal.tsx `sections`): agrupa loans por milestone real
+ * ("Clear to Close:"/"Closing:") sin ser un <thead> nuevo -- un <tr> normal
+ * con una sola <td colSpan> de ancho completo, mismo patrón estructural que
+ * la fila "No loans." (colSpan+texto), pero en bold/navy para leerse como
+ * encabezado de grupo en vez de estado vacío.
+ */
+table.piv tr.modal-section-row td {
+  background: var(--slate-100);
+  color: var(--navy);
+  font-weight: 700;
+  text-align: left;
 }
 
 /*

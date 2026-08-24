@@ -467,6 +467,7 @@ export default function TabMilestoneMatrix({
         context={modal?.context ?? ''}
         metric={modal?.metric ?? ''}
         loans={modal?.loans ?? []}
+        showChannelColumn={false}
       />
     </div>
   );

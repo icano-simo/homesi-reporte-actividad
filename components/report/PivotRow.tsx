@@ -73,24 +73,31 @@ export default function PivotRow({
         // Drill-down (Fase 1): solo celdas con valor > 0 son clicables -- 0
         // loans no amerita abrir un modal vacío (ver PivotRowProps.onCellClick).
         const drillable = Boolean(onCellClick) && value > 0;
-        const cellClass = ['val', isClosedMetric && value ? 'cl' : '', value ? '' : 'zero', drillable ? 'drillable' : '']
-          .filter(Boolean)
-          .join(' ');
+        const cellClass = ['val', isClosedMetric && value ? 'cl' : '', value ? '' : 'zero'].filter(Boolean).join(' ');
+        const formatted = fmtVal(value, measure);
         return (
-          <td
-            key={ym}
-            className={cellClass}
-            onClick={
-              drillable
-                ? (e) => {
-                    // No debe también disparar el onClick de la fila (toggle).
-                    e.stopPropagation();
-                    onCellClick!(ym);
-                  }
-                : undefined
-            }
-          >
-            {fmtVal(value, measure)}
+          <td key={ym} className={cellClass}>
+            {drillable ? (
+              // Visual polish (Activity): el elemento clicable pasa a ser
+              // este <span>, no el <td> -- así el hover/background quedan
+              // acotados al número (.drill-value, components.css) en vez de
+              // toda la celda, y el <td> conserva su text-align:right/resto
+              // de comportamiento sin cambios. Misma lógica exacta de antes
+              // (onCellClick, ym, stopPropagation, condición drillable,
+              // fmtVal/measure), solo un nivel más adentro del DOM.
+              <span
+                className="drill-value"
+                onClick={(e) => {
+                  // No debe también disparar el onClick de la fila (toggle).
+                  e.stopPropagation();
+                  onCellClick!(ym);
+                }}
+              >
+                {formatted}
+              </span>
+            ) : (
+              formatted
+            )}
           </td>
         );
       })}

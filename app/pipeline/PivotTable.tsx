@@ -154,6 +154,17 @@ interface ModalState {
   context: string;
   metric: string;
   loans: LoanDetailModalLoan[];
+  /** Solo lo setea openCtcClosing/openCombinedCtcClosing -- el resto de los openers no lo pasan, así que el modal cae al render plano de siempre. */
+  sections?: { label: string; loans: LoanDetailModalLoan[] }[];
+  /**
+   * Combinación Channel + CTC/Closing: el resto de los openers (Total/
+   * Healthy/Closed y sus 3 variantes Combined) no lo pasan -- caen al
+   * default `true` del componente, mismo comportamiento de siempre.
+   * openCombinedCtcClosing lo fija en `true` explícito (mezcla Banked +
+   * Brokered); openCtcClosing (fila de un solo canal) lo fija en `false`
+   * -- ahí Channel sería redundante, todos los loans son del mismo canal.
+   */
+  showChannelColumn?: boolean;
 }
 
 /** Orden fijo de los dos bloques, igual que el Excel de referencia. */
@@ -565,6 +576,7 @@ function openLoanToModalLoan(loan: PipelineLoan): LoanDetailModalLoan {
     referredBy: loan.referredBy,
     borrowerName: loan.borrowerName,
     loanOfficer: loan.loanOfficer,
+    channel: loan.channel,
     amount: loan.amount,
     rawMilestone: loan.rawMilestone,
     rawHealthiness: loan.rawHealthiness,
@@ -573,6 +585,50 @@ function openLoanToModalLoan(loan: PipelineLoan): LoanDetailModalLoan {
     loanProgram: loan.loanProgram,
     noteHistory: loan.noteHistory,
   };
+}
+
+/**
+ * Drill-down del punto CtcDot: mismo filtro exacto que ya usa el desglose de
+ * texto "X CTC + X Closing" (ver splitCtcAndClosing/ctcRawCount/
+ * closingRawCount, aggregate.ts + page.tsx) -- healthy === true SIEMPRE
+ * (Projected to Close nunca incluye Delayed) + rawMilestone en las 2
+ * etiquetas crudas que el bucket combinado "Closing" fusiona. Deliberadamente
+ * NO usa `closingCount`/`bucketTotal.Closing` (el que enciende el punto en
+ * sí, sin filtrar por healthy, ver CtcDot) -- ese conteo es el indicador de
+ * presencia del punto, no la población que este modal debe auditar; el modal
+ * explica el desglose de texto ya visible, no el punto.
+ */
+function ctcClosingEligibleLoans(loans: PipelineLoan[]): PipelineLoan[] {
+  return loans.filter(
+    (loan) => loan.healthy === true && (loan.rawMilestone === 'Clear To Close' || loan.rawMilestone === 'Closing')
+  );
+}
+
+/** Agrupa los loans ya filtrados por ctcClosingEligibleLoans() en las 2 secciones del modal -- omite la sección que quede vacía (un branch con solo CTC no debe mostrar un header "Closing:" sin filas debajo). */
+function buildCtcClosingSections(loans: PipelineLoan[]): { label: string; loans: LoanDetailModalLoan[] }[] {
+  const ctc = loans.filter((loan) => loan.rawMilestone === 'Clear To Close').map(openLoanToModalLoan);
+  const closing = loans.filter((loan) => loan.rawMilestone === 'Closing').map(openLoanToModalLoan);
+  const sections: { label: string; loans: LoanDetailModalLoan[] }[] = [];
+  if (ctc.length) sections.push({ label: 'Clear to Close', loans: ctc });
+  if (closing.length) sections.push({ label: 'Closing', loans: closing });
+  return sections;
+}
+
+/**
+ * Fix (tooltip de CtcDot no coincidía con el modal): el título fijo
+ * "N loans in Clear to Close" asumía un solo milestone, de antes de que
+ * existiera el desglose CTC/Closing de hoy -- no distinguía cuál rawMilestone
+ * tenía cada loan, y ni siquiera usaba la población healthy-only del modal
+ * (usaba `closingCount`/bucketTotal, sin filtrar). Reusa EXACTAMENTE
+ * ctcClosingEligibleLoans()/buildCtcClosingSections() (mismos que arma el
+ * modal) para que el tooltip nunca pueda decir algo que el modal no muestre.
+ * `undefined` si no hay loans elegibles -- mismo criterio que el resto de
+ * `CtcDot` (sin title cuando no hay nada que reportar).
+ */
+function formatCtcClosingTooltip(loans: PipelineLoan[]): string | undefined {
+  const sections = buildCtcClosingSections(ctcClosingEligibleLoans(loans));
+  if (!sections.length) return undefined;
+  return sections.map((section) => section.loans.length + ' ' + section.label).join(', ');
 }
 
 /**
@@ -592,6 +648,7 @@ function closedLoanToModalLoan(loan: ResolvedLoan): LoanDetailModalLoan {
     referredBy: loan.referredBy,
     borrowerName: loan.borrowerName,
     loanOfficer: loan.loanOfficer,
+    channel: loan.channel,
     amount: loan.amount,
     rawMilestone: loan.rawMilestone || 'Closed (Funded)',
     branchTransferred: loan.branchTransferred,
@@ -730,13 +787,35 @@ function ExecTotalRow({ label, subtotal }: { label: string; subtotal: BlockSubto
  * y los números quedan en línea. Va ANTES del número (no después): "● 1", no
  * "1 ●".
  */
-function CtcDot({ count }: { count: number }) {
-  return (
-    <span
-      className={'ctc-dot' + (count > 0 ? '' : ' ctc-dot--empty')}
-      title={count > 0 ? count + ' loan' + (count === 1 ? '' : 's') + ' in Clear to Close' : undefined}
-    />
-  );
+/**
+ * Ajuste (drill-down CTC/Closing): `onClick` es opcional -- la fila de
+ * subtotal (más abajo) sigue pasando `count={0}` sin `onClick`, exactamente
+ * como antes, así que nunca se vuelve clickeable (un punto que nunca se
+ * pinta no tiene nada que auditar). Cuando SÍ hay onClick y count > 0, el
+ * punto pasa a ser un <button> real (mismo criterio que CountCell: value=0
+ * nunca es clickeable) -- mismo footprint 6x6 que el <span> de siempre, ver
+ * `.ctc-dot--clickable` (forecast-visual.css).
+ *
+ * Fix (tooltip no coincidía con el modal): `title` ya NO se calcula acá a
+ * partir de `count` (era un texto fijo "N loans in Clear to Close" que
+ * asumía un solo milestone) -- lo arma el caller con
+ * formatCtcClosingTooltip(), mismo desglose real (ctcClosingEligibleLoans +
+ * buildCtcClosingSections) que ya usa el modal, para que el tooltip nunca
+ * pueda decir algo que el modal no muestre.
+ */
+function CtcDot({ count, onClick, title }: { count: number; onClick?: () => void; title?: string }) {
+  if (onClick && count > 0) {
+    return (
+      <button
+        type="button"
+        className="ctc-dot ctc-dot--clickable"
+        title={title}
+        aria-label={title}
+        onClick={onClick}
+      />
+    );
+  }
+  return <span className={'ctc-dot' + (count > 0 ? '' : ' ctc-dot--empty')} title={title} />;
 }
 
 /**
@@ -780,12 +859,14 @@ function BranchDataRow({
   onOpenClosed,
   onOpenTotal,
   onOpenHealthy,
+  onOpenCtcClosing,
 }: {
   row: BranchRow;
   managerName: string;
   onOpenClosed: (row: BranchRow) => void;
   onOpenTotal: (row: BranchRow) => void;
   onOpenHealthy: (row: BranchRow) => void;
+  onOpenCtcClosing: (row: BranchRow) => void;
 }) {
   return (
     <tr className="metric">
@@ -809,7 +890,11 @@ function BranchDataRow({
           préstamos concreta que auditar. */}
       <td className="val col-forecast">
         <span className="ctc-cell">
-          <CtcDot count={row.closingCount} />
+          <CtcDot
+            count={row.closingCount}
+            onClick={row.closingCount > 0 ? () => onOpenCtcClosing(row) : undefined}
+            title={formatCtcClosingTooltip(row.branchForecastRow.loans)}
+          />
           {fmtForecast(row.projectedToClose)}
         </span>
       </td>
@@ -842,6 +927,7 @@ function StrategyRowsGroup({
   onOpenTotal,
   onOpenHealthy,
   onOpenClosed,
+  onOpenCtcClosing,
 }: {
   row: BranchRow;
   strategyRows: StrategyRow[];
@@ -849,6 +935,7 @@ function StrategyRowsGroup({
   onOpenTotal: (row: BranchRow, sr: StrategyRow) => void;
   onOpenHealthy: (row: BranchRow, sr: StrategyRow) => void;
   onOpenClosed: (row: BranchRow, sr: StrategyRow) => void;
+  onOpenCtcClosing: (row: BranchRow, sr: StrategyRow) => void;
 }) {
   return (
     <>
@@ -873,7 +960,11 @@ function StrategyRowsGroup({
           </td>
           <td className="val col-forecast">
             <span className="ctc-cell">
-              <CtcDot count={sr.closingCount} />
+              <CtcDot
+                count={sr.closingCount}
+                onClick={sr.closingCount > 0 ? () => onOpenCtcClosing(row, sr) : undefined}
+                title={formatCtcClosingTooltip(sr.loans)}
+              />
               {fmtForecast(sr.projectedToClose)}
             </span>
           </td>
@@ -899,12 +990,14 @@ function StrategyBreakdown({
   onOpenTotal,
   onOpenHealthy,
   onOpenClosed,
+  onOpenCtcClosing,
 }: {
   row: BranchRow;
   strategyRows: StrategyRow[];
   onOpenTotal: (row: BranchRow, sr: StrategyRow) => void;
   onOpenHealthy: (row: BranchRow, sr: StrategyRow) => void;
   onOpenClosed: (row: BranchRow, sr: StrategyRow) => void;
+  onOpenCtcClosing: (row: BranchRow, sr: StrategyRow) => void;
 }) {
   if (!strategyRows.length) return null;
   return (
@@ -930,7 +1023,11 @@ function StrategyBreakdown({
           </td>
           <td className="val col-forecast">
             <span className="ctc-cell">
-              <CtcDot count={sr.closingCount} />
+              <CtcDot
+                count={sr.closingCount}
+                onClick={sr.closingCount > 0 ? () => onOpenCtcClosing(row, sr) : undefined}
+                title={formatCtcClosingTooltip(sr.loans)}
+              />
               {fmtForecast(sr.projectedToClose)}
             </span>
           </td>
@@ -1087,6 +1184,32 @@ export default function PivotTable({
     });
   }
 
+  /*
+   * ⚠ EL PUNTO DE CTC TAMBIÉN EN LAS FILAS DE ESTRATEGIA — al combinar F6 con
+   * la mitad de Heather.
+   *
+   * No estaba pedido en ninguno de los dos briefs, y hace falta igual: Heather
+   * hizo el punto clickeable en las filas de branch, y F6 agregó filas de
+   * estrategia que dibujan el MISMO punto. Sin esto, el mismo indicador visual
+   * abre un modal en una vista y no responde al clic en la otra -- que es
+   * exactamente la clase de inconsistencia que este módulo viene persiguiendo
+   * (el filtro del mes de BP33 era eso mismo).
+   *
+   * Reusa `ctcClosingEligibleLoans` y `buildCtcClosingSections`, los helpers de
+   * Heather, sobre los préstamos de la sub-fila. Cero lógica nueva: si mañana
+   * cambia qué cuenta como elegible, cambia en los dos lados a la vez.
+   */
+  function openStrategyCtcClosing(row: BranchRow, sr: StrategyRow) {
+    const eligible = ctcClosingEligibleLoans(sr.loans);
+    setModal({
+      context: contextForStrategy(row, sr),
+      metric: 'CTC + Closing',
+      loans: eligible.map(openLoanToModalLoan),
+      sections: buildCtcClosingSections(eligible),
+      showChannelColumn: false,
+    });
+  }
+
   /** Contexto que se muestra como "eyebrow" del modal. */
   function contextFor(row: BranchRow): string {
     return `Branch ${row.branch} — ${row.channel}`;
@@ -1125,6 +1248,26 @@ export default function PivotTable({
       context: contextFor(row),
       metric: 'Closed',
       loans: closedLoans.map(closedLoanToModalLoan),
+    });
+  }
+
+  /**
+   * Drill-down del punto CtcDot de esta fila (una sola tabla de canal --
+   * Banked - Retail o Brokered, nunca mezclados). `row.branchForecastRow.loans`
+   * es el mismo pool de PipelineLoan de siempre (ya acotado a branch+channel
+   * por buildBranchRows) -- se filtra acá con ctcClosingEligibleLoans() antes
+   * de agrupar. Para Brokered esto siempre da 0 (bucketTotal es vestigial
+   * ahí, ver BranchRow.closingCount), pero el handler igual queda wireado
+   * por simetría -- el punto nunca es clickeable con count=0 (ver CtcDot).
+   */
+  function openCtcClosing(row: BranchRow) {
+    const eligible = ctcClosingEligibleLoans(row.branchForecastRow.loans);
+    setModal({
+      context: contextFor(row),
+      metric: 'CTC + Closing',
+      loans: eligible.map(openLoanToModalLoan),
+      sections: buildCtcClosingSections(eligible),
+      showChannelColumn: false,
     });
   }
 
@@ -1173,6 +1316,26 @@ export default function PivotTable({
         loan.disbursementDate <= dateRange.endDate
     );
     setModal({ context: contextForBranch(branch), metric: 'Closed', loans: closedLoans.map(closedLoanToModalLoan) });
+  }
+
+  /**
+   * Combined Total by Branch: mismo patrón que openCtcClosing de arriba,
+   * sin filtrar por canal -- une los loans de Banked + Brokered de este
+   * branch (branchRowsFor ya trae ambas filas si existen) antes de aplicar
+   * ctcClosingEligibleLoans(). Brokered sigue aportando 0 (bucketTotal
+   * vestigial), así que en la práctica el resultado es equivalente al de
+   * la fila Banked sola -- pero no se asume eso, se filtra sobre el pool
+   * combinado real, igual que el resto de los openers "Combined".
+   */
+  function openCombinedCtcClosing(branch: string) {
+    const eligible = ctcClosingEligibleLoans(branchRowsFor(branch).flatMap((r) => r.branchForecastRow.loans));
+    setModal({
+      context: contextForBranch(branch),
+      metric: 'CTC + Closing',
+      loans: eligible.map(openLoanToModalLoan),
+      sections: buildCtcClosingSections(eligible),
+      showChannelColumn: true,
+    });
   }
 
   return (
@@ -1253,6 +1416,7 @@ export default function PivotTable({
                             onOpenTotal={openStrategyTotal}
                             onOpenHealthy={openStrategyHealthy}
                             onOpenClosed={openStrategyClosed}
+                            onOpenCtcClosing={openStrategyCtcClosing}
                           />
                         ))
                     : block.rows.map((row) => (
@@ -1263,6 +1427,9 @@ export default function PivotTable({
                             onOpenClosed={openClosed}
                             onOpenTotal={openTotalPipeline}
                             onOpenHealthy={openHealthyPipeline}
+                            /* De la mitad de Heather: el punto de CTC abre su
+                               modal de healthy-only agrupado por milestone. */
+                            onOpenCtcClosing={openCtcClosing}
                           />
                           {/* Caso B: con un branch elegido, el desglose va
                               debajo de su fila, en la misma tabla. */}
@@ -1273,6 +1440,7 @@ export default function PivotTable({
                               onOpenTotal={openStrategyTotal}
                               onOpenHealthy={openStrategyHealthy}
                               onOpenClosed={openStrategyClosed}
+                              onOpenCtcClosing={openStrategyCtcClosing}
                             />
                           )}
                         </React.Fragment>
@@ -1329,7 +1497,11 @@ export default function PivotTable({
                   </td>
                   <td className="val col-forecast">
                     <span className="ctc-cell">
-                      <CtcDot count={row.closingCount} />
+                      <CtcDot
+                        count={row.closingCount}
+                        onClick={row.closingCount > 0 ? () => openCombinedCtcClosing(row.branch) : undefined}
+                        title={formatCtcClosingTooltip(branchRowsFor(row.branch).flatMap((r) => r.branchForecastRow.loans))}
+                      />
                       {fmtForecast(row.projectedToClose)}
                     </span>
                   </td>
@@ -1366,6 +1538,8 @@ export default function PivotTable({
         context={modal?.context ?? ''}
         metric={modal?.metric ?? ''}
         loans={modal?.loans ?? []}
+        showChannelColumn={modal?.showChannelColumn ?? true}
+        sections={modal?.sections}
       />
     </>
   );

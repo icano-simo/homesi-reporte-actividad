@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { healthStatusLabel, healthStatusVariant } from './healthStatus';
 import { classifyStrategy, nppmRealtors } from '@/lib/pipeline/strategy';
 import { CloseIcon } from '@/components/ui/icons';
+import type { PipelineLoan } from '@/lib/pipeline/types';
 
 /*
  * ============================================================================
@@ -51,6 +52,13 @@ export interface LoanDetailModalLoan {
   sourceLoanId: string;
   borrowerName: string;
   loanOfficer: string;
+  /**
+   * Columna "Channel" del origen -- dato real del loan (PipelineLoan/
+   * ResolvedLoan), nunca inferido del tab/toggle activo. Opcional: el modal
+   * de Milestone Matrix (TabMilestoneMatrix.tsx) no lo provee -- ausente =
+   * badge '—', mismo criterio que rawHealthiness más abajo.
+   */
+  channel?: PipelineLoan['channel'];
   amount: number;
   rawMilestone: string;
   /**
@@ -125,6 +133,26 @@ export interface LoanDetailModalProps {
   /** Métrica auditada, ej. "Total Pipeline". El conteo lo agrega este componente. */
   metric: string;
   loans: LoanDetailModalLoan[];
+  /**
+   * Combined Total by Branch (PivotTable.tsx) sí tiene channel real por loan;
+   * Milestone Matrix (TabMilestoneMatrix.tsx) ya filtra por un solo canal vía
+   * su propio toggle banked/brokered, así que la columna sería redundante
+   * ahí -- se omite del todo (no solo se oculta con CSS), no solo su celda.
+   * Default true: los demás callers no necesitan pasarlo.
+   */
+  showChannelColumn?: boolean;
+  /**
+   * CTC/Closing (punto CtcDot, PivotTable.tsx): agrupa `loans` por milestone
+   * real en vez de una sola tabla plana -- cada sección trae su propio
+   * encabezado ("Clear to Close:"/"Closing:") dentro del tbody. `loans` de
+   * arriba sigue siendo obligatorio (el count del header y el caso "No
+   * loans." lo siguen usando tal cual, sin duplicar esa lógica acá) y debe
+   * ser la unión de todas las secciones. Si se omite, se renderiza la tabla
+   * plana de siempre (comportamiento sin cambios para el resto de modales).
+   * El caller ya excluye secciones vacías (un branch con solo CTC no manda
+   * una sección "Closing" vacía) -- este componente no decide eso.
+   */
+  sections?: { label: string; loans: LoanDetailModalLoan[] }[];
 }
 
 function fmtAmount(n: number): string {
@@ -196,7 +224,15 @@ function NoteCell({ note, expanded, onToggle }: { note: string; expanded: boolea
   );
 }
 
-export default function LoanDetailModal({ isOpen, onClose, context, metric, loans }: LoanDetailModalProps) {
+export default function LoanDetailModal({
+  isOpen,
+  onClose,
+  context,
+  metric,
+  loans,
+  showChannelColumn = true,
+  sections,
+}: LoanDetailModalProps) {
   /**
    * Expansión de Notes POR FILA -- Set de sourceLoanId (identificador
    * estable ya usado como `key` en cada <tr>, ver el .map() más abajo), NO
@@ -260,6 +296,75 @@ export default function LoanDetailModal({ isOpen, onClose, context, metric, loan
 
   const countLabel = loans.length.toLocaleString('en-US') + (loans.length === 1 ? ' Loan' : ' Loans');
 
+  /** Una <tr> de préstamo -- extraído para reusarse tanto en la tabla plana (loans.map) como dentro de cada sección agrupada (sections), sin duplicar el JSX de la fila. */
+  function renderLoanRow(loan: LoanDetailModalLoan) {
+    return (
+      <tr className="metric" key={loan.sourceLoanId}>
+        <td className="lbl" title={loan.sourceLoanId}>
+          {loan.sourceLoanId}
+          {loan.branchTransferred && (
+            <span className="branch-transfer-chip" title="Branch reassigned due to license (Branch Transfer)">
+              T
+            </span>
+          )}
+        </td>
+        <td style={{ textAlign: 'left' }} title={loan.borrowerName}>
+          {loan.borrowerName}
+          {/*
+            ⚠ EL REALTOR DEL NPPM — etapa F6.
+            Sólo en préstamos de estrategia NPPM (24 de 883), y por eso va debajo
+            del prestatario y NO como columna propia: una columna estaría vacía
+            en el 97% de las filas y le robaría ancho a las nueve que sí tienen
+            dato siempre. `nppmRealtors()` resuelve los cuatro casos -- si no hay
+            ninguno devuelve lista vacía y acá no se dibuja nada, sin placeholder.
+
+            ⚠ Va ACÁ y no en el `loans.map` de abajo: Heather extrajo la fila a
+            `renderLoanRow` para reusarla en la tabla plana y en las secciones
+            agrupadas del modal del punto de CTC. Si el bloque se quedara en el
+            map, el realtor aparecería en la vista plana y desaparecería en la
+            agrupada -- la misma fila con dos contenidos según por dónde se
+            entre. Una sola plantilla de fila, un solo lugar.
+          */}
+          {classifyStrategy(loan) === 'NPPM' &&
+            nppmRealtors(loan).map((r) => (
+              <span className="nppm-realtor" key={r.label} title={r.label + ': ' + r.value}>
+                <span className="nppm-realtor__label">{r.label}</span>
+                {r.value}
+              </span>
+            ))}
+        </td>
+        <td style={{ textAlign: 'left' }} title={loan.loanOfficer}>
+          {loan.loanOfficer || '—'}
+        </td>
+        {showChannelColumn && (
+          <td style={{ textAlign: 'left' }} title={loan.channel ?? '—'}>
+            {loan.channel ?? '—'}
+          </td>
+        )}
+        <td style={{ textAlign: 'left' }} title={loan.loanType || NOT_AVAILABLE_TEXT}>
+          {loan.loanType || NOT_AVAILABLE_TEXT}
+        </td>
+        <td style={{ textAlign: 'left' }} title={loan.loanProgram || NOT_AVAILABLE_TEXT}>
+          {loan.loanProgram || NOT_AVAILABLE_TEXT}
+        </td>
+        <td className="val">{fmtAmount(loan.amount)}</td>
+        <td style={{ textAlign: 'left' }} title={loan.rawMilestone}>
+          {loan.rawMilestone || '—'}
+        </td>
+        <td style={{ textAlign: 'left' }}>
+          <HealthBadge rawHealthiness={loan.rawHealthiness} />
+        </td>
+        <td className="note-cell">
+          <NoteCell
+            note={loan.noteHistory}
+            expanded={expandedNotes.has(loan.sourceLoanId)}
+            onToggle={() => toggleNote(loan.sourceLoanId)}
+          />
+        </td>
+      </tr>
+    );
+  }
+
   return (
     <div className="modal-overlay" onClick={handleClose}>
       {/* stopPropagation: un click DENTRO de la caja no debe cerrar el modal. */}
@@ -307,6 +412,7 @@ export default function LoanDetailModal({ isOpen, onClose, context, metric, loan
                 <col style={{ width: '115px' }} />
                 <col style={{ width: '190px' }} />
                 <col style={{ width: '175px' }} />
+                {showChannelColumn && <col style={{ width: '130px' }} />}
                 <col style={{ width: '120px' }} />
                 <col style={{ width: '145px' }} />
                 <col style={{ width: '95px' }} />
@@ -319,6 +425,7 @@ export default function LoanDetailModal({ isOpen, onClose, context, metric, loan
                 <th className="lbl">Loan #</th>
                 <th style={{ textAlign: 'left' }}>Borrower</th>
                 <th style={{ textAlign: 'left' }}>Loan Officer</th>
+                {showChannelColumn && <th style={{ textAlign: 'left' }}>Channel</th>}
                 <th style={{ textAlign: 'left' }}>Loan Type</th>
                 <th style={{ textAlign: 'left' }}>Loan Program</th>
                 <th>Amount</th>
@@ -328,64 +435,23 @@ export default function LoanDetailModal({ isOpen, onClose, context, metric, loan
               </tr>
             </thead>
             <tbody>
-              {loans.map((loan) => (
-                <tr className="metric" key={loan.sourceLoanId}>
-                  <td className="lbl" title={loan.sourceLoanId}>
-                    {loan.sourceLoanId}
-                    {loan.branchTransferred && (
-                      <span className="branch-transfer-chip" title="Branch reassigned due to license (Branch Transfer)">
-                        T
-                      </span>
-                    )}
-                  </td>
-                  <td style={{ textAlign: 'left' }} title={loan.borrowerName}>
-                    {loan.borrowerName}
-                    {/*
-                      ⚠ EL REALTOR DEL NPPM — etapa F6.
-                      Sólo en préstamos de estrategia NPPM (24 de 883), y por eso
-                      va debajo del prestatario y NO como columna propia: una
-                      columna estaría vacía en el 97% de las filas y le robaría
-                      ancho a las ocho que sí tienen dato en todas.
-                      `nppmRealtors()` ya resuelve los cuatro casos -- si no hay
-                      ninguno devuelve lista vacía y acá no se dibuja nada, sin
-                      placeholder.
-                    */}
-                    {classifyStrategy(loan) === 'NPPM' &&
-                      nppmRealtors(loan).map((r) => (
-                        <span className="nppm-realtor" key={r.label} title={r.label + ': ' + r.value}>
-                          <span className="nppm-realtor__label">{r.label}</span>
-                          {r.value}
-                        </span>
-                      ))}
-                  </td>
-                  <td style={{ textAlign: 'left' }} title={loan.loanOfficer}>
-                    {loan.loanOfficer || '—'}
-                  </td>
-                  <td style={{ textAlign: 'left' }} title={loan.loanType || NOT_AVAILABLE_TEXT}>
-                    {loan.loanType || NOT_AVAILABLE_TEXT}
-                  </td>
-                  <td style={{ textAlign: 'left' }} title={loan.loanProgram || NOT_AVAILABLE_TEXT}>
-                    {loan.loanProgram || NOT_AVAILABLE_TEXT}
-                  </td>
-                  <td className="val">{fmtAmount(loan.amount)}</td>
-                  <td style={{ textAlign: 'left' }} title={loan.rawMilestone}>
-                    {loan.rawMilestone || '—'}
-                  </td>
-                  <td style={{ textAlign: 'left' }}>
-                    <HealthBadge rawHealthiness={loan.rawHealthiness} />
-                  </td>
-                  <td className="note-cell">
-                    <NoteCell
-                      note={loan.noteHistory}
-                      expanded={expandedNotes.has(loan.sourceLoanId)}
-                      onToggle={() => toggleNote(loan.sourceLoanId)}
-                    />
-                  </td>
-                </tr>
-              ))}
+              {sections
+                ? sections
+                    .filter((section) => section.loans.length > 0)
+                    .flatMap((section) => [
+                      <tr className="modal-section-row" key={'section:' + section.label}>
+                        <td colSpan={showChannelColumn ? 10 : 9}>{section.label}:</td>
+                      </tr>,
+                      ...section.loans.map((loan) => renderLoanRow(loan)),
+                    ])
+                : loans.map((loan) => renderLoanRow(loan))}
               {!loans.length && (
                 <tr>
-                  <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={9}>
+                  <td
+                    className="lbl"
+                    style={{ color: 'var(--slate-500)', fontWeight: 500 }}
+                    colSpan={showChannelColumn ? 10 : 9}
+                  >
                     No loans.
                   </td>
                 </tr>

@@ -187,7 +187,7 @@ export function aggregateGroup(
    */
   const { loans: openLoans, duplicates } = dedupeOpenLoans(members.flatMap((m) => m.openLoanDetail));
   const closedThisMonth = closings.byMonth[thisMonth] ?? 0;
-  const projection = projectCurrentMonth(closedThisMonth, openLoans, rates, thisMonth);
+  const projection = projectCurrentMonth(closedThisMonth, openLoans, rates);
 
   /*
    * El benchmark del grupo es la SUMA de los individuales. Si a uno le falta,

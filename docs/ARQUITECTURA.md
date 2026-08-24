@@ -3188,6 +3188,162 @@ No lo hizo esta rama -- su única escritura fue el snapshot 62, borrado al
 terminar. Queda anotado como observación para que quien aplicó las migraciones
 lo confirme.
 
+## Etapas BP33 y BP34 — el pipeline del perfil no filtraba por mes, y se quita el Status
+
+### ⚠ BP33 — dónde estaba el filtro, y por qué unas vistas lo tenían y otras no
+
+El filtro del mes existía **sólo en el camino de la proyección**, y escrito por
+separado en dos lugares:
+
+1. `projectCurrentMonth` (qualifiers.ts): contaba `totalPipeline` y
+   `healthyPipeline` sobre **todos** los préstamos abiertos y recién entonces
+   hacía `if (loan.closeMonth !== currentMonth) continue;` para el tramo del
+   forecast. O sea: dos poblaciones distintas dentro de la misma función.
+2. `LoanDetailModal`: los modales de `projected` y `forecast` repetían la
+   condición a mano; los de `pipeline` y `healthy` no filtraban nada.
+
+Y no era un descuido: había un comentario declarándolo intencional —"cuentan
+TODO el pipeline abierto, cierre cuando cierre"—. La decisión del negocio
+cambió, porque la proyección se compara contra un benchmark **mensual**: contar
+pipeline que cierra en octubre contra un objetivo de agosto sobreevalúa a la
+persona.
+
+Medido contra el snapshot activo (66): de **110** préstamos abiertos sólo **65**
+cierran en agosto. **45 eran de meses futuros — el 41%.**
+
+#### El arreglo: una sola definición, en el punto donde se arma la lista
+
+`closesInMonth(loan, yearMonth)`, exportada de `qualifiers.ts`, y aplicada en
+`loadData` justo donde se construye `openLoansByEmployee`. Ese es el único punto
+por el que pasan todas las vistas del módulo, así que ninguna puede quedarse
+afuera: las cinco tarjetas, el desglose Banked/Brokered, los modales, el
+directorio del branch, el Branch Portfolio y la revisión conjunta.
+
+Con eso desaparecieron las dos copias de la regla: el `continue` a mitad del
+bucle de `projectCurrentMonth` y las condiciones del modal. Y como la función ya
+no mira meses, **se le quitó el parámetro `currentMonth`** — un parámetro que
+nadie lee es una mentira sobre lo que hace la función, y habría dejado la puerta
+abierta a que alguien volviera a filtrar adentro.
+
+#### `estClosingDate` y no `closeMonth`
+
+`closeMonth` lo **deriva** el parser y queda en `''` cuando la derivación falla:
+un préstamo así desaparece de todos los meses, en silencio. `estClosingDate` es
+el dato crudo, y es además el criterio que ya usa Forecast en `splitHealthyTotal`
+— así los dos módulos definen "el pipeline del mes" igual.
+
+Verificado: sobre las 110 filas del snapshot los dos criterios **coinciden**,
+cero discrepancias. El cambio de campo no mueve ningún número por sí solo; sólo
+cierra el agujero y elimina el modo de fallo silencioso.
+
+#### Los veredictos que cambian: 3
+
+Corrido con el motor real sobre el snapshot activo: **Aimmee buendia**, **Julymar
+Castro** y **Nathan Martinez**, los tres `on_track → watch`. Ninguno llega a
+`on_risk`.
+
+Estaban sobreevaluados porque se les contaba pipeline que no cierra este mes.
+Ejemplo: Nathan pasa de 16 préstamos a 9, y su GAP de +0,2 a −0,1 — cruzaba el
+cero por préstamos de septiembre.
+
+### BP34 — se quita el Status de intervención
+
+Aparecía **dos veces en la misma pantalla** (cabecera del branch y tarjeta
+STATUS) y el texto no decía de qué era pendiente. Se quitaron los tres lugares:
+esos dos más la columna Status del Branch Portfolio. La tarjeta de KPIs pasa de
+cuatro a tres.
+
+⚠ **Se quitó de la interfaz, no del modelo.** `business_plan.intervention` se
+sigue leyendo y escribiendo igual — la barra de decisión sigue registrando
+"revisado" y la activación de un funnel sigue creando su intervención.
+`branchStatus`, `branchStatusLabel` y `branchStatusClass` siguen existiendo y
+calculándose, con un comentario en `intervention.ts` que explica por qué no son
+código muerto: el indicador vuelve, en otra forma, en un módulo aparte.
+
+---
+
+## Aprendizajes de sesión — CTC/Closing (punto vs. modal), columna Channel, SL Query sin DELETE
+
+Consolida tres piezas de contexto que quedaron repartidas en comentarios de
+código y briefs de tareas, para que no haya que reconstruirlas leyendo el
+historial de commits la próxima vez.
+
+### CTC/Closing — el punto, el modal y el contador de texto son 3 poblaciones distintas, a propósito
+
+Las tres piezas leen el mismo bucket combinado "Closing" (fusiona los
+milestones crudos "Clear To Close" y "Closing"), pero cada una con una
+población distinta:
+
+- **El punto (`CtcDot`, `PivotTable.tsx`)** -- indicador de PRESENCIA. Usa
+  `closingCount` = `bucketTotal.Closing`, SIN filtrar por healthy. Un loan
+  Delayed en Closing SÍ prende el punto. Esto es intencional y preexistente
+  (ver Etapas F5k/UX10/UX12 arriba) -- el punto contesta "¿hay algo en
+  Closing en esta fila?", no "¿cuánto se proyecta que cierre?".
+- **El modal que abre el punto al hacer click** -- SÍ filtra
+  `healthy === true` antes de mostrar nada (`ctcClosingEligibleLoans()` +
+  `buildCtcClosingSections()`, `PivotTable.tsx`). Agrupa los loans elegibles
+  por milestone real, con un header de sección ("Clear to Close:"/
+  "Closing:") por cada uno que tenga al menos un loan -- una sección con
+  cero loans no se muestra. El tooltip del punto (`title`) usa la MISMA
+  población que el modal (mismas 2 funciones) -- si alguna vez el tooltip
+  vuelve a decir un número o milestone que no coincide con lo que el modal
+  muestra, la causa más probable es que alguien reintrodujo un cálculo
+  separado en vez de reusar esas 2 funciones.
+- **El contador de texto ("X CTC + X Closing", subtotal/tarjeta Closed)**
+  -- también healthy-only (`splitCtcAndClosing`, `lib/pipeline/aggregate.ts`),
+  misma población que el modal, pero es un cálculo independiente -- no
+  comparte código con `ctcClosingEligibleLoans`/`buildCtcClosingSections`,
+  así que si se toca uno hay que verificar el otro a mano contra datos
+  reales.
+
+**ADVERTENCIA:** no "corregir" el punto (`closingCount`, sin filtrar) para
+que coincida con el modal o el contador (healthy-only) sin una decisión de
+negocio explícita. Son métricas con propósitos distintos -- presencia vs.
+proyección real -- y ya hubo confusión real sobre esto en sesión (el punto
+encendido por un loan Delayed que no aparecía en el desglose de texto,
+tratado al principio como si fuera un bug, cuando es el comportamiento
+esperado).
+
+### Channel column en LoanDetailModal — aditivo, no exclusivo con `sections`
+
+- `showChannelColumn?: boolean` (default `true`) en `LoanDetailModalProps`
+  controla si la columna "Channel" se renderiza -- se OMITE del DOM entera
+  (`<col>`/`<th>`/`<td>` condicionales), no se oculta con CSS.
+- Se muestra (`showChannelColumn` en `true`, explícito o por default) en:
+  Total Pipeline, Healthy Pipeline, Closed, y sus 3 variantes de Combined
+  Total by Branch -- todos los openers de `PivotTable.tsx`.
+- NO se muestra en Milestone Matrix (`TabMilestoneMatrix.tsx` pasa
+  `showChannelColumn={false}` explícito) -- esa vista ya filtra por un solo
+  canal vía su propio toggle banked/brokered, así que la columna sería
+  redundante ahí.
+- `sections?: { label: string; loans: LoanDetailModalLoan[] }[]` (usado por
+  el modal de CTC/Closing, arriba) agrupa las filas del modal por milestone
+  -- coexiste con `showChannelColumn` sin conflicto, son props
+  independientes y aditivos. El modal de CTC/Closing en el punto Combined
+  pasa `showChannelColumn={true}` (mezcla Banked + Brokered); en el punto de
+  una sola tabla de canal pasa `showChannelColumn={false}` (todos los loans
+  ya son del mismo canal, la columna no aportaría nada).
+- El campo `channel` en `LoanDetailModalLoan` es opcional (`channel?:`)
+  porque Milestone Matrix nunca lo provee -- si algún día se agrega un
+  caller nuevo que tampoco tenga el dato, el modal ya sabe mostrar `'—'` en
+  su lugar (mismo criterio que `rawHealthiness`).
+
+### SL Query — DELETE removido permanentemente del lado de la app
+
+- `activity_report` (schema de Supabase) solo tiene políticas de
+  `select`/`insert`/`update` -- nunca `delete`. Es una decisión de
+  infraestructura ya tomada, no un permiso pendiente de otorgar ni un 403 a
+  resolver pidiendo el grant.
+- La limpieza de batches viejos corre por un `pg_cron` externo, administrado
+  aparte de la app (`maintenance.run_activity_batch_retention(days,
+  dry_run)` -- ver `.claude/skills/activity-sl-query/SKILL.md` para las 2
+  salvaguardas de esa función: el batch vigente nunca se borra, y siempre se
+  conservan los N batches más recientes).
+- No reintroducir ningún `.delete()` contra `loan_records`/`upload_batches`
+  desde código de la app -- si aparece un 403/42501 en un intento de DELETE
+  contra esas tablas, la solución es remover el DELETE del código, no pedir
+  el permiso.
+
 ## Etapa F6 — estrategia comercial como dimensión de corte en Projected Forecast
 
 Una segunda forma de cortar los mismos datos. **Ninguna regla de cálculo cambia:**
