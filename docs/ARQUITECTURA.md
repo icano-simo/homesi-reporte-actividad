@@ -4054,3 +4054,86 @@ componentes de chart nuevos + sección de render debajo de scorecards).
 explicando por qué se justifica un componente nuevo en vez de reusar
 `MonthlyBarChart.tsx`). No requirió tocar `org`, `useOrgRoster.ts` ni
 `scorecards.ts`.
+
+## Etapa F7, Parte 4 -- Owner en el modal de detalle, extendiendo el patrón NPPM
+
+`LoanDetailModal.tsx` (`renderLoanRow`) ya mostraba, desde la Etapa F6, un
+sub-label debajo del prestatario con el realtor del NPPM (`NPPM Realtor`/
+`Referred by`, vía `nppmRealtors()`), condicionado a
+`classifyStrategy(loan) === 'NPPM'`. Esta parte extiende el mismo patrón
+visual a las demás estrategias, sin tocar el caso NPPM ni la lógica de
+`classifyStrategy`/`nppmRealtors` (`lib/pipeline/strategy.ts`, sin cambios).
+
+### Qué se agrega
+
+Un segundo bloque condicional, al lado del bloque NPPM ya existente (mismo
+`<td>`, mismo patrón `{condición && <span className="nppm-realtor">...}`,
+sin envolver ambos en una función compartida a propósito -- así el diff dejó
+las líneas del caso NPPM completamente intactas, byte a byte):
+
+```tsx
+{classifyStrategy(loan) === 'NPPM' &&
+  nppmRealtors(loan).map((r) => ( /* ... sin cambios ... */ ))}
+{classifyStrategy(loan) !== 'NPPM' &&
+  loan.opportunityOwnerTitle.trim() !== '' &&
+  loan.opportunityOwnerTitle.trim() !== loan.loanOfficer.trim() && (
+    <span className="nppm-realtor" title={'Owner: ' + loan.opportunityOwnerTitle.trim()}>
+      <span className="nppm-realtor__label">Owner</span>
+      {loan.opportunityOwnerTitle.trim()}
+    </span>
+  )}
+```
+
+Muestra `opportunityOwnerTitle` (el "Opportunity Owner: Title" crudo del
+export de Salesforce -- ej. "Business Developer" para B2B, o cualquier
+otro valor para Affinity/Recruitment/Own production) para cualquier
+préstamo que NO sea NPPM, con dos condiciones de guarda:
+
+1. **Vacío -> nada.** Mismo criterio que el bloque NPPM de arriba: sin
+   placeholder, sin celda "—" extra.
+2. **Igual a `loanOfficer` -> nada.** Evita mostrar el mismo valor dos
+   veces (la columna de Loan Officer ya está visible en la misma fila,
+   unas columnas más a la derecha). Verificado contra los 152 préstamos
+   reales de B2B del snapshot activo (id 72): **ningún caso** tiene
+   `opportunity_owner_title === loan_officer` hoy -- la guarda está
+   implementada pero no ejercitada por los datos actuales, mismo patrón
+   ya documentado para otras reglas de esta etapa (F6, branches
+   711/777; F7 Parte 2, "sf integrations").
+
+No se filtra ningún valor de owner por parecer "de sistema" -- se muestra
+tal cual viene, mismo criterio ya aplicado al caso "Anthony Ditoma" de la
+Parte 2 (mostrar el dato real, no asumir y ocultar).
+
+### Verificación con un préstamo real de B2B (snapshot activo id 72)
+
+```
+source_loan_id: 733002017035
+borrower_name: Bikiana Reyes Martinez
+loan_officer: Aimmee Buendia
+branch: 733 (no Affinity, no recruitment)
+strategy_raw: '' (no NPPM)
+opportunity_owner_title: Business Developer
+```
+
+`classifyStrategy` da `'B2B'` (branch no es Affinity/recruitment,
+`strategyRaw` no es 'NPPM', `opportunityOwnerTitle === 'Business
+Developer'`). El nuevo sub-label muestra `OWNER: Business Developer`
+debajo de "Bikiana Reyes Martinez" -- distinto del valor "Aimmee Buendia"
+que ya aparece en la columna de Loan Officer de esa misma fila, sin
+duplicación.
+
+### Reusó la clase CSS existente, sin variante nueva
+
+`.nppm-realtor`/`.nppm-realtor__label` (`forecast-visual.css`) se
+reutilizan sin cambios de regla -- solo se actualizó el comentario de
+cabecera para reflejar que ya no es exclusiva del realtor NPPM. Mismo
+tamaño, color y posición para el "Owner" que para "NPPM Realtor"/"Referred
+by".
+
+### Archivos
+
+`app/pipeline/LoanDetailModal.tsx` editado (bloque nuevo en
+`renderLoanRow`, caso NPPM sin tocar). `app/pipeline/styles/forecast-visual.css`
+editado (solo comentario, sin regla nueva). No se tocó
+`lib/pipeline/strategy.ts` (`classifyStrategy`/`nppmRealtors` sin cambios,
+como pedía el alcance).

@@ -815,8 +815,13 @@ table.piv tr.strat-break-row td {
   background: var(--slate-50);
 }
 
-/* El realtor del NPPM, debajo del prestatario en el modal de detalle. Una
-   linea por valor: con los dos nombres distintos son dos, con uno solo es una. */
+/*
+ * Sub-label debajo del prestatario en el modal de detalle -- una línea por
+ * valor (con los dos nombres distintos son dos, con uno solo es una). Nació
+ * para el realtor del NPPM (Etapa F6) y la Etapa F7/Parte 4 reusa la misma
+ * clase, sin variante nueva, para el "Owner" (opportunityOwnerTitle) de las
+ * demás estrategias -- mismo patrón visual, distinto texto/dato.
+ */
 .nppm-realtor {
   display: block;
   font-size: 10.5px;

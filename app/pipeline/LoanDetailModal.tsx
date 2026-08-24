@@ -332,6 +332,26 @@ export default function LoanDetailModal({
                 {r.value}
               </span>
             ))}
+          {/*
+            ⚠ OWNER PARA B2B Y DEMÁS ESTRATEGIAS — etapa F7, Parte 4.
+            Extiende el mismo patrón de arriba (sub-label debajo del prestatario,
+            misma clase `.nppm-realtor`/`.nppm-realtor__label`) a cualquier
+            préstamo que NO sea NPPM: acá el dato es `opportunityOwnerTitle` (el
+            TITLE crudo -- "Business Developer", etc. -- que hoy no se muestra en
+            ningún otro lugar de este modal), no el realtor. Se omite si viene
+            vacío (mismo criterio que arriba, sin placeholder) o si por alguna
+            razón coincide exactamente con `loanOfficer` (columna ya visible más
+            abajo en esta misma fila) -- para no duplicar el mismo valor dos
+            veces. Se muestra tal cual viene, sin filtrar valores de sistema.
+          */}
+          {classifyStrategy(loan) !== 'NPPM' &&
+            loan.opportunityOwnerTitle.trim() !== '' &&
+            loan.opportunityOwnerTitle.trim() !== loan.loanOfficer.trim() && (
+              <span className="nppm-realtor" title={'Owner: ' + loan.opportunityOwnerTitle.trim()}>
+                <span className="nppm-realtor__label">Owner</span>
+                {loan.opportunityOwnerTitle.trim()}
+              </span>
+            )}
         </td>
         <td style={{ textAlign: 'left' }} title={loan.loanOfficer}>
           {loan.loanOfficer || '—'}
