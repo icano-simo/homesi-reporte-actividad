@@ -13,7 +13,10 @@ import {
 import { getDefaultPeriodSelection, periodDateRange, periodLabel, periodMonths, type PeriodSelection } from '@/lib/pipeline/period';
 import { buildMonthlyTotals, buildMonthlyTypeBreakdown, currentYear, type MonthlyTotal, type MonthlyTypeBreakdown } from '@/lib/pipeline/trends';
 import PeriodSelector from './PeriodSelector';
-import { useOrgRoster } from './useOrgRoster';
+import { useOrgRoster, type OrgRoster } from './useOrgRoster';
+import LoanDetailModal, { type LoanDetailModalColumn, type LoanDetailModalLoan } from './LoanDetailModal';
+import { closedLoanToModalLoan } from './PivotTable';
+import { AlertTriangleIcon } from '@/components/ui/icons';
 
 export interface TabAnalyticsProps {
   /** Mismo array que ya reciben PivotTable/AdverseTable -- pipeline_resolved_loans del snapshot activo, sin filtrar por canal ni por fecha todavía. */
@@ -48,11 +51,14 @@ function RankingTable({
   columnLabel,
   rows,
   totalCount,
+  onRowClick,
 }: {
   title: string;
   columnLabel: string;
   rows: RankingRow[];
   totalCount: number;
+  /** Etapa F7, Parte 5: drill-down al modal de detalle -- opcional, sin cambio de comportamiento donde no se pasa. */
+  onRowClick?: (row: RankingRow) => void;
 }) {
   const rowsTotalCount = rows.reduce((sum, r) => sum + r.count, 0);
   const rowsTotalAmount = rows.reduce((sum, r) => sum + r.amount, 0);
@@ -92,7 +98,11 @@ function RankingTable({
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr className="metric" key={row.label}>
+              <tr
+                className={'metric' + (onRowClick ? ' metric--drill' : '')}
+                key={row.label}
+                onClick={onRowClick ? () => onRowClick(row) : undefined}
+              >
                 <td className="lbl" style={{ textAlign: 'left' }}>
                   {row.label}
                 </td>
@@ -135,7 +145,28 @@ function fmtPercent(n: number): string {
  * `totalInput` -- los excluidos/no-mapeados/vacíos no tienen fila propia,
  * así que no deben contarse en el % de cada fila resuelta).
  */
-function ScorecardTable({ title, columnLabel, rows, totalCount }: { title: string; columnLabel: string; rows: ScorecardRow[]; totalCount: number }) {
+function ScorecardTable({
+  title,
+  columnLabel,
+  rows,
+  totalCount,
+  onRowClick,
+  diagnostic,
+}: {
+  title: string;
+  columnLabel: string;
+  rows: ScorecardRow[];
+  totalCount: number;
+  /** Etapa F7, Parte 5: drill-down al modal de detalle -- opcional, sin cambio de comportamiento donde no se pasa. */
+  onRowClick?: (row: ScorecardRow) => void;
+  /**
+   * Etapa F7, Parte 9: reemplaza el texto plano de diagnóstico (Parte 7)
+   * por un ícono junto al título -- silencioso si `count === 0`, igual
+   * que antes. El resumen simple + el detalle técnico completo van juntos
+   * en el `title` del ícono (tooltip nativo), nunca como texto en pantalla.
+   */
+  diagnostic?: { count: number; summary: string; detail: string };
+}) {
   const rowsTotalCount = rows.reduce((sum, r) => sum + r.closedCount, 0);
   const rowsTotalAmount = rows.reduce((sum, r) => sum + r.totalAmount, 0);
 
@@ -149,6 +180,14 @@ function ScorecardTable({ title, columnLabel, rows, totalCount }: { title: strin
         <span className="tbl-card__title">
           {title} ({fmtInt(rowsTotalCount)})
         </span>
+        {diagnostic && diagnostic.count > 0 && (
+          <span
+            title={`${diagnostic.summary}\n${diagnostic.detail}`}
+            style={{ marginLeft: '6px', color: 'var(--amber-700)', cursor: 'help', display: 'inline-flex', verticalAlign: 'middle' }}
+          >
+            <AlertTriangleIcon size={14} />
+          </span>
+        )}
       </div>
       <div className="tbl-scroll">
         <table className="piv">
@@ -170,7 +209,11 @@ function ScorecardTable({ title, columnLabel, rows, totalCount }: { title: strin
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr className="metric" key={row.key}>
+              <tr
+                className={'metric' + (onRowClick ? ' metric--drill' : '')}
+                key={row.key}
+                onClick={onRowClick ? () => onRowClick(row) : undefined}
+              >
                 <td className="lbl" style={{ textAlign: 'left' }} title={row.label}>
                   {row.label}
                 </td>
@@ -206,35 +249,62 @@ function ScorecardTable({ title, columnLabel, rows, totalCount }: { title: strin
 }
 
 /**
+ * Nota de diagnóstico -- Etapa F7, Parte 7 (silencio si `count === 0`,
+ * usado por los 3 scorecards). `summary` es un resumen corto en lenguaje
+ * simple (sin nombres de tabla/jerga técnica) y el detalle completo
+ * (nombres de tabla, desglose exacto) va SOLO en `title` -- tooltip nativo
+ * del navegador al pasar el mouse, nunca texto plano permanente en
+ * pantalla.
+ *
+ * Etapa F7, Parte 8: reusado tal cual (mismo componente, sin lógica
+ * nueva) para las 3 notas de Rankings/Scorecards/Monthly Trends que eran
+ * texto de implementación filtrado a la UI -- ahí `count={1}` a propósito
+ * (esas notas no son condicionales, siempre hay algo breve que mostrar;
+ * `count` solo existe para el chequeo `=== 0` de los scorecards, así que
+ * cualquier valor no-cero cumple lo mismo).
+ */
+function DiagnosticsNote({ count, summary, detail }: { count: number; summary: string; detail: string }) {
+  if (count === 0) return null;
+  return (
+    <p
+      className="foot-note"
+      style={{ marginBottom: '12px', display: 'inline-block', cursor: 'help', borderBottom: '1px dotted var(--slate-400)' }}
+      title={detail}
+    >
+      {summary}
+    </p>
+  );
+}
+
+/**
  * Reconciliación explícita para los scorecards de persona (Loan Officer /
  * Business Developer): a diferencia de Branch (donde todo loan tiene
  * branch), un loan puede quedar fuera de la tabla por 3 motivos distintos
  * -- se listan los 3, con su propio conteo, para que
  * `resolved + blank + excluded + unmapped === totalInput` sea verificable
- * a ojo, no una afirmación sin respaldo.
+ * (el `console.warn` de red de seguridad sigue exactamente igual, solo el
+ * texto visible cambió).
  */
-function PersonDiagnostics({ result }: { result: PersonScorecardResult }) {
-  const { diagnostics } = result;
-  const { totalInput, resolvedCount, blankCount, excludedCount, unmappedCount, unmappedNames } = diagnostics;
+function personDiagnosticsNote(result: PersonScorecardResult): { count: number; summary: string; detail: string } {
+  const { totalInput, resolvedCount, blankCount, excludedCount, unmappedCount, unmappedNames } = result.diagnostics;
   const accounted = resolvedCount + blankCount + excludedCount + unmappedCount;
   if (process.env.NODE_ENV !== 'production' && accounted !== totalInput) {
     console.warn(`[TabAnalytics] reconciliación de persona no cuadra: resolved+blank+excluded+unmapped=${accounted}, totalInput=${totalInput}`);
   }
-  if (totalInput === 0) return null;
-  return (
-    <p className="foot-note" style={{ marginBottom: '12px' }}>
-      {fmtInt(totalInput)} loans in this scorecard&apos;s population — {fmtInt(resolvedCount)} resolved to a person
-      via <code>org.employee_alias</code>
-      {blankCount > 0 && <>, {fmtInt(blankCount)} with no Loan Officer/Owner recorded</>}
-      {excludedCount > 0 && <>, {fmtInt(excludedCount)} excluded as known non-person entries (e.g. system integrations, via <code>org.source_name_excluded</code>)</>}
-      {unmappedCount > 0 && (
-        <>
-          , {fmtInt(unmappedCount)} with a name not yet in <code>org.employee_alias</code> ({unmappedNames.map((u) => `${u.nameRaw} (${u.rows})`).join(', ')})
-        </>
-      )}
-      .
-    </p>
-  );
+  const problemCount = blankCount + excludedCount + unmappedCount;
+  const parts: string[] = [];
+  if (unmappedCount > 0) parts.push(`${fmtInt(unmappedCount)} unrecognized name${unmappedCount === 1 ? '' : 's'}`);
+  if (excludedCount > 0) parts.push(`${fmtInt(excludedCount)} known non-person ${excludedCount === 1 ? 'entry' : 'entries'}`);
+  if (blankCount > 0) parts.push(`${fmtInt(blankCount)} with no name recorded`);
+  const summary = `${fmtInt(problemCount)} of ${fmtInt(totalInput)} loan${totalInput === 1 ? '' : 's'} could not be matched to a person (${parts.join(', ')})`;
+  const detail =
+    `${fmtInt(resolvedCount)} resolved via org.employee_alias` +
+    (excludedCount > 0 ? `; ${fmtInt(excludedCount)} excluded via org.source_name_excluded` : '') +
+    (unmappedCount > 0
+      ? `; ${fmtInt(unmappedCount)} not yet in org.employee_alias: ${unmappedNames.map((u) => `${u.nameRaw} (${u.rows})`).join(', ')}`
+      : '') +
+    (blankCount > 0 ? `; ${fmtInt(blankCount)} with no Loan Officer/Owner value recorded` : '');
+  return { count: problemCount, summary, detail };
 }
 
 const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -455,6 +525,31 @@ function TypeBreakdownChart({
 }
 
 /**
+ * Placeholders de fila vacía -- MISMO texto que `NO_PROGRAM_LABEL`/
+ * `NO_TYPE_LABEL` en `lib/pipeline/analytics.ts` (no exportados ahí, y ese
+ * archivo está fuera del alcance de esta etapa). Duplicado a propósito
+ * solo para poder re-derivar, en el click, qué loans cayeron en cada fila
+ * del ranking -- si el texto del placeholder cambia algún día en
+ * `analytics.ts`, este archivo hay que actualizarlo a mano también.
+ */
+const DRILLDOWN_NO_PROGRAM_LABEL = 'Sin programa';
+const DRILLDOWN_NO_TYPE_LABEL = 'Sin tipo';
+
+/**
+ * ¿Este loan resuelve, vía `org.employee_alias`, al mismo `employeeKey` que
+ * ya agrupó esa fila del scorecard? Nunca compara nombres crudos con
+ * `===` -- misma regla dura que `buildPersonScorecard`
+ * (lib/pipeline/scorecards.ts), reaplicada acá en el momento del click en
+ * vez de modificar esa función para que devuelva el detalle.
+ */
+function loanResolvesToEmployeeKey(loan: ResolvedLoan, aliasIndex: OrgRoster['aliasIndex'], employeeKeyStr: string): boolean {
+  const nameRaw = loan.loanOfficer.trim();
+  if (!nameRaw) return false;
+  const { employeeKey } = aliasIndex.lookup('salesforce', nameRaw);
+  return employeeKey !== null && String(employeeKey) === employeeKeyStr;
+}
+
+/**
  * Tab 4 — Analytics (Etapa F7, Parte 1): selector de período + rankings de
  * Loan Program y Loan Type. Solo lectura sobre `pipeline_resolved_loans`
  * (status='funded', filtrado por `disbursementDate` -- nunca `estClosingDate`,
@@ -466,6 +561,14 @@ function TypeBreakdownChart({
 export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
   const [period, setPeriod] = useState<PeriodSelection>(() => getDefaultPeriodSelection());
   const orgRoster = useOrgRoster();
+
+  /** Etapa F7, Parte 5: drill-down de rankings/scorecards hacia el mismo LoanDetailModal que ya usa PivotTable. `null` = cerrado. */
+  const [drillDown, setDrillDown] = useState<{
+    context: string;
+    metric: string;
+    loans: LoanDetailModalLoan[];
+    hiddenColumns: LoanDetailModalColumn[];
+  } | null>(null);
 
   /**
    * La animación de entrada de los charts de tendencias (más abajo en esta
@@ -539,10 +642,12 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
 
   return (
     <>
-      <p className="foot-note" style={{ marginBottom: '16px' }}>
-        Funded loans (Disbursement Date) grouped by Loan Program and Loan Type, for the selected period. Read-only —
-        doesn&apos;t affect pull-through, Healthy, Adverse, or strategy calculations elsewhere in Forecast.
-      </p>
+      {/* count={1}: nota siempre visible (no es un diagnóstico condicional) -- se reusa DiagnosticsNote solo por su mecanismo de resumen breve + detalle en tooltip, mismo patrón que PersonDiagnostics. */}
+      <DiagnosticsNote
+        count={1}
+        summary="Funded loans (Disbursement Date), grouped by Loan Program and Loan Type, for the selected period."
+        detail="Read-only — doesn't affect pull-through, Healthy, Adverse, or strategy calculations elsewhere in Forecast."
+      />
 
       <div className="control-bar" style={{ marginBottom: '16px' }}>
         <PeriodSelector value={period} onChange={setPeriod} />
@@ -557,62 +662,126 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
       )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '20px' }}>
-        <RankingTable title="Loan Program" columnLabel="Program" rows={programRanking} totalCount={fundedInRange.length} />
-        <RankingTable title="Loan Type" columnLabel="Type" rows={typeRanking} totalCount={fundedInRange.length} />
+        <RankingTable
+          title="Loan Program"
+          columnLabel="Program"
+          rows={programRanking}
+          totalCount={fundedInRange.length}
+          onRowClick={(row) =>
+            setDrillDown({
+              metric: 'Loan Program',
+              context: row.label,
+              loans: fundedInRange
+                .filter((l) => (l.loanProgram.trim() || DRILLDOWN_NO_PROGRAM_LABEL) === row.label)
+                .map(closedLoanToModalLoan),
+              hiddenColumns: ['loanProgram', 'milestone', 'status'],
+            })
+          }
+        />
+        <RankingTable
+          title="Loan Type"
+          columnLabel="Type"
+          rows={typeRanking}
+          totalCount={fundedInRange.length}
+          onRowClick={(row) =>
+            setDrillDown({
+              metric: 'Loan Type',
+              context: row.label,
+              loans: fundedInRange
+                .filter((l) => (l.loanType.trim() || DRILLDOWN_NO_TYPE_LABEL) === row.label)
+                .map(closedLoanToModalLoan),
+              hiddenColumns: ['loanType', 'milestone', 'status'],
+            })
+          }
+        />
       </div>
 
       <h3 style={{ margin: '24px 0 12px' }}>Scorecards</h3>
-      <p className="foot-note" style={{ marginBottom: '16px' }}>
-        Resolved against <code>org.dim_branch</code>/<code>org.employee_alias</code> (schema <code>org</code>, read-only,
-        same session as the rest of the app) — names are never compared with string equality, only via the alias
-        table.
-      </p>
+      <DiagnosticsNote
+        count={1}
+        summary="Branch, Loan Officer, and Business Developer are matched against the company roster, so name variants are combined."
+        detail="Resolved against org.dim_branch/org.employee_alias (schema org, read-only, same session as the rest of the app) — names are never compared with string equality, only via the alias table."
+      />
 
       {orgRoster.loading && <p className="foot-note">Loading org roster…</p>}
       {orgRoster.error && <p className="pill warn" style={{ display: 'inline-flex' }}>Could not load org roster: {orgRoster.error}</p>}
 
       {!orgRoster.loading && !orgRoster.error && (
         <>
-          {branchScorecard.unresolvedBranches.length > 0 && (
-            <p className="foot-note" style={{ marginBottom: '12px' }}>
-              {branchScorecard.unresolvedBranches.length} branch code(s) in this period&apos;s loans are not in{' '}
-              <code>org.dim_branch</code>: {branchScorecard.unresolvedBranches.join(', ')}. Still counted in the
-              scorecard below, just not confirmed against the org roster.
-            </p>
-          )}
           <div style={{ marginBottom: '20px' }}>
-            <ScorecardTable title="Branch" columnLabel="Branch" rows={branchScorecard.rows} totalCount={fundedInRange.length} />
+            <ScorecardTable
+              title="Branch"
+              columnLabel="Branch"
+              rows={branchScorecard.rows}
+              totalCount={fundedInRange.length}
+              onRowClick={(row) =>
+                setDrillDown({
+                  metric: 'Branch',
+                  context: row.label,
+                  loans: fundedInRange.filter((l) => l.branch === row.key).map(closedLoanToModalLoan),
+                  hiddenColumns: ['milestone', 'status'],
+                })
+              }
+              diagnostic={{
+                count: branchScorecard.unresolvedBranches.length,
+                summary: `${fmtInt(branchScorecard.unresolvedBranches.length)} branch code${
+                  branchScorecard.unresolvedBranches.length === 1 ? '' : 's'
+                } not recognized (still counted below)`,
+                detail: `Not found in org.dim_branch: ${branchScorecard.unresolvedBranches.join(', ')}`,
+              }}
+            />
           </div>
 
-          <PersonDiagnostics result={loanOfficerScorecard} />
           <div style={{ marginBottom: '20px' }}>
             <ScorecardTable
               title="Loan Officer"
               columnLabel="Loan Officer"
               rows={loanOfficerScorecard.rows}
               totalCount={loanOfficerScorecard.diagnostics.resolvedCount}
+              onRowClick={(row) =>
+                setDrillDown({
+                  metric: 'Loan Officer',
+                  context: row.label,
+                  loans: fundedInRange
+                    .filter((l) => loanResolvesToEmployeeKey(l, orgRoster.aliasIndex, row.key))
+                    .map(closedLoanToModalLoan),
+                  hiddenColumns: ['loanOfficer', 'milestone', 'status'],
+                })
+              }
+              diagnostic={personDiagnosticsNote(loanOfficerScorecard)}
             />
           </div>
 
-          <PersonDiagnostics result={businessDeveloperScorecard} />
           <div>
             <ScorecardTable
               title="Business Developer"
               columnLabel="Business Developer"
               rows={businessDeveloperScorecard.rows}
               totalCount={businessDeveloperScorecard.diagnostics.resolvedCount}
+              onRowClick={(row) =>
+                setDrillDown({
+                  metric: 'Business Developer',
+                  context: row.label,
+                  loans: fundedInRange
+                    .filter(
+                      (l) => l.opportunityOwnerTitle === 'Business Developer' && loanResolvesToEmployeeKey(l, orgRoster.aliasIndex, row.key)
+                    )
+                    .map(closedLoanToModalLoan),
+                  hiddenColumns: ['loanOfficer', 'milestone', 'status'],
+                })
+              }
+              diagnostic={personDiagnosticsNote(businessDeveloperScorecard)}
             />
           </div>
         </>
       )}
 
       <h3 style={{ margin: '24px 0 12px' }}>Monthly Trends — {trendsYear}</h3>
-      <p className="foot-note" style={{ marginBottom: '16px' }}>
-        All 12 months of {trendsYear}, funded loans by Disbursement Date -- months with no data yet (e.g. future
-        months this year) show 0 explicitly, never omitted. The month(s) matching the period selected above are
-        highlighted in coral, without replacing the full-year series. Read-only, no dependency on <code>org</code> --
-        entirely from <code>pipeline_resolved_loans</code>.
-      </p>
+      <DiagnosticsNote
+        count={1}
+        summary={`All 12 months of ${trendsYear} — months with no data yet show 0 explicitly, never omitted. The month(s) matching the period selected above are highlighted in coral.`}
+        detail="Read-only, no dependency on org -- entirely from pipeline_resolved_loans."
+      />
 
       <div ref={trendsSectionRef} className={'trend-charts' + (trendsVisible ? ' trend-charts--enter' : '')}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '20px', marginBottom: '20px' }}>
@@ -645,6 +814,16 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
           <TypeBreakdownChart breakdown={monthlyTypeBreakdown} highlightMonths={highlightMonths} />
         </div>
       </div>
+
+      {/* Etapa F7, Parte 5: mismo modal que ya usa PivotTable -- una lista de loans y un título, sin nada específico de esa pantalla. */}
+      <LoanDetailModal
+        isOpen={drillDown !== null}
+        onClose={() => setDrillDown(null)}
+        context={drillDown?.context ?? ''}
+        metric={drillDown?.metric ?? ''}
+        loans={drillDown?.loans ?? []}
+        hiddenColumns={drillDown?.hiddenColumns}
+      />
     </>
   );
 }

@@ -997,3 +997,13 @@ table.piv tr.strat-break-row td {
     transition: none;
   }
 }
+
+/*
+ * Fila clickeable de ranking/scorecard (Etapa F7, Parte 5) -- abre
+ * LoanDetailModal con el detalle de esa fila. El hover de fondo
+ * (`tr.metric:hover`, ya global en components.css) no cambia; esto solo
+ * agrega el cursor como affordance de que la fila es interactiva.
+ */
+.metric--drill {
+  cursor: pointer;
+}

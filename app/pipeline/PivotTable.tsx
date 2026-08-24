@@ -637,7 +637,7 @@ function formatCtcClosingTooltip(loans: PipelineLoan[]): string | undefined {
  * trae la columna. rawHealthiness se OMITE a propósito: un préstamo ya cerrado
  * no tiene un estado de salud vigente, y el modal muestra '—' cuando falta.
  */
-function closedLoanToModalLoan(loan: ResolvedLoan): LoanDetailModalLoan {
+export function closedLoanToModalLoan(loan: ResolvedLoan): LoanDetailModalLoan {
   return {
     sourceLoanId: loan.sourceLoanId,
     // Etapa F6: crudos para el realtor del NPPM. Ver LoanDetailModalLoan.

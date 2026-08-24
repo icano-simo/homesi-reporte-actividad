@@ -4137,3 +4137,397 @@ by".
 editado (solo comentario, sin regla nueva). No se tocó
 `lib/pipeline/strategy.ts` (`classifyStrategy`/`nppmRealtors` sin cambios,
 como pedía el alcance).
+
+## Etapa F7, Parte 5 -- drill-down de rankings/scorecards hacia LoanDetailModal
+
+Cada fila de los 5 cortes de Analytics (Loan Program, Loan Type, Branch,
+Loan Officer, Business Developer) abre el mismo `LoanDetailModal` que ya
+usa `PivotTable.tsx`, con la lista real de préstamos detrás de esa fila.
+
+### Ningún cálculo se tocó -- solo se re-filtra la entrada que esas funciones ya reciben
+
+`buildRanking`/`toRows`/`buildPersonScorecard` (`lib/pipeline/analytics.ts`,
+`lib/pipeline/scorecards.ts`) siguen exactamente iguales -- ninguna
+devuelve la lista de loans detrás de cada fila, y no hacía falta que lo
+hicieran: `TabAnalytics.tsx` ya tiene `fundedInRange` (el mismo array que
+se les pasa) disponible en el momento del click, así que el drill-down
+re-filtra ese array con la misma clave que agrupó la fila, en vez de pedir
+que las funciones de agregación devuelvan el detalle.
+
+- **Programa/Tipo:** `(loan.loanProgram.trim() || 'Sin programa') === row.label`
+  (mismo para Tipo con `loanType`/`'Sin tipo'`) -- mismo criterio EXACTO de
+  `buildRanking` (`getRaw(loan).trim() || emptyLabel`). Los placeholders
+  `'Sin programa'`/`'Sin tipo'` están duplicados como constantes locales en
+  `TabAnalytics.tsx` (`DRILLDOWN_NO_PROGRAM_LABEL`/`DRILLDOWN_NO_TYPE_LABEL`)
+  porque `lib/pipeline/analytics.ts` no los exporta y ese archivo queda
+  fuera del alcance de archivos de esta etapa -- **riesgo anotado
+  explícito**: si el texto del placeholder cambia algún día en
+  `analytics.ts`, hay que actualizar esta copia a mano, no se detecta solo.
+- **Branch:** `loan.branch === row.key` -- directo, `ScorecardRow.key` de
+  `buildBranchScorecard` YA es el código crudo de branch (`byKey.set(code,
+  ...)`), sin alias de por medio.
+- **Loan Officer/Business Developer:** `row.key` es `String(employeeKey)`
+  RESUELTO (nunca el nombre crudo) -- el drill-down repite la misma
+  resolución que `buildPersonScorecard` (`aliasIndex.lookup('salesforce',
+  loan.loanOfficer.trim())`, comparando el `employeeKey` resultante contra
+  `row.key`) en vez de comparar nombres con `===`, cumpliendo la misma
+  regla dura ya documentada en la Parte 2. Business Developer aplica
+  además el mismo pre-filtro exacto de `buildBusinessDeveloperScorecard`
+  (`opportunityOwnerTitle === 'Business Developer'`) antes de resolver.
+
+### El período seleccionado se hereda gratis -- verificado, no asumido
+
+Los 5 cortes ya parten de `fundedInRange = fundedLoansInRange(resolvedLoans,
+periodDateRange(period))` (confirmado leyendo el código final, no solo
+citado del diagnóstico previo) -- el drill-down filtra ese mismo array, así
+que un clic en "F30EEP" con agosto seleccionado sólo puede traer loans de
+F30EEP en agosto. No hace falta ningún filtro de fecha adicional en el
+handler del click.
+
+### Mapeo a `LoanDetailModalLoan`: se exportó, no se reimplementó
+
+Único cambio a un archivo fuera de lo tocado hasta ahora en F7:
+`closedLoanToModalLoan()` en `PivotTable.tsx` pasó de función privada a
+`export function closedLoanToModalLoan(...)` -- ninguna otra línea de ese
+archivo cambió. `TabAnalytics.tsx` la importa tal cual, evitando duplicar
+el mapeo campo a campo `ResolvedLoan -> LoanDetailModalLoan` que ya existía
+y estaba verificado.
+
+### `context`/`metric` pasados al modal
+
+`metric` = nombre del corte de origen ("Loan Program", "Loan Type",
+"Branch", "Loan Officer", "Business Developer"). `context` = `row.label`
+tal cual (el texto ya visible en esa fila) -- para Branch esto es
+únicamente el código crudo (ej. "716"), sin nombre de sucursal enriquecido
+(ej. "Coral Gables"): ese enriquecimiento requeriría traer
+`branch_name`/ciudad desde `org.dim_branch`, y `useOrgRoster.ts` (que hoy
+sólo trae `branch_code` a un `Set`) queda fuera del alcance de archivos de
+esta etapa. Documentado acá en vez de expandir el alcance sin que se
+pidiera.
+
+### Verificación real (snapshot activo)
+
+⚠ El snapshot activo cambió de id 72 (etapas anteriores) a **id 73**
+(`data_as_of` 2026-08-24T18:44:05Z) entre la Parte 4 y esta verificación --
+se usan los números reales de 73, como corresponde cuando el snapshot
+activo cambia.
+
+Agosto 2026 (período por defecto del selector), 23 funded:
+- Loan Program: C30 (7) · F30EEP (6) · B30FNBA (2) · F30 (2) · 6 programas
+  más con 1 c/u. Suma = 23.
+- Loan Type: Conventional (13) · FHA (10). Suma = 23.
+- Branch: 716 (5) · Affinity (4) · 776 (3) · 733/707/710/747/760 (2 c/u) ·
+  703 (1). Suma = 23.
+- Business Developer (`opportunity_owner_title`, crudo antes de alias): 8
+  de los 23 -- Giancarlo Laino (3) · Silvio Arteaga (3) · Aimmee Buendia
+  (1) · Adriana Szczech (1).
+
+Para probar el caso de lista LARGA (el brief original citaba 152, número
+de TODO el historial de la Parte 4 -- con el período por defecto mensual
+esa escala no se alcanza, agosto sólo tiene 8 BD-titled), se releyó con
+YTD 2026 (2026-01-01 a hoy): 333 funded, **102 BD-titled** (crudo, antes de
+fusionar por alias) -- del mismo orden de magnitud que el número original,
+suficiente para ejercitar la lista larga real.
+
+⚠ **Límite de esta verificación:** la resolución real por
+`org.employee_alias` (qué `employeeKey` exacto agrupa cada fila de Loan
+Officer/Business Developer) no se pudo ejecutar desde este entorno de
+script -- mismo bloqueo `42501 permission denied for schema org` ya
+documentado en la Parte 2. Los conteos de arriba son PRE-alias (por nombre
+crudo); el conteo POST-alias real (el que efectivamente ve cada fila del
+scorecard) sólo se puede confirmar en pantalla, con sesión de navegador.
+
+### Lista larga en el modal -- confirmado por código, no por render real
+
+`LoanDetailModal.tsx` no tiene ningún `.slice()`/límite de filas -- itera
+el array completo con `.map(renderLoanRow)` sin importar su longitud, y
+`.modal-box { max-height: 85vh }` + `.modal-body { overflow-y: auto }`
+(`components.css`) ya scrollean cualquier tabla más alta que el modal, sin
+cambios para esta etapa. No se pudo confirmar visualmente en un navegador
+real que 100+ filas rendericen sin cortarse -- mismo límite de entorno que
+el resto de esta verificación.
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx` editado (`onRowClick` opcional en
+`RankingTable`/`ScorecardTable`, estado `drillDown`, 5 handlers, render de
+`LoanDetailModal`). `app/pipeline/PivotTable.tsx`: un solo cambio, `export`
+agregado a `closedLoanToModalLoan` (cero líneas de lógica tocadas).
+`app/pipeline/styles/forecast-visual.css`: una regla nueva, `.metric--drill
+{ cursor: pointer; }` (el hover de fondo ya existía global en
+`components.css`).
+
+## Etapa F7, Parte 6 -- `hiddenColumns` en LoanDetailModal, solo para Analytics
+
+Analytics abre el mismo `LoanDetailModal` que `PivotTable.tsx` (Parte 5),
+pero cada uno de sus 5 cortes ya muestra en su propia fila el dato que una
+columna del modal repetiría (ej. Loan Program), y dos columnas (Milestone,
+Status) hoy siempre vienen vacías en este contexto específico. `hiddenColumns
+?: LoanDetailModalColumn[]` generaliza el mismo patrón que ya usaba
+`showChannelColumn` (una columna condicional) a cualquier columna, sin
+duplicar esa lógica.
+
+### Por qué Milestone/Status se ocultan -- y por qué esto NO es permanente
+
+⚠ **Status** se oculta porque `closedLoanToModalLoan()` (`PivotTable.tsx`)
+omite `rawHealthiness` a propósito -- un préstamo cerrado no tiene un
+estado de salud de pipeline vigente. Esto es una decisión de diseño
+estable: mientras Analytics siga abriendo solo `ResolvedLoan` (funded),
+Status seguirá vacío.
+
+⚠ **Milestone** se oculta por un motivo DISTINTO y más fragil: hoy siempre
+muestra el fallback `'Closed (Funded)'` porque `pipeline_resolved_loans`
+**no tiene columna `raw_milestone`** (`app/api/pipeline/latest/route.ts`,
+confirmado con una query real: `column pipeline_resolved_loans.raw_milestone
+does not exist`) -- así que `loan.rawMilestone` llega vacío y cae al
+fallback. Esto **no es una garantía de schema**, es un hueco: si algún día
+se agrega esa columna a `pipeline_resolved_loans` (ya existe el precedente
+de guardar `row.currentMilestone` real para adverse en
+`lib/pipeline/sources/salesforce-file.ts`, usado para "Last Finished
+Milestone" en AdverseTable), Milestone dejaría de estar vacío para funded
+también, y esta ocultación en `TabAnalytics.tsx` habría que revisarla --
+**no asumir que es correcta para siempre, revisar si esa columna aparece**.
+
+### Mecanismo
+
+`LoanDetailModal.tsx` -- nuevo tipo exportado `LoanDetailModalColumn =
+'loanOfficer' | 'loanType' | 'loanProgram' | 'milestone' | 'status' |
+'channel'` y prop `hiddenColumns?: LoanDetailModalColumn[]`. Cinco banderas
+derivadas (`showLoanOfficerColumn`, etc.) gobiernan `<col>`/`<th>`/`<td>`
+condicionales, mismo patrón que ya usaba `showChannelColumn` (que sigue
+intacto, ahora combinado con `!hiddenColumns?.includes('channel')`).
+`visibleColumnCount` reemplaza los `10`/`9` hardcodeados de los
+`colSpan` de fila de sección y "No loans." -- se recalcula sumando 4
+columnas siempre visibles (Loan #, Borrower, Amount, Notes) más cada
+columna condicional que esté activa.
+
+### Los 3 consumidores existentes -- confirmado sin cambio de comportamiento
+
+`PivotTable.tsx`, `TabMilestoneMatrix.tsx`, `AdverseTable.tsx`: ninguno
+pasa `hiddenColumns` (`grep hiddenColumns` en los 3 -- cero resultados),
+así que siguen viendo exactamente las mismas columnas que antes de esta
+etapa. `AdverseTable.tsx`/`TabMilestoneMatrix.tsx` no se tocaron en
+absoluto (diff vacío contra el último commit).
+
+### Columnas visibles por corte (`TabAnalytics.tsx`)
+
+| Corte | `hiddenColumns` | Columnas visibles |
+|---|---|---|
+| Loan Program | `['loanProgram', 'milestone', 'status']` | Loan #, Borrower, Loan Officer, Channel, Loan Type, Amount, Notes (7) |
+| Loan Type | `['loanType', 'milestone', 'status']` | Loan #, Borrower, Loan Officer, Channel, Loan Program, Amount, Notes (7) |
+| Branch | `['milestone', 'status']` | Loan #, Borrower, Loan Officer, Channel, Loan Type, Loan Program, Amount, Notes (8) |
+| Loan Officer | `['loanOfficer', 'milestone', 'status']` | Loan #, Borrower, Channel, Loan Type, Loan Program, Amount, Notes (7) |
+| Business Developer | `['loanOfficer', 'milestone', 'status']` | Loan #, Borrower, Channel, Loan Type, Loan Program, Amount, Notes (7) |
+
+Ninguno de los 5 oculta Channel -- no se pidió, y `showChannelColumn` sigue
+en su default `true`.
+
+### Archivos
+
+`app/pipeline/LoanDetailModal.tsx` editado (`LoanDetailModalColumn`,
+`hiddenColumns`, `visibleColumnCount`, columnas condicionales).
+`app/pipeline/TabAnalytics.tsx` editado (tipo del estado `drillDown`
+extendido con `hiddenColumns`, un array por cada uno de los 5 handlers).
+`PivotTable.tsx`/`TabMilestoneMatrix.tsx`/`AdverseTable.tsx` sin tocar.
+
+## Etapa F7, Parte 7 -- silencio cuando todo resuelve, lenguaje simple cuando no
+
+El texto de diagnóstico de los 3 scorecards (Branch, Loan Officer,
+Business Developer) se mostraba SIEMPRE, incluso cuando el 100% de los
+loans resolvía sin problema -- y mencionaba nombres de tabla
+(`org.employee_alias`, `org.source_name_excluded`, `org.dim_branch`) como
+texto plano permanente en pantalla. Nueva regla, un solo componente
+(`DiagnosticsNote`) para los 3:
+
+1. **Silencio si no hay ningún problema** (`count === 0`) -- reemplaza a
+   `PersonDiagnostics` (que solo chequeaba `totalInput === 0`, así que
+   mostraba el párrafo completo incluso con 100% resuelto).
+2. **Resumen corto en lenguaje simple** cuando sí hay algo -- sin nombres
+   de tabla en el texto visible. Ej.: `"3 of 46 loans could not be
+   matched to a person (2 unrecognized names, 1 known non-person
+   entry)"`.
+3. **Detalle técnico completo solo en `title`** (tooltip nativo del
+   navegador, al pasar el mouse) -- nombres de tabla, desglose exacto de
+   `unmappedNames`, lista de branch codes. `DiagnosticsNote` se ve con
+   `cursor: help` y un subrayado punteado (`border-bottom: 1px dotted`)
+   como affordance de que hay más detalle al pasar el mouse -- inline,
+   sin agregar clase nueva a `forecast-visual.css` (fuera del alcance de
+   archivos de esta etapa).
+
+`personDiagnosticsNote()` (nueva función, reemplaza al componente
+`PersonDiagnostics`) arma `summary`/`detail` a partir de
+`PersonScorecardDiagnostics` -- el `console.warn` de reconciliación
+(`resolved+blank+excluded+unmapped === totalInput`) sigue exactamente
+igual, solo cambió el texto visible. El diagnóstico de Branch
+(`unresolvedBranches`) se migró al mismo componente con su propio
+`summary`/`detail` -- ya se ocultaba solo con `unresolvedBranches.length
+=== 0` antes de esta etapa, pero mencionaba `org.dim_branch` en texto
+plano; ahora ese nombre de tabla va solo en el tooltip.
+
+### Verificación real -- con la limitación ya conocida de acceso a `org`
+
+⚠ `blankCount` (Loan Officer/Owner vacío) es el único de los 3 motivos
+que NO depende de `org` -- se puede verificar por SELECT directo contra
+`pipeline_resolved_loans`. `unmappedCount`/`excludedCount` sí dependen de
+`org.employee_alias`/`org.source_name_excluded`, bloqueados `42501` fuera
+del navegador (misma limitación ya documentada en la Parte 2).
+
+- **Agosto 2026 (período por defecto, snapshot activo id 73):** `blankCount
+  = 0` para Loan Officer (23 loans) y para Business Developer (8 loans) --
+  verificado por SELECT real. No se puede confirmar si `unmappedCount`/
+  `excludedCount` también son 0 sin sesión de navegador -- así que no se
+  puede afirmar con certeza total que el aviso esté en silencio para este
+  período exacto, solo que el componente SÍ estaría en silencio si esos
+  dos también son 0 (verificado leyendo `DiagnosticsNote`: `count === 0`
+  -> `return null`).
+- **YTD 2026 (2026-01-01 a hoy, mismo snapshot):** `blankCount = 1` de
+  333 loans (Loan Officer) -- confirmado real, SELECT directo. Esto por
+  sí solo garantiza que el aviso se muestra (`problemCount >= 1`), sin
+  importar cuánto valgan `unmappedCount`/`excludedCount`. Si esos dos
+  fueran 0 (no confirmado), el texto exacto sería:
+  `"1 of 333 loans could not be matched to a person (1 with no name
+  recorded)"`. El texto real final (si además hay excluidos/no-mapeados
+  ese período) requiere confirmación en pantalla.
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx` editado: `PersonDiagnostics` reemplazado
+por `DiagnosticsNote` (genérico, los 3 scorecards) + `personDiagnosticsNote()`
+(arma el texto para LO/BD) + el diagnóstico de Branch migrado al mismo
+componente. Ningún archivo de `lib/pipeline/scorecards.ts` se tocó --
+`PersonScorecardDiagnostics` (la forma de datos) sigue igual, solo cambió
+cómo se traduce a texto visible.
+
+## Etapa F7, Parte 8 -- 3 notas de implementación que se filtraron a la UI, movidas al mismo patrón de tooltip
+
+Ninguna de las 3 notas de abajo fue pedida por el brief F7 original --
+eran comentarios de implementación (garantías de "no afecta otros
+cálculos", nombres de schema/tabla) que quedaron como texto plano
+permanente en pantalla. Se les aplicó el mismo tratamiento que ya usa
+`DiagnosticsNote` (Parte 7): lo genuinamente útil para quien mira la
+pantalla queda breve y visible; el resto (jerga de schema/`read-only`/
+"no depende de") va solo al tooltip.
+
+`DiagnosticsNote` se **reusó tal cual** (cero lógica nueva) en las 3 --
+se le pasa `count={1}` a propósito: esa nota nunca es condicional (siempre
+hay algo breve que mostrar en Rankings/Scorecards/Monthly Trends), y
+`count` en el componente solo existe para el chequeo `=== 0` de los
+scorecards -- cualquier valor no-cero cumple exactamente lo mismo, sin
+agregar una rama nueva al componente.
+
+### 1. Rankings (Loan Program / Loan Type)
+
+**Antes** (texto plano permanente):
+> Funded loans (Disbursement Date) grouped by Loan Program and Loan Type, for the selected period. Read-only —
+> doesn't affect pull-through, Healthy, Adverse, or strategy calculations elsewhere in Forecast.
+
+**Visible ahora** (`summary`):
+> Funded loans (Disbursement Date), grouped by Loan Program and Loan Type, for the selected period.
+
+**Solo en tooltip** (`detail`):
+> Read-only — doesn't affect pull-through, Healthy, Adverse, or strategy calculations elsewhere in Forecast.
+
+Se conservó "(Disbursement Date)" en el texto visible -- no es jerga
+interna, es el mismo campo de negocio que ya usa el selector de período
+(distingue de Est. Closing Date, ambigüedad real en otras partes del
+módulo). La garantía de "no afecta otros cálculos" es información
+irrelevante para quien lee la pantalla (es una nota-a-mí-mismo contra
+regresiones, no algo que el usuario necesite para interpretar el
+ranking) -- se movió entera al tooltip.
+
+### 2. Scorecards (Branch / Loan Officer / Business Developer)
+
+**Antes:**
+> Resolved against org.dim_branch/org.employee_alias (schema org, read-only, same session as the rest of the app) —
+> names are never compared with string equality, only via the alias table.
+
+**Visible ahora:**
+> Branch, Loan Officer, and Business Developer are matched against the company roster, so name variants are combined.
+
+**Solo en tooltip:**
+> Resolved against org.dim_branch/org.employee_alias (schema org, read-only, same session as the rest of the app) — names are never compared with string equality, only via the alias table.
+
+Lo genuinamente útil acá era explicar POR QUÉ nombres distintos del
+export terminan en la misma fila (ej. el caso ya documentado "Ana Milena
+Zegarra"/"Ana Peña") -- reformulado sin nombrar `org.dim_branch`/
+`org.employee_alias` ni "string equality". El resto (nombres de schema,
+detalle de sesión/mecanismo de comparación) es implementación pura --
+al tooltip completo.
+
+### 3. Monthly Trends
+
+**Antes:**
+> All 12 months of {año}, funded loans by Disbursement Date -- months with no data yet (e.g. future months this
+> year) show 0 explicitly, never omitted. The month(s) matching the period selected above are highlighted in
+> coral, without replacing the full-year series. Read-only, no dependency on org -- entirely from
+> pipeline_resolved_loans.
+
+**Visible ahora:**
+> All 12 months of {año} — months with no data yet show 0 explicitly, never omitted. The month(s) matching the period selected above are highlighted in coral.
+
+**Solo en tooltip:**
+> Read-only, no dependency on org -- entirely from pipeline_resolved_loans.
+
+Esta es la que el propio brief ya señalaba como ejemplo de "sí es útil"
+(el caso de meses futuros en 0 explícito) -- se conservó tal cual, igual
+que la mención del resaltado en coral (explica una señal visual real de
+la pantalla). Se recortó "without replacing the full-year series" (ya
+lo explica el propio resaltado visual, no hace falta el texto) y la
+garantía de "read-only / no depende de org" completa, que fue a tooltip.
+
+### Archivos
+
+Solo `app/pipeline/TabAnalytics.tsx` (los 3 `<p className="foot-note">`
+reemplazados por `<DiagnosticsNote count={1} summary=... detail=... />`,
+comentario de `DiagnosticsNote` actualizado para documentar el reuso con
+`count={1}`). `docs/ARQUITECTURA.md` con el detalle completo que salió de
+la UI, sin recortar, tal como se pidió.
+
+## Etapa F7, Parte 9 -- diagnóstico de matching (Branch/LO/BD) como ícono, no como línea de texto
+
+Distinto de las 3 notas generales de "cómo funciona" (Parte 8, que se
+quedan como texto breve siempre visible): el diagnóstico de coincidencias
+de Branch/Loan Officer/Business Developer (Parte 7, `DiagnosticsNote`
+vía `personDiagnosticsNote()`/el objeto inline de Branch) todavía
+mostraba una línea de texto propia cuando `count > 0` -- ahora es
+un ícono de advertencia junto al título del scorecard, sin ninguna línea
+de texto al lado.
+
+### Mecanismo
+
+Nuevo prop `diagnostic?: { count: number; summary: string; detail: string }`
+en `ScorecardTable` (mismo shape que ya devolvía `personDiagnosticsNote()`
+y el objeto inline de Branch -- cero cambio en cómo se arma ese dato,
+solo en dónde se renderiza). Dentro de `.tbl-card__head`, junto a
+`.tbl-card__title`:
+
+```tsx
+{diagnostic && diagnostic.count > 0 && (
+  <span title={`${diagnostic.summary}\n${diagnostic.detail}`} style={{ ... cursor: 'help' ... }}>
+    <AlertTriangleIcon size={14} />
+  </span>
+)}
+```
+
+`count === 0` -> nada (mismo silencio que ya existía). `count > 0` ->
+solo el ícono (`AlertTriangleIcon`, `components/ui/icons.tsx`, ya usado
+en el resto de la app -- tab "Adverse Loans" en `TabNavigation.tsx`,
+mismo `size={14}`, mismo criterio de no traer una librería de iconos
+nueva). El resumen simple Y el detalle técnico completo van JUNTOS en el
+`title` del ícono (tooltip nativo, separados por salto de línea) -- ya no
+hay ninguna línea de texto plano en la pantalla por defecto para estos 3,
+ni siquiera el resumen breve.
+
+Las 3 notas generales (Rankings/Scorecards/Monthly Trends, Parte 8) NO se
+tocaron -- siguen siendo `<DiagnosticsNote count={1} .../>` con su texto
+breve siempre visible, porque no son advertencias condicionales, son
+explicación fija de cómo leer la pantalla.
+
+### Archivos
+
+Solo `app/pipeline/TabAnalytics.tsx`: nuevo prop `diagnostic` en
+`ScorecardTable`, import de `AlertTriangleIcon`, los 3 call-sites de
+Branch/Loan Officer/Business Developer pasan `diagnostic={...}` en vez de
+renderizar `<DiagnosticsNote>` como hermano. `personDiagnosticsNote()` no
+cambió su firma ni su lógica -- sigue devolviendo `{count, summary,
+detail}`, solo cambió quién lo consume.
