@@ -831,3 +831,164 @@ table.piv tr.strat-break-row td {
   color: var(--slate-400);
   margin-right: 5px;
 }
+
+/*
+ * ---------------------------------------------------------------------------
+ * Tendencias mensuales (Etapa F7, Parte 3) -- barras dibujadas a mano, sin
+ * librería de charts. Mismo criterio ya documentado para el gráfico de
+ * Business Plan (`app/business-plan/components/MonthlyBarChart.tsx`, clases
+ * `.bp-chart*` -- viven en `bp-visual.css`, que solo carga Business Plan, así
+ * que no se pueden reusar acá): traer Recharts/Chart.js/D3 para dibujar
+ * rectángulos sumaría una dependencia y kB de bundle que este repo ya viene
+ * evitando (misma nota en components/ui/icons.tsx). Estas clases son propias
+ * de Forecast, sin acoplarse a las de Business Plan.
+ * ------------------------------------------------------------------------ */
+
+.trend-chart {
+  display: flex;
+  flex-direction: column;
+}
+.trend-chart__plot {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+}
+.trend-chart__col {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+}
+.trend-chart__value {
+  font-size: 10px;
+  color: var(--slate-500);
+  margin-bottom: 3px;
+  white-space: nowrap;
+}
+.trend-chart__bar {
+  width: 100%;
+  border-radius: 3px 3px 0 0;
+  background: var(--navy);
+  min-height: 1px;
+  transform-origin: bottom;
+  transition: opacity 0.15s ease, background-color 0.25s ease;
+}
+.trend-chart__bar:hover {
+  opacity: 0.82;
+}
+/*
+ * Entrada "ola" de los charts de tendencias -- cada barra/pila crece desde
+ * 0 con un pequeño delay escalonado por mes (`--bar-i`, seteado inline por
+ * columna). Gateada detrás de `.trend-charts--enter` (agregada por
+ * IntersectionObserver en TabAnalytics.tsx cuando la sección entra en el
+ * viewport la primera vez -- el observer se desconecta apenas dispara, así
+ * que no se repite en cada scroll) -- si no, la animación terminaría antes
+ * de que el usuario haga scroll hasta ver estos charts, más abajo en la
+ * pestaña. Antes de eso, las barras se ven en su alto final, estáticas.
+ * Deliberadamente NO se re-dispara solo por cambiar el período en el
+ * selector de la Parte 1: eso reemplazaría la transición suave del
+ * resaltado (ver abajo) por un remount completo, mucho menos "sutil".
+ */
+@keyframes trend-grow {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+.trend-charts--enter .trend-chart__bar,
+.trend-charts--enter .trend-chart__stack {
+  animation: trend-grow 0.3s ease-out both;
+  animation-delay: calc(var(--bar-i, 0) * 25ms);
+}
+/* Mes del período seleccionado (Parte 1) -- se resalta DENTRO de la serie completa del año, no la reemplaza. El cruce de color (navy/tipo <-> coral) transiciona en vez de cambiar de golpe cuando el usuario mueve el selector. */
+.trend-chart__col--highlight .trend-chart__bar {
+  background: var(--coral);
+}
+.trend-chart__col--highlight .trend-chart__tick {
+  color: var(--navy);
+  font-weight: 700;
+}
+.trend-chart__axis {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+}
+.trend-chart__tick {
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: 10.5px;
+  color: var(--slate-500);
+  text-align: center;
+  transition: color 0.25s ease;
+}
+.trend-chart__stack {
+  transform-origin: bottom;
+}
+/*
+ * Barra apilada por Loan Type -- cada segmento es un tramo de altura
+ * proporcional dentro de la misma columna. `min-height` evita que un tipo
+ * minoritario (ej. VA, 1-3 de ~40 loans/mes) se vuelva invisible a 0-1px;
+ * el `box-shadow` inset (mismo token `--canvas` usado como fondo del
+ * canvas global) marca un contorno claro entre segmentos contiguos, para
+ * que una porción angosta siga leyéndose como "un tipo con su propio
+ * color" y no como una línea perdida ni como el bloque sólido de
+ * `--coral` (mes resaltado en los otros dos charts) -- sin cambiar
+ * ningún color de la paleta.
+ */
+.trend-seg {
+  width: 100%;
+  min-height: 2px;
+  box-shadow: inset 0 0 0 1px var(--canvas);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Red de seguridad: el JS ya omite `.trend-seg__label` si el segmento no
+     mide MIN_SEGMENT_LABEL_HEIGHT, esto asegura que nunca se derrame un
+     número sobre el segmento vecino aunque cambie ese umbral. */
+  overflow: hidden;
+  transition: opacity 0.15s ease;
+}
+.trend-seg:hover {
+  opacity: 0.82;
+}
+/* Valor del segmento (Conventional/FHA/VA) -- más chico que .trend-chart__value (10px) para no competir con los totales de Closings/Amount; sin negrita. */
+.trend-seg__label {
+  font-size: 8.5px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.trend-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--slate-600);
+}
+.trend-legend__dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 5px;
+  flex-shrink: 0;
+}
+/* Accesibilidad, no opcional -- mismo criterio ya usado para `.modal-box`/`modal-in` en components.css. */
+@media (prefers-reduced-motion: reduce) {
+  /* Mismo selector compuesto que .trend-charts--enter, para igualar su especificidad y ganar siempre -- si no, la entrada "ola" le ganaría a este override. */
+  .trend-chart__bar,
+  .trend-chart__stack,
+  .trend-charts--enter .trend-chart__bar,
+  .trend-charts--enter .trend-chart__stack {
+    animation: none;
+  }
+  .trend-chart__bar,
+  .trend-seg,
+  .trend-chart__tick {
+    transition: none;
+  }
+}

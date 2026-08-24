@@ -123,3 +123,21 @@ export function periodLabel(selection: PeriodSelection): string {
   if (selection.mode === 'quarter') return `Q${selection.quarter} ${selection.year}`;
   return `${selection.year} (Year to Date)`;
 }
+
+/**
+ * Los meses ('YYYY-MM') que cubre la selección -- para resaltar el período
+ * elegido DENTRO de una serie más larga (ej. las 12 barras del año en curso
+ * de la Parte 3), sin reemplazar esa serie. YTD resalta desde enero hasta
+ * el mes en curso (UTC) si el año elegido es el año en curso, o el año
+ * completo si es un año ya cerrado -- mismo criterio que `periodDateRange`.
+ */
+export function periodMonths(selection: PeriodSelection): string[] {
+  if (selection.mode === 'month') return [`${selection.year}-${pad2(selection.month)}`];
+  if (selection.mode === 'quarter') {
+    const startMonth = (selection.quarter - 1) * 3 + 1;
+    return [0, 1, 2].map((i) => `${selection.year}-${pad2(startMonth + i)}`);
+  }
+  const today = utcToday();
+  const lastMonth = selection.year === today.year ? today.month : 12;
+  return Array.from({ length: lastMonth }, (_, i) => `${selection.year}-${pad2(i + 1)}`);
+}

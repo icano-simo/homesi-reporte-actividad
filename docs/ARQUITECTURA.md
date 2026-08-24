@@ -3923,3 +3923,134 @@ la resolución.
 agregados debajo de los rankings de la Parte 1). Ningún archivo de
 `lib/business-plan/**` se modificó -- `buildAliasIndex`/`buildExcludedIndex`/
 los tipos de `org` se importan tal cual.
+
+## Etapa F7, Parte 3 -- tendencias mensuales del año en curso
+
+Debajo de rankings y scorecards, en la misma pestaña Analytics: tres series
+mensuales del año en curso (2026 al momento de escribir esto) sobre
+`pipeline_resolved_loans` -- cierres por mes, monto cerrado por mes, y
+distribución por Loan Type mes a mes. A diferencia de la Parte 2, no
+depende de `org` ni de resolución de alias -- se puede construir y
+verificar completa desde este entorno.
+
+### Por qué mensual, nunca semanal, y por qué no hace falta un objeto `Date`
+
+`disbursement_date` en `ResolvedLoan.disbursementDate` ya es un string
+`'YYYY-MM-DD'`, nunca un objeto `Date`. Agrupar por mes es `slice(0, 7)`
+directo sobre ese string -- no existe conversión de huso horario posible
+porque el valor nunca pasa por `new Date(...)` ni por ningún método
+local/UTC de lectura de componentes. Esto es justo lo que la regla
+"siempre UTC" del proyecto busca evitar (desplazar un cierre de fin de mes
+al mes siguiente): acá el riesgo ni siquiera existe, por construcción. Lo
+único que sí necesita UTC explícito es saber cuál es "el año en curso" --
+`currentYear()` (en `lib/pipeline/trends.ts`) delega en `utcToday()`, la
+misma función ya usada en la Parte 1, nunca `new Date().getFullYear()`
+local.
+
+### Meses sin datos -- explícitos, nunca omitidos
+
+`buildMonthlyTotals`/`buildMonthlyTypeBreakdown` siempre devuelven las 12
+filas del año (`monthsOfYear(year)`), con `count: 0, amount: 0` explícito
+(o `byType: []`) para cualquier mes sin loans -- nunca un array más corto
+que 12. El componente de UI (`SimpleMonthlyChart`/`TypeBreakdownChart`)
+dibuja igual las 12 columnas del eje; una columna en 0 muestra una barra
+mínima de 1px, sin etiqueta de valor encima, y su tooltip agrega
+explícitamente `"(no data yet)"` -- nunca desaparece del eje ni se
+confunde visualmente con un mes que sí tiene datos pero es chico.
+
+⚠ **Aclaración de alcance frente al brief:** el brief usa "septiembre 2025"
+como ejemplo del borde del historial del snapshot activo (id 72, datos
+desde 2025-09 hacia atrás). Esa fecha es real, pero **no es parte de la
+serie de esta etapa**: la Parte 3 muestra únicamente el año en curso
+(2026), por regla explícita del propio brief ("año en curso"). Dentro de
+2026, el borde real de rango incompleto son los **meses futuros aún no
+ocurridos** (2026-09 a 2026-12, respecto al reloj del sistema al momento
+de esta verificación, 2026-08-24) -- esos son los que se renderizan en 0
+explícito, no septiembre 2025. Se documenta esta distinción para no dar a
+entender que se verificó un caso que en realidad no aplica a esta serie.
+
+### Resaltado del período seleccionado dentro de la serie completa
+
+`periodMonths()` (nuevo, en `lib/pipeline/period.ts`, junto al resto de la
+Parte 1) devuelve los meses `'YYYY-MM'` que cubre la selección activa del
+selector -- un mes para modo Month, tres para Quarter, y de enero al mes
+en curso (UTC) o hasta diciembre si el año ya cerró, para YTD (mismo
+criterio de corte que `periodDateRange`). `TabAnalytics` cruza esos meses
+contra el año de la serie (`trendsYear`) y les aplica una clase CSS
+(`.trend-chart__col--highlight`, color `var(--coral)`) sin quitar ni
+reemplazar ninguna de las 12 columnas -- el resaltado es un overlay visual
+sobre la serie completa, nunca un filtro que la reduzca.
+
+### Componente de charting -- no existía ninguno reusable en Forecast
+
+Se revisó `app/pipeline/**` completo (incluida `MilestoneCascade.tsx`,
+donde el único elemento gráfico es un ícono SVG de stage y una barra de
+progreso puramente CSS, no un componente de chart) y no existe ningún
+componente de series/barras reusable dentro de Forecast. El único
+precedente real en toda la app es `app/business-plan/components/
+MonthlyBarChart.tsx` (Business Plan) -- confirmado no reusable tal cual
+porque (a) su CSS (`.bp-chart*`) vive en `bp-visual.css`, que por
+convención del proyecto solo se importa desde `app/business-plan/
+layout.tsx` (mismo patrón de scoping que ya usa `forecast-visual.css` para
+Forecast, documentado en el propio comentario de cabecera de ese archivo),
+y (b) su lógica está acoplada a conceptos exclusivos de Business Plan
+(`CurrentMonthProjection`, apportionment en 3 segmentos). Se usó como
+**precedente arquitectónico**, no como componente importado: mismo
+criterio de "SVG/CSS a mano, sin librería de charts" (Recharts/Chart.js/D3
+nunca se agregaron al proyecto), aplicado en dos componentes nuevos y
+propios de Forecast (`SimpleMonthlyChart`, `TypeBreakdownChart`, dentro de
+`app/pipeline/TabAnalytics.tsx`), con su CSS en la sección nueva de
+`forecast-visual.css` (clases `.trend-chart*`, `.trend-seg`,
+`.trend-legend*`) -- mismo scoping, tokens de `app/styles/tokens.css`
+(`--navy`, `--coral`, `--emerald-700`, `--amber-500`, `--rose-700`,
+`--sky`, `--slate-400`), cero hexadecimales.
+
+### Números reales (snapshot activo id 72, verificado por SELECT de solo lectura)
+
+Funded total del snapshot (todo el historial, 2025-09 a 2026-08): **450**.
+Funded de 2026 (la serie de esta etapa): **332** -- suma de los 8 meses con
+datos (enero a agosto), los 4 restantes (septiembre a diciembre) en 0
+explícito por ser futuros.
+
+| Mes | Cierres | Monto |
+|---|---|---|
+| 2026-01 | 38 | 14,243,978 |
+| 2026-02 | 32 | 10,985,871 |
+| 2026-03 | 39 | 12,829,298 |
+| 2026-04 | 56 | 18,896,194 |
+| 2026-05 | 42 | 15,559,781 |
+| 2026-06 | 46 | 15,503,200 |
+| 2026-07 | 57 | 19,487,582 |
+| 2026-08 | 22 | 7,854,591 |
+| 2026-09 a 2026-12 | 0 c/u | 0 c/u |
+
+Fuera de la serie de esta etapa, para contexto (no forma parte del año en
+curso): 2025-09 (15) · 2025-10 (31) · 2025-11 (27) · 2025-12 (45) -- estos
+4 meses SÍ son datos reales del snapshot, simplemente no son 2026.
+
+### Reconciliación -- 332, no 450
+
+⚠ **El brief original pide reconciliar contra "el total de funded del
+snapshot completo (450)"**, pero esa misma instrucción escopa la Parte 3
+explícitamente a "año en curso" -- 450 es el total de TODO el historial
+(2025-09 a 2026-08), no del año en curso. El número correcto contra el que
+reconcilian los 12 meses de esta serie es **332** (suma real de enero a
+agosto 2026; septiembre-diciembre aportan 0 cada uno). Se documenta esta
+distinción en vez de forzar la serie a sumar 450, que habría requerido
+incluir meses de 2025 dentro de un gráfico rotulado "año en curso" --
+mezclando dos años bajo una sola etiqueta de forma engañosa. La suma de
+`buildMonthlyTotals(loans, 2026)` (12 filas) es exactamente 332,
+verificado tanto por query directa como por lectura del código.
+
+### Archivos
+
+`lib/pipeline/trends.ts` (nuevo, puro -- `buildMonthlyTotals`,
+`buildMonthlyTypeBreakdown`, `monthsOfYear`, `currentYear`).
+`lib/pipeline/period.ts` editado (agregado `periodMonths`, sin tocar nada
+existente de la Parte 1). `app/pipeline/TabAnalytics.tsx` editado (dos
+componentes de chart nuevos + sección de render debajo de scorecards).
+`app/pipeline/styles/forecast-visual.css` editado (sección nueva
+`.trend-chart*`/`.trend-seg`/`.trend-legend*`, con comentario de cabecera
+explicando por qué se justifica un componente nuevo en vez de reusar
+`MonthlyBarChart.tsx`). No requirió tocar `org`, `useOrgRoster.ts` ni
+`scorecards.ts`.
