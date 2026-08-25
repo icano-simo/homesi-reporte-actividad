@@ -28,6 +28,7 @@ import AdverseTable from './AdverseTable';
 import Topbar from './Topbar';
 import TabNavigation, { type TabType } from './TabNavigation';
 import TabMilestoneMatrix from './TabMilestoneMatrix';
+import TabAnalytics from './TabAnalytics';
 import { getForecastDb, isSupabaseConfigured } from '@/lib/supabase/client';
 import { DownloadIcon, FileSheetIcon, UploadIcon } from '@/components/ui/icons';
 
@@ -979,6 +980,14 @@ export default function PipelinePage() {
               firstSeenAsAdverse={firstSeenAsAdverse}
             />
           )}
+
+          {/*
+           * Etapa F7, Parte 1: mismo `filteredResolvedLoans` que ya recibe
+           * PivotTable (branch ya aplicado, funded+adverse sin filtrar por
+           * fecha) -- TabAnalytics filtra por status='funded' y por su propio
+           * selector de período internamente, no hace falta acotarlo acá.
+           */}
+          {activeTab === 'analytics' && <TabAnalytics resolvedLoans={filteredResolvedLoans} />}
 
           {/*
            * Fase urgente, punto 5: Isabella pidió explícitamente sacar de la

@@ -125,6 +125,9 @@ export interface LoanDetailModalLoan {
  */
 const NOT_AVAILABLE_TEXT = 'Not available for this snapshot';
 
+/** Nombres estables de columna -- mismo vocabulario que los campos de `LoanDetailModalLoan`, para `hiddenColumns`. */
+export type LoanDetailModalColumn = 'loanOfficer' | 'loanType' | 'loanProgram' | 'milestone' | 'status' | 'channel';
+
 export interface LoanDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -133,6 +136,17 @@ export interface LoanDetailModalProps {
   /** Métrica auditada, ej. "Total Pipeline". El conteo lo agrega este componente. */
   metric: string;
   loans: LoanDetailModalLoan[];
+  /**
+   * Etapa F7, Parte 6 -- oculta columnas que ya son redundantes con el
+   * corte que abrió el modal (ej. Analytics abriendo por Loan Program no
+   * necesita repetir esa misma columna), o que en ese contexto siempre
+   * vienen vacías. Default `undefined`: los 3 consumidores existentes
+   * (PivotTable.tsx, TabMilestoneMatrix.tsx, AdverseTable) no lo pasan y
+   * ven exactamente las mismas columnas que hoy, sin cambio de
+   * comportamiento -- mismo criterio que `showChannelColumn` de abajo,
+   * generalizado a cualquier columna en vez de solo Channel.
+   */
+  hiddenColumns?: LoanDetailModalColumn[];
   /**
    * Combined Total by Branch (PivotTable.tsx) sí tiene channel real por loan;
    * Milestone Matrix (TabMilestoneMatrix.tsx) ya filtra por un solo canal vía
@@ -231,8 +245,24 @@ export default function LoanDetailModal({
   metric,
   loans,
   showChannelColumn = true,
+  hiddenColumns,
   sections,
 }: LoanDetailModalProps) {
+  /** `channel` sigue gobernado por `showChannelColumn` (comportamiento previo, sin cambios) -- las demás columnas por `hiddenColumns`. */
+  const showLoanOfficerColumn = !hiddenColumns?.includes('loanOfficer');
+  const showLoanTypeColumn = !hiddenColumns?.includes('loanType');
+  const showLoanProgramColumn = !hiddenColumns?.includes('loanProgram');
+  const showMilestoneColumn = !hiddenColumns?.includes('milestone');
+  const showStatusColumn = !hiddenColumns?.includes('status');
+  /** Loan #, Borrower, Amount, Notes son siempre visibles -- no tienen entrada en `hiddenColumns`. */
+  const visibleColumnCount =
+    4 +
+    (showLoanOfficerColumn ? 1 : 0) +
+    (showChannelColumn && !hiddenColumns?.includes('channel') ? 1 : 0) +
+    (showLoanTypeColumn ? 1 : 0) +
+    (showLoanProgramColumn ? 1 : 0) +
+    (showMilestoneColumn ? 1 : 0) +
+    (showStatusColumn ? 1 : 0);
   /**
    * Expansión de Notes POR FILA -- Set de sourceLoanId (identificador
    * estable ya usado como `key` en cada <tr>, ver el .map() más abajo), NO
@@ -332,28 +362,58 @@ export default function LoanDetailModal({
                 {r.value}
               </span>
             ))}
+          {/*
+            ⚠ OWNER PARA B2B Y DEMÁS ESTRATEGIAS — etapa F7, Parte 4.
+            Extiende el mismo patrón de arriba (sub-label debajo del prestatario,
+            misma clase `.nppm-realtor`/`.nppm-realtor__label`) a cualquier
+            préstamo que NO sea NPPM: acá el dato es `opportunityOwnerTitle` (el
+            TITLE crudo -- "Business Developer", etc. -- que hoy no se muestra en
+            ningún otro lugar de este modal), no el realtor. Se omite si viene
+            vacío (mismo criterio que arriba, sin placeholder) o si por alguna
+            razón coincide exactamente con `loanOfficer` (columna ya visible más
+            abajo en esta misma fila) -- para no duplicar el mismo valor dos
+            veces. Se muestra tal cual viene, sin filtrar valores de sistema.
+          */}
+          {classifyStrategy(loan) !== 'NPPM' &&
+            loan.opportunityOwnerTitle.trim() !== '' &&
+            loan.opportunityOwnerTitle.trim() !== loan.loanOfficer.trim() && (
+              <span className="nppm-realtor" title={'Owner: ' + loan.opportunityOwnerTitle.trim()}>
+                <span className="nppm-realtor__label">Owner</span>
+                {loan.opportunityOwnerTitle.trim()}
+              </span>
+            )}
         </td>
-        <td style={{ textAlign: 'left' }} title={loan.loanOfficer}>
-          {loan.loanOfficer || '—'}
-        </td>
-        {showChannelColumn && (
+        {showLoanOfficerColumn && (
+          <td style={{ textAlign: 'left' }} title={loan.loanOfficer}>
+            {loan.loanOfficer || '—'}
+          </td>
+        )}
+        {showChannelColumn && !hiddenColumns?.includes('channel') && (
           <td style={{ textAlign: 'left' }} title={loan.channel ?? '—'}>
             {loan.channel ?? '—'}
           </td>
         )}
-        <td style={{ textAlign: 'left' }} title={loan.loanType || NOT_AVAILABLE_TEXT}>
-          {loan.loanType || NOT_AVAILABLE_TEXT}
-        </td>
-        <td style={{ textAlign: 'left' }} title={loan.loanProgram || NOT_AVAILABLE_TEXT}>
-          {loan.loanProgram || NOT_AVAILABLE_TEXT}
-        </td>
+        {showLoanTypeColumn && (
+          <td style={{ textAlign: 'left' }} title={loan.loanType || NOT_AVAILABLE_TEXT}>
+            {loan.loanType || NOT_AVAILABLE_TEXT}
+          </td>
+        )}
+        {showLoanProgramColumn && (
+          <td style={{ textAlign: 'left' }} title={loan.loanProgram || NOT_AVAILABLE_TEXT}>
+            {loan.loanProgram || NOT_AVAILABLE_TEXT}
+          </td>
+        )}
         <td className="val">{fmtAmount(loan.amount)}</td>
-        <td style={{ textAlign: 'left' }} title={loan.rawMilestone}>
-          {loan.rawMilestone || '—'}
-        </td>
-        <td style={{ textAlign: 'left' }}>
-          <HealthBadge rawHealthiness={loan.rawHealthiness} />
-        </td>
+        {showMilestoneColumn && (
+          <td style={{ textAlign: 'left' }} title={loan.rawMilestone}>
+            {loan.rawMilestone || '—'}
+          </td>
+        )}
+        {showStatusColumn && (
+          <td style={{ textAlign: 'left' }}>
+            <HealthBadge rawHealthiness={loan.rawHealthiness} />
+          </td>
+        )}
         <td className="note-cell">
           <NoteCell
             note={loan.noteHistory}
@@ -411,26 +471,26 @@ export default function LoanDetailModal({
               <colgroup>
                 <col style={{ width: '115px' }} />
                 <col style={{ width: '190px' }} />
-                <col style={{ width: '175px' }} />
-                {showChannelColumn && <col style={{ width: '130px' }} />}
-                <col style={{ width: '120px' }} />
-                <col style={{ width: '145px' }} />
+                {showLoanOfficerColumn && <col style={{ width: '175px' }} />}
+                {showChannelColumn && !hiddenColumns?.includes('channel') && <col style={{ width: '130px' }} />}
+                {showLoanTypeColumn && <col style={{ width: '120px' }} />}
+                {showLoanProgramColumn && <col style={{ width: '145px' }} />}
                 <col style={{ width: '95px' }} />
-                <col style={{ width: '150px' }} />
-                <col style={{ width: '115px' }} />
+                {showMilestoneColumn && <col style={{ width: '150px' }} />}
+                {showStatusColumn && <col style={{ width: '115px' }} />}
                 <col style={{ width: '240px' }} />
               </colgroup>
             <thead>
               <tr className="mo-row">
                 <th className="lbl">Loan #</th>
                 <th style={{ textAlign: 'left' }}>Borrower</th>
-                <th style={{ textAlign: 'left' }}>Loan Officer</th>
-                {showChannelColumn && <th style={{ textAlign: 'left' }}>Channel</th>}
-                <th style={{ textAlign: 'left' }}>Loan Type</th>
-                <th style={{ textAlign: 'left' }}>Loan Program</th>
+                {showLoanOfficerColumn && <th style={{ textAlign: 'left' }}>Loan Officer</th>}
+                {showChannelColumn && !hiddenColumns?.includes('channel') && <th style={{ textAlign: 'left' }}>Channel</th>}
+                {showLoanTypeColumn && <th style={{ textAlign: 'left' }}>Loan Type</th>}
+                {showLoanProgramColumn && <th style={{ textAlign: 'left' }}>Loan Program</th>}
                 <th>Amount</th>
-                <th style={{ textAlign: 'left' }}>Milestone</th>
-                <th style={{ textAlign: 'left' }}>Status</th>
+                {showMilestoneColumn && <th style={{ textAlign: 'left' }}>Milestone</th>}
+                {showStatusColumn && <th style={{ textAlign: 'left' }}>Status</th>}
                 <th style={{ textAlign: 'left' }}>Notes</th>
               </tr>
             </thead>
@@ -440,7 +500,7 @@ export default function LoanDetailModal({
                     .filter((section) => section.loans.length > 0)
                     .flatMap((section) => [
                       <tr className="modal-section-row" key={'section:' + section.label}>
-                        <td colSpan={showChannelColumn ? 10 : 9}>{section.label}:</td>
+                        <td colSpan={visibleColumnCount}>{section.label}:</td>
                       </tr>,
                       ...section.loans.map((loan) => renderLoanRow(loan)),
                     ])
@@ -450,7 +510,7 @@ export default function LoanDetailModal({
                   <td
                     className="lbl"
                     style={{ color: 'var(--slate-500)', fontWeight: 500 }}
-                    colSpan={showChannelColumn ? 10 : 9}
+                    colSpan={visibleColumnCount}
                   >
                     No loans.
                   </td>

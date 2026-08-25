@@ -54,6 +54,16 @@ export type PipelineLoan = {
   nppmRealtor: string;
   referredBy: string;
   affinityProgram: string;
+  /**
+   * Etapa F7.20: columna "Opportunity Owner" del export -- nombre de
+   * persona, DISTINTO de `opportunityOwnerTitle` (el rol, "Business
+   * Developer" etc.) y de `referredBy` (confirmado con captura real que
+   * las tres pueden traer personas distintas en la misma fila). '' si el
+   * export no trae la columna (snapshots restaurados de antes de esta
+   * etapa quedan así -- ver el mensaje explícito de "sin datos" en
+   * TabAnalytics.tsx en vez de un scorecard vacío sin explicación).
+   */
+  opportunityOwner: string;
 };
 
 /**
@@ -123,4 +133,6 @@ export type ResolvedLoan = {
   nppmRealtor: string;
   referredBy: string;
   affinityProgram: string;
+  /** Etapa F7.20: mismo significado que en `PipelineLoan` -- ver ese comentario. */
+  opportunityOwner: string;
 };

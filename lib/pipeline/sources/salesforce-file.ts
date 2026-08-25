@@ -122,6 +122,14 @@ function resolveColumnIndexes(headerRow: unknown[]): Record<string, number> {
   idx['NPPM Realtor'] = normalized.indexOf('NPPM Realtor');
   idx['Referred By'] = normalized.indexOf('Referred By');
   idx['Affinity Program'] = normalized.indexOf('Affinity Program');
+  /*
+   * Etapa F7.20: nombre de persona, columna DISTINTA de "Opportunity
+   * Owner: Title" (el rol/título, ya leído arriba) y de "Referred By" --
+   * confirmado con captura real que las tres pueden traer personas
+   * distintas en la misma fila. Mismo criterio opcional que el resto de
+   * este bloque: `-1` si el export no la trae, no rompe el parseo.
+   */
+  idx['Opportunity Owner'] = normalized.indexOf('Opportunity Owner');
 
   const missing = REQUIRED_COLUMNS.filter((col) => idx[col] === -1);
   if (missing.length) {
@@ -249,6 +257,8 @@ interface RawRow {
   opportunityOwnerTitle: string;
   nppmRealtor: string;
   referredBy: string;
+  /** Etapa F7.20: nombre de "Opportunity Owner" -- '' si el export no trae la columna. Distinto de opportunityOwnerTitle (rol) y referredBy. */
+  opportunityOwner: string;
   /**
    * ⚠ `unknown` y no `string`: en el export "Affinity Program" es una CASILLA,
    * no texto -- en el archivo del 2026-08-20 son 815 `false` y 68 `true`.
@@ -322,6 +332,7 @@ function extractRowsFormatA(aoa: unknown[][], idx: Record<string, number>, heade
         opportunityOwnerTitle: String(row[idx['Opportunity Owner: Title']] ?? ''),
         nppmRealtor: String(row[idx['NPPM Realtor']] ?? ''),
         referredBy: String(row[idx['Referred By']] ?? ''),
+        opportunityOwner: String(row[idx['Opportunity Owner']] ?? ''),
         affinityProgramRaw: row[idx['Affinity Program']],
       });
     }
@@ -363,6 +374,7 @@ function extractRowsFormatB(aoa: unknown[][], idx: Record<string, number>, heade
       opportunityOwnerTitle: String(row[idx['Opportunity Owner: Title']] ?? ''),
       nppmRealtor: String(row[idx['NPPM Realtor']] ?? ''),
       referredBy: String(row[idx['Referred By']] ?? ''),
+      opportunityOwner: String(row[idx['Opportunity Owner']] ?? ''),
       affinityProgramRaw: row[idx['Affinity Program']],
     });
   }
@@ -445,6 +457,7 @@ function classifyRow(
       opportunityOwnerTitle: row.opportunityOwnerTitle,
       nppmRealtor: row.nppmRealtor,
       referredBy: row.referredBy,
+      opportunityOwner: row.opportunityOwner,
       /*
        * ⚠ La casilla se guarda como `'true'` o `''`, NUNCA como `'false'`.
        *
@@ -518,6 +531,7 @@ function classifyRow(
       opportunityOwnerTitle: row.opportunityOwnerTitle,
       nppmRealtor: row.nppmRealtor,
       referredBy: row.referredBy,
+      opportunityOwner: row.opportunityOwner,
       /*
        * ⚠ La casilla se guarda como `'true'` o `''`, NUNCA como `'false'`.
        *
