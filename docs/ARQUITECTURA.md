@@ -5296,3 +5296,217 @@ Solo `app/pipeline/TabAnalytics.tsx`: `personDiagnosticsNote()`
 reescrita (mismo shape de retorno `{count, summary, detail}`, mismo
 `console.warn` de reconciliación sin cambios). `docs/ARQUITECTURA.md`.
 Ningún archivo de `lib/business-plan/**` ni `useOrgRoster.ts` tocado.
+
+## Etapa F7.20 -- columna "Opportunity Owner", de punta a punta
+
+Autorizado por Isa: `opportunity_owner` ya existe en `pipeline_loans`/
+`pipeline_resolved_loans`, y `save_pipeline_snapshot()` ya está ampliada
+(verificado por ella, conserva los 8 campos anteriores). Implementación
+en el orden confirmado: parser → tipo → mapper de subida → mapper de
+lectura → scorecard.
+
+### Las 4 capas de código
+
+1. **Parser** (`lib/pipeline/sources/salesforce-file.ts`): nuevo
+   `idx['Opportunity Owner']`, campo `opportunityOwner` en `RawRow`, leído
+   en los 2 formatos (A y B), pasado a `PipelineLoan`/`ResolvedLoan` en
+   `classifyRow()` -- mismo patrón exacto que los 5 crudos de F6.
+2. **Tipo** (`lib/pipeline/types.ts`): `opportunityOwner: string` en
+   `PipelineLoan` y `ResolvedLoan`.
+3. **Mapper de subida** (`app/api/pipeline/parse/route.ts`):
+   `opportunity_owner: loan.opportunityOwner` en los 2 inserts (open y
+   resolved) -- mismo criterio `''` vs `NULL` ya documentado para F6.
+4. **Mapper de lectura** (`app/api/pipeline/latest/route.ts`): columna
+   agregada a los 2 `select(...)`, `opportunityOwner: r.opportunity_owner
+   ?? ''` en los 2 mapeos -- el `?? ''` importa de verdad: confirmado con
+   datos reales que la base guarda `NULL` (no `''`) para snapshots
+   viejos, ver más abajo.
+
+### Fix necesario, no pedido explícito: el drill-down de Business Developer resolvía el campo equivocado
+
+`loanResolvesToEmployeeKey()` (usada por el click de fila en Loan
+Officer y Business Developer para abrir `LoanDetailModal`) tenía
+`loan.loanOfficer` hardcodeado -- si el scorecard de BD pasa a agrupar
+por `opportunityOwner` pero el drill-down seguía resolviendo
+`loanOfficer`, el click en una fila de BD habría abierto los préstamos
+de la persona equivocada (mismo tipo de bug que motivó esta etapa, pero
+en el modal en vez del scorecard). Se parametrizó con un
+`getRawName: (loan) => string`, igual que ya hace `buildPersonScorecard`
+en `scorecards.ts` -- Loan Officer sigue pasando `(loan) =>
+loan.loanOfficer`, Business Developer ahora pasa `(loan) =>
+loan.opportunityOwner`.
+
+### Scorecard (`lib/pipeline/scorecards.ts`)
+
+`buildBusinessDeveloperScorecard`: una línea, `buildPersonScorecard(bdLoans,
+(loan) => loan.opportunityOwner, ...)` en vez de `(loan) =>
+loan.loanOfficer`. El filtro de quién ES Business Developer
+(`opportunityOwnerTitle === 'Business Developer'`) no cambió. "sf
+integrations" se excluye por el mismo `excludedIndex` ya usado para Loan
+Officer -- ningún chequeo nuevo, mismo mecanismo aplicado a una columna
+distinta.
+
+### Mensaje "sin datos de owner" -- verificado con datos reales, no solo por código
+
+`bdOwnerDataMissing` (`TabAnalytics.tsx`): `true` cuando
+`diagnostics.totalInput > 0 && diagnostics.blankCount ===
+diagnostics.totalInput` -- todos los BD-titled del período vinieron sin
+`opportunityOwner`, a diferencia de "0 Business Developers reales"
+(`totalInput === 0`, un resultado distinto y legítimo). Cuando es
+`true`, la tarjeta de Business Developer muestra el mensaje explícito en
+vez de `ScorecardTable` (que de otro modo mostraría "No funded loans in
+this period", engañoso acá).
+
+**Verificado contra el snapshot activo real (id 74, antes de cualquier
+carga nueva):** 113 loans BD-titled, **los 113 con
+`opportunity_owner` = `NULL` en la base** (no `''`) -- confirma que el
+`?? ''` del mapper de lectura es necesario de verdad, y que
+`bdOwnerDataMissing` evalúa `true` para este snapshot con datos reales,
+no solo en teoría.
+
+### ⚠ Verificación de carga real -- NO SE PUDO EJECUTAR desde este entorno
+
+Isa pidió explícito "verificar CONTRA LA BASE, no solo que la respuesta
+del upload fue 200" -- se intentó, pero `/api/pipeline/parse`
+(`app/api/pipeline/parse/route.ts`) usa `getServerClient('pipeline_forecast')`
+(`lib/supabase/server.ts`), que arma el cliente de Supabase con la
+**sesión del usuario que hizo la request** (cookies del navegador) --
+sin `service_role`, por diseño (RLS exige un usuario autenticado, ver
+comentario de Etapa AUTH1 en ese archivo). Sin una sesión de navegador
+real, esta ruta no escribe nada -- mismo tipo de bloqueo que ya viene
+limitando el acceso a `org` durante toda esta sesión, ahora confirmado
+también para escrituras a `pipeline_forecast` vía esta ruta específica.
+
+**No se hizo la carga de prueba.** Queda pendiente que Heather la haga
+desde el navegador real -- con el archivo de referencia más reciente
+disponible (`Forecast_Pipeline_2026-08-24 (1).xlsx`, en Descargas al
+momento de este reporte, o el que corresponda). Después de esa carga,
+sí se puede verificar contra la base con `service_role` de solo lectura
+(mismo mecanismo ya usado en toda la sesión) -- la query de verificación
+ya queda preparada en `docs/sql/2026-08-25-opportunity-owner-column.sql`.
+
+### Archivos
+
+`lib/pipeline/sources/salesforce-file.ts`, `lib/pipeline/types.ts`,
+`app/api/pipeline/parse/route.ts`, `app/api/pipeline/latest/route.ts`,
+`lib/pipeline/scorecards.ts`, `app/pipeline/TabAnalytics.tsx` (mensaje +
+fix del drill-down). Además, dos archivos fuera del alcance original de
+5+docs pero necesarios para que `tsc` compile (ambos construyen un
+`PipelineLoan` literal a mano): `fixtures/pipeline-demo.ts` y
+`scripts/test-aggregate.ts` -- una línea cada uno (`opportunityOwner:
+''`), mismo patrón que los cinco crudos de F6 en esos mismos archivos.
+
+## Etapa F7.21 -- nota descriptiva en Avg Ticket by Month
+
+Avg Ticket by Month era el único chart de Monthly Trends sin ninguna
+`DiagnosticsNote` propia -- los otros cuatro (Rankings, Scorecards,
+Monthly Trends, Strategy Mix, Pareto) ya tenían una. Se agregó una,
+mismo componente y mismo patrón de colocación ya usado para Strategy
+Mix/Pareto (justo encima del `tbl-card` del chart, `count={1}` porque
+no es un diagnóstico condicional):
+
+- `summary` (siempre visible): "Average loan amount per closing, by
+  month (total amount ÷ closings -- not a margin or division earnings
+  figure)."
+- `detail` (tooltip nativo al pasar el mouse): referencia explícita a
+  `avgTicketByMonth()` (`lib/pipeline/trends.ts`), aclarando que divide
+  el mismo `monthlyTotals` que ya usan los charts de Closings/Amount de
+  arriba -- no es un campo separado del export ni una fuente de datos
+  distinta.
+
+Motivo: sin esta nota, el número podía leerse como una cifra de
+ganancia/comisión de la división en vez de lo que realmente es --
+tamaño promedio del préstamo (monto ÷ conteo, derivado, no un dato
+directo del archivo de Salesforce). Redacción que evita esa confusión
+sin introducir mecanismo nuevo: mismo componente `DiagnosticsNote`, sin
+cambios de lógica ni de datos.
+
+Archivos: `app/pipeline/TabAnalytics.tsx` (una `DiagnosticsNote` nueva,
+sin tocar `AvgTicketChart` ni `avgTicketByMonth()`).
+
+## Etapa F7.22 -- nombres con U+FFFD ("�") en el tooltip de diagnóstico
+
+Se reportó que "Javier Peñaloza" se veía como "Javier Pe�aloza" en el
+tooltip de nombres no reconocidos del scorecard de Business Developer.
+Investigado a fondo -- **no es un bug de este parser ni de
+`opportunityOwner` en particular**:
+
+- Leyendo los BYTES crudos (sin ningún parseo propio, `fs.readFileSync`
+  directo) de exports CSV reales de Salesforce, se confirmó que el
+  carácter ya viene roto en el archivo de origen: los bytes UTF-8 de
+  U+FFFD (`EF BF BD`) ya están en el lugar de la ñ, antes de que
+  cualquier código de esta app lo lea. Confirmado en dos archivos CSV
+  reales distintos ("Javier Pe[FFFD]aloza", "Eduardo Nu[FFFD]ez Mr
+  Flip").
+- Confirmado que es específico del formato CSV: un export XLSX real de
+  la misma fecha, con nombres igual de acentuados (ej. "Norfael
+  Rodríguez Jaimes"), se lee perfectamente limpio -- XLSX guarda texto
+  como XML UTF-8 internamente, más robusto que el CSV que genera
+  Salesforce en este caso.
+- Confirmado que el problema YA existía antes de `opportunityOwner`:
+  datos reales ya cargados (snapshot 75) tenían el mismo patrón en
+  `referred_by` ("Eduardo Nu�ez Mr Flip") -- pasó desapercibido porque
+  `loan_officer`/`referred_by` casi siempre se muestran resueltos vía
+  `org.employee_alias` (nombre limpio de `dim_employee.full_name`, no el
+  crudo del archivo). `opportunityOwner`, con muchos nombres aún sin
+  mapear, es el primer lugar donde se expone un nombre CRUDO
+  directamente al usuario -- ahí es donde se hizo visible, no donde se
+  originó.
+
+U+FFFD significa "byte no decodificable" -- el carácter original ya se
+perdió de forma irrecuperable en el momento en que Salesforce generó el
+CSV. No hay ningún fix de causa raíz posible en el código: reemplazar
+"�" por una letra específica sería adivinar, no corregir.
+
+Decisión (consultada explícitamente): en vez de dejar el "�" sin
+contexto o intentar "arreglarlo", se agregó una advertencia visible
+junto al nombre dañado en el mismo tooltip donde ya aparecía --
+`hasDamagedEncoding()` (`app/pipeline/TabAnalytics.tsx`) detecta
+U+FFFD en `nameRaw` y `personDiagnosticsNote()` le agrega
+`[damaged in Salesforce export -- character lost at the source, not a
+parsing error]` junto al nombre. Aplica automáticamente a los tres
+scorecards de persona (Loan Officer, Business Developer, y cualquier
+otro que use `personDiagnosticsNote()` en el futuro), no solo a
+`opportunityOwner`. Verificado que no genera falsos positivos contra
+nombres acentuados limpios ("Ana Peña", "Norfael Rodríguez Jaimes").
+
+Archivos: `app/pipeline/TabAnalytics.tsx` (`hasDamagedEncoding()` +
+un cambio en `personDiagnosticsNote()`). Sin cambios en el parser,
+tipos, ni mappers de subida/lectura -- no había nada que corregir ahí.
+
+## Etapa F7.23 -- Strategy Mix respeta el mismo aviso de "sin datos" que Business Developer
+
+Pedido explícito: un snapshot anterior al 23 de agosto (sin los cinco
+crudos de estrategia -- Etapa F6) hace que `classifyStrategy()` caiga en
+`'Own production'` para el 100% de los loans, porque es el valor por
+default de esa función cuando `strategyRaw`/`opportunityOwnerTitle`
+vienen vacíos. Sin este aviso, Strategy Mix mostraría un donut con una
+única porción de "Own production" al 100% -- se lee como un resultado
+real de negocio y no lo es.
+
+- **Strategy Mix:** `hasStrategyData()` (`lib/pipeline/strategy.ts`) ya
+  existía desde la Etapa F6 exactamente para este caso (`loans.some((l)
+  => l.strategyRaw !== '' || l.opportunityOwnerTitle !== '')`), pero
+  nunca se había conectado a esta vista. Se agregó `strategyDataMissing`
+  en `TabAnalytics.tsx` (`fundedInRange.length > 0 &&
+  !hasStrategyData(fundedInRange)`, mismo criterio de `totalInput > 0`
+  que ya usa `bdOwnerDataMissing` para no disparar el aviso con un
+  período sin ningún loan) y se envolvió el donut en la misma condición
+  que ya usa el scorecard de Business Developer (F7.20): si falta el
+  dato, `"No strategy data in this snapshot -- re-upload required to
+  populate this view."` en vez del gráfico.
+- **Pareto:** revisado `buildParetoRows()` (`lib/pipeline/paretoMix.ts`)
+  y su uso en `TabAnalytics.tsx` -- confirmado que solo consume
+  `ScorecardRow.closedCount` de `branchScorecard`/`loanOfficerScorecard`
+  (`buildBranchScorecard`/`buildLoanOfficerScorecard`,
+  `lib/pipeline/scorecards.ts`), que agrupan por `branch`/`loanOfficer`
+  -- ninguno de los cinco crudos de estrategia. Un snapshot viejo sin
+  esas columnas no afecta a Pareto de ninguna forma; no hace falta
+  ningún aviso ahí hoy. Queda anotado (no implementado, no aplica
+  todavía) que si en el futuro Pareto se agrupara por Strategy u otro
+  campo dependiente de F6, tendría que replicar el mismo criterio.
+
+Archivos: `app/pipeline/TabAnalytics.tsx` (import de `hasStrategyData`,
+`strategyDataMissing`, ternario alrededor de `StrategyDonutChart`). Sin
+cambios en `lib/pipeline/strategy.ts` (el helper ya existía tal cual se
+necesitaba) ni en `paretoMix.ts`.

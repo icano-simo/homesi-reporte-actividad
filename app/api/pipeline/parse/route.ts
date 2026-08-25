@@ -122,6 +122,8 @@ function toPipelineLoanRow(loan: PipelineLoan) {
     nppm_realtor: loan.nppmRealtor,
     referred_by: loan.referredBy,
     affinity_program: loan.affinityProgram,
+    // Etapa F7.20: columna nueva, autorizada por Isa -- RPC ya ampliada (verificado por ella). Mismo patrón '' vs NULL de arriba.
+    opportunity_owner: loan.opportunityOwner,
   };
 }
 
@@ -168,6 +170,8 @@ function toResolvedLoanRow(loan: ResolvedLoan) {
     nppm_realtor: loan.nppmRealtor,
     referred_by: loan.referredBy,
     affinity_program: loan.affinityProgram,
+    // Etapa F7.20: columna nueva, autorizada por Isa -- RPC ya ampliada (verificado por ella). Mismo patrón '' vs NULL de arriba.
+    opportunity_owner: loan.opportunityOwner,
   };
 }
 

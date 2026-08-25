@@ -44,6 +44,8 @@ function makeLoan(
     nppmRealtor: '',
     referredBy: '',
     affinityProgram: '',
+    // Etapa F7.20: mismo criterio que los cinco de arriba -- vacio en el fixture.
+    opportunityOwner: '',
   };
 }
 

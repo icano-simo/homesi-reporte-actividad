@@ -21,7 +21,7 @@ import {
   type MonthlyTypeBreakdown,
 } from '@/lib/pipeline/trends';
 import { buildStrategyMix, type StrategyMixRow } from '@/lib/pipeline/strategyMix';
-import { classifyStrategy, type Strategy } from '@/lib/pipeline/strategy';
+import { classifyStrategy, hasStrategyData, type Strategy } from '@/lib/pipeline/strategy';
 import { buildParetoRows, type ParetoRow } from '@/lib/pipeline/paretoMix';
 import PeriodSelector from './PeriodSelector';
 import { useOrgRoster, type OrgRoster } from './useOrgRoster';
@@ -318,6 +318,23 @@ function DiagnosticsNote({ count, summary, detail }: { count: number; summary: s
  * desde la Parte 2), los dos fuera del alcance de esta etapa. Queda
  * anotado como mejora futura posible, no bloqueante.
  */
+/**
+ * Etapa F7.22: detecta U+FFFD ("�") en un nombre crudo -- confirmado
+ * leyendo los BYTES crudos (sin ningún parseo nuestro) de exports CSV
+ * reales de Salesforce que el dato ya llega roto en el archivo ANTES de
+ * que este código lo lea (ej. "Javier Peñaloza" -> "Javier Pe<U+FFFD>aloza"
+ * ya en el CSV de origen). Confirmado que NO es un bug de este parser: un
+ * export XLSX de la misma fecha, con los mismos nombres, se lee limpio
+ * (XLSX guarda texto en XML UTF-8; el problema es específico de cómo
+ * Salesforce genera el CSV). U+FFFD significa "byte no decodificable" --
+ * el carácter original ya se perdió de forma irrecuperable, no hay letra
+ * correcta que reponer. Por eso esto NUNCA reemplaza el carácter a mano,
+ * solo avisa para que se sepa que el nombre llegó dañado desde el origen.
+ */
+function hasDamagedEncoding(nameRaw: string): boolean {
+  return nameRaw.includes('�');
+}
+
 function personDiagnosticsNote(result: PersonScorecardResult): { count: number; summary: string; detail: string } {
   const { totalInput, resolvedCount, blankCount, excludedCount, unmappedCount, unmappedNames } = result.diagnostics;
   const accounted = resolvedCount + blankCount + excludedCount + unmappedCount;
@@ -345,7 +362,9 @@ function personDiagnosticsNote(result: PersonScorecardResult): { count: number; 
   }
   if (unmappedCount > 0) {
     detailParts.push(
-      `${fmtInt(unmappedCount)} with a name not yet recognized: ${unmappedNames.map((u) => `${u.nameRaw} (${u.rows})`).join(', ')}.`
+      `${fmtInt(unmappedCount)} with a name not yet recognized: ${unmappedNames
+        .map((u) => `${u.nameRaw}${hasDamagedEncoding(u.nameRaw) ? ' [damaged in Salesforce export -- character lost at the source, not a parsing error]' : ''} (${u.rows})`)
+        .join(', ')}.`
     );
   }
   if (blankCount > 0) {
@@ -742,9 +761,20 @@ const DRILLDOWN_NO_TYPE_LABEL = 'Sin tipo';
  * `===` -- misma regla dura que `buildPersonScorecard`
  * (lib/pipeline/scorecards.ts), reaplicada acá en el momento del click en
  * vez de modificar esa función para que devuelva el detalle.
+ *
+ * `getRawName` -- Etapa F7.20: parametrizado porque Loan Officer y Business
+ * Developer ya NO resuelven el mismo campo crudo (`loanOfficer` vs
+ * `opportunityOwner`, ver `buildBusinessDeveloperScorecard`) -- si este
+ * drill-down siguiera hardcodeado a `loan.loanOfficer`, el click en una fila
+ * de Business Developer abriría los loans de la persona equivocada.
  */
-function loanResolvesToEmployeeKey(loan: ResolvedLoan, aliasIndex: OrgRoster['aliasIndex'], employeeKeyStr: string): boolean {
-  const nameRaw = loan.loanOfficer.trim();
+function loanResolvesToEmployeeKey(
+  loan: ResolvedLoan,
+  getRawName: (loan: ResolvedLoan) => string,
+  aliasIndex: OrgRoster['aliasIndex'],
+  employeeKeyStr: string
+): boolean {
+  const nameRaw = getRawName(loan).trim();
   if (!nameRaw) return false;
   const { employeeKey } = aliasIndex.lookup('salesforce', nameRaw);
   return employeeKey !== null && String(employeeKey) === employeeKeyStr;
@@ -1205,6 +1235,18 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
     orgRoster.excludedIndex,
     orgRoster.employeeNameByKey
   );
+  /**
+   * Etapa F7.20: distingue "este snapshot no capturó opportunity_owner"
+   * (columna nueva -- todo snapshot restaurado de antes de esta etapa
+   * queda con el campo en '' para el 100% de sus loans) de "0 Business
+   * Developers reales este período" (resultado legítimo, distinto). Un
+   * `blankCount` parcial (algunos sí, otros no) NO dispara este mensaje --
+   * ahí corresponde el ⚠ normal de "con no name recorded" ya construido,
+   * no este caso especial.
+   */
+  const bdOwnerDataMissing =
+    businessDeveloperScorecard.diagnostics.totalInput > 0 &&
+    businessDeveloperScorecard.diagnostics.blankCount === businessDeveloperScorecard.diagnostics.totalInput;
 
   /**
    * Etapa F7, Parte 10: mezcla de estrategia comercial -- NO depende de
@@ -1213,6 +1255,21 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
    * eso se renderiza fuera del bloque `{!orgRoster.loading && !orgRoster.error && (...)}`.
    */
   const strategyMix = buildStrategyMix(fundedInRange);
+
+  /**
+   * Etapa F7.23 -- pedido explícito de Isa: un snapshot anterior al 23 de
+   * agosto (sin los cinco crudos de estrategia) hace que `classifyStrategy`
+   * caiga en `'Own production'` para el 100% de los loans (es el default,
+   * ver `classifyStrategy`/`hasStrategyData` en lib/pipeline/strategy.ts) --
+   * el donut mostraría una porción falsa de "Own production" al 100%, que
+   * se lee como un dato real de negocio y no lo es. `hasStrategyData()` ya
+   * existía (construido en la Etapa F6 para este caso exacto) pero nunca se
+   * había conectado a esta vista. Mismo criterio que `bdOwnerDataMissing`
+   * arriba: `totalInput > 0` para no disparar el aviso con un período sin
+   * ningún loan (0 loans es "sin datos en el período", un caso ya cubierto
+   * por otro lado, no este).
+   */
+  const strategyDataMissing = fundedInRange.length > 0 && !hasStrategyData(fundedInRange);
 
   /**
    * Etapa F7, Parte 11: Pareto por Branch/Loan Officer -- el toggle interno
@@ -1381,7 +1438,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
                   metric: 'Loan Officer',
                   context: row.label,
                   loans: fundedInRange
-                    .filter((l) => loanResolvesToEmployeeKey(l, orgRoster.aliasIndex, row.key))
+                    .filter((l) => loanResolvesToEmployeeKey(l, (loan) => loan.loanOfficer, orgRoster.aliasIndex, row.key))
                     .map(closedLoanToModalLoan),
                   hiddenColumns: ['loanOfficer', 'milestone', 'status'],
                 })
@@ -1391,25 +1448,46 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
           </div>
 
           <div>
-            <ScorecardTable
-              title="Business Developer"
-              columnLabel="Business Developer"
-              rows={businessDeveloperScorecard.rows}
-              totalCount={businessDeveloperScorecard.diagnostics.resolvedCount}
-              onRowClick={(row) =>
-                setDrillDown({
-                  metric: 'Business Developer',
-                  context: row.label,
-                  loans: fundedInRange
-                    .filter(
-                      (l) => l.opportunityOwnerTitle === 'Business Developer' && loanResolvesToEmployeeKey(l, orgRoster.aliasIndex, row.key)
-                    )
-                    .map(closedLoanToModalLoan),
-                  hiddenColumns: ['loanOfficer', 'milestone', 'status'],
-                })
-              }
-              diagnostic={personDiagnosticsNote(businessDeveloperScorecard)}
-            />
+            {bdOwnerDataMissing ? (
+              <div className="tbl-card" style={{ padding: '16px' }}>
+                <div className="tbl-card__head">
+                  <span className="tbl-card__title">Business Developer</span>
+                </div>
+                {/*
+                  Etapa F7.20: mensaje explícito en vez de un scorecard vacío
+                  -- un scorecard vacío se leería como "0 Business Developers
+                  reales", que es un resultado distinto y falso acá. Mismo
+                  criterio que el ⚠ de branches sin resolver (Parte 9):
+                  decir explícito qué falta, no dejar que la ausencia hable
+                  por sí sola.
+                */}
+                <p className="foot-note" style={{ margin: 0 }}>
+                  No owner data in this snapshot — re-upload required to populate this view.
+                </p>
+              </div>
+            ) : (
+              <ScorecardTable
+                title="Business Developer"
+                columnLabel="Business Developer"
+                rows={businessDeveloperScorecard.rows}
+                totalCount={businessDeveloperScorecard.diagnostics.resolvedCount}
+                onRowClick={(row) =>
+                  setDrillDown({
+                    metric: 'Business Developer',
+                    context: row.label,
+                    loans: fundedInRange
+                      .filter(
+                        (l) =>
+                          l.opportunityOwnerTitle === 'Business Developer' &&
+                          loanResolvesToEmployeeKey(l, (loan) => loan.opportunityOwner, orgRoster.aliasIndex, row.key)
+                      )
+                      .map(closedLoanToModalLoan),
+                    hiddenColumns: ['loanOfficer', 'milestone', 'status'],
+                  })
+                }
+                diagnostic={personDiagnosticsNote(businessDeveloperScorecard)}
+              />
+            )}
           </div>
         </>
       )}
@@ -1452,6 +1530,12 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
               Avg Ticket by Month {overallAvgTicket > 0 && `(avg: $${fmtAmount(overallAvgTicket)})`}
             </span>
           </div>
+          {/* Etapa F7.21: único chart de Monthly Trends sin nota descriptiva -- los otros 4 (Rankings/Scorecards/Monthly Trends/Strategy Mix) ya la tenían. */}
+          <DiagnosticsNote
+            count={1}
+            summary="Average loan amount per closing, by month (total amount ÷ closings -- not a margin or division earnings figure)."
+            detail="avgTicketByMonth() (lib/pipeline/trends.ts) divides the same monthlyTotals used by the Closings/Amount charts above (amount/count per month, 0 when count is 0) -- derived here, not a separate field from the export."
+          />
           <AvgTicketChart rows={avgTicketData} highlightMonths={highlightMonths} overallAvg={overallAvgTicket} />
         </div>
 
@@ -1477,19 +1561,32 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
         summary="Every funded loan in the selected period, split by commercial strategy."
         detail="classifyStrategy() (lib/pipeline/strategy.ts) applied directly to fundedInRange, same rule already used elsewhere in Forecast (Projected Forecast by strategy, PivotTable.tsx) -- no org dependency."
       />
-      <div className="tbl-card" style={{ padding: '16px', marginBottom: '20px' }}>
-        <StrategyDonutChart
-          rows={strategyMix}
-          onSegmentClick={(row) =>
-            setDrillDown({
-              metric: 'Strategy Mix',
-              context: row.strategy,
-              loans: fundedInRange.filter((l) => classifyStrategy(l) === row.strategy).map(closedLoanToModalLoan),
-              hiddenColumns: ['milestone', 'status'],
-            })
-          }
-        />
-      </div>
+      {strategyDataMissing ? (
+        <div className="tbl-card" style={{ padding: '16px', marginBottom: '20px' }}>
+          {/*
+            Etapa F7.23: mismo criterio que Business Developer (F7.20) --
+            un donut 100% "Own production" se leería como un resultado real
+            de negocio, y acá es un default silencioso por falta de datos.
+          */}
+          <p className="foot-note" style={{ margin: 0 }}>
+            No strategy data in this snapshot — re-upload required to populate this view.
+          </p>
+        </div>
+      ) : (
+        <div className="tbl-card" style={{ padding: '16px', marginBottom: '20px' }}>
+          <StrategyDonutChart
+            rows={strategyMix}
+            onSegmentClick={(row) =>
+              setDrillDown({
+                metric: 'Strategy Mix',
+                context: row.strategy,
+                loans: fundedInRange.filter((l) => classifyStrategy(l) === row.strategy).map(closedLoanToModalLoan),
+                hiddenColumns: ['milestone', 'status'],
+              })
+            }
+          />
+        </div>
+      )}
 
       <h3 style={{ margin: '24px 0 12px' }}>Pareto — Branch / Loan Officer</h3>
       <DiagnosticsNote

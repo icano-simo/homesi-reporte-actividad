@@ -52,6 +52,8 @@ interface PipelineLoanRow {
   nppm_realtor: string | null;
   referred_by: string | null;
   affinity_program: string | null;
+  /** Etapa F7.20 -- columna nueva, distinta de opportunity_owner_title. */
+  opportunity_owner: string | null;
 }
 
 interface ResolvedLoanRow {
@@ -75,6 +77,8 @@ interface ResolvedLoanRow {
   nppm_realtor: string | null;
   referred_by: string | null;
   affinity_program: string | null;
+  /** Etapa F7.20 -- columna nueva, distinta de opportunity_owner_title. */
+  opportunity_owner: string | null;
 }
 
 /**
@@ -135,12 +139,12 @@ export async function GET() {
 
     const loanRows = await fetchAllPages<PipelineLoanRow>(
       'pipeline_loans',
-      'source_loan_id, branch, channel, milestone, raw_milestone, healthy, raw_healthiness, close_month, est_closing_date, amount, loan_officer, borrower_name, milestone_date, branch_transferred, loan_type, loan_program, production_support_note_history, strategy_raw, opportunity_owner_title, nppm_realtor, referred_by, affinity_program',
+      'source_loan_id, branch, channel, milestone, raw_milestone, healthy, raw_healthiness, close_month, est_closing_date, amount, loan_officer, borrower_name, milestone_date, branch_transferred, loan_type, loan_program, production_support_note_history, strategy_raw, opportunity_owner_title, nppm_realtor, referred_by, affinity_program, opportunity_owner',
       snapshotId
     );
     const resolvedRows = await fetchAllPages<ResolvedLoanRow>(
       'pipeline_resolved_loans',
-      'source_loan_id, branch, channel, status, disbursement_date, amount, loan_officer, borrower_name, loan_status, est_closing_date, raw_loan_folder, loan_type, loan_program, production_support_note_history, strategy_raw, opportunity_owner_title, nppm_realtor, referred_by, affinity_program',
+      'source_loan_id, branch, channel, status, disbursement_date, amount, loan_officer, borrower_name, loan_status, est_closing_date, raw_loan_folder, loan_type, loan_program, production_support_note_history, strategy_raw, opportunity_owner_title, nppm_realtor, referred_by, affinity_program, opportunity_owner',
       snapshotId
     );
 
@@ -190,6 +194,7 @@ export async function GET() {
        */
       strategyRaw: r.strategy_raw ?? '',
       opportunityOwnerTitle: r.opportunity_owner_title ?? '',
+      opportunityOwner: r.opportunity_owner ?? '',
       nppmRealtor: r.nppm_realtor ?? '',
       referredBy: r.referred_by ?? '',
       affinityProgram: r.affinity_program ?? '',
@@ -249,6 +254,7 @@ export async function GET() {
        */
       strategyRaw: r.strategy_raw ?? '',
       opportunityOwnerTitle: r.opportunity_owner_title ?? '',
+      opportunityOwner: r.opportunity_owner ?? '',
       nppmRealtor: r.nppm_realtor ?? '',
       referredBy: r.referred_by ?? '',
       affinityProgram: r.affinity_program ?? '',

@@ -168,6 +168,15 @@ export function buildLoanOfficerScorecard(
  * criterio (sin trim ni normalización) que ya usa `lib/pipeline/strategy.ts`
  * para clasificar B2B -- no se reinterpreta esa regla acá, solo se reusa el
  * mismo filtro para armar el scorecard.
+ *
+ * Etapa F7.20: agrupa por `opportunityOwner` (columna "Opportunity Owner"
+ * del export), no por `loanOfficer` -- confirmado con captura real que son
+ * personas distintas en la misma fila; `loanOfficer` procesa el préstamo,
+ * `opportunityOwner` es quien realmente originó/lleva la relación B2B. La
+ * resolución sigue exactamente igual (`aliasIndex.lookup('salesforce', ...)`,
+ * `excludedIndex.has(...)`) -- mismo mecanismo, distinto nombre crudo de
+ * entrada. Un valor como "sf integrations" se excluye por el mismo
+ * `excludedIndex` ya usado para Loan Officer, no por un chequeo nuevo acá.
  */
 export function buildBusinessDeveloperScorecard(
   loans: ResolvedLoan[],
@@ -176,5 +185,5 @@ export function buildBusinessDeveloperScorecard(
   employeeNameByKey: Map<number, string>
 ): PersonScorecardResult {
   const bdLoans = loans.filter((loan) => loan.opportunityOwnerTitle === 'Business Developer');
-  return buildPersonScorecard(bdLoans, (loan) => loan.loanOfficer, 'salesforce', aliasIndex, excludedIndex, employeeNameByKey);
+  return buildPersonScorecard(bdLoans, (loan) => loan.opportunityOwner, 'salesforce', aliasIndex, excludedIndex, employeeNameByKey);
 }
