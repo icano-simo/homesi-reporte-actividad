@@ -4531,3 +4531,768 @@ Branch/Loan Officer/Business Developer pasan `diagnostic={...}` en vez de
 renderizar `<DiagnosticsNote>` como hermano. `personDiagnosticsNote()` no
 cambió su firma ni su lógica -- sigue devolviendo `{count, summary,
 detail}`, solo cambió quién lo consume.
+
+## Etapa F7, Parte 10 -- mezcla de estrategia comercial (dona)
+
+Nueva sección "Strategy Mix" en Analytics.
+
+⚠ **Ubicación corregida tras revisión:** se colocó primero debajo de
+Scorecards y antes de Monthly Trends -- un ajuste posterior movió Strategy
+Mix a DESPUÉS de Monthly Trends, para que el orden final de la pestaña
+sea: todo lo pedido explícitamente por el brief F7 original (Rankings,
+Scorecards, Monthly Trends, drill-down al modal), en su orden original y
+sin nada intercalado entre esas secciones -- y los gráficos adicionales
+que NO pedía el brief (Strategy Mix, Parte 10, y los que se agreguen
+después) van todos juntos al final, en un bloque propio marcado con un
+comentario explícito en el JSX.
+
+### `classifyStrategy()` reusado tal cual, sin adaptador
+
+`lib/pipeline/strategyMix.ts` (nuevo archivo, separado de
+`analytics.ts` como sugería el brief) llama `classifyStrategy(loan)`
+directo sobre cada `ResolvedLoan` de `fundedInRange` -- confirmado en el
+diagnóstico previo que `ResolvedLoan` ya trae los 3 campos que
+`StrategyInput` necesita (`branch`, `strategyRaw`, `opportunityOwnerTitle`),
+así que no hizo falta ningún adaptador ni cambio a `lib/pipeline/strategy.ts`.
+`buildStrategyMix()` siempre devuelve las 5 filas de `STRATEGY_ORDER` --
+una estrategia sin loans en el período queda en `count: 0` explícito,
+nunca ausente (mismo criterio que `monthsOfYear` en `trends.ts`).
+
+### Números reales (snapshot activo)
+
+⚠ El snapshot activo cambió de id 73 (verificación de la etapa anterior)
+a **id 74** (`data_as_of` 2026-08-24T21:28:53Z) entre el diagnóstico y
+esta implementación -- se usan los números reales de 74.
+
+Agosto 2026 (período por defecto), 24 funded:
+
+| Estrategia | Conteo | % |
+|---|---|---|
+| Own production | 11 | 45.8% |
+| B2B | 4 | 16.7% |
+| Affinity | 4 | 16.7% |
+| Recruitment | 2 | 8.3% |
+| NPPM | 3 | 12.5% |
+| **Suma** | **24** | **100.0%** |
+
+### Paleta de colores -- nueva, no existía ninguna previa
+
+Se buscó explícito un color ya asignado a estas 5 categorías en algún
+otro lado de Forecast (la vista "By strategy" de `PivotTable.tsx`,
+`.strat-pill`/`StrategyRowsGroup`) -- no existe ninguno: esa vista solo
+muestra el nombre de la estrategia como texto plano, con un pill de
+filtro neutro (slate/coral solo para el estado "seleccionado", sin color
+por estrategia). Se define una paleta nueva, `STRATEGY_COLORS` (tokens
+existentes, cero hex nuevo), con una decisión distinta a la de Loan Type
+(Parte 3): como `Strategy` es un enum CERRADO de 5 valores (no una
+columna abierta como `loan_type`), el color se asigna por NOMBRE fijo en
+vez de por orden de aparición -- más robusto, no depende de qué
+estrategia trae más volumen en un período dado.
+
+| Estrategia | Token |
+|---|---|
+| Own production | `--navy` |
+| B2B | `--emerald-700` |
+| Affinity | `--sky` |
+| Recruitment | `--amber-500` |
+| NPPM | `--rose-700` |
+
+### Componente -- SVG a mano, mismo criterio ya establecido
+
+`StrategyDonutChart` (`TabAnalytics.tsx`): un `<path>` de arco por
+estrategia (ver ajuste de técnica más abajo -- la versión inicial usaba
+`<circle>` + `stroke-dasharray`/`stroke-dashoffset`, reemplazada después
+por resultar ambigua), sin librería de charts -- mismo criterio que
+`MonthlyBarChart.tsx` (Business Plan) y los charts de tendencias de la
+Parte 3. Centro con el total en texto grande (`<text>` SVG), leyenda al
+lado con label + conteo + %. Un segmento con `count: 0` no dibuja arco,
+pero sigue apareciendo en la leyenda, atenuado (`--slate-400`).
+
+⚠ **Ajuste de legibilidad (revisión post-implementación):** conteo y %
+en la leyenda pesaban visualmente igual -- fácil de confundir cuál era
+cuál a simple vista. El conteo quedó en `font-weight: 600` (peso normal
+del texto de la fila) y el % en un `<span>` aparte, `font-size: 11px` +
+`opacity: 0.65` -- opacidad relativa, no un color fijo, para que una fila
+en `count: 0` (ya atenuada por completo) no vuelva a verse más oscura por
+culpa de un gris fijo en el %.
+
+⚠ **Segundo ajuste: paréntesis quitados del %.** El ajuste anterior
+diferenció el estilo pero dejó los paréntesis literales ("10 (43.5%)") --
+se quitaron, queda "10 43.5%" con el mismo tamaño/opacidad ya logrados.
+
+⚠ **Tercer ajuste, más de fondo: el orden visual de los arcos no
+coincidía con el de la leyenda.** La primera versión usaba `<circle>` +
+`stroke-dasharray`/`stroke-dashoffset` por segmento (técnica estándar de
+donut sin librería) -- pero esa técnica depende de una convención de
+punto de inicio/dirección de recorrido de `<circle>` que resultó
+ambigua en la práctica: NPPM (última estrategia en `STRATEGY_ORDER`)
+aparecía como el segundo arco visual en vez del último. Se reemplazó por
+`<path>` con comando de arco (`M`/`A`) y ángulo calculado directo por
+trigonometría -- `x = cx + r·sin(θ), y = cy − r·cos(θ)`, con θ=0 en las 12
+y creciendo en sentido horario -- una fórmula verificable a mano, sin
+depender de ninguna convención implícita del navegador. Verificado con
+los números reales del período (ver más abajo): los 5 segmentos caen
+exactamente en el rango angular esperado, en el mismo orden que la
+leyenda. Sigue siendo SVG a mano, sin librería de charts -- el cambio es
+de técnica de arco (`path` vs `circle`+dasharray), no de criterio.
+
+### Reacciona al período -- gratis, mismo patrón
+
+`buildStrategyMix(fundedInRange)` -- el mismo array ya filtrado por
+período que usan los otros 4 cortes, sin filtro de fecha adicional.
+
+### Drill-down -- incluido, no se dejó para después
+
+Se agregó porque fue simple de reusar el mismo patrón de la Etapa 5: un
+`onSegmentClick` opcional en `StrategyDonutChart` (tanto el arco del
+donut como la fila de leyenda son clickeables) que abre el mismo
+`LoanDetailModal`, filtrando `fundedInRange` por
+`classifyStrategy(l) === row.strategy` y mapeando con
+`closedLoanToModalLoan` -- mismo mecanismo exacto que Branch/Programa/Tipo.
+`hiddenColumns: ['milestone', 'status']` (mismas dos columnas siempre
+vacías en este contexto, ver Parte 6) -- no hay una columna "Strategy" en
+el modal que quede redundante, así que no se ocultó ninguna columna
+adicional por ese motivo.
+
+### Archivos
+
+`lib/pipeline/strategyMix.ts` (nuevo, puro -- `buildStrategyMix`).
+`app/pipeline/TabAnalytics.tsx` editado (`STRATEGY_COLORS`,
+`StrategyDonutChart`, cómputo de `strategyMix`, sección "Strategy Mix" +
+drill-down). `app/pipeline/styles/forecast-visual.css` **sin tocar** --
+el donut usa estilos inline, consistente con el resto de layout ad-hoc ya
+existente en `TabAnalytics.tsx` (grids, spacing); las clases CSS dedicadas
+de Parte 3 solo hacían falta por `:hover`/`@keyframes`, que acá no aplica.
+
+## Etapa F7, Parte 11 -- Pareto por Branch / Loan Officer
+
+Sección al final de la pestaña (después de Strategy Mix, mismo orden ya
+establecido: brief original primero, gráficos adicionales al final).
+Barras (conteo) + línea de % acumulado, con línea de referencia en 80% --
+primera vez en el proyecto combinando dos tipos de marca en un mismo SVG
+a mano.
+
+### Reuso real de los scorecards -- verificado, no solo asumido
+
+`buildParetoRows()` (`lib/pipeline/paretoMix.ts`, nuevo) recibe
+directamente `branchScorecard.rows`/`loanOfficerScorecard.rows` (los
+mismos objetos que ya renderizan las tablas de Scorecards, Parte 2) y
+solo acumula `closedCount` -- confirmado leyendo `toRows()`
+(`lib/pipeline/scorecards.ts:33-44`) que esas filas YA vienen
+`.sort((a, b) => b.closedCount - a.closedCount)`. Ninguna agrupación
+nueva: `buildBranchScorecard`/`buildLoanOfficerScorecard` (mismas
+funciones de la Parte 2) se llaman de nuevo para YTD, pero con
+`ytdFunded` como entrada en vez de `fundedInRange` -- no hay una tercera
+forma de agrupar loans en el proyecto.
+
+### Resolución de alias en Loan Officer -- heredada, confirmado
+
+`loanOfficerScorecard.rows`/`ytdLoanOfficerScorecard.rows` vienen de
+`buildLoanOfficerScorecard`, que agrupa por `employeeKey` RESUELTO (nunca
+por nombre crudo, `lib/pipeline/scorecards.ts:102-140`, misma regla dura
+documentada desde la Parte 2) -- el Pareto de Loan Officer hereda esa
+resolución automáticamente, por construcción: reusa el `ScorecardRow[]`
+ya resuelto, no vuelve a leer `loan_officer` crudo en ningún momento.
+Mismos nombres que ya muestra la tabla de Scorecards de Loan Officer,
+sin excepción.
+
+### Toggle interno -- estado local, sin efectos sobre el resto de la pestaña
+
+`ParetoChart` calcula sus propios `useState` (`mode`: Selected period/
+YTD; `cut`: Branch/Loan Officer) -- las 4 combinaciones
+(branch/LO × período/YTD) se precomputan UNA VEZ en `TabAnalytics`
+(`paretoData`), antes de renderizar el chart; el toggle solo elige cuál
+de las 4 mostrar. Cambiar cualquiera de los dos toggles re-renderiza
+solo `ParetoChart` -- no dispara ningún fetch nuevo (`useOrgRoster`
+carga una sola vez, `useEffect` con deps `[]`, ver Parte 2) ni toca el
+selector de período principal (`period`/`setPeriod`) ni ningún otro de
+los 8 gráficos de la pestaña.
+
+YTD se calcula con el mismo patrón que ya usa el selector principal para
+su propio modo YTD (`getDefaultYtdSelection()` + `periodDateRange()`,
+`lib/pipeline/period.ts`, sin tocar ese archivo) -- pero completamente
+aparte del estado `period`: el selector de arriba sigue mostrando lo que
+el usuario eligió, sin cambiar, mientras el Pareto puede estar en modo
+YTD.
+
+### Números reales (snapshot activo id 74) -- agosto plano, YTD con cola real
+
+**Selected period (agosto 2026, 24 funded) -- confirmado plano, como
+anticipaba el diagnóstico:** 80% acumulado recién en 7 de 9 branches
+(78% de todos los branches) y 10 de 14 loan officers de nombre CRUDO
+(71% de los nombres) -- sin org disponible desde este script, el
+conteo real POST-alias de LO no se pudo verificar acá, pero el mismo
+patrón de "distribución pareja, sin concentración fuerte" se sostiene
+sea cual sea el número final de personas resueltas (nunca puede haber
+*más* de 14 barras, solo igual o menos tras fusionar alias).
+
+**Year to date (2026-01-01 a 2026-08-24, 334 funded) -- cola clara,
+confirmada real:**
+
+| Corte | 80% acumulado en | de un total de | % de categorías |
+|---|---|---|---|
+| Branch | 8 branches | 20 | 40% |
+| Loan Officer (nombre crudo) | 12 nombres | 37 | 32% |
+
+Top 3 branches YTD: 716 (51, 15.3%) · 747 (46, 13.8%) · 733 (36, 10.8%).
+Top 3 loan officers YTD (crudo): Nathan Martinez (55, 16.5%) · Aimmee
+Buendia (30, 9.0%) · Cristhian A Ramirez (27, 8.1%).
+
+Confirma la hipótesis del diagnóstico: la concentración tipo Pareto SÍ es
+real, pero solo se ve con suficiente volumen (YTD) -- el período por
+defecto (un solo mes) es demasiado chico para mostrarla, y mostrar el
+chart únicamente con esa vista habría dado la impresión equivocada de
+que no hay concentración.
+
+### Técnica -- combo bar + línea, documentada por ser la primera vez
+
+`ParetoChart` (`TabAnalytics.tsx`): `<rect>` por categoría (altura
+proporcional a `count`, escala 0→`maxCount` sobre `plotHeight`) +
+`<polyline>` de % acumulado (escala 0→100% SUPERPUESTA sobre el mismo
+`plotHeight` -- dos ejes distintos comparten la misma altura de plot en
+px, técnica estándar de combo chart) + línea de referencia punteada en
+80%. Con más de 15 categorías (Loan Officer en YTD trae 37) se omiten las
+etiquetas rotadas del eje -- se vuelven ilegibles superpuestas -- y el
+detalle queda solo en el `<title>` (tooltip) de cada barra/punto; ninguna
+categoría se omite del chart en sí, solo su etiqueta visible. Toggle
+Selected period/YTD y Branch/Loan Officer reusan `.seg`
+(`components.css`, ya usado por `PeriodSelector`/`PivotTable`/
+`TabMilestoneMatrix`) -- cero CSS nuevo. Línea en `--rose-700` (no
+`--coral`, reservado en esta pestaña para el resaltado de mes
+seleccionado en Monthly Trends -- evita que el mismo color signifique
+dos cosas distintas en la misma pantalla).
+
+### Sin drill-down -- no se pidió para este chart
+
+A diferencia de Strategy Mix/Rankings/Scorecards/Branch, este chart no
+abre `LoanDetailModal` -- no estaba en el pedido y no se agregó por
+cuenta propia.
+
+### Archivos
+
+`lib/pipeline/paretoMix.ts` (nuevo, puro -- `buildParetoRows`).
+`app/pipeline/TabAnalytics.tsx` editado (`ParetoChart`, cómputo de
+`ytdFunded`/`ytdBranchScorecard`/`ytdLoanOfficerScorecard`/`paretoData`,
+sección "Pareto — Branch / Loan Officer"). `app/pipeline/styles/
+forecast-visual.css` sin tocar en esta etapa (mismo motivo que Parte 10 --
+estilos inline + `.seg` ya existente, nada nuevo que no pudiera
+expresarse así) -- **sí se tocó después, ver Parte 12** (hover).
+
+## Etapa F7, Parte 12 -- Pareto: etiquetas graduales, cruce de 80% marcado, hover, tooltip enriquecido
+
+Cuatro mejoras sobre `ParetoChart` (Parte 11), sin tocar `paretoMix.ts`
+(el cálculo de `count`/`percent`/`cumulativePercent` no cambió, solo cómo
+se presenta).
+
+### 1. Etiquetas del eje X -- gradual, no todo-o-nada
+
+`PARETO_ALWAYS_LABELED = 8` (siempre las primeras 8) + `PARETO_LABEL_INTERVAL
+= 4` (de ahí en más, una cada 4) vía `paretoShouldLabel(i)`. Reemplaza el
+umbral binario anterior (`rows.length <= 15`, todo o nada). Con 37
+categorías (Loan Officer, YTD) esto deja **16 etiquetas visibles**:
+posiciones #1-9 (las primeras 8 + la #9, que cae justo en el primer
+múltiplo de 4 después del corte) y luego #13, #17, #21, #25, #29, #33,
+#37 -- nunca todas, nunca ninguna.
+
+### 2. Cruce real de 80% -- marcado, no adivinado
+
+`crossIndex = rows.findIndex(r => r.cumulativePercent >= 80)` -- la
+primera categoría cuyo acumulado ya llega a 80%, no una posición
+aproximada. Ese punto se dibuja más grande (`r={5.5}` vs `r={3}` de los
+puntos normales) con contorno (`stroke="var(--canvas)"`, `strokeWidth=2`)
+y una etiqueta corta arriba (ej. `"8 branches → 80%"`, pluralizado según
+corresponda) -- generada del mismo `cut` que ya elige el toggle, sin
+texto hardcodeado por corte.
+
+### 3. Números sobre las barras -- solo donde hay espacio real
+
+Mismas `PARETO_ALWAYS_LABELED` posiciones que las etiquetas del eje
+(mismo umbral, no dos números mágicos distintos) llevan el conteo
+encima de la barra -- mismo patrón visual que `SimpleMonthlyChart`
+(Closings by Month, Parte 3). Se agregó `topReserve = 16px` (mismo tipo
+de fix que `CHART_LABEL_RESERVE` de la Parte 3 -- overflow ya resuelto
+antes en Monthly Trends) para que el número de la barra más alta no se
+salga por arriba del `<svg>`.
+
+### 4. Hover -- opacidad, mismo patrón que el resto de los charts
+
+Nuevas clases `.pareto-bar`/`.pareto-dot` en `forecast-visual.css`
+(`transition: opacity 0.15s ease`, `:hover { opacity: 0.82 }`) --
+idéntico al hover ya usado en Closings/Amount/Loan Type. Agregadas
+también al bloque `@media (prefers-reduced-motion: reduce)` ya existente
+(`transition: none`), mismo criterio de accesibilidad no opcional.
+
+### 5. Tooltip enriquecido -- mismo patrón `title` nativo, más contenido
+
+Se revisó si existe algún componente real de hover-card/popover en el
+resto de la app -- no existe ninguno (`formatCtcClosingTooltip` en
+`PivotTable.tsx` y el `detail` de `DiagnosticsNote` son el único
+precedente real, `title` nativo con `\n`). `paretoTooltip()` sigue ese
+mismo criterio, con 4 líneas: nombre completo, conteo + % individual, %
+acumulado, y posición en el ranking (`#N of M`). Mismo tooltip para la
+barra y para el punto de la línea (antes eran dos textos distintos y más
+pobres).
+
+### Verificación real (snapshot activo id 74)
+
+**YTD, Loan Officer (37 categorías):** 16 etiquetas visibles (posiciones
+#1-9, 13, 17, 21, 25, 29, 33, 37) -- ni las 37, ni ninguna.
+
+**Tooltip real, YTD/Branch, primera fila (716):**
+```
+716
+51 loans (15.3% of total)
+15.3% cumulative
+#1 of 20
+```
+
+**Cruce de 80%, YTD/Branch (8 de 20):** cae en la 8ª barra (branch 770,
+20 loans, 6.0% individual, 80.8% acumulado) -- punto marcado más grande
+con contorno + etiqueta `"8 branches → 80%"` sobre ese punto exacto.
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx` editado (`PARETO_ALWAYS_LABELED`,
+`PARETO_LABEL_INTERVAL`, `paretoShouldLabel`, `paretoTooltip`,
+`ParetoChart` con marca de cruce + números condicionales + `topReserve`).
+`app/pipeline/styles/forecast-visual.css` editado (`.pareto-bar`/
+`.pareto-dot`, agregadas al bloque `prefers-reduced-motion` existente).
+`lib/pipeline/paretoMix.ts` sin tocar.
+
+## Etapa F7, Parte 13 -- Pareto: color, etiqueta cortada (fix real de captura), resto sin cambios
+
+Dos correcciones reales sobre la Parte 12, detectadas con una captura de
+pantalla real (no solo lectura de código) -- las mejoras 3/5/6/7 de la
+Parte 12 (etiquetas graduales, números condicionales, hover, tooltip
+enriquecido) se revisaron y quedan **sin cambios**, siguen correctas.
+
+### 1. Color -- rojo/`--rose-700` fuera de la línea acumulada
+
+`--rose-700` ya significa "atención/advertencia" en el resto de la app
+(`AlertTriangleIcon` de los scorecards, Parte 9) -- reusarlo acá para una
+línea de tendencia neutra era una colisión de significado. Nueva
+paleta, dentro de la familia azul de marca (sin color nuevo):
+
+- Línea + puntos normales: `--sky` (distingue de las barras, `--navy`,
+  sin salir del azul).
+- Línea punteada de referencia del 80%: **sin cambios** -- ya estaba en
+  `--slate-300` (neutro), no rojo.
+- Marca del cruce de 80%: `--navy` (mismo tono que las barras, más
+  oscuro que `--sky` de la línea -- "un tono distinto dentro de la misma
+  paleta", no un color nuevo), con el mismo contorno claro (`--canvas`)
+  de antes para que siga resaltando sobre los puntos normales.
+
+### 2. Fix real: primera etiqueta cortada contra el borde izquierdo
+
+⚠ **Encontrado con una captura de pantalla real, no solo con lectura de
+código** -- con `leftPad = 6` (valor original), la etiqueta rotada -45°
+de la primera barra (`textAnchor="end"`, ancla en `xCenter(0)`) se
+extiende hacia la izquierda del ancla y se corta contra `x=0` del
+`<svg>`. Se calculó el caso más exigente esperado ("Jose L Moreyra
+Barco", ~20 caracteres) -- a fuente 9px rotada -45°, la extensión
+horizontal estimada es ~71px. `leftPad` subió de 6 a **75px** (margen
+real de ~17px sobre ese peor caso, no un número arbitrario).
+
+⚠ **Sobre el tooltip superpuesto -- límite real, no resuelto del todo:**
+el tooltip es el `title` nativo del navegador (mismo mecanismo que el
+resto de la app, sin componente de hover-card propio, ver Parte 12) --
+su posición la decide el navegador, no hay manera de forzarlo hacia la
+derecha/arriba desde el SVG. El margen izquierdo más ancho (arriba)
+reduce la probabilidad de choque visual porque le da más aire a la
+primera barra/etiqueta, pero no es un control directo de dónde aparece
+el tooltip nativo -- se documenta la diferencia entre "mitigado
+indirectamente" y "resuelto", en vez de afirmar que quedó controlado.
+
+### Archivos
+
+Solo `app/pipeline/TabAnalytics.tsx`: `leftPad` (6 → 75), colores de
+`polyline`/`circle` de la línea (`--rose-700` → `--sky`) y de la marca de
+cruce de 80% (`--rose-700` → `--navy`). `lib/pipeline/paretoMix.ts` y
+`forecast-visual.css` sin tocar en esta etapa.
+
+## Etapa F7, Parte 14 -- Pareto: solo primeras 8 con nombre, sin intervalo cada 4
+
+Ajuste a `paretoShouldLabel` (Parte 12): se quitó la parte "una etiqueta
+cada 4 más allá de las primeras 8" -- ahora es estrictamente `i <
+PARETO_ALWAYS_LABELED` (8). `PARETO_LABEL_INTERVAL` se eliminó del todo
+(ya no hay una segunda constante que explicar). El tooltip sigue
+disponible en cualquier barra, con o sin nombre en el eje. La etiqueta
+del cruce de 80% (`"N loan officers → 80%"`) es independiente de esta
+lógica -- no se tocó, sigue apareciendo siempre que haya un cruce real.
+
+**Sin huecos visuales:** el espacio reservado debajo de las barras
+(`labelSpace`) es el mismo para las 37 columnas de YTD/Loan Officer,
+labeladas o no -- las barras 9+ simplemente no dibujan ningún `<text>`
+ahí (ni tick, ni placeholder, ni línea vacía), así que el área se ve
+como aire en blanco consistente, no como un elemento roto o faltante.
+El alto reservado sigue siendo necesario igual: lo determinan las
+primeras 8 barras, que sí llevan nombre rotado completo.
+
+### Archivos
+
+Solo `app/pipeline/TabAnalytics.tsx`: `paretoShouldLabel` simplificado,
+`PARETO_LABEL_INTERVAL` eliminado.
+
+## Etapa F7, Parte 15 -- Avg Ticket by Month
+
+Nuevo chart dentro de Monthly Trends, en la posición #3 exacta pedida:
+Closings by Month → Amount Closed by Month → **Avg Ticket by Month** →
+Loan Type Distribution by Month.
+
+### `avgTicketByMonth()` -- reusa `MonthlyTotal[]` ya calculado, no recalcula nada
+
+`lib/pipeline/trends.ts`, nueva función, recibe el `MonthlyTotal[]` que
+`buildMonthlyTotals` ya devuelve (el mismo array que ya consumen Closings/
+Amount by Month en `TabAnalytics.tsx`) -- no vuelve a leer `loans` ni
+recorre `resolvedLoans` una segunda vez:
+```ts
+export function avgTicketByMonth(totals: MonthlyTotal[]): MonthlyAvgTicket[] {
+  return totals.map((m) => ({
+    month: m.month,
+    avgAmount: m.count > 0 ? m.amount / m.count : 0,
+  }));
+}
+```
+Misma guarda contra división por cero que `ScorecardRow.avgAmount`
+(`lib/pipeline/scorecards.ts`) -- un mes sin loans (sep-dic 2026) queda en
+`avgAmount: 0` explícito, nunca `NaN`.
+
+### Línea, no barras -- mismo criterio ya usado para la curva del Pareto
+
+`AvgTicketChart` (nuevo, `TabAnalytics.tsx`): SVG a mano con `<polyline>`
++ puntos -- es una sola serie continua, no un conteo/monto discreto por
+mes como Closings/Amount, así que una línea comunica la evolución sin
+inventar una segunda marca redundante (mismo razonamiento del
+diagnóstico previo a esta etapa). Sigue las mismas convenciones visuales
+que el resto de Monthly Trends: mismo `shortMonth()`, mismo criterio de
+tooltip `"(no data yet)"` para meses en 0, mismo resaltado de mes
+seleccionado.
+
+### Resaltado del mes seleccionado -- coral, mismo patrón
+
+El punto del mes que cae dentro del período elegido en el selector se
+dibuja más grande y en `--coral` (en vez de `--navy`); su tick del eje
+usa la nueva clase `.trend-chart__tick--highlight` -- mismo tratamiento
+visual que ya usa `.trend-chart__col--highlight .trend-chart__tick` en
+los charts de barra, pero declarada standalone porque acá los ticks no
+están envueltos en `.trend-chart__col` (no hay una barra propia por mes
+en un chart de línea).
+
+### Línea de referencia -- promedio PONDERADO, no el promedio simple de los promedios
+
+⚠ Decisión explícita: el promedio general de referencia se calcula como
+`suma(amount de meses con datos) / suma(count de esos mismos meses)` --
+NO como el promedio simple de los 8 promedios mensuales. La diferencia es
+real con los datos actuales: promedio ponderado = **$347,943**, promedio
+simple de los 8 promedios = $349,589 -- distinto porque un mes de 24
+loans (agosto) no debe pesar igual que uno de 57 (julio) al calcular "el
+ticket promedio del año". Color `--slate-500`/línea punteada -- neutro,
+no compite con `--coral` (mes resaltado) ni `--navy` (la línea de datos).
+
+### Formato de etiquetas -- corto (K), confirmado el más legible para el rango real
+
+Con el rango real (~$329K-$375K), `fmtAmountShort` (ya usado en Amount
+Closed by Month) da etiquetas como "$375K" en vez de "$374,842" -- mismo
+criterio ya validado en esa etapa, reusado tal cual, sin una función de
+formato nueva.
+
+### Hover -- opacidad, mismo patrón
+
+Nueva clase `.avgticket-dot` (`forecast-visual.css`) -- `transition:
+opacity 0.15s ease`, `:hover { opacity: 0.82 }`, agregada también al
+bloque `prefers-reduced-motion` existente.
+
+### Números reales (snapshot activo id 74)
+
+| Mes | Cierres | Monto | Ticket promedio |
+|---|---|---|---|
+| Enero | 38 | $14,243,978 | $374,842 |
+| Febrero | 32 | $10,985,871 | $343,308 |
+| Marzo | 39 | $12,829,298 | $328,956 |
+| Abril | 56 | $18,896,194 | $337,432 |
+| Mayo | 42 | $15,559,781 | $370,471 |
+| Junio | 46 | $15,503,200 | $337,026 |
+| Julio | 57 | $19,487,582 | $341,887 |
+| Agosto | 24 | $8,706,991 | $362,791 |
+| Sep-Dic | 0 | $0 | $0 (sin error, sin `NaN`) |
+
+**Promedio general de referencia (ponderado): $347,943.**
+
+### Archivos
+
+`lib/pipeline/trends.ts` editado (`MonthlyAvgTicket`, `avgTicketByMonth`).
+`app/pipeline/TabAnalytics.tsx` editado (`AvgTicketChart`, cómputo de
+`avgTicketData`/`overallAvgTicket`, card en la posición #3 de Monthly
+Trends). `app/pipeline/styles/forecast-visual.css` editado
+(`.trend-chart__tick--highlight`, `.avgticket-dot`, agregada al bloque
+`prefers-reduced-motion`).
+
+## Etapa F7, Parte 16 -- Avg Ticket by Month: fix real de escala, no un bug de datos
+
+Reportado con una captura real: mayo/junio se veían en 0 en el chart.
+
+### Diagnóstico -- auditoría completa, sin encontrar un bug de índice/datos
+
+Se verificaron los 3 puntos pedidos:
+1. `avgTicketByMonth()` es un `.map()` 1 a 1 sobre `MonthlyTotal[]` --
+   sin reordenar, sin filtrar, sin lógica condicional por mes. No hay
+   forma estructural de que zere específicamente mayo/junio.
+2. `AvgTicketChart` usa `avgTicketData = avgTicketByMonth(monthlyTotals)`
+   -- el MISMO `monthlyTotals` que ya consumen Closings/Amount by Month
+   (una sola variable en el componente, sin duplicado ni shadow).
+3. Se simuló la fórmula real con los 8 valores reales conocidos
+   (Ene-Ago) -- los 8 `y()` calculados dieron todos dentro de rango
+   válido (0-110px), ninguno en un valor erróneo o fuera de los límites
+   del `<svg>`.
+
+**No se encontró ningún bug de índice, de datos, ni de rango.** Los
+valores que el chart dibujaba SÍ eran los correctos.
+
+### Causa real -- compresión visual por escala 0-based, no un bug de valores
+
+Los 8 meses reales están todos en una banda angosta (~$329K-$375K, un
+rango del 14%). Con la escala anterior (0-based, igual que Closings/
+Amount), esa banda entera ocupaba solo el **12% superior** de los 110px
+del plot -- una diferencia de 1 a 13px entre meses, indistinguible a
+simple vista en una captura. Eso es consistente con lo reportado: no es
+que mayo/junio valieran 0, es que TODOS los meses reales estaban
+amontonados casi en el mismo pixel, y esa compresión se leyó como "cae a
+0". A diferencia de Closings/Amount (donde 0 es un valor real y
+significativo -- cero cierres, cero monto), acá $0 es un CENTINELA de
+"sin datos" -- un mes real nunca vale $0 de verdad, así que forzar la
+escala a arrancar en $0 no aporta legibilidad, solo la destruye.
+
+### Fix -- escala acotada al rango real, meses sin datos aparte
+
+Los meses CON datos ahora usan una escala acotada a su propio rango
+(`domainMin`/`domainMax`, con 15% de margen a cada lado) -- usan el alto
+completo del plot en vez de un 12%. Los meses SIN datos (`avgAmount ===
+0`) quedan fijos en el fondo (`y = plotHeight`), fuera de esa escala fina
+-- y la línea (`<polyline>`) conecta SOLO los meses con datos reales,
+nunca un mes sin datos, para no dibujar una caída visual falsa entre un
+valor real y el "aparcado abajo" de un mes futuro (son datos de
+naturaleza distinta, no una caída real).
+
+### Verificación real -- posiciones antes/después
+
+| Mes | y() ANTES (0-based, px) | y() AHORA (escala acotada, px) |
+|---|---|---|
+| Enero | 0.0 | 12.7 |
+| Febrero | 9.3 | 70.8 |
+| Marzo | 13.5 | 97.3 |
+| Abril | 11.0 | 81.7 |
+| Mayo | 1.3 | 20.8 |
+| Junio | 11.1 | 82.4 |
+| Julio | 9.7 | 73.5 |
+| Agosto | 3.5 | 34.9 |
+| Sep-Dic | 110.0 (igual) | 110.0 (igual, sin cambios) |
+
+Antes: los 8 meses reales caían todos entre 0.0 y 13.5px (13.5px de
+rango total). Ahora: entre 12.7 y 97.3px (84.6px de rango, prácticamente
+el alto completo del plot) -- mayo (20.8px) y junio (82.4px) quedan
+claramente separados y distinguibles, ya no indistinguibles de un pixel
+al otro.
+
+### Archivos
+
+Solo `app/pipeline/TabAnalytics.tsx`: `AvgTicketChart` -- nueva lógica de
+dominio acotado (`realValues`/`minReal`/`maxReal`/`domainMin`/
+`domainMax`), `y()` redefinida, `linePoints` filtrado a meses con datos.
+`lib/pipeline/trends.ts` y `forecast-visual.css` sin tocar en esta
+etapa.
+
+## Etapa F7, Parte 17 -- Avg Ticket by Month: fix real del wrapper CSS, no de los datos
+
+Reportado con una segunda captura real: tras el fix de escala (Parte 16),
+la línea solo conectaba enero-abril; mayo-agosto quedaban como puntos
+sueltos.
+
+### Diagnóstico -- se probó matemáticamente que los 8 puntos SÍ estaban completos
+
+Se construyó a mano, con los 8 valores reales, el string exacto que arma
+`linePoints` (mismo código, mismos números) para descartar cualquier duda
+sin depender de un navegador:
+
+```
+8,12.69 59.64,70.84 111.27,97.31 162.91,81.68 214.55,20.75 266.18,82.43 317.82,73.46 369.45,34.91
+```
+
+**8 pares de coordenadas, los 8 meses (Ene-Ago), en orden, todos números
+válidos (sin `NaN`, sin token malformado).** El array `realPoints`
+(`rows.map((r,i) => ({r,i})).filter(({r}) => r.avgAmount > 0)`) SÍ
+conservaba los 8 -- confirmado con prueba, no solo lectura de código. La
+lógica de datos/índices de la Parte 16 estaba bien; el problema reportado
+era real, pero la causa era otra.
+
+### Causa real -- clase CSS equivocada para el wrapper del SVG
+
+El `<svg>` estaba envuelto en `.trend-chart__plot`
+(`display: flex; align-items: flex-end`, `forecast-visual.css`) -- una
+clase diseñada para las COLUMNAS FLEX de los charts de barra
+(`SimpleMonthlyChart`), no para un `<svg>` de ancho fijo (640px). Un
+`<svg>` como único hijo de un contenedor flex puede angostarse
+(`flex-shrink` default del navegador) si el contenedor real es más
+angosto que esos 640px, distorsionando el render de forma dependiente
+del navegador/viewport -- consistente con "la línea se corta" sin que
+los datos en sí estuvieran mal. `ParetoChart` (Parte 11), el otro chart
+SVG-a-mano de esta pestaña, ya resolvía esto correctamente con un
+wrapper simple (`<div style={{ overflowX: 'auto' }}>`), sin usar
+`.trend-chart__plot` -- `AvgTicketChart` reusó por error la clase
+equivocada (pensada para bloques flex de barras) en vez de seguir el
+precedente correcto del propio chart hermano.
+
+### Fix
+
+Se reemplazó el wrapper por el mismo patrón de `ParetoChart`:
+`<div style={{ overflowX: 'auto' }}>` envolviendo el `<svg>` -- sin
+`display: flex`, sin `flex-shrink` implícito, el SVG conserva su ancho
+real de 640px y hace scroll horizontal si el contenedor es más angosto,
+en vez de comprimirse de forma impredecible.
+
+### Archivos
+
+Solo `app/pipeline/TabAnalytics.tsx`: wrapper del `<svg>` de
+`AvgTicketChart` cambiado de `className="trend-chart__plot"` a un `div`
+con `overflowX: 'auto'` inline (mismo patrón que `ParetoChart`). Ningún
+cambio en la lógica de `x()`/`y()`/`linePoints` (ya verificados correctos
+en el diagnóstico de esta etapa).
+
+## Etapa F7, Parte 18 -- Avg Ticket by Month: fix real de la desalineación con el eje
+
+Reportado con una tercera captura real: la línea ya conectaba los 8
+puntos (Parte 17), pero quedaban desalineados horizontalmente contra las
+etiquetas "Jan"-"Dec" -- agosto (coral) flotaba entre "Apr" y "May" en
+vez de debajo de "Aug".
+
+### Causa real -- dos sistemas de coordenadas horizontales distintos, no un bug de índice
+
+`x(i)` ya usaba el índice real (0-11, agosto=7) sobre un `step` calculado
+con `rows.length` = 12 -- confirmado, no era un bug de "8 en vez de 12"
+como se sospechaba inicialmente. El problema real: esa posición vive
+DENTRO del ancho fijo del `<svg width={640}>`, mientras que las
+etiquetas de mes vivían en un `<div className="trend-chart__axis">`
+APARTE, layouteado por flexbox (`.trend-chart__tick { flex: 1 1 0 }`) --
+un sistema de coordenadas totalmente independiente. El ancho real que el
+navegador le da a esa fila flex no tiene ninguna relación garantizada
+con los 640px internos del SVG, así que por más correcto que estuviera
+`x(i)`, los puntos y las etiquetas quedaban en dos escalas horizontales
+distintas por construcción -- ningún valor de `x(i)` podía arreglar eso,
+porque el problema no estaba en la fórmula.
+
+`ParetoChart` (Parte 11) nunca tuvo este problema por el mismo motivo al
+revés: sus etiquetas de categoría ya viven DENTRO del mismo `<svg>`, como
+`<text>` posicionados con la misma función que ya usan las barras/puntos.
+
+### Fix -- etiquetas de mes movidas dentro del mismo SVG
+
+Se eliminó el `<div className="trend-chart__axis">` separado; las 12
+etiquetas de mes ahora son `<text>` dentro del mismo `<g>` que la línea y
+los puntos, posicionadas con la MISMA función `x(i)` -- mismo patrón que
+`ParetoChart`. Esto garantiza alineación exacta por construcción (mismo
+sistema de coordenadas), sin depender de que el ancho real del
+contenedor coincida con ningún valor fijo. Nuevo `bottomReserve = 18`
+(px) para el espacio de esas etiquetas dentro del `viewBox`.
+
+### Verificación real -- x() de los 12 meses
+
+| Mes | Índice | x() |
+|---|---|---|
+| Jan | 0 | 8.00 |
+| Feb | 1 | 59.64 |
+| Mar | 2 | 111.27 |
+| Apr | 3 | 162.91 |
+| May | 4 | 214.55 |
+| Jun | 5 | 266.18 |
+| Jul | 6 | 317.82 |
+| **Aug** | **7** | **369.45** |
+| Sep | 8 | 421.09 |
+| Oct | 9 | 472.73 |
+| Nov | 10 | 524.36 |
+| Dec | 11 | 576.00 |
+
+Confirmado: agosto (punto de datos Y etiqueta "Aug") caen ambos en
+**x=369.45** -- la misma coordenada exacta, porque ahora los calcula la
+misma función sobre el mismo sistema de coordenadas. Antes de este fix
+no había forma de garantizar esa igualdad, sin importar qué tan
+"correcto" pareciera `x(i)` en aislamiento.
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx`: `AvgTicketChart` -- etiquetas de mes
+movidas de `.trend-chart__axis` (div flex externo) a `<text>` dentro del
+`<svg>`, `bottomReserve` nuevo. `app/pipeline/styles/forecast-visual.css`:
+`.trend-chart__tick--highlight` (agregada en la Parte 15, sin ningún otro
+uso en el proyecto) se eliminó -- código muerto tras este cambio, no
+código dejado "por si acaso". `lib/pipeline/trends.ts` sin tocar.
+
+## Etapa F7, Parte 19 -- diagnóstico "excluded": significado, no mecanismo
+
+El texto anterior ("known non-person entry/entries", "excluded via
+org.source_name_excluded") describía el MECANISMO técnico, no el
+significado real -- y de hecho sugería la causa equivocada. La propia
+documentación de `buildExcludedIndex()` (`lib/business-plan/aliasIndex.ts:100-111`)
+dice explícito: de los 36 nombres excluidos, la razón típica es "no son
+LOs de la división", no "no es una persona" -- el caso real ya
+confirmado, Anthony Ditoma (Loan Officer real, con préstamos reales en
+branch 733 y 150), es exactamente eso, no una cuenta de sistema ni un
+dato mal capturado.
+
+### Redacción nueva -- genérica a propósito, sin asumir el motivo
+
+`"outside this scorecard's roster"` cubre tanto el motivo de hoy (otra
+división) como uno futuro sin ejercitar todavía (cuenta de sistema, ej.
+"sf integrations", buscado y no encontrado en el snapshot activo desde
+la Etapa F7.2) -- sin necesitar distinguirlos en el texto visible, y sin
+nombrar `org.source_name_excluded` en ningún lado.
+
+**Resumen (icono/summary)** -- caso puro (solo excluidos, sin
+no-reconocidos ni vacíos): frase dedicada, mismo tono del ejemplo
+pedido. Para una mezcla de categorías, la frase general de siempre, con
+la parte "excluded" reformulada dentro de la lista entre paréntesis
+(`"N outside this scorecard's roster"` en vez de `"N known non-person
+entries"`).
+
+**Detalle (tooltip completo)** -- reescrito completo, sin nombres de
+tabla en ninguna línea: "N loans resolved to a person via the company
+roster." + una línea por categoría con problema, en lenguaje simple. La
+lista de nombres no reconocidos (`unmappedNames`) se conserva -- es dato
+accionable real, no jerga técnica.
+
+### Motivo/`reason` en el tooltip -- no traído, no está modelado en ningún lado del código hoy
+
+Se evaluó explícito, como pedía la tarea. `org.from('source_name_excluded').select('source_system, name_raw')`
+(`useOrgRoster.ts`) solo trae esos dos campos -- ningún `reason` ni
+similar. `buildExcludedIndex(rows: { source_system, name_raw }[])`
+(`lib/business-plan/aliasIndex.ts`) tampoco lo recibe ni lo expone.
+Traerlo requeriría tocar los dos archivos -- el segundo, compartido con
+Business Plan, deliberadamente sin cambios desde la Etapa 2 de esta
+misma serie. **No se implementó** (era "opcional, no bloqueante") --
+queda anotado como mejora futura real, no descartada por falta de
+interés sino por alcance de archivos de esta etapa puntual.
+
+### Texto real esperado -- caso Anthony Ditoma (agosto 2026)
+
+⚠ Con los números ya conocidos de esta sesión (24 loans, 0 con
+`loan_officer` vacío -- verificado por script -- y Anthony Ditoma
+identificado como el único caso "excluded" en agosto, sin confirmación
+en pantalla de que `unmappedCount` sea 0): si `resolvedCount=23,
+excludedCount=1, unmappedCount=0, blankCount=0` (la combinación más
+probable, no verificada con sesión de navegador real), el texto sería:
+
+**Summary:**
+```
+1 loan's owner is outside this scorecard's roster
+```
+
+**Detail:**
+```
+23 loans resolved to a person via the company roster.
+1 loan belongs to someone not part of this division's roster -- their production is included in the totals above, but they don't get their own row in this breakdown.
+```
+
+### Archivos
+
+Solo `app/pipeline/TabAnalytics.tsx`: `personDiagnosticsNote()`
+reescrita (mismo shape de retorno `{count, summary, detail}`, mismo
+`console.warn` de reconciliación sin cambios). `docs/ARQUITECTURA.md`.
+Ningún archivo de `lib/business-plan/**` ni `useOrgRoster.ts` tocado.

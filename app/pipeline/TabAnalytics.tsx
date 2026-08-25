@@ -10,8 +10,19 @@ import {
   type PersonScorecardResult,
   type ScorecardRow,
 } from '@/lib/pipeline/scorecards';
-import { getDefaultPeriodSelection, periodDateRange, periodLabel, periodMonths, type PeriodSelection } from '@/lib/pipeline/period';
-import { buildMonthlyTotals, buildMonthlyTypeBreakdown, currentYear, type MonthlyTotal, type MonthlyTypeBreakdown } from '@/lib/pipeline/trends';
+import { getDefaultPeriodSelection, getDefaultYtdSelection, periodDateRange, periodLabel, periodMonths, type PeriodSelection } from '@/lib/pipeline/period';
+import {
+  avgTicketByMonth,
+  buildMonthlyTotals,
+  buildMonthlyTypeBreakdown,
+  currentYear,
+  type MonthlyAvgTicket,
+  type MonthlyTotal,
+  type MonthlyTypeBreakdown,
+} from '@/lib/pipeline/trends';
+import { buildStrategyMix, type StrategyMixRow } from '@/lib/pipeline/strategyMix';
+import { classifyStrategy, type Strategy } from '@/lib/pipeline/strategy';
+import { buildParetoRows, type ParetoRow } from '@/lib/pipeline/paretoMix';
 import PeriodSelector from './PeriodSelector';
 import { useOrgRoster, type OrgRoster } from './useOrgRoster';
 import LoanDetailModal, { type LoanDetailModalColumn, type LoanDetailModalLoan } from './LoanDetailModal';
@@ -285,6 +296,28 @@ function DiagnosticsNote({ count, summary, detail }: { count: number; summary: s
  * (el `console.warn` de red de seguridad sigue exactamente igual, solo el
  * texto visible cambió).
  */
+/**
+ * Redacción del diagnóstico "excluded" -- Etapa F7, Parte 19. Antes decía
+ * "known non-person entry/entries" (describe el MECANISMO --
+ * `org.source_name_excluded` -- no el significado). Es engañoso: la
+ * propia documentación de `buildExcludedIndex()`
+ * (`lib/business-plan/aliasIndex.ts`) dice que la mayoría de esos 36
+ * nombres NO son cuentas de sistema, son personas reales que no
+ * pertenecen a la división ("no son LOs de la división") -- el caso real
+ * ya confirmado, Anthony Ditoma, es exactamente eso, no un dato mal
+ * capturado. La redacción nueva no asume el motivo (podría ser otra
+ * división HOY, una cuenta de sistema MAÑANA) -- "outside this
+ * scorecard's roster" cubre ambos sin necesitar distinguirlos en el
+ * texto visible, y sin nombrar `org.source_name_excluded` en ningún
+ * lado. No se trae un motivo/`reason` al tooltip: `source_name_excluded`
+ * no tiene ese campo modelado hoy en ningún lado del código
+ * (`useOrgRoster.ts` solo trae `source_system, name_raw`;
+ * `buildExcludedIndex()` solo recibe esos dos) -- agregarlo requeriría
+ * tocar `useOrgRoster.ts` y `lib/business-plan/aliasIndex.ts` (este
+ * último, compartido con Business Plan, deliberadamente sin cambios
+ * desde la Parte 2), los dos fuera del alcance de esta etapa. Queda
+ * anotado como mejora futura posible, no bloqueante.
+ */
 function personDiagnosticsNote(result: PersonScorecardResult): { count: number; summary: string; detail: string } {
   const { totalInput, resolvedCount, blankCount, excludedCount, unmappedCount, unmappedNames } = result.diagnostics;
   const accounted = resolvedCount + blankCount + excludedCount + unmappedCount;
@@ -292,18 +325,34 @@ function personDiagnosticsNote(result: PersonScorecardResult): { count: number; 
     console.warn(`[TabAnalytics] reconciliación de persona no cuadra: resolved+blank+excluded+unmapped=${accounted}, totalInput=${totalInput}`);
   }
   const problemCount = blankCount + excludedCount + unmappedCount;
+
   const parts: string[] = [];
   if (unmappedCount > 0) parts.push(`${fmtInt(unmappedCount)} unrecognized name${unmappedCount === 1 ? '' : 's'}`);
-  if (excludedCount > 0) parts.push(`${fmtInt(excludedCount)} known non-person ${excludedCount === 1 ? 'entry' : 'entries'}`);
+  if (excludedCount > 0) parts.push(`${fmtInt(excludedCount)} outside this scorecard's roster`);
   if (blankCount > 0) parts.push(`${fmtInt(blankCount)} with no name recorded`);
-  const summary = `${fmtInt(problemCount)} of ${fmtInt(totalInput)} loan${totalInput === 1 ? '' : 's'} could not be matched to a person (${parts.join(', ')})`;
-  const detail =
-    `${fmtInt(resolvedCount)} resolved via org.employee_alias` +
-    (excludedCount > 0 ? `; ${fmtInt(excludedCount)} excluded via org.source_name_excluded` : '') +
-    (unmappedCount > 0
-      ? `; ${fmtInt(unmappedCount)} not yet in org.employee_alias: ${unmappedNames.map((u) => `${u.nameRaw} (${u.rows})`).join(', ')}`
-      : '') +
-    (blankCount > 0 ? `; ${fmtInt(blankCount)} with no Loan Officer/Owner value recorded` : '');
+
+  /* Caso puro (solo excluidos, sin no-reconocidos ni vacíos): frase dedicada, mismo tono del ejemplo pedido -- para el resto, la frase general de siempre, solo con la parte "excluded" reformulada. */
+  const onlyExcluded = excludedCount === problemCount && excludedCount > 0;
+  const summary = onlyExcluded
+    ? `${fmtInt(excludedCount)} loan${excludedCount === 1 ? "'s owner is" : "s' owners are"} outside this scorecard's roster`
+    : `${fmtInt(problemCount)} of ${fmtInt(totalInput)} loan${totalInput === 1 ? '' : 's'} could not be matched to a person (${parts.join(', ')})`;
+
+  const detailParts: string[] = [`${fmtInt(resolvedCount)} loan${resolvedCount === 1 ? '' : 's'} resolved to a person via the company roster.`];
+  if (excludedCount > 0) {
+    detailParts.push(
+      `${fmtInt(excludedCount)} loan${excludedCount === 1 ? ' belongs' : 's belong'} to someone not part of this division's roster -- their production is included in the totals above, but they don't get their own row in this breakdown.`
+    );
+  }
+  if (unmappedCount > 0) {
+    detailParts.push(
+      `${fmtInt(unmappedCount)} with a name not yet recognized: ${unmappedNames.map((u) => `${u.nameRaw} (${u.rows})`).join(', ')}.`
+    );
+  }
+  if (blankCount > 0) {
+    detailParts.push(`${fmtInt(blankCount)} with no Loan Officer/Owner value recorded.`);
+  }
+  const detail = detailParts.join('\n');
+
   return { count: problemCount, summary, detail };
 }
 
@@ -525,6 +574,158 @@ function TypeBreakdownChart({
 }
 
 /**
+ * Ticket promedio mensual -- Etapa F7, Parte 15. Línea simple, no barras:
+ * es una sola serie continua (a diferencia de Closings/Amount, que son
+ * conteo/monto discretos por mes) -- mismo criterio ya usado para la
+ * curva acumulada del Pareto (Parte 11-14): SVG a mano con `<polyline>` +
+ * puntos, no una librería de charts. Sigue las mismas convenciones
+ * visuales que el resto de Monthly Trends (mismo `shortMonth`, mismo
+ * resaltado coral del mes seleccionado, mismo patrón de tooltip "(no
+ * data yet)" para meses sin datos) -- solo la marca (línea, no barra)
+ * es distinta, porque la naturaleza del dato lo es.
+ */
+function AvgTicketChart({
+  rows,
+  highlightMonths,
+  overallAvg,
+}: {
+  rows: MonthlyAvgTicket[];
+  highlightMonths: Set<string>;
+  /** Promedio ponderado del año completo (suma de amount / suma de count de los meses CON datos) -- no el promedio simple de los 8 promedios mensuales. */
+  overallAvg: number;
+}) {
+  const width = 640;
+  const plotHeight = 110;
+  const topReserve = CHART_LABEL_RESERVE;
+  /** Espacio para las etiquetas de mes ("Jan".."Dec"), ahora dentro del mismo SVG que los puntos -- ver fix de alineación más abajo. */
+  const bottomReserve = 18;
+  const leftPad = 8;
+  const rightPad = 64;
+  const innerWidth = width - leftPad - rightPad;
+  const step = rows.length > 1 ? innerWidth / (rows.length - 1) : 0;
+
+  /*
+   * FIX (reportado con captura real): escala 0-based hacía que los 8
+   * meses reales (todos entre ~$329K y ~$375K, una banda angosta) se
+   * amontonaran en el 12% superior de los 110px del plot -- una
+   * diferencia de 1-13px entre meses es indistinguible a simple vista,
+   * y se leyó como "mayo/junio caen a 0" aunque los valores en sí eran
+   * correctos (confirmado con los mismos números reales, ver reporte).
+   * El ticket promedio no es como un conteo -- $0 acá es un centinela de
+   * "sin datos", no un valor bajo real, así que forzar la escala a
+   * arrancar en $0 no aporta nada y sí destruye la legibilidad.
+   *
+   * Fix real: los meses CON datos usan una escala acotada a su propio
+   * rango (con margen), para usar el alto completo del plot -- los
+   * meses SIN datos (`avgAmount === 0`) van fijos abajo del todo, fuera
+   * de esa escala, como "no aplica" en vez de competir por el mismo eje
+   * fino que separa $329K de $375K.
+   */
+  const realValues = rows.filter((r) => r.avgAmount > 0).map((r) => r.avgAmount);
+  const minReal = realValues.length > 0 ? Math.min(...realValues) : 0;
+  const maxReal = realValues.length > 0 ? Math.max(...realValues) : 0;
+  const rawSpan = maxReal - minReal;
+  const margin = rawSpan > 0 ? rawSpan * 0.15 : Math.max(1, maxReal * 0.1);
+  const domainMin = Math.max(0, minReal - margin);
+  const domainMax = maxReal + margin;
+  const domainSpan = Math.max(1, domainMax - domainMin);
+
+  function x(i: number): number {
+    return leftPad + i * step;
+  }
+  function y(avg: number): number {
+    if (avg <= 0) return plotHeight;
+    return plotHeight - ((avg - domainMin) / domainSpan) * plotHeight;
+  }
+
+  /*
+   * La línea conecta SOLO los meses con datos reales (Jan-Ago) -- nunca
+   * un mes sin datos, para no dibujar una caída visual falsa desde un
+   * valor real (zoom fino) hasta el "aparcado abajo" de un mes futuro,
+   * que son cosas de naturaleza distinta (dato real vs. centinela de
+   * "sin datos"). El índice original (`i`) se conserva para la posición
+   * X real de cada mes, aunque se salteen los que no tienen dato.
+   */
+  const realPoints = rows.map((r, i) => ({ r, i })).filter(({ r }) => r.avgAmount > 0);
+  const linePoints = realPoints.map(({ r, i }) => `${x(i)},${y(r.avgAmount)}`).join(' ');
+  const avgY = y(overallAvg);
+
+  return (
+    <div className="trend-chart">
+      {/*
+        FIX (puntos desalineados contra "Jan"-"Dec" reportado con captura
+        real): las etiquetas del eje vivían en un `<div
+        className="trend-chart__axis">` aparte, layouteado por FLEXBOX
+        (`.trend-chart__tick { flex: 1 1 0 }`) -- un sistema de
+        coordenadas totalmente independiente del `<svg width={640}>` de
+        arriba. Aunque `x(i)` ya usaba el índice real de 0 a 11 (agosto =
+        7, verificado), esa posición SOLO tiene sentido DENTRO del ancho
+        fijo de 640px del SVG -- no hay ninguna garantía de que 640px
+        coincida con el ancho real que el navegador le da a la fila flex
+        de abajo, así que los puntos y las etiquetas terminaban en dos
+        escalas horizontales distintas por construcción, sin importar
+        qué tan bien calculado estuviera `x(i)`. Fix real: las etiquetas
+        de mes se mueven DENTRO del mismo `<svg>`, como `<text>`
+        posicionados con la misma función `x(i)` que ya usan los puntos
+        -- mismo criterio que ya usa `ParetoChart` (Parte 11), que nunca
+        tuvo este problema por eso mismo.
+      */}
+      <div style={{ overflowX: 'auto' }}>
+        <svg
+          width={width}
+          height={topReserve + plotHeight + bottomReserve}
+          viewBox={`0 0 ${width} ${topReserve + plotHeight + bottomReserve}`}
+        >
+          <g transform={`translate(0 ${topReserve})`}>
+            {/* Promedio general del año (ponderado, solo meses con datos) -- color neutro, no coral (reservado para el mes resaltado) ni azul de la línea. */}
+            {overallAvg > 0 && (
+              <>
+                <line x1={0} y1={avgY} x2={width} y2={avgY} stroke="var(--slate-400)" strokeDasharray="4 3" strokeWidth={1} />
+                <text x={width} y={avgY - 4} textAnchor="end" fontSize="10" fill="var(--slate-500)">
+                  {`Avg: ${fmtAmountShort(overallAvg)}`}
+                </text>
+              </>
+            )}
+            <polyline points={linePoints} fill="none" stroke="var(--navy)" strokeWidth={2} />
+            {rows.map((r, i) => {
+              const isHighlighted = highlightMonths.has(r.month);
+              return (
+                <g key={r.month}>
+                  <circle
+                    className="avgticket-dot"
+                    cx={x(i)}
+                    cy={y(r.avgAmount)}
+                    r={isHighlighted ? 4.5 : 3}
+                    fill={isHighlighted ? 'var(--coral)' : 'var(--navy)'}
+                  >
+                    <title>{`${shortMonth(r.month)} ${r.month.slice(0, 4)}: ${fmtAmount(r.avgAmount)}${r.avgAmount === 0 ? ' (no data yet)' : ''}`}</title>
+                  </circle>
+                  {r.avgAmount > 0 && (
+                    <text x={x(i)} y={y(r.avgAmount) - 8} textAnchor="middle" fontSize="9" fill="var(--slate-500)">
+                      {fmtAmountShort(r.avgAmount)}
+                    </text>
+                  )}
+                  <text
+                    x={x(i)}
+                    y={plotHeight + 14}
+                    textAnchor="middle"
+                    fontSize="10.5"
+                    fontWeight={isHighlighted ? 700 : 400}
+                    fill={isHighlighted ? 'var(--navy)' : 'var(--slate-500)'}
+                  >
+                    {shortMonth(r.month)}
+                  </text>
+                </g>
+              );
+            })}
+          </g>
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Placeholders de fila vacía -- MISMO texto que `NO_PROGRAM_LABEL`/
  * `NO_TYPE_LABEL` en `lib/pipeline/analytics.ts` (no exportados ahí, y ese
  * archivo está fuera del alcance de esta etapa). Duplicado a propósito
@@ -547,6 +748,384 @@ function loanResolvesToEmployeeKey(loan: ResolvedLoan, aliasIndex: OrgRoster['al
   if (!nameRaw) return false;
   const { employeeKey } = aliasIndex.lookup('salesforce', nameRaw);
   return employeeKey !== null && String(employeeKey) === employeeKeyStr;
+}
+
+/**
+ * Paleta fija por NOMBRE de estrategia -- a diferencia de `TYPE_COLORS`
+ * (Loan Type, Parte 3), acá `Strategy` es un enum cerrado de 5 valores
+ * (`lib/pipeline/strategy.ts`), así que se puede mapear cada nombre a un
+ * color fijo en vez de ciclar por orden de aparición -- no depende de qué
+ * estrategia aparece primero en los datos del período, siempre el mismo
+ * color para la misma estrategia. No existía ninguna paleta previa para
+ * estas 5 categorías en ningún otro lado de Forecast (la vista "By
+ * strategy" de PivotTable.tsx no colorea por estrategia, solo texto plano
+ * + un pill neutro de filtro) -- se define acá, con tokens existentes.
+ */
+const STRATEGY_COLORS: Record<Strategy, string> = {
+  'Own production': 'var(--navy)',
+  B2B: 'var(--emerald-700)',
+  Affinity: 'var(--sky)',
+  Recruitment: 'var(--amber-500)',
+  NPPM: 'var(--rose-700)',
+};
+
+/**
+ * Dona SVG a mano -- cada segmento es un `<path>` de arco (`M`/`A`),
+ * ángulo calculado directo por trigonometría (`sin`/`cos`), no
+ * `stroke-dasharray`/`stroke-dashoffset`: ese enfoque (usado en la
+ * primera versión de este componente) depende de una convención de
+ * dirección/punto de inicio de `<circle>` que resultó ambigua en la
+ * práctica -- el orden visual no coincidía con el de la leyenda. Con
+ * ángulo explícito (0 = 12 en punto, crece en sentido horario -- fórmula
+ * verificable a mano: `x = cx + r·sin(θ), y = cy − r·cos(θ)`) no hay
+ * ambigüedad posible. Sigue siendo SVG a mano, sin librería de charts.
+ * Centro con el total en texto grande. Segmentos y filas de leyenda son
+ * clickeables si se pasa `onSegmentClick` (drill-down, opcional).
+ */
+function StrategyDonutChart({
+  rows,
+  onSegmentClick,
+}: {
+  rows: StrategyMixRow[];
+  onSegmentClick?: (row: StrategyMixRow) => void;
+}) {
+  const total = rows.reduce((sum, r) => sum + r.count, 0);
+  const size = 160;
+  const strokeWidth = 22;
+  const radius = (size - strokeWidth) / 2;
+  const cx = size / 2;
+  const cy = size / 2;
+
+  /** Punto sobre el círculo para el ángulo dado (radianes, 0 = 12 en punto, crece horario). */
+  function pointAt(angle: number): { x: number; y: number } {
+    return { x: cx + radius * Math.sin(angle), y: cy - radius * Math.cos(angle) };
+  }
+
+  const nonZeroRows = rows.filter((r) => r.count > 0);
+  const segments = nonZeroRows.map((r, i) => {
+    const countBefore = nonZeroRows.slice(0, i).reduce((sum, x) => sum + x.count, 0);
+    const startAngle = (countBefore / total) * 2 * Math.PI;
+    const endAngle = ((countBefore + r.count) / total) * 2 * Math.PI;
+    return { row: r, startAngle, endAngle };
+  });
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '24px', flexWrap: 'wrap' }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label="Strategy mix">
+        {total === 0 ? (
+          <circle cx={cx} cy={cy} r={radius} fill="none" stroke="var(--slate-200)" strokeWidth={strokeWidth} />
+        ) : segments.length === 1 ? (
+          // Una sola estrategia con el 100% del período: un arco no puede cerrar 360°, se dibuja como anillo completo.
+          <circle
+            cx={cx}
+            cy={cy}
+            r={radius}
+            fill="none"
+            stroke={STRATEGY_COLORS[segments[0].row.strategy]}
+            strokeWidth={strokeWidth}
+            style={onSegmentClick ? { cursor: 'pointer' } : undefined}
+            onClick={onSegmentClick ? () => onSegmentClick(segments[0].row) : undefined}
+          >
+            <title>{`${segments[0].row.strategy}: ${fmtInt(segments[0].row.count)} (${fmtPercent(segments[0].row.percent)})`}</title>
+          </circle>
+        ) : (
+          segments.map(({ row, startAngle, endAngle }) => {
+            const start = pointAt(startAngle);
+            const end = pointAt(endAngle);
+            const largeArc = endAngle - startAngle > Math.PI ? 1 : 0;
+            return (
+              <path
+                key={row.strategy}
+                d={`M ${start.x} ${start.y} A ${radius} ${radius} 0 ${largeArc} 1 ${end.x} ${end.y}`}
+                fill="none"
+                stroke={STRATEGY_COLORS[row.strategy]}
+                strokeWidth={strokeWidth}
+                style={onSegmentClick ? { cursor: 'pointer' } : undefined}
+                onClick={onSegmentClick ? () => onSegmentClick(row) : undefined}
+              >
+                <title>{`${row.strategy}: ${fmtInt(row.count)} (${fmtPercent(row.percent)})`}</title>
+              </path>
+            );
+          })
+        )}
+        <text x={cx} y={cy - 4} textAnchor="middle" fontSize="28" fontWeight={700} fill="var(--navy)">
+          {fmtInt(total)}
+        </text>
+        <text x={cx} y={cy + 16} textAnchor="middle" fontSize="11" fill="var(--slate-500)">
+          {total === 1 ? 'loan' : 'loans'}
+        </text>
+      </svg>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '200px' }}>
+        {rows.map((row) => (
+          <div
+            key={row.strategy}
+            onClick={onSegmentClick && row.count > 0 ? () => onSegmentClick(row) : undefined}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              fontSize: '13px',
+              color: row.count > 0 ? 'var(--slate-800)' : 'var(--slate-400)',
+              cursor: onSegmentClick && row.count > 0 ? 'pointer' : undefined,
+            }}
+          >
+            <i
+              style={{
+                display: 'inline-block',
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                background: STRATEGY_COLORS[row.strategy],
+                flexShrink: 0,
+              }}
+            />
+            <span style={{ flex: 1 }}>{row.strategy}</span>
+            <span style={{ fontWeight: 600 }}>{fmtInt(row.count)}</span>
+            {/*
+              % con menos peso visual que el conteo -- más chico y atenuado
+              (opacity, no un color fijo) para que no compita con el número
+              real y siga viéndose más tenue todavía si la fila entera ya
+              está atenuada por count === 0 (arriba).
+            */}
+            <span style={{ fontSize: '11px', opacity: 0.65 }}>{fmtPercent(row.percent)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Solo las primeras N categorías llevan nombre en el eje X y número
+ * sobre la barra -- de ahí en más, sin etiqueta (el detalle sigue
+ * disponible por tooltip en cualquier barra). Ajuste posterior: la
+ * versión anterior mostraba una etiqueta cada 4 más allá de las
+ * primeras 8 -- se quitó esa parte a pedido explícito, deja el eje
+ * limpio en vez de una etiqueta suelta cada tanto.
+ */
+const PARETO_ALWAYS_LABELED = 8;
+
+function paretoShouldLabel(i: number): boolean {
+  return i < PARETO_ALWAYS_LABELED;
+}
+
+/**
+ * Tooltip enriquecido -- no existe ningún componente de hover-card/popover
+ * en el resto de la app (revisado: `title` nativo con `\n` es el único
+ * patrón real, ej. `formatCtcClosingTooltip` en PivotTable.tsx, o el
+ * `detail` de `DiagnosticsNote`) -- se sigue ese mismo criterio acá, con
+ * más contenido: nombre completo, conteo + % individual, % acumulado, y
+ * posición en el ranking.
+ */
+function paretoTooltip(r: ParetoRow, rank: number, totalCategories: number): string {
+  return [
+    r.label,
+    `${fmtInt(r.count)} loans (${fmtPercent(r.percent)} of total)`,
+    `${fmtPercent(r.cumulativePercent)} cumulative`,
+    `#${rank} of ${totalCategories}`,
+  ].join('\n');
+}
+
+/**
+ * Pareto por Branch/Loan Officer -- Etapa F7, Parte 11. Primera vez en el
+ * proyecto combinando dos tipos de marca en un mismo SVG a mano: barras
+ * (conteo, eje izquierdo/altura) + línea de % acumulado (eje 0-100%,
+ * superpuesto a la misma altura del plot -- mismo criterio que un combo
+ * chart estándar, sin librería). Toggle de modo (período seleccionado /
+ * YTD) y de corte (Branch / Loan Officer) son estado LOCAL de este
+ * componente -- `data` ya trae las 4 combinaciones precomputadas por el
+ * padre, así que cambiar cualquiera de los dos toggles es una re-render
+ * puramente local, sin recalcular nada ni tocar el resto de la pestaña.
+ *
+ * Con muchas categorías (Loan Officer en YTD puede traer 30+ nombres
+ * reales), mostrar TODAS las etiquetas las vuelve ilegibles y ocultarlas
+ * TODAS obliga a adivinar -- las primeras `PARETO_ALWAYS_LABELED` llevan
+ * etiqueta + número sobre la barra (`paretoShouldLabel`); de ahí en más,
+ * sin etiqueta de nombre en el eje (ajuste explícito: no "una cada 4",
+ * eje limpio en vez de una etiqueta suelta cada tanto). Ninguna
+ * categoría se omite del chart en sí -- todas tienen su barra y su
+ * punto, con el detalle completo siempre disponible por tooltip.
+ */
+function ParetoChart({
+  data,
+}: {
+  data: { period: { branch: ParetoRow[]; loanOfficer: ParetoRow[] }; ytd: { branch: ParetoRow[]; loanOfficer: ParetoRow[] } };
+}) {
+  const [mode, setMode] = useState<'period' | 'ytd'>('period');
+  const [cut, setCut] = useState<'branch' | 'loanOfficer'>('branch');
+  const rows = data[mode][cut];
+
+  const plotHeight = 160;
+  const topReserve = 16;
+  const barWidth = 26;
+  const gap = 10;
+  /*
+   * FIX (captura real): con `leftPad` chico, la etiqueta rotada -45° de
+   * la PRIMERA barra (`textAnchor="end"`, ancla en `xCenter(0)`) se
+   * extiende hacia la izquierda del ancla y termina cortada contra el
+   * borde del `<svg>` (x=0) -- nombres largos ("Nathan Martinez", "Jose
+   * L Moreyra Barco") empeoran el corte. 75px deja margen real (~17px de
+   * sobra contra el nombre más largo esperado, "Jose L Moreyra Barco",
+   * ~71px de extensión horizontal rotado) sin recortarse.
+   */
+  const leftPad = 75;
+  const labelSpace = 70;
+  const plotWidth = Math.max(rows.length * (barWidth + gap) + leftPad, 200);
+  const maxCount = Math.max(1, ...rows.map((r) => r.count));
+
+  function xCenter(i: number): number {
+    return leftPad + i * (barWidth + gap) + barWidth / 2;
+  }
+  function yForCount(count: number): number {
+    return plotHeight - (count / maxCount) * plotHeight;
+  }
+  function yForPercent(pct: number): number {
+    return plotHeight - (pct / 100) * plotHeight;
+  }
+
+  const linePoints = rows.map((r, i) => `${xCenter(i)},${yForPercent(r.cumulativePercent)}`).join(' ');
+  const eightyY = yForPercent(80);
+  /** Primera categoría cuyo % acumulado ya llega a 80% -- el "cruce" real, no un punto adivinado visualmente. */
+  const crossIndex = rows.findIndex((r) => r.cumulativePercent >= 80);
+  const cutNoun = cut === 'branch' ? 'branch' : 'loan officer';
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '12px', flexWrap: 'wrap' }}>
+        <div className="seg">
+          <button type="button" className={mode === 'period' ? 'on' : ''} onClick={() => setMode('period')}>
+            Selected period
+          </button>
+          <button type="button" className={mode === 'ytd' ? 'on' : ''} onClick={() => setMode('ytd')}>
+            Year to date
+          </button>
+        </div>
+        <div className="seg">
+          <button type="button" className={cut === 'branch' ? 'on' : ''} onClick={() => setCut('branch')}>
+            Branch
+          </button>
+          <button type="button" className={cut === 'loanOfficer' ? 'on' : ''} onClick={() => setCut('loanOfficer')}>
+            Loan Officer
+          </button>
+        </div>
+      </div>
+      {rows.length === 0 ? (
+        <p className="foot-note">No funded loans in this range.</p>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <svg
+            width={plotWidth}
+            height={topReserve + plotHeight + labelSpace + 12}
+            viewBox={`0 0 ${plotWidth} ${topReserve + plotHeight + labelSpace + 12}`}
+          >
+            <g transform={`translate(0 ${topReserve})`}>
+              <line x1={0} y1={eightyY} x2={plotWidth} y2={eightyY} stroke="var(--slate-300)" strokeDasharray="4 3" strokeWidth={1} />
+              <text x={plotWidth} y={eightyY - 4} textAnchor="end" fontSize="10" fill="var(--slate-500)">
+                80%
+              </text>
+              {rows.map((r, i) => (
+                <rect
+                  key={r.label}
+                  className="pareto-bar"
+                  x={xCenter(i) - barWidth / 2}
+                  y={yForCount(r.count)}
+                  width={barWidth}
+                  height={plotHeight - yForCount(r.count)}
+                  fill="var(--navy)"
+                >
+                  <title>{paretoTooltip(r, i + 1, rows.length)}</title>
+                </rect>
+              ))}
+              {/* Número sobre la barra -- mismo patrón que Closings by Month -- solo donde hay espacio real (primeras N, ver paretoShouldLabel). */}
+              {rows.map(
+                (r, i) =>
+                  paretoShouldLabel(i) && (
+                    <text
+                      key={r.label + '-val'}
+                      x={xCenter(i)}
+                      y={yForCount(r.count) - 4}
+                      textAnchor="middle"
+                      fontSize="9"
+                      fill="var(--slate-500)"
+                    >
+                      {fmtInt(r.count)}
+                    </text>
+                  )
+              )}
+              {rows.map(
+                (r, i) =>
+                  paretoShouldLabel(i) && (
+                    <text
+                      key={r.label + '-lbl'}
+                      x={xCenter(i)}
+                      y={plotHeight + 14}
+                      textAnchor="end"
+                      fontSize="9"
+                      fill="var(--slate-500)"
+                      transform={`rotate(-45 ${xCenter(i)} ${plotHeight + 14})`}
+                    >
+                      {r.label}
+                    </text>
+                  )
+              )}
+              {/*
+                Curva acumulada: `--sky` (no `--rose-700`/rojo -- ese
+                color ya significa "atención/advertencia" en el resto de
+                la app, ej. AlertTriangleIcon de los scorecards). `--sky`
+                distingue la línea de las barras (`--navy`) sin salir de
+                la paleta azul de marca. Línea de referencia del 80% ya
+                estaba en `--slate-300` (neutro) -- sin cambios ahí.
+              */}
+              <polyline points={linePoints} fill="none" stroke="var(--sky)" strokeWidth={2} />
+              {rows.map((r, i) => (
+                <circle
+                  key={r.label + '-pt'}
+                  className="pareto-dot"
+                  cx={xCenter(i)}
+                  cy={yForPercent(r.cumulativePercent)}
+                  r={3}
+                  fill="var(--sky)"
+                >
+                  <title>{paretoTooltip(r, i + 1, rows.length)}</title>
+                </circle>
+              ))}
+              {/*
+                Marca del cruce real de 80%: `--navy` (mismo tono que las
+                barras, más oscuro que `--sky` de la línea -- un tono
+                distinto DENTRO de la misma paleta azul, no un color
+                nuevo) con contorno claro para que resalte sobre los
+                puntos normales, más etiqueta corta.
+              */}
+              {crossIndex >= 0 && (
+                <g>
+                  <circle
+                    cx={xCenter(crossIndex)}
+                    cy={yForPercent(rows[crossIndex].cumulativePercent)}
+                    r={5.5}
+                    fill="var(--navy)"
+                    stroke="var(--canvas)"
+                    strokeWidth={2}
+                  >
+                    <title>{paretoTooltip(rows[crossIndex], crossIndex + 1, rows.length)}</title>
+                  </circle>
+                  <text
+                    x={xCenter(crossIndex)}
+                    y={yForPercent(rows[crossIndex].cumulativePercent) - 10}
+                    textAnchor="middle"
+                    fontSize="9"
+                    fontWeight={700}
+                    fill="var(--navy)"
+                  >
+                    {`${crossIndex + 1} ${cutNoun}${crossIndex + 1 === 1 ? '' : 's'} → 80%`}
+                  </text>
+                </g>
+              )}
+            </g>
+          </svg>
+        </div>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -627,6 +1206,51 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
     orgRoster.employeeNameByKey
   );
 
+  /**
+   * Etapa F7, Parte 10: mezcla de estrategia comercial -- NO depende de
+   * `org` (classifyStrategy solo lee campos crudos de `fundedInRange`), a
+   * diferencia de Branch/Loan Officer/Business Developer de arriba. Por
+   * eso se renderiza fuera del bloque `{!orgRoster.loading && !orgRoster.error && (...)}`.
+   */
+  const strategyMix = buildStrategyMix(fundedInRange);
+
+  /**
+   * Etapa F7, Parte 11: Pareto por Branch/Loan Officer -- el toggle interno
+   * del chart (Selected period / Year to date) es LOCAL a `ParetoChart`
+   * (useState propio, ver más abajo), así que las 4 combinaciones
+   * (branch/LO × período/YTD) se precomputan ACÁ, una sola vez por render
+   * de `TabAnalytics`, y el toggle solo elige cuál mostrar -- cambiarlo
+   * nunca dispara un nuevo fetch de `org` ni afecta al selector de período
+   * principal ni a ningún otro de los 8 gráficos de la pestaña.
+   *
+   * YTD se calcula aparte de `fundedInRange`/`period` -- mismo patrón que
+   * ya usa `period.ts` para el modo YTD del selector principal
+   * (`getDefaultYtdSelection` + `periodDateRange`), pero SIN tocar el
+   * estado `period` (el selector de arriba no cambia). `buildBranchScorecard`/
+   * `buildLoanOfficerScorecard` son las mismas funciones ya usadas para
+   * Scorecards -- ninguna agrupación nueva, solo se llaman con `ytdFunded`
+   * en vez de `fundedInRange`.
+   */
+  const ytdRange = periodDateRange(getDefaultYtdSelection());
+  const ytdFunded = fundedLoansInRange(resolvedLoans, ytdRange);
+  const ytdBranchScorecard = buildBranchScorecard(ytdFunded, orgRoster.knownBranchCodes);
+  const ytdLoanOfficerScorecard = buildLoanOfficerScorecard(
+    ytdFunded,
+    orgRoster.aliasIndex,
+    orgRoster.excludedIndex,
+    orgRoster.employeeNameByKey
+  );
+  const paretoData = {
+    period: {
+      branch: buildParetoRows(branchScorecard.rows),
+      loanOfficer: buildParetoRows(loanOfficerScorecard.rows),
+    },
+    ytd: {
+      branch: buildParetoRows(ytdBranchScorecard.rows),
+      loanOfficer: buildParetoRows(ytdLoanOfficerScorecard.rows),
+    },
+  };
+
   /*
    * Etapa F7, Parte 3: las tendencias son SIEMPRE del año en curso (UTC),
    * independiente del año que tenga seleccionado el período de arriba --
@@ -639,6 +1263,20 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
   const monthlyTypeBreakdown = buildMonthlyTypeBreakdown(resolvedLoans, trendsYear);
   const highlightMonths = new Set(periodMonths(period).filter((m) => m.startsWith(String(trendsYear) + '-')));
   const trendsTotalCount = monthlyTotals.reduce((sum, t) => sum + t.count, 0);
+
+  /**
+   * Etapa F7, Parte 15: ticket promedio mensual -- `avgTicketByMonth`
+   * reusa `monthlyTotals` (arriba) directo, sin recalcular `count`/
+   * `amount`. El promedio general de referencia es PONDERADO (suma de
+   * `amount` de los meses con datos / suma de su `count`) -- no el
+   * promedio simple de los 8 promedios mensuales, que le daría el mismo
+   * peso a un mes de 24 loans que a uno de 57.
+   */
+  const avgTicketData = avgTicketByMonth(monthlyTotals);
+  const monthsWithData = monthlyTotals.filter((t) => t.count > 0);
+  const overallAvgTicketCount = monthsWithData.reduce((sum, t) => sum + t.count, 0);
+  const overallAvgTicketAmount = monthsWithData.reduce((sum, t) => sum + t.amount, 0);
+  const overallAvgTicket = overallAvgTicketCount > 0 ? overallAvgTicketAmount / overallAvgTicketCount : 0;
 
   return (
     <>
@@ -794,7 +1432,8 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
           <div className="tbl-card" style={{ padding: '16px' }}>
             <div className="tbl-card__head">
               <span className="tbl-card__title">
-                Amount Closed by Month ({fmtAmount(monthlyTotals.reduce((sum, t) => sum + t.amount, 0))})
+                {/* Solo el título -- las etiquetas dentro de las barras (fmtAmountShort) siguen sin "$", sin cambios. */}
+                Amount Closed by Month (${fmtAmount(monthlyTotals.reduce((sum, t) => sum + t.amount, 0))})
               </span>
             </div>
             <SimpleMonthlyChart
@@ -807,6 +1446,15 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
           </div>
         </div>
 
+        <div className="tbl-card" style={{ padding: '16px', marginBottom: '20px' }}>
+          <div className="tbl-card__head">
+            <span className="tbl-card__title">
+              Avg Ticket by Month {overallAvgTicket > 0 && `(avg: $${fmtAmount(overallAvgTicket)})`}
+            </span>
+          </div>
+          <AvgTicketChart rows={avgTicketData} highlightMonths={highlightMonths} overallAvg={overallAvgTicket} />
+        </div>
+
         <div className="tbl-card" style={{ padding: '16px' }}>
           <div className="tbl-card__head">
             <span className="tbl-card__title">Loan Type Distribution by Month</span>
@@ -814,6 +1462,52 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
           <TypeBreakdownChart breakdown={monthlyTypeBreakdown} highlightMonths={highlightMonths} />
         </div>
       </div>
+
+      {/*
+        A partir de acá: gráficos adicionales que NO pedía el brief F7
+        original (Rankings/Scorecards/Monthly Trends/drill-down al modal
+        arriba sí lo pedían, en ese orden) -- Strategy Mix (Parte 10) es el
+        primero; los que se agreguen después (Parte 11, 12...) van
+        debajo de este, en el mismo bloque, nunca intercalados entre las
+        secciones de arriba.
+      */}
+      <h3 style={{ margin: '24px 0 12px' }}>Strategy Mix</h3>
+      <DiagnosticsNote
+        count={1}
+        summary="Every funded loan in the selected period, split by commercial strategy."
+        detail="classifyStrategy() (lib/pipeline/strategy.ts) applied directly to fundedInRange, same rule already used elsewhere in Forecast (Projected Forecast by strategy, PivotTable.tsx) -- no org dependency."
+      />
+      <div className="tbl-card" style={{ padding: '16px', marginBottom: '20px' }}>
+        <StrategyDonutChart
+          rows={strategyMix}
+          onSegmentClick={(row) =>
+            setDrillDown({
+              metric: 'Strategy Mix',
+              context: row.strategy,
+              loans: fundedInRange.filter((l) => classifyStrategy(l) === row.strategy).map(closedLoanToModalLoan),
+              hiddenColumns: ['milestone', 'status'],
+            })
+          }
+        />
+      </div>
+
+      <h3 style={{ margin: '24px 0 12px' }}>Pareto — Branch / Loan Officer</h3>
+      <DiagnosticsNote
+        count={1}
+        summary="Cumulative concentration of funded loans by branch or loan officer -- bars from the same scorecards above, line shows running % of total."
+        detail="Reuses branchScorecard.rows/loanOfficerScorecard.rows (already sorted desc by closedCount, buildBranchScorecard/buildLoanOfficerScorecard, lib/pipeline/scorecards.ts) -- no new grouping. Year to date mode computes its own range via getDefaultYtdSelection()/periodDateRange() (lib/pipeline/period.ts), independent of the period selector above."
+      />
+      {orgRoster.loading && <p className="foot-note">Loading org roster…</p>}
+      {orgRoster.error && (
+        <p className="pill warn" style={{ display: 'inline-flex' }}>
+          Could not load org roster: {orgRoster.error}
+        </p>
+      )}
+      {!orgRoster.loading && !orgRoster.error && (
+        <div className="tbl-card" style={{ padding: '16px', marginBottom: '20px' }}>
+          <ParetoChart data={paretoData} />
+        </div>
+      )}
 
       {/* Etapa F7, Parte 5: mismo modal que ya usa PivotTable -- una lista de loans y un título, sin nada específico de esa pantalla. */}
       <LoanDetailModal

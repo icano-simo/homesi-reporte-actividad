@@ -66,6 +66,31 @@ export function buildMonthlyTotals(loans: ResolvedLoan[], year: number): Monthly
   });
 }
 
+export interface MonthlyAvgTicket {
+  /** 'YYYY-MM'. */
+  month: string;
+  /** amount/count del mes -- 0 si el mes no tiene ningún loan (nunca NaN/división por cero). */
+  avgAmount: number;
+}
+
+/**
+ * Ticket promedio por mes -- Etapa F7, Parte 15. Recibe el `MonthlyTotal[]`
+ * YA calculado por `buildMonthlyTotals` (el mismo array que ya usan
+ * Closings/Amount by Month en `TabAnalytics.tsx`) -- no vuelve a leer
+ * `loans` ni recalcula `count`/`amount`, solo divide, con la misma guarda
+ * contra división por cero que ya usa `ScorecardRow.avgAmount`
+ * (`lib/pipeline/scorecards.ts`, `toRows()`): `count > 0 ? amount/count :
+ * 0`. Un mes sin datos (ej. un mes futuro) queda en `avgAmount: 0`
+ * explícito, mismo criterio que el resto de esta serie -- nunca se omite
+ * ni se calcula un promedio indefinido.
+ */
+export function avgTicketByMonth(totals: MonthlyTotal[]): MonthlyAvgTicket[] {
+  return totals.map((m) => ({
+    month: m.month,
+    avgAmount: m.count > 0 ? m.amount / m.count : 0,
+  }));
+}
+
 /** Mismo criterio que buildMonthlyTotals, desglosado por loan_type dentro de cada mes -- vacío -> "Sin tipo", mismo placeholder que analytics.ts. */
 export function buildMonthlyTypeBreakdown(loans: ResolvedLoan[], year: number): MonthlyTypeBreakdown[] {
   const byMonth = new Map<string, Map<string, { count: number; amount: number }>>();

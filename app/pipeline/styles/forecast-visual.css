@@ -916,6 +916,12 @@ table.piv tr.strat-break-row td {
   color: var(--navy);
   font-weight: 700;
 }
+.avgticket-dot {
+  transition: opacity 0.15s ease;
+}
+.avgticket-dot:hover {
+  opacity: 0.82;
+}
 .trend-chart__axis {
   display: flex;
   gap: 4px;
@@ -982,6 +988,15 @@ table.piv tr.strat-break-row td {
   margin-right: 5px;
   flex-shrink: 0;
 }
+/* Pareto (Etapa F7, Parte 12) -- mismo patrón de hover ya usado en Closings/Amount/Loan Type: opacidad suave, nunca un cambio brusco de color. */
+.pareto-bar,
+.pareto-dot {
+  transition: opacity 0.15s ease;
+}
+.pareto-bar:hover,
+.pareto-dot:hover {
+  opacity: 0.82;
+}
 /* Accesibilidad, no opcional -- mismo criterio ya usado para `.modal-box`/`modal-in` en components.css. */
 @media (prefers-reduced-motion: reduce) {
   /* Mismo selector compuesto que .trend-charts--enter, para igualar su especificidad y ganar siempre -- si no, la entrada "ola" le ganaría a este override. */
@@ -993,7 +1008,10 @@ table.piv tr.strat-break-row td {
   }
   .trend-chart__bar,
   .trend-seg,
-  .trend-chart__tick {
+  .trend-chart__tick,
+  .pareto-bar,
+  .pareto-dot,
+  .avgticket-dot {
     transition: none;
   }
 }
