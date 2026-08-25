@@ -5510,3 +5510,48 @@ Archivos: `app/pipeline/TabAnalytics.tsx` (import de `hasStrategyData`,
 `strategyDataMissing`, ternario alrededor de `StrategyDonutChart`). Sin
 cambios en `lib/pipeline/strategy.ts` (el helper ya existía tal cual se
 necesitaba) ni en `paretoMix.ts`.
+
+## Hallazgo pendiente -- "Branch Transfer" no se persiste para préstamos Funded/Adverse
+
+Reportado por Heather: préstamos marcados como "Branch Transfer" en el
+reporte de Salesforce no aparecían marcados en la columna nueva "Branch
+Transfer" del Excel (Etapa EXCEL-2). Investigado con datos reales
+(archivo de referencia "Forecast - Pipeline Report-2026-08-21-17-00-11.csv",
+formato Salesforce real, 16 filas con `Branch Transfer = 1`):
+
+- El parser (`lib/pipeline/sources/salesforce-file.ts`,
+  `parseBranchTransfer()`) lee la columna correctamente -- confirmado
+  corriendo el parser real contra el archivo: 16 de 16 filas marcadas
+  llegaron con `branchTransferred: true` (5 en `openLoans`, 11 en
+  `resolvedLoans`).
+- La causa está en la persistencia, ya documentada desde la Etapa F5a en
+  `app/api/pipeline/latest/route.ts` (~línea 203): `pipeline_resolved_loans`
+  (préstamos Funded/Adverse) **nunca tuvo columna `branch_transferred`**
+  -- a diferencia de `pipeline_loans` (préstamos abiertos), que sí la
+  tiene y sí la guarda/lee bien. En F5a se decidió no bloquear esa etapa
+  por esto porque el campo no entraba en ningún cálculo del Forecast --
+  seguía siendo cierto entonces. La columna nueva del Excel es el primer
+  consumidor que lo hace visible: 11 de los 16 casos reales del archivo
+  de referencia caen justo en el grupo Funded/Adverse, así que la mayoría
+  de los "Branch Transfer" que se esperaría ver en el Excel no aparecen.
+
+**No corregido todavía** -- pendiente de una migración (`ALTER TABLE
+pipeline_forecast.pipeline_resolved_loans ADD COLUMN branch_transferred
+boolean`) + la ampliación correspondiente de
+`pipeline_forecast.save_pipeline_snapshot()` (mismo patrón ya aplicado
+dos veces en esta rama para `strategy_raw`/... y `opportunity_owner` --
+sin la RPC ampliada, la columna nueva se descartaría en silencio igual
+que pasó con esas dos). Se decidió explícitamente dejar solo esta
+constancia por ahora, sin preparar el SQL ni tocar código, hasta que se
+priorice.
+
+## Nota -- EXCEL-4 (fix de la carrera del botón Download Excel) sin verificación real todavía
+
+El fix de la Etapa EXCEL-4 (`isAdverseHistoryLoading`, botón Download
+Excel deshabilitado hasta que `/api/pipeline/adverse-history` termina)
+quedó **implementado y con `tsc` limpio, pero sin confirmarse contra un
+caso real en el navegador** -- no se forzó una carga de prueba solo para
+validar esto puntual. Pendiente de confirmarse en el próximo uso normal
+de la app: al cargar un snapshot, el botón debería mostrarse
+deshabilitado con "Preparing…" por un instante y habilitarse recién
+cuando el Excel resultante va a traer las filas Adverse completas.

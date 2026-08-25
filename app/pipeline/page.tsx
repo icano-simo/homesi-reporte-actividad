@@ -20,6 +20,7 @@ import {
   type TargetMonth,
 } from '@/lib/pipeline/aggregate';
 import type { PipelineLoan, ResolvedLoan } from '@/lib/pipeline/types';
+import { classifyStrategy, hasStrategyData, type Strategy } from '@/lib/pipeline/strategy';
 import SummaryCards, { type SummaryBlock } from './SummaryCards';
 import type { MilestoneCascadeRow } from './MilestoneCascade';
 import PivotTable, { type BranchForecastRow } from './PivotTable';
@@ -169,6 +170,17 @@ export default function PipelinePage() {
   // lo trata como "todavía no llegó la respuesta" (undefined en el lookup),
   // no como "sin historial" (eso es el null explícito para cada préstamo).
   const [firstSeenAsAdverse, setFirstSeenAsAdverse] = useState<Record<string, string | null>>({});
+  /**
+   * Etapa EXCEL-4: true mientras /api/pipeline/adverse-history está en
+   * vuelo (arranca en `true`, mismo motivo que `isLoadingInitial`: hay una
+   * ventana real entre que `data` llega -- habilita el botón Download
+   * Excel -- y que este segundo fetch resuelve, mientras la cual
+   * `adverseInRange` da 0 de forma legítima, no un bug de datos: ver
+   * `firstSeen === undefined` en su filtro más abajo). `handleExport` no
+   * debe poder correr en esa ventana -- el Excel saldría sin Adverse
+   * aunque sí existan.
+   */
+  const [isAdverseHistoryLoading, setIsAdverseHistoryLoading] = useState(true);
   // Etapa F5a: true mientras se consulta /api/pipeline/latest al montar --
   // evita mostrar el emptyState de "sube tu archivo" antes de saber si hay
   // un snapshot guardado (mismo patrón que isLoadingInitial en app/page.tsx
@@ -179,6 +191,17 @@ export default function PipelinePage() {
   // dropdown de Topbar.tsx ('ALL' = todos, sin filtrar).
   const [activeTab, setActiveTab] = useState<TabType>('executive');
   const [selectedBranch, setSelectedBranch] = useState<string>('ALL');
+  /**
+   * Etapa EXCEL-1: espejo del conmutador `By branch`/`By strategy` de
+   * PivotTable (Executive tab) -- PivotTable sigue siendo dueño de su
+   * propio estado interno (`view`/`pill`, sin cambios), esto solo
+   * refleja el resultado ya resuelto vía `onActiveStrategyFilterChange`
+   * para que `handleExport()` sepa si debe acotar el Excel a una sola
+   * estrategia. `null` = sin filtro (incluye el caso "PivotTable no está
+   * montado", ej. otro tab activo -- PivotTable resetea esto a `null` al
+   * desmontarse, ver su propio `useEffect`).
+   */
+  const [activeStrategyFilter, setActiveStrategyFilter] = useState<Strategy | null>(null);
   // Etapa F5j: fecha del snapshot ACTIVO ('YYYY-MM-DD', UTC -- mismo criterio
   // que pipeline_snapshots.snapshot_date en el backend: new Date().toISOString().slice(0,10)).
   // Hace falta para resolver los préstamos "New this period"
@@ -309,6 +332,12 @@ export default function PipelinePage() {
   useEffect(() => {
     if (!data) return;
     let cancelled = false;
+    // Etapa EXCEL-4: `true` al ARRANCAR el fetch, no solo al terminar --
+    // este efecto se re-dispara con cada `data` nuevo (re-subida), y sin
+    // esto el botón quedaría habilitado con el `firstSeenAsAdverse` del
+    // snapshot ANTERIOR mientras el del nuevo snapshot todavía está en
+    // vuelo, misma ventana de carrera que este fix busca cerrar.
+    setIsAdverseHistoryLoading(true);
     fetch('/api/pipeline/adverse-history')
       .then((res) => res.json())
       .then((body) => {
@@ -318,6 +347,10 @@ export default function PipelinePage() {
       .catch(() => {
         if (cancelled) return;
         setFirstSeenAsAdverse({});
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setIsAdverseHistoryLoading(false);
       });
     return () => {
       cancelled = true;
@@ -781,35 +814,108 @@ export default function PipelinePage() {
 
   /**
    * Etapa F5k: los 3 grupos (abiertos/cerrados/adverse) mezclados en un
-   * solo array para el export a Excel -- "Last Meeting" según el tipo de
-   * préstamo: rawHealthiness tal cual para abiertos (SIN pasar por
-   * healthStatusLabel -- acá se quiere el valor crudo, no "Healthy"
-   * normalizado), "Funded"/"Adverse" literal para los otros 2 grupos.
+   * solo array para el export a Excel -- "Healthiness" (Etapa EXCEL-2,
+   * antes "Last Meeting") según el tipo de préstamo: rawHealthiness tal
+   * cual para abiertos (SIN pasar por healthStatusLabel -- acá se quiere
+   * el valor crudo, no "Healthy" normalizado), "Funded"/"Adverse" literal
+   * para los otros 2 grupos.
    */
+  /**
+   * Etapa EXCEL-1: mismo criterio que `strategyDataMissing` en
+   * TabAnalytics (F7.23) -- si NINGÚN loan de las 3 mitades trae datos de
+   * estrategia (snapshot restaurado antes de que existieran esas
+   * columnas), `classifyStrategy()` caería en `'Own production'` para el
+   * 100% de las filas: una respuesta bien formada y falsa. Se calcula
+   * sobre la población COMPLETA (antes de aplicar `activeStrategyFilter`)
+   * -- es una pregunta sobre el snapshot, no sobre el recorte elegido.
+   */
+  const allLoansForExport = [...openLoansInRange, ...closedInRange, ...adverseInRange];
+  const strategyDataMissingForExport = allLoansForExport.length > 0 && !hasStrategyData(allLoansForExport);
+
+  function strategyColumnValue(loan: { branch: string; strategyRaw: string; opportunityOwnerTitle: string }): string {
+    return strategyDataMissingForExport ? 'No strategy data in this snapshot' : classifyStrategy(loan);
+  }
+
+  /**
+   * Etapa EXCEL-3: `pipeline_resolved_loans` (Funded/Adverse) nunca tuvo
+   * columna `branch_transferred` (hallazgo F5a, ver docs/ARQUITECTURA.md
+   * -- "Hallazgo pendiente") -- `closedInRange`/`adverseInRange` siempre
+   * vuelven con `branchTransferred: false` desde Supabase, sin importar
+   * el dato real de Salesforce. Mostrar "Yes"/vacío ahí leería un `false`
+   * que no es un "No" confirmado, es "nunca se guardó" -- indistinguible
+   * en el dato, así que se dice explícito en vez de fingir que se sabe.
+   * `pipeline_loans` (abiertos) SÍ tiene la columna -- sigue mostrando
+   * `loan.branchTransferred` real, sin cambio acá.
+   */
+  const BRANCH_TRANSFER_NOT_TRACKED = 'Not tracked for closed loans';
+  function openLoanBranchTransferValue(loan: { branchTransferred: boolean }): string {
+    return loan.branchTransferred ? 'Yes' : '';
+  }
+
+  /**
+   * Etapa EXCEL-1: si el conmutador de PivotTable tiene una píldora de
+   * estrategia activa (`activeStrategyFilter`, ver
+   * `onActiveStrategyFilterChange`), el Excel se acota a esa estrategia
+   * -- mismas 3 mitades, mismo `classifyStrategy()` que ya se usa para la
+   * columna Strategy de abajo, sin reclasificar con otro criterio. Con
+   * `activeStrategyFilter === null` (vista `branch`, o `strategy` con
+   * píldora en `All`) no se filtra nada, igual que antes.
+   */
+  const strategyFilteredOpenLoans = activeStrategyFilter
+    ? openLoansInRange.filter((loan) => classifyStrategy(loan) === activeStrategyFilter)
+    : openLoansInRange;
+  const strategyFilteredClosed = activeStrategyFilter
+    ? closedInRange.filter((loan) => classifyStrategy(loan) === activeStrategyFilter)
+    : closedInRange;
+  const strategyFilteredAdverse = activeStrategyFilter
+    ? adverseInRange.filter((loan) => classifyStrategy(loan) === activeStrategyFilter)
+    : adverseInRange;
+
   const exportRows = [
-    ...openLoansInRange.map((loan) => ({
+    ...strategyFilteredOpenLoans.map((loan) => ({
       loanChannel: loan.channel,
       loanNumber: loan.sourceLoanId,
       borrowerName: loan.borrowerName,
       branch: loan.branch,
       loanOfficer: loan.loanOfficer,
-      lastMeeting: loan.rawHealthiness,
+      healthiness: loan.rawHealthiness,
+      branchTransferred: openLoanBranchTransferValue(loan),
+      strategyRaw: loan.strategyRaw,
+      opportunityOwnerTitle: loan.opportunityOwnerTitle,
+      nppmRealtor: loan.nppmRealtor,
+      referredBy: loan.referredBy,
+      opportunityOwner: loan.opportunityOwner,
+      strategy: strategyColumnValue(loan),
     })),
-    ...closedInRange.map((loan) => ({
+    ...strategyFilteredClosed.map((loan) => ({
       loanChannel: loan.channel,
       loanNumber: loan.sourceLoanId,
       borrowerName: loan.borrowerName,
       branch: loan.branch,
       loanOfficer: loan.loanOfficer,
-      lastMeeting: 'Funded',
+      healthiness: 'Funded',
+      branchTransferred: BRANCH_TRANSFER_NOT_TRACKED,
+      strategyRaw: loan.strategyRaw,
+      opportunityOwnerTitle: loan.opportunityOwnerTitle,
+      nppmRealtor: loan.nppmRealtor,
+      referredBy: loan.referredBy,
+      opportunityOwner: loan.opportunityOwner,
+      strategy: strategyColumnValue(loan),
     })),
-    ...adverseInRange.map((loan) => ({
+    ...strategyFilteredAdverse.map((loan) => ({
       loanChannel: loan.channel,
       loanNumber: loan.sourceLoanId,
       borrowerName: loan.borrowerName,
       branch: loan.branch,
       loanOfficer: loan.loanOfficer,
-      lastMeeting: 'Adverse',
+      healthiness: 'Adverse',
+      branchTransferred: BRANCH_TRANSFER_NOT_TRACKED,
+      strategyRaw: loan.strategyRaw,
+      opportunityOwnerTitle: loan.opportunityOwnerTitle,
+      nppmRealtor: loan.nppmRealtor,
+      referredBy: loan.referredBy,
+      opportunityOwner: loan.opportunityOwner,
+      strategy: strategyColumnValue(loan),
     })),
   ];
 
@@ -871,9 +977,22 @@ export default function PipelinePage() {
         <div className="fc-actions">
           <UploadButton onFileSelected={handleFileSelected} isLoading={isLoading} />
           {data && (
-            <button type="button" className="btn primary" onClick={handleExport} disabled={isExporting}>
+            /*
+             * Etapa EXCEL-4: además de `isExporting`, deshabilitado mientras
+             * `isAdverseHistoryLoading` -- sin esto, un click apenas carga el
+             * snapshot corre `handleExport()` con `adverseInRange` todavía en
+             * 0 de forma legítima (firstSeenAsAdverse no llegó), y el Excel
+             * sale sin ninguna fila Adverse aunque sí existan. Mismo botón,
+             * un estado de carga más -- no un botón nuevo.
+             */
+            <button
+              type="button"
+              className="btn primary"
+              onClick={handleExport}
+              disabled={isExporting || isAdverseHistoryLoading}
+            >
               <DownloadIcon />
-              {isExporting ? 'Generating…' : 'Download Excel'}
+              {isExporting ? 'Generating…' : isAdverseHistoryLoading ? 'Preparing…' : 'Download Excel'}
             </button>
           )}
         </div>
@@ -958,6 +1077,7 @@ export default function PipelinePage() {
               branchManagers={branchManagers}
               knownBranches={knownBranches}
               selectedBranch={selectedBranch}
+              onActiveStrategyFilterChange={setActiveStrategyFilter}
             />
           )}
 

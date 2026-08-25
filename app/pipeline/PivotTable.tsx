@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import type { PipelineLoan, ResolvedLoan } from '@/lib/pipeline/types';
 import {
   STRATEGY_ORDER,
@@ -58,6 +58,18 @@ export interface PivotTableProps {
    * mismo que el bloque de abajo ya muestra.
    */
   selectedBranch: string;
+  /**
+   * Etapa EXCEL-1: notifica al padre (page.tsx) cuál estrategia está
+   * activa en el conmutador `By branch`/`By strategy`, para que
+   * `handleExport()` sepa si debe filtrar el Excel -- `null` significa
+   * "sin filtro" (vista `branch`, o vista `strategy` con la píldora en
+   * `All`), un `Strategy` significa "solo esa estrategia". Se pasa ya
+   * resuelto (no `view`/`pill` crudos) para no duplicar en page.tsx la
+   * lógica de `byStrategy` de acá abajo -- un solo lugar decide qué
+   * cuenta como "hay filtro". No cambia nada de la lógica interna de
+   * este componente, solo expone el resultado ya calculado.
+   */
+  onActiveStrategyFilterChange?: (strategy: Strategy | null) => void;
 }
 
 interface BranchRow {
@@ -1095,6 +1107,7 @@ export default function PivotTable({
   branchManagers,
   knownBranches,
   selectedBranch,
+  onActiveStrategyFilterChange,
 }: PivotTableProps) {
   const [modal, setModal] = useState<ModalState | null>(null);
 
@@ -1126,6 +1139,27 @@ export default function PivotTable({
   const isAllBranches = selectedBranch === 'ALL';
   const showStrategyControls = isAllBranches && strategyAvailable;
   const byStrategy = showStrategyControls && view === 'strategy';
+
+  /**
+   * Etapa EXCEL-1: `null` si no hay filtro real que aplicar (vista
+   * `branch`, o vista `strategy` con la píldora en `All`) -- solo un
+   * valor de `Strategy` cuenta como filtro activo para el export.
+   */
+  const activeStrategyFilter: Strategy | null = byStrategy && pill !== 'All' ? pill : null;
+
+  /*
+   * ⚠ La limpieza al desmontar (`return () => ...null`) no es opcional --
+   * page.tsx solo renderiza PivotTable en el tab `executive` (ver
+   * `activeTab === 'executive'` en page.tsx). El botón Download Excel es
+   * global a la página, visible en cualquier tab. Sin este reset, elegir
+   * una píldora acá y después cambiar a otro tab dejaría el export
+   * filtrado a una sola estrategia sin ningún control visible en pantalla
+   * que lo explique -- un filtro "fantasma".
+   */
+  useEffect(() => {
+    onActiveStrategyFilterChange?.(activeStrategyFilter);
+    return () => onActiveStrategyFilterChange?.(null);
+  }, [activeStrategyFilter, onActiveStrategyFilterChange]);
 
   /** Las estrategias que existen en los datos visibles, para las píldoras. */
   const strategiesPresent = STRATEGY_ORDER.filter((st) =>
