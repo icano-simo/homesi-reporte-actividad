@@ -5510,3 +5510,140 @@ Archivos: `app/pipeline/TabAnalytics.tsx` (import de `hasStrategyData`,
 `strategyDataMissing`, ternario alrededor de `StrategyDonutChart`). Sin
 cambios en `lib/pipeline/strategy.ts` (el helper ya existía tal cual se
 necesitaba) ni en `paretoMix.ts`.
+
+## Etapa ANALYTICS-TAB-1 -- Analytics pasa de sub-tab de Forecast a pestaña de nivel superior
+
+Basado en el diagnóstico previo de esta misma rama (Opción A recomendada:
+ruta nueva con fetch propio, sin depender de que el usuario haya
+visitado Forecast primero).
+
+**Navegación (`components/layout/ServiceHubHeader.tsx`):** 4to tab
+agregado a `NAV_TABS` (`/analytics`, ícono `PieChartIcon` nuevo en
+`components/ui/icons.tsx` -- distinto de `BarChartIcon`, que ya usa
+Commercial Activity, para que los 4 tabs de nivel superior se
+distingan entre sí a simple vista). `isTabActive()` no necesitó
+cambios: ya maneja cualquier ruta no-raíz por sub-camino.
+
+**Ruta nueva (`app/analytics/page.tsx`):** mismo patrón de fetch que
+`app/pipeline/page.tsx` (`useEffect` + `useState`, GET a
+`/api/pipeline/latest`, mismo endpoint reutilizado tal cual, sin
+duplicar lógica de parseo de la respuesta) -- pero mucho más chico:
+solo pide `resolvedLoans`/`openLoans`/`warnings`, sin
+`pipelineDateRange`/`forecastMonth`/`branchManagers`/`knownBranches`/
+`firstSeenAsAdverse`, ninguno de los cuales usa `TabAnalytics`. Sin
+Topbar ni upload -- es de solo lectura sobre el snapshot que ya existe
+(cargado desde Forecast, o restaurado de Supabase); subir un archivo
+sigue siendo exclusivo de `/pipeline`.
+
+**Sin filtro de branch a nivel de esta página** (Opción A del
+diagnóstico, mantenerlo simple) -- a diferencia de Forecast, que sí
+filtra `resolvedLoans` por `selectedBranch` antes de pasarlos a
+`TabAnalytics`. Esta página analiza el snapshot completo. Si hiciera
+falta un filtro de branch acá, es una etapa aparte -- no se agregó un
+Topbar ni un selector solo para dejarlo listo "por si acaso".
+
+**`useOrgRoster.ts` -- decisión: NO se movió de `app/pipeline/`.**
+Evaluado explícitamente (pedido del brief): `TabAnalytics.tsx` ya
+llama a `useOrgRoster()` INTERNAMENTE (no lo recibe como prop) vía un
+import relativo (`./useOrgRoster`) -- como el archivo en sí no se
+movió, ese import sigue resolviendo igual sin importar desde qué ruta
+se monte el componente que lo contiene. Next.js no exige que un hook
+viva bajo la misma carpeta que la ruta que termina usándolo (ya es así
+hoy: `useOrgRoster.ts` vive en `app/pipeline/` pero ahora lo consume
+transitivamente también `/analytics`, sin problema). Mover el archivo
+a un lugar más "neutral" (`hooks/` o `lib/pipeline/`) habría sido más
+prolijo en el papel, pero habría obligado a tocar el import de
+`TabAnalytics.tsx` sin ninguna necesidad funcional -- contra el alcance
+explícito del brief ("NO modificar TabAnalytics.tsx... salvo que sea
+estrictamente necesario"). Queda anotado como reorganización posible
+más adelante, no bloqueante hoy.
+
+**`TabAnalytics.tsx` -- sin cambios.** Confirmado que ya era standalone
+(un solo prop `resolvedLoans`, período propio, roster propio) -- el
+brief anticipaba que "no debería necesitar cambios grandes", y
+terminó sin necesitar ningún cambio.
+
+**Hallazgo durante la verificación -- CSS no viajaba solo.** Next.js
+code-parte las hojas de estilo por ruta: `TabAnalytics.tsx` depende de
+clases definidas en `app/pipeline/styles/forecast-visual.css`
+(`.trend-chart`, `.pareto-bar`, `.avgticket-dot`, `.tbl-card`, etc.),
+pero esa hoja solo se importaba en `app/pipeline/page.tsx`. Sin
+agregar el mismo import en `app/analytics/page.tsx`, la ruta nueva
+habría renderizado el componente completo, pero sin ningún estilo --
+no era un problema teórico, se confirmó revisando cada clase que usa
+`TabAnalytics.tsx` contra dónde está definida.
+
+**`app/pipeline/TabNavigation.tsx`/`app/pipeline/page.tsx`:** se quitó
+el tab `'analytics'` de `TabType`, del array `TABS`, y el render
+condicional (`{activeTab === 'analytics' && <TabAnalytics .../>}`) +
+el import de `TabAnalytics` en `page.tsx` -- Forecast queda con sus 3
+tabs originales (Projected Forecast/Pipeline by Milestone/Adverse
+Loans), sin ningún otro cambio de comportamiento.
+
+**Costo nuevo, único y esperado:** un fetch duplicado a
+`/api/pipeline/latest` si el usuario visita ambas rutas en la misma
+sesión -- cada una pide el snapshot por separado, sin cache
+compartido, mismo patrón ya usado por las otras 3 rutas de nivel
+superior (cada una independiente). No se detectó ningún otro efecto
+secundario.
+
+Archivos: `components/layout/ServiceHubHeader.tsx`,
+`components/ui/icons.tsx` (`PieChartIcon` nuevo), `app/analytics/page.tsx`
+(nuevo), `app/pipeline/TabNavigation.tsx`, `app/pipeline/page.tsx`. Sin
+cambios en `app/pipeline/TabAnalytics.tsx`, `app/pipeline/useOrgRoster.ts`,
+ni ninguno de los componentes hijos de Analytics (PeriodSelector,
+scorecards, charts).
+
+## Fix general -- outline de foco faltante en `.btn`/`.pill`/`.seg button`/`.tab-btn`
+
+**No es específico de Analytics** -- surgió durante la verificación de
+esta rama (Heather reportó un contorno naranja/rojo alrededor de
+píldoras como "By strategy"/"All"/"Month", solo en `localhost`, no en
+Vercel), pero el hallazgo real es una corrección de accesibilidad que
+aplica a toda la app: estas 4 clases (`.btn`, `.pill`, `.seg button`,
+`.tab-btn`) nunca tuvieron una regla de `:focus-visible` propia -- a
+diferencia de `.field`, `.strat-pill` y las ~11 clases de Business
+Plan, que sí la tienen. Sin regla propia, el navegador cae a su
+outline nativo por defecto, que varía según el sistema/entorno -- de
+ahí que se viera distinto en dev vs. producción sin que hubiera
+ninguna diferencia real de CSS entre los dos (confirmado en el
+diagnóstico previo).
+
+Se agregaron las mismas 4 reglas, mismo patrón ya establecido
+(`outline: 2px solid var(--sky); outline-offset: 1px;`, nunca `outline:
+none` -- rompería la accesibilidad de teclado):
+
+```css
+.btn:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 1px;
+}
+.seg button:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 1px;
+}
+.tab-btn:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 1px;
+}
+.pill:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 1px;
+}
+```
+
+**Nota sobre `.tab-btn`:** su definición base NO vive en
+`app/styles/components.css` -- vive en
+`app/pipeline/styles/forecast-visual.css` (tabs de sub-navegación de
+Forecast, `TabNavigation.tsx`). El alcance de este fix se limitó
+explícitamente a `components.css`, así que la regla quedó ahí en vez
+de junto a su base -- CSS no exige que vivan en el mismo archivo, así
+que funciona igual, con un comentario en el propio archivo señalando
+la ubicación real de `.tab-btn` por si se reorganiza más adelante.
+
+Confirmado con `git diff` que las 4 reglas son puramente aditivas --
+ninguna regla existente (incluida `.field:focus-visible`, la única que
+ya existía en este archivo) se modificó ni se sobreescribió.
+
+Archivos: `app/styles/components.css` únicamente. No se tocó ninguna
+otra hoja de estilo ni ningún componente.

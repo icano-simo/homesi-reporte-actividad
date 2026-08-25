@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 import BrandLockup from './HomesiLogo';
-import { BarChartIcon, TrendingUpIcon, TargetIcon } from '@/components/ui/icons';
+import { BarChartIcon, TrendingUpIcon, TargetIcon, PieChartIcon } from '@/components/ui/icons';
 import { isAuthRoute } from '@/lib/auth/routes';
 import UserMenu from './UserMenu';
 
@@ -34,6 +34,10 @@ const NAV_TABS: NavTab[] = [
   { href: '/', label: 'Commercial Activity', icon: <BarChartIcon /> },
   { href: '/pipeline', label: 'Forecast & Pipeline', icon: <TrendingUpIcon /> },
   { href: '/business-plan', label: 'Business Plan', icon: <TargetIcon /> },
+  // Etapa ANALYTICS-TAB-1: antes un sub-tab de Forecast & Pipeline (F7),
+  // ahora ruta propia -- ver app/analytics/page.tsx y la nota en
+  // docs/ARQUITECTURA.md.
+  { href: '/analytics', label: 'Analytics', icon: <PieChartIcon /> },
 ];
 
 /**
