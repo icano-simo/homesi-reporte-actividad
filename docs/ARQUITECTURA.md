@@ -5643,3 +5643,102 @@ nuevas, hoja Pipeline sin cambios de comportamiento),
 NULL vs. `false` de punta a punta, ya implementada y verificada contra
 la base en una tarea anterior de esta misma rama) todavía no tiene su
 propia sección acá -- documentarla antes de mergear esta rama.
+
+## Etapa EXCEL-5 -- branch_transferred de punta a punta (NULL nunca es false)
+
+**Contexto.** `pipeline_resolved_loans` (préstamos Funded/Adverse) ganó
+una columna `branch_transferred` -- `boolean`, **NULLABLE, sin
+default**, decisión explícita de Isa. Tres estados posibles, cada uno
+con un significado distinto:
+
+- `NULL` -- sin dato. La fila se guardó ANTES de que existiera esta
+  columna (cualquier snapshot previo a esta migración); no se sabe si
+  hubo transferencia o no, y no hay forma de recuperarlo con
+  retroactividad.
+- `false` -- confirmado que NO hubo transferencia. Dato real, leído del
+  export de Salesforce en el momento en que esa fila se guardó.
+- `true` -- confirmado que SÍ hubo transferencia. Mismo origen que el
+  caso anterior.
+
+Esto es deliberadamente distinto de `pipeline_loans` (préstamos
+abiertos): esa tabla tiene la columna `NOT NULL DEFAULT false`, porque
+el parser siempre la escribe -- "Branch Transfer" es una columna
+obligatoria del export para la mitad de abiertos desde el origen (F4d),
+así que ahí `false` siempre fue un dato real, nunca hubo ambigüedad.
+`pipeline_resolved_loans` es la mitad que históricamente NO tenía esta
+columna (hallazgo F5a, ver "Hallazgo pendiente" más arriba en este
+documento) -- por eso necesita el tercer estado (`NULL`) que
+`pipeline_loans` nunca necesitó.
+
+**Por qué NULL nunca se trata como false, en ningún punto de la
+cadena.** Requisito no negociable pedido por Isa -- confundir "no
+sabemos" con "confirmado que no" sería inventar un dato que no existe.
+Verificado en los 5 puntos del camino:
+
+1. **Parser** (`lib/pipeline/sources/salesforce-file.ts`): sin cambios
+   -- ya leía `branchTransferred` igual para abiertos y resueltos
+   (`parseBranchTransfer()`, siempre produce un `boolean` real, nunca
+   `null`/`undefined`, porque "Branch Transfer" es columna obligatoria
+   del export). El `NULL` de la base nunca viene del parser -- viene
+   exclusivamente de que la columna no existía cuando se guardó esa
+   fila.
+2. **Tipo** (`lib/pipeline/types.ts`): `ResolvedLoan.branchTransferred`
+   pasó de `boolean` a `boolean | null | undefined` -- a diferencia de
+   `PipelineLoan.branchTransferred`, que sigue siendo `boolean` a
+   secas (nunca tuvo el problema).
+3. **Mapper de subida** (`app/api/pipeline/parse/route.ts`,
+   `toResolvedLoanRow`): `branch_transferred: loan.branchTransferred`,
+   **sin `?? false` ni ningún coalesce** -- si el valor no existiera,
+   tiene que viajar como `undefined` (que la RPC convierte en `NULL`),
+   no como `false`. Mismo criterio ya usado para los crudos de
+   estrategia (F6) y `opportunity_owner` (F7.20), aplicado acá a un
+   campo `boolean`.
+4. **Mapper de lectura** (`app/api/pipeline/latest/route.ts`):
+   `branchTransferred: r.branch_transferred` -- lectura directa, sin
+   `?? false`. Un `NULL` real de Postgres llega como `null` a
+   `ResolvedLoan`, tal cual.
+5. **Excel** (`page.tsx`, `resolvedLoanBranchTransferValue()`): los 3
+   casos se manejan por separado --
+
+   | `branchTransferred` | Texto en Excel |
+   |---|---|
+   | `true` | `"Yes"` |
+   | `false` | `""` (vacío) |
+   | `null` / `undefined` | `"Not tracked for closed loans"` |
+
+   `pipeline_loans` (abiertos) sigue con su propia función
+   (`openLoanBranchTransferValue()`), que solo conoce `true`/`false` --
+   nunca tuvo el tercer caso.
+
+   Excepción puntual, documentada donde vive: `closedLoanToModalLoan()`
+   (`PivotTable.tsx`) convierte `null -> undefined` (nunca `-> false`)
+   al armar el chip del modal de detalle -- ese chip ya se comportaba
+   igual para `null`/`undefined`/`false` (solo se muestra en el caso
+   `true`), así que no hay ninguna distinción real que se pierda ahí.
+
+**Verificación real, contra la base (no solo `tsc`).** Snapshot activo
+78, `pipeline_resolved_loans`: 791 filas totales, `0 NULL / 11 true /
+780 false`. Coincide EXACTO con los 16 casos reales ya conocidos del
+archivo de referencia ("Forecast - Pipeline Report-2026-08-21-17-00-11.csv"):
+11 en el grupo Funded/Adverse (los 11 `source_loan_id` recuperados de
+la base coinciden uno a uno con los 11 ya identificados en el
+diagnóstico original) + 5 en `pipeline_loans` (abiertos, columna que ya
+funcionaba). No es solo "dejó de ser 100% NULL" -- el número exacto
+coincide.
+
+**Esta sección resuelve, y reemplaza, el hallazgo documentado más
+arriba** ("Hallazgo pendiente -- 'Branch Transfer' no se persiste para
+préstamos Funded/Adverse") -- esa sección quedó escrita ANTES de que
+Isa autorizara y aplicara la migración + la ampliación de la RPC; en
+ese momento se decidió explícitamente "dejar solo constancia... hasta
+que se priorice". Ya se priorizó, se implementó y se verificó contra
+datos reales -- el hallazgo original queda superado por esta
+implementación, no en contradicción con ella. Se deja esa sección
+anterior sin tocar (valor histórico de cómo se llegó hasta acá), esta
+sección nueva es la fuente de verdad del estado actual.
+
+Archivos: `lib/pipeline/types.ts`, `app/api/pipeline/parse/route.ts`,
+`app/api/pipeline/latest/route.ts`, `app/pipeline/page.tsx`,
+`app/pipeline/PivotTable.tsx` (la excepción puntual del modal, ver
+arriba). Sin cambios en el parser
+(`lib/pipeline/sources/salesforce-file.ts`) -- ya estaba correcto.
