@@ -20,12 +20,12 @@ import {
   type TargetMonth,
 } from '@/lib/pipeline/aggregate';
 import type { PipelineLoan, ResolvedLoan } from '@/lib/pipeline/types';
-import { classifyStrategy, hasStrategyData, type Strategy } from '@/lib/pipeline/strategy';
+import { classifyStrategy, hasStrategyData, STRATEGY_ORDER, type Strategy } from '@/lib/pipeline/strategy';
 import SummaryCards, { type SummaryBlock } from './SummaryCards';
 import type { MilestoneCascadeRow } from './MilestoneCascade';
-import PivotTable, { type BranchForecastRow } from './PivotTable';
+import PivotTable, { buildBranchRows, type BranchForecastRow, type BranchRow, type StrategyRow } from './PivotTable';
 import UploadButton, { PIPELINE_FILE_INPUT_ID } from './UploadButton';
-import AdverseTable from './AdverseTable';
+import AdverseTable, { type ChannelFilter } from './AdverseTable';
 import Topbar from './Topbar';
 import TabNavigation, { type TabType } from './TabNavigation';
 import TabMilestoneMatrix from './TabMilestoneMatrix';
@@ -142,6 +142,23 @@ function errorMessage(err: unknown): string {
 }
 
 /**
+ * Etapa EXCEL-6, fix: `typeof x === 'number'` a secas descartaba el id
+ * siempre que llegara como string -- posible en cualquiera de las 2
+ * fuentes: `body.snapshot.id` (columna `bigint` de Postgres, que
+ * PostgREST puede devolver como string para no perder precisión) y
+ * `body.saved.snapshot_id` (el valor sale de un `jsonb` que arma la RPC
+ * `save_pipeline_snapshot()`, sin visibilidad desde acá de si castea a
+ * texto en algún punto). Acepta las dos formas -- number tal cual, o un
+ * string que sea puramente dígitos (`Number()` de cualquier otra cosa,
+ * incluida `''`, no es lo que se quiere validar acá).
+ */
+function parseSnapshotId(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && /^\d+$/.test(value)) return Number(value);
+  return null;
+}
+
+/**
  * Página de Forecast (Etapa F4, ampliada en F4b): integración real, sin
  * Supabase todavía (eso es F5). El usuario sube el Excel -> se parsea
  * server-side en /api/pipeline/parse (usa el parser de F1 sin tocarlo) ->
@@ -202,6 +219,19 @@ export default function PipelinePage() {
    * desmontarse, ver su propio `useEffect`).
    */
   const [activeStrategyFilter, setActiveStrategyFilter] = useState<Strategy | null>(null);
+  /**
+   * Etapa EXCEL-6: mismo patrón que `activeStrategyFilter`, arriba, pero
+   * para el `<select>` de canal de AdverseTable -- `'all'` = sin filtro.
+   * Solo tiene efecto sobre el detalle de `adverseInRange` en el Excel
+   * (ver exportRows más abajo); no toca abiertos ni cerrados/funded.
+   */
+  const [channelFilter, setChannelFilter] = useState<ChannelFilter>('all');
+  /**
+   * Etapa EXCEL-6: id del snapshot activo, para la hoja de portada del
+   * Excel. Se lee de `body.snapshot.id` (ya seleccionado en la query de
+   * /api/pipeline/latest, ahora también devuelto -- ver ese archivo).
+   */
+  const [activeSnapshotId, setActiveSnapshotId] = useState<number | null>(null);
   // Etapa F5j: fecha del snapshot ACTIVO ('YYYY-MM-DD', UTC -- mismo criterio
   // que pipeline_snapshots.snapshot_date en el backend: new Date().toISOString().slice(0,10)).
   // Hace falta para resolver los préstamos "New this period"
@@ -246,6 +276,8 @@ export default function PipelinePage() {
         if (!body || !body.snapshot) return;
         setData({ openLoans: body.openLoans, resolvedLoans: body.resolvedLoans, warnings: body.warnings ?? [] });
         setFileName(body.snapshot.fileName);
+        // Etapa EXCEL-6: id del snapshot restaurado, para la portada del Excel.
+        setActiveSnapshotId(parseSnapshotId(body.snapshot.id));
         /*
          * ⚠ Etapa S1: la fecha del DATO manda sobre la de subida.
          *
@@ -376,11 +408,17 @@ export default function PipelinePage() {
       // en la lista de archivos de esta etapa, así que no devuelve la fecha
       // de vuelta; no hace falta, ya la sabemos).
       setActiveSnapshotDate(new Date().toISOString().slice(0, 10));
+      // Etapa EXCEL-6: id del snapshot recién creado, para la portada del
+      // Excel -- ya venía en la respuesta (`saved.snapshot_id`, ver
+      // SaveResult en /api/pipeline/parse), solo faltaba leerlo acá.
+      // `null` si no se pudo persistir esta sesión (`saved` viene null).
+      setActiveSnapshotId(parseSnapshotId(body?.saved?.snapshot_id));
     } catch (err) {
       setError(errorMessage(err));
       setData(null);
       setFileName(null);
       setActiveSnapshotDate(null);
+      setActiveSnapshotId(null);
     } finally {
       setIsLoading(false);
     }
@@ -837,19 +875,26 @@ export default function PipelinePage() {
   }
 
   /**
-   * Etapa EXCEL-3: `pipeline_resolved_loans` (Funded/Adverse) nunca tuvo
-   * columna `branch_transferred` (hallazgo F5a, ver docs/ARQUITECTURA.md
-   * -- "Hallazgo pendiente") -- `closedInRange`/`adverseInRange` siempre
-   * vuelven con `branchTransferred: false` desde Supabase, sin importar
-   * el dato real de Salesforce. Mostrar "Yes"/vacío ahí leería un `false`
-   * que no es un "No" confirmado, es "nunca se guardó" -- indistinguible
-   * en el dato, así que se dice explícito en vez de fingir que se sabe.
-   * `pipeline_loans` (abiertos) SÍ tiene la columna -- sigue mostrando
-   * `loan.branchTransferred` real, sin cambio acá.
+   * Etapa EXCEL-5: `pipeline_resolved_loans` (Funded/Adverse) ya tiene
+   * columna `branch_transferred` (Isa, NULLABLE sin default -- ver
+   * lib/pipeline/types.ts) -- el hueco de la Etapa EXCEL-3 (documentado
+   * en docs/ARQUITECTURA.md, "Hallazgo pendiente") quedó cerrado. Ahora
+   * hay 3 estados reales, no 2: `true`/`false` son un dato confirmado
+   * (columna existía cuando se guardó esa fila), `null`/`undefined` es
+   * "nunca se guardó" (fila de un snapshot anterior a esta migración) --
+   * mismo texto que ya usaba EXCEL-3 para ese tercer caso, pero ahora
+   * reflejando el estado REAL de la base, no un parche por falta de
+   * columna. `pipeline_loans` (abiertos) sigue con su propia función --
+   * ese campo es siempre `boolean` ahí, nunca tuvo el problema de NULL.
    */
   const BRANCH_TRANSFER_NOT_TRACKED = 'Not tracked for closed loans';
   function openLoanBranchTransferValue(loan: { branchTransferred: boolean }): string {
     return loan.branchTransferred ? 'Yes' : '';
+  }
+  function resolvedLoanBranchTransferValue(loan: { branchTransferred: boolean | null | undefined }): string {
+    if (loan.branchTransferred === true) return 'Yes';
+    if (loan.branchTransferred === false) return '';
+    return BRANCH_TRANSFER_NOT_TRACKED;
   }
 
   /**
@@ -870,6 +915,101 @@ export default function PipelinePage() {
   const strategyFilteredAdverse = activeStrategyFilter
     ? adverseInRange.filter((loan) => classifyStrategy(loan) === activeStrategyFilter)
     : adverseInRange;
+
+  /**
+   * Etapa EXCEL-6: filtro de Channel del `<select>` de AdverseTable
+   * (`channelFilter`, ver `onChannelFilterChange`) -- solo toca el
+   * detalle de Adverse en el Excel; abiertos y Funded no tienen este
+   * control, así que no se les aplica. Se filtra DESPUÉS del filtro de
+   * estrategia (mismo array `strategyFilteredAdverse` de arriba, sin
+   * reemplazarlo) -- son dos recortes independientes sobre la misma
+   * mitad, no dos criterios que compitan.
+   */
+  const channelFilteredAdverse =
+    channelFilter === 'all' ? strategyFilteredAdverse : strategyFilteredAdverse.filter((loan) => loan.channel === channelFilter);
+
+  /**
+   * Etapa EXCEL-6: hoja de resumen por estrategia -- SIEMPRE las 5
+   * (`STRATEGY_ORDER`), sin importar `activeStrategyFilter` (confirmado
+   * por Isa: el resumen ignora el filtro de estrategia a propósito, es
+   * una vista distinta del detalle, no un subconjunto de él). Se arma
+   * llamando `buildBranchRows()` (PivotTable.tsx, ya exportada) con los
+   * MISMOS argumentos que ya recibe `<PivotTable>` más abajo -- mismo
+   * cálculo exacto del pivot, sin reimplementar nada. `filteredBranchRows`/
+   * `filteredResolvedLoans` ya están filtrados por branch (Topbar) pero
+   * NUNCA por estrategia -- por eso el resumen no hereda `activeStrategyFilter`
+   * ni `channelFilter` (ninguno de los dos aplica acá).
+   */
+  const branchRowsForSummary: BranchRow[] = buildBranchRows(
+    filteredBranchRows,
+    filteredResolvedLoans,
+    forecastRange,
+    knownBranches,
+    PULL_THROUGH_RATES
+  );
+
+  const EMPTY_STRATEGY_TOTALS = { totalCount: 0, healthyCount: 0, closedCount: 0, projectedToClose: 0, totalForecast: 0 };
+
+  const strategySummaryTotals = new Map<Strategy, typeof EMPTY_STRATEGY_TOTALS>(
+    STRATEGY_ORDER.map((s) => [s, { ...EMPTY_STRATEGY_TOTALS }])
+  );
+  for (const branchRow of branchRowsForSummary) {
+    for (const sr of branchRow.strategyRows) {
+      const acc = strategySummaryTotals.get(sr.strategy) ?? { ...EMPTY_STRATEGY_TOTALS };
+      acc.totalCount += sr.totalCount;
+      acc.healthyCount += sr.healthyCount;
+      acc.closedCount += sr.closedCount;
+      acc.projectedToClose += sr.projectedToClose;
+      acc.totalForecast += sr.totalForecast;
+      strategySummaryTotals.set(sr.strategy, acc);
+    }
+  }
+
+  const strategySummaryRows = STRATEGY_ORDER.map((strategy) => ({
+    strategy,
+    ...(strategySummaryTotals.get(strategy) ?? EMPTY_STRATEGY_TOTALS),
+  }));
+
+  /**
+   * Fila "Total" -- suma de las 5 estrategias. Por construcción tiene que
+   * cuadrar contra el agregado completo del snapshot filtrado (branch
+   * aplicado, sin filtro de estrategia): `buildStrategyRows()` reparte el
+   * entero YA REDONDEADO de cada branch entre sus estrategias
+   * (`apportionByWeight`), así que la suma de las partes es EXACTA -- ese
+   * mismo archivo trae su propio chequeo de desarrollo
+   * (`console.warn('F6: el desglose por estrategia no cuadra', ...)`).
+   */
+  const strategySummaryTotal = strategySummaryRows.reduce(
+    (acc, r) => ({
+      totalCount: acc.totalCount + r.totalCount,
+      healthyCount: acc.healthyCount + r.healthyCount,
+      closedCount: acc.closedCount + r.closedCount,
+      projectedToClose: acc.projectedToClose + r.projectedToClose,
+      totalForecast: acc.totalForecast + r.totalForecast,
+    }),
+    { ...EMPTY_STRATEGY_TOTALS }
+  );
+
+  /**
+   * Etapa EXCEL-6: hoja de portada -- todo dato ya calculado/disponible
+   * en este componente, ningún cálculo nuevo. `activeStrategyFilter`
+   * solo distingue "hay una estrategia elegida" de "no hay filtro" -- no
+   * se puede distinguir acá "vista By branch" de "vista By strategy con
+   * píldora All" (el alcance de esta etapa en PivotTable.tsx fue
+   * agregar `export`, no un callback nuevo -- ver EXCEL-1, que ya
+   * resuelve esa distinción del lado de PivotTable antes de exponerla).
+   * Por eso la portada describe el EFECTO real sobre el export
+   * ("Strategy filter: ..."), no el estado crudo del conmutador.
+   */
+  const coverSheetData = {
+    snapshotId: activeSnapshotId,
+    snapshotDataAsOf: activeSnapshotDate,
+    pipelineDateRange: pipelineDateRange.startDate + ' to ' + pipelineDateRange.endDate,
+    forecastMonth: forecastMonthLabel,
+    branchFilter: selectedBranch === 'ALL' ? 'All branches' : selectedBranch,
+    strategyFilter: activeStrategyFilter ?? 'All strategies',
+    channelFilter: channelFilter === 'all' ? 'All channels' : channelFilter,
+  };
 
   const exportRows = [
     ...strategyFilteredOpenLoans.map((loan) => ({
@@ -894,7 +1034,7 @@ export default function PipelinePage() {
       branch: loan.branch,
       loanOfficer: loan.loanOfficer,
       healthiness: 'Funded',
-      branchTransferred: BRANCH_TRANSFER_NOT_TRACKED,
+      branchTransferred: resolvedLoanBranchTransferValue(loan),
       strategyRaw: loan.strategyRaw,
       opportunityOwnerTitle: loan.opportunityOwnerTitle,
       nppmRealtor: loan.nppmRealtor,
@@ -902,14 +1042,14 @@ export default function PipelinePage() {
       opportunityOwner: loan.opportunityOwner,
       strategy: strategyColumnValue(loan),
     })),
-    ...strategyFilteredAdverse.map((loan) => ({
+    ...channelFilteredAdverse.map((loan) => ({
       loanChannel: loan.channel,
       loanNumber: loan.sourceLoanId,
       borrowerName: loan.borrowerName,
       branch: loan.branch,
       loanOfficer: loan.loanOfficer,
       healthiness: 'Adverse',
-      branchTransferred: BRANCH_TRANSFER_NOT_TRACKED,
+      branchTransferred: resolvedLoanBranchTransferValue(loan),
       strategyRaw: loan.strategyRaw,
       opportunityOwnerTitle: loan.opportunityOwnerTitle,
       nppmRealtor: loan.nppmRealtor,
@@ -926,7 +1066,15 @@ export default function PipelinePage() {
       const res = await fetch('/api/pipeline/export', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows: exportRows }),
+        body: JSON.stringify({
+          rows: exportRows,
+          cover: coverSheetData,
+          strategySummary: {
+            missing: strategyDataMissingForExport,
+            rows: strategySummaryRows,
+            total: strategySummaryTotal,
+          },
+        }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
@@ -1098,6 +1246,7 @@ export default function PipelinePage() {
               resolvedLoans={adverseInRange}
               forecastMonthLabel={forecastMonthLabel}
               firstSeenAsAdverse={firstSeenAsAdverse}
+              onChannelFilterChange={setChannelFilter}
             />
           )}
 

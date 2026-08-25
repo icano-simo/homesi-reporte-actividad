@@ -128,12 +128,25 @@ function toPipelineLoanRow(loan: PipelineLoan) {
 }
 
 /**
- * Etapa F5a, hallazgo: pipeline_resolved_loans NO tiene columnas
- * milestone_date ni branch_transferred (confirmado columna por columna con
- * el anon key después de que se agregaron las demás) -- ambos campos son
- * solo informativos en ResolvedLoan (nunca entran a ningún cálculo de
- * Forecast), así que se omiten acá en vez de bloquear toda la etapa por
- * esto. Reportado explícito en la respuesta de esta etapa, no silenciado.
+ * Etapa F5a, hallazgo: pipeline_resolved_loans NO tiene columna
+ * milestone_date (confirmado columna por columna con el anon key después
+ * de que se agregaron las demás) -- es solo informativo en ResolvedLoan
+ * (nunca entra a ningún cálculo de Forecast), así que se omite acá en vez
+ * de bloquear toda la etapa por esto. Reportado explícito en la respuesta
+ * de esa etapa, no silenciado.
+ *
+ * `branch_transferred` SALIÓ de este hallazgo en la Etapa EXCEL-5: Isa
+ * amplió `pipeline_resolved_loans` con la columna (NULLABLE, sin default
+ * -- a propósito, distinto de `pipeline_loans` que sí tiene default
+ * `false`) y la RPC. Se manda `loan.branchTransferred` TAL CUAL, sin
+ * `?? false` ni ningún coalesce -- si algún día ese valor no existiera
+ * (no debería pasar desde un parseo real, la columna del export es
+ * obligatoria), tiene que viajar como `undefined` y guardarse `NULL`, no
+ * `false`. Colapsar acá a `false` sería mentir "confirmado que no se
+ * transfirió" sobre un dato que en realidad nunca se supo -- exactamente
+ * el mismo criterio NULL-vs-valor-real ya usado para los crudos de
+ * estrategia (F6) y `opportunity_owner` (F7.20), aplicado ahora a un
+ * campo `boolean` en vez de `string`.
  */
 function toResolvedLoanRow(loan: ResolvedLoan) {
   return {
@@ -152,9 +165,8 @@ function toResolvedLoanRow(loan: ResolvedLoan) {
     loan_status: loan.loanStatus,
     est_closing_date: loan.estClosingDate,
     // Etapa F5n: raw_loan_folder ya existe en pipeline_resolved_loans (columna
-    // agregada por SQL fuera de esta etapa) -- a diferencia de raw_milestone,
-    // milestone_date y branch_transferred (ver comentario arriba), esta sí
-    // se puede guardar.
+    // agregada por SQL fuera de esta etapa) -- a diferencia de raw_milestone y
+    // milestone_date (ver comentario arriba), esta sí se puede guardar.
     raw_loan_folder: loan.rawLoanFolder,
     // Fase de persistencia (Loan Type/Loan Program): mismo motivo/patrón que
     // raw_loan_folder arriba -- columnas ya creadas, paso directo.
@@ -172,6 +184,10 @@ function toResolvedLoanRow(loan: ResolvedLoan) {
     affinity_program: loan.affinityProgram,
     // Etapa F7.20: columna nueva, autorizada por Isa -- RPC ya ampliada (verificado por ella). Mismo patrón '' vs NULL de arriba.
     opportunity_owner: loan.opportunityOwner,
+    // Etapa EXCEL-5: columna nueva, autorizada y aplicada por Isa -- RPC ya
+    // ampliada, SIN coalesce acá (ver el comentario largo de arriba) --
+    // undefined debe llegar a la RPC como undefined, para guardarse NULL.
+    branch_transferred: loan.branchTransferred,
   };
 }
 

@@ -72,7 +72,12 @@ export interface PivotTableProps {
   onActiveStrategyFilterChange?: (strategy: Strategy | null) => void;
 }
 
-interface BranchRow {
+/**
+ * Etapa EXCEL-6: exportada tal cual, sin mover a lib/pipeline/ (decisión
+ * ya tomada, no reestructurar) -- page.tsx la necesita para la hoja de
+ * resumen por estrategia del Excel.
+ */
+export interface BranchRow {
   branch: string;
   channel: PipelineLoan['channel'];
   closedCount: number;
@@ -128,7 +133,8 @@ interface BranchRow {
  * Mismos campos que `BranchRow`, porque es el MISMO dato abierto: la vista por
  * estrategia no calcula nada nuevo, reparte lo que ya está calculado.
  */
-interface StrategyRow {
+/** Etapa EXCEL-6: exportada -- mismo motivo que BranchRow, arriba. */
+export interface StrategyRow {
   strategy: Strategy;
   closedCount: number;
   totalCount: number;
@@ -326,7 +332,8 @@ function buildOrphanBranchRows(
  * Todo lo demás son CONTEOS ENTEROS -- total, healthy, closed, CTC, Closing --
  * y esos son aditivos por construcción: no hace falta apocionar nada.
  */
-function buildStrategyRows(
+/** Etapa EXCEL-6: exportada -- mismo motivo que BranchRow/StrategyRow, arriba. */
+export function buildStrategyRows(
   branchForecastRow: BranchForecastRow,
   closedLoansForBranch: ResolvedLoan[],
   dateRange: DateRange,
@@ -446,7 +453,13 @@ function buildStrategyRows(
   return rows;
 }
 
-function buildBranchRows(
+/**
+ * Etapa EXCEL-6: exportada -- page.tsx la llama una segunda vez (mismos
+ * argumentos que ya usa para construir el prop `rows` de `<PivotTable>`)
+ * para armar la hoja de resumen por estrategia del Excel, sin reimplementar
+ * el cálculo del pivot.
+ */
+export function buildBranchRows(
   rows: BranchForecastRow[],
   resolvedLoans: ResolvedLoan[],
   dateRange: DateRange,
@@ -663,7 +676,16 @@ export function closedLoanToModalLoan(loan: ResolvedLoan): LoanDetailModalLoan {
     channel: loan.channel,
     amount: loan.amount,
     rawMilestone: loan.rawMilestone || 'Closed (Funded)',
-    branchTransferred: loan.branchTransferred,
+    // Etapa EXCEL-5: `LoanDetailModalLoan.branchTransferred` sigue siendo
+    // `boolean | undefined` (el chip solo renderiza en el caso `true`, no
+    // distingue "confirmado false" de "no se sabe" -- nunca necesitó un
+    // tercer estado). Se convierte `null` -> `undefined` acá, SOLO para
+    // calzar con ese tipo -- `false` real sigue viajando como `false`, sin
+    // tocar. No es lo mismo que colapsar a `false`: el chip ya se
+    // comportaba igual para null/undefined/false (no se muestra en
+    // ninguno de los 3), así que no hay ninguna distinción real que se
+    // pierda en este consumidor puntual.
+    branchTransferred: loan.branchTransferred ?? undefined,
     loanType: loan.loanType,
     loanProgram: loan.loanProgram,
     noteHistory: loan.noteHistory,

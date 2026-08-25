@@ -5555,3 +5555,91 @@ validar esto puntual. Pendiente de confirmarse en el próximo uso normal
 de la app: al cargar un snapshot, el botón debería mostrarse
 deshabilitado con "Preparing…" por un instante y habilitarse recién
 cuando el Excel resultante va a traer las filas Adverse completas.
+
+## Etapa EXCEL-6 -- hoja de portada + resumen por estrategia (siempre completo) + Channel en Adverse
+
+El Excel de Forecast pasó de 1 hoja a 3: **Cover** (portada, nueva),
+**Strategy Summary** (resumen por estrategia, nueva) y **Pipeline** (el
+detalle de siempre, mismo comportamiento, con un filtro nuevo).
+
+**Cover (primera hoja).** Puro key/value, sin cálculo -- todo ya
+resuelto en `page.tsx` (`coverSheetData`): id y fecha del snapshot
+activo, rango de Pipeline (Total/Healthy) y Forecast Month
+(Closed/Forecast/Adverse) por separado -- **son dos rangos distintos
+en esta app** (`pipelineDateRange` vs. `forecastRange`, F5j), mostrar
+solo uno habría sido impreciso, no una simplificación razonable.
+Branch/Strategy/Channel filtrados (o "All ..." si no aplica), y la nota
+pedida explícita por Isa: *"Summary sheet totals reflect the full
+period, regardless of any strategy/channel filter applied. Detail
+sheet reflects only what was filtered."*
+
+Nota de alcance: "Strategy filter" en la portada describe el EFECTO
+sobre el export (`activeStrategyFilter` -- una estrategia puntual, o
+"All strategies"), no distingue la vista cruda de PivotTable ("By
+branch" vs. "By strategy" con píldora en "All") -- esa distinción no
+está expuesta hoy fuera de PivotTable.tsx, y el alcance de esta etapa
+en ese archivo se limitó explícitamente a agregar `export` a
+funciones/tipos ya existentes, no a agregar un callback nuevo. Las dos
+vistas producen el mismo efecto sobre el export ("sin filtro"), así
+que la portada describe eso, no el estado interno del conmutador.
+
+**Strategy Summary (segunda hoja).** `buildBranchRows()`/`buildStrategyRows()`
+(`PivotTable.tsx`) se exportaron tal cual (decisión ya tomada: sin
+mover a `lib/pipeline/`) -- `page.tsx` las llama una segunda vez, con
+los MISMOS argumentos que ya recibe `<PivotTable>`
+(`filteredBranchRows`/`filteredResolvedLoans`/`forecastRange`/`knownBranches`/`PULL_THROUGH_RATES`),
+junta el `strategyRows` de cada `BranchRow` resultante y suma por
+estrategia, pre-sembrando las 5 (`STRATEGY_ORDER`) en cero antes de
+acumular -- mismo patrón que `buildStrategyMix()`
+(`lib/pipeline/strategyMix.ts`). **Ignora `activeStrategyFilter` a
+propósito** (confirmado por Isa): `filteredBranchRows`/`filteredResolvedLoans`
+nunca pasan por ese filtro, así que el resumen es siempre el período
+completo (con branch aplicado, sin estrategia). La fila "Total" es la
+suma de las 5 filas -- cuadra por construcción, porque
+`buildStrategyRows()` reparte el entero ya redondeado de cada branch
+entre sus estrategias (`apportionByWeight`) y esa misma función ya
+trae su propio chequeo de desarrollo si alguna vez no cuadrara.
+Verificado con la lógica real de construcción del workbook (extraída y
+corrida standalone, sin pasar por Next.js/auth): las 5 filas + Total
+aparecen siempre, y la suma manual de las 5 coincide exacto con la fila
+Total. Si `hasStrategyData()` da `false` (mismo criterio que
+`strategyDataMissingForExport`, ya usado en el detalle desde EXCEL-1),
+la hoja muestra `"No strategy data in this snapshot"` en vez de una
+tabla con números falsos -- verificado también contra la lógica real.
+
+**Channel en Adverse (detalle, hoja Pipeline).** `AdverseTable.tsx`
+expone su `channelFilter` hacia `page.tsx` vía
+`onChannelFilterChange` -- mismo patrón que
+`onActiveStrategyFilterChange` de PivotTable (EXCEL-1), incluido el
+`useEffect` de limpieza al desmontar (mismo motivo: `page.tsx` solo
+renderiza `AdverseTable` en el tab `adverse`, y el botón Download Excel
+es global). El detalle de Adverse en el Excel ahora se filtra por
+canal cuando corresponde (`channelFilteredAdverse`, aplicado DESPUÉS
+del filtro de estrategia, sobre el mismo subconjunto -- son dos
+recortes independientes). **No se construyó ningún Channel global** --
+Isa lo descartó explícito; los dos "Channel" que existen en Forecast
+(`TabMilestoneMatrix`, view-switch; `AdverseTable`, filtro real) siguen
+siendo locales a su propio tab, confirmado en el diagnóstico previo de
+esta misma rama.
+
+**Fuera del alcance declarado, pero necesario:**
+`app/api/pipeline/latest/route.ts` -- la portada necesita el `id` del
+snapshot activo, y la query de ese archivo ya lo seleccionaba
+(`select('id, file_name, ...')`) pero no lo devolvía en la respuesta;
+se agregó `id: snapshot.id` al objeto `snapshot` de la respuesta, sin
+tocar la query ni ningún otro campo.
+
+Archivos: `app/pipeline/PivotTable.tsx` (solo `export` en
+`buildBranchRows`/`buildStrategyRows`/`BranchRow`/`StrategyRow`, sin
+tocar su lógica interna), `app/pipeline/AdverseTable.tsx`
+(`onChannelFilterChange` + cleanup, `ChannelFilter` exportado),
+`app/pipeline/page.tsx` (`channelFilter`/`activeSnapshotId`, resumen
+por estrategia, portada, `channelFilteredAdverse`),
+`app/api/pipeline/export/route.ts` (hojas Cover y Strategy Summary
+nuevas, hoja Pipeline sin cambios de comportamiento),
+`app/api/pipeline/latest/route.ts` (un campo, ver arriba).
+
+⚠ Pendiente, no de esta etapa: la Etapa EXCEL-5 (`branch_transferred`
+NULL vs. `false` de punta a punta, ya implementada y verificada contra
+la base en una tarea anterior de esta misma rama) todavía no tiene su
+propia sección acá -- documentarla antes de mergear esta rama.

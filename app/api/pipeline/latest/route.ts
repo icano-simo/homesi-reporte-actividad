@@ -79,6 +79,13 @@ interface ResolvedLoanRow {
   affinity_program: string | null;
   /** Etapa F7.20 -- columna nueva, distinta de opportunity_owner_title. */
   opportunity_owner: string | null;
+  /**
+   * Etapa EXCEL-5 -- NULLABLE, sin default (a propósito, ver
+   * lib/pipeline/types.ts). `null` real de Postgres para cualquier fila
+   * guardada antes de esta migración -- NO se convierte a `false` en
+   * ningún punto de este mapper.
+   */
+  branch_transferred: boolean | null;
 }
 
 /**
@@ -144,7 +151,7 @@ export async function GET() {
     );
     const resolvedRows = await fetchAllPages<ResolvedLoanRow>(
       'pipeline_resolved_loans',
-      'source_loan_id, branch, channel, status, disbursement_date, amount, loan_officer, borrower_name, loan_status, est_closing_date, raw_loan_folder, loan_type, loan_program, production_support_note_history, strategy_raw, opportunity_owner_title, nppm_realtor, referred_by, affinity_program, opportunity_owner',
+      'source_loan_id, branch, channel, status, disbursement_date, amount, loan_officer, borrower_name, loan_status, est_closing_date, raw_loan_folder, loan_type, loan_program, production_support_note_history, strategy_raw, opportunity_owner_title, nppm_realtor, referred_by, affinity_program, opportunity_owner, branch_transferred',
       snapshotId
     );
 
@@ -200,16 +207,20 @@ export async function GET() {
       affinityProgram: r.affinity_program ?? '',
     }));
 
-    // milestoneDate/branchTransferred quedan en su default (null/false): la
-    // tabla pipeline_resolved_loans no tiene esas 2 columnas (ver
-    // toResolvedLoanRow en /api/pipeline/parse) -- no se puede restaurar lo
-    // que nunca se guardó, y ninguno de los 2 afecta ningún cálculo.
+    // milestoneDate queda en su default (null): la tabla pipeline_resolved_loans
+    // no tiene esa columna (ver toResolvedLoanRow en /api/pipeline/parse) --
+    // no se puede restaurar lo que nunca se guardó, y no afecta ningún cálculo.
     // Etapa F5g: rawMilestone se agregó a ResolvedLoan (fix mecánico de tipo,
     // fuera de la lista de archivos de F5g, ver reporte de esa etapa) -- por
-    // el mismo motivo que milestoneDate/branchTransferred, pipeline_resolved_loans
-    // tampoco tiene una columna raw_milestone todavía, así que queda en '' al
+    // el mismo motivo que milestoneDate, pipeline_resolved_loans tampoco
+    // tiene una columna raw_milestone todavía, así que queda en '' al
     // restaurar desde Supabase (Last Finished Milestone en AdverseTable
     // aparece vacío después de un reload, no en la carga recién subida).
+    // Etapa EXCEL-5: branchTransferred SALIÓ de este grupo -- pipeline_resolved_loans
+    // ya tiene la columna (Isa, ver lib/pipeline/types.ts) -- se lee tal
+    // cual más abajo (`r.branch_transferred`, sin `?? false`): un NULL real
+    // de una fila guardada antes de la migración tiene que seguir siendo
+    // `null` en ResolvedLoan, nunca `false`.
     // Etapa F5n: raw_loan_folder ya se guarda y se lee de verdad (columna
     // agregada por SQL) -- ya NO queda hardcodeado en '', a diferencia de
     // rawMilestone (sigue sin columna raw_milestone, ver comentario arriba).
@@ -226,7 +237,7 @@ export async function GET() {
       loanOfficer: r.loan_officer,
       borrowerName: r.borrower_name,
       milestoneDate: null,
-      branchTransferred: false,
+      branchTransferred: r.branch_transferred,
       loanStatus: r.loan_status,
       estClosingDate: r.est_closing_date,
       rawMilestone: '',
@@ -262,6 +273,11 @@ export async function GET() {
 
     return NextResponse.json({
       snapshot: {
+        // Etapa EXCEL-6, fuera del alcance declarado (page.tsx/export/route.ts/
+        // PivotTable.tsx/AdverseTable.tsx) pero necesario: la hoja de portada
+        // del Excel necesita el id del snapshot, y esta query ya lo selecciona
+        // (ver el `.select(...)` de arriba) -- solo faltaba devolverlo.
+        id: snapshot.id,
         fileName: snapshot.file_name,
         uploadedAt: snapshot.uploaded_at,
         /* Puede ser null: nombre de archivo no estándar. Quien lo consume
