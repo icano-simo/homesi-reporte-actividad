@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import type { PipelineLoan, ResolvedLoan } from '@/lib/pipeline/types';
 import {
   STRATEGY_ORDER,
@@ -58,9 +58,26 @@ export interface PivotTableProps {
    * mismo que el bloque de abajo ya muestra.
    */
   selectedBranch: string;
+  /**
+   * Etapa EXCEL-1: notifica al padre (page.tsx) cuál estrategia está
+   * activa en el conmutador `By branch`/`By strategy`, para que
+   * `handleExport()` sepa si debe filtrar el Excel -- `null` significa
+   * "sin filtro" (vista `branch`, o vista `strategy` con la píldora en
+   * `All`), un `Strategy` significa "solo esa estrategia". Se pasa ya
+   * resuelto (no `view`/`pill` crudos) para no duplicar en page.tsx la
+   * lógica de `byStrategy` de acá abajo -- un solo lugar decide qué
+   * cuenta como "hay filtro". No cambia nada de la lógica interna de
+   * este componente, solo expone el resultado ya calculado.
+   */
+  onActiveStrategyFilterChange?: (strategy: Strategy | null) => void;
 }
 
-interface BranchRow {
+/**
+ * Etapa EXCEL-6: exportada tal cual, sin mover a lib/pipeline/ (decisión
+ * ya tomada, no reestructurar) -- page.tsx la necesita para la hoja de
+ * resumen por estrategia del Excel.
+ */
+export interface BranchRow {
   branch: string;
   channel: PipelineLoan['channel'];
   closedCount: number;
@@ -116,7 +133,8 @@ interface BranchRow {
  * Mismos campos que `BranchRow`, porque es el MISMO dato abierto: la vista por
  * estrategia no calcula nada nuevo, reparte lo que ya está calculado.
  */
-interface StrategyRow {
+/** Etapa EXCEL-6: exportada -- mismo motivo que BranchRow, arriba. */
+export interface StrategyRow {
   strategy: Strategy;
   closedCount: number;
   totalCount: number;
@@ -314,7 +332,8 @@ function buildOrphanBranchRows(
  * Todo lo demás son CONTEOS ENTEROS -- total, healthy, closed, CTC, Closing --
  * y esos son aditivos por construcción: no hace falta apocionar nada.
  */
-function buildStrategyRows(
+/** Etapa EXCEL-6: exportada -- mismo motivo que BranchRow/StrategyRow, arriba. */
+export function buildStrategyRows(
   branchForecastRow: BranchForecastRow,
   closedLoansForBranch: ResolvedLoan[],
   dateRange: DateRange,
@@ -434,7 +453,13 @@ function buildStrategyRows(
   return rows;
 }
 
-function buildBranchRows(
+/**
+ * Etapa EXCEL-6: exportada -- page.tsx la llama una segunda vez (mismos
+ * argumentos que ya usa para construir el prop `rows` de `<PivotTable>`)
+ * para armar la hoja de resumen por estrategia del Excel, sin reimplementar
+ * el cálculo del pivot.
+ */
+export function buildBranchRows(
   rows: BranchForecastRow[],
   resolvedLoans: ResolvedLoan[],
   dateRange: DateRange,
@@ -651,7 +676,16 @@ export function closedLoanToModalLoan(loan: ResolvedLoan): LoanDetailModalLoan {
     channel: loan.channel,
     amount: loan.amount,
     rawMilestone: loan.rawMilestone || 'Closed (Funded)',
-    branchTransferred: loan.branchTransferred,
+    // Etapa EXCEL-5: `LoanDetailModalLoan.branchTransferred` sigue siendo
+    // `boolean | undefined` (el chip solo renderiza en el caso `true`, no
+    // distingue "confirmado false" de "no se sabe" -- nunca necesitó un
+    // tercer estado). Se convierte `null` -> `undefined` acá, SOLO para
+    // calzar con ese tipo -- `false` real sigue viajando como `false`, sin
+    // tocar. No es lo mismo que colapsar a `false`: el chip ya se
+    // comportaba igual para null/undefined/false (no se muestra en
+    // ninguno de los 3), así que no hay ninguna distinción real que se
+    // pierda en este consumidor puntual.
+    branchTransferred: loan.branchTransferred ?? undefined,
     loanType: loan.loanType,
     loanProgram: loan.loanProgram,
     noteHistory: loan.noteHistory,
@@ -1095,6 +1129,7 @@ export default function PivotTable({
   branchManagers,
   knownBranches,
   selectedBranch,
+  onActiveStrategyFilterChange,
 }: PivotTableProps) {
   const [modal, setModal] = useState<ModalState | null>(null);
 
@@ -1126,6 +1161,27 @@ export default function PivotTable({
   const isAllBranches = selectedBranch === 'ALL';
   const showStrategyControls = isAllBranches && strategyAvailable;
   const byStrategy = showStrategyControls && view === 'strategy';
+
+  /**
+   * Etapa EXCEL-1: `null` si no hay filtro real que aplicar (vista
+   * `branch`, o vista `strategy` con la píldora en `All`) -- solo un
+   * valor de `Strategy` cuenta como filtro activo para el export.
+   */
+  const activeStrategyFilter: Strategy | null = byStrategy && pill !== 'All' ? pill : null;
+
+  /*
+   * ⚠ La limpieza al desmontar (`return () => ...null`) no es opcional --
+   * page.tsx solo renderiza PivotTable en el tab `executive` (ver
+   * `activeTab === 'executive'` en page.tsx). El botón Download Excel es
+   * global a la página, visible en cualquier tab. Sin este reset, elegir
+   * una píldora acá y después cambiar a otro tab dejaría el export
+   * filtrado a una sola estrategia sin ningún control visible en pantalla
+   * que lo explique -- un filtro "fantasma".
+   */
+  useEffect(() => {
+    onActiveStrategyFilterChange?.(activeStrategyFilter);
+    return () => onActiveStrategyFilterChange?.(null);
+  }, [activeStrategyFilter, onActiveStrategyFilterChange]);
 
   /** Las estrategias que existen en los datos visibles, para las píldoras. */
   const strategiesPresent = STRATEGY_ORDER.filter((st) =>

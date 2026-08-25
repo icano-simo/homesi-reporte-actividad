@@ -87,7 +87,19 @@ export type ResolvedLoan = {
   /** Etapa F4d: mismo significado que en PipelineLoan. */
   borrowerName: string;
   milestoneDate: string | null;
-  branchTransferred: boolean;
+  /**
+   * Etapa EXCEL-5: a diferencia de `PipelineLoan.branchTransferred`
+   * (siempre `boolean` -- `pipeline_loans` tiene default `false`),
+   * acá puede ser `null`/`undefined` -- `pipeline_resolved_loans` no
+   * tenía esta columna hasta ahora (hallazgo F5a/EXCEL-2, ya
+   * documentado), así que un snapshot restaurado guardado ANTES de la
+   * migración vuelve con `NULL` en la base: "nunca se supo", no "se
+   * confirmó que no". El parser siempre produce un `boolean` real (la
+   * columna del export es obligatoria) -- el `null`/`undefined` solo
+   * aparece del lado de la lectura desde Supabase, nunca de un archivo
+   * recién parseado. No colapsar a `false` en ningún punto del camino.
+   */
+  branchTransferred: boolean | null | undefined;
   /**
    * Etapa F4i: de la columna "Loan Status" -- solo presente en reportes muy
    * recientes (no en Formato A ni en reportes B viejos). '' si el archivo no
