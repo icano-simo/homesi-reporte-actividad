@@ -54,6 +54,8 @@ interface PipelineLoanRow {
   affinity_program: string | null;
   /** Etapa F7.20 -- columna nueva, distinta de opportunity_owner_title. */
   opportunity_owner: string | null;
+  /** Etapa PROPERTY-STATE-1 -- columna "Subject Property State" del export. */
+  property_state: string | null;
 }
 
 interface ResolvedLoanRow {
@@ -86,6 +88,8 @@ interface ResolvedLoanRow {
    * ningún punto de este mapper.
    */
   branch_transferred: boolean | null;
+  /** Etapa PROPERTY-STATE-1 -- mismo significado que en `PipelineLoanRow`. */
+  property_state: string | null;
 }
 
 /**
@@ -146,12 +150,12 @@ export async function GET() {
 
     const loanRows = await fetchAllPages<PipelineLoanRow>(
       'pipeline_loans',
-      'source_loan_id, branch, channel, milestone, raw_milestone, healthy, raw_healthiness, close_month, est_closing_date, amount, loan_officer, borrower_name, milestone_date, branch_transferred, loan_type, loan_program, production_support_note_history, strategy_raw, opportunity_owner_title, nppm_realtor, referred_by, affinity_program, opportunity_owner',
+      'source_loan_id, branch, channel, milestone, raw_milestone, healthy, raw_healthiness, close_month, est_closing_date, amount, loan_officer, borrower_name, milestone_date, branch_transferred, loan_type, loan_program, production_support_note_history, strategy_raw, opportunity_owner_title, nppm_realtor, referred_by, affinity_program, opportunity_owner, property_state',
       snapshotId
     );
     const resolvedRows = await fetchAllPages<ResolvedLoanRow>(
       'pipeline_resolved_loans',
-      'source_loan_id, branch, channel, status, disbursement_date, amount, loan_officer, borrower_name, loan_status, est_closing_date, raw_loan_folder, loan_type, loan_program, production_support_note_history, strategy_raw, opportunity_owner_title, nppm_realtor, referred_by, affinity_program, opportunity_owner, branch_transferred',
+      'source_loan_id, branch, channel, status, disbursement_date, amount, loan_officer, borrower_name, loan_status, est_closing_date, raw_loan_folder, loan_type, loan_program, production_support_note_history, strategy_raw, opportunity_owner_title, nppm_realtor, referred_by, affinity_program, opportunity_owner, branch_transferred, property_state',
       snapshotId
     );
 
@@ -202,6 +206,11 @@ export async function GET() {
       strategyRaw: r.strategy_raw ?? '',
       opportunityOwnerTitle: r.opportunity_owner_title ?? '',
       opportunityOwner: r.opportunity_owner ?? '',
+      // Etapa PROPERTY-STATE-1: mismo criterio `?? ''` que el resto de los
+      // crudos opcionales de este mapeo -- un snapshot guardado antes de que
+      // existiera la columna vuelve con NULL real, que se lee igual que "el
+      // export no traía la columna".
+      propertyState: r.property_state ?? '',
       nppmRealtor: r.nppm_realtor ?? '',
       referredBy: r.referred_by ?? '',
       affinityProgram: r.affinity_program ?? '',
@@ -266,6 +275,11 @@ export async function GET() {
       strategyRaw: r.strategy_raw ?? '',
       opportunityOwnerTitle: r.opportunity_owner_title ?? '',
       opportunityOwner: r.opportunity_owner ?? '',
+      // Etapa PROPERTY-STATE-1: mismo criterio `?? ''` que el resto de los
+      // crudos opcionales de este mapeo -- un snapshot guardado antes de que
+      // existiera la columna vuelve con NULL real, que se lee igual que "el
+      // export no traía la columna".
+      propertyState: r.property_state ?? '',
       nppmRealtor: r.nppm_realtor ?? '',
       referredBy: r.referred_by ?? '',
       affinityProgram: r.affinity_program ?? '',

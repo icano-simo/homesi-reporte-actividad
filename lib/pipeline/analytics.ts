@@ -28,6 +28,8 @@ export interface RankingRow {
 
 const NO_PROGRAM_LABEL = 'Sin programa';
 const NO_TYPE_LABEL = 'Sin tipo';
+/** Etapa PROPERTY-STATE-1: exportado (a diferencia de los dos de arriba) porque el drill-down de TabAnalytics.tsx necesita re-derivar la misma etiqueta -- ver el comentario de DRILLDOWN_NO_PROGRAM_LABEL en ese archivo. */
+export const NO_PROPERTY_STATE_LABEL = 'Sin estado';
 
 /** Préstamos funded cuya `disbursementDate` cae dentro del rango, inclusive en los dos extremos. */
 export function fundedLoansInRange(loans: ResolvedLoan[], range: DateRange): ResolvedLoan[] {
@@ -69,4 +71,25 @@ export function buildLoanProgramRanking(fundedInRange: ResolvedLoan[]): RankingR
 
 export function buildLoanTypeRanking(fundedInRange: ResolvedLoan[]): RankingRow[] {
   return buildRanking(fundedInRange, (loan) => loan.loanType, NO_TYPE_LABEL);
+}
+
+/**
+ * Etapa PROPERTY-STATE-1. Mismo patrón exacto que Program/Type -- código de
+ * 2 letras de estado/territorio (o el placeholder si venía vacío), agrupado
+ * por conteo y monto de funded en el período.
+ */
+export function buildPropertyStateRanking(fundedInRange: ResolvedLoan[]): RankingRow[] {
+  return buildRanking(fundedInRange, (loan) => loan.propertyState, NO_PROPERTY_STATE_LABEL);
+}
+
+/**
+ * ¿Este snapshot capturó property_state para al menos un loan? Mismo
+ * criterio que `hasStrategyData()` (lib/pipeline/strategy.ts) -- un snapshot
+ * guardado antes de que existiera la columna vuelve con '' para el 100% de
+ * los loans, y eso NO debe leerse como "ningún préstamo tiene estado
+ * registrado" (un ranking en blanco sin explicación), sino como "este
+ * snapshot no capturó el dato".
+ */
+export function hasPropertyStateData(loans: ResolvedLoan[]): boolean {
+  return loans.some((loan) => loan.propertyState !== '');
 }

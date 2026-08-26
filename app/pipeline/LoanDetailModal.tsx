@@ -82,6 +82,12 @@ export interface LoanDetailModalLoan {
   /** Columna "Loan Program" del origen. Mismo criterio que `loanType` de arriba. */
   loanProgram: string;
   /**
+   * Etapa PROPERTY-STATE-1: columna "Subject Property State" del origen.
+   * Mismo criterio que `loanType`/`loanProgram` de arriba -- '' cuando no
+   * hay valor real, se muestra `NOT_AVAILABLE_TEXT`, nunca se inventa.
+   */
+  propertyState: string;
+  /**
    * Columna "Production Support Note History" del origen. Mismo criterio que
    * `loanType`/`loanProgram` de arriba. Valor completo, sin recortar -- el
    * recorte visual a ~3 líneas es puramente de presentación (CSS line-clamp,
@@ -126,7 +132,7 @@ export interface LoanDetailModalLoan {
 const NOT_AVAILABLE_TEXT = 'Not available for this snapshot';
 
 /** Nombres estables de columna -- mismo vocabulario que los campos de `LoanDetailModalLoan`, para `hiddenColumns`. */
-export type LoanDetailModalColumn = 'loanOfficer' | 'loanType' | 'loanProgram' | 'milestone' | 'status' | 'channel';
+export type LoanDetailModalColumn = 'loanOfficer' | 'loanType' | 'loanProgram' | 'propertyState' | 'milestone' | 'status' | 'channel';
 
 export interface LoanDetailModalProps {
   isOpen: boolean;
@@ -252,6 +258,7 @@ export default function LoanDetailModal({
   const showLoanOfficerColumn = !hiddenColumns?.includes('loanOfficer');
   const showLoanTypeColumn = !hiddenColumns?.includes('loanType');
   const showLoanProgramColumn = !hiddenColumns?.includes('loanProgram');
+  const showPropertyStateColumn = !hiddenColumns?.includes('propertyState');
   const showMilestoneColumn = !hiddenColumns?.includes('milestone');
   const showStatusColumn = !hiddenColumns?.includes('status');
   /** Loan #, Borrower, Amount, Notes son siempre visibles -- no tienen entrada en `hiddenColumns`. */
@@ -261,6 +268,7 @@ export default function LoanDetailModal({
     (showChannelColumn && !hiddenColumns?.includes('channel') ? 1 : 0) +
     (showLoanTypeColumn ? 1 : 0) +
     (showLoanProgramColumn ? 1 : 0) +
+    (showPropertyStateColumn ? 1 : 0) +
     (showMilestoneColumn ? 1 : 0) +
     (showStatusColumn ? 1 : 0);
   /**
@@ -403,6 +411,11 @@ export default function LoanDetailModal({
             {loan.loanProgram || NOT_AVAILABLE_TEXT}
           </td>
         )}
+        {showPropertyStateColumn && (
+          <td style={{ textAlign: 'left' }} title={loan.propertyState || NOT_AVAILABLE_TEXT}>
+            {loan.propertyState || NOT_AVAILABLE_TEXT}
+          </td>
+        )}
         <td className="val">{fmtAmount(loan.amount)}</td>
         {showMilestoneColumn && (
           <td style={{ textAlign: 'left' }} title={loan.rawMilestone}>
@@ -475,6 +488,7 @@ export default function LoanDetailModal({
                 {showChannelColumn && !hiddenColumns?.includes('channel') && <col style={{ width: '130px' }} />}
                 {showLoanTypeColumn && <col style={{ width: '120px' }} />}
                 {showLoanProgramColumn && <col style={{ width: '145px' }} />}
+                {showPropertyStateColumn && <col style={{ width: '90px' }} />}
                 <col style={{ width: '95px' }} />
                 {showMilestoneColumn && <col style={{ width: '150px' }} />}
                 {showStatusColumn && <col style={{ width: '115px' }} />}
@@ -488,6 +502,7 @@ export default function LoanDetailModal({
                 {showChannelColumn && !hiddenColumns?.includes('channel') && <th style={{ textAlign: 'left' }}>Channel</th>}
                 {showLoanTypeColumn && <th style={{ textAlign: 'left' }}>Loan Type</th>}
                 {showLoanProgramColumn && <th style={{ textAlign: 'left' }}>Loan Program</th>}
+                {showPropertyStateColumn && <th style={{ textAlign: 'left' }}>Property State</th>}
                 <th>Amount</th>
                 {showMilestoneColumn && <th style={{ textAlign: 'left' }}>Milestone</th>}
                 {showStatusColumn && <th style={{ textAlign: 'left' }}>Status</th>}

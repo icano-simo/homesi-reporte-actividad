@@ -64,6 +64,17 @@ export type PipelineLoan = {
    * TabAnalytics.tsx en vez de un scorecard vacío sin explicación).
    */
   opportunityOwner: string;
+  /**
+   * Etapa PROPERTY-STATE-1: columna "Subject Property State" del export --
+   * código de 2 letras de estado/territorio (confirmado con datos reales:
+   * solo mayúsculas, sin variantes de largo/espacios más allá del placeholder
+   * de celda vacía, que ya se limpia en el parser). '' si el export no trae
+   * la columna, o si la celda venía vacía. Se normaliza TAMBIÉN del lado del
+   * cliente antes de guardar (trim + nullif, ver parse/route.ts) -- la red de
+   * seguridad de la base (`nullif(btrim(...))`) es el segundo cerrojo, no el
+   * primero.
+   */
+  propertyState: string;
 };
 
 /**
@@ -147,4 +158,6 @@ export type ResolvedLoan = {
   affinityProgram: string;
   /** Etapa F7.20: mismo significado que en `PipelineLoan` -- ver ese comentario. */
   opportunityOwner: string;
+  /** Etapa PROPERTY-STATE-1: mismo significado que en `PipelineLoan` -- ver ese comentario. */
+  propertyState: string;
 };

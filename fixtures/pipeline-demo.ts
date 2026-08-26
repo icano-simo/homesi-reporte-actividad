@@ -46,6 +46,8 @@ function makeLoan(
     affinityProgram: '',
     // Etapa F7.20: mismo criterio que los cinco de arriba -- vacio en el fixture.
     opportunityOwner: '',
+    // Etapa PROPERTY-STATE-1: mismo criterio -- vacio en el fixture.
+    propertyState: '',
   };
 }
 

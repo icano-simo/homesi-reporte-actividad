@@ -6048,3 +6048,215 @@ No resuelve el síntoma de "recarga en cada navegación" (eso ya se
 resolvió en BUSINESS-PLAN-1/2, moviendo el estado a un Context Provider)
 -- es una oportunidad distinta, sobre el tiempo de la primera carga.
 Queda anotado para una etapa aparte, sin implementar.
+
+## Etapa PROPERTY-STATE-1 -- Subject Property State, de punta a punta
+
+Autorizado por Isa: columna `property_state` (text) ya existe en
+`pipeline_loans`/`pipeline_resolved_loans`, RPC ampliada y verificada por
+ella, con `nullif(btrim(...))` como red de seguridad del lado de la base.
+Orden confirmado (mismo patrón de siempre): parser -> tipo -> mapper de
+subida (con normalización de cliente) -> mapper de lectura -> ranking en
+Analytics -> modal de detalle.
+
+### Nombre exacto de la columna
+
+Confirmado en el diagnóstico previo (esta misma sesión): la columna real
+del export es **"Subject Property State"**, no "Property State" a
+secas. Valores: código de 2 letras, solo mayúsculas, sin variantes de
+largo/espacios más allá de una celda vacía representada con un único
+carácter espacio (no `''`, no `null`) -- el parser ya la limpia con
+`String(row[idx[...]] ?? '')`, que no hace `.trim()` de ese espacio; el
+`.trim()` que sí lo limpia vive en `buildRanking()`
+(`lib/pipeline/analytics.ts`) y en el mapper de subida.
+
+### Normalización EN DOS CAPAS, pedido explícito de Isa
+
+A diferencia de `opportunity_owner`/los cinco crudos de estrategia (que
+viajan `''` tal cual hasta la RPC, confiando en que la base decida),
+para `property_state` Isa pidió normalizar TAMBIÉN del lado del cliente
+-- `loan.propertyState.trim() || null` en `app/api/pipeline/parse/route.ts`,
+antes de mandar. La red de la base (`nullif(btrim(...))`) es el segundo
+cerrojo, no el primero. Aplicado igual en `toPipelineLoanRow` y
+`toResolvedLoanRow`.
+
+### Verificación CON QUERY REAL contra el snapshot activo, no el archivo de referencia
+
+El archivo usado en el diagnóstico previo (5197 filas, 12.5% sin
+estado) NO era el snapshot activo -- advertencia explícita de Isa, y
+confirmada: una query de solo lectura (service_role, contra
+`pipeline_forecast`, sin ningún `insert`/`update`/`delete`) contra el
+snapshot activo real (**id 80**, subido antes de esta etapa, por lo
+tanto sin pasar nunca por este mapper) dio:
+
+- `pipeline_resolved_loans` funded: 455/455 con `property_state` NULL
+  (100%).
+- `pipeline_loans` (abiertos): 101/101 con `property_state` NULL
+  (100%).
+
+Es el número REAL de este momento -- no el 12.5% del archivo de
+referencia, y tampoco un número inventado: la columna existe en la base
+pero ningún snapshot pasó todavía por el parser/mapper nuevos. Después
+de una carga real desde localhost, este número debería bajar (no
+necesariamente a 0 -- Salesforce sí trae filas con la celda vacía de
+verdad, ver el diagnóstico de la columna cruda).
+
+### Ranking en Analytics: mismo patrón que Program/Type, sección propia como Strategy Mix
+
+`buildPropertyStateRanking()` (`lib/pipeline/analytics.ts`) es
+literalmente `buildRanking(fundedInRange, (loan) => loan.propertyState,
+NO_PROPERTY_STATE_LABEL)` -- la misma función interna que ya usan
+`buildLoanProgramRanking`/`buildLoanTypeRanking`, ninguna agrupación
+nueva. Reusa el mismo `fundedInRange` (y por lo tanto el mismo selector
+de período) que ya calcula `TabAnalytics.tsx` para Program/Type.
+
+Se renderiza en su PROPIA sección ("Subject Property State", con
+`<h3>` y `DiagnosticsNote` propios) después del grid de Program/Type,
+en vez de sumarse como tercer elemento a ese grid de 2 columnas --
+mismo tratamiento visual que ya tiene Strategy Mix, y por el mismo
+motivo: a diferencia de Program/Type (que nunca faltan del todo, un
+snapshot viejo simplemente no tiene la columna y el ranking sale
+`'Sin programa'`/`'Sin tipo'` al 100%, sin distinguirse visualmente),
+Property State SÍ necesita distinguir "0 preéstamos con este estado en
+el período" de "este snapshot no capturó el dato en absoluto" -- el
+primero es un resultado de negocio legítimo, el segundo un default
+silencioso que se leería como si el 100% de los préstamos no tuviera
+estado.
+
+`hasPropertyStateData()` (`lib/pipeline/analytics.ts`) resuelve esa
+distinción con el MISMO criterio exacto que `hasStrategyData()`
+(`lib/pipeline/strategy.ts`, etapa F6/F7.23): `loans.some(l =>
+l.propertyState !== '')`. Cuando da `false` (con `fundedInRange.length
+> 0`, mismo guardia que `strategyDataMissing`, para no disparar el
+aviso con un período sin ningún loan), se muestra un mensaje explícito
+en vez del ranking -- con el conteo REAL calculado en vivo sobre
+`fundedInRange.length` (nunca un número fijo), así que siempre refleja
+el snapshot activo del momento, no un dato congelado del diagnóstico.
+
+Drill-down: mismo patrón exacto que Loan Program/Loan Type --
+`hiddenColumns: ['propertyState', 'milestone', 'status']` (oculta la
+columna redundante con el corte que abrió el modal). Único caso de
+los tres que NO duplica su placeholder localmente en `TabAnalytics.tsx`
+(`DRILLDOWN_NO_PROGRAM_LABEL`/`DRILLDOWN_NO_TYPE_LABEL` sí lo hacen,
+con comentario explícito de por qué): `NO_PROPERTY_STATE_LABEL` se
+exporta desde `lib/pipeline/analytics.ts` y se importa directo, porque
+ese archivo SÍ está en el alcance de esta etapa (a diferencia de cuando
+se armaron los otros dos rankings) -- evita el riesgo de
+desincronización que el comentario original advertía.
+
+DC (y cualquier otro código de 2 letras): sin ninguna lista fija de
+estados válidos en ningún punto de la cadena -- `buildRanking()` agrupa
+por el valor crudo tal cual viene, sea cual sea. No hay forma de que DC
+(ni ningún otro estado real) quede excluido por código; solo aparecería
+ausente si el snapshot activo no tiene ningún préstamo funded con ese
+estado en el período elegido, que es el comportamiento correcto.
+
+### Modal de detalle -- 3 constructores tocados, fuera del alcance de archivos declarado
+
+`LoanDetailModalLoan.propertyState` es un campo REQUERIDO (mismo
+criterio que `loanType`/`loanProgram`, visible salvo que
+`hiddenColumns` lo oculte) -- consecuencia mecánica inevitable:
+`app/pipeline/PivotTable.tsx` (`openLoanToModalLoan`,
+`closedLoanToModalLoan`) y `app/pipeline/TabMilestoneMatrix.tsx`
+(construcción inline del modal de la matriz de milestones) no estaban
+en la lista de archivos de esta etapa, pero son los 3 puntos que
+construyen `LoanDetailModalLoan` en toda la app -- sin la línea nueva en
+los 3, `tsc` falla con "property propertyState is missing". Se agregó
+en los 3, con el comentario explícito de por qué está fuera del alcance
+declarado. Mismo motivo tocó `scripts/test-aggregate.ts` y
+`fixtures/pipeline-demo.ts` (fixtures que construyen un `PipelineLoan`
+literal a mano) -- una línea `propertyState: ''` en cada uno, mismo
+criterio que los demás crudos opcionales en esos archivos.
+
+### Qué queda fuera de esta etapa, a propósito
+
+El export a Excel (`app/pipeline/page.tsx` / `app/api/pipeline/export/route.ts`)
+NO incluye `property_state` todavía -- esos dos archivos no estaban en
+el alcance de esta etapa, y a diferencia del modal, `ExportRow` es un
+tipo ad-hoc propio de ese archivo (no `PipelineLoan`/`ResolvedLoan` ni
+`LoanDetailModalLoan`), así que `tsc` no lo exige -- se puede agregar
+después sin que este archivo quede inconsistente mientras tanto.
+
+### Archivos
+
+`lib/pipeline/sources/salesforce-file.ts`, `lib/pipeline/types.ts`,
+`app/api/pipeline/parse/route.ts`, `app/api/pipeline/latest/route.ts`,
+`lib/pipeline/analytics.ts`, `app/pipeline/TabAnalytics.tsx`,
+`app/pipeline/LoanDetailModal.tsx` -- alcance declarado. Más, por
+consecuencia mecánica del tipo compartido:
+`app/pipeline/PivotTable.tsx`, `app/pipeline/TabMilestoneMatrix.tsx`,
+`scripts/test-aggregate.ts`, `fixtures/pipeline-demo.ts`.
+
+## Etapa PROPERTY-STATE-1, FIX -- el nombre real es "Property State", no "Subject Property State"
+
+Una carga real desde localhost (snapshot 82) siguió mostrando "No
+property state data in this snapshot" a pesar de la implementación de
+punta a punta de arriba. Investigado end-to-end antes de tocar código
+(ver el hilo de diagnóstico de esta misma etapa): el mapper de subida
+mandaba `null` correctamente -- el problema estaba ANTES, en el parser,
+que nunca encontraba la columna.
+
+### Por qué el nombre original era incorrecto
+
+"Subject Property State" salió de `Pipeline 8-25-2026 PM.xlsx`, el
+archivo que se usó en el diagnóstico de columna original -- pero ese
+archivo **nunca fue un input válido de este parser**: su encabezado usa
+"Loan Number"/"Borrower Name", nunca "Opportunity Name" (la columna que
+exige `findHeaderRowIndex()` para siquiera encontrar la fila de
+encabezados). Es un reporte de Salesforce completamente distinto, no
+uno de los dos formatos (A/B) que esta app soporta. El nombre de
+columna se programó contra un archivo que jamás se iba a subir.
+
+### Confirmación real, antes del fix
+
+- El archivo real subido (`report1787758434815.xls`, **Formato B**,
+  confirmado con la misma lógica de `detectFormat()` -- corrección a un
+  reporte anterior de esta sesión que lo había llamado "Formato A" por
+  error) trae la columna como **"Property State"**, índice 37 de 38.
+- Cruce por `loan_id` contra `Pipeline 8-26-2026 AM.xlsx` (mismo día):
+  **893 préstamos coincidentes, 893 con el mismo valor exacto (100%)**
+  entre "Property State" y "Subject Property State" -- confirmado que
+  es el mismo dato de Salesforce, no un campo distinto.
+- Barrido de 9 archivos Formato B reales, de distintas fechas (36 a 38
+  columnas): las demás columnas F6/F7 (Strategy, Opportunity Owner:
+  Title, NPPM Realtor, Referred By, Affinity Program, Opportunity
+  Owner, Branch Transfer, Loan Type, Loan Program, Production Support
+  Note History, Loan Status, Disbursement Date) son estables en los 9 --
+  ninguna otra tiene este problema. "Property State" es la única
+  columna nueva, y sólo aparece en el archivo más reciente.
+
+### El fix
+
+`resolveColumnIndexes()` ahora busca **"Property State" primero**; si
+no está, prueba **"Subject Property State"** como red de seguridad
+barata -- por si un formato no verificado la trajera con ese nombre. La
+clave de `idx` pasó de `'Subject Property State'` a `'Property State'`
+(y los 2 puntos de lectura en `extractRowsFormatA`/`extractRowsFormatB`
+se actualizaron para leer de la clave nueva) -- ningún otro archivo
+tocado, tal como confirmó el barrido de arriba que no hacía falta.
+
+### Formato A -- sigue sin verificar, anotado a propósito
+
+No existe ninguna muestra real de Formato A (archivos con filas
+"Subtotal") en `Downloads/` al momento de este fix -- los 13 archivos
+reales disponibles con columna "Opportunity Name" son todos Formato B.
+No se puede confirmar si Formato A usaría "Property State" o "Subject
+Property State" (o un tercer nombre) hasta que aparezca una muestra
+real. El fallback de la red de seguridad cubre el caso más probable
+(el nombre original, que sí existía como hipótesis razonable antes de
+este diagnóstico) pero no está verificado -- si Formato A trajera un
+tercer nombre distinto, este fix no lo resolvería.
+
+### Verificación directa contra el archivo real (antes de cualquier carga)
+
+Con la lógica de resolución nueva aplicada al archivo real
+(`report1787758434815.xls`): **894 de 894 filas de datos con valor NO
+vacío** (antes del fix: 0 de 894, por buscar la columna equivocada).
+Muestra de los primeros 10 valores: `CT, MN, FL, PA, TX, NJ, MD, FL,
+NC, NC`. Verificación de archivo, sin pasar por Supabase -- falta la
+carga real desde localhost para confirmar contra la base.
+
+### Archivos
+
+`lib/pipeline/sources/salesforce-file.ts` únicamente -- tipos, mappers
+y la RPC no se tocaron (ya estaban bien, el problema era exclusivamente
+la resolución del nombre de columna en el parser).

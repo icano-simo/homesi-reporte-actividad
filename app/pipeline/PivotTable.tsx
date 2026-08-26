@@ -609,6 +609,11 @@ function openLoanToModalLoan(loan: PipelineLoan): LoanDetailModalLoan {
     loanType: loan.loanType,
     loanProgram: loan.loanProgram,
     noteHistory: loan.noteHistory,
+    // Etapa PROPERTY-STATE-1: fuera del alcance de archivos declarado de esa
+    // etapa, pero mecánicamente inevitable -- LoanDetailModalLoan.propertyState
+    // es requerido, así que los 3 constructores de este tipo (los 2 de este
+    // archivo + el de TabMilestoneMatrix.tsx) necesitan la línea o tsc falla.
+    propertyState: loan.propertyState,
   };
 }
 
@@ -689,6 +694,8 @@ export function closedLoanToModalLoan(loan: ResolvedLoan): LoanDetailModalLoan {
     loanType: loan.loanType,
     loanProgram: loan.loanProgram,
     noteHistory: loan.noteHistory,
+    // Etapa PROPERTY-STATE-1: ver el comentario de openLoanToModalLoan arriba.
+    propertyState: loan.propertyState,
   };
 }
 

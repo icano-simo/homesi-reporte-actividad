@@ -124,6 +124,19 @@ function toPipelineLoanRow(loan: PipelineLoan) {
     affinity_program: loan.affinityProgram,
     // Etapa F7.20: columna nueva, autorizada por Isa -- RPC ya ampliada (verificado por ella). Mismo patrón '' vs NULL de arriba.
     opportunity_owner: loan.opportunityOwner,
+    /*
+     * Etapa PROPERTY-STATE-1: columna nueva, autorizada por Isa -- RPC ya
+     * ampliada y verificada por ella, con `nullif(btrim(...))` como red de
+     * seguridad del lado de la base.
+     *
+     * A diferencia de `opportunity_owner`/los cinco crudos de estrategia
+     * (que viajan '' tal cual, sin tocar, confiando en que la RPC/la base
+     * decida), Isa pidió EXPLÍCITAMENTE normalizar acá TAMBIÉN, del lado del
+     * cliente: `trim() || null` antes de mandar. La red de la base es el
+     * segundo cerrojo, no el primero -- este mapper no debe depender de que
+     * la columna del otro lado haga la limpieza sola.
+     */
+    property_state: loan.propertyState.trim() || null,
   };
 }
 
@@ -188,6 +201,10 @@ function toResolvedLoanRow(loan: ResolvedLoan) {
     // ampliada, SIN coalesce acá (ver el comentario largo de arriba) --
     // undefined debe llegar a la RPC como undefined, para guardarse NULL.
     branch_transferred: loan.branchTransferred,
+    // Etapa PROPERTY-STATE-1: mismo criterio y mismo motivo que en
+    // toPipelineLoanRow -- normalización explícita del lado del cliente,
+    // pedida por Isa, además de la red de seguridad de la base.
+    property_state: loan.propertyState.trim() || null,
   };
 }
 

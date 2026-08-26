@@ -2,7 +2,16 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { ResolvedLoan } from '@/lib/pipeline/types';
-import { buildLoanProgramRanking, buildLoanTypeRanking, earliestFundedDisbursementDate, fundedLoansInRange, type RankingRow } from '@/lib/pipeline/analytics';
+import {
+  buildLoanProgramRanking,
+  buildLoanTypeRanking,
+  buildPropertyStateRanking,
+  earliestFundedDisbursementDate,
+  fundedLoansInRange,
+  hasPropertyStateData,
+  NO_PROPERTY_STATE_LABEL,
+  type RankingRow,
+} from '@/lib/pipeline/analytics';
 import {
   buildBranchScorecard,
   buildBusinessDeveloperScorecard,
@@ -751,6 +760,12 @@ function AvgTicketChart({
  * solo para poder re-derivar, en el click, qué loans cayeron en cada fila
  * del ranking -- si el texto del placeholder cambia algún día en
  * `analytics.ts`, este archivo hay que actualizarlo a mano también.
+ *
+ * Etapa PROPERTY-STATE-1: `NO_PROPERTY_STATE_LABEL` NO se duplica acá --
+ * `lib/pipeline/analytics.ts` SÍ está en el alcance de esta etapa (a
+ * diferencia de cuando se armaron estas dos), así que se exporta desde ahí
+ * y se importa directo, evitando el mismo riesgo de desincronización que
+ * este comentario advierte para los otros dos.
  */
 const DRILLDOWN_NO_PROGRAM_LABEL = 'Sin programa';
 const DRILLDOWN_NO_TYPE_LABEL = 'Sin tipo';
@@ -1221,6 +1236,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
   const fundedInRange = fundedLoansInRange(resolvedLoans, range);
   const programRanking = buildLoanProgramRanking(fundedInRange);
   const typeRanking = buildLoanTypeRanking(fundedInRange);
+  const propertyStateRanking = buildPropertyStateRanking(fundedInRange);
 
   const branchScorecard = buildBranchScorecard(fundedInRange, orgRoster.knownBranchCodes);
   const loanOfficerScorecard = buildLoanOfficerScorecard(
@@ -1270,6 +1286,13 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
    * por otro lado, no este).
    */
   const strategyDataMissing = fundedInRange.length > 0 && !hasStrategyData(fundedInRange);
+
+  /**
+   * Etapa PROPERTY-STATE-1: mismo criterio exacto que strategyDataMissing de
+   * arriba, aplicado a property_state en vez de los crudos de estrategia --
+   * ver hasPropertyStateData() en lib/pipeline/analytics.ts.
+   */
+  const propertyStateDataMissing = fundedInRange.length > 0 && !hasPropertyStateData(fundedInRange);
 
   /**
    * Etapa F7, Parte 11: Pareto por Branch/Loan Officer -- el toggle interno
@@ -1390,6 +1413,50 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
           }
         />
       </div>
+
+      <h3 style={{ margin: '24px 0 12px' }}>Subject Property State</h3>
+      <DiagnosticsNote
+        count={1}
+        summary="Funded loans (Disbursement Date), grouped by Subject Property State, for the selected period."
+        detail="Same source/period as Loan Program and Loan Type above -- read-only, doesn't affect any other calculation in Forecast."
+      />
+      {propertyStateDataMissing ? (
+        <div className="tbl-card" style={{ padding: '16px', marginBottom: '20px' }}>
+          {/*
+            Etapa PROPERTY-STATE-1: mismo criterio que Strategy Mix (F7.23) --
+            un ranking 100% "Sin estado" se leería como un resultado real de
+            negocio, y acá es un default silencioso por falta de datos (el
+            snapshot todavía no capturó property_state, o se subió antes de
+            esta etapa). El número es el conteo REAL de este snapshot activo,
+            calculado en vivo sobre fundedInRange -- nunca un número fijo del
+            archivo de referencia usado en el diagnóstico previo (ese archivo
+            NO era el snapshot activo).
+          */}
+          <p className="foot-note" style={{ margin: 0 }}>
+            No property state data in this snapshot — all {fmtInt(fundedInRange.length)} funded loans in this period
+            have no Subject Property State recorded. Re-upload required to populate this view.
+          </p>
+        </div>
+      ) : (
+        <div style={{ marginBottom: '20px' }}>
+          <RankingTable
+            title="Subject Property State"
+            columnLabel="State"
+            rows={propertyStateRanking}
+            totalCount={fundedInRange.length}
+            onRowClick={(row) =>
+              setDrillDown({
+                metric: 'Subject Property State',
+                context: row.label,
+                loans: fundedInRange
+                  .filter((l) => (l.propertyState.trim() || NO_PROPERTY_STATE_LABEL) === row.label)
+                  .map(closedLoanToModalLoan),
+                hiddenColumns: ['propertyState', 'milestone', 'status'],
+              })
+            }
+          />
+        </div>
+      )}
 
       <h3 style={{ margin: '24px 0 12px' }}>Scorecards</h3>
       <DiagnosticsNote

@@ -130,6 +130,29 @@ function resolveColumnIndexes(headerRow: unknown[]): Record<string, number> {
    * este bloque: `-1` si el export no la trae, no rompe el parseo.
    */
   idx['Opportunity Owner'] = normalized.indexOf('Opportunity Owner');
+  /*
+   * Etapa PROPERTY-STATE-1, FIX: el nombre real es "Property State", NO
+   * "Subject Property State" -- ese primer nombre salió de un archivo que
+   * nunca fue un input válido de este parser (un reporte de Salesforce
+   * distinto, sin columna "Opportunity Name", así que ni siquiera pasa
+   * `findHeaderRowIndex`). Confirmado contra el archivo real subido
+   * (`report1787758434815.xls`, Formato B, columna "Property State" en el
+   * índice 37 de 38) y por cruce de 893 loan_id contra el otro reporte:
+   * 100% de coincidencia de valor entre "Property State" y "Subject
+   * Property State" -- es el mismo dato de Salesforce, dos nombres de
+   * columna en dos definiciones de reporte distintas.
+   *
+   * Se busca "Property State" primero. Si no está, se prueba "Subject
+   * Property State" como red de seguridad barata -- por si Formato A (sin
+   * ninguna muestra real disponible para verificar, ver ARQUITECTURA.md)
+   * usara el nombre original. Mismo criterio opcional que el resto de este
+   * bloque: `-1` en los dos si el export no trae ninguna, no rompe el
+   * parseo.
+   */
+  idx['Property State'] =
+    normalized.indexOf('Property State') !== -1
+      ? normalized.indexOf('Property State')
+      : normalized.indexOf('Subject Property State');
 
   const missing = REQUIRED_COLUMNS.filter((col) => idx[col] === -1);
   if (missing.length) {
@@ -259,6 +282,8 @@ interface RawRow {
   referredBy: string;
   /** Etapa F7.20: nombre de "Opportunity Owner" -- '' si el export no trae la columna. Distinto de opportunityOwnerTitle (rol) y referredBy. */
   opportunityOwner: string;
+  /** Etapa PROPERTY-STATE-1: columna "Property State" ("Subject Property State" como fallback, ver resolveColumnIndexes) -- '' si el export no la trae. Mismo criterio opcional que loanType/loanProgram. */
+  propertyState: string;
   /**
    * ⚠ `unknown` y no `string`: en el export "Affinity Program" es una CASILLA,
    * no texto -- en el archivo del 2026-08-20 son 815 `false` y 68 `true`.
@@ -333,6 +358,8 @@ function extractRowsFormatA(aoa: unknown[][], idx: Record<string, number>, heade
         nppmRealtor: String(row[idx['NPPM Realtor']] ?? ''),
         referredBy: String(row[idx['Referred By']] ?? ''),
         opportunityOwner: String(row[idx['Opportunity Owner']] ?? ''),
+        // Etapa PROPERTY-STATE-1: '' si el export no trae la columna.
+        propertyState: String(row[idx['Property State']] ?? ''),
         affinityProgramRaw: row[idx['Affinity Program']],
       });
     }
@@ -375,6 +402,8 @@ function extractRowsFormatB(aoa: unknown[][], idx: Record<string, number>, heade
       nppmRealtor: String(row[idx['NPPM Realtor']] ?? ''),
       referredBy: String(row[idx['Referred By']] ?? ''),
       opportunityOwner: String(row[idx['Opportunity Owner']] ?? ''),
+      // Etapa PROPERTY-STATE-1: '' si el export no trae la columna.
+      propertyState: String(row[idx['Property State']] ?? ''),
       affinityProgramRaw: row[idx['Affinity Program']],
     });
   }
@@ -458,6 +487,9 @@ function classifyRow(
       nppmRealtor: row.nppmRealtor,
       referredBy: row.referredBy,
       opportunityOwner: row.opportunityOwner,
+      // Etapa PROPERTY-STATE-1: pasa crudo, sin normalizar -- la normalización
+      // (trim + nullif) vive en el mapper de subida (parse/route.ts), no acá.
+      propertyState: row.propertyState,
       /*
        * ⚠ La casilla se guarda como `'true'` o `''`, NUNCA como `'false'`.
        *
@@ -532,6 +564,9 @@ function classifyRow(
       nppmRealtor: row.nppmRealtor,
       referredBy: row.referredBy,
       opportunityOwner: row.opportunityOwner,
+      // Etapa PROPERTY-STATE-1: pasa crudo, sin normalizar -- la normalización
+      // (trim + nullif) vive en el mapper de subida (parse/route.ts), no acá.
+      propertyState: row.propertyState,
       /*
        * ⚠ La casilla se guarda como `'true'` o `''`, NUNCA como `'false'`.
        *
