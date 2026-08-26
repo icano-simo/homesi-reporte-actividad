@@ -6028,3 +6028,23 @@ Archivos: `lib/pipeline/types.ts`, `app/api/pipeline/parse/route.ts`,
 `app/pipeline/PivotTable.tsx` (la excepción puntual del modal, ver
 arriba). Sin cambios en el parser
 (`lib/pipeline/sources/salesforce-file.ts`) -- ya estaba correcto.
+
+## Hallazgo pendiente -- queries secuenciales en loadBusinessPlanData()
+
+Confirmado durante el diagnóstico de recarga de Business Plan (etapa
+BUSINESS-PLAN-1): solo las primeras 5 queries de org corren en paralelo
+(Promise.all) dentro de loadData.ts. Las siguientes 5-6
+(employee_benchmark, business_plan.settings, business_plan.intervention,
+business_plan.enrollment + sus hasta 3 sub-queries, attribution_override)
+corren una después de la otra, cada una pagando su propio round-trip de
+red (~120-230ms medido contra pipeline_forecast en esta misma sesión).
+
+No hay ninguna dependencia de datos entre esas queries que obligue a la
+secuencialidad -- podrían correr en paralelo también, reduciendo la
+carga INICIAL de Business Plan (la única vez que se paga el costo real
+de red, dado que hay caché de módulo para navegaciones subsiguientes).
+
+No resuelve el síntoma de "recarga en cada navegación" (eso ya se
+resolvió en BUSINESS-PLAN-1/2, moviendo el estado a un Context Provider)
+-- es una oportunidad distinta, sobre el tiempo de la primera carga.
+Queda anotado para una etapa aparte, sin implementar.
