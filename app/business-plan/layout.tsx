@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import BusinessPlanShell from './components/BusinessPlanShell';
+import { BusinessPlanDataProvider } from '@/lib/business-plan/BusinessPlanDataContext';
 import './styles/bp-visual.css';
 
 /**
@@ -24,7 +25,18 @@ import './styles/bp-visual.css';
  *
  * `bp-visual.css` se importa acá y no en cada página: es el punto único por el
  * que pasa todo el módulo, y así no se repite el import en cuatro archivos.
+ *
+ * Etapa BUSINESS-PLAN-1: `BusinessPlanDataProvider` se monta acá arriba de
+ * `BusinessPlanShell`, por la misma razón que el sidebar vive en este archivo
+ * y no en cada página -- este layout NO se desmonta al navegar entre las
+ * rutas del módulo, así que el `useState` que envuelve la carga de datos
+ * arranca una sola vez por sesión en vez de una vez por pantalla. Ver
+ * `lib/business-plan/BusinessPlanDataContext.tsx`.
  */
 export default function BusinessPlanLayout({ children }: { children: ReactNode }) {
-  return <BusinessPlanShell>{children}</BusinessPlanShell>;
+  return (
+    <BusinessPlanDataProvider>
+      <BusinessPlanShell>{children}</BusinessPlanShell>
+    </BusinessPlanDataProvider>
+  );
 }

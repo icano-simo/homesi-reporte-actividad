@@ -4678,6 +4678,155 @@ a mano.
 directamente `branchScorecard.rows`/`loanOfficerScorecard.rows` (los
 mismos objetos que ya renderizan las tablas de Scorecards, Parte 2) y
 solo acumula `closedCount` -- confirmado leyendo `toRows()`
+
+## Etapa BUSINESS-PLAN-1 -- Context Provider en layout.tsx, resolver el flash de carga
+
+### Qué problema resolvía
+
+Diagnóstico previo (misma sesión): las 3 rutas de nivel superior del módulo
+(Branch Portfolio, branch individual, perfil de Loan Officer) ya comparten
+una caché real a nivel de módulo -- `useBusinessPlanData()`
+(`lib/business-plan/useBusinessPlanData.ts`) memoiza la promesa de
+`loadBusinessPlanData()` en una variable de módulo (`cached`), así que la
+carga de red (roster + ~4.6k filas del lote activo) corre una sola vez por
+sesión de navegador, sin importar cuántas de las 3 pantallas se visiten.
+
+Lo que SÍ se repetía era el flash de "Loading roster…": cada página llamaba
+al hook por su cuenta, y el hook arranca con su propio
+`useState({ isLoading: true, ... })`. Al navegar de Portfolio a un branch, la
+promesa ya estaba resuelta (no hay segunda carga de red), pero el `useState`
+de la pantalla NUEVA igual arrancaba en `true` hasta que el efecto corría y
+la ponía en `false` -- un parpadeo sin trabajo real detrás.
+
+`app/business-plan/layout.tsx` ya no se desmonta al navegar entre las 3
+rutas (confirmado en el diagnóstico, y es comportamiento estándar de
+App Router para layouts compartidos) -- la solución fue mover el `useState`
+de "dónde vive" (cada página) a "un solo lugar que no se remonta" (el
+layout), sin tocar la caché de módulo ni el cómputo del triage.
+
+### Qué se implementó
+
+**Archivo nuevo: `lib/business-plan/BusinessPlanDataContext.tsx`.**
+No reimplementa la carga ni la caché -- `BusinessPlanDataProvider` llama a
+`useBusinessPlanData()` (el hook existente, sin tocar) una sola vez, y
+expone su resultado (`data`, `isLoading`, `error`, `reload`) por Context.
+`useBusinessPlanDataContext()` es el consumidor; lanza si se llama fuera del
+Provider (para no fallar en silencio con datos `null` si algún día se llama
+desde afuera del árbol del módulo).
+
+**`app/business-plan/layout.tsx`.** `BusinessPlanDataProvider` se monta acá,
+envolviendo a `BusinessPlanShell` -- mismo archivo que ya aloja el sidebar
+por la misma razón (no se remonta entre rutas hijas). El layout se queda
+como componente de servidor; renderiza el Provider (client component) sin
+necesitar `'use client'` propio.
+
+**Las 3 páginas migradas** (`app/business-plan/page.tsx`,
+`app/business-plan/branch/[code]/page.tsx`,
+`app/business-plan/lo/[employeeKey]/page.tsx`): cambiaron
+`useBusinessPlanData()` por `useBusinessPlanDataContext()`. Sin ningún otro
+cambio -- mismas variables desestructuradas (`data`, `isLoading`, `error`, y
+`reload` en el perfil de LO, que ya lo pasaba a `BenchmarkEditor.onSaved` y
+`DecisionBar.onReviewed`).
+
+**Refresco explícito, pedido por Isa.** Botón "Refresh data" en
+`BusinessPlanShell.tsx`, en la misma fila que el breadcrumb (`.bp-crumbs-row`,
+nuevo wrapper en `bp-visual.css` que separa breadcrumb y botón a los
+extremos). Llama a `reload()` del contexto -- invalida la caché de módulo
+(`invalidateBusinessPlanData()`) y vuelve a cargar sin recargar la página ni
+perder estado de navegación (búsqueda, selección, tab abierto). Se puso en
+el Shell y no en cada página porque es una acción sobre la caché ENTERA del
+módulo, no algo propio de una sola pantalla.
+
+**`loadBusinessPlanData()` y el cómputo del triage: sin tocar**, tal como
+pedía la tarea -- el diff no incluye `lib/business-plan/loadData.ts`.
+
+### Qué queda fuera de esta etapa, a propósito
+
+Otras 6 rutas del módulo (`group/[keys]`, `lo/[employeeKey]/funnel`,
+`lo/[employeeKey]/impact`, `lo/[employeeKey]/plan`, `settings`, `team`)
+siguen llamando a `useBusinessPlanData()` directo, sin cambios -- fuera del
+alcance que pidió esta etapa (las 3 páginas). Cuelgan de la MISMA caché de
+módulo, así que no hay una segunda carga de red por su culpa; simplemente no
+se resolvió su propio parpadeo de `useState` local.
+
+Consecuencia a tener en cuenta: el botón "Refresh data" vive en
+`BusinessPlanShell` y por lo tanto es visible en las 9 rutas del módulo (el
+Shell envuelve a todas), no solo en las 3 migradas. En las 3 migradas su
+efecto es inmediato -- leen del mismo Provider que el botón invalida. En las
+6 no migradas, clickearlo invalida la caché de módulo igual, pero la
+pantalla que está en pantalla en ese momento no se entera sola (tiene su
+propio `useState`/`tick` independiente que no escucha al Provider) -- el
+dato fresco aparece recién en la próxima navegación a esa pantalla, no en el
+lugar donde se clickeó. No es un bug de esta etapa: es la consecuencia
+directa de dejar esas 6 rutas fuera del alcance pedido, documentada acá para
+que no se descubra por sorpresa.
+
+## Etapa BUSINESS-PLAN-2 -- extender el Provider a 2 de las 3 rutas restantes
+
+Continuación de [[etapa BUSINESS-PLAN-1]]. Isa había pedido migrar sólo
+Portfolio/branch/LO; acá se revisaron las 3 rutas que quedaron fuera
+("Funnel & Node Library", "BP Team", "Settings" -- nombres del sidebar,
+`app/business-plan/library`, `/team`, `/settings`) para confirmar, ANTES de
+tocar nada, si usan la misma `useBusinessPlanData()` o algo distinto.
+
+### Confirmado por lectura del código, no por suposición
+
+- **`library/page.tsx` -- NO usa `useBusinessPlanData()` en ningún lado.**
+  Su única fuente de datos es `useFunnelLibrary()`
+  (`lib/business-plan/useFunnelLibrary.ts`), que lee tablas completamente
+  distintas (`business_plan.funnel/node/funnel_node/node_milestone/
+  node_owner/enrollment`, más el roster de soporte de `org.dim_employee`) y
+  ni siquiera tiene caché de módulo -- cada mount vuelve a pedir todo. No hay
+  nada que migrar: no es una dependencia distinta de la misma pantalla, es
+  una pantalla que nunca dependió de este hook. **Se dejó sin tocar.**
+
+- **`team/page.tsx` -- SÍ usa `useBusinessPlanData()`**, línea
+  `const { data: bpData, isLoading: loadingRoster } = useBusinessPlanData()`,
+  para resolver nombre/branch de cada Loan Officer en `loInfo()`. Mismos
+  datos, mismo hook, exactamente el caso migrable. **Se migró** a
+  `useBusinessPlanDataContext()` -- un `import` + una línea, igual que las 3
+  originales.
+
+  Con un matiz real que se deja anotado: esta pantalla ADEMÁS depende de
+  `useTeamAssignments()` (`lib/business-plan/useTeamAssignments.ts`), un
+  hook totalmente aparte -- sin caché de módulo, sin relación con
+  `loadBusinessPlanData()` -- que sigue re-pidiendo sus datos en cada visita.
+  El `isLoading` combinado de la pantalla (`isLoading || loadingRoster`,
+  línea ~138) sigue mostrando `LoadingState` mientras ESE hook carga, así
+  que **el parpadeo de "Loading…" en BP Team no desaparece del todo** con
+  este cambio -- se resolvió la mitad que correspondía a esta etapa (el
+  roster compartido); la otra mitad (`useTeamAssignments`) es una etapa
+  aparte, fuera de lo pedido acá.
+
+- **`settings/page.tsx` -- SÍ usa `useBusinessPlanData()`**, sólo `data`
+  (sin `isLoading`/`error`), para alimentar `<Diagnostics data={bpData} />`
+  al pie de la pantalla ("How this is being calculated"). Mismos datos,
+  mismo hook. **Se migró** a `useBusinessPlanDataContext()`.
+
+  Esta pantalla llama además a `invalidateBusinessPlanData()` directo
+  (no al `reload()` del hook) después de guardar una tasa, para que las
+  OTRAS pantallas del módulo traigan el veredicto recalculado en su próxima
+  visita -- ese llamado sigue exactamente igual, no se tocó: sigue sin forzar
+  un refetch inmediato de la propia pantalla de Settings, mismo
+  comportamiento que tenía antes de esta etapa.
+
+### Qué NO se tocó, a propósito
+
+`BusinessPlanDataContext.tsx`, `BusinessPlanShell.tsx`, `layout.tsx`, y las 3
+páginas ya migradas en BUSINESS-PLAN-1 (`page.tsx`,
+`branch/[code]/page.tsx`, `lo/[employeeKey]/page.tsx`) -- fuera del alcance
+pedido para esta etapa, ya probados, no se reabrieron. `loadBusinessPlanData()`
+y el cómputo del triage: sin tocar, igual que en BUSINESS-PLAN-1.
+
+### Consecuencia sobre el botón "Refresh data"
+
+De las 9 rutas del módulo que llaman a `useBusinessPlanData()`, el botón del
+Shell queda con efecto inmediato en 5 (las 3 de BUSINESS-PLAN-1 + Team +
+Settings, todas leyendo del mismo Provider). Quedan 4 donde sigue siendo
+"invalida la caché, pero no se nota hasta la próxima visita a esa pantalla":
+`group/[keys]` y los 3 sub-flujos del perfil de LO (`funnel`, `impact`,
+`plan`) -- ninguno tocado en esta etapa. `library` es un caso aparte: nunca
+usó `useBusinessPlanData()`, así que el botón nunca le iba a decir nada.
 (`lib/pipeline/scorecards.ts:33-44`) que esas filas YA vienen
 `.sort((a, b) => b.closedCount - a.closedCount)`. Ninguna agrupación
 nueva: `buildBranchScorecard`/`buildLoanOfficerScorecard` (mismas

@@ -38,7 +38,7 @@ export function KpiCard({ label, value, tone }: { label: string; value: string |
 export function LoadingState() {
   return (
     <div className="empty">
-      <h2>Loading roster…</h2>
+      <h2>Loading…</h2>
     </div>
   );
 }

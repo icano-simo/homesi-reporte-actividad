@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useBusinessPlanData } from '@/lib/business-plan/useBusinessPlanData';
+import { useBusinessPlanDataContext } from '@/lib/business-plan/BusinessPlanDataContext';
 import { useSessionEmail } from '@/lib/business-plan/useFunnelLibrary';
 import { useTeamAssignments } from '@/lib/business-plan/useTeamAssignments';
 import { MILESTONE_STATUS_CLASS, MILESTONE_STATUS_LABEL, isOverdue } from '@/lib/business-plan/funnels';
@@ -45,7 +45,7 @@ import { Avatar, ErrorState, LoadingState } from '../components/shared';
  */
 
 export default function TeamPage() {
-  const { data: bpData, isLoading: loadingRoster } = useBusinessPlanData();
+  const { data: bpData, isLoading: loadingRoster } = useBusinessPlanDataContext();
   const { data, isLoading, available, error } = useTeamAssignments();
   const sessionEmail = useSessionEmail();
 

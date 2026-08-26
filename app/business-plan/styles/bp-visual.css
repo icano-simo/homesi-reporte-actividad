@@ -178,6 +178,16 @@
  * panel; sin esa altura mínima, el nav mide lo que mida su texto y los dos
  * topes no coinciden.
  */
+/* Etapa BUSINESS-PLAN-1: fila que reparte el breadcrumb (izquierda) y el
+   botón de refresco (derecha) -- `.bp-crumbs` conserva su propio layout
+   interno, este wrapper sólo los alinea en los extremos. */
+.bp-crumbs-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
 .bp-crumbs {
   display: flex;
   align-items: center;
@@ -185,7 +195,14 @@
   gap: 6px;
   font-size: 12px;
   min-height: 34px;
-  margin-bottom: 10px;
+}
+/* Sólo `.bp-btn` base, SIN `--ghost`: ese modificador pone texto
+   `var(--canvas)` (blanco) sobre fondo transparente, pensado para vivir
+   dentro de `.bp-decision` (fondo `--navy`). Acá el botón está sobre el
+   fondo claro de la página -- con `--ghost` el texto quedaba blanco sobre
+   blanco, invisible. La base ya es el outline correcto para fondo claro. */
+.bp-refresh-btn {
+  flex-shrink: 0;
 }
 .bp-crumbs a {
   color: var(--slate-500);
