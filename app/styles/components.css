@@ -462,6 +462,26 @@ select.field {
   border-color: var(--sky);
 }
 
+/*
+ * Etapa PULIDO-1, FIX -- tarjeta destacada "de verdad", no sólo un fondo
+ * tenue que se sentía plano. Franja de acento en el borde izquierdo, 4px,
+ * `--navy` (el color primario de marca, no un hex nuevo) -- mismo patrón
+ * que un "callout" estándar: el fondo pastel de `.mcard--sky` de fondo,
+ * una línea sólida y nítida que sí se percibe como acento intencional
+ * encima. Modificador genérico (no exclusivo de `--sky`, cualquier
+ * variante de `.mcard` puede combinarse con éste) -- se define acá junto
+ * al resto de variantes de `.mcard`, mismo criterio que `--emerald`/`--sky`
+ * (compartidas, aunque hoy sólo las use Forecast/Analytics). Declarado
+ * DESPUÉS de `.mcard--emerald`/`.mcard--sky` a propósito: las dos fijan
+ * `border-color` en los 4 lados, y este `border-left` (más específico en
+ * builds de CSS -- longhand vs. el shorthand de color de arriba) necesita
+ * ganar la cascada para el lado izquierdo sin tener que subir la
+ * especificidad del selector.
+ */
+.mcard--accent-left {
+  border-left: 4px solid var(--navy);
+}
+
 /* Número hero de una tarjeta del banner. Inter en font-bold — 'Articulat CF'
    (primera opción del spec) no está disponible; ver nota en app/layout.tsx. */
 .kpi-hero__value {

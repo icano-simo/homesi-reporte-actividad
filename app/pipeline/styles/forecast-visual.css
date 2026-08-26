@@ -1025,3 +1025,29 @@ table.piv tr.strat-break-row td {
 .metric--drill {
   cursor: pointer;
 }
+
+/*
+ * ---------------------------------------------------------------------------
+ * Etapa PULIDO-1, FIX -- sombra de tarjeta, acotada a la pestaña Analytics
+ * ---------------------------------------------------------------------------
+ * Causa real reportada: `.tbl-card`/`.mcard` (components.css) ya tienen
+ * `box-shadow: var(--shadow-xs)` -- no hay ningún `border` "rompiendo" el
+ * mecanismo, las dos propiedades conviven sin conflicto -- pero ESE border
+ * (1px, `--slate-200`, pasa a `--sky` celeste en `:hover`) es una línea
+ * nítida que domina visualmente sobre una sombra de sólo 2px de blur y 5%
+ * de opacidad: el ojo lee "un borde" (celeste al pasar el mouse), nunca
+ * llega a percibir la sombra al lado.
+ *
+ * Fix: `--shadow-sm` (tokens.css, mismo color/fórmula que `--shadow-xs`,
+ * sólo más blur/opacidad) ACOTADO a `.analytics-tab` -- el wrapper que
+ * envuelve todo `TabAnalytics.tsx` (antes un Fragment, ver ese archivo).
+ * Deliberadamente NO se sube el valor de `--shadow-xs` en sí: es el
+ * default de `.tbl-card`/`.mcard` en TODA la app (Forecast Projected,
+ * Business Plan, Commercial Activity) -- cambiarlo ahí habría sido un
+ * ajuste visual global no pedido, con blast radius muy por fuera del
+ * alcance de esta etapa (pulido de Analytics únicamente).
+ */
+.analytics-tab .tbl-card,
+.analytics-tab .mcard {
+  box-shadow: var(--shadow-sm);
+}

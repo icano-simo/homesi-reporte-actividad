@@ -6260,3 +6260,429 @@ carga real desde localhost para confirmar contra la base.
 `lib/pipeline/sources/salesforce-file.ts` únicamente -- tipos, mappers
 y la RPC no se tocaron (ya estaban bien, el problema era exclusivamente
 la resolución del nombre de columna en el parser).
+
+## Etapa BI-REDESIGN-1 -- Analytics reorganizado en 4 capas narrativas
+
+Rediseño de Isa, adaptado a las convenciones ya existentes del proyecto
+(sin Tailwind, sin font-mono, cero hexadecimales nuevos). Reordena
+contenido ya construido en `app/pipeline/TabAnalytics.tsx` -- ningún
+cálculo de negocio existente se tocó (pull-through, Healthy, Adverse,
+estrategia comercial siguen exactamente igual), y no se agregó ningún
+filtro global nuevo (Channel/Program/State como dropdown quedó
+explícitamente fuera de esta etapa, decisión de Isa).
+
+### Las 4 capas, de arriba hacia abajo
+
+1. **Hero KPI Header** (nuevo) -- 4 tarjetas: Total Closed Volume,
+   Closed Loans, Average Ticket (las 3 con delta % vs. el período
+   anterior comparable), y Top Strategy & % share (sin delta, ver más
+   abajo por qué).
+2. **Monthly Trends** (reorganizada) -- grid de 2 columnas: Closings by
+   Month + Amount Closed by Month apilados en la columna izquierda
+   (más ancha, `1.6fr`), Avg Ticket by Month en la derecha (`1fr`).
+   Loan Type Distribution by Month queda debajo, sin reubicar -- el
+   brief de Isa no lo menciona en ninguna de las 4 capas, así que se
+   dejó tal cual (mismo criterio "reacomodar, no reconstruir": lo no
+   mencionado no se toca ni se elimina).
+3. **Product Mix & Geography** (reorganizada, título nuevo) -- grid de
+   2 columnas: Loan Program + Loan Type apilados a la izquierda,
+   Subject Property State a la derecha.
+4. **Commercial Scorecards & Pareto** (reorganizada, título nuevo) --
+   Scorecards de Branch/Loan Officer/Business Developer sin cambios
+   (es la mitad "Commercial Scorecards" del nombre), y debajo una
+   sub-sección "Productivity & Concentration" (`<h4>`, grid de 2
+   columnas) agrupando Strategy Mix + Pareto -- pedido explícito del
+   brief ("agrupados visualmente como una sola sección").
+
+Ningún componente de chart/tabla se reconstruyó: `SimpleMonthlyChart`,
+`AvgTicketChart`, `TypeBreakdownChart`, `RankingTable`, `ScorecardTable`,
+`StrategyDonutChart`, `ParetoChart` son exactamente las mismas funciones
+de siempre, sólo reubicadas en el JSX. La nota de diagnóstico que
+describía Loan Program/Loan Type (antes suelta arriba de todo, sin
+relación visual con su contenido) se movió junto a los rankings que
+describe, en Capa 3 -- mismo texto, ampliado para mencionar también
+Property State.
+
+### Decisión de nombres, no explícita en el brief -- anotada para que no sorprenda
+
+El brief nombra la sub-sección de Pareto+Strategy Mix en español
+("Productividad y Concentración") pero el resto de la interfaz de esta
+pestaña es 100% inglés (todos los demás títulos de sección: "Scorecards",
+"Monthly Trends", "Strategy Mix", "Pareto"...) -- se tradujo a
+"Productivity & Concentration" para no romper esa convención, no porque
+el brief lo pidiera en inglés explícitamente. Mismo criterio para los 2
+títulos de capa nuevos ("Product Mix & Geography", "Commercial
+Scorecards & Pareto"), tomados literales del nombre de cada capa en el
+brief.
+
+### El delta del Hero KPI -- cálculo exacto
+
+Contra el **período anterior comparable**, calculado según el modo del
+selector (`previousPeriodRange()`, TabAnalytics.tsx):
+
+- **Month**: el mes calendario inmediatamente anterior (diciembre del
+  año previo si el mes elegido es enero).
+- **Quarter**: el trimestre calendario inmediatamente anterior (Q4 del
+  año previo si el trimestre elegido es Q1).
+- **YTD**: mismo corte día/mes, un año antes -- ej. elegido 2026 con
+  "hoy" 26 de agosto, el rango anterior es `2025-01-01` a `2025-08-26`,
+  **no** el año calendario 2025 completo. `periodDateRange()` no sirve
+  para este caso tal cual: su rama YTD sólo recorta "a la fecha" cuando
+  el año pedido es el año EN CURSO: para cualquier año pasado devuelve
+  el calendario completo (12 meses), que compararía un año cerrado
+  contra un YTD que todavía no cerró. El rango se arma a mano en
+  `previousPeriodRange()` para este caso puntual, sin pasar por esa
+  función.
+
+**Sin período anterior con datos**: si `fundedLoansInRange()` sobre ese
+rango anterior devuelve 0 préstamos (podría ser porque el rango cae
+antes del historial que capturó el snapshot, o porque ese mes/trimestre/
+año real tuvo cero cierres), `computeDelta()` devuelve `null` y
+`DeltaBadge` muestra **"No prior period"** -- nunca un delta inventado ni
+un falso 0%, pedido explícito de Isa. Mismo criterio se aplica también
+si el período anterior SÍ tiene préstamos pero el valor puntual que se
+compara da 0 (ej. `previousVolume === 0` con `previousCount > 0` sería
+un caso extremo -- un loan con `amount = 0` real -- tratado igual, sin
+división por cero).
+
+**Top Strategy** (4ta tarjeta) no lleva delta -- no lo pedía el brief
+para esa tarjeta específicamente, y una estrategia "líder" cambiando de
+mes a mes no tiene la misma lectura año-contra-año que un monto/conteo.
+Se gatea con el mismo criterio ya usado para el donut de Strategy Mix
+(`strategyDataMissing`, Etapa F7.23) más el caso de período sin ningún
+funded loan -- ninguno de los dos casos muestra una estrategia inventada.
+
+### Mejora transversal -- barra horizontal en tablas de ranking
+
+`rankBarStyle()` (TabAnalytics.tsx): un `<td>` con
+`background: linear-gradient(...)` -- gradiente de `var(--accent-soft)`
+a transparente, cortado en el % que representa esa fila contra el
+máximo de la tabla. Un solo token existente, cero elemento DOM nuevo
+(no una barra SVG aparte, un solo `<td>` con su fondo calculado) --
+aplicado al `<td>` del label en `RankingTable` (Loan Program, Loan Type,
+Property State, las 3 comparten el componente) y en `ScorecardTable`
+(Branch, Loan Officer, Business Developer) contra `closedCount`. Mismo
+objetivo visual que Pareto ("grande vs. chico" de un vistazo) sin
+duplicar su mecanismo SVG.
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx` (todo el trabajo real -- Hero KPI nuevo,
+reordenamiento de las 4 capas, `rankBarStyle`). `app/analytics/page.tsx`
+sin cambios de código -- ya renderiza `TabAnalytics` tal cual, no
+necesitó tocarse para que el rediseño se reflejara ahí. Sin CSS nuevo:
+las 4 capas reusan clases ya existentes (`.hero-banner`, `.mcard`,
+`.kpi-hero__value`, `.badge--up/down/flat`) del banner ejecutivo de
+Forecast (`app/pipeline/SummaryCards.tsx`, referencia tomada de ahí) y
+del componente de tendencia ya usado en Commercial Activity
+(`components/report/SummaryCards.tsx`, mismo patrón de flecha+color).
+
+## Etapa BI-REDESIGN-2 -- corrección del delta (día-a-día), Loan Type dentro de Product Mix, Business Developer en Pareto
+
+Sobre BI-REDESIGN-2, mismo alcance declarado
+(`app/pipeline/TabAnalytics.tsx`, `docs/ARQUITECTURA.md` -- `lib/pipeline/
+paretoMix.ts` terminó sin necesitar cambios, ver el punto 3 más abajo).
+
+### Punto 1 -- el bug real del delta, y la corrección
+
+BI-REDESIGN-1 comparaba el período actual (que en un mes/trimestre EN
+CURSO sólo tiene datos hasta HOY -- ningún loan puede tener
+`disbursementDate` en el futuro) contra el período anterior COMPLETO
+-- agosto-hasta-el-26 contra julio completo, comparación desigual que
+mostraba una caída artificial mientras el mes seguía en curso, sin
+reflejar el ritmo real. YTD ya comparaba bien desde esa misma etapa
+(mismo corte día/mes, un año antes); ese criterio se generaliza acá a
+Month/Quarter.
+
+**`currentPeriodProgress(selection, today)`** calcula, EXACTO por modo,
+cuánto del período elegido ya transcurrió: `elapsed` (días hasta hoy
+inclusive), `total` (días del período completo), `inProgress` (¿"hoy"
+cae dentro del período elegido?). El criterio de `inProgress` es el
+año/mes/trimestre calendario de HOY comparado contra el de la
+selección -- deliberadamente NO se deriva de `periodDateRange()`, que
+para YTD ya recorta `endDate` a "hoy" cuando el año es el actual: comparar
+`hoy >= range.endDate` para decidir "¿está en curso?" daría SIEMPRE
+`false` para YTD por construcción, el mismo tipo de bug que el rango
+comparable ya había evitado una vez, reaparecido si "en curso" se
+derivara del mismo lugar recortado.
+
+**`previousPeriodComparison(selection, progress)`** usa `progress` para
+capar el período anterior:
+- **Período actual ya CERRADO** (el usuario navegó a un mes/trimestre/
+  año pasado): sin distorsión que corregir -- completo contra completo,
+  como ya hacía BI-REDESIGN-1 (el bug sólo existía para el período EN
+  CURSO).
+- **Período actual EN CURSO**: el anterior se capa a los primeros N
+  días (mismo N que lleva transcurrido el actual) -- "día 26 de agosto"
+  compara contra "día 26 de julio", nunca contra julio completo.
+- **YTD**: sin cambios -- ya era día-a-día correcto desde BI-REDESIGN-1.
+
+**Verificación con números reales**, snapshot activo id 84, hoy 26 de
+agosto de 2026 (query de solo lectura, service_role, sin escritura):
+
+| | Volumen | Conteo |
+|---|---|---|
+| Agosto 1-26 (actual) | $9,428,401 | 27 |
+| Julio 1-26 (anterior CAPADO -- delta nuevo) | $13,580,879 | 40 |
+| Julio 1-31 (anterior COMPLETO -- delta viejo) | $19,487,582 | 57 |
+
+- **Delta VIEJO** (BI-REDESIGN-1, con el bug): agosto vs. julio
+  completo -> **Volumen -51.6%, Conteo -52.6%**.
+- **Delta NUEVO** (BI-REDESIGN-2, corregido): agosto 1-26 vs. julio
+  1-26 -> **Volumen -30.6%, Conteo -32.5%**.
+
+Los dos números son negativos (agosto real va por debajo de julio en
+este snapshot) -- la corrección no "arregla" el resultado para que se
+vea mejor, lo hace HONESTO: el bug anterior exageraba la caída en ~21
+puntos porcentuales al restarle 5 días completos de producción a julio
+del lado del actual sin restárselos también al lado del anterior.
+
+### Proyección de ritmo (`computePaceProjection`)
+
+`projectedValue = (currentValue / elapsed) * total` -- ritmo actual
+extrapolado a los días totales del período. Se compara contra el
+período anterior **COMPLETO** (`previousFullVolume`/`previousFullCount`,
+sin capar -- a propósito, es la comparación que sí tiene sentido para
+"¿terminaría por encima o por debajo de julio?", a diferencia del delta
+principal que compara día-a-día). `null` (no se muestra nada) en 3
+casos:
+1. Período ya cerrado (`!progress.inProgress`) -- nada que proyectar,
+   ya pasó.
+2. Menos de `MIN_DAYS_FOR_PROJECTION = 3` días transcurridos -- pedido
+   explícito del brief ("al menos 3 días"); con 1-2 días un solo loan
+   grande/chico distorsiona el proyectado mucho más de lo que un ritmo
+   real justificaría.
+3. Sin período anterior COMPLETO con datos -- mismo criterio de
+   honestidad que el delta principal, nunca "por encima/por debajo de
+   $0".
+
+**Ejemplo real** (mismo snapshot, agosto día 26 de 31, `elapsed=26`
+pasado el umbral de 3):
+```
+volumen proyectado = 9,428,401 / 26 × 31 = $11,241,555 -> por DEBAJO de julio completo ($19,487,582)
+conteo proyectado  =        27 / 26 × 31 =           32 -> por DEBAJO de julio completo (57)
+```
+Texto en pantalla (tarjetas Volume/Count únicamente -- ver por qué
+Average Ticket queda afuera, abajo): *"On pace to close at $11,241,555,
+below July 2026's $19,487,582"* -- `previousFullLabel` es siempre el
+período anterior COMPLETO (julio en este ejemplo), nunca el actual.
+
+Average Ticket NO lleva proyección -- es un promedio/ratio, no una
+cantidad que se acumule con el tiempo, así que "ritmo × días" no tiene
+el mismo significado matemático ahí (proyectar un promedio hacia
+adelante multiplicándolo por días no produce un promedio, produce un
+número sin interpretación real). Top Strategy tampoco -- ninguna de
+las dos estaba en el pedido explícito del brief para esta pieza.
+
+### Punto 2 -- Loan Type Distribution by Month, reubicado
+
+Se movió de Capa 2 (Monthly Trends, donde vivía suelto a todo el ancho
+debajo del grid de 2 columnas) hacia adentro del grid de Capa 3
+(Product Mix & Geography), como **tercera columna** (el grid pasó de
+`repeat(2, ...)` a `repeat(3, ...)`) -- no fila. Se eligió columna
+porque `TypeBreakdownChart` usa flexbox fluido para sus 12 columnas
+mensuales (`flex: 1 1 0` por mes, `forecast-visual.css`), no un SVG de
+ancho fijo como `AvgTicketChart` (`width={640}`, con scroll horizontal
+de respaldo) -- se adapta bien a un tercio del ancho sin perder
+legibilidad ni necesitar scroll.
+
+### Punto 3 -- Business Developer en el Pareto
+
+Tercer botón del toggle de corte (`cut`), junto a Branch/Loan Officer
+-- mismo patrón exacto, sin lógica nueva. `buildParetoRows()`
+(`lib/pipeline/paretoMix.ts`) ya era genérica sobre `ScorecardRow[]`
+(esa es literalmente su firma desde que se escribió, Etapa F7 Parte 11)
+-- **no necesitó ningún cambio** para aceptar
+`businessDeveloperScorecard.rows`/`ytdBusinessDeveloperScorecard.rows`,
+confirmado leyendo el archivo antes de tocar nada. Se agregó
+`ytdBusinessDeveloperScorecard` (mismo patrón que
+`ytdBranchScorecard`/`ytdLoanOfficerScorecard`, ya existían) para
+completar la dimensión YTD del toggle.
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx` únicamente -- `lib/pipeline/
+paretoMix.ts` estaba en el alcance declarado "por si hacía falta", y no
+hizo falta (confirmado, no modificado).
+
+## Etapa PULIDO-1 -- sombra, tarjeta destacada y hover del Hero KPI/tablas de Analytics
+
+Pedido de 3 partes; 2 de las 3 ya estaban satisfechas por el sistema de
+diseño compartido -- confirmado por lectura de código (`components.css`,
+`forecast-visual.css`, y las propias clases que usa `TabAnalytics.tsx`),
+no asumido. Sólo la 3ra necesitó un cambio real.
+
+### Punto 1 -- sombra sutil en las tarjetas: YA EXISTÍA, sin cambios
+
+`--shadow-xs: 0 1px 2px rgba(0, 26, 64, 0.05)` (tokens.css, ya definida
+desde el rediseño de marca UX1) está aplicada en `.tbl-card` y `.mcard`
+(components.css, líneas ~348 y ~563) -- las DOS únicas clases de
+"tarjeta" que usa toda la pestaña. Confirmado con un conteo real: 35
+ocurrencias de `tbl-card`/`mcard`/`metric` en `TabAnalytics.tsx`, y
+ningún wrapper de sección usa un `<div>` sin esa clase. Ningún archivo
+del módulo Forecast (`forecast-visual.css`) sobreescribe o anula el
+`box-shadow` de esas 2 clases -- la única regla que toca `.mcard` ahí
+(`.hero-banner .mcard { text-align: center; }`) es de alineación de
+texto, no de sombra. Por pedido explícito ("si ya existe un token de
+sombra, reusarlo"), no se creó ninguna variable nueva -- crear una
+habría sido reinventar algo que ya está resuelto, y además compartido
+con Business Plan (decenas de usos de `--shadow-xs`/`--shadow-lg` en
+`bp-visual.css`), donde tocarlo hubiera sido un cambio fuera de
+alcance con blast radius real.
+
+⚠ No verificado en navegador -- si en pantalla la sombra se sigue
+viendo imperceptible, el problema no es que falte la regla (existe y
+aplica), sino que `0.05` de opacidad / `2px` de blur puede ser
+demasiado sutil para el ojo en la práctica. Ese ajuste de VALOR (no de
+mecanismo) queda pendiente de una etapa aparte si la revisión visual
+lo confirma -- no se tocó el token por las dudas, para no arriesgar el
+resto de la app con un cambio no confirmado.
+
+### Punto 2 -- tarjeta destacada del Hero KPI: `mcard--sky`, variante ya existente
+
+`Total Closed Volume` (la primera tarjeta) pasó de `className="mcard"`
+a `className="mcard mcard--sky"` -- **no es un token nuevo**:
+`.mcard--sky` (components.css) ya existe, fondo `rgba(166, 222, 255,
+0.15)` + borde `rgba(166, 222, 255, 0.4)` ('Light Sky' tenue, mismo
+derivado de marca que `--accent-soft`/`--sky`), y es la MISMA clase que
+ya usa la tarjeta "Total Forecast" del banner ejecutivo de Forecast
+(`app/pipeline/SummaryCards.tsx`) para destacar su número headline --
+mismo criterio semántico acá: Total Closed Volume es el número
+principal de Analytics. El valor del número se queda en navy
+(`.kpi-hero__value` base, sin variante de color) -- mismo patrón que
+esa tarjeta de referencia, que tampoco recolorea el número sobre el
+fondo sky. Sin CSS nuevo: la clase ya existía, sólo se aplicó donde no
+estaba.
+
+### Punto 3 -- hover de filas en las 6+ tablas: YA EXISTÍA, sin cambios
+
+`tr.metric:hover td, tr.metric:hover td.lbl { background: rgba(166,
+222, 255, 0.2); }` (components.css, ~línea 761) más `tr.metric td {
+transition: background 0.12s ease; }` (~línea 751) es una regla
+GLOBAL, sin scope a ningún módulo -- y las 6 tablas nombradas (Loan
+Program, Loan Type, Property State via `RankingTable`; Branch, Loan
+Officer, Business Developer via `ScorecardTable`) son, sin excepción,
+`<table className="piv">` con `<tr className="metric">` por fila --
+mismos 2 componentes compartidos para las 6, ningún wrapper de tabla
+propio por sección. No hay ningún override en `forecast-visual.css`
+que toque `tr.metric:hover` para esas tablas -- la única regla
+relacionada ahí (`.piv--exec tbody tr.metric:hover td.col-pipeline`)
+está scopeada a `.piv--exec`, exclusiva de las tablas ejecutivas de
+`PivotTable.tsx` (Branch/canal), que ninguna de las 6 tablas de
+Analytics usa. Ya había, además, un comentario explícito de una etapa
+anterior (F7 Parte 5, junto a `.metric--drill`) confirmando lo mismo:
+"El hover de fondo (`tr.metric:hover`, ya global en components.css) no
+cambia". Mismo timing (0.12s ease) y mismo color (Light Sky @20%) en
+las 6 tablas, por construcción -- no había ninguna que unificar.
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx` únicamente -- un `className` agregado
+(punto 2). `tokens.css`/`components.css`/`forecast-visual.css` sin
+cambios -- confirmado que ya resolvían los puntos 1 y 3, no hizo falta
+tocarlos.
+
+## Etapa PULIDO-1 FIX -- redondeo de la proyección, sombra corregida, tarjeta destacada con acento
+
+Corrección de 3 problemas detectados al revisar en pantalla el resultado
+de la Etapa PULIDO-1 anterior. Los 3 son cambios reales de código (a
+diferencia de esa etapa previa, donde 2 de 3 puntos ya estaban
+resueltos).
+
+### Punto 1 -- decimales en la proyección de conteo
+
+`PaceNote` recibe `pace.projectedValue`, resultado de
+`(currentValue / progress.elapsed) * progress.total` -- una división
+que en general NO da un entero, aunque el valor de origen (conteo de
+préstamos) sí lo sea siempre. El call-site de conteo pasaba
+`formatValue={fmtInt}` directo sobre ese resultado sin redondear, y
+`fmtInt` (`n.toLocaleString('en-US')`) no trunca ni redondea -- de ahí
+que se mostraran decimales tipo "32,192" en vez de "32". Fix acotado al
+call-site del conteo únicamente:
+`formatValue={(n) => fmtInt(Math.round(n))}` -- no se tocó `fmtInt` en
+sí (se usa en otros lugares con valores ya genuinamente enteros, ej.
+`currentCount`, y ahí no hacía falta ni corresponde envolver con
+`Math.round`).
+
+El lado de monto (`volumePace`) se revisó por separado y se confirmó
+que YA estaba correcto sin cambios: usa
+`formatValue={(n) => '$' + fmtAmount(n)}`, y `fmtAmount` ya aplica
+`maximumFractionDigits: 0` en el `toLocaleString`, que redondea (no
+trunca) a dólares enteros al mostrarse. Confirmado leyendo el código,
+no asumido.
+
+### Punto 2 -- sombra percibida como línea/borde
+
+Causa real, confirmada leyendo las reglas de `.mcard`/`.tbl-card`
+(components.css): NO hay un conflicto técnico entre `border` y
+`box-shadow` -- son propiedades independientes, conviven sin pisarse.
+El problema es perceptual: `border: 1px solid var(--slate-200)` (que
+en `:hover` pasa a `border-color: var(--sky)`, un celeste sólido y
+nítido) es una línea de 1px totalmente opaca, mientras que
+`--shadow-xs` (`0 1px 2px rgba(0, 26, 64, 0.05)`) tiene sólo 2px de
+blur y 5% de opacidad -- al lado de un borde opaco, esa sombra es
+prácticamente imperceptible. Es exactamente lo que reportaba el pedido
+("se percibe como un borde delineado azul") -- el "azul" es el
+`border-color: var(--sky)` del estado `:hover`, no la sombra.
+
+Siguiendo el criterio explícito del pedido (mecanismo sano + valor
+insuficiente → subir el valor; mecanismo roto → arreglar el mecanismo,
+no el valor), se confirmó que el mecanismo está sano y se subió el
+valor, pero SIN tocar `--shadow-xs` globalmente -- ese token es el
+default compartido de `.mcard`/`.tbl-card` en Forecast Projected,
+Business Plan y Commercial Activity además de Analytics (decenas de
+usos confirmados en `bp-visual.css` en una etapa anterior), y subirlo
+ahí habría sido un cambio visual global no pedido. En cambio:
+
+- `tokens.css`: nuevo token `--shadow-sm: 0 2px 6px rgba(0, 26, 64,
+  0.1)` -- mismo color/fórmula que `--shadow-xs` (navy a baja
+  opacidad), sólo con más blur y opacidad. No reemplaza a
+  `--shadow-xs`, que sigue siendo el default de toda la app.
+- `forecast-visual.css`: regla nueva `.analytics-tab .tbl-card,
+  .analytics-tab .mcard { box-shadow: var(--shadow-sm); }`, acotada al
+  wrapper `.analytics-tab` (nuevo, ver abajo) -- sólo afecta a la
+  pestaña Analytics.
+- `TabAnalytics.tsx`: el `return` del componente, que antes envolvía
+  todo en un Fragment (`<>...</>`), ahora envuelve en
+  `<div className="analytics-tab">...</div>` -- necesario para poder
+  scopear la regla de arriba sin tocar ningún otro módulo.
+
+### Punto 3 -- tarjeta destacada del Hero KPI, más notoria
+
+El fondo `mcard--sky` (aplicado en la Etapa PULIDO-1 anterior) se
+sentía plano por sí solo. Se agregó un tratamiento adicional, sin
+inventar ningún hex nuevo:
+
+- `components.css`: nueva clase modificadora `.mcard--accent-left {
+  border-left: 4px solid var(--navy); }`, declarada justo después de
+  `.mcard--emerald`/`.mcard--sky` -- deliberadamente DESPUÉS, porque
+  esas dos fijan `border-color` (shorthand de color, los 4 lados) y
+  `.mcard--accent-left` usa `border-left` (shorthand más específico:
+  ancho+estilo+color del lado izquierdo) -- para que gane la cascada en
+  el lado izquierdo sin tener que subir la especificidad del selector.
+  Genérica (no exclusiva de `--sky`): cualquier variante de `.mcard`
+  puede combinarse con este acento.
+- `TabAnalytics.tsx`: la tarjeta "Total Closed Volume" pasa de
+  `className="mcard mcard--sky"` a
+  `className="mcard mcard--sky mcard--accent-left"`.
+
+`--navy` ya es el color primario de marca (`--navy: #001a40`, usado en
+toda la app) -- cero hex nuevos.
+
+### Verificación
+
+`npx tsc --noEmit -p .` sin errores. `npm run build` compila limpio
+(Turbopack, 17/17 páginas). `npm run lint` reporta 1 error y 1 warning,
+ambos en `app/pipeline/page.tsx` (`react-hooks/set-state-in-effect` y
+`no-unused-vars`) -- confirmado con `git diff --name-only main --
+app/pipeline/page.tsx` que ese archivo no tiene ningún cambio en esta
+rama, es decir, el error ya existe en `main` y es preexistente a esta
+etapa, no introducido por ella.
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx` (redondeo del conteo, wrapper
+`.analytics-tab`, clase `mcard--accent-left` en la tarjeta destacada),
+`app/styles/tokens.css` (`--shadow-sm`), `app/pipeline/styles/
+forecast-visual.css` (regla scopeada de sombra), `app/styles/
+components.css` (`.mcard--accent-left`).

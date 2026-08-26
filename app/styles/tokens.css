@@ -89,6 +89,16 @@
   --radius-lg: 16px; /* rounded-2xl del spec */
   --radius-full: 9999px;
   --shadow-xs: 0 1px 2px rgba(0, 26, 64, 0.05);
+  /*
+   * Etapa PULIDO-1 FIX -- escalón intermedio entre --shadow-xs y --shadow-lg,
+   * mismo formato/color (navy @ opacidad baja), sólo más blur/opacidad. No
+   * reemplaza a --shadow-xs (sigue siendo el default de .mcard/.tbl-card en
+   * toda la app) -- se usa donde la tarjeta convive con un `border` de 1px
+   * que la sombra de 2px/5% no alcanza a distinguirse a su lado (ej. el
+   * borde pasa a --sky en :hover y domina visualmente sobre la sombra
+   * apenas perceptible). Ver el uso acotado en forecast-visual.css.
+   */
+  --shadow-sm: 0 2px 6px rgba(0, 26, 64, 0.1);
   --shadow-lg: 0 20px 45px rgba(0, 26, 64, 0.18);
 
   /* ---- Tipografía --------------------------------------------------------- */
