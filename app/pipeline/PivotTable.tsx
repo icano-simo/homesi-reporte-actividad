@@ -203,7 +203,12 @@ const EMPTY_FORECAST_BUCKETS: ForecastByBucket = { Started: 0, Processing: 0, Un
 
 const UNASSIGNED_MANAGER = '(unassigned)';
 
-function addSubtotal(a: BlockSubtotal, b: BranchRow | BlockSubtotal): BlockSubtotal {
+/**
+ * `StrategyRow` se agrega a la unión (etapa SUBTOTAL-FIX-1) porque tiene los
+ * mismos 8 campos numéricos que `BranchRow`/`BlockSubtotal` -- reusa esta
+ * misma función para sumar filas de estrategia en vez de duplicar la suma.
+ */
+function addSubtotal(a: BlockSubtotal, b: BranchRow | BlockSubtotal | StrategyRow): BlockSubtotal {
   return {
     closedCount: a.closedCount + b.closedCount,
     totalCount: a.totalCount + b.totalCount,
@@ -214,6 +219,33 @@ function addSubtotal(a: BlockSubtotal, b: BranchRow | BlockSubtotal): BlockSubto
     closingRawCount: a.closingRawCount + b.closingRawCount,
     totalForecast: a.totalForecast + b.totalForecast,
   };
+}
+
+/**
+ * Etapa SUBTOTAL-FIX-1 -- bug real reportado por Isa con captura: en la vista
+ * `By strategy` con una píldora activa, "Subtotal Banked - Retail"/"Subtotal
+ * Brokered" mostraban el total de TODAS las estrategias (`block.subtotal`,
+ * calculado una sola vez sobre `branchRows` sin filtrar, ver
+ * `buildChannelBlocks`) en vez de solo la estrategia elegida -- mientras las
+ * filas individuales de arriba sí filtraban bien (`shownStrategyRows`).
+ *
+ * Mismo criterio de filtro que `shownStrategyRows`: `row.strategyRows`
+ * filtradas por `pill`, sumadas con `addSubtotal` -- misma fuente de datos
+ * que ya alimenta las filas visibles, ningún cálculo nuevo. La condición
+ * `totalCount > 0 || closedCount > 0` de `shownStrategyRows` NO hace falta
+ * acá: es solo para no dibujar una fila vacía, y una fila en cero no cambia
+ * una suma.
+ *
+ * `byStrategy`/`pill === 'All'` siguen devolviendo `block.subtotal` tal cual
+ * -- ese es el comportamiento correcto para `By branch` y para la píldora
+ * "All" (el total sin filtrar es justamente lo que esas dos vistas piden
+ * mostrar), sin cambio.
+ */
+function blockSubtotalForView(block: ChannelBlock, byStrategy: boolean, pill: Strategy | 'All'): BlockSubtotal {
+  if (!byStrategy || pill === 'All') return block.subtotal;
+  return block.rows
+    .flatMap((row) => row.strategyRows.filter((sr) => sr.strategy === pill))
+    .reduce(addSubtotal, EMPTY_SUBTOTAL);
 }
 
 function fmtInt(n: number): string {
@@ -1445,11 +1477,19 @@ export default function PivotTable({
 
       {/* Spec §4C.2: grilla de 2 columnas, un canal por columna. */}
       <div className="channel-grid">
-        {blocks.map((block) => (
+        {blocks.map((block) => {
+          /*
+           * Etapa SUBTOTAL-FIX-1: una sola vez por bloque, se usa tanto en la
+           * píldora "N in pipeline" del header como en la fila Subtotal de
+           * abajo -- misma fuente, para que las dos nunca puedan mostrar
+           * números distintos entre sí.
+           */
+          const effectiveSubtotal = blockSubtotalForView(block, byStrategy, pill);
+          return (
           <div className="tbl-card" key={block.channel}>
             <div className="tbl-card__head">
               <span className="tbl-card__title">{block.channel}</span>
-              <span className="badge badge--pill badge--sky">{fmtInt(block.subtotal.totalCount)} in pipeline</span>
+              <span className="badge badge--pill badge--sky">{fmtInt(effectiveSubtotal.totalCount)} in pipeline</span>
             </div>
             <div className="tbl-scroll">
               <table className="piv piv--exec">
@@ -1508,7 +1548,7 @@ export default function PivotTable({
                       </td>
                     </tr>
                   )}
-                  <ExecTotalRow label={'Subtotal ' + block.channel} subtotal={block.subtotal} />
+                  <ExecTotalRow label={'Subtotal ' + block.channel} subtotal={effectiveSubtotal} />
                 </tbody>
               </table>
             </div>
@@ -1521,7 +1561,8 @@ export default function PivotTable({
               </p>
             )}
           </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="tbl-card" style={{ marginTop: '20px' }}>
