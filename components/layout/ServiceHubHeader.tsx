@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 import BrandLockup from './HomesiLogo';
-import { BarChartIcon, TrendingUpIcon, TargetIcon, PieChartIcon } from '@/components/ui/icons';
+import { BarChartIcon, TrendingUpIcon, TargetIcon } from '@/components/ui/icons';
 import { isAuthRoute } from '@/lib/auth/routes';
 import UserMenu from './UserMenu';
 
@@ -37,7 +37,15 @@ const NAV_TABS: NavTab[] = [
   // Etapa ANALYTICS-TAB-1: antes un sub-tab de Forecast & Pipeline (F7),
   // ahora ruta propia -- ver app/analytics/page.tsx y la nota en
   // docs/ARQUITECTURA.md.
-  { href: '/analytics', label: 'Analytics', icon: <PieChartIcon /> },
+  //
+  // Etapa fix/hide-analytics-nav-tab: entrada comentada temporalmente --
+  // el rediseño de Analytics (4 capas) sigue en curso en otra rama y
+  // todavía no está listo para verse desde el menú principal. La ruta
+  // (app/analytics/page.tsx) y su código siguen intactos -- se puede
+  // seguir accediendo directo por URL mientras se termina. Restaurar
+  // esta entrada (y el import de PieChartIcon de @/components/ui/icons
+  // arriba) cuando el rediseño esté listo para publicarse.
+  // { href: '/analytics', label: 'Analytics', icon: <PieChartIcon /> },
 ];
 
 /**
