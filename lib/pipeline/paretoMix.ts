@@ -17,6 +17,17 @@ import type { ScorecardRow } from './scorecards';
  */
 
 export interface ParetoRow {
+  /**
+   * Etapa AJUSTES-ANALYTICS-1, punto 6a: mismo `key` estable de
+   * `ScorecardRow` (branch_code, o employee_key como string) -- sin esto,
+   * el drill-down nuevo del Pareto (TabAnalytics.tsx, `ParetoChart`) no
+   * tenía forma de volver a encontrar los loans de la barra clickeada:
+   * `label` es texto para mostrar, no una clave segura para filtrar (dos
+   * personas podrían compartir nombre de display; `key` nunca colisiona,
+   * mismo motivo por el que los scorecards ya filtran por `row.key` y no
+   * por `row.label`).
+   */
+  key: string;
   label: string;
   count: number;
   /** 0-100, esta fila sola. */
@@ -32,6 +43,7 @@ export function buildParetoRows(rows: ScorecardRow[]): ParetoRow[] {
   for (const r of rows) {
     cumulative += r.closedCount;
     result.push({
+      key: r.key,
       label: r.label,
       count: r.closedCount,
       percent: total > 0 ? (r.closedCount / total) * 100 : 0,

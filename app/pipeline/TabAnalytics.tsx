@@ -150,10 +150,13 @@ function RankingTable({
                 key={row.label}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
               >
-                <td className="lbl" style={{ textAlign: 'left', ...rankBarStyle(row.count, maxRowCount) }}>
+                <td className="lbl" style={{ textAlign: 'left' }}>
                   {row.label}
                 </td>
-                <td className="val">{fmtInt(row.count)}</td>
+                {/* Etapa AJUSTES-ANALYTICS-1, punto 2: la barra vivía en la columna del NOMBRE -- se mueve a Count, la columna que en realidad describe. */}
+                <td className="val" style={rankBarStyle(row.count, maxRowCount)}>
+                  {fmtInt(row.count)}
+                </td>
                 <td className="val">{fmtAmount(row.amount)}</td>
               </tr>
             ))}
@@ -262,10 +265,13 @@ function ScorecardTable({
                 key={row.key}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
               >
-                <td className="lbl" style={{ textAlign: 'left', ...rankBarStyle(row.closedCount, maxRowClosedCount) }} title={row.label}>
+                <td className="lbl" style={{ textAlign: 'left' }} title={row.label}>
                   {row.label}
                 </td>
-                <td className="val">{fmtInt(row.closedCount)}</td>
+                {/* Etapa AJUSTES-ANALYTICS-1, punto 2: la barra vivía en la columna del NOMBRE -- se mueve a Closed, la columna que en realidad describe. */}
+                <td className="val" style={rankBarStyle(row.closedCount, maxRowClosedCount)}>
+                  {fmtInt(row.closedCount)}
+                </td>
                 <td className="val">{fmtAmount(row.totalAmount)}</td>
                 <td className="val">{fmtAmount(Math.round(row.avgAmount))}</td>
                 <td className="val">{fmtPercent(row.percentOfTotal)}</td>
@@ -424,17 +430,32 @@ function shortMonth(month: string): string {
 }
 
 /*
- * Paleta fija de colores categóricos (tokens, cero hex nuevo) para la barra
- * apilada por Loan Type -- "Sin tipo" siempre en slate (mismo criterio que
- * el resto de la app para un placeholder, nunca un color "real"), el resto
- * cicla por orden de aparición (no hay un enum fijo de loan_type).
+ * Etapa AJUSTES-ANALYTICS-1, punto 4 -- antes esta paleta mezclaba 2 colores
+ * de marca (navy, sky) con 3 colores SEMÁNTICOS de estado (emerald-700,
+ * amber-500, rose-700 -- reservados en el resto de la app para
+ * positivo/advertencia/negativo, ver el header de tokens.css). Un tipo de
+ * préstamo cualquiera cayendo en rose-700 se lee como "en riesgo" sin
+ * serlo -- no es solo un problema estético.
+ *
+ * Confirmado contra el header de tokens.css (no asumido): los ÚNICOS 4
+ * colores "oficiales" de marca HomeSí son 'Enriching Skies' (--navy,
+ * #001A40), 'Warm Embrace' (--coral, #FF4040), 'Light Sky' (--sky,
+ * #A6DEFF) y 'New Day' (--canvas, #FCFCFA) -- este último es el fondo del
+ * canvas global, ilegible como relleno de segmento sólido, así que la
+ * paleta categórica queda en los otros 3 (navy oscuro + coral/rojo, como
+ * pide el punto 4, más sky). Menos colores que antes (3, no 5): si un
+ * período trae más de 3 Loan Type reales, cicla por `idx % length` (mismo
+ * mecanismo que ya tenía `colorForType`, sin cambios ahí) -- se documenta
+ * la repetición en vez de inventar una 4ta marca que no es de marca.
+ * "Sin tipo" sigue en slate (placeholder, nunca un color "real"), sin
+ * cambios.
  */
-const TYPE_COLORS = ['var(--navy)', 'var(--emerald-700)', 'var(--amber-500)', 'var(--rose-700)', 'var(--sky)'];
+const TYPE_COLORS = ['var(--navy)', 'var(--coral)', 'var(--sky)'];
 const NO_TYPE_COLOR = 'var(--slate-400)';
 const NO_TYPE_LABEL = 'Sin tipo';
 
-/** Texto de la etiqueta dentro de cada segmento -- claro sobre navy/emerald/rose (oscuros), oscuro sobre amber/sky (claros). Mismo orden que TYPE_COLORS. */
-const TYPE_TEXT_COLORS = ['var(--canvas)', 'var(--canvas)', 'var(--navy)', 'var(--canvas)', 'var(--navy)'];
+/** Texto de la etiqueta dentro de cada segmento -- claro sobre navy/coral (oscuros/saturados), oscuro sobre sky (claro). Mismo orden que TYPE_COLORS. */
+const TYPE_TEXT_COLORS = ['var(--canvas)', 'var(--canvas)', 'var(--navy)'];
 const NO_TYPE_TEXT_COLOR = 'var(--navy)';
 
 /**
@@ -507,6 +528,7 @@ function SimpleMonthlyChart({
   formatValue,
   formatLabel = formatValue,
   height = 110,
+  onBarClick,
 }: {
   totals: MonthlyTotal[];
   highlightMonths: Set<string>;
@@ -515,6 +537,8 @@ function SimpleMonthlyChart({
   /** Texto corto sobre la barra, si difiere del formato completo (que siempre va en el tooltip). */
   formatLabel?: (n: number) => string;
   height?: number;
+  /** Etapa AJUSTES-ANALYTICS-1, punto 6a: drill-down por mes -- antes este chart no tenía ninguno. Sin handler (Avg Ticket sigue sin pasar uno propio en un caso, ver más abajo), sin cambio de comportamiento. */
+  onBarClick?: (month: string) => void;
 }) {
   const max = Math.max(1, ...totals.map(getValue));
   return (
@@ -535,8 +559,9 @@ function SimpleMonthlyChart({
               <div className="trend-chart__value">{value > 0 ? formatLabel(value) : ''}</div>
               <div
                 className="trend-chart__bar"
-                style={{ height: Math.max(1, (value / max) * height) + 'px' }}
+                style={{ height: Math.max(1, (value / max) * height) + 'px', cursor: onBarClick ? 'pointer' : undefined }}
                 title={`${shortMonth(t.month)} ${t.month.slice(0, 4)}: ${formatValue(value)}${value === 0 ? ' (no data yet)' : ''}`}
+                onClick={onBarClick ? () => onBarClick(t.month) : undefined}
               />
             </div>
           );
@@ -558,10 +583,13 @@ function TypeBreakdownChart({
   breakdown,
   highlightMonths,
   height = 130,
+  onSegmentClick,
 }: {
   breakdown: MonthlyTypeBreakdown[];
   highlightMonths: Set<string>;
   height?: number;
+  /** Etapa AJUSTES-ANALYTICS-1, punto 6a: drill-down por segmento (mes + tipo) -- antes este chart no tenía ninguno. */
+  onSegmentClick?: (month: string, typeLabel: string) => void;
 }) {
   const monthlyTotals = breakdown.map((m) => m.byType.reduce((sum, t) => sum + t.count, 0));
   const max = Math.max(1, ...monthlyTotals);
@@ -593,8 +621,13 @@ function TypeBreakdownChart({
                       <div
                         key={t.label}
                         className="trend-seg"
-                        style={{ height: segPx + 'px', background: colorForType(t.label, allLabels) }}
+                        style={{
+                          height: segPx + 'px',
+                          background: colorForType(t.label, allLabels),
+                          cursor: onSegmentClick ? 'pointer' : undefined,
+                        }}
                         title={`${t.label}: ${fmtInt(t.count)}`}
+                        onClick={onSegmentClick ? () => onSegmentClick(m.month, t.label) : undefined}
                       >
                         {segPx >= MIN_SEGMENT_LABEL_HEIGHT && (
                           <span className="trend-seg__label" style={{ color: textColorForType(t.label, allLabels) }}>
@@ -644,11 +677,14 @@ function AvgTicketChart({
   rows,
   highlightMonths,
   overallAvg,
+  onPointClick,
 }: {
   rows: MonthlyAvgTicket[];
   highlightMonths: Set<string>;
   /** Promedio ponderado del año completo (suma de amount / suma de count de los meses CON datos) -- no el promedio simple de los 8 promedios mensuales. */
   overallAvg: number;
+  /** Etapa AJUSTES-ANALYTICS-1, punto 6a: drill-down por mes -- antes este chart no tenía ninguno. Sin efecto en meses sin datos (avgAmount === 0): no hay nada que abrir ahí. */
+  onPointClick?: (month: string) => void;
 }) {
   const width = 640;
   const plotHeight = 110;
@@ -753,6 +789,8 @@ function AvgTicketChart({
                     cy={y(r.avgAmount)}
                     r={isHighlighted ? 4.5 : 3}
                     fill={isHighlighted ? 'var(--coral)' : 'var(--navy)'}
+                    style={onPointClick && r.avgAmount > 0 ? { cursor: 'pointer' } : undefined}
+                    onClick={onPointClick && r.avgAmount > 0 ? () => onPointClick(r.month) : undefined}
                   >
                     <title>{`${shortMonth(r.month)} ${r.month.slice(0, 4)}: ${fmtAmount(r.avgAmount)}${r.avgAmount === 0 ? ' (no data yet)' : ''}`}</title>
                   </circle>
@@ -821,6 +859,46 @@ function loanResolvesToEmployeeKey(
   if (!nameRaw) return false;
   const { employeeKey } = aliasIndex.lookup('salesforce', nameRaw);
   return employeeKey !== null && String(employeeKey) === employeeKeyStr;
+}
+
+/**
+ * Etapa AJUSTES-ANALYTICS-1, punto 6a -- Monthly Trends (Closings/Amount/Avg
+ * Ticket by Month) no tenía drill-down. Mismo criterio EXACTO que
+ * `buildMonthlyTotals`/`buildMonthlyTypeBreakdown` (lib/pipeline/trends.ts):
+ * `status === 'funded'` + `disbursementDate` en ese mes -- si este filtro se
+ * desincronizara de esas 2 funciones, el modal mostraría una lista que no
+ * coincide con el número que el chart ya mostró para ese mes.
+ */
+function loansForMonth(loans: ResolvedLoan[], month: string): ResolvedLoan[] {
+  return loans.filter((l) => l.status === 'funded' && l.disbursementDate.slice(0, 7) === month);
+}
+
+/** Mismo criterio que `loansForMonth`, más el tipo de préstamo -- para el drill-down por segmento de Loan Type Distribution by Month. `DRILLDOWN_NO_TYPE_LABEL` ('Sin tipo') es el mismo placeholder que ya usa `buildMonthlyTypeBreakdown`. */
+function loansForMonthAndType(loans: ResolvedLoan[], month: string, typeLabel: string): ResolvedLoan[] {
+  return loansForMonth(loans, month).filter((l) => (l.loanType.trim() || DRILLDOWN_NO_TYPE_LABEL) === typeLabel);
+}
+
+/**
+ * Etapa AJUSTES-ANALYTICS-1, punto 6a -- extrae la lógica de filtrado que
+ * cada `ScorecardTable.onRowClick` (Branch/Loan Officer/Business Developer)
+ * ya tenía repetida inline, porque el drill-down nuevo de `ParetoChart`
+ * necesita exactamente la misma regla, aplicada a otra fuente de loans
+ * (`fundedInRange` o `ytdFunded`, según el modo elegido en el chart) --
+ * mismo criterio en un solo lugar, en vez de una 4ta copia divergente.
+ */
+function loansForScorecardCut(
+  loans: ResolvedLoan[],
+  cut: 'branch' | 'loanOfficer' | 'businessDeveloper',
+  key: string,
+  aliasIndex: OrgRoster['aliasIndex']
+): ResolvedLoan[] {
+  if (cut === 'branch') return loans.filter((l) => l.branch === key);
+  if (cut === 'loanOfficer') {
+    return loans.filter((l) => loanResolvesToEmployeeKey(l, (loan) => loan.loanOfficer, aliasIndex, key));
+  }
+  return loans.filter(
+    (l) => l.opportunityOwnerTitle === 'Business Developer' && loanResolvesToEmployeeKey(l, (loan) => loan.opportunityOwner, aliasIndex, key)
+  );
 }
 
 /**
@@ -975,10 +1053,20 @@ function StrategyDonutChart({
  * versión anterior mostraba una etiqueta cada 4 más allá de las
  * primeras 8 -- se quitó esa parte a pedido explícito, deja el eje
  * limpio en vez de una etiqueta suelta cada tanto.
+ *
+ * Etapa AJUSTES-ANALYTICS-1, punto 7: el corte fijo en 8 aplicaba SIEMPRE,
+ * sin importar el total -- con 13 categorías reales (caso reportado,
+ * Selected period), las últimas 5 quedaban sin ningún nombre visible aunque
+ * 13 entra perfectamente en el eje sin amontonarse. `PARETO_SHOW_ALL_MAX`
+ * es el techo bajo el cual mostrar TODAS los nombres en vez de recortar --
+ * el recorte a `PARETO_ALWAYS_LABELED` sigue existiendo, pero solo entra en
+ * juego con muchas categorías de verdad (YTD con 30+ Loan Officers reales).
  */
 const PARETO_ALWAYS_LABELED = 8;
+const PARETO_SHOW_ALL_MAX = 15;
 
-function paretoShouldLabel(i: number): boolean {
+function paretoShouldLabel(i: number, total: number): boolean {
+  if (total <= PARETO_SHOW_ALL_MAX) return true;
   return i < PARETO_ALWAYS_LABELED;
 }
 
@@ -1028,8 +1116,18 @@ interface ParetoDataByCut {
 
 function ParetoChart({
   data,
+  onBarClick,
 }: {
   data: { period: ParetoDataByCut; ytd: ParetoDataByCut };
+  /**
+   * Etapa AJUSTES-ANALYTICS-1, punto 6a: drill-down de las barras -- antes
+   * este chart no tenía ninguno, a diferencia de los rankings/scorecards
+   * de arriba. `cut`/`mode` van en la firma porque son estado LOCAL de
+   * este componente (ver `useState` abajo) -- el padre no los conoce, así
+   * que no puede decidir qué filtro aplicar sin que se los pasemos junto
+   * con la fila clickeada.
+   */
+  onBarClick?: (row: ParetoRow, cut: 'branch' | 'loanOfficer' | 'businessDeveloper', mode: 'period' | 'ytd') => void;
 }) {
   const [mode, setMode] = useState<'period' | 'ytd'>('period');
   const [cut, setCut] = useState<'branch' | 'loanOfficer' | 'businessDeveloper'>('branch');
@@ -1115,6 +1213,8 @@ function ParetoChart({
                   width={barWidth}
                   height={plotHeight - yForCount(r.count)}
                   fill="var(--navy)"
+                  style={onBarClick ? { cursor: 'pointer' } : undefined}
+                  onClick={onBarClick ? () => onBarClick(r, cut, mode) : undefined}
                 >
                   <title>{paretoTooltip(r, i + 1, rows.length)}</title>
                 </rect>
@@ -1122,7 +1222,7 @@ function ParetoChart({
               {/* Número sobre la barra -- mismo patrón que Closings by Month -- solo donde hay espacio real (primeras N, ver paretoShouldLabel). */}
               {rows.map(
                 (r, i) =>
-                  paretoShouldLabel(i) && (
+                  paretoShouldLabel(i, rows.length) && (
                     <text
                       key={r.label + '-val'}
                       x={xCenter(i)}
@@ -1137,7 +1237,7 @@ function ParetoChart({
               )}
               {rows.map(
                 (r, i) =>
-                  paretoShouldLabel(i) && (
+                  paretoShouldLabel(i, rows.length) && (
                     <text
                       key={r.label + '-lbl'}
                       x={xCenter(i)}
@@ -1627,6 +1727,33 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
   const [period, setPeriod] = useState<PeriodSelection>(() => getDefaultPeriodSelection());
   const orgRoster = useOrgRoster();
 
+  /**
+   * Etapa AJUSTES-ANALYTICS-1, punto 5 -- filtro global de Branch, mismo
+   * criterio ('ALL' o un branch code) que ya usa el selector de Forecast
+   * (Topbar.tsx/page.tsx), pero LOCAL a esta pestaña: `app/analytics/page.tsx`
+   * no filtraba por branch (decisión explícita de ANALYTICS-TAB-1, "si
+   * hiciera falta un filtro de branch acá más adelante, es una etapa
+   * aparte" -- esta es esa etapa), y el alcance de esta tarea es
+   * TabAnalytics.tsx, no esa página wrapper.
+   *
+   * `availableBranches` se calcula sobre `resolvedLoans` SIN filtrar -- el
+   * <select> debe listar siempre todos los branches del snapshot,
+   * independientemente de cuál esté elegido ahora mismo (mismo criterio que
+   * `availableBranches` en page.tsx, que tampoco se recalcula sobre el
+   * subconjunto ya filtrado).
+   *
+   * `branchFilteredLoans` es el ÚNICO punto de filtrado: todo lo que antes
+   * leía `resolvedLoans` directo (fundedInRange, previousFunded,
+   * previousFullFunded, ytdFunded, earliestDate, monthlyTotals,
+   * monthlyTypeBreakdown) pasa a leer esto -- así el filtro alcanza a las 4
+   * capas completas (Hero KPI, Monthly Trends, Product Mix, Scorecards/
+   * Pareto) por construcción, sin tener que acordarse de aplicarlo en cada
+   * cálculo por separado.
+   */
+  const [selectedBranch, setSelectedBranch] = useState<string>('ALL');
+  const availableBranches = [...new Set(resolvedLoans.map((l) => l.branch))].filter(Boolean).sort();
+  const branchFilteredLoans = selectedBranch === 'ALL' ? resolvedLoans : resolvedLoans.filter((l) => l.branch === selectedBranch);
+
   /** Etapa F7, Parte 5: drill-down de rankings/scorecards hacia el mismo LoanDetailModal que ya usa PivotTable. `null` = cerrado. */
   const [drillDown, setDrillDown] = useState<{
     context: string;
@@ -1664,7 +1791,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
   }, []);
 
   const range = periodDateRange(period);
-  const earliestDate = earliestFundedDisbursementDate(resolvedLoans);
+  const earliestDate = earliestFundedDisbursementDate(branchFilteredLoans);
   /*
    * "Nunca un total incompleto disfrazado de total completo": si el período
    * pedido empieza antes de la disbursementDate más antigua que existe en el
@@ -1674,7 +1801,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
    */
   const exceedsHistory = earliestDate !== null && range.startDate < earliestDate;
 
-  const fundedInRange = fundedLoansInRange(resolvedLoans, range);
+  const fundedInRange = fundedLoansInRange(branchFilteredLoans, range);
   const programRanking = buildLoanProgramRanking(fundedInRange);
   const typeRanking = buildLoanTypeRanking(fundedInRange);
   const propertyStateRanking = buildPropertyStateRanking(fundedInRange);
@@ -1754,8 +1881,8 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
     fullRange: previousFullRange,
     fullLabel: previousFullLabel,
   } = previousPeriodComparison(period, progress);
-  const previousFunded = fundedLoansInRange(resolvedLoans, previousRange);
-  const previousFullFunded = fundedLoansInRange(resolvedLoans, previousFullRange);
+  const previousFunded = fundedLoansInRange(branchFilteredLoans, previousRange);
+  const previousFullFunded = fundedLoansInRange(branchFilteredLoans, previousFullRange);
   const currentVolume = fundedInRange.reduce((sum, l) => sum + l.amount, 0);
   const currentCount = fundedInRange.length;
   const currentAvgTicket = currentCount > 0 ? currentVolume / currentCount : 0;
@@ -1800,7 +1927,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
    * necesitó ningún cambio para aceptar `businessDeveloperScorecard.rows`.
    */
   const ytdRange = periodDateRange(getDefaultYtdSelection());
-  const ytdFunded = fundedLoansInRange(resolvedLoans, ytdRange);
+  const ytdFunded = fundedLoansInRange(branchFilteredLoans, ytdRange);
   const ytdBranchScorecard = buildBranchScorecard(ytdFunded, orgRoster.knownBranchCodes);
   const ytdLoanOfficerScorecard = buildLoanOfficerScorecard(
     ytdFunded,
@@ -1830,13 +1957,17 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
   /*
    * Etapa F7, Parte 3: las tendencias son SIEMPRE del año en curso (UTC),
    * independiente del año que tenga seleccionado el período de arriba --
-   * `resolvedLoans` acá es el mismo array completo (sin filtrar por
-   * `fundedLoansInRange`, que solo cubre el período elegido) porque la
-   * serie necesita los 12 meses del año, no solo el período seleccionado.
+   * `branchFilteredLoans` acá es el array completo YA filtrado por branch
+   * (sin filtrar por `fundedLoansInRange`, que solo cubre el período
+   * elegido) porque la serie necesita los 12 meses del año, no solo el
+   * período seleccionado. Etapa AJUSTES-ANALYTICS-1, punto 5: antes decía
+   * `resolvedLoans` acá -- sin este cambio, Monthly Trends habría quedado
+   * sordo al filtro de Branch mientras el resto de la pestaña sí lo
+   * respetaba.
    */
   const trendsYear = currentYear();
-  const monthlyTotals = buildMonthlyTotals(resolvedLoans, trendsYear);
-  const monthlyTypeBreakdown = buildMonthlyTypeBreakdown(resolvedLoans, trendsYear);
+  const monthlyTotals = buildMonthlyTotals(branchFilteredLoans, trendsYear);
+  const monthlyTypeBreakdown = buildMonthlyTypeBreakdown(branchFilteredLoans, trendsYear);
   const highlightMonths = new Set(periodMonths(period).filter((m) => m.startsWith(String(trendsYear) + '-')));
   const trendsTotalCount = monthlyTotals.reduce((sum, t) => sum + t.count, 0);
 
@@ -1866,6 +1997,26 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
     <div className="analytics-tab">
       <div className="control-bar" style={{ marginBottom: '16px' }}>
         <PeriodSelector value={period} onChange={setPeriod} />
+        {/*
+          Etapa AJUSTES-ANALYTICS-1, punto 5 -- mismo criterio visual que el
+          selector de Branch de Forecast (Topbar.tsx: label-chip "Branch" +
+          <select className="field">), pero con estado LOCAL a esta pestaña
+          (ver `selectedBranch` arriba) -- Analytics no comparte estado con
+          /pipeline, cada ruta de nivel superior de esta app ya es
+          independiente (mismo criterio ya documentado en
+          app/analytics/page.tsx).
+        */}
+        <div className="control-group">
+          <span className="label-chip">Branch</span>
+          <select className="field" value={selectedBranch} onChange={(e) => setSelectedBranch(e.target.value)}>
+            <option value="ALL">All branches</option>
+            {availableBranches.map((b) => (
+              <option key={b} value={b}>
+                Branch {b}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {exceedsHistory && (
@@ -1923,15 +2074,29 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <div className="tbl-card" style={{ padding: '16px' }}>
               <div className="tbl-card__head">
-                <span className="tbl-card__title">Closings by Month ({fmtInt(trendsTotalCount)})</span>
+                {/* Etapa AJUSTES-ANALYTICS-1, punto 1: "YTD" explícito -- el número es el acumulado de los {trendsYear} meses visibles en el chart (incluido 0 en los que faltan), no de un solo mes. */}
+                <span className="tbl-card__title">Closings by Month ({fmtInt(trendsTotalCount)} YTD)</span>
               </div>
-              <SimpleMonthlyChart totals={monthlyTotals} highlightMonths={highlightMonths} getValue={(t) => t.count} formatValue={fmtInt} />
+              <SimpleMonthlyChart
+                totals={monthlyTotals}
+                highlightMonths={highlightMonths}
+                getValue={(t) => t.count}
+                formatValue={fmtInt}
+                onBarClick={(month) =>
+                  setDrillDown({
+                    metric: 'Closings by Month',
+                    context: month,
+                    loans: loansForMonth(branchFilteredLoans, month).map(closedLoanToModalLoan),
+                    hiddenColumns: ['milestone', 'status'],
+                  })
+                }
+              />
             </div>
             <div className="tbl-card" style={{ padding: '16px' }}>
               <div className="tbl-card__head">
                 <span className="tbl-card__title">
-                  {/* Solo el título -- las etiquetas dentro de las barras (fmtAmountShort) siguen sin "$", sin cambios. */}
-                  Amount Closed by Month (${fmtAmount(monthlyTotals.reduce((sum, t) => sum + t.amount, 0))})
+                  {/* Solo el título -- las etiquetas dentro de las barras (fmtAmountShort) siguen sin "$", sin cambios. Etapa AJUSTES-ANALYTICS-1, punto 1: mismo "YTD" explícito que Closings. */}
+                  Amount Closed by Month (${fmtAmount(monthlyTotals.reduce((sum, t) => sum + t.amount, 0))} YTD)
                 </span>
               </div>
               <SimpleMonthlyChart
@@ -1940,6 +2105,14 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
                 getValue={(t) => t.amount}
                 formatValue={fmtAmount}
                 formatLabel={fmtAmountShort}
+                onBarClick={(month) =>
+                  setDrillDown({
+                    metric: 'Amount Closed by Month',
+                    context: month,
+                    loans: loansForMonth(branchFilteredLoans, month).map(closedLoanToModalLoan),
+                    hiddenColumns: ['milestone', 'status'],
+                  })
+                }
               />
             </div>
           </div>
@@ -1956,7 +2129,19 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
               summary="Average loan amount per closing, by month (total amount ÷ closings -- not a margin or division earnings figure)."
               detail="avgTicketByMonth() (lib/pipeline/trends.ts) divides the same monthlyTotals used by the Closings/Amount charts above (amount/count per month, 0 when count is 0) -- derived here, not a separate field from the export."
             />
-            <AvgTicketChart rows={avgTicketData} highlightMonths={highlightMonths} overallAvg={overallAvgTicket} />
+            <AvgTicketChart
+              rows={avgTicketData}
+              highlightMonths={highlightMonths}
+              overallAvg={overallAvgTicket}
+              onPointClick={(month) =>
+                setDrillDown({
+                  metric: 'Avg Ticket by Month',
+                  context: month,
+                  loans: loansForMonth(branchFilteredLoans, month).map(closedLoanToModalLoan),
+                  hiddenColumns: ['milestone', 'status'],
+                })
+              }
+            />
           </div>
         </div>
       </div>
@@ -1965,24 +2150,20 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
         ==========================================================================
         CAPA 3 — PRODUCT MIX & GEOGRAPHY (reorganizada, mismos rankings de siempre)
         ==========================================================================
-        Etapa BI-REDESIGN-2 (punto 2) puso Loan Type Distribution by Month
-        como TERCERA COLUMNA de un grid de 3 -- a 1/3 del ancho quedaba
-        demasiado angosto: las 12 barras mensuales apretadas generaban
-        espacio en blanco vertical desproporcionado (reportado con captura
-        real). Fix (esta etapa): grid de **2 columnas**. Fila 1: Loan
-        Program + Loan Type apilados (columna 1) y Subject Property State
-        (columna 2), lado a lado -- igual que antes. Fila 2: Loan Type
-        Distribution ocupa las 2 columnas enteras (`gridColumn: '1 / -1'`),
-        mismo ancho completo que ya tenía en Capa 2 antes de BI-REDESIGN-2
-        (donde sí se leía bien) -- vuelve a ese ancho en vez de quedarse a
-        1/3. Izquierda arriba: Loan Program + Loan Type (los 2 rankings que
-        ya existían, apilados en la misma columna). Derecha arriba: Subject
-        Property State -- se evaluó la barra horizontal en vez de tabla
-        plana (nota del brief), pero con las 793 filas reales de este
-        snapshot ya clasificadas en ~40 estados/territorios, una tabla con
-        barra DETRÁS del label (mismo mecanismo transversal de abajo,
-        `rankBarStyle`) cumple el pedido sin construir un componente de
-        barras nuevo -- ver `RankingTable` más arriba.
+        Etapa AJUSTES-ANALYTICS-1, punto 3: grid de **3 columnas parejas**,
+        una sola fila -- Loan Program, Loan Type y Subject Property State
+        lado a lado (antes: 2 columnas, con Loan Program+Loan Type apilados
+        en la primera). Loan Type Distribution by Month sigue APARTE, a
+        ancho completo (`gridColumn: '1 / -1'`, sigue abarcando las 3
+        columnas del grid nuevo) -- eso no cambia, seguía leyéndose bien a
+        ese ancho desde el fix de BI-REDESIGN-2 (punto sobre el grid de 2
+        columnas, comentario ya reemplazado por este). Subject Property
+        State: se evaluó la barra horizontal en vez de tabla plana (nota
+        del brief), pero con las 793 filas reales de este snapshot ya
+        clasificadas en ~40 estados/territorios, una tabla con barra DETRÁS
+        del label (mismo mecanismo transversal de abajo, `rankBarStyle`)
+        cumple el pedido sin construir un componente de barras nuevo -- ver
+        `RankingTable` más arriba.
       */}
       <h3 style={{ margin: '24px 0 12px' }}>Product Mix &amp; Geography</h3>
       {/* count={1}: nota siempre visible (no es un diagnóstico condicional) -- se reusa DiagnosticsNote solo por su mecanismo de resumen breve + detalle en tooltip, mismo patrón que PersonDiagnostics. Mismo texto de siempre -- sólo se movió acá, junto a los rankings que describe (antes vivía arriba de todo, separada de su contenido). */}
@@ -1992,85 +2173,92 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
         detail="Read-only — doesn't affect pull-through, Healthy, Adverse, or strategy calculations elsewhere in Forecast."
       />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '20px' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          <RankingTable
-            title="Loan Program"
-            columnLabel="Program"
-            rows={programRanking}
-            totalCount={fundedInRange.length}
-            onRowClick={(row) =>
-              setDrillDown({
-                metric: 'Loan Program',
-                context: row.label,
-                loans: fundedInRange
-                  .filter((l) => (l.loanProgram.trim() || DRILLDOWN_NO_PROGRAM_LABEL) === row.label)
-                  .map(closedLoanToModalLoan),
-                hiddenColumns: ['loanProgram', 'milestone', 'status'],
-              })
-            }
-          />
-          <RankingTable
-            title="Loan Type"
-            columnLabel="Type"
-            rows={typeRanking}
-            totalCount={fundedInRange.length}
-            onRowClick={(row) =>
-              setDrillDown({
-                metric: 'Loan Type',
-                context: row.label,
-                loans: fundedInRange
-                  .filter((l) => (l.loanType.trim() || DRILLDOWN_NO_TYPE_LABEL) === row.label)
-                  .map(closedLoanToModalLoan),
-                hiddenColumns: ['loanType', 'milestone', 'status'],
-              })
-            }
-          />
-        </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '20px' }}>
+        <RankingTable
+          title="Loan Program"
+          columnLabel="Program"
+          rows={programRanking}
+          totalCount={fundedInRange.length}
+          onRowClick={(row) =>
+            setDrillDown({
+              metric: 'Loan Program',
+              context: row.label,
+              loans: fundedInRange
+                .filter((l) => (l.loanProgram.trim() || DRILLDOWN_NO_PROGRAM_LABEL) === row.label)
+                .map(closedLoanToModalLoan),
+              hiddenColumns: ['loanProgram', 'milestone', 'status'],
+            })
+          }
+        />
+        <RankingTable
+          title="Loan Type"
+          columnLabel="Type"
+          rows={typeRanking}
+          totalCount={fundedInRange.length}
+          onRowClick={(row) =>
+            setDrillDown({
+              metric: 'Loan Type',
+              context: row.label,
+              loans: fundedInRange
+                .filter((l) => (l.loanType.trim() || DRILLDOWN_NO_TYPE_LABEL) === row.label)
+                .map(closedLoanToModalLoan),
+              hiddenColumns: ['loanType', 'milestone', 'status'],
+            })
+          }
+        />
 
-        <div>
-          {propertyStateDataMissing ? (
-            <div className="tbl-card" style={{ padding: '16px' }}>
-              {/*
-                Etapa PROPERTY-STATE-1: mismo criterio que Strategy Mix (F7.23) --
-                un ranking 100% "Sin estado" se leería como un resultado real de
-                negocio, y acá es un default silencioso por falta de datos (el
-                snapshot todavía no capturó property_state, o se subió antes de
-                esta etapa). El número es el conteo REAL de este snapshot activo,
-                calculado en vivo sobre fundedInRange -- nunca un número fijo del
-                archivo de referencia usado en el diagnóstico previo (ese archivo
-                NO era el snapshot activo).
-              */}
-              <p className="foot-note" style={{ margin: 0 }}>
-                No property state data in this snapshot — all {fmtInt(fundedInRange.length)} funded loans in this
-                period have no Subject Property State recorded. Re-upload required to populate this view.
-              </p>
-            </div>
-          ) : (
-            <RankingTable
-              title="Subject Property State"
-              columnLabel="State"
-              rows={propertyStateRanking}
-              totalCount={fundedInRange.length}
-              onRowClick={(row) =>
-                setDrillDown({
-                  metric: 'Subject Property State',
-                  context: row.label,
-                  loans: fundedInRange
-                    .filter((l) => (l.propertyState.trim() || NO_PROPERTY_STATE_LABEL) === row.label)
-                    .map(closedLoanToModalLoan),
-                  hiddenColumns: ['propertyState', 'milestone', 'status'],
-                })
-              }
-            />
-          )}
-        </div>
+        {propertyStateDataMissing ? (
+          <div className="tbl-card" style={{ padding: '16px' }}>
+            {/*
+              Etapa PROPERTY-STATE-1: mismo criterio que Strategy Mix (F7.23) --
+              un ranking 100% "Sin estado" se leería como un resultado real de
+              negocio, y acá es un default silencioso por falta de datos (el
+              snapshot todavía no capturó property_state, o se subió antes de
+              esta etapa). El número es el conteo REAL de este snapshot activo,
+              calculado en vivo sobre fundedInRange -- nunca un número fijo del
+              archivo de referencia usado en el diagnóstico previo (ese archivo
+              NO era el snapshot activo).
+            */}
+            <p className="foot-note" style={{ margin: 0 }}>
+              No property state data in this snapshot — all {fmtInt(fundedInRange.length)} funded loans in this
+              period have no Subject Property State recorded. Re-upload required to populate this view.
+            </p>
+          </div>
+        ) : (
+          <RankingTable
+            title="Subject Property State"
+            columnLabel="State"
+            rows={propertyStateRanking}
+            totalCount={fundedInRange.length}
+            onRowClick={(row) =>
+              setDrillDown({
+                metric: 'Subject Property State',
+                context: row.label,
+                loans: fundedInRange
+                  .filter((l) => (l.propertyState.trim() || NO_PROPERTY_STATE_LABEL) === row.label)
+                  .map(closedLoanToModalLoan),
+                hiddenColumns: ['propertyState', 'milestone', 'status'],
+              })
+            }
+          />
+        )}
 
         <div className="tbl-card" style={{ padding: '16px', gridColumn: '1 / -1' }}>
           <div className="tbl-card__head">
             <span className="tbl-card__title">Loan Type Distribution by Month</span>
           </div>
-          <TypeBreakdownChart breakdown={monthlyTypeBreakdown} highlightMonths={highlightMonths} />
+          <TypeBreakdownChart
+            breakdown={monthlyTypeBreakdown}
+            highlightMonths={highlightMonths}
+            onSegmentClick={(month, typeLabel) =>
+              setDrillDown({
+                metric: 'Loan Type Distribution by Month',
+                context: `${typeLabel} — ${month}`,
+                loans: loansForMonthAndType(branchFilteredLoans, month, typeLabel).map(closedLoanToModalLoan),
+                hiddenColumns: ['loanType', 'milestone', 'status'],
+              })
+            }
+          />
         </div>
       </div>
 
@@ -2107,7 +2295,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
                 setDrillDown({
                   metric: 'Branch',
                   context: row.label,
-                  loans: fundedInRange.filter((l) => l.branch === row.key).map(closedLoanToModalLoan),
+                  loans: loansForScorecardCut(fundedInRange, 'branch', row.key, orgRoster.aliasIndex).map(closedLoanToModalLoan),
                   hiddenColumns: ['milestone', 'status'],
                 })
               }
@@ -2131,9 +2319,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
                 setDrillDown({
                   metric: 'Loan Officer',
                   context: row.label,
-                  loans: fundedInRange
-                    .filter((l) => loanResolvesToEmployeeKey(l, (loan) => loan.loanOfficer, orgRoster.aliasIndex, row.key))
-                    .map(closedLoanToModalLoan),
+                  loans: loansForScorecardCut(fundedInRange, 'loanOfficer', row.key, orgRoster.aliasIndex).map(closedLoanToModalLoan),
                   hiddenColumns: ['loanOfficer', 'milestone', 'status'],
                 })
               }
@@ -2169,13 +2355,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
                   setDrillDown({
                     metric: 'Business Developer',
                     context: row.label,
-                    loans: fundedInRange
-                      .filter(
-                        (l) =>
-                          l.opportunityOwnerTitle === 'Business Developer' &&
-                          loanResolvesToEmployeeKey(l, (loan) => loan.opportunityOwner, orgRoster.aliasIndex, row.key)
-                      )
-                      .map(closedLoanToModalLoan),
+                    loans: loansForScorecardCut(fundedInRange, 'businessDeveloper', row.key, orgRoster.aliasIndex).map(closedLoanToModalLoan),
                     hiddenColumns: ['loanOfficer', 'milestone', 'status'],
                   })
                 }
@@ -2250,20 +2430,53 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
               <div className="tbl-card__head">
                 <span className="tbl-card__title">Pareto — Branch / Loan Officer</span>
               </div>
-              <ParetoChart data={paretoData} />
+              <ParetoChart
+                data={paretoData}
+                onBarClick={(row, cut, mode) => {
+                  const cutLabel = cut === 'branch' ? 'Branch' : cut === 'loanOfficer' ? 'Loan Officer' : 'Business Developer';
+                  const modeLabel = mode === 'period' ? periodLabel(period) : 'Year to date';
+                  const sourceLoans = mode === 'period' ? fundedInRange : ytdFunded;
+                  setDrillDown({
+                    metric: `Pareto — ${cutLabel} (${modeLabel})`,
+                    context: row.label,
+                    loans: loansForScorecardCut(sourceLoans, cut, row.key, orgRoster.aliasIndex).map(closedLoanToModalLoan),
+                    hiddenColumns: cut === 'branch' ? ['milestone', 'status'] : ['loanOfficer', 'milestone', 'status'],
+                  });
+                }}
+              />
             </div>
           )}
         </div>
       </div>
 
-      {/* Etapa F7, Parte 5: mismo modal que ya usa PivotTable -- una lista de loans y un título, sin nada específico de esa pantalla. */}
+      {/*
+        Etapa F7, Parte 5: mismo modal que ya usa PivotTable -- una lista de
+        loans y un título, sin nada específico de esa pantalla.
+
+        Etapa AJUSTES-ANALYTICS-1, punto 6b: TODOS los drill-downs de esta
+        pestaña son préstamos ya cerrados (fundedInRange/ytdFunded, nunca
+        pipeline abierto) -- Notes no aplica a ninguno acá (a diferencia de
+        Projected Forecast/Milestone, que sí la necesitan y no pasan por
+        este componente con `hiddenColumns` -- ver el comentario de
+        `LoanDetailModalColumn` en LoanDetailModal.tsx), así que se agrega
+        'notes' UNA sola vez acá en vez de repetirlo en cada uno de los
+        `setDrillDown()` de este archivo. Mismo criterio para
+        showStrategyColumn/showBranchColumn: fijo en `true`, no por-llamada
+        -- todas las vistas de Analytics se benefician de las mismas 2
+        columnas nuevas por igual. PivotTable.tsx (el otro consumidor de
+        `closedLoanToModalLoan`, para su propio drill-down de "Closed") NO
+        se toca -- sigue sin pasar estos 3 props, así que sigue mostrando
+        Notes y sin Strategy/Branch, exactamente como antes.
+      */}
       <LoanDetailModal
         isOpen={drillDown !== null}
         onClose={() => setDrillDown(null)}
         context={drillDown?.context ?? ''}
         metric={drillDown?.metric ?? ''}
         loans={drillDown?.loans ?? []}
-        hiddenColumns={drillDown?.hiddenColumns}
+        hiddenColumns={drillDown ? [...drillDown.hiddenColumns, 'notes'] : undefined}
+        showStrategyColumn
+        showBranchColumn
       />
     </div>
   );

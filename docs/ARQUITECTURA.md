@@ -6686,3 +6686,218 @@ etapa, no introducido por ella.
 `app/styles/tokens.css` (`--shadow-sm`), `app/pipeline/styles/
 forecast-visual.css` (regla scopeada de sombra), `app/styles/
 components.css` (`.mcard--accent-left`).
+
+## Etapa AJUSTES-ANALYTICS-1 -- 7 correcciones/peticiones sobre el rediseño de Analytics
+
+Siete puntos independientes sobre `TabAnalytics.tsx`, pedidos juntos en
+una sola tarea después de ver el rediseño de las etapas anteriores en
+pantalla. Archivos tocados: `app/pipeline/TabAnalytics.tsx`,
+`app/pipeline/LoanDetailModal.tsx`, `lib/pipeline/paretoMix.ts`.
+`lib/pipeline/scorecards.ts`/`lib/pipeline/paretoMix.ts` (el cálculo en
+sí) NO necesitaron reglas nuevas salvo lo del punto 6a abajo -- todo lo
+demás es JSX/CSS/wiring de UI sobre datos ya calculados.
+
+### Punto 1 -- "YTD" explícito en Monthly Trends
+
+Los títulos de "Closings by Month"/"Amount Closed by Month" mostraban
+un número (338, $117,294,305) que en realidad es el acumulado de los
+12 meses visibles en el chart (con 0 explícito en los que aún no
+tienen datos) -- se leía como si fuera el valor de un solo mes. Fix:
+`Closings by Month (338 YTD)` / `Amount Closed by Month
+($117,294,305 YTD)` -- mismo número, con el sufijo que aclara que es
+acumulado. Ningún cálculo cambió, sólo el texto del título.
+
+### Punto 2 -- barra de proporción, a la columna correcta
+
+`rankBarStyle()` (el gradiente sutil detrás del texto, ya existente
+desde BI-REDESIGN-1) vivía en la columna del NOMBRE (Program/Type/
+State/Branch/Loan Officer/Business Developer) -- se mueve a la columna
+de Count/Closed en los 2 componentes compartidos (`RankingTable`,
+`ScorecardTable`), que son los que arman las 6 tablas de la pestaña.
+Al ser componentes compartidos, el fix alcanza a las 6 tablas (Loan
+Program, Loan Type, Subject Property State, Branch, Loan Officer,
+Business Developer) de una sola vez, aunque el pedido nombraba
+explícitamente sólo 2 -- dejar la barra en columnas distintas según la
+tabla habría sido una inconsistencia nueva, no pedida.
+
+### Punto 3 -- Product Mix en 3 columnas
+
+El grid de "Product Mix & Geography" pasa de 2 columnas (Loan Program +
+Loan Type apilados en la primera, Subject Property State en la
+segunda) a **3 columnas parejas, una sola fila** -- las 3 tablas lado a
+lado. "Loan Type Distribution by Month" sigue aparte, a ancho completo
+(`gridColumn: '1 / -1'`, ahora abarca las 3 columnas del grid nuevo en
+vez de las 2 de antes) -- sin cambios en ese chart salvo el punto 4 y
+el drill-down del punto 6a.
+
+### Punto 4 -- paleta oficial de marca en Loan Type Distribution by Month
+
+`TYPE_COLORS` mezclaba 2 colores de marca (`--navy`, `--sky`) con 3
+colores SEMÁNTICOS de estado (`--emerald-700`, `--amber-500`,
+`--rose-700` -- reservados en el resto de la app para positivo/
+advertencia/negativo). Confirmado contra el header de `tokens.css`
+(no asumido): los únicos 4 colores "oficiales" de marca HomeSí son
+'Enriching Skies' (`--navy`, #001A40), 'Warm Embrace' (`--coral`,
+#FF4040), 'Light Sky' (`--sky`, #A6DEFF) y 'New Day' (`--canvas`,
+#FCFCFA) -- el último es el fondo del canvas global, ilegible como
+relleno de segmento sólido. Paleta nueva: `['var(--navy)',
+'var(--coral)', 'var(--sky)']` (3 colores, no 5) -- si un período trae
+más de 3 Loan Type reales, cicla por `idx % length` (mecanismo ya
+existente en `colorForType`, sin cambios ahí). "Sin tipo" sigue en
+slate (placeholder, no un color "real"), sin cambios. Cero hex nuevo.
+
+### Punto 5 -- filtro global de Branch
+
+Alcance funcional nuevo, no sólo visual. `app/analytics/page.tsx`
+(Etapa ANALYTICS-TAB-1) documentaba explícitamente "sin filtro de
+branch... si hiciera falta, es una etapa aparte" -- esta es esa etapa,
+implementada DENTRO de `TabAnalytics.tsx` (alcance de esta tarea, no
+la página wrapper) como estado local (`selectedBranch`, 'ALL' o un
+branch code -- mismo criterio que el selector de Branch ya existente
+en Forecast, `Topbar.tsx`/`page.tsx`, pero sin compartir estado con
+esa ruta).
+
+`branchFilteredLoans` es el ÚNICO punto de filtrado: reemplaza a
+`resolvedLoans` (el prop crudo) en absolutamente todos los cálculos
+derivados de la pestaña -- `fundedInRange`, `previousFunded`,
+`previousFullFunded`, `ytdFunded`, `earliestDate`, `monthlyTotals`,
+`monthlyTypeBreakdown` -- confirmado con `grep resolvedLoans` sobre el
+archivo final: la única referencia al prop crudo que queda es la
+construcción de `availableBranches` (que debe listar TODOS los
+branches del snapshot, no sólo los del filtro activo) y de
+`branchFilteredLoans` en sí. Como las 4 capas (Hero KPI, Monthly
+Trends, Product Mix, Scorecards/Pareto) ya leían sus datos a partir de
+esas variables derivadas, el filtro las alcanza a las 4 por
+construcción, sin tener que acordarse de aplicarlo cálculo por
+cálculo.
+
+Verificado con datos reales (snapshot activo id 86, lectura
+`service_role` sobre `pipeline_forecast.pipeline_resolved_loans`,
+sólo `SELECT`, script temporal borrado después de correrlo): mes en
+curso (2026-08), TODOS los branches -- 28 préstamos, $9,788,401;
+branch 716 solo -- 5 préstamos, $1,621,270. El subconjunto de branch
+es estrictamente menor en count y monto que el total, como debe ser
+-- confirma que el mecanismo de filtrado (mismos campos `branch` +
+`status='funded'` + `disbursement_date` que ya usa cada cálculo) narrows
+correctamente los mismos datos que alimentan Hero KPI/Monthly Trends/
+Product Mix/Scorecards/Pareto.
+
+### Punto 6a -- drill-down universal
+
+Antes del rediseño de Isa (BI-REDESIGN-1/2), TODOS los rankings/
+scorecards/donut de Strategy Mix ya tenían drill-down -- pero los 4
+charts nuevos/reubicados de Monthly Trends y Product Mix (Closings by
+Month, Amount Closed by Month, Avg Ticket by Month, Loan Type
+Distribution by Month) y el Pareto NUNCA lo tuvieron, desde que se
+crearon. Se agrega, mismo patrón (`setDrillDown` + `LoanDetailModal`)
+que ya usan los rankings:
+
+- **Closings/Amount/Avg Ticket by Month**: click en una barra/punto
+  abre los loans de ese mes. `loansForMonth()` (función nueva, mismo
+  criterio EXACTO que `buildMonthlyTotals`/`buildMonthlyTypeBreakdown`
+  de `lib/pipeline/trends.ts` -- `status === 'funded'` +
+  `disbursementDate` en ese mes) -- si este filtro se desincronizara
+  de esas 2 funciones, el modal mostraría una lista que no coincide
+  con el número que el chart ya mostró para ese mes.
+- **Loan Type Distribution by Month**: click en un segmento abre los
+  loans de ese mes Y ese tipo (`loansForMonthAndType()`, mismo
+  criterio + `DRILLDOWN_NO_TYPE_LABEL`).
+- **Pareto (Branch/Loan Officer/Business Developer × Selected
+  period/Year to date)**: click en una barra abre los loans de esa
+  categoría, en el modo (`period`/`ytd`) que el chart tenga elegido en
+  ese momento -- estado LOCAL del chart, así que el handler recibe
+  `cut`/`mode` desde `ParetoChart` (que sí los conoce) en vez de que
+  el padre intente adivinarlos. Esto necesitó extender `ParetoRow`
+  (`lib/pipeline/paretoMix.ts`) con un campo `key` (mismo `key`
+  estable de `ScorecardRow`, branch_code o employee_key) -- sin eso,
+  no había forma de volver a encontrar los loans de la barra
+  clickeada (`label` es texto de display, no una clave segura para
+  filtrar). `buildParetoRows()` en sí no cambió su lógica, sólo
+  propaga el campo.
+
+Refactor de paso: la lógica de filtrado de los 3 `ScorecardTable.
+onRowClick` (Branch/Loan Officer/Business Developer) estaba repetida
+inline en cada uno -- se extrae a `loansForScorecardCut()` porque
+Pareto ahora necesita la MISMA regla, aplicada a otra fuente de loans
+(`fundedInRange` o `ytdFunded` según el modo). Un solo lugar en vez de
+una 4ta copia divergente.
+
+Fuera de alcance, deliberado: las 4 tarjetas del Hero KPI Header
+(Total Closed Volume, etc.) NO llevan drill-down nuevo -- son números
+agregados de todo el período ya elegido arriba, sin una categoría o
+fila que abrir (a diferencia de un mes, un tipo, o una barra de
+Pareto); su detalle completo ya está disponible desglosado en los
+rankings/scorecards de más abajo en la misma pestaña.
+
+### Punto 6b -- Notes fuera, Strategy/Branch adentro (solo Analytics)
+
+`LoanDetailModal` mostraba siempre una columna "Notes" (Production
+Support Note History) -- no aplica a préstamos ya cerrados (los únicos
+que abre Analytics). Se agregan 2 mecanismos nuevos:
+
+- `'notes'` se agrega a `LoanDetailModalColumn` (el mecanismo de
+  opt-OUT ya existente, `hiddenColumns` -- mismo que usan `loanType`/
+  `loanProgram`/etc.) -- default sigue siendo MOSTRADA, así que los 3
+  consumidores existentes (PivotTable.tsx, TabMilestoneMatrix.tsx,
+  AdverseTable) siguen viéndola exactamente igual, sin tocarlos.
+- `showStrategyColumn`/`showBranchColumn` (props nuevos, booleanos,
+  default `false`) agregan 2 columnas que el modal nunca tuvo --
+  Strategy (`classifyStrategy(loan)`, ya importado en ese archivo para
+  el realtor NPPM, sin lógica de clasificación nueva) y Branch
+  (`loan.branch`). Deliberadamente un prop DEDICADO y no una entrada
+  más de `hiddenColumns`: el mecanismo de opt-out asume que el default
+  correcto es "mostrada", que es cierto para Notes pero NO para estas
+  2 -- si se hubieran agregado como opt-out, los 3 consumidores
+  existentes habrían empezado a mostrarlas sin haberlo pedido. Con
+  default `false`, sólo Analytics (que pasa `showStrategyColumn
+  showBranchColumn` fijo en `true` en su única invocación de
+  `<LoanDetailModal>`) las ve.
+
+Los 3 flags (`'notes'` en `hiddenColumns`, `showStrategyColumn`,
+`showBranchColumn`) se fijan en UN SOLO lugar -- el único
+`<LoanDetailModal>` que renderiza `TabAnalytics.tsx` -- en vez de
+repetirlos en cada uno de los ~12 `setDrillDown()` del archivo (los 6
+ya existentes más los agregados en el punto 6a). `PivotTable.tsx`
+(el otro consumidor real de `closedLoanToModalLoan`, para su propio
+drill-down de "Closed" en Combined Total by Branch) no se tocó -- sigue
+sin pasar estos 3 props, sigue mostrando Notes y sin Strategy/Branch,
+exactamente como antes de esta etapa.
+
+### Punto 7 -- Pareto, nombres cuando hay pocas categorías
+
+`paretoShouldLabel(i)` recortaba a las primeras 8 categorías SIEMPRE,
+sin importar el total -- con 13 categorías reales (caso reportado,
+Selected period), las últimas 5 quedaban sin ningún nombre visible
+aunque 13 entra perfectamente en el eje sin amontonarse. Fix:
+`paretoShouldLabel(i, total)` -- si `total <= 15`
+(`PARETO_SHOW_ALL_MAX`), muestra TODOS los nombres; si no, mantiene el
+recorte a las primeras 8 (`PARETO_ALWAYS_LABELED`, sin cambios en ese
+número) -- el recorte fijo sigue existiendo, pero sólo entra en juego
+con muchas categorías de verdad (YTD con 30+ Loan Officers reales).
+`lib/pipeline/paretoMix.ts` no necesitó ningún cambio para este punto
+(confirmado leyendo el código, no asumido) -- el criterio de cuántas
+etiquetas mostrar es puramente de presentación, en `TabAnalytics.tsx`.
+
+### Verificación
+
+`npx tsc --noEmit -p .` sin errores. `npm run build` compila limpio
+(Turbopack, 17/17 páginas). `npm run lint` reporta el mismo 1 error +
+1 warning preexistentes de `app/pipeline/page.tsx` de la etapa
+anterior (confirmado sin diff en ese archivo en esta rama) -- cero
+hallazgos nuevos en los 3 archivos tocados por esta etapa.
+
+Filtro de Branch verificado con datos reales de Supabase (ver punto 5
+arriba). El resto de los 7 puntos se verificó por lectura de código
+(tsc/build ya confirman que compila y que el flujo de tipos es
+consistente) -- la confirmación visual en pantalla (layout de 3
+columnas, colores del chart, posición de la barra, aspecto del modal)
+queda para la revisión manual pedida explícitamente en la tarea ("NO
+commitear todavía -- falta verlo en pantalla").
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx` (los 7 puntos), `app/pipeline/
+LoanDetailModal.tsx` (punto 6b: columna Notes opcional, columnas
+Strategy/Branch nuevas), `lib/pipeline/paretoMix.ts` (punto 6a: campo
+`key` en `ParetoRow`).
+components.css` (`.mcard--accent-left`).
