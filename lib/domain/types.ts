@@ -20,21 +20,22 @@ export interface LoanRecord {
   /** true si b2bLoans === 'B2B', false en cualquier otro caso. */
   isB2B: boolean;
   /**
-   * Valor crudo de RawLoanRow.loanInfoChannel (columna 'loan_info_channel'),
-   * SIN normalizar ni mapear -- el mismo string que ya usa classifyLoan()
-   * para decidir closingMonth (funding vs completion). Se expone tal cual
-   * para poder auditar que un filtro nuevo coincida con esa lógica existente.
+   * Canal, SIN normalizar ni mapear. Hoy viene de
+   * `loan_records_v2.loan_channel`: 'Banked - Retail', 'Brokered', o '' en las
+   * pocas filas sin clasificar, que son su propia categoría y no se reasignan.
    */
   loanInfoChannel: 'Banked - Retail' | 'Brokered' | string;
   fileCreationMonth: YearMonth | null;
   creditReportMonth: YearMonth | null;
   appDateMonth: YearMonth | null;
   /**
-   * Mes de Closed. `null` si el loan no llegó a su milestone de cierre según
-   * el canal (Funding para Banked-Retail, Completion para Brokered) -- esa
-   * condición sigue siendo la que decide SI cuenta como Closed. Cuando sí
-   * llegó, el MES es Disbursement Date si el archivo la trae para esa fila,
-   * o Funding/Completion como respaldo si no (ver classifyLoan).
+   * Mes de Closed, o `null` si el préstamo no cerró.
+   *
+   * Ya resuelto en BigQuery (`loan_records_v2.closing_month`), con la misma
+   * regla de negocio que antes calculaba la app: el milestone del canal decide
+   * SI cuenta como Closed --Funding para Banked-Retail, Completion para
+   * Brokered-- y Disbursement Date manda sobre ese milestone para decidir el
+   * MES cuando está presente. La app ya no la calcula ni la corrige.
    */
   closingMonth: YearMonth | null;
   totalLoanAmount: number;

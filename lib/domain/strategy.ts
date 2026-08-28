@@ -50,8 +50,9 @@ export type StrategyFilter = 'all' | Strategy;
  * anotado en F6.
  *
  * Los registros SIN estrategia (`''`) sólo aparecen con el filtro en 'all'.
- * Hoy eso son exactamente los de la carga manual de archivo, que no trae la
- * columna -- ver `classifyLoan`.
+ * Desde V4 no hay ninguna fuente que los produzca --se borró la carga manual de
+ * archivo, que era la única-- pero la condición se mantiene: el campo es
+ * `string` y una fila con la columna en NULL entraría igual.
  */
 export function matchesStrategy(recordStrategy: string, filter: StrategyFilter): boolean {
   return filter === 'all' || recordStrategy === filter;
