@@ -6260,3 +6260,34 @@ carga real desde localhost para confirmar contra la base.
 `lib/pipeline/sources/salesforce-file.ts` únicamente -- tipos, mappers
 y la RPC no se tocaron (ya estaban bien, el problema era exclusivamente
 la resolución del nombre de columna en el parser).
+
+## Etapa STAGE-SF-1 -- columna "Stage SF" en App Date (Commercial Activity)
+
+Columna nueva en el drill-down de App Date del modal de Commercial
+Activity (`components/report/LoanDetailModal.tsx`), con el valor de
+`sf_stage` -- ya nativo en `activity_report.loan_records_v2`, sin
+necesidad de ningún cruce con `pipeline_forecast`. Valores reales
+observados: Qualification, Negotiation, Closed Won, Closed Lost (entre
+otros del embudo de venta de Salesforce).
+
+`sf_stage` es el embudo de VENTA/CRM de la oportunidad, no el milestone
+de procesamiento del préstamo (eso vive únicamente en
+`pipeline_forecast.pipeline_loans`, fuera de alcance acá) -- distinción
+confirmada en el diagnóstico previo a esta etapa.
+
+La columna se muestra con `showStageSf = context.metric === 'ap'`,
+independiente del filtro de estrategia (`strategyFilter`): se suma a
+los 3 casos ya existentes en vez de reemplazar ninguno (6→7 columnas en
+"All", 7→8 con una estrategia elegida, 8→9 en NPPM). El caso nuevo de 8
+columnas (estrategia elegida + App Date) pasa a necesitar el modal
+ancho -- `isWide = showRecruiter || (showStageSf && showContext)`,
+reemplazando la condición anterior que solo miraba `showRecruiter`.
+
+### Archivos
+
+`lib/domain/types.ts` (campo `sfStage` en `LoanRecord`),
+`lib/supabase/loadCurrent.ts` (columna `sf_stage` agregada al SELECT y
+al mapeo), `lib/domain/classifyLoan.ts` (default `''` en el camino
+muerto de carga manual, mismo criterio que los otros campos que ese
+archivo no puede producir), `components/report/LoanDetailModal.tsx`
+(columna nueva y ajuste de `isWide`).
