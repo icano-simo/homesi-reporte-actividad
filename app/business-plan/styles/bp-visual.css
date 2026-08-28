@@ -3223,11 +3223,51 @@ table.piv.bp-table--cards .badge--pill {
   position: relative;
   flex-shrink: 0;
   width: 172px;
+  /*
+   * BP36 -- red de seguridad. Con el recorte de `.bp-fstep__name-text` nada
+   * debería salirse, pero la tarjeta tiene ancho fijo y varios hijos: si mañana
+   * se agrega uno que no se encoge, que quede cortado adentro y no rompiendo la
+   * fila. El scroll horizontal del stepper vive en `.bp-fstep`, no acá, así que
+   * esto no se lo come.
+   */
+  overflow: hidden;
 }
 .bp-fstep__name {
   display: flex;
-  align-items: center;
+  /*
+   * ⚠ BP36 -- `flex-start` y no `center`: cuando el nombre ocupa dos líneas, el
+   * icono centrado contra ese bloque queda flotando a media altura. Alineado
+   * arriba, queda a la altura de la primera línea, que es donde se lo busca.
+   */
+  align-items: flex-start;
   gap: 6px;
+  /*
+   * `min-width: 0` es lo que arregla el desborde. Un flex item nace con
+   * `min-width: auto`, o sea que NO se encoge por debajo de su contenido: el
+   * nombre largo se llevaba la tarjeta de 172px por delante. Con esto puede
+   * angostarse y recién entonces el recorte de abajo tiene efecto.
+   */
+  min-width: 0;
+}
+/* El icono no participa del encogimiento: es de tamaño fijo (size=14) y
+   deformarlo para ganar 14px no arregla nada. */
+.bp-fstep__name .bp-glyph {
+  flex-shrink: 0;
+}
+/*
+ * Dos líneas y elipsis. Se eligió recorte y no salto libre para que todas las
+ * tarjetas midan lo mismo: el stepper es una fila horizontal, y una tarjeta más
+ * alta que las otras corre la fila entera -- que es justo el síntoma que se
+ * reportó. El nombre completo queda en el `title`.
+ */
+.bp-fstep__name-text {
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  /* Corta dentro de una palabra sólo si una palabra sola no entra. */
+  overflow-wrap: anywhere;
 }
 /* El acento del nodo abierto vive en la seccion 23 (BP24). Las tres reglas que
    habia aca -- nombre, pildora e icono aclarados -- existian solo para
@@ -4169,8 +4209,21 @@ table.piv tr.metric.is-picked td.lbl {
   color: var(--slate-400);
   padding-bottom: 2px;
 }
+/*
+ * ⚠ BP36 -- acá había `white-space: nowrap`, y era la causa de un desborde
+ * PREEXISTENTE, distinto del de las tarjetas de nodo.
+ *
+ * La grilla de esta lista es `minmax(0, 1fr) 190px 90px`. "Due (day of node)"
+ * en mayúsculas con `letter-spacing: 0.08em` mide ~110px, así que con `nowrap`
+ * se salía de su columna de 90px: el `<ul>` medía 830px de ancho y 876px de
+ * contenido, y el rótulo aparecía cortado en "DUE (DAY OF NODE".
+ *
+ * Se deja envolver. Es un encabezado `aria-hidden`, decorativo: partirlo en dos
+ * líneas no le quita nada, y así el rótulo se lee entero sin tocar el ancho de
+ * la grilla ni el del modal.
+ */
 .bp-fdetail__steps-head span {
-  white-space: nowrap;
+  min-width: 0;
 }
 .bp-fdetail__note {
   font-size: 11px;

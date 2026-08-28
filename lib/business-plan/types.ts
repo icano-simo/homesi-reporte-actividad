@@ -217,6 +217,24 @@ export interface ActivityMetrics {
 export interface PipelineMetrics {
   openLoans: number;
   resolvedFunded: number;
+  /**
+   * Oportunidades vivas con fecha estimada de cierre el MES SIGUIENTE — BP36.
+   *
+   * "Vivas" no necesita ningún filtro de estado, y eso es una propiedad de la
+   * fuente, no un descuido: `pipeline_loans` sólo tiene los abiertos. Los
+   * adverse y closed lost viven en `pipeline_resolved_loans` -- verificado
+   * sobre el snapshot activo: 339 adverse, ninguno en la tabla de abiertos.
+   * Si alguien agrega acá un chequeo de estado, está tapando otro problema.
+   *
+   * Es la MISMA definición de pipeline que `projection.totalPipeline`, con la
+   * ventana corrida un mes: las dos salen de `closesInMonth`, llamada con dos
+   * meses distintos.
+   *
+   * ⚠ En un grupo (`aggregateGroup`) este número NO está deduplicado, a
+   * diferencia de `openLoans`. Ver el comentario allá antes de mostrarlo en
+   * una vista de grupo.
+   */
+  nextMonthOpenLoans: number;
 }
 
 /* ─────────────────────────── Qualifiers ────────────────────────────────── */
@@ -431,6 +449,12 @@ export interface BusinessPlanData {
     benchmarkTableAvailable: boolean;
     /** Los 3 meses de la ventana del Qualifier 1 (el último, proyectado). */
     windowMonths: string[];
+    /**
+     * Las dos ventanas de pipeline que se calcularon, derivadas de la fecha del
+     * sistema — BP36. Están acá para que la derivación sea auditable desde la
+     * app y no haya que confiar en que el código hizo la cuenta bien.
+     */
+    pipelineMonths: { current: string; next: string };
     /** Los 3 meses cerrados del promedio de contexto. */
     closedMonths: string[];
     attributionOverrides: { fullName: string; forcedBranchCode: string; reason: string | null }[];
