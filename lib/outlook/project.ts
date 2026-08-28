@@ -145,6 +145,26 @@ export function projectMonth(
   };
 }
 
+/*
+ * ============================================================================
+ * ETAPA PENDIENTE — el mes en curso abierto por estrategia
+ * ============================================================================
+ *
+ * Hoy la vista 2 muestra `—` en la columna del mes en curso de cada estrategia,
+ * y eso es deliberado: la proyección del mes la calcula Forecast sobre el
+ * snapshot del pipeline, que no lleva la estrategia consigo. Repartir el total
+ * por peso del YTD daría un número plausible y falso -- la peor clase, porque
+ * nadie lo cuestiona.
+ *
+ * Es DERIVABLE, y por eso queda anotado como etapa y no como límite:
+ * `pipeline_forecast.pipeline_loans` persiste los cinco crudos desde F6b
+ * (`strategy_raw`, `opportunity_owner_title`, `nppm_realtor`, `referred_by`,
+ * `affinity_program`) y `lib/pipeline/strategy.ts` ya sabe clasificarlos con la
+ * precedencia correcta. Lo que falta es correr esa clasificación sobre los
+ * préstamos abiertos del snapshot y repartir la cascada de pull-through por
+ * estrategia -- que es trabajo dentro de Forecast, no acá.
+ */
+
 export function cadenceLabel(c: Cadence): string {
   return c === 'monthly' ? 'mensual' : c === 'quarterly' ? 'trimestral' : 'semestral';
 }

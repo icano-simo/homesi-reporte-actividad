@@ -76,6 +76,21 @@ export default function OutlookPage() {
   const months = data.remainingMonths;
   const projectedByBranch = new Map(data.branches.map((b) => [b.branchCode, projectBranch(b, months)]));
 
+  /*
+   * ⚠ Branches con producción y SIN nadie que proyecte.
+   *
+   * La proyección se carga al branch del ROSTER de cada persona, así que un
+   * branch donde nadie está rosterizado no proyecta nada aunque tenga cerrados.
+   * AFFINITY es el caso: 31 cerrados este año y ninguna persona asignada, porque
+   * 'AFFINITY' existe a nivel de préstamo y no como asignación de roster.
+   *
+   * No se calcula distinto -- se EXPLICA. Un YTD de 31 con proyección cero y sin
+   * texto se reporta como bug, y quien lo reporta tiene razón en preguntar.
+   * A quién pertenece ese presupuesto es una decisión de negocio pendiente.
+   */
+  const projectsNothing = (code: string) =>
+    !data.branches.find((b) => b.branchCode === code)?.loanOfficers.some((l) => l.primaryBranch === code);
+
   /* Los totales de la fila final son la suma de las filas, sin recalcular. */
   const totalYtd = data.branches.reduce((a, b) => a + b.ytd, 0);
   const totalCurrent = data.branches.reduce((a, b) => a + b.currentMonth, 0);
@@ -185,11 +200,29 @@ export default function OutlookPage() {
                   </td>
                   <td className={'bp-center' + (b.currentMonth ? '' : ' zero')}>{fmt(b.currentMonth)}</td>
                   {months.map((m) => (
-                    <td key={m} className={'bp-center' + (projected[m] ? '' : ' zero')}>
+                    <td
+                      key={m}
+                      className={'bp-center' + (projected[m] ? '' : ' zero')}
+                      title={
+                        projectsNothing(b.branchCode)
+                          ? `${b.branchCode} no proyecta: no hay Loan Officers con este branch en su roster. ` +
+                            `Sus ${b.ytd} cerrados del año son reales; la proyección se carga al branch del roster de ` +
+                            `cada persona, y nadie tiene asignado este. A quién pertenece este presupuesto está pendiente ` +
+                            `de definir.`
+                          : undefined
+                      }
+                    >
                       {fmt(projected[m] ?? 0)}
                     </td>
                   ))}
-                  <td className="bp-center">{fmt(yearTotal(b.ytd, b.currentMonth, projected))}</td>
+                  <td className="bp-center">
+                    {fmt(yearTotal(b.ytd, b.currentMonth, projected))}
+                    {b.ytd > 0 && projectsNothing(b.branchCode) && (
+                      <span className="bp-muted" style={{ fontSize: '10.5px', marginLeft: '5px' }}>
+                        sin LO asignados
+                      </span>
+                    )}
+                  </td>
                 </tr>
               );
             })}
@@ -221,7 +254,10 @@ export default function OutlookPage() {
         legítimos y distintos.{' '}
         <b>Los meses proyectados</b>: con la regla inicial de 25% trimestral desde septiembre, el benchmark ES el
         objetivo de septiembre y el primer aumento cae en <b>diciembre</b> — por eso Sep, Oct y Nov salen iguales. No es
-        un error de la tabla.
+        un error de la tabla.{' '}
+        <b>Un branch con <span className="bp-muted">sin LO asignados</span></b> tiene cerrados reales pero no proyecta:
+        nadie lo tiene en su roster, y la proyección se carga al branch del roster de cada persona. AFFINITY es el caso —
+        a quién pertenece ese presupuesto está pendiente de definir.
       </div>
 
       <div className="bp-diagnostics" style={{ marginTop: '16px' }}>

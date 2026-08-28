@@ -92,6 +92,8 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
 
   const months = data.remainingMonths;
   const branchProjected = projectBranch(branch, months);
+  /* Nadie con este branch en su roster: tiene cerrados y no proyecta. Ver vista 1. */
+  const projectsNothing = !branch.loanOfficers.some((l) => l.primaryBranch === branch.branchCode);
   const colCount = 5 + months.length;
 
   function toggle(key: number) {
@@ -293,6 +295,18 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
         </table>
       </div>
 
+      {/*
+        Igual que en la vista 1: se EXPLICA, no se calcula distinto. Una fila con
+        cerrados y proyección en cero, sin texto, se reporta como bug.
+      */}
+      {projectsNothing && branch.ytd > 0 && (
+        <div className="bp-notice" style={{ marginTop: '14px' }}>
+          <b>{branch.branchCode} no proyecta.</b> Sus {branch.ytd} cerrados del año son reales, pero ningún Loan Officer
+          tiene este branch en su roster — y la proyección se carga al branch del roster de cada persona, porque es un
+          número por persona y no por préstamo. <b>A quién pertenece este presupuesto está pendiente de definir.</b>
+        </div>
+      )}
+
       <div className="foot-note" style={{ marginTop: '14px' }}>
         <b>La jerarquía es el cálculo</b>: un realtor NPPM suma a la estrategia NPPM, que suma al Loan Officer, que suma
         al branch. La producción de un realtor <b>no se cuenta dos veces</b> — su fila es el detalle de la de NPPM, no un
@@ -301,7 +315,9 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
         <b>Own Production</b> se lee de <code>org.employee_benchmark</code> y se sigue editando en el perfil del Business
         Plan.{' '}
         <b>El mes actual por estrategia</b> dice <code>—</code> porque Forecast proyecta sobre el pipeline, que no lleva
-        la estrategia consigo; repartir el total por peso del YTD sería inventarlo.{' '}
+        la estrategia consigo; repartir el total por peso del YTD sería inventar un número que parece dato. Queda como
+        etapa propia: <code>pipeline_loans</code> guarda los cinco crudos desde F6b y{' '}
+        <code>lib/pipeline/strategy.ts</code> ya sabe clasificarlos, así que es derivable sin inventar nada.{' '}
         <b>Cada celda proyectada</b> trae su cuenta completa en el tooltip: benchmark, regla que aplicó, períodos y
         resultado.
       </div>
