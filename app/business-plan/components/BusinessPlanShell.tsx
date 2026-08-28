@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Fragment } from 'react';
 import ModuleSidebar from './ModuleSidebar';
 import type { Crumb } from './Breadcrumbs';
+import { useBusinessPlanDataContext } from '@/lib/business-plan/BusinessPlanDataContext';
 
 /**
  * ============================================================================
@@ -58,6 +59,13 @@ import type { Crumb } from './Breadcrumbs';
  * Consecuencia conocida: las migas se registran en un efecto, así que no salen
  * en el HTML del servidor y aparecen al hidratar. Es invisible en la práctica
  * porque el cuerpo de estas páginas también se arma en el cliente.
+ *
+ * REFRESCAR (etapa BUSINESS-PLAN-1)
+ * ----------------------------------
+ * Vive acá, en la misma fila que el breadcrumb, y no dentro de cada página:
+ * es una acción sobre el caché de módulo entero (`invalidateBusinessPlanData()`
+ * vía `reload()`), no algo propio de Portfolio/Branch/LO. Ponerlo acá lo hace
+ * visible en las tres pantallas migradas sin repetir el botón tres veces.
  */
 
 /** El setter viaja por context; `Breadcrumbs` lo consume y no pinta nada. */
@@ -93,6 +101,23 @@ function CrumbBar({ items }: { items: Crumb[] }) {
   );
 }
 
+/** Invalida el caché de módulo y vuelve a cargar, sin recargar la página ni
+ *  perder el estado de navegación (búsqueda, selección, tab abierto). */
+function RefreshDataButton() {
+  const { isLoading, reload } = useBusinessPlanDataContext();
+  return (
+    <button
+      type="button"
+      className="bp-btn bp-btn--small bp-refresh-btn"
+      onClick={reload}
+      disabled={isLoading}
+      title="Reload roster and pipeline data for the whole module"
+    >
+      {isLoading ? 'Refreshing…' : 'Refresh data'}
+    </button>
+  );
+}
+
 export default function BusinessPlanShell({ children }: { children: ReactNode }) {
   const [crumbs, setCrumbs] = useState<Crumb[]>([]);
 
@@ -107,7 +132,10 @@ export default function BusinessPlanShell({ children }: { children: ReactNode })
         <div className="bp-columns">
           <ModuleSidebar />
           <div className="bp-workspace">
-            <CrumbBar items={crumbs} />
+            <div className="bp-crumbs-row">
+              <CrumbBar items={crumbs} />
+              <RefreshDataButton />
+            </div>
             {children}
           </div>
         </div>

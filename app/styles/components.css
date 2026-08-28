@@ -70,6 +70,10 @@
   background: var(--slate-50);
   border-color: var(--slate-300);
 }
+.btn:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 1px;
+}
 .btn svg {
   width: 15px;
   height: 15px;
@@ -175,6 +179,24 @@ input[type='file'] {
 .seg button.on:hover {
   color: #fff;
 }
+.seg button:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 1px;
+}
+
+/*
+ * .tab-btn: su definición base NO vive en este archivo -- vive en
+ * app/pipeline/styles/forecast-visual.css (tabs de sub-navegación de
+ * Forecast, TabNavigation.tsx). Se agrega la regla de foco acá porque el
+ * alcance de este fix se limitó explícitamente a components.css -- CSS no
+ * exige que un selector y sus reglas vivan en el mismo archivo, así que
+ * funciona igual. Si se reorganiza forecast-visual.css más adelante, esta
+ * regla debería moverse junto a las demás de .tab-btn.
+ */
+.tab-btn:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 1px;
+}
 
 /* ---- Inputs / selects redondeados ---- */
 
@@ -219,6 +241,10 @@ select.field {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+.pill:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 1px;
 }
 .pill.warn {
   background: var(--rose-50);

@@ -2,7 +2,7 @@
 
 import { useMemo, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
-import { useBusinessPlanData } from '@/lib/business-plan/useBusinessPlanData';
+import { useBusinessPlanDataContext } from '@/lib/business-plan/BusinessPlanDataContext';
 import { serializeKeys } from '@/lib/business-plan/group';
 import Breadcrumbs from '../../components/Breadcrumbs';
 import {
@@ -40,7 +40,7 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
   const branchCode = decodeURIComponent(code);
 
   const router = useRouter();
-  const { data, isLoading, error } = useBusinessPlanData();
+  const { data, isLoading, error } = useBusinessPlanDataContext();
   const [search, setSearch] = useState('');
   /*
    * Etapa BP23. Un `Set` de claves y no un flag por fila: la selección tiene

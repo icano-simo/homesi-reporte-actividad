@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { PipelineLoan, ResolvedLoan } from '@/lib/pipeline/types';
 
 export interface AdverseTableProps {
@@ -16,9 +16,17 @@ export interface AdverseTableProps {
    * todavía no llegó la respuesta del endpoint (no confundir con null).
    */
   firstSeenAsAdverse?: Record<string, string | null>;
+  /**
+   * Etapa EXCEL-6: mismo patrón que `onActiveStrategyFilterChange` de
+   * PivotTable.tsx (EXCEL-1) -- notifica a page.tsx qué canal está activo
+   * en el `<select>` de acá abajo, para que `handleExport()` pueda acotar
+   * el detalle del Excel al mismo canal cuando se descarga desde esta
+   * pestaña. `'all'` significa "sin filtro".
+   */
+  onChannelFilterChange?: (channel: ChannelFilter) => void;
 }
 
-type ChannelFilter = 'all' | PipelineLoan['channel'];
+export type ChannelFilter = 'all' | PipelineLoan['channel'];
 
 function fmtAmount(n: number): string {
   return n.toLocaleString('en-US', { maximumFractionDigits: 0 });
@@ -47,8 +55,25 @@ function fmtAmount(n: number): string {
  * llega acá ya viene acotado con ese criterio nuevo -- este componente no
  * lo vuelve a aplicar, solo lo muestra.
  */
-export default function AdverseTable({ resolvedLoans, forecastMonthLabel, firstSeenAsAdverse }: AdverseTableProps) {
+export default function AdverseTable({
+  resolvedLoans,
+  forecastMonthLabel,
+  firstSeenAsAdverse,
+  onChannelFilterChange,
+}: AdverseTableProps) {
   const [channelFilter, setChannelFilter] = useState<ChannelFilter>('all');
+
+  /*
+   * ⚠ Mismo motivo que el cleanup de PivotTable (EXCEL-1): page.tsx solo
+   * renderiza AdverseTable en el tab `adverse`. El botón Download Excel es
+   * global. Sin el reset al desmontar, elegir un canal acá y cambiar de
+   * tab dejaría el export filtrado a un canal sin ningún control visible
+   * que lo explique.
+   */
+  useEffect(() => {
+    onChannelFilterChange?.(channelFilter);
+    return () => onChannelFilterChange?.('all');
+  }, [channelFilter, onChannelFilterChange]);
 
   const adverseLoans = resolvedLoans.filter((loan) => loan.status === 'adverse');
   const filtered = channelFilter === 'all' ? adverseLoans : adverseLoans.filter((loan) => loan.channel === channelFilter);

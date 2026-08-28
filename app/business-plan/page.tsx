@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useBusinessPlanData } from '@/lib/business-plan/useBusinessPlanData';
+import { useBusinessPlanDataContext } from '@/lib/business-plan/BusinessPlanDataContext';
 import Breadcrumbs from './components/Breadcrumbs';
 import { CalcNote, ErrorState, KpiCard, LoadingState } from './components/shared';
 
@@ -34,7 +34,7 @@ function branchHref(code: string): string {
 
 export default function BranchPortfolioPage() {
   const router = useRouter();
-  const { data, isLoading, error } = useBusinessPlanData();
+  const { data, isLoading, error } = useBusinessPlanDataContext();
   const [loSearch, setLoSearch] = useState('');
 
   const visibleBranches = useMemo(() => {

@@ -252,6 +252,9 @@ export default function TabMilestoneMatrix({
         loanType: loan.loanType,
         loanProgram: loan.loanProgram,
         noteHistory: loan.noteHistory,
+        // Etapa PROPERTY-STATE-1: fuera del alcance de archivos declarado,
+        // mecánicamente inevitable -- ver el comentario en PivotTable.tsx.
+        propertyState: loan.propertyState,
       })),
     });
   }

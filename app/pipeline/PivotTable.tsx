@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import type { PipelineLoan, ResolvedLoan } from '@/lib/pipeline/types';
 import {
   STRATEGY_ORDER,
@@ -58,9 +58,26 @@ export interface PivotTableProps {
    * mismo que el bloque de abajo ya muestra.
    */
   selectedBranch: string;
+  /**
+   * Etapa EXCEL-1: notifica al padre (page.tsx) cuál estrategia está
+   * activa en el conmutador `By branch`/`By strategy`, para que
+   * `handleExport()` sepa si debe filtrar el Excel -- `null` significa
+   * "sin filtro" (vista `branch`, o vista `strategy` con la píldora en
+   * `All`), un `Strategy` significa "solo esa estrategia". Se pasa ya
+   * resuelto (no `view`/`pill` crudos) para no duplicar en page.tsx la
+   * lógica de `byStrategy` de acá abajo -- un solo lugar decide qué
+   * cuenta como "hay filtro". No cambia nada de la lógica interna de
+   * este componente, solo expone el resultado ya calculado.
+   */
+  onActiveStrategyFilterChange?: (strategy: Strategy | null) => void;
 }
 
-interface BranchRow {
+/**
+ * Etapa EXCEL-6: exportada tal cual, sin mover a lib/pipeline/ (decisión
+ * ya tomada, no reestructurar) -- page.tsx la necesita para la hoja de
+ * resumen por estrategia del Excel.
+ */
+export interface BranchRow {
   branch: string;
   channel: PipelineLoan['channel'];
   closedCount: number;
@@ -116,7 +133,8 @@ interface BranchRow {
  * Mismos campos que `BranchRow`, porque es el MISMO dato abierto: la vista por
  * estrategia no calcula nada nuevo, reparte lo que ya está calculado.
  */
-interface StrategyRow {
+/** Etapa EXCEL-6: exportada -- mismo motivo que BranchRow, arriba. */
+export interface StrategyRow {
   strategy: Strategy;
   closedCount: number;
   totalCount: number;
@@ -185,7 +203,12 @@ const EMPTY_FORECAST_BUCKETS: ForecastByBucket = { Started: 0, Processing: 0, Un
 
 const UNASSIGNED_MANAGER = '(unassigned)';
 
-function addSubtotal(a: BlockSubtotal, b: BranchRow | BlockSubtotal): BlockSubtotal {
+/**
+ * `StrategyRow` se agrega a la unión (etapa SUBTOTAL-FIX-1) porque tiene los
+ * mismos 8 campos numéricos que `BranchRow`/`BlockSubtotal` -- reusa esta
+ * misma función para sumar filas de estrategia en vez de duplicar la suma.
+ */
+function addSubtotal(a: BlockSubtotal, b: BranchRow | BlockSubtotal | StrategyRow): BlockSubtotal {
   return {
     closedCount: a.closedCount + b.closedCount,
     totalCount: a.totalCount + b.totalCount,
@@ -196,6 +219,33 @@ function addSubtotal(a: BlockSubtotal, b: BranchRow | BlockSubtotal): BlockSubto
     closingRawCount: a.closingRawCount + b.closingRawCount,
     totalForecast: a.totalForecast + b.totalForecast,
   };
+}
+
+/**
+ * Etapa SUBTOTAL-FIX-1 -- bug real reportado por Isa con captura: en la vista
+ * `By strategy` con una píldora activa, "Subtotal Banked - Retail"/"Subtotal
+ * Brokered" mostraban el total de TODAS las estrategias (`block.subtotal`,
+ * calculado una sola vez sobre `branchRows` sin filtrar, ver
+ * `buildChannelBlocks`) en vez de solo la estrategia elegida -- mientras las
+ * filas individuales de arriba sí filtraban bien (`shownStrategyRows`).
+ *
+ * Mismo criterio de filtro que `shownStrategyRows`: `row.strategyRows`
+ * filtradas por `pill`, sumadas con `addSubtotal` -- misma fuente de datos
+ * que ya alimenta las filas visibles, ningún cálculo nuevo. La condición
+ * `totalCount > 0 || closedCount > 0` de `shownStrategyRows` NO hace falta
+ * acá: es solo para no dibujar una fila vacía, y una fila en cero no cambia
+ * una suma.
+ *
+ * `byStrategy`/`pill === 'All'` siguen devolviendo `block.subtotal` tal cual
+ * -- ese es el comportamiento correcto para `By branch` y para la píldora
+ * "All" (el total sin filtrar es justamente lo que esas dos vistas piden
+ * mostrar), sin cambio.
+ */
+function blockSubtotalForView(block: ChannelBlock, byStrategy: boolean, pill: Strategy | 'All'): BlockSubtotal {
+  if (!byStrategy || pill === 'All') return block.subtotal;
+  return block.rows
+    .flatMap((row) => row.strategyRows.filter((sr) => sr.strategy === pill))
+    .reduce(addSubtotal, EMPTY_SUBTOTAL);
 }
 
 function fmtInt(n: number): string {
@@ -314,7 +364,8 @@ function buildOrphanBranchRows(
  * Todo lo demás son CONTEOS ENTEROS -- total, healthy, closed, CTC, Closing --
  * y esos son aditivos por construcción: no hace falta apocionar nada.
  */
-function buildStrategyRows(
+/** Etapa EXCEL-6: exportada -- mismo motivo que BranchRow/StrategyRow, arriba. */
+export function buildStrategyRows(
   branchForecastRow: BranchForecastRow,
   closedLoansForBranch: ResolvedLoan[],
   dateRange: DateRange,
@@ -434,7 +485,13 @@ function buildStrategyRows(
   return rows;
 }
 
-function buildBranchRows(
+/**
+ * Etapa EXCEL-6: exportada -- page.tsx la llama una segunda vez (mismos
+ * argumentos que ya usa para construir el prop `rows` de `<PivotTable>`)
+ * para armar la hoja de resumen por estrategia del Excel, sin reimplementar
+ * el cálculo del pivot.
+ */
+export function buildBranchRows(
   rows: BranchForecastRow[],
   resolvedLoans: ResolvedLoan[],
   dateRange: DateRange,
@@ -584,6 +641,11 @@ function openLoanToModalLoan(loan: PipelineLoan): LoanDetailModalLoan {
     loanType: loan.loanType,
     loanProgram: loan.loanProgram,
     noteHistory: loan.noteHistory,
+    // Etapa PROPERTY-STATE-1: fuera del alcance de archivos declarado de esa
+    // etapa, pero mecánicamente inevitable -- LoanDetailModalLoan.propertyState
+    // es requerido, así que los 3 constructores de este tipo (los 2 de este
+    // archivo + el de TabMilestoneMatrix.tsx) necesitan la línea o tsc falla.
+    propertyState: loan.propertyState,
   };
 }
 
@@ -637,7 +699,7 @@ function formatCtcClosingTooltip(loans: PipelineLoan[]): string | undefined {
  * trae la columna. rawHealthiness se OMITE a propósito: un préstamo ya cerrado
  * no tiene un estado de salud vigente, y el modal muestra '—' cuando falta.
  */
-function closedLoanToModalLoan(loan: ResolvedLoan): LoanDetailModalLoan {
+export function closedLoanToModalLoan(loan: ResolvedLoan): LoanDetailModalLoan {
   return {
     sourceLoanId: loan.sourceLoanId,
     // Etapa F6: crudos para el realtor del NPPM. Ver LoanDetailModalLoan.
@@ -651,10 +713,21 @@ function closedLoanToModalLoan(loan: ResolvedLoan): LoanDetailModalLoan {
     channel: loan.channel,
     amount: loan.amount,
     rawMilestone: loan.rawMilestone || 'Closed (Funded)',
-    branchTransferred: loan.branchTransferred,
+    // Etapa EXCEL-5: `LoanDetailModalLoan.branchTransferred` sigue siendo
+    // `boolean | undefined` (el chip solo renderiza en el caso `true`, no
+    // distingue "confirmado false" de "no se sabe" -- nunca necesitó un
+    // tercer estado). Se convierte `null` -> `undefined` acá, SOLO para
+    // calzar con ese tipo -- `false` real sigue viajando como `false`, sin
+    // tocar. No es lo mismo que colapsar a `false`: el chip ya se
+    // comportaba igual para null/undefined/false (no se muestra en
+    // ninguno de los 3), así que no hay ninguna distinción real que se
+    // pierda en este consumidor puntual.
+    branchTransferred: loan.branchTransferred ?? undefined,
     loanType: loan.loanType,
     loanProgram: loan.loanProgram,
     noteHistory: loan.noteHistory,
+    // Etapa PROPERTY-STATE-1: ver el comentario de openLoanToModalLoan arriba.
+    propertyState: loan.propertyState,
   };
 }
 
@@ -1095,6 +1168,7 @@ export default function PivotTable({
   branchManagers,
   knownBranches,
   selectedBranch,
+  onActiveStrategyFilterChange,
 }: PivotTableProps) {
   const [modal, setModal] = useState<ModalState | null>(null);
 
@@ -1126,6 +1200,27 @@ export default function PivotTable({
   const isAllBranches = selectedBranch === 'ALL';
   const showStrategyControls = isAllBranches && strategyAvailable;
   const byStrategy = showStrategyControls && view === 'strategy';
+
+  /**
+   * Etapa EXCEL-1: `null` si no hay filtro real que aplicar (vista
+   * `branch`, o vista `strategy` con la píldora en `All`) -- solo un
+   * valor de `Strategy` cuenta como filtro activo para el export.
+   */
+  const activeStrategyFilter: Strategy | null = byStrategy && pill !== 'All' ? pill : null;
+
+  /*
+   * ⚠ La limpieza al desmontar (`return () => ...null`) no es opcional --
+   * page.tsx solo renderiza PivotTable en el tab `executive` (ver
+   * `activeTab === 'executive'` en page.tsx). El botón Download Excel es
+   * global a la página, visible en cualquier tab. Sin este reset, elegir
+   * una píldora acá y después cambiar a otro tab dejaría el export
+   * filtrado a una sola estrategia sin ningún control visible en pantalla
+   * que lo explique -- un filtro "fantasma".
+   */
+  useEffect(() => {
+    onActiveStrategyFilterChange?.(activeStrategyFilter);
+    return () => onActiveStrategyFilterChange?.(null);
+  }, [activeStrategyFilter, onActiveStrategyFilterChange]);
 
   /** Las estrategias que existen en los datos visibles, para las píldoras. */
   const strategiesPresent = STRATEGY_ORDER.filter((st) =>
@@ -1389,11 +1484,19 @@ export default function PivotTable({
 
       {/* Spec §4C.2: grilla de 2 columnas, un canal por columna. */}
       <div className="channel-grid">
-        {blocks.map((block) => (
+        {blocks.map((block) => {
+          /*
+           * Etapa SUBTOTAL-FIX-1: una sola vez por bloque, se usa tanto en la
+           * píldora "N in pipeline" del header como en la fila Subtotal de
+           * abajo -- misma fuente, para que las dos nunca puedan mostrar
+           * números distintos entre sí.
+           */
+          const effectiveSubtotal = blockSubtotalForView(block, byStrategy, pill);
+          return (
           <div className="tbl-card" key={block.channel}>
             <div className="tbl-card__head">
               <span className="tbl-card__title">{block.channel}</span>
-              <span className="badge badge--pill badge--sky">{fmtInt(block.subtotal.totalCount)} in pipeline</span>
+              <span className="badge badge--pill badge--sky">{fmtInt(effectiveSubtotal.totalCount)} in pipeline</span>
             </div>
             <div className="tbl-scroll">
               <table className="piv piv--exec">
@@ -1452,7 +1555,7 @@ export default function PivotTable({
                       </td>
                     </tr>
                   )}
-                  <ExecTotalRow label={'Subtotal ' + block.channel} subtotal={block.subtotal} />
+                  <ExecTotalRow label={'Subtotal ' + block.channel} subtotal={effectiveSubtotal} />
                 </tbody>
               </table>
             </div>
@@ -1465,7 +1568,8 @@ export default function PivotTable({
               </p>
             )}
           </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="tbl-card" style={{ marginTop: '20px' }}>

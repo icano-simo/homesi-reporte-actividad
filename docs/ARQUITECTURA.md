@@ -3639,3 +3639,2624 @@ garantice "un solo `month_open` por mes". La clave sería el mes derivado de
 `data_as_of at time zone 'America/Chicago'`, y esa conversión es `STABLE`, no
 `IMMUTABLE` — Postgres no la indexa. La invariante se comprueba con una consulta
 de verificación en lugar de imponerse con un índice.
+
+---
+
+## Etapa F7, Parte 1 — 4ta pestaña Analytics: selector de período + rankings de Programa y Tipo
+
+Nueva pestaña "Analytics" en Forecast & Pipeline, junto a Projected Forecast,
+Pipeline by Milestone y Adverse Loans. Solo lectura sobre
+`pipeline_forecast.pipeline_resolved_loans` (snapshot activo), `status =
+'funded'`. No toca ninguna regla de cálculo existente -- pull-through,
+Healthy, Adverse y las estrategias comerciales quedan idénticos.
+
+### Sin consulta nueva a Supabase
+
+`resolvedLoans` ya vive en el estado del cliente (`/api/pipeline/latest`,
+mismo array que ya consumen `PivotTable`/`AdverseTable`) -- la pestaña nueva
+reutiliza `filteredResolvedLoans` (ya acotado por el branch seleccionado) y
+filtra por `status === 'funded'` + `disbursementDate` en el cliente. Ningún
+archivo nuevo habla con Supabase.
+
+### Selector de período (`lib/pipeline/period.ts`)
+
+Tres modos -- Mes / Quarter / Año a la fecha (`PeriodMode`) -- diseñado para
+reusarse en las etapas F7 siguientes (scorecards, tendencias), no solo en
+esta pestaña. Default: mes en curso, derivado con `getUTCFullYear`/
+`getUTCMonth`/`getUTCDate` -- nunca los métodos locales (`getFullYear`/
+`getMonth`), a propósito: el equipo opera en UTC-5 y un cálculo en hora local
+puede desplazar el mes cerca de medianoche (misma regla ya aplicada en el
+parser, `lib/pipeline/sources/salesforce-file.ts`).
+
+"Año a la fecha" corta siempre en el día de hoy (UTC) cuando el año elegido
+es el año en curso -- es lo que significa "a la fecha", no el año completo.
+
+### Historial real -- verificado contra el snapshot activo
+
+Consulta de solo lectura (`service_role`, mismo criterio que auditorías
+anteriores) contra el snapshot activo (id 72 al momento de esta etapa,
+`data_as_of` 2026-08-24):
+
+- **450** préstamos funded en total (de 781 filas en `pipeline_resolved_loans`).
+- `disbursementDate` más antigua: **2025-09-04**. Más reciente: **2026-08-21**.
+
+Si el período pedido empieza antes de esa fecha más antigua, la pantalla
+muestra un mensaje explícito (`.pill.warn`) aclarando que el total no cubre
+el período completo pedido -- nunca un total incompleto disfrazado de
+completo. Con el default (mes en curso, agosto 2026) esto no se dispara,
+porque agosto 2026 es posterior a la fecha más antigua disponible.
+
+### Rankings -- números reales del snapshot activo, no los de referencia del brief
+
+El brief citaba cifras de un archivo de referencia distinto (F30EEP 167, C30
+142, F30 122, B30ACC 65; Conventional 512, FHA 361, VA 7,
+FarmersHomeAdministration 2, HELOC 1) -- **no coinciden con el snapshot
+activo real**, tal como el propio brief anticipaba que podía pasar. Contra
+los 450 funded de todo el historial disponible en este snapshot:
+
+**Loan Program** (top 4, mismo orden relativo que el brief):
+F30EEP 100 · C30 90 · F30 73 · B30ACC 25 (51 programas distintos en total,
+ninguno vacío en este snapshot).
+
+**Loan Type**: Conventional 228 · FHA 215 · VA 6 · FarmersHomeAdministration 1
+(sin HELOC en este snapshot -- 0, no un error, simplemente no hay ninguno
+cargado hoy).
+
+Los dos rankings suman exactamente 450 en ambos casos -- coincide con el
+total de funded del período, verificado explícitamente (y con un
+`console.warn` de red de seguridad en desarrollo si alguna vez no coincidiera,
+mismo criterio que el desglose CTC/Closing).
+
+### `loanProgram`/`loanType` vacío -> agrupado, nunca descartado
+
+El brief solo pedía el placeholder `"Sin programa"` para `loan_program`
+vacío; se aplicó el mismo criterio a `loan_type` (`"Sin tipo"`) por simetría
+y para no descartar en silencio un loan sin ese dato -- decisión propia de
+esta etapa, no un pedido explícito del brief. En el snapshot verificado
+ninguno de los dos campos vino vacío, así que esta rama de código no se
+ejercitó con datos reales todavía.
+
+### Diseño
+
+Cero hexadecimales nuevos, cero `font-mono` -- reusa `table.piv`/`.tbl-card`/
+`.seg`/`.field`/`.pill`/`.label-chip` ya existentes en `components.css`
+(compartido, no se tocó ese archivo). Inter + `tabular-nums` ya son globales
+desde `base.css`, no hizo falta CSS nuevo para eso.
+
+### Archivos
+
+Solo dentro del alcance declarado: `lib/pipeline/period.ts` y
+`lib/pipeline/analytics.ts` (nuevos, puros, sin UI ni Supabase),
+`app/pipeline/PeriodSelector.tsx` y `app/pipeline/TabAnalytics.tsx` (nuevos),
+`app/pipeline/TabNavigation.tsx` y `app/pipeline/page.tsx` (editados -- un
+tab más en la lista existente, sin tocar los otros tres). Nada fuera de
+`app/pipeline/**`/`lib/pipeline/**`.
+
+---
+
+## F7 — decisión de acceso a `org` desde Forecast (pendiente de confirmación de quien administra infraestructura)
+
+F7 es el primer consumidor de `org.dim_branch`/`org.employee_alias` dentro
+de `app/pipeline/**`. La auditoría anterior ("Auditoría — Unificación de
+branches/managers", más arriba en este documento) había pausado la
+migración de las tres pestañas YA EXISTENTES (Projected Forecast, Milestone,
+Adverse) hacia `org`, dejándola como etapa aparte. **Esta decisión no
+cambia eso** -- las tres pestañas existentes siguen leyendo
+`pipeline_forecast.branches`/`branch_managers` exactamente igual, sin
+tocarse. Lo que decide es, específicamente, cómo debe leer `org` la
+pestaña NUEVA (Analytics/F7), que no reemplaza ni comparte código con esa
+lectura existente.
+
+**Decidido, sujeto a revisión:**
+
+- **Patrón client-side existente**, no uno nuevo: `getSupabaseClient().schema('org')`
+  -- el mismo mecanismo que ya usa `getForecastDb()` para leer
+  `pipeline_forecast` (`lib/supabase/client.ts`, sin editar). Confirmado en
+  la auditoría complementaria: el cliente devuelto por `getSupabaseClient()`
+  ya expone `.schema(string)` sin restricción de tipo, así que `'org'`
+  funciona hoy sin tocar ese archivo.
+- **No se toca `lib/supabase/server.ts` ni `app/api/pipeline/**`** -- la
+  variante server-side (`getServerClient`) tiene el `schema` restringido a
+  `'activity_report' | 'pipeline_forecast'`, y ampliarla quedaría fuera del
+  alcance de archivos de F7. Se evita ese camino en vez de ampliarlo.
+- **Reusar `buildAliasIndex`/`buildExcludedIndex`** de
+  `lib/business-plan/aliasIndex.ts` vía import directo -- es lógica pura
+  (sin Supabase, sin acoplamiento a Business Plan más allá de sus propios
+  tipos), y no se modifica ese archivo. Es una dependencia cruzada entre
+  módulos (`lib/pipeline/**` importando de `lib/business-plan/**`) que hoy
+  no existe en el repo -- nueva, pero no requiere tocar ningún archivo fuera
+  del alcance declarado de F7.
+
+**Lo que esta decisión explícitamente NO resuelve:** si las tres pestañas
+existentes deberían migrar de `pipeline_forecast.branches`/`branch_managers`
+a `org` -- eso sigue siendo la recomendación ya registrada en la auditoría
+anterior ("a largo plazo Forecast debería leer de `org`"), y sigue
+pendiente de una decisión de negocio explícita antes de tocar esas tres
+pestañas, y antes de mergear cualquier cambio de F7 a `main`.
+
+---
+
+## Etapa F7, Parte 2 — Scorecards por Branch, Loan Officer y Business Developer
+
+Implementa el patrón decidido en la Parte 1 de arriba. `lib/pipeline/scorecards.ts`
+(nuevo, puro) agrupa `resolvedLoans` ya filtrado a `status='funded'` +
+período por `key` resuelto -- `branch_code` para Branch, `employee_key`
+para Loan Officer/Business Developer -- nunca por el nombre crudo, y nunca
+comparando nombres con `===`. `app/pipeline/useOrgRoster.ts` (nuevo, `'use
+client'`) hace el único fetch a `org` (dim_branch, dim_employee,
+employee_alias, source_name_excluded) una sola vez por sesión de la
+pestaña, vía `getSupabaseClient().schema('org')` -- mismo mecanismo que
+`getForecastDb()`, sin tocar `lib/supabase/client.ts`.
+
+### No hay columna "Opportunity Owner" separada -- es la misma `loan_officer`
+
+Verificado contra el parser (`lib/pipeline/sources/salesforce-file.ts`) y
+contra el esquema real de `pipeline_resolved_loans` (columnas completas de
+una fila real, snapshot activo): no existe ningún campo de nombre de
+"Opportunity Owner" distinto de `loan_officer` -- la columna cruda del
+export se llama literalmente "Loan Officers" (plural), y es el mismo dato
+que ya usa Business Plan para resolver alias. Por eso los scorecards de
+Loan Officer y Business Developer resuelven el mismo campo
+(`resolvedLoans.loanOfficer`) contra `org.employee_alias` con
+`source_system = 'salesforce'` -- Business Developer además filtra por
+`opportunityOwnerTitle === 'Business Developer'` (comparación exacta,
+mismo criterio que ya usa `lib/pipeline/strategy.ts` para B2B, sin
+reinterpretar esa regla).
+
+### "sf integrations" -- no aparece en el snapshot activo real
+
+El brief pedía confirmar cuántos de los 450 funded tienen Opportunity Owner
+= "sf integrations". Verificado con SELECT de solo lectura
+(`service_role`) contra `pipeline_resolved_loans` del snapshot activo (id
+72): **0 filas** -- ni entre los funded, ni entre los abiertos, ni entre
+los resueltos de cualquier status, con o sin distinción de mayúsculas. No
+es un error del código: hoy no hay ningún préstamo cargado con ese valor.
+El mecanismo de exclusión (`buildExcludedIndex`, vía `org.source_name_excluded`)
+queda implementado igual y correctamente para cuando SÍ aparezca -- mismo
+caso que F6b documentó para las branches 711/777 ("la regla está escrita y
+probada por código pero no ejercitada con datos reales").
+
+⚠ **Límite real de esta verificación (desde este entorno, fuera del
+navegador):** el schema `org` devuelve `42501 permission denied` incluso
+con `service_role` (RLS exige sesión `authenticated` con el claim
+`commercial_activity`, confirmado ya en la auditoría de unificación de
+branches/managers) -- no se pudo ejecutar `buildAliasIndex`/
+`buildExcludedIndex` contra datos reales de `org` por esa vía. El código sí
+corre correctamente en el navegador con la sesión real de un usuario
+(mismo mecanismo que ya usa Business Plan en producción hoy) -- y quedó
+**confirmado en pantalla real**, ver abajo.
+
+### Verificación real en navegador (Heather, agosto 2026, 22 loans)
+
+- **Período:** August 2026, 22 loans funded -- coincide exacto con el
+  default del selector y con la query directa contra
+  `pipeline_resolved_loans` (snapshot activo id 72) hecha desde este
+  entorno.
+- **Caso Ana Peña -- confirmado visualmente, no solo por coincidencia de
+  nombre:** el nombre crudo "Ana Milena Zegarra" (branch 703) aparece
+  **resuelto como "Ana Peña"** en el scorecard real de Loan Officer. Es la
+  confirmación en pantalla de que `org.employee_alias` resuelve
+  correctamente el caso ya documentado en BP1 y en la auditoría de
+  unificación de branches/managers -- ya no es solo la coincidencia
+  circunstancial del nombre crudo, es la resolución real ejecutándose.
+- **"1 excluded as known non-person entries" -- identificado por
+  eliminación, NO por consulta directa a `org.source_name_excluded`
+  (sigue bloqueada fuera del navegador):** de los 22 loans de agosto, 21
+  aparecen resueltos en el scorecard; comparando esa lista contra los 14
+  nombres crudos distintos que trae la query directa de este mismo
+  documento (arriba), el nombre que falta es **"Anthony Ditoma"** (branch
+  733, `opportunity_owner_title` crudo = "Salesforce Developer").
+- **Anthony Ditoma es un Loan Officer real, confirmado por revisión
+  manual del reporte de Salesforce** -- tiene préstamos reales en branch
+  733 Y en branch 150 (incluido `150002070914`, funded, disbursement date
+  2026-08-18, ya visible en la query de este documento). No tiene
+  apariencia de cuenta de sistema ni de dato mal capturado, a diferencia
+  del ejemplo "sf integrations" del brief original.
+- **Sin confirmar, a propósito -- pregunta abierta:** el motivo por el que
+  "Anthony Ditoma" está registrado en `org.source_name_excluded` no se
+  verificó (acceso bloqueado fuera del navegador para esa tabla
+  específica). Como es un Loan Officer real y no una cuenta de sistema,
+  **esto puede ser un error de configuración en esa tabla** -- no se
+  documenta ningún motivo porque ninguno fue verificado, y no se asume que
+  excluirlo sea el comportamiento correcto. Queda pendiente de quien
+  administra el schema `org` antes de tratar esta exclusión como
+  intencional.
+
+### Caso real de nombre distinto entre fuentes: "Ana Milena Zegarra" (branch 703)
+
+28 filas reales en el snapshot activo tienen `loan_officer = 'Ana Milena
+Zegarra'` (branch 703, canal mixto) -- 9 de ellas con
+`opportunity_owner_title = 'Business Developer'`. Esta es la MISMA persona
+que la auditoría de unificación de branches/managers (arriba en este
+documento) ya identificó como el manager de 703: `pipeline_forecast`
+guarda "Ana Zegarra", `org` tiene el nombre canónico corregido "Ana Peña",
+y la Etapa BP1 documentó exactamente esta persona como el ejemplo de
+alias multi-fuente ("roster: Ana Zegarra (Peña) / salesforce: Ana Milena
+Zegarra / slquery: ANA ZEGARRA"). **Confirmado en pantalla real** (ver
+arriba) que `org.employee_alias` la resuelve como "Ana Peña" en el
+scorecard de Loan Officer.
+
+### Números reales (SIN resolver contra alias -- ver limitación de arriba)
+
+Contra los 450 funded del período por defecto (todo el historial
+disponible en este snapshot, id 72):
+
+**Branch** (22 branches, sin excepciones -- todo loan tiene branch):
+716 (59) · 747 (52) · 760 (48) · 733 (44) · Affinity (37) · 703 (34) ·
+724 (33) · 770 (22) · 913 (20) · 710 (19) · 707 (18) · 203 (16) · 728 (13)
+· 718 (10) · 741 (9) · 701 (6) · 776 (4) · 150 (2) · 225/276/771/700 (1 c/u).
+Suma = **450**, coincide exacto.
+
+**Loan Officer** (nombre CRUDO, antes de fusionar por alias -- 45 valores
+distintos + 1 vacío): Nathan Martinez (62) · Cristhian A Ramirez (44) ·
+Aimmee Buendia (34) · Ana Milena Zegarra (28) · Galo Rizzo Hinojosa (28) ·
+Mariano Claudio (27) · ... (41 más) · 1 con `loan_officer` vacío. Suma =
+**450**, coincide exacto. Una vez resuelto contra `org.employee_alias`
+(no ejecutable acá), algunos de estos 46 grupos crudos podrían fusionarse
+en una sola fila por persona -- ese es justo el propósito del scorecard.
+
+**Business Developer** (`opportunity_owner_title === 'Business
+Developer'`): 112 de 450 funded. Nombre crudo: Aimmee Buendia (23) ·
+Nathan Martinez (14) · Giancarlo Laino (13) · Ana Milena Zegarra (9) ·
+Mariano Claudio (8) · ... (18 más), 0 vacíos. Suma = **112**, coincide
+exacto con el total BD-titled.
+
+### Reconciliación
+
+Branch: suma de filas = 450 = total funded del período, sin excepción (el
+branch nunca es opcional). Loan Officer/Business Developer: la
+reconciliación real es `resolved + blank + excluded + unmapped =
+totalInput` (implementada en `PersonScorecardDiagnostics`, con
+`console.warn` de red de seguridad en dev si no cuadra) -- no
+`rows.length === totalInput`, porque un loan sin Loan Officer o con un
+nombre excluido/no mapeado no tiene fila propia a propósito. Con los
+números crudos de arriba (sin poder ejecutar la resolución real): 449
+tendrían nombre no vacío + 1 vacío = 450 para Loan Officer; 112 + 0 vacíos
+= 112 para Business Developer -- ambos cuadran ya en esta etapa previa a
+la resolución.
+
+### Archivos
+
+`lib/pipeline/scorecards.ts` (nuevo, puro) y `app/pipeline/useOrgRoster.ts`
+(nuevo, `'use client'`, único punto de acceso a `org` en todo
+`app/pipeline/**`). `app/pipeline/TabAnalytics.tsx` editado (scorecards
+agregados debajo de los rankings de la Parte 1). Ningún archivo de
+`lib/business-plan/**` se modificó -- `buildAliasIndex`/`buildExcludedIndex`/
+los tipos de `org` se importan tal cual.
+
+## Etapa F7, Parte 3 -- tendencias mensuales del año en curso
+
+Debajo de rankings y scorecards, en la misma pestaña Analytics: tres series
+mensuales del año en curso (2026 al momento de escribir esto) sobre
+`pipeline_resolved_loans` -- cierres por mes, monto cerrado por mes, y
+distribución por Loan Type mes a mes. A diferencia de la Parte 2, no
+depende de `org` ni de resolución de alias -- se puede construir y
+verificar completa desde este entorno.
+
+### Por qué mensual, nunca semanal, y por qué no hace falta un objeto `Date`
+
+`disbursement_date` en `ResolvedLoan.disbursementDate` ya es un string
+`'YYYY-MM-DD'`, nunca un objeto `Date`. Agrupar por mes es `slice(0, 7)`
+directo sobre ese string -- no existe conversión de huso horario posible
+porque el valor nunca pasa por `new Date(...)` ni por ningún método
+local/UTC de lectura de componentes. Esto es justo lo que la regla
+"siempre UTC" del proyecto busca evitar (desplazar un cierre de fin de mes
+al mes siguiente): acá el riesgo ni siquiera existe, por construcción. Lo
+único que sí necesita UTC explícito es saber cuál es "el año en curso" --
+`currentYear()` (en `lib/pipeline/trends.ts`) delega en `utcToday()`, la
+misma función ya usada en la Parte 1, nunca `new Date().getFullYear()`
+local.
+
+### Meses sin datos -- explícitos, nunca omitidos
+
+`buildMonthlyTotals`/`buildMonthlyTypeBreakdown` siempre devuelven las 12
+filas del año (`monthsOfYear(year)`), con `count: 0, amount: 0` explícito
+(o `byType: []`) para cualquier mes sin loans -- nunca un array más corto
+que 12. El componente de UI (`SimpleMonthlyChart`/`TypeBreakdownChart`)
+dibuja igual las 12 columnas del eje; una columna en 0 muestra una barra
+mínima de 1px, sin etiqueta de valor encima, y su tooltip agrega
+explícitamente `"(no data yet)"` -- nunca desaparece del eje ni se
+confunde visualmente con un mes que sí tiene datos pero es chico.
+
+⚠ **Aclaración de alcance frente al brief:** el brief usa "septiembre 2025"
+como ejemplo del borde del historial del snapshot activo (id 72, datos
+desde 2025-09 hacia atrás). Esa fecha es real, pero **no es parte de la
+serie de esta etapa**: la Parte 3 muestra únicamente el año en curso
+(2026), por regla explícita del propio brief ("año en curso"). Dentro de
+2026, el borde real de rango incompleto son los **meses futuros aún no
+ocurridos** (2026-09 a 2026-12, respecto al reloj del sistema al momento
+de esta verificación, 2026-08-24) -- esos son los que se renderizan en 0
+explícito, no septiembre 2025. Se documenta esta distinción para no dar a
+entender que se verificó un caso que en realidad no aplica a esta serie.
+
+### Resaltado del período seleccionado dentro de la serie completa
+
+`periodMonths()` (nuevo, en `lib/pipeline/period.ts`, junto al resto de la
+Parte 1) devuelve los meses `'YYYY-MM'` que cubre la selección activa del
+selector -- un mes para modo Month, tres para Quarter, y de enero al mes
+en curso (UTC) o hasta diciembre si el año ya cerró, para YTD (mismo
+criterio de corte que `periodDateRange`). `TabAnalytics` cruza esos meses
+contra el año de la serie (`trendsYear`) y les aplica una clase CSS
+(`.trend-chart__col--highlight`, color `var(--coral)`) sin quitar ni
+reemplazar ninguna de las 12 columnas -- el resaltado es un overlay visual
+sobre la serie completa, nunca un filtro que la reduzca.
+
+### Componente de charting -- no existía ninguno reusable en Forecast
+
+Se revisó `app/pipeline/**` completo (incluida `MilestoneCascade.tsx`,
+donde el único elemento gráfico es un ícono SVG de stage y una barra de
+progreso puramente CSS, no un componente de chart) y no existe ningún
+componente de series/barras reusable dentro de Forecast. El único
+precedente real en toda la app es `app/business-plan/components/
+MonthlyBarChart.tsx` (Business Plan) -- confirmado no reusable tal cual
+porque (a) su CSS (`.bp-chart*`) vive en `bp-visual.css`, que por
+convención del proyecto solo se importa desde `app/business-plan/
+layout.tsx` (mismo patrón de scoping que ya usa `forecast-visual.css` para
+Forecast, documentado en el propio comentario de cabecera de ese archivo),
+y (b) su lógica está acoplada a conceptos exclusivos de Business Plan
+(`CurrentMonthProjection`, apportionment en 3 segmentos). Se usó como
+**precedente arquitectónico**, no como componente importado: mismo
+criterio de "SVG/CSS a mano, sin librería de charts" (Recharts/Chart.js/D3
+nunca se agregaron al proyecto), aplicado en dos componentes nuevos y
+propios de Forecast (`SimpleMonthlyChart`, `TypeBreakdownChart`, dentro de
+`app/pipeline/TabAnalytics.tsx`), con su CSS en la sección nueva de
+`forecast-visual.css` (clases `.trend-chart*`, `.trend-seg`,
+`.trend-legend*`) -- mismo scoping, tokens de `app/styles/tokens.css`
+(`--navy`, `--coral`, `--emerald-700`, `--amber-500`, `--rose-700`,
+`--sky`, `--slate-400`), cero hexadecimales.
+
+### Números reales (snapshot activo id 72, verificado por SELECT de solo lectura)
+
+Funded total del snapshot (todo el historial, 2025-09 a 2026-08): **450**.
+Funded de 2026 (la serie de esta etapa): **332** -- suma de los 8 meses con
+datos (enero a agosto), los 4 restantes (septiembre a diciembre) en 0
+explícito por ser futuros.
+
+| Mes | Cierres | Monto |
+|---|---|---|
+| 2026-01 | 38 | 14,243,978 |
+| 2026-02 | 32 | 10,985,871 |
+| 2026-03 | 39 | 12,829,298 |
+| 2026-04 | 56 | 18,896,194 |
+| 2026-05 | 42 | 15,559,781 |
+| 2026-06 | 46 | 15,503,200 |
+| 2026-07 | 57 | 19,487,582 |
+| 2026-08 | 22 | 7,854,591 |
+| 2026-09 a 2026-12 | 0 c/u | 0 c/u |
+
+Fuera de la serie de esta etapa, para contexto (no forma parte del año en
+curso): 2025-09 (15) · 2025-10 (31) · 2025-11 (27) · 2025-12 (45) -- estos
+4 meses SÍ son datos reales del snapshot, simplemente no son 2026.
+
+### Reconciliación -- 332, no 450
+
+⚠ **El brief original pide reconciliar contra "el total de funded del
+snapshot completo (450)"**, pero esa misma instrucción escopa la Parte 3
+explícitamente a "año en curso" -- 450 es el total de TODO el historial
+(2025-09 a 2026-08), no del año en curso. El número correcto contra el que
+reconcilian los 12 meses de esta serie es **332** (suma real de enero a
+agosto 2026; septiembre-diciembre aportan 0 cada uno). Se documenta esta
+distinción en vez de forzar la serie a sumar 450, que habría requerido
+incluir meses de 2025 dentro de un gráfico rotulado "año en curso" --
+mezclando dos años bajo una sola etiqueta de forma engañosa. La suma de
+`buildMonthlyTotals(loans, 2026)` (12 filas) es exactamente 332,
+verificado tanto por query directa como por lectura del código.
+
+### Archivos
+
+`lib/pipeline/trends.ts` (nuevo, puro -- `buildMonthlyTotals`,
+`buildMonthlyTypeBreakdown`, `monthsOfYear`, `currentYear`).
+`lib/pipeline/period.ts` editado (agregado `periodMonths`, sin tocar nada
+existente de la Parte 1). `app/pipeline/TabAnalytics.tsx` editado (dos
+componentes de chart nuevos + sección de render debajo de scorecards).
+`app/pipeline/styles/forecast-visual.css` editado (sección nueva
+`.trend-chart*`/`.trend-seg`/`.trend-legend*`, con comentario de cabecera
+explicando por qué se justifica un componente nuevo en vez de reusar
+`MonthlyBarChart.tsx`). No requirió tocar `org`, `useOrgRoster.ts` ni
+`scorecards.ts`.
+
+## Etapa F7, Parte 4 -- Owner en el modal de detalle, extendiendo el patrón NPPM
+
+`LoanDetailModal.tsx` (`renderLoanRow`) ya mostraba, desde la Etapa F6, un
+sub-label debajo del prestatario con el realtor del NPPM (`NPPM Realtor`/
+`Referred by`, vía `nppmRealtors()`), condicionado a
+`classifyStrategy(loan) === 'NPPM'`. Esta parte extiende el mismo patrón
+visual a las demás estrategias, sin tocar el caso NPPM ni la lógica de
+`classifyStrategy`/`nppmRealtors` (`lib/pipeline/strategy.ts`, sin cambios).
+
+### Qué se agrega
+
+Un segundo bloque condicional, al lado del bloque NPPM ya existente (mismo
+`<td>`, mismo patrón `{condición && <span className="nppm-realtor">...}`,
+sin envolver ambos en una función compartida a propósito -- así el diff dejó
+las líneas del caso NPPM completamente intactas, byte a byte):
+
+```tsx
+{classifyStrategy(loan) === 'NPPM' &&
+  nppmRealtors(loan).map((r) => ( /* ... sin cambios ... */ ))}
+{classifyStrategy(loan) !== 'NPPM' &&
+  loan.opportunityOwnerTitle.trim() !== '' &&
+  loan.opportunityOwnerTitle.trim() !== loan.loanOfficer.trim() && (
+    <span className="nppm-realtor" title={'Owner: ' + loan.opportunityOwnerTitle.trim()}>
+      <span className="nppm-realtor__label">Owner</span>
+      {loan.opportunityOwnerTitle.trim()}
+    </span>
+  )}
+```
+
+Muestra `opportunityOwnerTitle` (el "Opportunity Owner: Title" crudo del
+export de Salesforce -- ej. "Business Developer" para B2B, o cualquier
+otro valor para Affinity/Recruitment/Own production) para cualquier
+préstamo que NO sea NPPM, con dos condiciones de guarda:
+
+1. **Vacío -> nada.** Mismo criterio que el bloque NPPM de arriba: sin
+   placeholder, sin celda "—" extra.
+2. **Igual a `loanOfficer` -> nada.** Evita mostrar el mismo valor dos
+   veces (la columna de Loan Officer ya está visible en la misma fila,
+   unas columnas más a la derecha). Verificado contra los 152 préstamos
+   reales de B2B del snapshot activo (id 72): **ningún caso** tiene
+   `opportunity_owner_title === loan_officer` hoy -- la guarda está
+   implementada pero no ejercitada por los datos actuales, mismo patrón
+   ya documentado para otras reglas de esta etapa (F6, branches
+   711/777; F7 Parte 2, "sf integrations").
+
+No se filtra ningún valor de owner por parecer "de sistema" -- se muestra
+tal cual viene, mismo criterio ya aplicado al caso "Anthony Ditoma" de la
+Parte 2 (mostrar el dato real, no asumir y ocultar).
+
+### Verificación con un préstamo real de B2B (snapshot activo id 72)
+
+```
+source_loan_id: 733002017035
+borrower_name: Bikiana Reyes Martinez
+loan_officer: Aimmee Buendia
+branch: 733 (no Affinity, no recruitment)
+strategy_raw: '' (no NPPM)
+opportunity_owner_title: Business Developer
+```
+
+`classifyStrategy` da `'B2B'` (branch no es Affinity/recruitment,
+`strategyRaw` no es 'NPPM', `opportunityOwnerTitle === 'Business
+Developer'`). El nuevo sub-label muestra `OWNER: Business Developer`
+debajo de "Bikiana Reyes Martinez" -- distinto del valor "Aimmee Buendia"
+que ya aparece en la columna de Loan Officer de esa misma fila, sin
+duplicación.
+
+### Reusó la clase CSS existente, sin variante nueva
+
+`.nppm-realtor`/`.nppm-realtor__label` (`forecast-visual.css`) se
+reutilizan sin cambios de regla -- solo se actualizó el comentario de
+cabecera para reflejar que ya no es exclusiva del realtor NPPM. Mismo
+tamaño, color y posición para el "Owner" que para "NPPM Realtor"/"Referred
+by".
+
+### Archivos
+
+`app/pipeline/LoanDetailModal.tsx` editado (bloque nuevo en
+`renderLoanRow`, caso NPPM sin tocar). `app/pipeline/styles/forecast-visual.css`
+editado (solo comentario, sin regla nueva). No se tocó
+`lib/pipeline/strategy.ts` (`classifyStrategy`/`nppmRealtors` sin cambios,
+como pedía el alcance).
+
+## Etapa F7, Parte 5 -- drill-down de rankings/scorecards hacia LoanDetailModal
+
+Cada fila de los 5 cortes de Analytics (Loan Program, Loan Type, Branch,
+Loan Officer, Business Developer) abre el mismo `LoanDetailModal` que ya
+usa `PivotTable.tsx`, con la lista real de préstamos detrás de esa fila.
+
+### Ningún cálculo se tocó -- solo se re-filtra la entrada que esas funciones ya reciben
+
+`buildRanking`/`toRows`/`buildPersonScorecard` (`lib/pipeline/analytics.ts`,
+`lib/pipeline/scorecards.ts`) siguen exactamente iguales -- ninguna
+devuelve la lista de loans detrás de cada fila, y no hacía falta que lo
+hicieran: `TabAnalytics.tsx` ya tiene `fundedInRange` (el mismo array que
+se les pasa) disponible en el momento del click, así que el drill-down
+re-filtra ese array con la misma clave que agrupó la fila, en vez de pedir
+que las funciones de agregación devuelvan el detalle.
+
+- **Programa/Tipo:** `(loan.loanProgram.trim() || 'Sin programa') === row.label`
+  (mismo para Tipo con `loanType`/`'Sin tipo'`) -- mismo criterio EXACTO de
+  `buildRanking` (`getRaw(loan).trim() || emptyLabel`). Los placeholders
+  `'Sin programa'`/`'Sin tipo'` están duplicados como constantes locales en
+  `TabAnalytics.tsx` (`DRILLDOWN_NO_PROGRAM_LABEL`/`DRILLDOWN_NO_TYPE_LABEL`)
+  porque `lib/pipeline/analytics.ts` no los exporta y ese archivo queda
+  fuera del alcance de archivos de esta etapa -- **riesgo anotado
+  explícito**: si el texto del placeholder cambia algún día en
+  `analytics.ts`, hay que actualizar esta copia a mano, no se detecta solo.
+- **Branch:** `loan.branch === row.key` -- directo, `ScorecardRow.key` de
+  `buildBranchScorecard` YA es el código crudo de branch (`byKey.set(code,
+  ...)`), sin alias de por medio.
+- **Loan Officer/Business Developer:** `row.key` es `String(employeeKey)`
+  RESUELTO (nunca el nombre crudo) -- el drill-down repite la misma
+  resolución que `buildPersonScorecard` (`aliasIndex.lookup('salesforce',
+  loan.loanOfficer.trim())`, comparando el `employeeKey` resultante contra
+  `row.key`) en vez de comparar nombres con `===`, cumpliendo la misma
+  regla dura ya documentada en la Parte 2. Business Developer aplica
+  además el mismo pre-filtro exacto de `buildBusinessDeveloperScorecard`
+  (`opportunityOwnerTitle === 'Business Developer'`) antes de resolver.
+
+### El período seleccionado se hereda gratis -- verificado, no asumido
+
+Los 5 cortes ya parten de `fundedInRange = fundedLoansInRange(resolvedLoans,
+periodDateRange(period))` (confirmado leyendo el código final, no solo
+citado del diagnóstico previo) -- el drill-down filtra ese mismo array, así
+que un clic en "F30EEP" con agosto seleccionado sólo puede traer loans de
+F30EEP en agosto. No hace falta ningún filtro de fecha adicional en el
+handler del click.
+
+### Mapeo a `LoanDetailModalLoan`: se exportó, no se reimplementó
+
+Único cambio a un archivo fuera de lo tocado hasta ahora en F7:
+`closedLoanToModalLoan()` en `PivotTable.tsx` pasó de función privada a
+`export function closedLoanToModalLoan(...)` -- ninguna otra línea de ese
+archivo cambió. `TabAnalytics.tsx` la importa tal cual, evitando duplicar
+el mapeo campo a campo `ResolvedLoan -> LoanDetailModalLoan` que ya existía
+y estaba verificado.
+
+### `context`/`metric` pasados al modal
+
+`metric` = nombre del corte de origen ("Loan Program", "Loan Type",
+"Branch", "Loan Officer", "Business Developer"). `context` = `row.label`
+tal cual (el texto ya visible en esa fila) -- para Branch esto es
+únicamente el código crudo (ej. "716"), sin nombre de sucursal enriquecido
+(ej. "Coral Gables"): ese enriquecimiento requeriría traer
+`branch_name`/ciudad desde `org.dim_branch`, y `useOrgRoster.ts` (que hoy
+sólo trae `branch_code` a un `Set`) queda fuera del alcance de archivos de
+esta etapa. Documentado acá en vez de expandir el alcance sin que se
+pidiera.
+
+### Verificación real (snapshot activo)
+
+⚠ El snapshot activo cambió de id 72 (etapas anteriores) a **id 73**
+(`data_as_of` 2026-08-24T18:44:05Z) entre la Parte 4 y esta verificación --
+se usan los números reales de 73, como corresponde cuando el snapshot
+activo cambia.
+
+Agosto 2026 (período por defecto del selector), 23 funded:
+- Loan Program: C30 (7) · F30EEP (6) · B30FNBA (2) · F30 (2) · 6 programas
+  más con 1 c/u. Suma = 23.
+- Loan Type: Conventional (13) · FHA (10). Suma = 23.
+- Branch: 716 (5) · Affinity (4) · 776 (3) · 733/707/710/747/760 (2 c/u) ·
+  703 (1). Suma = 23.
+- Business Developer (`opportunity_owner_title`, crudo antes de alias): 8
+  de los 23 -- Giancarlo Laino (3) · Silvio Arteaga (3) · Aimmee Buendia
+  (1) · Adriana Szczech (1).
+
+Para probar el caso de lista LARGA (el brief original citaba 152, número
+de TODO el historial de la Parte 4 -- con el período por defecto mensual
+esa escala no se alcanza, agosto sólo tiene 8 BD-titled), se releyó con
+YTD 2026 (2026-01-01 a hoy): 333 funded, **102 BD-titled** (crudo, antes de
+fusionar por alias) -- del mismo orden de magnitud que el número original,
+suficiente para ejercitar la lista larga real.
+
+⚠ **Límite de esta verificación:** la resolución real por
+`org.employee_alias` (qué `employeeKey` exacto agrupa cada fila de Loan
+Officer/Business Developer) no se pudo ejecutar desde este entorno de
+script -- mismo bloqueo `42501 permission denied for schema org` ya
+documentado en la Parte 2. Los conteos de arriba son PRE-alias (por nombre
+crudo); el conteo POST-alias real (el que efectivamente ve cada fila del
+scorecard) sólo se puede confirmar en pantalla, con sesión de navegador.
+
+### Lista larga en el modal -- confirmado por código, no por render real
+
+`LoanDetailModal.tsx` no tiene ningún `.slice()`/límite de filas -- itera
+el array completo con `.map(renderLoanRow)` sin importar su longitud, y
+`.modal-box { max-height: 85vh }` + `.modal-body { overflow-y: auto }`
+(`components.css`) ya scrollean cualquier tabla más alta que el modal, sin
+cambios para esta etapa. No se pudo confirmar visualmente en un navegador
+real que 100+ filas rendericen sin cortarse -- mismo límite de entorno que
+el resto de esta verificación.
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx` editado (`onRowClick` opcional en
+`RankingTable`/`ScorecardTable`, estado `drillDown`, 5 handlers, render de
+`LoanDetailModal`). `app/pipeline/PivotTable.tsx`: un solo cambio, `export`
+agregado a `closedLoanToModalLoan` (cero líneas de lógica tocadas).
+`app/pipeline/styles/forecast-visual.css`: una regla nueva, `.metric--drill
+{ cursor: pointer; }` (el hover de fondo ya existía global en
+`components.css`).
+
+## Etapa F7, Parte 6 -- `hiddenColumns` en LoanDetailModal, solo para Analytics
+
+Analytics abre el mismo `LoanDetailModal` que `PivotTable.tsx` (Parte 5),
+pero cada uno de sus 5 cortes ya muestra en su propia fila el dato que una
+columna del modal repetiría (ej. Loan Program), y dos columnas (Milestone,
+Status) hoy siempre vienen vacías en este contexto específico. `hiddenColumns
+?: LoanDetailModalColumn[]` generaliza el mismo patrón que ya usaba
+`showChannelColumn` (una columna condicional) a cualquier columna, sin
+duplicar esa lógica.
+
+### Por qué Milestone/Status se ocultan -- y por qué esto NO es permanente
+
+⚠ **Status** se oculta porque `closedLoanToModalLoan()` (`PivotTable.tsx`)
+omite `rawHealthiness` a propósito -- un préstamo cerrado no tiene un
+estado de salud de pipeline vigente. Esto es una decisión de diseño
+estable: mientras Analytics siga abriendo solo `ResolvedLoan` (funded),
+Status seguirá vacío.
+
+⚠ **Milestone** se oculta por un motivo DISTINTO y más fragil: hoy siempre
+muestra el fallback `'Closed (Funded)'` porque `pipeline_resolved_loans`
+**no tiene columna `raw_milestone`** (`app/api/pipeline/latest/route.ts`,
+confirmado con una query real: `column pipeline_resolved_loans.raw_milestone
+does not exist`) -- así que `loan.rawMilestone` llega vacío y cae al
+fallback. Esto **no es una garantía de schema**, es un hueco: si algún día
+se agrega esa columna a `pipeline_resolved_loans` (ya existe el precedente
+de guardar `row.currentMilestone` real para adverse en
+`lib/pipeline/sources/salesforce-file.ts`, usado para "Last Finished
+Milestone" en AdverseTable), Milestone dejaría de estar vacío para funded
+también, y esta ocultación en `TabAnalytics.tsx` habría que revisarla --
+**no asumir que es correcta para siempre, revisar si esa columna aparece**.
+
+### Mecanismo
+
+`LoanDetailModal.tsx` -- nuevo tipo exportado `LoanDetailModalColumn =
+'loanOfficer' | 'loanType' | 'loanProgram' | 'milestone' | 'status' |
+'channel'` y prop `hiddenColumns?: LoanDetailModalColumn[]`. Cinco banderas
+derivadas (`showLoanOfficerColumn`, etc.) gobiernan `<col>`/`<th>`/`<td>`
+condicionales, mismo patrón que ya usaba `showChannelColumn` (que sigue
+intacto, ahora combinado con `!hiddenColumns?.includes('channel')`).
+`visibleColumnCount` reemplaza los `10`/`9` hardcodeados de los
+`colSpan` de fila de sección y "No loans." -- se recalcula sumando 4
+columnas siempre visibles (Loan #, Borrower, Amount, Notes) más cada
+columna condicional que esté activa.
+
+### Los 3 consumidores existentes -- confirmado sin cambio de comportamiento
+
+`PivotTable.tsx`, `TabMilestoneMatrix.tsx`, `AdverseTable.tsx`: ninguno
+pasa `hiddenColumns` (`grep hiddenColumns` en los 3 -- cero resultados),
+así que siguen viendo exactamente las mismas columnas que antes de esta
+etapa. `AdverseTable.tsx`/`TabMilestoneMatrix.tsx` no se tocaron en
+absoluto (diff vacío contra el último commit).
+
+### Columnas visibles por corte (`TabAnalytics.tsx`)
+
+| Corte | `hiddenColumns` | Columnas visibles |
+|---|---|---|
+| Loan Program | `['loanProgram', 'milestone', 'status']` | Loan #, Borrower, Loan Officer, Channel, Loan Type, Amount, Notes (7) |
+| Loan Type | `['loanType', 'milestone', 'status']` | Loan #, Borrower, Loan Officer, Channel, Loan Program, Amount, Notes (7) |
+| Branch | `['milestone', 'status']` | Loan #, Borrower, Loan Officer, Channel, Loan Type, Loan Program, Amount, Notes (8) |
+| Loan Officer | `['loanOfficer', 'milestone', 'status']` | Loan #, Borrower, Channel, Loan Type, Loan Program, Amount, Notes (7) |
+| Business Developer | `['loanOfficer', 'milestone', 'status']` | Loan #, Borrower, Channel, Loan Type, Loan Program, Amount, Notes (7) |
+
+Ninguno de los 5 oculta Channel -- no se pidió, y `showChannelColumn` sigue
+en su default `true`.
+
+### Archivos
+
+`app/pipeline/LoanDetailModal.tsx` editado (`LoanDetailModalColumn`,
+`hiddenColumns`, `visibleColumnCount`, columnas condicionales).
+`app/pipeline/TabAnalytics.tsx` editado (tipo del estado `drillDown`
+extendido con `hiddenColumns`, un array por cada uno de los 5 handlers).
+`PivotTable.tsx`/`TabMilestoneMatrix.tsx`/`AdverseTable.tsx` sin tocar.
+
+## Etapa F7, Parte 7 -- silencio cuando todo resuelve, lenguaje simple cuando no
+
+El texto de diagnóstico de los 3 scorecards (Branch, Loan Officer,
+Business Developer) se mostraba SIEMPRE, incluso cuando el 100% de los
+loans resolvía sin problema -- y mencionaba nombres de tabla
+(`org.employee_alias`, `org.source_name_excluded`, `org.dim_branch`) como
+texto plano permanente en pantalla. Nueva regla, un solo componente
+(`DiagnosticsNote`) para los 3:
+
+1. **Silencio si no hay ningún problema** (`count === 0`) -- reemplaza a
+   `PersonDiagnostics` (que solo chequeaba `totalInput === 0`, así que
+   mostraba el párrafo completo incluso con 100% resuelto).
+2. **Resumen corto en lenguaje simple** cuando sí hay algo -- sin nombres
+   de tabla en el texto visible. Ej.: `"3 of 46 loans could not be
+   matched to a person (2 unrecognized names, 1 known non-person
+   entry)"`.
+3. **Detalle técnico completo solo en `title`** (tooltip nativo del
+   navegador, al pasar el mouse) -- nombres de tabla, desglose exacto de
+   `unmappedNames`, lista de branch codes. `DiagnosticsNote` se ve con
+   `cursor: help` y un subrayado punteado (`border-bottom: 1px dotted`)
+   como affordance de que hay más detalle al pasar el mouse -- inline,
+   sin agregar clase nueva a `forecast-visual.css` (fuera del alcance de
+   archivos de esta etapa).
+
+`personDiagnosticsNote()` (nueva función, reemplaza al componente
+`PersonDiagnostics`) arma `summary`/`detail` a partir de
+`PersonScorecardDiagnostics` -- el `console.warn` de reconciliación
+(`resolved+blank+excluded+unmapped === totalInput`) sigue exactamente
+igual, solo cambió el texto visible. El diagnóstico de Branch
+(`unresolvedBranches`) se migró al mismo componente con su propio
+`summary`/`detail` -- ya se ocultaba solo con `unresolvedBranches.length
+=== 0` antes de esta etapa, pero mencionaba `org.dim_branch` en texto
+plano; ahora ese nombre de tabla va solo en el tooltip.
+
+### Verificación real -- con la limitación ya conocida de acceso a `org`
+
+⚠ `blankCount` (Loan Officer/Owner vacío) es el único de los 3 motivos
+que NO depende de `org` -- se puede verificar por SELECT directo contra
+`pipeline_resolved_loans`. `unmappedCount`/`excludedCount` sí dependen de
+`org.employee_alias`/`org.source_name_excluded`, bloqueados `42501` fuera
+del navegador (misma limitación ya documentada en la Parte 2).
+
+- **Agosto 2026 (período por defecto, snapshot activo id 73):** `blankCount
+  = 0` para Loan Officer (23 loans) y para Business Developer (8 loans) --
+  verificado por SELECT real. No se puede confirmar si `unmappedCount`/
+  `excludedCount` también son 0 sin sesión de navegador -- así que no se
+  puede afirmar con certeza total que el aviso esté en silencio para este
+  período exacto, solo que el componente SÍ estaría en silencio si esos
+  dos también son 0 (verificado leyendo `DiagnosticsNote`: `count === 0`
+  -> `return null`).
+- **YTD 2026 (2026-01-01 a hoy, mismo snapshot):** `blankCount = 1` de
+  333 loans (Loan Officer) -- confirmado real, SELECT directo. Esto por
+  sí solo garantiza que el aviso se muestra (`problemCount >= 1`), sin
+  importar cuánto valgan `unmappedCount`/`excludedCount`. Si esos dos
+  fueran 0 (no confirmado), el texto exacto sería:
+  `"1 of 333 loans could not be matched to a person (1 with no name
+  recorded)"`. El texto real final (si además hay excluidos/no-mapeados
+  ese período) requiere confirmación en pantalla.
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx` editado: `PersonDiagnostics` reemplazado
+por `DiagnosticsNote` (genérico, los 3 scorecards) + `personDiagnosticsNote()`
+(arma el texto para LO/BD) + el diagnóstico de Branch migrado al mismo
+componente. Ningún archivo de `lib/pipeline/scorecards.ts` se tocó --
+`PersonScorecardDiagnostics` (la forma de datos) sigue igual, solo cambió
+cómo se traduce a texto visible.
+
+## Etapa F7, Parte 8 -- 3 notas de implementación que se filtraron a la UI, movidas al mismo patrón de tooltip
+
+Ninguna de las 3 notas de abajo fue pedida por el brief F7 original --
+eran comentarios de implementación (garantías de "no afecta otros
+cálculos", nombres de schema/tabla) que quedaron como texto plano
+permanente en pantalla. Se les aplicó el mismo tratamiento que ya usa
+`DiagnosticsNote` (Parte 7): lo genuinamente útil para quien mira la
+pantalla queda breve y visible; el resto (jerga de schema/`read-only`/
+"no depende de") va solo al tooltip.
+
+`DiagnosticsNote` se **reusó tal cual** (cero lógica nueva) en las 3 --
+se le pasa `count={1}` a propósito: esa nota nunca es condicional (siempre
+hay algo breve que mostrar en Rankings/Scorecards/Monthly Trends), y
+`count` en el componente solo existe para el chequeo `=== 0` de los
+scorecards -- cualquier valor no-cero cumple exactamente lo mismo, sin
+agregar una rama nueva al componente.
+
+### 1. Rankings (Loan Program / Loan Type)
+
+**Antes** (texto plano permanente):
+> Funded loans (Disbursement Date) grouped by Loan Program and Loan Type, for the selected period. Read-only —
+> doesn't affect pull-through, Healthy, Adverse, or strategy calculations elsewhere in Forecast.
+
+**Visible ahora** (`summary`):
+> Funded loans (Disbursement Date), grouped by Loan Program and Loan Type, for the selected period.
+
+**Solo en tooltip** (`detail`):
+> Read-only — doesn't affect pull-through, Healthy, Adverse, or strategy calculations elsewhere in Forecast.
+
+Se conservó "(Disbursement Date)" en el texto visible -- no es jerga
+interna, es el mismo campo de negocio que ya usa el selector de período
+(distingue de Est. Closing Date, ambigüedad real en otras partes del
+módulo). La garantía de "no afecta otros cálculos" es información
+irrelevante para quien lee la pantalla (es una nota-a-mí-mismo contra
+regresiones, no algo que el usuario necesite para interpretar el
+ranking) -- se movió entera al tooltip.
+
+### 2. Scorecards (Branch / Loan Officer / Business Developer)
+
+**Antes:**
+> Resolved against org.dim_branch/org.employee_alias (schema org, read-only, same session as the rest of the app) —
+> names are never compared with string equality, only via the alias table.
+
+**Visible ahora:**
+> Branch, Loan Officer, and Business Developer are matched against the company roster, so name variants are combined.
+
+**Solo en tooltip:**
+> Resolved against org.dim_branch/org.employee_alias (schema org, read-only, same session as the rest of the app) — names are never compared with string equality, only via the alias table.
+
+Lo genuinamente útil acá era explicar POR QUÉ nombres distintos del
+export terminan en la misma fila (ej. el caso ya documentado "Ana Milena
+Zegarra"/"Ana Peña") -- reformulado sin nombrar `org.dim_branch`/
+`org.employee_alias` ni "string equality". El resto (nombres de schema,
+detalle de sesión/mecanismo de comparación) es implementación pura --
+al tooltip completo.
+
+### 3. Monthly Trends
+
+**Antes:**
+> All 12 months of {año}, funded loans by Disbursement Date -- months with no data yet (e.g. future months this
+> year) show 0 explicitly, never omitted. The month(s) matching the period selected above are highlighted in
+> coral, without replacing the full-year series. Read-only, no dependency on org -- entirely from
+> pipeline_resolved_loans.
+
+**Visible ahora:**
+> All 12 months of {año} — months with no data yet show 0 explicitly, never omitted. The month(s) matching the period selected above are highlighted in coral.
+
+**Solo en tooltip:**
+> Read-only, no dependency on org -- entirely from pipeline_resolved_loans.
+
+Esta es la que el propio brief ya señalaba como ejemplo de "sí es útil"
+(el caso de meses futuros en 0 explícito) -- se conservó tal cual, igual
+que la mención del resaltado en coral (explica una señal visual real de
+la pantalla). Se recortó "without replacing the full-year series" (ya
+lo explica el propio resaltado visual, no hace falta el texto) y la
+garantía de "read-only / no depende de org" completa, que fue a tooltip.
+
+### Archivos
+
+Solo `app/pipeline/TabAnalytics.tsx` (los 3 `<p className="foot-note">`
+reemplazados por `<DiagnosticsNote count={1} summary=... detail=... />`,
+comentario de `DiagnosticsNote` actualizado para documentar el reuso con
+`count={1}`). `docs/ARQUITECTURA.md` con el detalle completo que salió de
+la UI, sin recortar, tal como se pidió.
+
+## Etapa F7, Parte 9 -- diagnóstico de matching (Branch/LO/BD) como ícono, no como línea de texto
+
+Distinto de las 3 notas generales de "cómo funciona" (Parte 8, que se
+quedan como texto breve siempre visible): el diagnóstico de coincidencias
+de Branch/Loan Officer/Business Developer (Parte 7, `DiagnosticsNote`
+vía `personDiagnosticsNote()`/el objeto inline de Branch) todavía
+mostraba una línea de texto propia cuando `count > 0` -- ahora es
+un ícono de advertencia junto al título del scorecard, sin ninguna línea
+de texto al lado.
+
+### Mecanismo
+
+Nuevo prop `diagnostic?: { count: number; summary: string; detail: string }`
+en `ScorecardTable` (mismo shape que ya devolvía `personDiagnosticsNote()`
+y el objeto inline de Branch -- cero cambio en cómo se arma ese dato,
+solo en dónde se renderiza). Dentro de `.tbl-card__head`, junto a
+`.tbl-card__title`:
+
+```tsx
+{diagnostic && diagnostic.count > 0 && (
+  <span title={`${diagnostic.summary}\n${diagnostic.detail}`} style={{ ... cursor: 'help' ... }}>
+    <AlertTriangleIcon size={14} />
+  </span>
+)}
+```
+
+`count === 0` -> nada (mismo silencio que ya existía). `count > 0` ->
+solo el ícono (`AlertTriangleIcon`, `components/ui/icons.tsx`, ya usado
+en el resto de la app -- tab "Adverse Loans" en `TabNavigation.tsx`,
+mismo `size={14}`, mismo criterio de no traer una librería de iconos
+nueva). El resumen simple Y el detalle técnico completo van JUNTOS en el
+`title` del ícono (tooltip nativo, separados por salto de línea) -- ya no
+hay ninguna línea de texto plano en la pantalla por defecto para estos 3,
+ni siquiera el resumen breve.
+
+Las 3 notas generales (Rankings/Scorecards/Monthly Trends, Parte 8) NO se
+tocaron -- siguen siendo `<DiagnosticsNote count={1} .../>` con su texto
+breve siempre visible, porque no son advertencias condicionales, son
+explicación fija de cómo leer la pantalla.
+
+### Archivos
+
+Solo `app/pipeline/TabAnalytics.tsx`: nuevo prop `diagnostic` en
+`ScorecardTable`, import de `AlertTriangleIcon`, los 3 call-sites de
+Branch/Loan Officer/Business Developer pasan `diagnostic={...}` en vez de
+renderizar `<DiagnosticsNote>` como hermano. `personDiagnosticsNote()` no
+cambió su firma ni su lógica -- sigue devolviendo `{count, summary,
+detail}`, solo cambió quién lo consume.
+
+## Etapa F7, Parte 10 -- mezcla de estrategia comercial (dona)
+
+Nueva sección "Strategy Mix" en Analytics.
+
+⚠ **Ubicación corregida tras revisión:** se colocó primero debajo de
+Scorecards y antes de Monthly Trends -- un ajuste posterior movió Strategy
+Mix a DESPUÉS de Monthly Trends, para que el orden final de la pestaña
+sea: todo lo pedido explícitamente por el brief F7 original (Rankings,
+Scorecards, Monthly Trends, drill-down al modal), en su orden original y
+sin nada intercalado entre esas secciones -- y los gráficos adicionales
+que NO pedía el brief (Strategy Mix, Parte 10, y los que se agreguen
+después) van todos juntos al final, en un bloque propio marcado con un
+comentario explícito en el JSX.
+
+### `classifyStrategy()` reusado tal cual, sin adaptador
+
+`lib/pipeline/strategyMix.ts` (nuevo archivo, separado de
+`analytics.ts` como sugería el brief) llama `classifyStrategy(loan)`
+directo sobre cada `ResolvedLoan` de `fundedInRange` -- confirmado en el
+diagnóstico previo que `ResolvedLoan` ya trae los 3 campos que
+`StrategyInput` necesita (`branch`, `strategyRaw`, `opportunityOwnerTitle`),
+así que no hizo falta ningún adaptador ni cambio a `lib/pipeline/strategy.ts`.
+`buildStrategyMix()` siempre devuelve las 5 filas de `STRATEGY_ORDER` --
+una estrategia sin loans en el período queda en `count: 0` explícito,
+nunca ausente (mismo criterio que `monthsOfYear` en `trends.ts`).
+
+### Números reales (snapshot activo)
+
+⚠ El snapshot activo cambió de id 73 (verificación de la etapa anterior)
+a **id 74** (`data_as_of` 2026-08-24T21:28:53Z) entre el diagnóstico y
+esta implementación -- se usan los números reales de 74.
+
+Agosto 2026 (período por defecto), 24 funded:
+
+| Estrategia | Conteo | % |
+|---|---|---|
+| Own production | 11 | 45.8% |
+| B2B | 4 | 16.7% |
+| Affinity | 4 | 16.7% |
+| Recruitment | 2 | 8.3% |
+| NPPM | 3 | 12.5% |
+| **Suma** | **24** | **100.0%** |
+
+### Paleta de colores -- nueva, no existía ninguna previa
+
+Se buscó explícito un color ya asignado a estas 5 categorías en algún
+otro lado de Forecast (la vista "By strategy" de `PivotTable.tsx`,
+`.strat-pill`/`StrategyRowsGroup`) -- no existe ninguno: esa vista solo
+muestra el nombre de la estrategia como texto plano, con un pill de
+filtro neutro (slate/coral solo para el estado "seleccionado", sin color
+por estrategia). Se define una paleta nueva, `STRATEGY_COLORS` (tokens
+existentes, cero hex nuevo), con una decisión distinta a la de Loan Type
+(Parte 3): como `Strategy` es un enum CERRADO de 5 valores (no una
+columna abierta como `loan_type`), el color se asigna por NOMBRE fijo en
+vez de por orden de aparición -- más robusto, no depende de qué
+estrategia trae más volumen en un período dado.
+
+| Estrategia | Token |
+|---|---|
+| Own production | `--navy` |
+| B2B | `--emerald-700` |
+| Affinity | `--sky` |
+| Recruitment | `--amber-500` |
+| NPPM | `--rose-700` |
+
+### Componente -- SVG a mano, mismo criterio ya establecido
+
+`StrategyDonutChart` (`TabAnalytics.tsx`): un `<path>` de arco por
+estrategia (ver ajuste de técnica más abajo -- la versión inicial usaba
+`<circle>` + `stroke-dasharray`/`stroke-dashoffset`, reemplazada después
+por resultar ambigua), sin librería de charts -- mismo criterio que
+`MonthlyBarChart.tsx` (Business Plan) y los charts de tendencias de la
+Parte 3. Centro con el total en texto grande (`<text>` SVG), leyenda al
+lado con label + conteo + %. Un segmento con `count: 0` no dibuja arco,
+pero sigue apareciendo en la leyenda, atenuado (`--slate-400`).
+
+⚠ **Ajuste de legibilidad (revisión post-implementación):** conteo y %
+en la leyenda pesaban visualmente igual -- fácil de confundir cuál era
+cuál a simple vista. El conteo quedó en `font-weight: 600` (peso normal
+del texto de la fila) y el % en un `<span>` aparte, `font-size: 11px` +
+`opacity: 0.65` -- opacidad relativa, no un color fijo, para que una fila
+en `count: 0` (ya atenuada por completo) no vuelva a verse más oscura por
+culpa de un gris fijo en el %.
+
+⚠ **Segundo ajuste: paréntesis quitados del %.** El ajuste anterior
+diferenció el estilo pero dejó los paréntesis literales ("10 (43.5%)") --
+se quitaron, queda "10 43.5%" con el mismo tamaño/opacidad ya logrados.
+
+⚠ **Tercer ajuste, más de fondo: el orden visual de los arcos no
+coincidía con el de la leyenda.** La primera versión usaba `<circle>` +
+`stroke-dasharray`/`stroke-dashoffset` por segmento (técnica estándar de
+donut sin librería) -- pero esa técnica depende de una convención de
+punto de inicio/dirección de recorrido de `<circle>` que resultó
+ambigua en la práctica: NPPM (última estrategia en `STRATEGY_ORDER`)
+aparecía como el segundo arco visual en vez del último. Se reemplazó por
+`<path>` con comando de arco (`M`/`A`) y ángulo calculado directo por
+trigonometría -- `x = cx + r·sin(θ), y = cy − r·cos(θ)`, con θ=0 en las 12
+y creciendo en sentido horario -- una fórmula verificable a mano, sin
+depender de ninguna convención implícita del navegador. Verificado con
+los números reales del período (ver más abajo): los 5 segmentos caen
+exactamente en el rango angular esperado, en el mismo orden que la
+leyenda. Sigue siendo SVG a mano, sin librería de charts -- el cambio es
+de técnica de arco (`path` vs `circle`+dasharray), no de criterio.
+
+### Reacciona al período -- gratis, mismo patrón
+
+`buildStrategyMix(fundedInRange)` -- el mismo array ya filtrado por
+período que usan los otros 4 cortes, sin filtro de fecha adicional.
+
+### Drill-down -- incluido, no se dejó para después
+
+Se agregó porque fue simple de reusar el mismo patrón de la Etapa 5: un
+`onSegmentClick` opcional en `StrategyDonutChart` (tanto el arco del
+donut como la fila de leyenda son clickeables) que abre el mismo
+`LoanDetailModal`, filtrando `fundedInRange` por
+`classifyStrategy(l) === row.strategy` y mapeando con
+`closedLoanToModalLoan` -- mismo mecanismo exacto que Branch/Programa/Tipo.
+`hiddenColumns: ['milestone', 'status']` (mismas dos columnas siempre
+vacías en este contexto, ver Parte 6) -- no hay una columna "Strategy" en
+el modal que quede redundante, así que no se ocultó ninguna columna
+adicional por ese motivo.
+
+### Archivos
+
+`lib/pipeline/strategyMix.ts` (nuevo, puro -- `buildStrategyMix`).
+`app/pipeline/TabAnalytics.tsx` editado (`STRATEGY_COLORS`,
+`StrategyDonutChart`, cómputo de `strategyMix`, sección "Strategy Mix" +
+drill-down). `app/pipeline/styles/forecast-visual.css` **sin tocar** --
+el donut usa estilos inline, consistente con el resto de layout ad-hoc ya
+existente en `TabAnalytics.tsx` (grids, spacing); las clases CSS dedicadas
+de Parte 3 solo hacían falta por `:hover`/`@keyframes`, que acá no aplica.
+
+## Etapa F7, Parte 11 -- Pareto por Branch / Loan Officer
+
+Sección al final de la pestaña (después de Strategy Mix, mismo orden ya
+establecido: brief original primero, gráficos adicionales al final).
+Barras (conteo) + línea de % acumulado, con línea de referencia en 80% --
+primera vez en el proyecto combinando dos tipos de marca en un mismo SVG
+a mano.
+
+### Reuso real de los scorecards -- verificado, no solo asumido
+
+`buildParetoRows()` (`lib/pipeline/paretoMix.ts`, nuevo) recibe
+directamente `branchScorecard.rows`/`loanOfficerScorecard.rows` (los
+mismos objetos que ya renderizan las tablas de Scorecards, Parte 2) y
+solo acumula `closedCount` -- confirmado leyendo `toRows()`
+
+## Etapa BUSINESS-PLAN-1 -- Context Provider en layout.tsx, resolver el flash de carga
+
+### Qué problema resolvía
+
+Diagnóstico previo (misma sesión): las 3 rutas de nivel superior del módulo
+(Branch Portfolio, branch individual, perfil de Loan Officer) ya comparten
+una caché real a nivel de módulo -- `useBusinessPlanData()`
+(`lib/business-plan/useBusinessPlanData.ts`) memoiza la promesa de
+`loadBusinessPlanData()` en una variable de módulo (`cached`), así que la
+carga de red (roster + ~4.6k filas del lote activo) corre una sola vez por
+sesión de navegador, sin importar cuántas de las 3 pantallas se visiten.
+
+Lo que SÍ se repetía era el flash de "Loading roster…": cada página llamaba
+al hook por su cuenta, y el hook arranca con su propio
+`useState({ isLoading: true, ... })`. Al navegar de Portfolio a un branch, la
+promesa ya estaba resuelta (no hay segunda carga de red), pero el `useState`
+de la pantalla NUEVA igual arrancaba en `true` hasta que el efecto corría y
+la ponía en `false` -- un parpadeo sin trabajo real detrás.
+
+`app/business-plan/layout.tsx` ya no se desmonta al navegar entre las 3
+rutas (confirmado en el diagnóstico, y es comportamiento estándar de
+App Router para layouts compartidos) -- la solución fue mover el `useState`
+de "dónde vive" (cada página) a "un solo lugar que no se remonta" (el
+layout), sin tocar la caché de módulo ni el cómputo del triage.
+
+### Qué se implementó
+
+**Archivo nuevo: `lib/business-plan/BusinessPlanDataContext.tsx`.**
+No reimplementa la carga ni la caché -- `BusinessPlanDataProvider` llama a
+`useBusinessPlanData()` (el hook existente, sin tocar) una sola vez, y
+expone su resultado (`data`, `isLoading`, `error`, `reload`) por Context.
+`useBusinessPlanDataContext()` es el consumidor; lanza si se llama fuera del
+Provider (para no fallar en silencio con datos `null` si algún día se llama
+desde afuera del árbol del módulo).
+
+**`app/business-plan/layout.tsx`.** `BusinessPlanDataProvider` se monta acá,
+envolviendo a `BusinessPlanShell` -- mismo archivo que ya aloja el sidebar
+por la misma razón (no se remonta entre rutas hijas). El layout se queda
+como componente de servidor; renderiza el Provider (client component) sin
+necesitar `'use client'` propio.
+
+**Las 3 páginas migradas** (`app/business-plan/page.tsx`,
+`app/business-plan/branch/[code]/page.tsx`,
+`app/business-plan/lo/[employeeKey]/page.tsx`): cambiaron
+`useBusinessPlanData()` por `useBusinessPlanDataContext()`. Sin ningún otro
+cambio -- mismas variables desestructuradas (`data`, `isLoading`, `error`, y
+`reload` en el perfil de LO, que ya lo pasaba a `BenchmarkEditor.onSaved` y
+`DecisionBar.onReviewed`).
+
+**Refresco explícito, pedido por Isa.** Botón "Refresh data" en
+`BusinessPlanShell.tsx`, en la misma fila que el breadcrumb (`.bp-crumbs-row`,
+nuevo wrapper en `bp-visual.css` que separa breadcrumb y botón a los
+extremos). Llama a `reload()` del contexto -- invalida la caché de módulo
+(`invalidateBusinessPlanData()`) y vuelve a cargar sin recargar la página ni
+perder estado de navegación (búsqueda, selección, tab abierto). Se puso en
+el Shell y no en cada página porque es una acción sobre la caché ENTERA del
+módulo, no algo propio de una sola pantalla.
+
+**`loadBusinessPlanData()` y el cómputo del triage: sin tocar**, tal como
+pedía la tarea -- el diff no incluye `lib/business-plan/loadData.ts`.
+
+### Qué queda fuera de esta etapa, a propósito
+
+Otras 6 rutas del módulo (`group/[keys]`, `lo/[employeeKey]/funnel`,
+`lo/[employeeKey]/impact`, `lo/[employeeKey]/plan`, `settings`, `team`)
+siguen llamando a `useBusinessPlanData()` directo, sin cambios -- fuera del
+alcance que pidió esta etapa (las 3 páginas). Cuelgan de la MISMA caché de
+módulo, así que no hay una segunda carga de red por su culpa; simplemente no
+se resolvió su propio parpadeo de `useState` local.
+
+Consecuencia a tener en cuenta: el botón "Refresh data" vive en
+`BusinessPlanShell` y por lo tanto es visible en las 9 rutas del módulo (el
+Shell envuelve a todas), no solo en las 3 migradas. En las 3 migradas su
+efecto es inmediato -- leen del mismo Provider que el botón invalida. En las
+6 no migradas, clickearlo invalida la caché de módulo igual, pero la
+pantalla que está en pantalla en ese momento no se entera sola (tiene su
+propio `useState`/`tick` independiente que no escucha al Provider) -- el
+dato fresco aparece recién en la próxima navegación a esa pantalla, no en el
+lugar donde se clickeó. No es un bug de esta etapa: es la consecuencia
+directa de dejar esas 6 rutas fuera del alcance pedido, documentada acá para
+que no se descubra por sorpresa.
+
+## Etapa BUSINESS-PLAN-2 -- extender el Provider a 2 de las 3 rutas restantes
+
+Continuación de [[etapa BUSINESS-PLAN-1]]. Isa había pedido migrar sólo
+Portfolio/branch/LO; acá se revisaron las 3 rutas que quedaron fuera
+("Funnel & Node Library", "BP Team", "Settings" -- nombres del sidebar,
+`app/business-plan/library`, `/team`, `/settings`) para confirmar, ANTES de
+tocar nada, si usan la misma `useBusinessPlanData()` o algo distinto.
+
+### Confirmado por lectura del código, no por suposición
+
+- **`library/page.tsx` -- NO usa `useBusinessPlanData()` en ningún lado.**
+  Su única fuente de datos es `useFunnelLibrary()`
+  (`lib/business-plan/useFunnelLibrary.ts`), que lee tablas completamente
+  distintas (`business_plan.funnel/node/funnel_node/node_milestone/
+  node_owner/enrollment`, más el roster de soporte de `org.dim_employee`) y
+  ni siquiera tiene caché de módulo -- cada mount vuelve a pedir todo. No hay
+  nada que migrar: no es una dependencia distinta de la misma pantalla, es
+  una pantalla que nunca dependió de este hook. **Se dejó sin tocar.**
+
+- **`team/page.tsx` -- SÍ usa `useBusinessPlanData()`**, línea
+  `const { data: bpData, isLoading: loadingRoster } = useBusinessPlanData()`,
+  para resolver nombre/branch de cada Loan Officer en `loInfo()`. Mismos
+  datos, mismo hook, exactamente el caso migrable. **Se migró** a
+  `useBusinessPlanDataContext()` -- un `import` + una línea, igual que las 3
+  originales.
+
+  Con un matiz real que se deja anotado: esta pantalla ADEMÁS depende de
+  `useTeamAssignments()` (`lib/business-plan/useTeamAssignments.ts`), un
+  hook totalmente aparte -- sin caché de módulo, sin relación con
+  `loadBusinessPlanData()` -- que sigue re-pidiendo sus datos en cada visita.
+  El `isLoading` combinado de la pantalla (`isLoading || loadingRoster`,
+  línea ~138) sigue mostrando `LoadingState` mientras ESE hook carga, así
+  que **el parpadeo de "Loading…" en BP Team no desaparece del todo** con
+  este cambio -- se resolvió la mitad que correspondía a esta etapa (el
+  roster compartido); la otra mitad (`useTeamAssignments`) es una etapa
+  aparte, fuera de lo pedido acá.
+
+- **`settings/page.tsx` -- SÍ usa `useBusinessPlanData()`**, sólo `data`
+  (sin `isLoading`/`error`), para alimentar `<Diagnostics data={bpData} />`
+  al pie de la pantalla ("How this is being calculated"). Mismos datos,
+  mismo hook. **Se migró** a `useBusinessPlanDataContext()`.
+
+  Esta pantalla llama además a `invalidateBusinessPlanData()` directo
+  (no al `reload()` del hook) después de guardar una tasa, para que las
+  OTRAS pantallas del módulo traigan el veredicto recalculado en su próxima
+  visita -- ese llamado sigue exactamente igual, no se tocó: sigue sin forzar
+  un refetch inmediato de la propia pantalla de Settings, mismo
+  comportamiento que tenía antes de esta etapa.
+
+### Qué NO se tocó, a propósito
+
+`BusinessPlanDataContext.tsx`, `BusinessPlanShell.tsx`, `layout.tsx`, y las 3
+páginas ya migradas en BUSINESS-PLAN-1 (`page.tsx`,
+`branch/[code]/page.tsx`, `lo/[employeeKey]/page.tsx`) -- fuera del alcance
+pedido para esta etapa, ya probados, no se reabrieron. `loadBusinessPlanData()`
+y el cómputo del triage: sin tocar, igual que en BUSINESS-PLAN-1.
+
+### Consecuencia sobre el botón "Refresh data"
+
+De las 9 rutas del módulo que llaman a `useBusinessPlanData()`, el botón del
+Shell queda con efecto inmediato en 5 (las 3 de BUSINESS-PLAN-1 + Team +
+Settings, todas leyendo del mismo Provider). Quedan 4 donde sigue siendo
+"invalida la caché, pero no se nota hasta la próxima visita a esa pantalla":
+`group/[keys]` y los 3 sub-flujos del perfil de LO (`funnel`, `impact`,
+`plan`) -- ninguno tocado en esta etapa. `library` es un caso aparte: nunca
+usó `useBusinessPlanData()`, así que el botón nunca le iba a decir nada.
+(`lib/pipeline/scorecards.ts:33-44`) que esas filas YA vienen
+`.sort((a, b) => b.closedCount - a.closedCount)`. Ninguna agrupación
+nueva: `buildBranchScorecard`/`buildLoanOfficerScorecard` (mismas
+funciones de la Parte 2) se llaman de nuevo para YTD, pero con
+`ytdFunded` como entrada en vez de `fundedInRange` -- no hay una tercera
+forma de agrupar loans en el proyecto.
+
+### Resolución de alias en Loan Officer -- heredada, confirmado
+
+`loanOfficerScorecard.rows`/`ytdLoanOfficerScorecard.rows` vienen de
+`buildLoanOfficerScorecard`, que agrupa por `employeeKey` RESUELTO (nunca
+por nombre crudo, `lib/pipeline/scorecards.ts:102-140`, misma regla dura
+documentada desde la Parte 2) -- el Pareto de Loan Officer hereda esa
+resolución automáticamente, por construcción: reusa el `ScorecardRow[]`
+ya resuelto, no vuelve a leer `loan_officer` crudo en ningún momento.
+Mismos nombres que ya muestra la tabla de Scorecards de Loan Officer,
+sin excepción.
+
+### Toggle interno -- estado local, sin efectos sobre el resto de la pestaña
+
+`ParetoChart` calcula sus propios `useState` (`mode`: Selected period/
+YTD; `cut`: Branch/Loan Officer) -- las 4 combinaciones
+(branch/LO × período/YTD) se precomputan UNA VEZ en `TabAnalytics`
+(`paretoData`), antes de renderizar el chart; el toggle solo elige cuál
+de las 4 mostrar. Cambiar cualquiera de los dos toggles re-renderiza
+solo `ParetoChart` -- no dispara ningún fetch nuevo (`useOrgRoster`
+carga una sola vez, `useEffect` con deps `[]`, ver Parte 2) ni toca el
+selector de período principal (`period`/`setPeriod`) ni ningún otro de
+los 8 gráficos de la pestaña.
+
+YTD se calcula con el mismo patrón que ya usa el selector principal para
+su propio modo YTD (`getDefaultYtdSelection()` + `periodDateRange()`,
+`lib/pipeline/period.ts`, sin tocar ese archivo) -- pero completamente
+aparte del estado `period`: el selector de arriba sigue mostrando lo que
+el usuario eligió, sin cambiar, mientras el Pareto puede estar en modo
+YTD.
+
+### Números reales (snapshot activo id 74) -- agosto plano, YTD con cola real
+
+**Selected period (agosto 2026, 24 funded) -- confirmado plano, como
+anticipaba el diagnóstico:** 80% acumulado recién en 7 de 9 branches
+(78% de todos los branches) y 10 de 14 loan officers de nombre CRUDO
+(71% de los nombres) -- sin org disponible desde este script, el
+conteo real POST-alias de LO no se pudo verificar acá, pero el mismo
+patrón de "distribución pareja, sin concentración fuerte" se sostiene
+sea cual sea el número final de personas resueltas (nunca puede haber
+*más* de 14 barras, solo igual o menos tras fusionar alias).
+
+**Year to date (2026-01-01 a 2026-08-24, 334 funded) -- cola clara,
+confirmada real:**
+
+| Corte | 80% acumulado en | de un total de | % de categorías |
+|---|---|---|---|
+| Branch | 8 branches | 20 | 40% |
+| Loan Officer (nombre crudo) | 12 nombres | 37 | 32% |
+
+Top 3 branches YTD: 716 (51, 15.3%) · 747 (46, 13.8%) · 733 (36, 10.8%).
+Top 3 loan officers YTD (crudo): Nathan Martinez (55, 16.5%) · Aimmee
+Buendia (30, 9.0%) · Cristhian A Ramirez (27, 8.1%).
+
+Confirma la hipótesis del diagnóstico: la concentración tipo Pareto SÍ es
+real, pero solo se ve con suficiente volumen (YTD) -- el período por
+defecto (un solo mes) es demasiado chico para mostrarla, y mostrar el
+chart únicamente con esa vista habría dado la impresión equivocada de
+que no hay concentración.
+
+### Técnica -- combo bar + línea, documentada por ser la primera vez
+
+`ParetoChart` (`TabAnalytics.tsx`): `<rect>` por categoría (altura
+proporcional a `count`, escala 0→`maxCount` sobre `plotHeight`) +
+`<polyline>` de % acumulado (escala 0→100% SUPERPUESTA sobre el mismo
+`plotHeight` -- dos ejes distintos comparten la misma altura de plot en
+px, técnica estándar de combo chart) + línea de referencia punteada en
+80%. Con más de 15 categorías (Loan Officer en YTD trae 37) se omiten las
+etiquetas rotadas del eje -- se vuelven ilegibles superpuestas -- y el
+detalle queda solo en el `<title>` (tooltip) de cada barra/punto; ninguna
+categoría se omite del chart en sí, solo su etiqueta visible. Toggle
+Selected period/YTD y Branch/Loan Officer reusan `.seg`
+(`components.css`, ya usado por `PeriodSelector`/`PivotTable`/
+`TabMilestoneMatrix`) -- cero CSS nuevo. Línea en `--rose-700` (no
+`--coral`, reservado en esta pestaña para el resaltado de mes
+seleccionado en Monthly Trends -- evita que el mismo color signifique
+dos cosas distintas en la misma pantalla).
+
+### Sin drill-down -- no se pidió para este chart
+
+A diferencia de Strategy Mix/Rankings/Scorecards/Branch, este chart no
+abre `LoanDetailModal` -- no estaba en el pedido y no se agregó por
+cuenta propia.
+
+### Archivos
+
+`lib/pipeline/paretoMix.ts` (nuevo, puro -- `buildParetoRows`).
+`app/pipeline/TabAnalytics.tsx` editado (`ParetoChart`, cómputo de
+`ytdFunded`/`ytdBranchScorecard`/`ytdLoanOfficerScorecard`/`paretoData`,
+sección "Pareto — Branch / Loan Officer"). `app/pipeline/styles/
+forecast-visual.css` sin tocar en esta etapa (mismo motivo que Parte 10 --
+estilos inline + `.seg` ya existente, nada nuevo que no pudiera
+expresarse así) -- **sí se tocó después, ver Parte 12** (hover).
+
+## Etapa F7, Parte 12 -- Pareto: etiquetas graduales, cruce de 80% marcado, hover, tooltip enriquecido
+
+Cuatro mejoras sobre `ParetoChart` (Parte 11), sin tocar `paretoMix.ts`
+(el cálculo de `count`/`percent`/`cumulativePercent` no cambió, solo cómo
+se presenta).
+
+### 1. Etiquetas del eje X -- gradual, no todo-o-nada
+
+`PARETO_ALWAYS_LABELED = 8` (siempre las primeras 8) + `PARETO_LABEL_INTERVAL
+= 4` (de ahí en más, una cada 4) vía `paretoShouldLabel(i)`. Reemplaza el
+umbral binario anterior (`rows.length <= 15`, todo o nada). Con 37
+categorías (Loan Officer, YTD) esto deja **16 etiquetas visibles**:
+posiciones #1-9 (las primeras 8 + la #9, que cae justo en el primer
+múltiplo de 4 después del corte) y luego #13, #17, #21, #25, #29, #33,
+#37 -- nunca todas, nunca ninguna.
+
+### 2. Cruce real de 80% -- marcado, no adivinado
+
+`crossIndex = rows.findIndex(r => r.cumulativePercent >= 80)` -- la
+primera categoría cuyo acumulado ya llega a 80%, no una posición
+aproximada. Ese punto se dibuja más grande (`r={5.5}` vs `r={3}` de los
+puntos normales) con contorno (`stroke="var(--canvas)"`, `strokeWidth=2`)
+y una etiqueta corta arriba (ej. `"8 branches → 80%"`, pluralizado según
+corresponda) -- generada del mismo `cut` que ya elige el toggle, sin
+texto hardcodeado por corte.
+
+### 3. Números sobre las barras -- solo donde hay espacio real
+
+Mismas `PARETO_ALWAYS_LABELED` posiciones que las etiquetas del eje
+(mismo umbral, no dos números mágicos distintos) llevan el conteo
+encima de la barra -- mismo patrón visual que `SimpleMonthlyChart`
+(Closings by Month, Parte 3). Se agregó `topReserve = 16px` (mismo tipo
+de fix que `CHART_LABEL_RESERVE` de la Parte 3 -- overflow ya resuelto
+antes en Monthly Trends) para que el número de la barra más alta no se
+salga por arriba del `<svg>`.
+
+### 4. Hover -- opacidad, mismo patrón que el resto de los charts
+
+Nuevas clases `.pareto-bar`/`.pareto-dot` en `forecast-visual.css`
+(`transition: opacity 0.15s ease`, `:hover { opacity: 0.82 }`) --
+idéntico al hover ya usado en Closings/Amount/Loan Type. Agregadas
+también al bloque `@media (prefers-reduced-motion: reduce)` ya existente
+(`transition: none`), mismo criterio de accesibilidad no opcional.
+
+### 5. Tooltip enriquecido -- mismo patrón `title` nativo, más contenido
+
+Se revisó si existe algún componente real de hover-card/popover en el
+resto de la app -- no existe ninguno (`formatCtcClosingTooltip` en
+`PivotTable.tsx` y el `detail` de `DiagnosticsNote` son el único
+precedente real, `title` nativo con `\n`). `paretoTooltip()` sigue ese
+mismo criterio, con 4 líneas: nombre completo, conteo + % individual, %
+acumulado, y posición en el ranking (`#N of M`). Mismo tooltip para la
+barra y para el punto de la línea (antes eran dos textos distintos y más
+pobres).
+
+### Verificación real (snapshot activo id 74)
+
+**YTD, Loan Officer (37 categorías):** 16 etiquetas visibles (posiciones
+#1-9, 13, 17, 21, 25, 29, 33, 37) -- ni las 37, ni ninguna.
+
+**Tooltip real, YTD/Branch, primera fila (716):**
+```
+716
+51 loans (15.3% of total)
+15.3% cumulative
+#1 of 20
+```
+
+**Cruce de 80%, YTD/Branch (8 de 20):** cae en la 8ª barra (branch 770,
+20 loans, 6.0% individual, 80.8% acumulado) -- punto marcado más grande
+con contorno + etiqueta `"8 branches → 80%"` sobre ese punto exacto.
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx` editado (`PARETO_ALWAYS_LABELED`,
+`PARETO_LABEL_INTERVAL`, `paretoShouldLabel`, `paretoTooltip`,
+`ParetoChart` con marca de cruce + números condicionales + `topReserve`).
+`app/pipeline/styles/forecast-visual.css` editado (`.pareto-bar`/
+`.pareto-dot`, agregadas al bloque `prefers-reduced-motion` existente).
+`lib/pipeline/paretoMix.ts` sin tocar.
+
+## Etapa F7, Parte 13 -- Pareto: color, etiqueta cortada (fix real de captura), resto sin cambios
+
+Dos correcciones reales sobre la Parte 12, detectadas con una captura de
+pantalla real (no solo lectura de código) -- las mejoras 3/5/6/7 de la
+Parte 12 (etiquetas graduales, números condicionales, hover, tooltip
+enriquecido) se revisaron y quedan **sin cambios**, siguen correctas.
+
+### 1. Color -- rojo/`--rose-700` fuera de la línea acumulada
+
+`--rose-700` ya significa "atención/advertencia" en el resto de la app
+(`AlertTriangleIcon` de los scorecards, Parte 9) -- reusarlo acá para una
+línea de tendencia neutra era una colisión de significado. Nueva
+paleta, dentro de la familia azul de marca (sin color nuevo):
+
+- Línea + puntos normales: `--sky` (distingue de las barras, `--navy`,
+  sin salir del azul).
+- Línea punteada de referencia del 80%: **sin cambios** -- ya estaba en
+  `--slate-300` (neutro), no rojo.
+- Marca del cruce de 80%: `--navy` (mismo tono que las barras, más
+  oscuro que `--sky` de la línea -- "un tono distinto dentro de la misma
+  paleta", no un color nuevo), con el mismo contorno claro (`--canvas`)
+  de antes para que siga resaltando sobre los puntos normales.
+
+### 2. Fix real: primera etiqueta cortada contra el borde izquierdo
+
+⚠ **Encontrado con una captura de pantalla real, no solo con lectura de
+código** -- con `leftPad = 6` (valor original), la etiqueta rotada -45°
+de la primera barra (`textAnchor="end"`, ancla en `xCenter(0)`) se
+extiende hacia la izquierda del ancla y se corta contra `x=0` del
+`<svg>`. Se calculó el caso más exigente esperado ("Jose L Moreyra
+Barco", ~20 caracteres) -- a fuente 9px rotada -45°, la extensión
+horizontal estimada es ~71px. `leftPad` subió de 6 a **75px** (margen
+real de ~17px sobre ese peor caso, no un número arbitrario).
+
+⚠ **Sobre el tooltip superpuesto -- límite real, no resuelto del todo:**
+el tooltip es el `title` nativo del navegador (mismo mecanismo que el
+resto de la app, sin componente de hover-card propio, ver Parte 12) --
+su posición la decide el navegador, no hay manera de forzarlo hacia la
+derecha/arriba desde el SVG. El margen izquierdo más ancho (arriba)
+reduce la probabilidad de choque visual porque le da más aire a la
+primera barra/etiqueta, pero no es un control directo de dónde aparece
+el tooltip nativo -- se documenta la diferencia entre "mitigado
+indirectamente" y "resuelto", en vez de afirmar que quedó controlado.
+
+### Archivos
+
+Solo `app/pipeline/TabAnalytics.tsx`: `leftPad` (6 → 75), colores de
+`polyline`/`circle` de la línea (`--rose-700` → `--sky`) y de la marca de
+cruce de 80% (`--rose-700` → `--navy`). `lib/pipeline/paretoMix.ts` y
+`forecast-visual.css` sin tocar en esta etapa.
+
+## Etapa F7, Parte 14 -- Pareto: solo primeras 8 con nombre, sin intervalo cada 4
+
+Ajuste a `paretoShouldLabel` (Parte 12): se quitó la parte "una etiqueta
+cada 4 más allá de las primeras 8" -- ahora es estrictamente `i <
+PARETO_ALWAYS_LABELED` (8). `PARETO_LABEL_INTERVAL` se eliminó del todo
+(ya no hay una segunda constante que explicar). El tooltip sigue
+disponible en cualquier barra, con o sin nombre en el eje. La etiqueta
+del cruce de 80% (`"N loan officers → 80%"`) es independiente de esta
+lógica -- no se tocó, sigue apareciendo siempre que haya un cruce real.
+
+**Sin huecos visuales:** el espacio reservado debajo de las barras
+(`labelSpace`) es el mismo para las 37 columnas de YTD/Loan Officer,
+labeladas o no -- las barras 9+ simplemente no dibujan ningún `<text>`
+ahí (ni tick, ni placeholder, ni línea vacía), así que el área se ve
+como aire en blanco consistente, no como un elemento roto o faltante.
+El alto reservado sigue siendo necesario igual: lo determinan las
+primeras 8 barras, que sí llevan nombre rotado completo.
+
+### Archivos
+
+Solo `app/pipeline/TabAnalytics.tsx`: `paretoShouldLabel` simplificado,
+`PARETO_LABEL_INTERVAL` eliminado.
+
+## Etapa F7, Parte 15 -- Avg Ticket by Month
+
+Nuevo chart dentro de Monthly Trends, en la posición #3 exacta pedida:
+Closings by Month → Amount Closed by Month → **Avg Ticket by Month** →
+Loan Type Distribution by Month.
+
+### `avgTicketByMonth()` -- reusa `MonthlyTotal[]` ya calculado, no recalcula nada
+
+`lib/pipeline/trends.ts`, nueva función, recibe el `MonthlyTotal[]` que
+`buildMonthlyTotals` ya devuelve (el mismo array que ya consumen Closings/
+Amount by Month en `TabAnalytics.tsx`) -- no vuelve a leer `loans` ni
+recorre `resolvedLoans` una segunda vez:
+```ts
+export function avgTicketByMonth(totals: MonthlyTotal[]): MonthlyAvgTicket[] {
+  return totals.map((m) => ({
+    month: m.month,
+    avgAmount: m.count > 0 ? m.amount / m.count : 0,
+  }));
+}
+```
+Misma guarda contra división por cero que `ScorecardRow.avgAmount`
+(`lib/pipeline/scorecards.ts`) -- un mes sin loans (sep-dic 2026) queda en
+`avgAmount: 0` explícito, nunca `NaN`.
+
+### Línea, no barras -- mismo criterio ya usado para la curva del Pareto
+
+`AvgTicketChart` (nuevo, `TabAnalytics.tsx`): SVG a mano con `<polyline>`
++ puntos -- es una sola serie continua, no un conteo/monto discreto por
+mes como Closings/Amount, así que una línea comunica la evolución sin
+inventar una segunda marca redundante (mismo razonamiento del
+diagnóstico previo a esta etapa). Sigue las mismas convenciones visuales
+que el resto de Monthly Trends: mismo `shortMonth()`, mismo criterio de
+tooltip `"(no data yet)"` para meses en 0, mismo resaltado de mes
+seleccionado.
+
+### Resaltado del mes seleccionado -- coral, mismo patrón
+
+El punto del mes que cae dentro del período elegido en el selector se
+dibuja más grande y en `--coral` (en vez de `--navy`); su tick del eje
+usa la nueva clase `.trend-chart__tick--highlight` -- mismo tratamiento
+visual que ya usa `.trend-chart__col--highlight .trend-chart__tick` en
+los charts de barra, pero declarada standalone porque acá los ticks no
+están envueltos en `.trend-chart__col` (no hay una barra propia por mes
+en un chart de línea).
+
+### Línea de referencia -- promedio PONDERADO, no el promedio simple de los promedios
+
+⚠ Decisión explícita: el promedio general de referencia se calcula como
+`suma(amount de meses con datos) / suma(count de esos mismos meses)` --
+NO como el promedio simple de los 8 promedios mensuales. La diferencia es
+real con los datos actuales: promedio ponderado = **$347,943**, promedio
+simple de los 8 promedios = $349,589 -- distinto porque un mes de 24
+loans (agosto) no debe pesar igual que uno de 57 (julio) al calcular "el
+ticket promedio del año". Color `--slate-500`/línea punteada -- neutro,
+no compite con `--coral` (mes resaltado) ni `--navy` (la línea de datos).
+
+### Formato de etiquetas -- corto (K), confirmado el más legible para el rango real
+
+Con el rango real (~$329K-$375K), `fmtAmountShort` (ya usado en Amount
+Closed by Month) da etiquetas como "$375K" en vez de "$374,842" -- mismo
+criterio ya validado en esa etapa, reusado tal cual, sin una función de
+formato nueva.
+
+### Hover -- opacidad, mismo patrón
+
+Nueva clase `.avgticket-dot` (`forecast-visual.css`) -- `transition:
+opacity 0.15s ease`, `:hover { opacity: 0.82 }`, agregada también al
+bloque `prefers-reduced-motion` existente.
+
+### Números reales (snapshot activo id 74)
+
+| Mes | Cierres | Monto | Ticket promedio |
+|---|---|---|---|
+| Enero | 38 | $14,243,978 | $374,842 |
+| Febrero | 32 | $10,985,871 | $343,308 |
+| Marzo | 39 | $12,829,298 | $328,956 |
+| Abril | 56 | $18,896,194 | $337,432 |
+| Mayo | 42 | $15,559,781 | $370,471 |
+| Junio | 46 | $15,503,200 | $337,026 |
+| Julio | 57 | $19,487,582 | $341,887 |
+| Agosto | 24 | $8,706,991 | $362,791 |
+| Sep-Dic | 0 | $0 | $0 (sin error, sin `NaN`) |
+
+**Promedio general de referencia (ponderado): $347,943.**
+
+### Archivos
+
+`lib/pipeline/trends.ts` editado (`MonthlyAvgTicket`, `avgTicketByMonth`).
+`app/pipeline/TabAnalytics.tsx` editado (`AvgTicketChart`, cómputo de
+`avgTicketData`/`overallAvgTicket`, card en la posición #3 de Monthly
+Trends). `app/pipeline/styles/forecast-visual.css` editado
+(`.trend-chart__tick--highlight`, `.avgticket-dot`, agregada al bloque
+`prefers-reduced-motion`).
+
+## Etapa F7, Parte 16 -- Avg Ticket by Month: fix real de escala, no un bug de datos
+
+Reportado con una captura real: mayo/junio se veían en 0 en el chart.
+
+### Diagnóstico -- auditoría completa, sin encontrar un bug de índice/datos
+
+Se verificaron los 3 puntos pedidos:
+1. `avgTicketByMonth()` es un `.map()` 1 a 1 sobre `MonthlyTotal[]` --
+   sin reordenar, sin filtrar, sin lógica condicional por mes. No hay
+   forma estructural de que zere específicamente mayo/junio.
+2. `AvgTicketChart` usa `avgTicketData = avgTicketByMonth(monthlyTotals)`
+   -- el MISMO `monthlyTotals` que ya consumen Closings/Amount by Month
+   (una sola variable en el componente, sin duplicado ni shadow).
+3. Se simuló la fórmula real con los 8 valores reales conocidos
+   (Ene-Ago) -- los 8 `y()` calculados dieron todos dentro de rango
+   válido (0-110px), ninguno en un valor erróneo o fuera de los límites
+   del `<svg>`.
+
+**No se encontró ningún bug de índice, de datos, ni de rango.** Los
+valores que el chart dibujaba SÍ eran los correctos.
+
+### Causa real -- compresión visual por escala 0-based, no un bug de valores
+
+Los 8 meses reales están todos en una banda angosta (~$329K-$375K, un
+rango del 14%). Con la escala anterior (0-based, igual que Closings/
+Amount), esa banda entera ocupaba solo el **12% superior** de los 110px
+del plot -- una diferencia de 1 a 13px entre meses, indistinguible a
+simple vista en una captura. Eso es consistente con lo reportado: no es
+que mayo/junio valieran 0, es que TODOS los meses reales estaban
+amontonados casi en el mismo pixel, y esa compresión se leyó como "cae a
+0". A diferencia de Closings/Amount (donde 0 es un valor real y
+significativo -- cero cierres, cero monto), acá $0 es un CENTINELA de
+"sin datos" -- un mes real nunca vale $0 de verdad, así que forzar la
+escala a arrancar en $0 no aporta legibilidad, solo la destruye.
+
+### Fix -- escala acotada al rango real, meses sin datos aparte
+
+Los meses CON datos ahora usan una escala acotada a su propio rango
+(`domainMin`/`domainMax`, con 15% de margen a cada lado) -- usan el alto
+completo del plot en vez de un 12%. Los meses SIN datos (`avgAmount ===
+0`) quedan fijos en el fondo (`y = plotHeight`), fuera de esa escala fina
+-- y la línea (`<polyline>`) conecta SOLO los meses con datos reales,
+nunca un mes sin datos, para no dibujar una caída visual falsa entre un
+valor real y el "aparcado abajo" de un mes futuro (son datos de
+naturaleza distinta, no una caída real).
+
+### Verificación real -- posiciones antes/después
+
+| Mes | y() ANTES (0-based, px) | y() AHORA (escala acotada, px) |
+|---|---|---|
+| Enero | 0.0 | 12.7 |
+| Febrero | 9.3 | 70.8 |
+| Marzo | 13.5 | 97.3 |
+| Abril | 11.0 | 81.7 |
+| Mayo | 1.3 | 20.8 |
+| Junio | 11.1 | 82.4 |
+| Julio | 9.7 | 73.5 |
+| Agosto | 3.5 | 34.9 |
+| Sep-Dic | 110.0 (igual) | 110.0 (igual, sin cambios) |
+
+Antes: los 8 meses reales caían todos entre 0.0 y 13.5px (13.5px de
+rango total). Ahora: entre 12.7 y 97.3px (84.6px de rango, prácticamente
+el alto completo del plot) -- mayo (20.8px) y junio (82.4px) quedan
+claramente separados y distinguibles, ya no indistinguibles de un pixel
+al otro.
+
+### Archivos
+
+Solo `app/pipeline/TabAnalytics.tsx`: `AvgTicketChart` -- nueva lógica de
+dominio acotado (`realValues`/`minReal`/`maxReal`/`domainMin`/
+`domainMax`), `y()` redefinida, `linePoints` filtrado a meses con datos.
+`lib/pipeline/trends.ts` y `forecast-visual.css` sin tocar en esta
+etapa.
+
+## Etapa F7, Parte 17 -- Avg Ticket by Month: fix real del wrapper CSS, no de los datos
+
+Reportado con una segunda captura real: tras el fix de escala (Parte 16),
+la línea solo conectaba enero-abril; mayo-agosto quedaban como puntos
+sueltos.
+
+### Diagnóstico -- se probó matemáticamente que los 8 puntos SÍ estaban completos
+
+Se construyó a mano, con los 8 valores reales, el string exacto que arma
+`linePoints` (mismo código, mismos números) para descartar cualquier duda
+sin depender de un navegador:
+
+```
+8,12.69 59.64,70.84 111.27,97.31 162.91,81.68 214.55,20.75 266.18,82.43 317.82,73.46 369.45,34.91
+```
+
+**8 pares de coordenadas, los 8 meses (Ene-Ago), en orden, todos números
+válidos (sin `NaN`, sin token malformado).** El array `realPoints`
+(`rows.map((r,i) => ({r,i})).filter(({r}) => r.avgAmount > 0)`) SÍ
+conservaba los 8 -- confirmado con prueba, no solo lectura de código. La
+lógica de datos/índices de la Parte 16 estaba bien; el problema reportado
+era real, pero la causa era otra.
+
+### Causa real -- clase CSS equivocada para el wrapper del SVG
+
+El `<svg>` estaba envuelto en `.trend-chart__plot`
+(`display: flex; align-items: flex-end`, `forecast-visual.css`) -- una
+clase diseñada para las COLUMNAS FLEX de los charts de barra
+(`SimpleMonthlyChart`), no para un `<svg>` de ancho fijo (640px). Un
+`<svg>` como único hijo de un contenedor flex puede angostarse
+(`flex-shrink` default del navegador) si el contenedor real es más
+angosto que esos 640px, distorsionando el render de forma dependiente
+del navegador/viewport -- consistente con "la línea se corta" sin que
+los datos en sí estuvieran mal. `ParetoChart` (Parte 11), el otro chart
+SVG-a-mano de esta pestaña, ya resolvía esto correctamente con un
+wrapper simple (`<div style={{ overflowX: 'auto' }}>`), sin usar
+`.trend-chart__plot` -- `AvgTicketChart` reusó por error la clase
+equivocada (pensada para bloques flex de barras) en vez de seguir el
+precedente correcto del propio chart hermano.
+
+### Fix
+
+Se reemplazó el wrapper por el mismo patrón de `ParetoChart`:
+`<div style={{ overflowX: 'auto' }}>` envolviendo el `<svg>` -- sin
+`display: flex`, sin `flex-shrink` implícito, el SVG conserva su ancho
+real de 640px y hace scroll horizontal si el contenedor es más angosto,
+en vez de comprimirse de forma impredecible.
+
+### Archivos
+
+Solo `app/pipeline/TabAnalytics.tsx`: wrapper del `<svg>` de
+`AvgTicketChart` cambiado de `className="trend-chart__plot"` a un `div`
+con `overflowX: 'auto'` inline (mismo patrón que `ParetoChart`). Ningún
+cambio en la lógica de `x()`/`y()`/`linePoints` (ya verificados correctos
+en el diagnóstico de esta etapa).
+
+## Etapa F7, Parte 18 -- Avg Ticket by Month: fix real de la desalineación con el eje
+
+Reportado con una tercera captura real: la línea ya conectaba los 8
+puntos (Parte 17), pero quedaban desalineados horizontalmente contra las
+etiquetas "Jan"-"Dec" -- agosto (coral) flotaba entre "Apr" y "May" en
+vez de debajo de "Aug".
+
+### Causa real -- dos sistemas de coordenadas horizontales distintos, no un bug de índice
+
+`x(i)` ya usaba el índice real (0-11, agosto=7) sobre un `step` calculado
+con `rows.length` = 12 -- confirmado, no era un bug de "8 en vez de 12"
+como se sospechaba inicialmente. El problema real: esa posición vive
+DENTRO del ancho fijo del `<svg width={640}>`, mientras que las
+etiquetas de mes vivían en un `<div className="trend-chart__axis">`
+APARTE, layouteado por flexbox (`.trend-chart__tick { flex: 1 1 0 }`) --
+un sistema de coordenadas totalmente independiente. El ancho real que el
+navegador le da a esa fila flex no tiene ninguna relación garantizada
+con los 640px internos del SVG, así que por más correcto que estuviera
+`x(i)`, los puntos y las etiquetas quedaban en dos escalas horizontales
+distintas por construcción -- ningún valor de `x(i)` podía arreglar eso,
+porque el problema no estaba en la fórmula.
+
+`ParetoChart` (Parte 11) nunca tuvo este problema por el mismo motivo al
+revés: sus etiquetas de categoría ya viven DENTRO del mismo `<svg>`, como
+`<text>` posicionados con la misma función que ya usan las barras/puntos.
+
+### Fix -- etiquetas de mes movidas dentro del mismo SVG
+
+Se eliminó el `<div className="trend-chart__axis">` separado; las 12
+etiquetas de mes ahora son `<text>` dentro del mismo `<g>` que la línea y
+los puntos, posicionadas con la MISMA función `x(i)` -- mismo patrón que
+`ParetoChart`. Esto garantiza alineación exacta por construcción (mismo
+sistema de coordenadas), sin depender de que el ancho real del
+contenedor coincida con ningún valor fijo. Nuevo `bottomReserve = 18`
+(px) para el espacio de esas etiquetas dentro del `viewBox`.
+
+### Verificación real -- x() de los 12 meses
+
+| Mes | Índice | x() |
+|---|---|---|
+| Jan | 0 | 8.00 |
+| Feb | 1 | 59.64 |
+| Mar | 2 | 111.27 |
+| Apr | 3 | 162.91 |
+| May | 4 | 214.55 |
+| Jun | 5 | 266.18 |
+| Jul | 6 | 317.82 |
+| **Aug** | **7** | **369.45** |
+| Sep | 8 | 421.09 |
+| Oct | 9 | 472.73 |
+| Nov | 10 | 524.36 |
+| Dec | 11 | 576.00 |
+
+Confirmado: agosto (punto de datos Y etiqueta "Aug") caen ambos en
+**x=369.45** -- la misma coordenada exacta, porque ahora los calcula la
+misma función sobre el mismo sistema de coordenadas. Antes de este fix
+no había forma de garantizar esa igualdad, sin importar qué tan
+"correcto" pareciera `x(i)` en aislamiento.
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx`: `AvgTicketChart` -- etiquetas de mes
+movidas de `.trend-chart__axis` (div flex externo) a `<text>` dentro del
+`<svg>`, `bottomReserve` nuevo. `app/pipeline/styles/forecast-visual.css`:
+`.trend-chart__tick--highlight` (agregada en la Parte 15, sin ningún otro
+uso en el proyecto) se eliminó -- código muerto tras este cambio, no
+código dejado "por si acaso". `lib/pipeline/trends.ts` sin tocar.
+
+## Etapa F7, Parte 19 -- diagnóstico "excluded": significado, no mecanismo
+
+El texto anterior ("known non-person entry/entries", "excluded via
+org.source_name_excluded") describía el MECANISMO técnico, no el
+significado real -- y de hecho sugería la causa equivocada. La propia
+documentación de `buildExcludedIndex()` (`lib/business-plan/aliasIndex.ts:100-111`)
+dice explícito: de los 36 nombres excluidos, la razón típica es "no son
+LOs de la división", no "no es una persona" -- el caso real ya
+confirmado, Anthony Ditoma (Loan Officer real, con préstamos reales en
+branch 733 y 150), es exactamente eso, no una cuenta de sistema ni un
+dato mal capturado.
+
+### Redacción nueva -- genérica a propósito, sin asumir el motivo
+
+`"outside this scorecard's roster"` cubre tanto el motivo de hoy (otra
+división) como uno futuro sin ejercitar todavía (cuenta de sistema, ej.
+"sf integrations", buscado y no encontrado en el snapshot activo desde
+la Etapa F7.2) -- sin necesitar distinguirlos en el texto visible, y sin
+nombrar `org.source_name_excluded` en ningún lado.
+
+**Resumen (icono/summary)** -- caso puro (solo excluidos, sin
+no-reconocidos ni vacíos): frase dedicada, mismo tono del ejemplo
+pedido. Para una mezcla de categorías, la frase general de siempre, con
+la parte "excluded" reformulada dentro de la lista entre paréntesis
+(`"N outside this scorecard's roster"` en vez de `"N known non-person
+entries"`).
+
+**Detalle (tooltip completo)** -- reescrito completo, sin nombres de
+tabla en ninguna línea: "N loans resolved to a person via the company
+roster." + una línea por categoría con problema, en lenguaje simple. La
+lista de nombres no reconocidos (`unmappedNames`) se conserva -- es dato
+accionable real, no jerga técnica.
+
+### Motivo/`reason` en el tooltip -- no traído, no está modelado en ningún lado del código hoy
+
+Se evaluó explícito, como pedía la tarea. `org.from('source_name_excluded').select('source_system, name_raw')`
+(`useOrgRoster.ts`) solo trae esos dos campos -- ningún `reason` ni
+similar. `buildExcludedIndex(rows: { source_system, name_raw }[])`
+(`lib/business-plan/aliasIndex.ts`) tampoco lo recibe ni lo expone.
+Traerlo requeriría tocar los dos archivos -- el segundo, compartido con
+Business Plan, deliberadamente sin cambios desde la Etapa 2 de esta
+misma serie. **No se implementó** (era "opcional, no bloqueante") --
+queda anotado como mejora futura real, no descartada por falta de
+interés sino por alcance de archivos de esta etapa puntual.
+
+### Texto real esperado -- caso Anthony Ditoma (agosto 2026)
+
+⚠ Con los números ya conocidos de esta sesión (24 loans, 0 con
+`loan_officer` vacío -- verificado por script -- y Anthony Ditoma
+identificado como el único caso "excluded" en agosto, sin confirmación
+en pantalla de que `unmappedCount` sea 0): si `resolvedCount=23,
+excludedCount=1, unmappedCount=0, blankCount=0` (la combinación más
+probable, no verificada con sesión de navegador real), el texto sería:
+
+**Summary:**
+```
+1 loan's owner is outside this scorecard's roster
+```
+
+**Detail:**
+```
+23 loans resolved to a person via the company roster.
+1 loan belongs to someone not part of this division's roster -- their production is included in the totals above, but they don't get their own row in this breakdown.
+```
+
+### Archivos
+
+Solo `app/pipeline/TabAnalytics.tsx`: `personDiagnosticsNote()`
+reescrita (mismo shape de retorno `{count, summary, detail}`, mismo
+`console.warn` de reconciliación sin cambios). `docs/ARQUITECTURA.md`.
+Ningún archivo de `lib/business-plan/**` ni `useOrgRoster.ts` tocado.
+
+## Etapa F7.20 -- columna "Opportunity Owner", de punta a punta
+
+Autorizado por Isa: `opportunity_owner` ya existe en `pipeline_loans`/
+`pipeline_resolved_loans`, y `save_pipeline_snapshot()` ya está ampliada
+(verificado por ella, conserva los 8 campos anteriores). Implementación
+en el orden confirmado: parser → tipo → mapper de subida → mapper de
+lectura → scorecard.
+
+### Las 4 capas de código
+
+1. **Parser** (`lib/pipeline/sources/salesforce-file.ts`): nuevo
+   `idx['Opportunity Owner']`, campo `opportunityOwner` en `RawRow`, leído
+   en los 2 formatos (A y B), pasado a `PipelineLoan`/`ResolvedLoan` en
+   `classifyRow()` -- mismo patrón exacto que los 5 crudos de F6.
+2. **Tipo** (`lib/pipeline/types.ts`): `opportunityOwner: string` en
+   `PipelineLoan` y `ResolvedLoan`.
+3. **Mapper de subida** (`app/api/pipeline/parse/route.ts`):
+   `opportunity_owner: loan.opportunityOwner` en los 2 inserts (open y
+   resolved) -- mismo criterio `''` vs `NULL` ya documentado para F6.
+4. **Mapper de lectura** (`app/api/pipeline/latest/route.ts`): columna
+   agregada a los 2 `select(...)`, `opportunityOwner: r.opportunity_owner
+   ?? ''` en los 2 mapeos -- el `?? ''` importa de verdad: confirmado con
+   datos reales que la base guarda `NULL` (no `''`) para snapshots
+   viejos, ver más abajo.
+
+### Fix necesario, no pedido explícito: el drill-down de Business Developer resolvía el campo equivocado
+
+`loanResolvesToEmployeeKey()` (usada por el click de fila en Loan
+Officer y Business Developer para abrir `LoanDetailModal`) tenía
+`loan.loanOfficer` hardcodeado -- si el scorecard de BD pasa a agrupar
+por `opportunityOwner` pero el drill-down seguía resolviendo
+`loanOfficer`, el click en una fila de BD habría abierto los préstamos
+de la persona equivocada (mismo tipo de bug que motivó esta etapa, pero
+en el modal en vez del scorecard). Se parametrizó con un
+`getRawName: (loan) => string`, igual que ya hace `buildPersonScorecard`
+en `scorecards.ts` -- Loan Officer sigue pasando `(loan) =>
+loan.loanOfficer`, Business Developer ahora pasa `(loan) =>
+loan.opportunityOwner`.
+
+### Scorecard (`lib/pipeline/scorecards.ts`)
+
+`buildBusinessDeveloperScorecard`: una línea, `buildPersonScorecard(bdLoans,
+(loan) => loan.opportunityOwner, ...)` en vez de `(loan) =>
+loan.loanOfficer`. El filtro de quién ES Business Developer
+(`opportunityOwnerTitle === 'Business Developer'`) no cambió. "sf
+integrations" se excluye por el mismo `excludedIndex` ya usado para Loan
+Officer -- ningún chequeo nuevo, mismo mecanismo aplicado a una columna
+distinta.
+
+### Mensaje "sin datos de owner" -- verificado con datos reales, no solo por código
+
+`bdOwnerDataMissing` (`TabAnalytics.tsx`): `true` cuando
+`diagnostics.totalInput > 0 && diagnostics.blankCount ===
+diagnostics.totalInput` -- todos los BD-titled del período vinieron sin
+`opportunityOwner`, a diferencia de "0 Business Developers reales"
+(`totalInput === 0`, un resultado distinto y legítimo). Cuando es
+`true`, la tarjeta de Business Developer muestra el mensaje explícito en
+vez de `ScorecardTable` (que de otro modo mostraría "No funded loans in
+this period", engañoso acá).
+
+**Verificado contra el snapshot activo real (id 74, antes de cualquier
+carga nueva):** 113 loans BD-titled, **los 113 con
+`opportunity_owner` = `NULL` en la base** (no `''`) -- confirma que el
+`?? ''` del mapper de lectura es necesario de verdad, y que
+`bdOwnerDataMissing` evalúa `true` para este snapshot con datos reales,
+no solo en teoría.
+
+### ⚠ Verificación de carga real -- NO SE PUDO EJECUTAR desde este entorno
+
+Isa pidió explícito "verificar CONTRA LA BASE, no solo que la respuesta
+del upload fue 200" -- se intentó, pero `/api/pipeline/parse`
+(`app/api/pipeline/parse/route.ts`) usa `getServerClient('pipeline_forecast')`
+(`lib/supabase/server.ts`), que arma el cliente de Supabase con la
+**sesión del usuario que hizo la request** (cookies del navegador) --
+sin `service_role`, por diseño (RLS exige un usuario autenticado, ver
+comentario de Etapa AUTH1 en ese archivo). Sin una sesión de navegador
+real, esta ruta no escribe nada -- mismo tipo de bloqueo que ya viene
+limitando el acceso a `org` durante toda esta sesión, ahora confirmado
+también para escrituras a `pipeline_forecast` vía esta ruta específica.
+
+**No se hizo la carga de prueba.** Queda pendiente que Heather la haga
+desde el navegador real -- con el archivo de referencia más reciente
+disponible (`Forecast_Pipeline_2026-08-24 (1).xlsx`, en Descargas al
+momento de este reporte, o el que corresponda). Después de esa carga,
+sí se puede verificar contra la base con `service_role` de solo lectura
+(mismo mecanismo ya usado en toda la sesión) -- la query de verificación
+ya queda preparada en `docs/sql/2026-08-25-opportunity-owner-column.sql`.
+
+### Archivos
+
+`lib/pipeline/sources/salesforce-file.ts`, `lib/pipeline/types.ts`,
+`app/api/pipeline/parse/route.ts`, `app/api/pipeline/latest/route.ts`,
+`lib/pipeline/scorecards.ts`, `app/pipeline/TabAnalytics.tsx` (mensaje +
+fix del drill-down). Además, dos archivos fuera del alcance original de
+5+docs pero necesarios para que `tsc` compile (ambos construyen un
+`PipelineLoan` literal a mano): `fixtures/pipeline-demo.ts` y
+`scripts/test-aggregate.ts` -- una línea cada uno (`opportunityOwner:
+''`), mismo patrón que los cinco crudos de F6 en esos mismos archivos.
+
+## Etapa F7.21 -- nota descriptiva en Avg Ticket by Month
+
+Avg Ticket by Month era el único chart de Monthly Trends sin ninguna
+`DiagnosticsNote` propia -- los otros cuatro (Rankings, Scorecards,
+Monthly Trends, Strategy Mix, Pareto) ya tenían una. Se agregó una,
+mismo componente y mismo patrón de colocación ya usado para Strategy
+Mix/Pareto (justo encima del `tbl-card` del chart, `count={1}` porque
+no es un diagnóstico condicional):
+
+- `summary` (siempre visible): "Average loan amount per closing, by
+  month (total amount ÷ closings -- not a margin or division earnings
+  figure)."
+- `detail` (tooltip nativo al pasar el mouse): referencia explícita a
+  `avgTicketByMonth()` (`lib/pipeline/trends.ts`), aclarando que divide
+  el mismo `monthlyTotals` que ya usan los charts de Closings/Amount de
+  arriba -- no es un campo separado del export ni una fuente de datos
+  distinta.
+
+Motivo: sin esta nota, el número podía leerse como una cifra de
+ganancia/comisión de la división en vez de lo que realmente es --
+tamaño promedio del préstamo (monto ÷ conteo, derivado, no un dato
+directo del archivo de Salesforce). Redacción que evita esa confusión
+sin introducir mecanismo nuevo: mismo componente `DiagnosticsNote`, sin
+cambios de lógica ni de datos.
+
+Archivos: `app/pipeline/TabAnalytics.tsx` (una `DiagnosticsNote` nueva,
+sin tocar `AvgTicketChart` ni `avgTicketByMonth()`).
+
+## Etapa F7.22 -- nombres con U+FFFD ("�") en el tooltip de diagnóstico
+
+Se reportó que "Javier Peñaloza" se veía como "Javier Pe�aloza" en el
+tooltip de nombres no reconocidos del scorecard de Business Developer.
+Investigado a fondo -- **no es un bug de este parser ni de
+`opportunityOwner` en particular**:
+
+- Leyendo los BYTES crudos (sin ningún parseo propio, `fs.readFileSync`
+  directo) de exports CSV reales de Salesforce, se confirmó que el
+  carácter ya viene roto en el archivo de origen: los bytes UTF-8 de
+  U+FFFD (`EF BF BD`) ya están en el lugar de la ñ, antes de que
+  cualquier código de esta app lo lea. Confirmado en dos archivos CSV
+  reales distintos ("Javier Pe[FFFD]aloza", "Eduardo Nu[FFFD]ez Mr
+  Flip").
+- Confirmado que es específico del formato CSV: un export XLSX real de
+  la misma fecha, con nombres igual de acentuados (ej. "Norfael
+  Rodríguez Jaimes"), se lee perfectamente limpio -- XLSX guarda texto
+  como XML UTF-8 internamente, más robusto que el CSV que genera
+  Salesforce en este caso.
+- Confirmado que el problema YA existía antes de `opportunityOwner`:
+  datos reales ya cargados (snapshot 75) tenían el mismo patrón en
+  `referred_by` ("Eduardo Nu�ez Mr Flip") -- pasó desapercibido porque
+  `loan_officer`/`referred_by` casi siempre se muestran resueltos vía
+  `org.employee_alias` (nombre limpio de `dim_employee.full_name`, no el
+  crudo del archivo). `opportunityOwner`, con muchos nombres aún sin
+  mapear, es el primer lugar donde se expone un nombre CRUDO
+  directamente al usuario -- ahí es donde se hizo visible, no donde se
+  originó.
+
+U+FFFD significa "byte no decodificable" -- el carácter original ya se
+perdió de forma irrecuperable en el momento en que Salesforce generó el
+CSV. No hay ningún fix de causa raíz posible en el código: reemplazar
+"�" por una letra específica sería adivinar, no corregir.
+
+Decisión (consultada explícitamente): en vez de dejar el "�" sin
+contexto o intentar "arreglarlo", se agregó una advertencia visible
+junto al nombre dañado en el mismo tooltip donde ya aparecía --
+`hasDamagedEncoding()` (`app/pipeline/TabAnalytics.tsx`) detecta
+U+FFFD en `nameRaw` y `personDiagnosticsNote()` le agrega
+`[damaged in Salesforce export -- character lost at the source, not a
+parsing error]` junto al nombre. Aplica automáticamente a los tres
+scorecards de persona (Loan Officer, Business Developer, y cualquier
+otro que use `personDiagnosticsNote()` en el futuro), no solo a
+`opportunityOwner`. Verificado que no genera falsos positivos contra
+nombres acentuados limpios ("Ana Peña", "Norfael Rodríguez Jaimes").
+
+Archivos: `app/pipeline/TabAnalytics.tsx` (`hasDamagedEncoding()` +
+un cambio en `personDiagnosticsNote()`). Sin cambios en el parser,
+tipos, ni mappers de subida/lectura -- no había nada que corregir ahí.
+
+## Etapa F7.23 -- Strategy Mix respeta el mismo aviso de "sin datos" que Business Developer
+
+Pedido explícito: un snapshot anterior al 23 de agosto (sin los cinco
+crudos de estrategia -- Etapa F6) hace que `classifyStrategy()` caiga en
+`'Own production'` para el 100% de los loans, porque es el valor por
+default de esa función cuando `strategyRaw`/`opportunityOwnerTitle`
+vienen vacíos. Sin este aviso, Strategy Mix mostraría un donut con una
+única porción de "Own production" al 100% -- se lee como un resultado
+real de negocio y no lo es.
+
+- **Strategy Mix:** `hasStrategyData()` (`lib/pipeline/strategy.ts`) ya
+  existía desde la Etapa F6 exactamente para este caso (`loans.some((l)
+  => l.strategyRaw !== '' || l.opportunityOwnerTitle !== '')`), pero
+  nunca se había conectado a esta vista. Se agregó `strategyDataMissing`
+  en `TabAnalytics.tsx` (`fundedInRange.length > 0 &&
+  !hasStrategyData(fundedInRange)`, mismo criterio de `totalInput > 0`
+  que ya usa `bdOwnerDataMissing` para no disparar el aviso con un
+  período sin ningún loan) y se envolvió el donut en la misma condición
+  que ya usa el scorecard de Business Developer (F7.20): si falta el
+  dato, `"No strategy data in this snapshot -- re-upload required to
+  populate this view."` en vez del gráfico.
+- **Pareto:** revisado `buildParetoRows()` (`lib/pipeline/paretoMix.ts`)
+  y su uso en `TabAnalytics.tsx` -- confirmado que solo consume
+  `ScorecardRow.closedCount` de `branchScorecard`/`loanOfficerScorecard`
+  (`buildBranchScorecard`/`buildLoanOfficerScorecard`,
+  `lib/pipeline/scorecards.ts`), que agrupan por `branch`/`loanOfficer`
+  -- ninguno de los cinco crudos de estrategia. Un snapshot viejo sin
+  esas columnas no afecta a Pareto de ninguna forma; no hace falta
+  ningún aviso ahí hoy. Queda anotado (no implementado, no aplica
+  todavía) que si en el futuro Pareto se agrupara por Strategy u otro
+  campo dependiente de F6, tendría que replicar el mismo criterio.
+
+Archivos: `app/pipeline/TabAnalytics.tsx` (import de `hasStrategyData`,
+`strategyDataMissing`, ternario alrededor de `StrategyDonutChart`). Sin
+cambios en `lib/pipeline/strategy.ts` (el helper ya existía tal cual se
+necesitaba) ni en `paretoMix.ts`.
+
+## Etapa ANALYTICS-TAB-1 -- Analytics pasa de sub-tab de Forecast a pestaña de nivel superior
+
+Basado en el diagnóstico previo de esta misma rama (Opción A recomendada:
+ruta nueva con fetch propio, sin depender de que el usuario haya
+visitado Forecast primero).
+
+**Navegación (`components/layout/ServiceHubHeader.tsx`):** 4to tab
+agregado a `NAV_TABS` (`/analytics`, ícono `PieChartIcon` nuevo en
+`components/ui/icons.tsx` -- distinto de `BarChartIcon`, que ya usa
+Commercial Activity, para que los 4 tabs de nivel superior se
+distingan entre sí a simple vista). `isTabActive()` no necesitó
+cambios: ya maneja cualquier ruta no-raíz por sub-camino.
+
+**Ruta nueva (`app/analytics/page.tsx`):** mismo patrón de fetch que
+`app/pipeline/page.tsx` (`useEffect` + `useState`, GET a
+`/api/pipeline/latest`, mismo endpoint reutilizado tal cual, sin
+duplicar lógica de parseo de la respuesta) -- pero mucho más chico:
+solo pide `resolvedLoans`/`openLoans`/`warnings`, sin
+`pipelineDateRange`/`forecastMonth`/`branchManagers`/`knownBranches`/
+`firstSeenAsAdverse`, ninguno de los cuales usa `TabAnalytics`. Sin
+Topbar ni upload -- es de solo lectura sobre el snapshot que ya existe
+(cargado desde Forecast, o restaurado de Supabase); subir un archivo
+sigue siendo exclusivo de `/pipeline`.
+
+**Sin filtro de branch a nivel de esta página** (Opción A del
+diagnóstico, mantenerlo simple) -- a diferencia de Forecast, que sí
+filtra `resolvedLoans` por `selectedBranch` antes de pasarlos a
+`TabAnalytics`. Esta página analiza el snapshot completo. Si hiciera
+falta un filtro de branch acá, es una etapa aparte -- no se agregó un
+Topbar ni un selector solo para dejarlo listo "por si acaso".
+
+**`useOrgRoster.ts` -- decisión: NO se movió de `app/pipeline/`.**
+Evaluado explícitamente (pedido del brief): `TabAnalytics.tsx` ya
+llama a `useOrgRoster()` INTERNAMENTE (no lo recibe como prop) vía un
+import relativo (`./useOrgRoster`) -- como el archivo en sí no se
+movió, ese import sigue resolviendo igual sin importar desde qué ruta
+se monte el componente que lo contiene. Next.js no exige que un hook
+viva bajo la misma carpeta que la ruta que termina usándolo (ya es así
+hoy: `useOrgRoster.ts` vive en `app/pipeline/` pero ahora lo consume
+transitivamente también `/analytics`, sin problema). Mover el archivo
+a un lugar más "neutral" (`hooks/` o `lib/pipeline/`) habría sido más
+prolijo en el papel, pero habría obligado a tocar el import de
+`TabAnalytics.tsx` sin ninguna necesidad funcional -- contra el alcance
+explícito del brief ("NO modificar TabAnalytics.tsx... salvo que sea
+estrictamente necesario"). Queda anotado como reorganización posible
+más adelante, no bloqueante hoy.
+
+**`TabAnalytics.tsx` -- sin cambios.** Confirmado que ya era standalone
+(un solo prop `resolvedLoans`, período propio, roster propio) -- el
+brief anticipaba que "no debería necesitar cambios grandes", y
+terminó sin necesitar ningún cambio.
+
+**Hallazgo durante la verificación -- CSS no viajaba solo.** Next.js
+code-parte las hojas de estilo por ruta: `TabAnalytics.tsx` depende de
+clases definidas en `app/pipeline/styles/forecast-visual.css`
+(`.trend-chart`, `.pareto-bar`, `.avgticket-dot`, `.tbl-card`, etc.),
+pero esa hoja solo se importaba en `app/pipeline/page.tsx`. Sin
+agregar el mismo import en `app/analytics/page.tsx`, la ruta nueva
+habría renderizado el componente completo, pero sin ningún estilo --
+no era un problema teórico, se confirmó revisando cada clase que usa
+`TabAnalytics.tsx` contra dónde está definida.
+
+**`app/pipeline/TabNavigation.tsx`/`app/pipeline/page.tsx`:** se quitó
+el tab `'analytics'` de `TabType`, del array `TABS`, y el render
+condicional (`{activeTab === 'analytics' && <TabAnalytics .../>}`) +
+el import de `TabAnalytics` en `page.tsx` -- Forecast queda con sus 3
+tabs originales (Projected Forecast/Pipeline by Milestone/Adverse
+Loans), sin ningún otro cambio de comportamiento.
+
+**Costo nuevo, único y esperado:** un fetch duplicado a
+`/api/pipeline/latest` si el usuario visita ambas rutas en la misma
+sesión -- cada una pide el snapshot por separado, sin cache
+compartido, mismo patrón ya usado por las otras 3 rutas de nivel
+superior (cada una independiente). No se detectó ningún otro efecto
+secundario.
+
+Archivos: `components/layout/ServiceHubHeader.tsx`,
+`components/ui/icons.tsx` (`PieChartIcon` nuevo), `app/analytics/page.tsx`
+(nuevo), `app/pipeline/TabNavigation.tsx`, `app/pipeline/page.tsx`. Sin
+cambios en `app/pipeline/TabAnalytics.tsx`, `app/pipeline/useOrgRoster.ts`,
+ni ninguno de los componentes hijos de Analytics (PeriodSelector,
+scorecards, charts).
+
+## Fix general -- outline de foco faltante en `.btn`/`.pill`/`.seg button`/`.tab-btn`
+
+**No es específico de Analytics** -- surgió durante la verificación de
+esta rama (Heather reportó un contorno naranja/rojo alrededor de
+píldoras como "By strategy"/"All"/"Month", solo en `localhost`, no en
+Vercel), pero el hallazgo real es una corrección de accesibilidad que
+aplica a toda la app: estas 4 clases (`.btn`, `.pill`, `.seg button`,
+`.tab-btn`) nunca tuvieron una regla de `:focus-visible` propia -- a
+diferencia de `.field`, `.strat-pill` y las ~11 clases de Business
+Plan, que sí la tienen. Sin regla propia, el navegador cae a su
+outline nativo por defecto, que varía según el sistema/entorno -- de
+ahí que se viera distinto en dev vs. producción sin que hubiera
+ninguna diferencia real de CSS entre los dos (confirmado en el
+diagnóstico previo).
+
+Se agregaron las mismas 4 reglas, mismo patrón ya establecido
+(`outline: 2px solid var(--sky); outline-offset: 1px;`, nunca `outline:
+none` -- rompería la accesibilidad de teclado):
+
+```css
+.btn:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 1px;
+}
+.seg button:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 1px;
+}
+.tab-btn:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 1px;
+}
+.pill:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 1px;
+}
+```
+
+**Nota sobre `.tab-btn`:** su definición base NO vive en
+`app/styles/components.css` -- vive en
+`app/pipeline/styles/forecast-visual.css` (tabs de sub-navegación de
+Forecast, `TabNavigation.tsx`). El alcance de este fix se limitó
+explícitamente a `components.css`, así que la regla quedó ahí en vez
+de junto a su base -- CSS no exige que vivan en el mismo archivo, así
+que funciona igual, con un comentario en el propio archivo señalando
+la ubicación real de `.tab-btn` por si se reorganiza más adelante.
+
+Confirmado con `git diff` que las 4 reglas son puramente aditivas --
+ninguna regla existente (incluida `.field:focus-visible`, la única que
+ya existía en este archivo) se modificó ni se sobreescribió.
+
+Archivos: `app/styles/components.css` únicamente. No se tocó ninguna
+otra hoja de estilo ni ningún componente.
+
+## Hallazgo pendiente -- "Branch Transfer" no se persiste para préstamos Funded/Adverse
+
+Reportado por Heather: préstamos marcados como "Branch Transfer" en el
+reporte de Salesforce no aparecían marcados en la columna nueva "Branch
+Transfer" del Excel (Etapa EXCEL-2). Investigado con datos reales
+(archivo de referencia "Forecast - Pipeline Report-2026-08-21-17-00-11.csv",
+formato Salesforce real, 16 filas con `Branch Transfer = 1`):
+
+- El parser (`lib/pipeline/sources/salesforce-file.ts`,
+  `parseBranchTransfer()`) lee la columna correctamente -- confirmado
+  corriendo el parser real contra el archivo: 16 de 16 filas marcadas
+  llegaron con `branchTransferred: true` (5 en `openLoans`, 11 en
+  `resolvedLoans`).
+- La causa está en la persistencia, ya documentada desde la Etapa F5a en
+  `app/api/pipeline/latest/route.ts` (~línea 203): `pipeline_resolved_loans`
+  (préstamos Funded/Adverse) **nunca tuvo columna `branch_transferred`**
+  -- a diferencia de `pipeline_loans` (préstamos abiertos), que sí la
+  tiene y sí la guarda/lee bien. En F5a se decidió no bloquear esa etapa
+  por esto porque el campo no entraba en ningún cálculo del Forecast --
+  seguía siendo cierto entonces. La columna nueva del Excel es el primer
+  consumidor que lo hace visible: 11 de los 16 casos reales del archivo
+  de referencia caen justo en el grupo Funded/Adverse, así que la mayoría
+  de los "Branch Transfer" que se esperaría ver en el Excel no aparecen.
+
+**No corregido todavía** -- pendiente de una migración (`ALTER TABLE
+pipeline_forecast.pipeline_resolved_loans ADD COLUMN branch_transferred
+boolean`) + la ampliación correspondiente de
+`pipeline_forecast.save_pipeline_snapshot()` (mismo patrón ya aplicado
+dos veces en esta rama para `strategy_raw`/... y `opportunity_owner` --
+sin la RPC ampliada, la columna nueva se descartaría en silencio igual
+que pasó con esas dos). Se decidió explícitamente dejar solo esta
+constancia por ahora, sin preparar el SQL ni tocar código, hasta que se
+priorice.
+
+## Nota -- EXCEL-4 (fix de la carrera del botón Download Excel) sin verificación real todavía
+
+El fix de la Etapa EXCEL-4 (`isAdverseHistoryLoading`, botón Download
+Excel deshabilitado hasta que `/api/pipeline/adverse-history` termina)
+quedó **implementado y con `tsc` limpio, pero sin confirmarse contra un
+caso real en el navegador** -- no se forzó una carga de prueba solo para
+validar esto puntual. Pendiente de confirmarse en el próximo uso normal
+de la app: al cargar un snapshot, el botón debería mostrarse
+deshabilitado con "Preparing…" por un instante y habilitarse recién
+cuando el Excel resultante va a traer las filas Adverse completas.
+
+## Etapa EXCEL-6 -- hoja de portada + resumen por estrategia (siempre completo) + Channel en Adverse
+
+El Excel de Forecast pasó de 1 hoja a 3: **Cover** (portada, nueva),
+**Strategy Summary** (resumen por estrategia, nueva) y **Pipeline** (el
+detalle de siempre, mismo comportamiento, con un filtro nuevo).
+
+**Cover (primera hoja).** Puro key/value, sin cálculo -- todo ya
+resuelto en `page.tsx` (`coverSheetData`): id y fecha del snapshot
+activo, rango de Pipeline (Total/Healthy) y Forecast Month
+(Closed/Forecast/Adverse) por separado -- **son dos rangos distintos
+en esta app** (`pipelineDateRange` vs. `forecastRange`, F5j), mostrar
+solo uno habría sido impreciso, no una simplificación razonable.
+Branch/Strategy/Channel filtrados (o "All ..." si no aplica), y la nota
+pedida explícita por Isa: *"Summary sheet totals reflect the full
+period, regardless of any strategy/channel filter applied. Detail
+sheet reflects only what was filtered."*
+
+Nota de alcance: "Strategy filter" en la portada describe el EFECTO
+sobre el export (`activeStrategyFilter` -- una estrategia puntual, o
+"All strategies"), no distingue la vista cruda de PivotTable ("By
+branch" vs. "By strategy" con píldora en "All") -- esa distinción no
+está expuesta hoy fuera de PivotTable.tsx, y el alcance de esta etapa
+en ese archivo se limitó explícitamente a agregar `export` a
+funciones/tipos ya existentes, no a agregar un callback nuevo. Las dos
+vistas producen el mismo efecto sobre el export ("sin filtro"), así
+que la portada describe eso, no el estado interno del conmutador.
+
+**Strategy Summary (segunda hoja).** `buildBranchRows()`/`buildStrategyRows()`
+(`PivotTable.tsx`) se exportaron tal cual (decisión ya tomada: sin
+mover a `lib/pipeline/`) -- `page.tsx` las llama una segunda vez, con
+los MISMOS argumentos que ya recibe `<PivotTable>`
+(`filteredBranchRows`/`filteredResolvedLoans`/`forecastRange`/`knownBranches`/`PULL_THROUGH_RATES`),
+junta el `strategyRows` de cada `BranchRow` resultante y suma por
+estrategia, pre-sembrando las 5 (`STRATEGY_ORDER`) en cero antes de
+acumular -- mismo patrón que `buildStrategyMix()`
+(`lib/pipeline/strategyMix.ts`). **Ignora `activeStrategyFilter` a
+propósito** (confirmado por Isa): `filteredBranchRows`/`filteredResolvedLoans`
+nunca pasan por ese filtro, así que el resumen es siempre el período
+completo (con branch aplicado, sin estrategia). La fila "Total" es la
+suma de las 5 filas -- cuadra por construcción, porque
+`buildStrategyRows()` reparte el entero ya redondeado de cada branch
+entre sus estrategias (`apportionByWeight`) y esa misma función ya
+trae su propio chequeo de desarrollo si alguna vez no cuadrara.
+Verificado con la lógica real de construcción del workbook (extraída y
+corrida standalone, sin pasar por Next.js/auth): las 5 filas + Total
+aparecen siempre, y la suma manual de las 5 coincide exacto con la fila
+Total. Si `hasStrategyData()` da `false` (mismo criterio que
+`strategyDataMissingForExport`, ya usado en el detalle desde EXCEL-1),
+la hoja muestra `"No strategy data in this snapshot"` en vez de una
+tabla con números falsos -- verificado también contra la lógica real.
+
+**Channel en Adverse (detalle, hoja Pipeline).** `AdverseTable.tsx`
+expone su `channelFilter` hacia `page.tsx` vía
+`onChannelFilterChange` -- mismo patrón que
+`onActiveStrategyFilterChange` de PivotTable (EXCEL-1), incluido el
+`useEffect` de limpieza al desmontar (mismo motivo: `page.tsx` solo
+renderiza `AdverseTable` en el tab `adverse`, y el botón Download Excel
+es global). El detalle de Adverse en el Excel ahora se filtra por
+canal cuando corresponde (`channelFilteredAdverse`, aplicado DESPUÉS
+del filtro de estrategia, sobre el mismo subconjunto -- son dos
+recortes independientes). **No se construyó ningún Channel global** --
+Isa lo descartó explícito; los dos "Channel" que existen en Forecast
+(`TabMilestoneMatrix`, view-switch; `AdverseTable`, filtro real) siguen
+siendo locales a su propio tab, confirmado en el diagnóstico previo de
+esta misma rama.
+
+**Fuera del alcance declarado, pero necesario:**
+`app/api/pipeline/latest/route.ts` -- la portada necesita el `id` del
+snapshot activo, y la query de ese archivo ya lo seleccionaba
+(`select('id, file_name, ...')`) pero no lo devolvía en la respuesta;
+se agregó `id: snapshot.id` al objeto `snapshot` de la respuesta, sin
+tocar la query ni ningún otro campo.
+
+Archivos: `app/pipeline/PivotTable.tsx` (solo `export` en
+`buildBranchRows`/`buildStrategyRows`/`BranchRow`/`StrategyRow`, sin
+tocar su lógica interna), `app/pipeline/AdverseTable.tsx`
+(`onChannelFilterChange` + cleanup, `ChannelFilter` exportado),
+`app/pipeline/page.tsx` (`channelFilter`/`activeSnapshotId`, resumen
+por estrategia, portada, `channelFilteredAdverse`),
+`app/api/pipeline/export/route.ts` (hojas Cover y Strategy Summary
+nuevas, hoja Pipeline sin cambios de comportamiento),
+`app/api/pipeline/latest/route.ts` (un campo, ver arriba).
+
+⚠ Pendiente, no de esta etapa: la Etapa EXCEL-5 (`branch_transferred`
+NULL vs. `false` de punta a punta, ya implementada y verificada contra
+la base en una tarea anterior de esta misma rama) todavía no tiene su
+propia sección acá -- documentarla antes de mergear esta rama.
+
+## Etapa EXCEL-5 -- branch_transferred de punta a punta (NULL nunca es false)
+
+**Contexto.** `pipeline_resolved_loans` (préstamos Funded/Adverse) ganó
+una columna `branch_transferred` -- `boolean`, **NULLABLE, sin
+default**, decisión explícita de Isa. Tres estados posibles, cada uno
+con un significado distinto:
+
+- `NULL` -- sin dato. La fila se guardó ANTES de que existiera esta
+  columna (cualquier snapshot previo a esta migración); no se sabe si
+  hubo transferencia o no, y no hay forma de recuperarlo con
+  retroactividad.
+- `false` -- confirmado que NO hubo transferencia. Dato real, leído del
+  export de Salesforce en el momento en que esa fila se guardó.
+- `true` -- confirmado que SÍ hubo transferencia. Mismo origen que el
+  caso anterior.
+
+Esto es deliberadamente distinto de `pipeline_loans` (préstamos
+abiertos): esa tabla tiene la columna `NOT NULL DEFAULT false`, porque
+el parser siempre la escribe -- "Branch Transfer" es una columna
+obligatoria del export para la mitad de abiertos desde el origen (F4d),
+así que ahí `false` siempre fue un dato real, nunca hubo ambigüedad.
+`pipeline_resolved_loans` es la mitad que históricamente NO tenía esta
+columna (hallazgo F5a, ver "Hallazgo pendiente" más arriba en este
+documento) -- por eso necesita el tercer estado (`NULL`) que
+`pipeline_loans` nunca necesitó.
+
+**Por qué NULL nunca se trata como false, en ningún punto de la
+cadena.** Requisito no negociable pedido por Isa -- confundir "no
+sabemos" con "confirmado que no" sería inventar un dato que no existe.
+Verificado en los 5 puntos del camino:
+
+1. **Parser** (`lib/pipeline/sources/salesforce-file.ts`): sin cambios
+   -- ya leía `branchTransferred` igual para abiertos y resueltos
+   (`parseBranchTransfer()`, siempre produce un `boolean` real, nunca
+   `null`/`undefined`, porque "Branch Transfer" es columna obligatoria
+   del export). El `NULL` de la base nunca viene del parser -- viene
+   exclusivamente de que la columna no existía cuando se guardó esa
+   fila.
+2. **Tipo** (`lib/pipeline/types.ts`): `ResolvedLoan.branchTransferred`
+   pasó de `boolean` a `boolean | null | undefined` -- a diferencia de
+   `PipelineLoan.branchTransferred`, que sigue siendo `boolean` a
+   secas (nunca tuvo el problema).
+3. **Mapper de subida** (`app/api/pipeline/parse/route.ts`,
+   `toResolvedLoanRow`): `branch_transferred: loan.branchTransferred`,
+   **sin `?? false` ni ningún coalesce** -- si el valor no existiera,
+   tiene que viajar como `undefined` (que la RPC convierte en `NULL`),
+   no como `false`. Mismo criterio ya usado para los crudos de
+   estrategia (F6) y `opportunity_owner` (F7.20), aplicado acá a un
+   campo `boolean`.
+4. **Mapper de lectura** (`app/api/pipeline/latest/route.ts`):
+   `branchTransferred: r.branch_transferred` -- lectura directa, sin
+   `?? false`. Un `NULL` real de Postgres llega como `null` a
+   `ResolvedLoan`, tal cual.
+5. **Excel** (`page.tsx`, `resolvedLoanBranchTransferValue()`): los 3
+   casos se manejan por separado --
+
+   | `branchTransferred` | Texto en Excel |
+   |---|---|
+   | `true` | `"Yes"` |
+   | `false` | `""` (vacío) |
+   | `null` / `undefined` | `"Not tracked for closed loans"` |
+
+   `pipeline_loans` (abiertos) sigue con su propia función
+   (`openLoanBranchTransferValue()`), que solo conoce `true`/`false` --
+   nunca tuvo el tercer caso.
+
+   Excepción puntual, documentada donde vive: `closedLoanToModalLoan()`
+   (`PivotTable.tsx`) convierte `null -> undefined` (nunca `-> false`)
+   al armar el chip del modal de detalle -- ese chip ya se comportaba
+   igual para `null`/`undefined`/`false` (solo se muestra en el caso
+   `true`), así que no hay ninguna distinción real que se pierda ahí.
+
+**Verificación real, contra la base (no solo `tsc`).** Snapshot activo
+78, `pipeline_resolved_loans`: 791 filas totales, `0 NULL / 11 true /
+780 false`. Coincide EXACTO con los 16 casos reales ya conocidos del
+archivo de referencia ("Forecast - Pipeline Report-2026-08-21-17-00-11.csv"):
+11 en el grupo Funded/Adverse (los 11 `source_loan_id` recuperados de
+la base coinciden uno a uno con los 11 ya identificados en el
+diagnóstico original) + 5 en `pipeline_loans` (abiertos, columna que ya
+funcionaba). No es solo "dejó de ser 100% NULL" -- el número exacto
+coincide.
+
+**Esta sección resuelve, y reemplaza, el hallazgo documentado más
+arriba** ("Hallazgo pendiente -- 'Branch Transfer' no se persiste para
+préstamos Funded/Adverse") -- esa sección quedó escrita ANTES de que
+Isa autorizara y aplicara la migración + la ampliación de la RPC; en
+ese momento se decidió explícitamente "dejar solo constancia... hasta
+que se priorice". Ya se priorizó, se implementó y se verificó contra
+datos reales -- el hallazgo original queda superado por esta
+implementación, no en contradicción con ella. Se deja esa sección
+anterior sin tocar (valor histórico de cómo se llegó hasta acá), esta
+sección nueva es la fuente de verdad del estado actual.
+
+Archivos: `lib/pipeline/types.ts`, `app/api/pipeline/parse/route.ts`,
+`app/api/pipeline/latest/route.ts`, `app/pipeline/page.tsx`,
+`app/pipeline/PivotTable.tsx` (la excepción puntual del modal, ver
+arriba). Sin cambios en el parser
+(`lib/pipeline/sources/salesforce-file.ts`) -- ya estaba correcto.
+
+## Hallazgo pendiente -- queries secuenciales en loadBusinessPlanData()
+
+Confirmado durante el diagnóstico de recarga de Business Plan (etapa
+BUSINESS-PLAN-1): solo las primeras 5 queries de org corren en paralelo
+(Promise.all) dentro de loadData.ts. Las siguientes 5-6
+(employee_benchmark, business_plan.settings, business_plan.intervention,
+business_plan.enrollment + sus hasta 3 sub-queries, attribution_override)
+corren una después de la otra, cada una pagando su propio round-trip de
+red (~120-230ms medido contra pipeline_forecast en esta misma sesión).
+
+No hay ninguna dependencia de datos entre esas queries que obligue a la
+secuencialidad -- podrían correr en paralelo también, reduciendo la
+carga INICIAL de Business Plan (la única vez que se paga el costo real
+de red, dado que hay caché de módulo para navegaciones subsiguientes).
+
+No resuelve el síntoma de "recarga en cada navegación" (eso ya se
+resolvió en BUSINESS-PLAN-1/2, moviendo el estado a un Context Provider)
+-- es una oportunidad distinta, sobre el tiempo de la primera carga.
+Queda anotado para una etapa aparte, sin implementar.
+
+## Etapa PROPERTY-STATE-1 -- Subject Property State, de punta a punta
+
+Autorizado por Isa: columna `property_state` (text) ya existe en
+`pipeline_loans`/`pipeline_resolved_loans`, RPC ampliada y verificada por
+ella, con `nullif(btrim(...))` como red de seguridad del lado de la base.
+Orden confirmado (mismo patrón de siempre): parser -> tipo -> mapper de
+subida (con normalización de cliente) -> mapper de lectura -> ranking en
+Analytics -> modal de detalle.
+
+### Nombre exacto de la columna
+
+Confirmado en el diagnóstico previo (esta misma sesión): la columna real
+del export es **"Subject Property State"**, no "Property State" a
+secas. Valores: código de 2 letras, solo mayúsculas, sin variantes de
+largo/espacios más allá de una celda vacía representada con un único
+carácter espacio (no `''`, no `null`) -- el parser ya la limpia con
+`String(row[idx[...]] ?? '')`, que no hace `.trim()` de ese espacio; el
+`.trim()` que sí lo limpia vive en `buildRanking()`
+(`lib/pipeline/analytics.ts`) y en el mapper de subida.
+
+### Normalización EN DOS CAPAS, pedido explícito de Isa
+
+A diferencia de `opportunity_owner`/los cinco crudos de estrategia (que
+viajan `''` tal cual hasta la RPC, confiando en que la base decida),
+para `property_state` Isa pidió normalizar TAMBIÉN del lado del cliente
+-- `loan.propertyState.trim() || null` en `app/api/pipeline/parse/route.ts`,
+antes de mandar. La red de la base (`nullif(btrim(...))`) es el segundo
+cerrojo, no el primero. Aplicado igual en `toPipelineLoanRow` y
+`toResolvedLoanRow`.
+
+### Verificación CON QUERY REAL contra el snapshot activo, no el archivo de referencia
+
+El archivo usado en el diagnóstico previo (5197 filas, 12.5% sin
+estado) NO era el snapshot activo -- advertencia explícita de Isa, y
+confirmada: una query de solo lectura (service_role, contra
+`pipeline_forecast`, sin ningún `insert`/`update`/`delete`) contra el
+snapshot activo real (**id 80**, subido antes de esta etapa, por lo
+tanto sin pasar nunca por este mapper) dio:
+
+- `pipeline_resolved_loans` funded: 455/455 con `property_state` NULL
+  (100%).
+- `pipeline_loans` (abiertos): 101/101 con `property_state` NULL
+  (100%).
+
+Es el número REAL de este momento -- no el 12.5% del archivo de
+referencia, y tampoco un número inventado: la columna existe en la base
+pero ningún snapshot pasó todavía por el parser/mapper nuevos. Después
+de una carga real desde localhost, este número debería bajar (no
+necesariamente a 0 -- Salesforce sí trae filas con la celda vacía de
+verdad, ver el diagnóstico de la columna cruda).
+
+### Ranking en Analytics: mismo patrón que Program/Type, sección propia como Strategy Mix
+
+`buildPropertyStateRanking()` (`lib/pipeline/analytics.ts`) es
+literalmente `buildRanking(fundedInRange, (loan) => loan.propertyState,
+NO_PROPERTY_STATE_LABEL)` -- la misma función interna que ya usan
+`buildLoanProgramRanking`/`buildLoanTypeRanking`, ninguna agrupación
+nueva. Reusa el mismo `fundedInRange` (y por lo tanto el mismo selector
+de período) que ya calcula `TabAnalytics.tsx` para Program/Type.
+
+Se renderiza en su PROPIA sección ("Subject Property State", con
+`<h3>` y `DiagnosticsNote` propios) después del grid de Program/Type,
+en vez de sumarse como tercer elemento a ese grid de 2 columnas --
+mismo tratamiento visual que ya tiene Strategy Mix, y por el mismo
+motivo: a diferencia de Program/Type (que nunca faltan del todo, un
+snapshot viejo simplemente no tiene la columna y el ranking sale
+`'Sin programa'`/`'Sin tipo'` al 100%, sin distinguirse visualmente),
+Property State SÍ necesita distinguir "0 preéstamos con este estado en
+el período" de "este snapshot no capturó el dato en absoluto" -- el
+primero es un resultado de negocio legítimo, el segundo un default
+silencioso que se leería como si el 100% de los préstamos no tuviera
+estado.
+
+`hasPropertyStateData()` (`lib/pipeline/analytics.ts`) resuelve esa
+distinción con el MISMO criterio exacto que `hasStrategyData()`
+(`lib/pipeline/strategy.ts`, etapa F6/F7.23): `loans.some(l =>
+l.propertyState !== '')`. Cuando da `false` (con `fundedInRange.length
+> 0`, mismo guardia que `strategyDataMissing`, para no disparar el
+aviso con un período sin ningún loan), se muestra un mensaje explícito
+en vez del ranking -- con el conteo REAL calculado en vivo sobre
+`fundedInRange.length` (nunca un número fijo), así que siempre refleja
+el snapshot activo del momento, no un dato congelado del diagnóstico.
+
+Drill-down: mismo patrón exacto que Loan Program/Loan Type --
+`hiddenColumns: ['propertyState', 'milestone', 'status']` (oculta la
+columna redundante con el corte que abrió el modal). Único caso de
+los tres que NO duplica su placeholder localmente en `TabAnalytics.tsx`
+(`DRILLDOWN_NO_PROGRAM_LABEL`/`DRILLDOWN_NO_TYPE_LABEL` sí lo hacen,
+con comentario explícito de por qué): `NO_PROPERTY_STATE_LABEL` se
+exporta desde `lib/pipeline/analytics.ts` y se importa directo, porque
+ese archivo SÍ está en el alcance de esta etapa (a diferencia de cuando
+se armaron los otros dos rankings) -- evita el riesgo de
+desincronización que el comentario original advertía.
+
+DC (y cualquier otro código de 2 letras): sin ninguna lista fija de
+estados válidos en ningún punto de la cadena -- `buildRanking()` agrupa
+por el valor crudo tal cual viene, sea cual sea. No hay forma de que DC
+(ni ningún otro estado real) quede excluido por código; solo aparecería
+ausente si el snapshot activo no tiene ningún préstamo funded con ese
+estado en el período elegido, que es el comportamiento correcto.
+
+### Modal de detalle -- 3 constructores tocados, fuera del alcance de archivos declarado
+
+`LoanDetailModalLoan.propertyState` es un campo REQUERIDO (mismo
+criterio que `loanType`/`loanProgram`, visible salvo que
+`hiddenColumns` lo oculte) -- consecuencia mecánica inevitable:
+`app/pipeline/PivotTable.tsx` (`openLoanToModalLoan`,
+`closedLoanToModalLoan`) y `app/pipeline/TabMilestoneMatrix.tsx`
+(construcción inline del modal de la matriz de milestones) no estaban
+en la lista de archivos de esta etapa, pero son los 3 puntos que
+construyen `LoanDetailModalLoan` en toda la app -- sin la línea nueva en
+los 3, `tsc` falla con "property propertyState is missing". Se agregó
+en los 3, con el comentario explícito de por qué está fuera del alcance
+declarado. Mismo motivo tocó `scripts/test-aggregate.ts` y
+`fixtures/pipeline-demo.ts` (fixtures que construyen un `PipelineLoan`
+literal a mano) -- una línea `propertyState: ''` en cada uno, mismo
+criterio que los demás crudos opcionales en esos archivos.
+
+### Qué queda fuera de esta etapa, a propósito
+
+El export a Excel (`app/pipeline/page.tsx` / `app/api/pipeline/export/route.ts`)
+NO incluye `property_state` todavía -- esos dos archivos no estaban en
+el alcance de esta etapa, y a diferencia del modal, `ExportRow` es un
+tipo ad-hoc propio de ese archivo (no `PipelineLoan`/`ResolvedLoan` ni
+`LoanDetailModalLoan`), así que `tsc` no lo exige -- se puede agregar
+después sin que este archivo quede inconsistente mientras tanto.
+
+### Archivos
+
+`lib/pipeline/sources/salesforce-file.ts`, `lib/pipeline/types.ts`,
+`app/api/pipeline/parse/route.ts`, `app/api/pipeline/latest/route.ts`,
+`lib/pipeline/analytics.ts`, `app/pipeline/TabAnalytics.tsx`,
+`app/pipeline/LoanDetailModal.tsx` -- alcance declarado. Más, por
+consecuencia mecánica del tipo compartido:
+`app/pipeline/PivotTable.tsx`, `app/pipeline/TabMilestoneMatrix.tsx`,
+`scripts/test-aggregate.ts`, `fixtures/pipeline-demo.ts`.
+
+## Etapa PROPERTY-STATE-1, FIX -- el nombre real es "Property State", no "Subject Property State"
+
+Una carga real desde localhost (snapshot 82) siguió mostrando "No
+property state data in this snapshot" a pesar de la implementación de
+punta a punta de arriba. Investigado end-to-end antes de tocar código
+(ver el hilo de diagnóstico de esta misma etapa): el mapper de subida
+mandaba `null` correctamente -- el problema estaba ANTES, en el parser,
+que nunca encontraba la columna.
+
+### Por qué el nombre original era incorrecto
+
+"Subject Property State" salió de `Pipeline 8-25-2026 PM.xlsx`, el
+archivo que se usó en el diagnóstico de columna original -- pero ese
+archivo **nunca fue un input válido de este parser**: su encabezado usa
+"Loan Number"/"Borrower Name", nunca "Opportunity Name" (la columna que
+exige `findHeaderRowIndex()` para siquiera encontrar la fila de
+encabezados). Es un reporte de Salesforce completamente distinto, no
+uno de los dos formatos (A/B) que esta app soporta. El nombre de
+columna se programó contra un archivo que jamás se iba a subir.
+
+### Confirmación real, antes del fix
+
+- El archivo real subido (`report1787758434815.xls`, **Formato B**,
+  confirmado con la misma lógica de `detectFormat()` -- corrección a un
+  reporte anterior de esta sesión que lo había llamado "Formato A" por
+  error) trae la columna como **"Property State"**, índice 37 de 38.
+- Cruce por `loan_id` contra `Pipeline 8-26-2026 AM.xlsx` (mismo día):
+  **893 préstamos coincidentes, 893 con el mismo valor exacto (100%)**
+  entre "Property State" y "Subject Property State" -- confirmado que
+  es el mismo dato de Salesforce, no un campo distinto.
+- Barrido de 9 archivos Formato B reales, de distintas fechas (36 a 38
+  columnas): las demás columnas F6/F7 (Strategy, Opportunity Owner:
+  Title, NPPM Realtor, Referred By, Affinity Program, Opportunity
+  Owner, Branch Transfer, Loan Type, Loan Program, Production Support
+  Note History, Loan Status, Disbursement Date) son estables en los 9 --
+  ninguna otra tiene este problema. "Property State" es la única
+  columna nueva, y sólo aparece en el archivo más reciente.
+
+### El fix
+
+`resolveColumnIndexes()` ahora busca **"Property State" primero**; si
+no está, prueba **"Subject Property State"** como red de seguridad
+barata -- por si un formato no verificado la trajera con ese nombre. La
+clave de `idx` pasó de `'Subject Property State'` a `'Property State'`
+(y los 2 puntos de lectura en `extractRowsFormatA`/`extractRowsFormatB`
+se actualizaron para leer de la clave nueva) -- ningún otro archivo
+tocado, tal como confirmó el barrido de arriba que no hacía falta.
+
+### Formato A -- sigue sin verificar, anotado a propósito
+
+No existe ninguna muestra real de Formato A (archivos con filas
+"Subtotal") en `Downloads/` al momento de este fix -- los 13 archivos
+reales disponibles con columna "Opportunity Name" son todos Formato B.
+No se puede confirmar si Formato A usaría "Property State" o "Subject
+Property State" (o un tercer nombre) hasta que aparezca una muestra
+real. El fallback de la red de seguridad cubre el caso más probable
+(el nombre original, que sí existía como hipótesis razonable antes de
+este diagnóstico) pero no está verificado -- si Formato A trajera un
+tercer nombre distinto, este fix no lo resolvería.
+
+### Verificación directa contra el archivo real (antes de cualquier carga)
+
+Con la lógica de resolución nueva aplicada al archivo real
+(`report1787758434815.xls`): **894 de 894 filas de datos con valor NO
+vacío** (antes del fix: 0 de 894, por buscar la columna equivocada).
+Muestra de los primeros 10 valores: `CT, MN, FL, PA, TX, NJ, MD, FL,
+NC, NC`. Verificación de archivo, sin pasar por Supabase -- falta la
+carga real desde localhost para confirmar contra la base.
+
+### Archivos
+
+`lib/pipeline/sources/salesforce-file.ts` únicamente -- tipos, mappers
+y la RPC no se tocaron (ya estaban bien, el problema era exclusivamente
+la resolución del nombre de columna en el parser).

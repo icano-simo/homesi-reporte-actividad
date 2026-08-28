@@ -2,7 +2,7 @@
 
 import { useMemo, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
-import { useBusinessPlanData } from '@/lib/business-plan/useBusinessPlanData';
+import { useBusinessPlanDataContext } from '@/lib/business-plan/BusinessPlanDataContext';
 import { monthsOfYear, currentYearMonth } from '@/lib/business-plan/months';
 import Breadcrumbs from '../../components/Breadcrumbs';
 import MonthlyBarChart from '../../components/MonthlyBarChart';
@@ -56,7 +56,7 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
    */
   const employeeKey = Number(rawKey);
   const router = useRouter();
-  const { data, isLoading, error, reload } = useBusinessPlanData();
+  const { data, isLoading, error, reload } = useBusinessPlanDataContext();
 
   const [openModal, setOpenModal] = useState<ModalKind | null>(null);
 

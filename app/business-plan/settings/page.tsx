@@ -5,7 +5,7 @@ import { getSupabaseClient } from '@/lib/supabase/client';
 import { invalidateBusinessPlanData } from '@/lib/business-plan/useBusinessPlanData';
 import { DEFAULT_RATES, RATE_KEYS, SHARED_KEYS, formatRate, type RateKey } from '@/lib/business-plan/rates';
 import { AlertTriangleIcon } from '@/components/ui/icons';
-import { useBusinessPlanData } from '@/lib/business-plan/useBusinessPlanData';
+import { useBusinessPlanDataContext } from '@/lib/business-plan/BusinessPlanDataContext';
 import Breadcrumbs from '../components/Breadcrumbs';
 import { Diagnostics, ErrorState, LoadingState } from '../components/shared';
 
@@ -36,7 +36,7 @@ export default function SettingsPage() {
    * los números de la persona; acá es lo que alguien viene a consultar cuando
    * se pregunta CÓMO se está calculando, que es de lo que trata esta pantalla.
    */
-  const { data: bpData } = useBusinessPlanData();
+  const { data: bpData } = useBusinessPlanDataContext();
   const [values, setValues] = useState<Record<RateKey, number> | null>(null);
   const [available, setAvailable] = useState(false);
   const [error, setError] = useState<string | null>(null);

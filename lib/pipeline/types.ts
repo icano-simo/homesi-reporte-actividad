@@ -54,6 +54,27 @@ export type PipelineLoan = {
   nppmRealtor: string;
   referredBy: string;
   affinityProgram: string;
+  /**
+   * Etapa F7.20: columna "Opportunity Owner" del export -- nombre de
+   * persona, DISTINTO de `opportunityOwnerTitle` (el rol, "Business
+   * Developer" etc.) y de `referredBy` (confirmado con captura real que
+   * las tres pueden traer personas distintas en la misma fila). '' si el
+   * export no trae la columna (snapshots restaurados de antes de esta
+   * etapa quedan así -- ver el mensaje explícito de "sin datos" en
+   * TabAnalytics.tsx en vez de un scorecard vacío sin explicación).
+   */
+  opportunityOwner: string;
+  /**
+   * Etapa PROPERTY-STATE-1: columna "Subject Property State" del export --
+   * código de 2 letras de estado/territorio (confirmado con datos reales:
+   * solo mayúsculas, sin variantes de largo/espacios más allá del placeholder
+   * de celda vacía, que ya se limpia en el parser). '' si el export no trae
+   * la columna, o si la celda venía vacía. Se normaliza TAMBIÉN del lado del
+   * cliente antes de guardar (trim + nullif, ver parse/route.ts) -- la red de
+   * seguridad de la base (`nullif(btrim(...))`) es el segundo cerrojo, no el
+   * primero.
+   */
+  propertyState: string;
 };
 
 /**
@@ -77,7 +98,19 @@ export type ResolvedLoan = {
   /** Etapa F4d: mismo significado que en PipelineLoan. */
   borrowerName: string;
   milestoneDate: string | null;
-  branchTransferred: boolean;
+  /**
+   * Etapa EXCEL-5: a diferencia de `PipelineLoan.branchTransferred`
+   * (siempre `boolean` -- `pipeline_loans` tiene default `false`),
+   * acá puede ser `null`/`undefined` -- `pipeline_resolved_loans` no
+   * tenía esta columna hasta ahora (hallazgo F5a/EXCEL-2, ya
+   * documentado), así que un snapshot restaurado guardado ANTES de la
+   * migración vuelve con `NULL` en la base: "nunca se supo", no "se
+   * confirmó que no". El parser siempre produce un `boolean` real (la
+   * columna del export es obligatoria) -- el `null`/`undefined` solo
+   * aparece del lado de la lectura desde Supabase, nunca de un archivo
+   * recién parseado. No colapsar a `false` en ningún punto del camino.
+   */
+  branchTransferred: boolean | null | undefined;
   /**
    * Etapa F4i: de la columna "Loan Status" -- solo presente en reportes muy
    * recientes (no en Formato A ni en reportes B viejos). '' si el archivo no
@@ -123,4 +156,8 @@ export type ResolvedLoan = {
   nppmRealtor: string;
   referredBy: string;
   affinityProgram: string;
+  /** Etapa F7.20: mismo significado que en `PipelineLoan` -- ver ese comentario. */
+  opportunityOwner: string;
+  /** Etapa PROPERTY-STATE-1: mismo significado que en `PipelineLoan` -- ver ese comentario. */
+  propertyState: string;
 };
