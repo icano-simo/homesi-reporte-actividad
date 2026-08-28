@@ -100,5 +100,7 @@ export function classifyLoan(raw: RawLoanRow): LoanRecord {
     nppmRealtor: '',
     referredByRealtor: '',
     nppmRecruitedBy: '',
+    // El archivo tampoco trae `sf_stage` -- mismo criterio que las 5 de arriba.
+    sfStage: '',
   };
 }

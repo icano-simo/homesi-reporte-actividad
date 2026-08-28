@@ -129,6 +129,26 @@ export default function LoanDetailModal({ isOpen, onClose, context, loans, strat
    * responder, y no se pueden ver sin tener las dos al lado.
    */
   const showRecruiter = strategyFilter === 'NPPM';
+  /*
+   * Etapa "Stage SF": columna nueva, independiente de las de arriba -- no
+   * depende de `strategyFilter` sino de la MÉTRICA del drill-down. Solo tiene
+   * sentido para App Date: es el estado de venta en Salesforce mientras el
+   * préstamo todavía no cerró ni se volvió adverse, y en las otras métricas
+   * (fc/cr/cl) no aporta nada que esas vistas ya no digan de otra forma.
+   *
+   * Al ser independiente, se SUMA a cualquiera de los 3 casos de arriba en vez
+   * de reemplazar uno: 6→7 en "All", 7→8 con una estrategia elegida, 8→9 en
+   * NPPM. El caso de 8 (estrategia elegida + App Date) es nuevo y pasa a
+   * necesitar el modal ancho igual que NPPM -- ver `isWide` más abajo.
+   */
+  const showStageSf = context?.metric === 'ap';
+  /**
+   * Ensancha el modal en los dos casos que llegan a 8+ columnas: NPPM (ya
+   * ensanchaba antes de esta etapa) y ahora también estrategia elegida +
+   * App Date. El caso "All" + App Date se queda en 7, mismo régimen que
+   * "estrategia elegida" sin Stage SF -- entra cómodo en 768px.
+   */
+  const isWide = showRecruiter || (showStageSf && showContext);
 
   if (!isOpen || !context) return null;
 
@@ -161,8 +181,12 @@ export default function LoanDetailModal({ isOpen, onClose, context, loans, strat
          * Los casos de 6 y 7 columnas se quedan en 768px, donde entran
          * cómodos. Ensanchar siempre sería pagar el ancho de la vista más
          * cargada en todas las demás.
+         *
+         * Etapa "Stage SF": el mismo problema aparece ahora también con
+         * estrategia elegida + App Date (7→8) -- `isWide` cubre ese caso
+         * además de NPPM.
          */
-        className={'modal-box' + (showRecruiter ? ' modal-box--wide' : '')}
+        className={'modal-box' + (isWide ? ' modal-box--wide' : '')}
         role="dialog"
         aria-modal="true"
         aria-label={ariaLabel}
@@ -210,7 +234,7 @@ export default function LoanDetailModal({ isOpen, onClose, context, loans, strat
             el viewport es tan angosto que ni 92vw alcanza, scrollea la tabla en
             vez de comprimir las columnas hasta que dejen de leerse.
           */}
-          <div className={showRecruiter ? 'modal-table-scroll' : undefined}>
+          <div className={isWide ? 'modal-table-scroll' : undefined}>
           <table className="piv">
             {/*
              * ⚠ Etapa V3: de 6 a 8 columnas.
@@ -246,21 +270,24 @@ export default function LoanDetailModal({ isOpen, onClose, context, loans, strat
                 que se le da lo que necesita (17%) sacándoselo a Loan # -- doce
                 dígitos entran de sobra en 15%.
 
-                ⚠ En la vista NPPM estos porcentajes NO se aplican: ahí el modal
-                lleva `.modal-table-scroll`, y esa regla pone la tabla en
+                ⚠ Estos porcentajes NO se aplican en ningún caso `isWide`
+                (NPPM, o estrategia elegida + App Date): ahí el modal lleva
+                `.modal-table-scroll`, y esa regla pone la tabla en
                 `table-layout: auto; width: auto` (components.css), así que las
                 columnas se dimensionan al contenido. Es justamente lo que da
-                cero truncamiento con 8 columnas, y también por qué la tabla no
+                cero truncamiento con 8-9 columnas, y también por qué la tabla no
                 estira hasta el borde del modal ancho: toma lo que necesita y
                 nada más, igual que el modal de Forecast. Los `<col>` se dejan
-                porque siguen rigiendo en las variantes de 6 y 7.
+                porque siguen rigiendo en las variantes NO anchas (6, 7 sin
+                Stage SF, 7 con Stage SF en "All").
               */}
-              <col style={{ width: showStrategy ? '20%' : showRecruiter ? '13%' : '15%' }} />
-              <col style={{ width: showStrategy ? '20%' : showRecruiter ? '15%' : '17%' }} />
-              <col style={{ width: showStrategy ? '11%' : showRecruiter ? '7%' : '8%' }} />
-              <col style={{ width: showRecruiter ? '15%' : '17%' }} />
-              {showStrategy && <col style={{ width: '13%' }} />}
-              <col style={{ width: showStrategy ? '19%' : showRecruiter ? '11%' : '13%' }} />
+              <col style={{ width: showStrategy ? (showStageSf ? '15%' : '20%') : showRecruiter ? '13%' : '15%' }} />
+              <col style={{ width: showStrategy ? (showStageSf ? '17%' : '20%') : showRecruiter ? '15%' : '17%' }} />
+              <col style={{ width: showStrategy ? (showStageSf ? '8%' : '11%') : showRecruiter ? '7%' : '8%' }} />
+              <col style={{ width: showStrategy ? (showStageSf ? '15%' : '17%') : showRecruiter ? '15%' : '17%' }} />
+              {showStrategy && <col style={{ width: showStageSf ? '12%' : '13%' }} />}
+              <col style={{ width: showStrategy ? (showStageSf ? '18%' : '19%') : showRecruiter ? '11%' : '13%' }} />
+              {showStageSf && <col style={{ width: showStrategy ? '15%' : '13%' }} />}
               {showContext && <col style={{ width: showRecruiter ? '13%' : '15%' }} />}
               {showContext && <col style={{ width: showRecruiter ? '13%' : '15%' }} />}
               {showRecruiter && <col style={{ width: '13%' }} />}
@@ -273,6 +300,7 @@ export default function LoanDetailModal({ isOpen, onClose, context, loans, strat
                 <th style={{ textAlign: 'left' }}>Channel</th>
                 {showStrategy && <th style={{ textAlign: 'left' }}>Strategy</th>}
                 <th style={{ textAlign: 'left' }}>Program</th>
+                {showStageSf && <th style={{ textAlign: 'left' }}>Stage SF</th>}
                 {showContext && <th style={{ textAlign: 'left' }}>Owner</th>}
                 {showContext && <th style={{ textAlign: 'left' }}>Referred By</th>}
                 {showRecruiter && <th style={{ textAlign: 'left' }}>Recruited By</th>}
@@ -299,6 +327,11 @@ export default function LoanDetailModal({ isOpen, onClose, context, loans, strat
                   <td style={{ textAlign: 'left' }} title={loan.loanProgram}>
                     {loan.loanProgram || '—'}
                   </td>
+                  {showStageSf && (
+                    <td style={{ textAlign: 'left' }} title={loan.sfStage}>
+                      {loan.sfStage || '—'}
+                    </td>
+                  )}
                   {showContext && (
                     <td style={{ textAlign: 'left' }} title={loan.opportunityOwner}>
                       {loan.opportunityOwner || '—'}
@@ -318,7 +351,11 @@ export default function LoanDetailModal({ isOpen, onClose, context, loans, strat
               ))}
               {!loans.length && (
                 <tr>
-                  <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={showStrategy ? 6 : showRecruiter ? 8 : 7}>
+                  <td
+                    className="lbl"
+                    style={{ color: 'var(--slate-500)', fontWeight: 500 }}
+                    colSpan={(showStrategy ? 6 : showRecruiter ? 8 : 7) + (showStageSf ? 1 : 0)}
+                  >
                     No loans.
                   </td>
                 </tr>
