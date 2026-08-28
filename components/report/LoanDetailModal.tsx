@@ -110,7 +110,7 @@ export default function LoanDetailModal({ isOpen, onClose, context, loans, strat
    *     aprietan las seis de siempre.
    *
    * Resultado: 6 columnas con el filtro en "All" (las mismas de siempre, con
-   * Strategy en el lugar de B2B), 7 con una estrategia elegida, y 8 sólo en
+   * Strategy en el lugar de B2B), 7 con una estrategia elegida, y 9 sólo en
    * NPPM -- ver `showRecruiter`, abajo.
    */
   const showStrategy = strategyFilter === 'all';
@@ -122,11 +122,15 @@ export default function LoanDetailModal({ isOpen, onClose, context, loans, strat
    * campo viene vacío o nombra a alguien que no tiene rol en ese negocio-- así
    * que aparecer siempre le costaría ancho a las siete que sí aplican.
    *
-   * ⚠ Dentro de NPPM se solapa con Owner: de los 92 préstamos, en 68 dice lo
-   * mismo, en 16 está vacío y sólo en 8 aporta un nombre distinto. Se muestran
-   * las dos igual y a propósito: esos 8 --un BD reclutó al NPPM pero la
-   * oportunidad quedó en otras manos-- son la pregunta que la columna viene a
-   * responder, y no se pueden ver sin tener las dos al lado.
+   * Etapa V3c: son DOS columnas, `NPPM Realtor` y `Recruited By`. La cadena
+   * completa sólo se entiende con las tres del medio juntas: de quién es la
+   * oportunidad, qué NPPM está detrás, y qué BD reclutó a ese NPPM.
+   *
+   * ⚠ Cada una se solapa con una vecina y ninguna es un duplicado. Medido sobre
+   * los 92 préstamos NPPM: `nppmRecruitedBy` coincide con `opportunityOwner` en
+   * 68 y difiere en 8; `nppmRealtor` coincide con `referredByRealtor` en 73 y
+   * difiere en 15. Esas divergencias son justamente lo que las columnas vienen
+   * a mostrar, y no se ven sin tenerlas al lado.
    */
   const showRecruiter = strategyFilter === 'NPPM';
 
@@ -261,9 +265,10 @@ export default function LoanDetailModal({ isOpen, onClose, context, loans, strat
               <col style={{ width: showRecruiter ? '15%' : '17%' }} />
               {showStrategy && <col style={{ width: '13%' }} />}
               <col style={{ width: showStrategy ? '19%' : showRecruiter ? '11%' : '13%' }} />
-              {showContext && <col style={{ width: showRecruiter ? '13%' : '15%' }} />}
-              {showContext && <col style={{ width: showRecruiter ? '13%' : '15%' }} />}
-              {showRecruiter && <col style={{ width: '13%' }} />}
+              {showContext && <col style={{ width: showRecruiter ? '12%' : '15%' }} />}
+              {showRecruiter && <col style={{ width: '12%' }} />}
+              {showRecruiter && <col style={{ width: '12%' }} />}
+              {showContext && <col style={{ width: showRecruiter ? '12%' : '15%' }} />}
             </colgroup>
             <thead>
               <tr className="mo-row">
@@ -273,9 +278,18 @@ export default function LoanDetailModal({ isOpen, onClose, context, loans, strat
                 <th style={{ textAlign: 'left' }}>Channel</th>
                 {showStrategy && <th style={{ textAlign: 'left' }}>Strategy</th>}
                 <th style={{ textAlign: 'left' }}>Program</th>
+                {/*
+                  Etapa V3c: en NPPM las tres del medio se leen como una cadena
+                  de atribución, en este orden -- de quién es la oportunidad,
+                  qué NPPM está detrás del préstamo, y qué BD reclutó a ese
+                  NPPM. "Referred By" queda al final porque contesta otra
+                  pregunta (quién refirió ESTE caso), no un eslabón de esa
+                  cadena.
+                */}
                 {showContext && <th style={{ textAlign: 'left' }}>Owner</th>}
-                {showContext && <th style={{ textAlign: 'left' }}>Referred By</th>}
+                {showRecruiter && <th style={{ textAlign: 'left' }}>NPPM Realtor</th>}
                 {showRecruiter && <th style={{ textAlign: 'left' }}>Recruited By</th>}
+                {showContext && <th style={{ textAlign: 'left' }}>Referred By</th>}
               </tr>
             </thead>
             <tbody>
@@ -304,9 +318,9 @@ export default function LoanDetailModal({ isOpen, onClose, context, loans, strat
                       {loan.opportunityOwner || '—'}
                     </td>
                   )}
-                  {showContext && (
-                    <td style={{ textAlign: 'left' }} title={loan.referredByRealtor}>
-                      {loan.referredByRealtor || '—'}
+                  {showRecruiter && (
+                    <td style={{ textAlign: 'left' }} title={loan.nppmRealtor}>
+                      {loan.nppmRealtor || '—'}
                     </td>
                   )}
                   {showRecruiter && (
@@ -314,11 +328,16 @@ export default function LoanDetailModal({ isOpen, onClose, context, loans, strat
                       {loan.nppmRecruitedBy || '—'}
                     </td>
                   )}
+                  {showContext && (
+                    <td style={{ textAlign: 'left' }} title={loan.referredByRealtor}>
+                      {loan.referredByRealtor || '—'}
+                    </td>
+                  )}
                 </tr>
               ))}
               {!loans.length && (
                 <tr>
-                  <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={showStrategy ? 6 : showRecruiter ? 8 : 7}>
+                  <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={showStrategy ? 6 : showRecruiter ? 9 : 7}>
                     No loans.
                   </td>
                 </tr>
