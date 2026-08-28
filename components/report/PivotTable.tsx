@@ -6,8 +6,35 @@ import type { YearMonth } from '@/lib/parsing/types';
 import type { Branch } from '@/config/roster';
 import type { DrillDownContext } from '@/lib/aggregation/loansForCell';
 import { METRICS, MONTH_NAMES } from '@/config/metrics';
+import { sumMonths } from '@/lib/aggregation/sumMonths';
+import { fmtVal } from '@/lib/aggregation/format';
 import { ChevronRightIcon } from '@/components/ui/icons';
 import PivotRow from './PivotRow';
+
+/**
+ * ⚠ Etapa V2: los dos números de Closed, para la nota al pie del Total.
+ *
+ * El Total agrega en scope 'division' y las filas de sucursal en 'detail'
+ * (ver `countsIn()` en lib/aggregation/metricMaps.ts), así que en Closed
+ * pueden no coincidir: un HELOC de segundo gravamen lo gana la sucursal que lo
+ * originó, pero la división no cuenta ese cierre.
+ *
+ * Se calculan los dos y se comparan en vez de asumir que siempre difieren: en
+ * la mayoría de los períodos dan igual, y una nota que aparece siempre deja de
+ * leerse. Sale sola cuando hay algo que explicar.
+ *
+ * Devuelve los dos totales, no la resta, porque la nota los muestra a los dos
+ * -- así el texto sirve igual con measure 'count' que con 'amount', sin tener
+ * que decir "N préstamos" cuando el número en pantalla son dólares.
+ */
+function closedTotals(tree: ReportTree, months: YearMonth[]): { division: number; branches: number } {
+  const division = sumMonths(tree.total.maps.cl, months);
+  const branches = tree.branches.reduce((sum, b) => {
+    const group = b.metricGroups.find((g) => g.metric === 'cl');
+    return sum + (group ? sumMonths(group.total, months) : 0);
+  }, 0);
+  return { division, branches };
+}
 
 export interface PivotTableProps {
   tree: ReportTree;
@@ -230,6 +257,9 @@ export default function PivotTable({
   // igual que ya hacía drillLabel un renglón arriba, para saber qué campo de
   // LoanRecord corresponde al nombre de cada item del desglose.
   const drillBy: 'loanOfficer' | 'bd' = b2bOnly ? 'bd' : 'loanOfficer';
+  // Etapa V2: sólo se usa dentro del bloque `showTotal`, pero se calcula acá
+  // porque los hooks/derivados del componente viven todos juntos arriba.
+  const closed = closedTotals(tree, months);
 
   return (
     <table className="piv piv--tree" id="pivot">
@@ -273,6 +303,25 @@ export default function PivotTable({
                   onCellClick={onDrillDown ? (ym) => onDrillDown({ metric: key, month: ym }) : undefined}
                 />
               ))}
+            {!totalCollapsed && closed.division !== closed.branches && (
+              /*
+               * ⚠ Etapa V2. Sin esta nota, el Total de Closed se lee como un
+               * error de suma: da menos que las filas que tiene abajo.
+               *
+               * No es un error -- son dos preguntas distintas. Los HELOC de
+               * segundo gravamen los gana la sucursal y el loan officer que los
+               * originaron; la división no gana nada con ellos y no los cuenta.
+               * La regla está en `countsIn()`, y acá se explica en el único
+               * lugar donde el usuario ve la consecuencia.
+               */
+              <tr className="metric">
+                <td className="lbl" colSpan={months.length + 2} style={{ color: 'var(--slate-500)', fontWeight: 500, paddingLeft: '26px' }}>
+                  Closed: el Total dice {fmtVal(closed.division, measure)} y las sucursales suman{' '}
+                  {fmtVal(closed.branches, measure)}. La diferencia son HELOC de segundo gravamen: cuentan para la
+                  sucursal y el loan officer que los originaron, no para la división.
+                </td>
+              </tr>
+            )}
           </>
         )}
 

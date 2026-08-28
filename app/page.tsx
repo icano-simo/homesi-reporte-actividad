@@ -375,7 +375,15 @@ export default function Home() {
       <div className="control-bar__status" style={{ marginBottom: '20px' }}>
         {records && fileName && (
           <>
-            <span className="pill">File: {fileName}</span>
+            {/*
+              Etapa V2: "Fuente" y no "File". El origen dejó de ser un archivo
+              -- la actividad la sincroniza simo-sync desde BigQuery -- así que
+              el rótulo viejo describía algo que ya no existe. `fileName` sigue
+              llamándose así en el estado porque la carga manual, que sí sube
+              un archivo, todavía lo usa: con un archivo cargado este mismo
+              pill muestra su nombre.
+            */}
+            <span className="pill">Fuente: {fileName}</span>
             <span className="pill">Rows: {records.length.toLocaleString('en-US')}</span>
             {monthRange?.minYM && monthRange?.maxYM && (
               <span className="pill">
@@ -496,10 +504,20 @@ export default function Home() {
             </div>
           )}
 
+          {/*
+            Etapa V2: la frase "Dates are read in UTC to avoid month drift"
+            describía cómo la app leía las fechas cuando venían del Excel. Ya no
+            aplica: `loan_records_v2` las trae como `date` y el mes se toma
+            recortando el texto 'YYYY-MM-DD', sin construir ningún Date -- que
+            es JUSTAMENTE lo que evita el corrimiento (ver `monthOf()` en
+            lib/supabase/loadCurrent.ts). El objetivo es el mismo; el mecanismo
+            que la nota describía dejó de existir.
+          */}
           <div className="foot-note">
             <b>Closings:</b> the Funding date is used for Banked-Retail, or the Completion date for Brokered.{' '}
             <b>Branch:</b> <i>True OrgID</i> is used; OrgIDs outside the official roster are grouped under “Branch Out of
-            Division”. Dates are read in UTC to avoid month drift.
+            Division”. <b>Source:</b> the data is synced from BigQuery; each row is one loan, so the report always
+            reflects the current state rather than a single upload.
           </div>
         </div>
       )}
