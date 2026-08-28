@@ -134,6 +134,19 @@ export function Diagnostics({ data }: { data: BusinessPlanData }) {
         <code>{d.excludedNamesSeen.toLocaleString('en-US')}</code> excluded ·{' '}
         <code>{d.rowsWithoutOfficer.toLocaleString('en-US')}</code> with no officer
       </div>
+      {/*
+        Etapa BP37: por qué vía se ató cada fila de actividad a una persona.
+        Está a la vista y no sólo en el objeto porque es la señal que avisa si
+        la resolución por identidad se rompió: `by code` en cero significa que
+        los alias de `person_code` se perdieron o que el sync dejó de mandar el
+        código, y el módulo estaría colgando del respaldo por nombre sin que
+        nada falle. Esa falla silenciosa es lo que esta etapa vino a cerrar.
+      */}
+      <div className={d.activityResolution.byPersonCode === 0 ? 'bp-diagnostics__warn' : undefined}>
+        Activity resolved by: <code>{d.activityResolution.byPersonCode.toLocaleString('en-US')}</code> person code ·{' '}
+        <code>{d.activityResolution.byName.toLocaleString('en-US')}</code> name (fallback) ·{' '}
+        <code>{d.activityResolution.unresolved.toLocaleString('en-US')}</code> unresolved
+      </div>
       {d.inactiveExcluded > 0 && (
         <div>
           Excluded <code>{d.inactiveExcluded}</code> inactive loan officer(s) from the roster.

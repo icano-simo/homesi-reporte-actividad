@@ -81,6 +81,8 @@ const BLANK_OFFICER = '(blank)';
  */
 interface ActivityRow {
   loan_officer: string | null;
+  /** Etapa BP37: la vía principal de resolución. Ver `resolveActivityOfficer`. */
+  loan_officer_person_code: string | null;
   file_creation_date: string | null;
   credit_report_date: string | null;
   app_date: string | null;
@@ -373,7 +375,7 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
     supabase
       .from('loan_records_v2')
       .select(
-        'loan_officer, file_creation_date, credit_report_date, app_date, closing_month, branch, total_loan_amount, loan_number, loan_program, loan_folder_name, loan_channel'
+        'loan_officer, loan_officer_person_code, file_creation_date, credit_report_date, app_date, closing_month, branch, total_loan_amount, loan_number, loan_program, loan_folder_name, loan_channel'
       )
       // Sin orden explícito, PostgREST no garantiza que dos páginas seguidas
       // no repitan ni salteen filas. `loan_number` es único en esta tabla.
@@ -429,6 +431,10 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
   const unmapped = new Map<string, { source: SourceSystem; nameRaw: string; rows: number }>();
   let excludedNamesSeen = 0;
   let rowsWithoutOfficer = 0;
+  /* Etapa BP37: por qué vía resolvió cada fila de actividad. Ver diagnostics. */
+  let activityByPersonCode = 0;
+  let activityByName = 0;
+  let activityUnresolved = 0;
 
   function resolve(source: SourceSystem, nameRaw: string | null): number | null {
     const { employeeKey } = aliasIndex.lookup(source, nameRaw);
@@ -449,6 +455,99 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
     return null;
   }
 
+  /**
+   * ============================================================================
+   * ⚠ CÓMO SE ATA UNA FILA DE ACTIVIDAD A UNA PERSONA — etapa BP37
+   * ============================================================================
+   *
+   * DOS vías, y el orden es la regla: primero el CÓDIGO, después el NOMBRE.
+   *
+   * ---------------------------------------------------------------------------
+   * POR QUÉ NO ES UN REEMPLAZO
+   * ---------------------------------------------------------------------------
+   * La idea original era cambiar el nombre por el código, porque un código es
+   * estable y un nombre no. Medido sobre las 4.800 filas, reemplazar habría
+   * PERDIDO información:
+   *
+   *     por nombre .......... 4.127
+   *     por código .......... 4.092
+   *     por alguna de las 2 . 4.239   <- esto
+   *     por ninguna ..........  561
+   *     sólo por código ......  112
+   *     sólo por nombre ......  147   <- lo que se perdía al reemplazar
+   *
+   * 708 filas no traen `loan_officer_person_code`. El código solo dejaba a esas
+   * afuera; el nombre solo deja afuera a otras 112.
+   *
+   * ⚠ CORRECCIÓN sobre esas 112: 111 son de personas EXCLUIDAS a propósito, y
+   * el chequeo de exclusión de arriba las deja afuera como corresponde. O sea
+   * que la ganancia real de cobertura de esta etapa es UNA fila, no 112.
+   *
+   * Eso no invalida el cambio, pero cambia su motivo: el valor está en que la
+   * atadura deje de depender de cómo se escriba el nombre, no en resolver más
+   * filas. Ver el bloque de POR QUÉ EL CÓDIGO VA PRIMERO.
+   *
+   * ---------------------------------------------------------------------------
+   * POR QUÉ EL CÓDIGO VA PRIMERO
+   * ---------------------------------------------------------------------------
+   * No por cobertura --el nombre cubre 35 filas más-- sino porque el código no
+   * depende de cómo se escriba el nombre. La tabla vieja traía los nombres en
+   * MAYÚSCULAS y `loan_records_v2` los trae capitalizados; cada vez que la
+   * fuente cambia de formato hay que agregar alias nuevos. Con el código eso no
+   * pasa. El nombre queda como respaldo explícito de las 147, no como vía
+   * principal.
+   *
+   * ---------------------------------------------------------------------------
+   * ⚠ POR QUÉ EL CÓDIGO USA `lookup` Y NO `resolve`
+   * ---------------------------------------------------------------------------
+   * `resolve` tiene efectos: cuenta filas sin officer, nombres excluidos y
+   * carga `unmapped`. Si el código se probara con `resolve`, cada fila que
+   * resuelve por nombre dejaría ANTES un `person_code` sin mapear en el
+   * diagnóstico -- 147 entradas fantasma de filas que sí resolvieron.
+   *
+   * `lookup` es puro: pregunta y no anota nada. El diagnóstico lo escribe sólo
+   * la vía que decide, que es el nombre cuando el código no alcanza.
+   */
+  function resolveActivityOfficer(row: ActivityRow, officerRaw: string): number | null {
+    /*
+     * ⚠ LA EXCLUSIÓN MANDA SOBRE LAS DOS VÍAS, Y SE CHEQUEA PRIMERO.
+     *
+     * `org.source_name_excluded` es una decisión de negocio sobre una PERSONA,
+     * registrada por su nombre. Sin este chequeo, la vía del código la pasaba
+     * por encima: `lookup` no consulta las exclusiones --sólo lo hace
+     * `resolve`-- así que un préstamo de alguien excluido resolvía por código
+     * y volvía a contar.
+     *
+     * No es hipotético. Medido antes de agregar esto: de las 112 filas que sólo
+     * el código resuelve, **111 son de 11 personas excluidas a propósito**
+     * (Adriana Cervantes, Andres Otero, Carlos Alvarez, Isa Vasquez y siete
+     * más). Sembrar los alias sin este chequeo les habría devuelto la
+     * producción a los totales sin que nada fallara.
+     *
+     * Se cuenta en `excludedNamesSeen` igual que antes, para que el diagnóstico
+     * siga reportando lo mismo por el mismo motivo.
+     */
+    if (officerRaw.trim().toLowerCase() !== BLANK_OFFICER && excludedIndex.has('slquery', officerRaw)) {
+      excludedNamesSeen += 1;
+      activityUnresolved += 1;
+      return null;
+    }
+
+    const code = row.loan_officer_person_code?.trim();
+    if (code) {
+      const byCode = aliasIndex.lookup('person_code', code).employeeKey;
+      if (byCode !== null) {
+        activityByPersonCode += 1;
+        return byCode;
+      }
+    }
+
+    const byName = resolve('slquery', officerRaw);
+    if (byName !== null) activityByName += 1;
+    else activityUnresolved += 1;
+    return byName;
+  }
+
   for (const row of activityRows) {
     /*
      * ⚠ Etapa V2: el nombre vacío se traduce a '(blank)' ANTES de resolverlo.
@@ -467,7 +566,7 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
      * 4.573 nombres que v2 trae en minúscula resuelven igual.
      */
     const officerRaw = row.loan_officer?.trim() ? row.loan_officer : BLANK_OFFICER;
-    const key = resolve('slquery', officerRaw);
+    const key = resolveActivityOfficer(row, officerRaw);
     if (key === null) continue;
     let m = activityByEmployee.get(key);
     if (!m) {
@@ -801,6 +900,11 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
       rowsWithoutOfficer,
       unmappedNames: [...unmapped.values()].sort((a, b) => b.rows - a.rows),
       benchmarkTableAvailable,
+      activityResolution: {
+        byPersonCode: activityByPersonCode,
+        byName: activityByName,
+        unresolved: activityUnresolved,
+      },
       windowMonths,
       closedMonths,
       pipelineMonths: { current: thisMonth, next: nextMonth },

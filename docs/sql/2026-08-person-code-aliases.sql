@@ -1,0 +1,208 @@
+-- ===========================================================================
+-- ALIAS POR CÓDIGO DE PERSONA — etapa BP37
+-- ===========================================================================
+--
+-- Siembra `org.employee_alias` con `source_system = 'person_code'`, para que
+-- el Business Plan pueda atar una fila de `activity_report.loan_records_v2` a
+-- una persona por su `loan_officer_person_code` en vez de por el nombre.
+--
+-- Ejecutar como `postgres` en el SQL Editor de Supabase (proyecto simoOS-prod).
+-- Idempotente: el `on conflict` lo hace re-ejecutable sin duplicar nada.
+--
+-- ⚠ El código de la app YA está desplegado y no falla sin esto: si el alias no
+-- existe, `resolveActivityOfficer` cae al respaldo por nombre y todo sigue
+-- funcionando como antes. Sin sembrar, la app reporta `0 person code / 4.127
+-- name (fallback) / 673 unresolved`, que es exactamente lo que resolvía antes.
+--
+-- Lo que cambia al sembrar NO es la cobertura --son 4.092 por código y 147 por
+-- nombre, mismo total-- sino de qué depende la atadura. Ver la sección de
+-- cobertura más abajo, que corrige un número que parecía la ganancia y no lo era.
+--
+--
+-- ---------------------------------------------------------------------------
+-- POR QUÉ UN ALIAS Y NO UNA COLUMNA NUEVA EN dim_employee
+-- ---------------------------------------------------------------------------
+-- `employee_alias` ya es la tabla cuyo trabajo es "esta cadena externa
+-- significa esta persona". Un código de persona es exactamente eso: un
+-- identificador que viene de un sistema de afuera.
+--
+-- Usarla no cuesta esquema nuevo, y trae gratis todo lo que ya tiene:
+--
+--   * `buildAliasIndex` detecta colisiones -- dos alias que colapsan al
+--     normalizar y apuntan a personas distintas quedan registrados.
+--   * El diagnóstico de nombres sin mapear ya existe y ya se muestra.
+--   * La PK `(source_system, name_raw)` impide dos filas del mismo código.
+--
+-- Una columna en `dim_employee` habría creado un SEGUNDO lugar donde vive la
+-- identidad de una persona, y habría que acordarse de mirar los dos.
+--
+--
+-- ---------------------------------------------------------------------------
+-- ⚠ EL PREFIJO DEL EMAIL SE USA UNA SOLA VEZ: ACÁ
+-- ---------------------------------------------------------------------------
+-- `split_part(email, '@', 1)` sirve para SEMBRAR y no vuelve a ejecutarse
+-- nunca. En runtime la app lee la fila del alias, no recalcula el prefijo.
+--
+-- La diferencia importa. Comparar contra el prefijo en cada carga tiene dos
+-- fallas: un cambio de email rompe la resolución en silencio, y la regla ya
+-- tuvo una colisión real -- `maria.guerrero` era el prefijo de DOS filas de
+-- `dim_employee` (que resultaron ser la misma persona duplicada, ya
+-- consolidada). Una regla con una colisión latente no es una identidad, es una
+-- coincidencia.
+--
+-- Sembrando, el prefijo queda congelado como el dato que era el día que se
+-- miró, y de ahí en adelante la atadura es explícita y editable a mano.
+--
+--
+-- ---------------------------------------------------------------------------
+-- COBERTURA MEDIDA (4.800 filas de loan_records_v2, 2026-08-28)
+-- ---------------------------------------------------------------------------
+--   por nombre ........... 4.127
+--   por código ........... 4.092
+--   por alguna de las 2 .. 4.239   <- a lo que se llega con este cambio
+--   por ninguna ..........   561
+--   sólo por código ......   112
+--   sólo por nombre ......   147   <- por qué el nombre NO se borra
+--
+-- ---------------------------------------------------------------------------
+-- ⚠ LA GANANCIA DE COBERTURA ES UNA FILA, NO 112
+-- ---------------------------------------------------------------------------
+-- De esas 112 que sólo el código resuelve, **111 son de 11 personas que están
+-- deliberadamente en `org.source_name_excluded`** (Adriana Cervantes, Adriana
+-- Romero, Andres Otero, Andres Robles, Carlos Alvarez, Carolina Vargas, Danna
+-- Ferrer, Guido Acevedo, Isa Vasquez, Monica Fernandez, Yenny Dominguez).
+--
+-- Sembrar estos alias sin más habría hecho que la vía del código pasara por
+-- encima de esa exclusión y les devolviera la producción a los totales, en
+-- silencio. `resolveActivityOfficer` chequea la exclusión ANTES de las dos
+-- vías, así que eso no pasa -- pero conviene tenerlo escrito acá, porque el
+-- riesgo vuelve si alguien reordena esa función.
+--
+-- Entonces el motivo de esta etapa NO es cobertura: es que la atadura deje de
+-- depender de cómo se escriba el nombre. Cuando la tabla de actividad cambió de
+-- MAYÚSCULAS a capitalizado hubo que agregar 36 alias nuevos; con el código eso
+-- no vuelve a pasar.
+--
+-- ---------------------------------------------------------------------------
+-- LAS QUE NO RESUELVEN NO SON UN PROBLEMA PENDIENTE
+-- ---------------------------------------------------------------------------
+-- De las 673 filas que hoy no resuelven por nombre:
+--
+--     221  sin loan officer (la columna viene vacía)
+--     451  excluidas a propósito en `org.source_name_excluded`
+--       1  genuinamente sin mapear -- "Daniela Esguerra", 1 fila
+--
+-- O sea que no hay una etapa pendiente de alias: hay UN nombre. Ya aparece en
+-- el diagnóstico de la app como nombre sin clasificar.
+-- ===========================================================================
+
+
+-- ---------------------------------------------------------------------------
+-- PASO 0 — verificar los supuestos ANTES de sembrar
+-- ---------------------------------------------------------------------------
+-- a) NINGÚN prefijo de email está duplicado. Debe devolver 0 filas.
+--    (Si devuelve alguna, resolverla en `dim_employee` primero: sembrar un
+--    código ambiguo ataría las filas de una persona a la otra.)
+--
+--      select lower(split_part(email, '@', 1)) as code, count(*)
+--        from org.dim_employee
+--       where email is not null
+--       group by 1 having count(*) > 1;
+--
+-- b) los 42 códigos que usa la tabla de actividad tienen dueño. Debe dar 42/42:
+--
+--      with c as (
+--        select distinct lower(btrim(loan_officer_person_code)) as code
+--          from activity_report.loan_records_v2
+--         where nullif(btrim(loan_officer_person_code), '') is not null
+--      )
+--      select count(*) as codigos,
+--             count(*) filter (where exists (
+--               select 1 from org.dim_employee e
+--                where lower(split_part(e.email, '@', 1)) = c.code)) as con_dueno
+--        from c;
+--
+-- c) no hay alias de person_code todavía (da 0):
+--
+--      select count(*) from org.employee_alias where source_system = 'person_code';
+
+
+-- ---------------------------------------------------------------------------
+-- PASO 1 — sembrar
+-- ---------------------------------------------------------------------------
+-- Se siembran TODOS los empleados con email, no sólo los 42 que hoy aparecen
+-- en la tabla de actividad: el que aparezca la semana que viene ya va a tener
+-- su alias, sin que nadie tenga que acordarse de agregarlo.
+--
+-- `lower(...)` a propósito: `loan_officer_person_code` viene en minúsculas y el
+-- índice de la app normaliza a mayúsculas de todos modos, así que guardarlo en
+-- una sola forma evita dos filas para el mismo código.
+--
+-- `match_method` deja dicho de dónde salió cada fila. Es el mismo campo que se
+-- usó para las capitalizadas ('v2-capitalizado'), y sirve para lo mismo: poder
+-- reconstruir después por qué existe un alias.
+insert into org.employee_alias (employee_key, source_system, name_raw, match_method)
+select
+  e.employee_key,
+  'person_code',
+  lower(split_part(e.email, '@', 1)),
+  'seed-email-prefix-2026-08'
+from org.dim_employee e
+where e.email is not null
+  and btrim(e.email) <> ''
+on conflict (source_system, name_raw) do nothing;
+
+
+-- ===========================================================================
+-- VERIFICACIÓN
+-- ===========================================================================
+--
+-- 1. Cuántos alias quedaron, y que ninguno apunte a dos personas:
+--
+--      select count(*) as alias_person_code,
+--             count(distinct name_raw) as codigos_distintos,
+--             count(distinct employee_key) as personas
+--        from org.employee_alias where source_system = 'person_code';
+--
+-- 2. La cobertura real, por vía, sobre la tabla de actividad. Es la misma
+--    cuenta que la app reporta en `diagnostics.activityResolution`, así que los
+--    dos números tienen que coincidir:
+--
+--      with a as (
+--        select upper(btrim(regexp_replace(name_raw, '\s+', ' ', 'g'))) as n
+--          from org.employee_alias where source_system = 'slquery'
+--      ),
+--      p as (
+--        select upper(btrim(name_raw)) as code
+--          from org.employee_alias where source_system = 'person_code'
+--      ),
+--      r as (
+--        select upper(btrim(coalesce(loan_officer_person_code, ''))) as code,
+--               upper(btrim(regexp_replace(coalesce(loan_officer, ''), '\s+', ' ', 'g'))) as n
+--          from activity_report.loan_records_v2
+--      )
+--      select
+--        count(*) filter (where exists (select 1 from p where p.code = r.code)) as por_codigo,
+--        count(*) filter (where not exists (select 1 from p where p.code = r.code)
+--                           and exists (select 1 from a where a.n = r.n)) as por_nombre,
+--        count(*) filter (where not exists (select 1 from p where p.code = r.code)
+--                           and not exists (select 1 from a where a.n = r.n)) as sin_resolver
+--      from r;
+--
+--    Esperado con los datos del 2026-08-28: 4.092 / 147 / 561, y la suma 4.800.
+--
+-- 3. En la app, abrir el Business Plan y mirar `diagnostics.activityResolution`.
+--    `byPersonCode` tiene que dejar de ser 0.
+--
+--
+-- ===========================================================================
+-- PARA REVERTIR
+-- ===========================================================================
+--
+--   delete from org.employee_alias where source_system = 'person_code';
+--
+-- Es seguro: la app cae al respaldo por nombre y vuelve a resolver 4.127 filas,
+-- que es lo que resolvía antes de esta etapa. Los alias de `slquery` NO se
+-- tocan en ningún momento -- son los que sostienen esas 147 filas que el código
+-- no cubre.
+-- ===========================================================================
