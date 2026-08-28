@@ -73,4 +73,32 @@ export interface LoanRecord {
    * lib/aggregation/metricMaps.ts.
    */
   countsForDivision: boolean;
+  /**
+   * Estrategia comercial, YA resuelta en BigQuery — etapa V3.
+   *
+   * Uno de los cinco valores de `STRATEGY_ORDER` (lib/domain/strategy.ts), con
+   * la precedencia ya aplicada: Affinity > NPPM > Recruitment > B2B > Own
+   * Production. La app no la calcula ni la corrige.
+   *
+   * `''` cuando el dato no viene: hoy, sólo la carga manual de archivo, que no
+   * trae la columna. Esos registros sólo aparecen con el filtro en "All".
+   */
+  strategy: string;
+  /** Dueño de la oportunidad en Salesforce. `''` si el préstamo no tiene. Poblado en 3.226 de 4.794. */
+  opportunityOwner: string;
+  /**
+   * ⚠ El NPPM contratado. HOY LLEGA SIEMPRE VACÍO.
+   *
+   * Medido sobre las 4.794 filas de `loan_records_v2`: `nppm_realtor` es NULL
+   * en TODAS, incluidos los 92 préstamos con `strategy = 'NPPM'`. Se lee igual
+   * --está pedido y el día que el sync la llene ya está enchufada-- pero
+   * ninguna pantalla le dedica una columna, porque hoy sería una columna vacía.
+   *
+   * Lo que sí tiene datos es otra cosa: `realtor_es_nppm` y `nppm_recruited_by`
+   * (273 filas cada una). Si lo que se quería mostrar era eso, es un campo
+   * distinto y hay que pedirlo aparte.
+   */
+  nppmRealtor: string;
+  /** Quién refirió el caso. `''` si no aplica. Poblado en 903 de 4.794, sobre todo en B2B (645). */
+  referredByRealtor: string;
 }

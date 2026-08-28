@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import type { LoanRecord } from '@/lib/domain/types';
 import type { DrillDownContext } from '@/lib/aggregation/loansForCell';
+import type { StrategyFilter } from '@/lib/domain/strategy';
 import { METRICS, MONTH_NAMES } from '@/config/metrics';
 import { CloseIcon } from '@/components/ui/icons';
 
@@ -13,6 +14,12 @@ export interface LoanDetailModalProps {
   context: DrillDownContext | null;
   /** Ya filtrados por loansForCell() -- este componente no filtra ni calcula nada, solo muestra. */
   loans: LoanRecord[];
+  /**
+   * Etapa V3: la estrategia activa en pantalla. NO filtra nada acá --`loans` ya
+   * viene filtrado-- sólo decide QUÉ COLUMNAS tienen sentido mostrar. Ver el
+   * comentario del `<colgroup>`.
+   */
+  strategyFilter: StrategyFilter;
 }
 
 /**
@@ -61,7 +68,7 @@ function contextField(context: DrillDownContext): { label: string; value: string
   return { label: 'Branch', value: context.branch ?? 'All branches' };
 }
 
-export default function LoanDetailModal({ isOpen, onClose, context, loans }: LoanDetailModalProps) {
+export default function LoanDetailModal({ isOpen, onClose, context, loans, strategyFilter }: LoanDetailModalProps) {
   useEffect(() => {
     if (!isOpen) return;
     function handleKeyDown(e: KeyboardEvent) {
@@ -82,6 +89,31 @@ export default function LoanDetailModal({ isOpen, onClose, context, loans }: Loa
       document.body.style.overflow = previous;
     };
   }, [isOpen]);
+
+  /*
+   * ⚠ Etapa V3 -- QUÉ COLUMNAS SE MUESTRAN, Y POR QUÉ NO SIEMPRE LAS OCHO.
+   *
+   * Con las 8 fijas la tabla queda ilegible: el modal mide 768px y Channel se
+   * corta en "Banked - ...", Owner en "Javier Peñ..." y Referred By en
+   * "WALTER ...". Verificado en pantalla antes de decidir esto.
+   *
+   * Las dos condiciones son complementarias a propósito, así nunca hay más de
+   * siete columnas a la vez:
+   *
+   *   * `showStrategy` -- sólo con el filtro en "All". Ahí la columna informa
+   *     (cinco valores distintos). Con una estrategia elegida diría el mismo
+   *     valor en todas las filas: ocupa ancho para repetir lo que ya dice el
+   *     rótulo del filtro y de la fila Total.
+   *   * `showContext` -- exactamente al revés. Owner y Referred By son el
+   *     detalle que se mira cuando ya se está dentro de una estrategia; en la
+   *     vista general son dos columnas de contexto que nadie pidió y que
+   *     aprietan las seis de siempre.
+   *
+   * Resultado: 6 columnas en "All" (las mismas de siempre, con Strategy en el
+   * lugar de B2B) y 7 con una estrategia elegida.
+   */
+  const showStrategy = strategyFilter === 'all';
+  const showContext = !showStrategy;
 
   if (!isOpen || !context) return null;
 
@@ -144,7 +176,22 @@ export default function LoanDetailModal({ isOpen, onClose, context, loans }: Loa
         <div className="modal-body">
           <table className="piv">
             {/*
-             * Anchos explícitos: las 6 columnas entran sin scroll horizontal.
+             * ⚠ Etapa V3: de 6 a 8 columnas.
+             *
+             * "B2B" (Yes/No) se reemplaza por "Strategy" con el valor real. No
+             * se pierde información: B2B pasa a ser uno de los cinco valores
+             * posibles en vez de un booleano que escondía a los otros cuatro.
+             * Own Production domina la columna (3.449 de 4.794, ~72%) y eso es
+             * correcto, no un error de datos.
+             *
+             * Se agregan Owner y Referred By. NO se agrega "NPPM Realtor",
+             * aunque estaba pedida: `nppm_realtor` es NULL en las 4.794 filas,
+             * incluidos los 92 préstamos NPPM, así que sería una columna
+             * permanentemente vacía. El campo se lee igual (ver
+             * LoanRecord.nppmRealtor) y el día que el sync la llene, agregarla
+             * es una columna más acá.
+             *
+             * Anchos explícitos: las 8 columnas entran sin scroll horizontal.
              * Ajuste post-validación visual: se quitó Affinity -- no es un
              * atributo individual del loan en este drill-down (Affinity es un
              * modelo de negocio que Activity ya representa vía branch
@@ -155,12 +202,21 @@ export default function LoanDetailModal({ isOpen, onClose, context, loans }: Loa
              * loan, y ya puede mostrar 'AFFINITY' cuando corresponde.
              */}
             <colgroup>
-              <col style={{ width: '20%' }} />
-              <col style={{ width: '20%' }} />
-              <col style={{ width: '12%' }} />
-              <col style={{ width: '18%' }} />
-              <col style={{ width: '10%' }} />
-              <col style={{ width: '20%' }} />
+              {/*
+                Los anchos de la variante con contexto están medidos, no
+                estimados: con Channel en 14% "Banked - Retail" se cortaba en
+                "Banked - Ret...". Es un vocabulario de dos valores fijos, así
+                que se le da lo que necesita (17%) sacándoselo a Loan # -- doce
+                dígitos entran de sobra en 15%.
+              */}
+              <col style={{ width: showStrategy ? '20%' : '15%' }} />
+              <col style={{ width: showStrategy ? '20%' : '17%' }} />
+              <col style={{ width: showStrategy ? '11%' : '8%' }} />
+              <col style={{ width: '17%' }} />
+              {showStrategy && <col style={{ width: '13%' }} />}
+              <col style={{ width: showStrategy ? '19%' : '13%' }} />
+              {showContext && <col style={{ width: '15%' }} />}
+              {showContext && <col style={{ width: '15%' }} />}
             </colgroup>
             <thead>
               <tr className="mo-row">
@@ -168,8 +224,10 @@ export default function LoanDetailModal({ isOpen, onClose, context, loans }: Loa
                 <th style={{ textAlign: 'left' }}>Loan Officer</th>
                 <th style={{ textAlign: 'left' }}>Branch</th>
                 <th style={{ textAlign: 'left' }}>Channel</th>
-                <th>B2B</th>
+                {showStrategy && <th style={{ textAlign: 'left' }}>Strategy</th>}
                 <th style={{ textAlign: 'left' }}>Program</th>
+                {showContext && <th style={{ textAlign: 'left' }}>Owner</th>}
+                {showContext && <th style={{ textAlign: 'left' }}>Referred By</th>}
               </tr>
             </thead>
             <tbody>
@@ -185,15 +243,29 @@ export default function LoanDetailModal({ isOpen, onClose, context, loans }: Loa
                   <td style={{ textAlign: 'left' }} title={channelLabel(loan.loanInfoChannel)}>
                     {channelLabel(loan.loanInfoChannel)}
                   </td>
-                  <td style={{ textAlign: 'center' }}>{loan.isB2B ? 'Yes' : 'No'}</td>
+                  {showStrategy && (
+                    <td style={{ textAlign: 'left' }} title={loan.strategy}>
+                      {loan.strategy || '—'}
+                    </td>
+                  )}
                   <td style={{ textAlign: 'left' }} title={loan.loanProgram}>
                     {loan.loanProgram || '—'}
                   </td>
+                  {showContext && (
+                    <td style={{ textAlign: 'left' }} title={loan.opportunityOwner}>
+                      {loan.opportunityOwner || '—'}
+                    </td>
+                  )}
+                  {showContext && (
+                    <td style={{ textAlign: 'left' }} title={loan.referredByRealtor}>
+                      {loan.referredByRealtor || '—'}
+                    </td>
+                  )}
                 </tr>
               ))}
               {!loans.length && (
                 <tr>
-                  <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={6}>
+                  <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={showStrategy ? 6 : 7}>
                     No loans.
                   </td>
                 </tr>

@@ -29,6 +29,7 @@ import PivotTable from '@/components/report/PivotTable';
 import LoanOfficerTable from '@/components/report/LoanOfficerTable';
 import LoanDetailModal from '@/components/report/LoanDetailModal';
 import Toolbar, { type GroupBy, type ChannelFilter } from '@/components/report/Toolbar';
+import { matchesStrategy, strategyLabel, type StrategyFilter } from '@/lib/domain/strategy';
 
 /**
  * ⚠ Cuándo se actualizó por última vez, en la zona de quien mira.
@@ -103,10 +104,16 @@ export default function Home() {
   // (excluyente) por 2 conceptos separados -- ver GroupBy/ChannelFilter en
   // Toolbar.tsx para el porqué. `groupBy` sigue siendo un modo de
   // presentación único a la vez (Branch×Metric o Loan Officer, igual que
-  // antes); `b2bOnly`/`channelFilter` son filtros de datos independientes,
+  // antes); `strategyFilter`/`channelFilter` son filtros de datos independientes,
   // combinables entre sí y con cualquier groupBy.
   const [groupBy, setGroupBy] = useState<GroupBy>('branch');
-  const [b2bOnly, setB2bOnly] = useState(false);
+  /*
+   * Etapa V3: reemplaza al booleano `b2bOnly`. B2B era un interruptor aparte
+   * cuando en realidad es una de cinco estrategias mutuamente excluyentes; el
+   * selector lo pone en su lugar y de paso hace alcanzables las otras cuatro,
+   * que antes no se podían aislar desde ninguna pantalla.
+   */
+  const [strategyFilter, setStrategyFilter] = useState<StrategyFilter>('all');
   const [channelFilter, setChannelFilter] = useState<ChannelFilter>('all');
   // Etapa 12 (agregado): criterio de orden de la agrupación "Por Loan Officer" -- solo importa cuando groupBy==='loanOfficer'.
   const [sortBy, setSortBy] = useState<MetricKey | 'total'>('total');
@@ -148,7 +155,7 @@ export default function Home() {
     setRecords(loanRecords);
     setFileName(name);
     setGroupBy('branch');
-    setB2bOnly(false);
+    setStrategyFilter('all');
     setChannelFilter('all');
     setSortBy('total');
     setMeasure('count');
@@ -243,6 +250,9 @@ export default function Home() {
         months: monthsShown,
         measure,
         fileName: fileName ?? 'archivo',
+        // Etapa V3: la primera hoja del libro pasa a ser la de la estrategia
+        // elegida. Ver exportToExcel para qué hace con 'all'.
+        strategyFilter,
       });
     } catch (err) {
       setError(errorMessage(err));
@@ -279,17 +289,24 @@ export default function Home() {
   const filteredRecords = records
     ? records.filter(
         (r) =>
-          (!b2bOnly || r.isB2B) &&
+          matchesStrategy(r.strategy, strategyFilter) &&
           (channelFilter === 'all' ||
             (channelFilter === 'empty' ? r.loanInfoChannel === '' : r.loanInfoChannel === channelFilter)),
       )
     : null;
 
-  // Etapa 2: drillBy sigue derivándose de b2bOnly (antes de view==='b2b'), no
-  // es estado independiente -- así se preserva EXACTO el comportamiento de
-  // "Solo B2B" (desglose por BD) sin inventar un tercer control de UI que
-  // nadie pidió. Ver LOAN OFFICER en el brief de esta etapa.
-  const drillBy: 'loanOfficer' | 'bd' = b2bOnly ? 'bd' : 'loanOfficer';
+
+  /*
+   * ⚠ Etapa V3: antes era `b2bOnly ? 'bd' : 'loanOfficer'`. La regla no cambia,
+   * cambia de dónde sale: el desglose por BD tiene sentido SÓLO en B2B, porque
+   * el Business Developer es quien define esa estrategia. En Affinity, NPPM,
+   * Recruitment y Own Production el BD no es la dimensión que explica nada, así
+   * que se desglosa por Loan Officer igual que con el filtro en "All".
+   *
+   * Es exactamente el comportamiento que tenía el toggle: 'B2B only' -> BD,
+   * cualquier otra cosa -> Loan Officer.
+   */
+  const drillBy: 'loanOfficer' | 'bd' = strategyFilter === 'B2B' ? 'bd' : 'loanOfficer';
 
   // Etapa 12: SummaryCards siempre necesita un ReportTree válido
   // (tree.total.maps), incluso con groupBy==='loanOfficer' -- por eso `tree`
@@ -298,7 +315,7 @@ export default function Home() {
   // (ver JSX abajo), pero SummaryCards sí lo usa en los 2 casos. Etapa 2: a
   // diferencia de antes (donde la vista "Por Loan Officer" forzaba
   // view:'main', o sea SIN filtro B2B, porque B2B y Loan Officer eran
-  // exclusivos), ahora si b2bOnly/channelFilter están activos SÍ se
+  // exclusivos), ahora si strategyFilter/channelFilter están activos SÍ se
   // reflejan acá también -- es la combinación nueva que esta etapa habilita
   // (B2B + Loan Officer + Channel, ver COMPATIBILIDAD caso 8).
   const tree = filteredRecords
@@ -338,7 +355,7 @@ export default function Home() {
   const channelFilterLabel = channelFilter === 'empty' ? 'Empty / Unclassified' : channelFilter;
   const kpiStripLabel =
     'Monthly Totals' +
-    (b2bOnly ? ' — B2B' : '') +
+    (strategyFilter !== 'all' ? ' — ' + strategyLabel(strategyFilter) : '') +
     (channelFilter !== 'all' ? ' — ' + channelFilterLabel : '') +
     (groupBy === 'loanOfficer' ? ' (all branches)' : '') +
     (measure === 'amount' ? ' — Volume ($)' : '');
@@ -462,8 +479,8 @@ export default function Home() {
           <Toolbar
             groupBy={groupBy}
             onGroupByChange={setGroupBy}
-            b2bOnly={b2bOnly}
-            onB2bOnlyChange={setB2bOnly}
+            strategyFilter={strategyFilter}
+            onStrategyFilterChange={setStrategyFilter}
             channelFilter={channelFilter}
             onChannelFilterChange={setChannelFilter}
             measure={measure}
@@ -509,7 +526,7 @@ export default function Home() {
                   showTotal={showTotal}
                   collapsed={collapsed}
                   onToggleCollapse={handleToggleCollapse}
-                  b2bOnly={b2bOnly}
+                  strategyFilter={strategyFilter}
                   onDrillDown={setDrillDown}
                 />
               </div>
@@ -538,6 +555,14 @@ export default function Home() {
         isOpen={drillDown !== null}
         context={drillDown}
         loans={drillDownLoans}
+        /*
+         * Etapa V3: `drillDownLoans` ya sale de `filteredRecords`, así que el
+         * modal muestra exactamente lo que contó la celda -- el filtro de
+         * estrategia entra por el mismo camino que los de canal y branch. Esto
+         * NO es para filtrar de nuevo: es para que el modal sepa qué columnas
+         * valen la pena en cada caso (ver `showStrategy`/`showContext` allá).
+         */
+        strategyFilter={strategyFilter}
         onClose={() => setDrillDown(null)}
       />
     </div>
