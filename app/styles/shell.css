@@ -78,14 +78,43 @@
   text-transform: uppercase;
   color: var(--navy);
   white-space: nowrap;
+  /*
+   * Sin `overflow` el texto se sale de su caja y se dibuja ENCIMA de la nav --
+   * que es lo que pasaba al agregar la quinta pestaña. Con `overflow: hidden`
+   * se recorta dentro de su caja y no invade nada.
+   *
+   * No lleva `text-overflow: ellipsis` a propósito: "ANALYT…" no informa nada
+   * y queda como ruido al lado de la marca, que ya identifica el producto.
+   * Antes de llegar a recortarse, el media query de abajo lo esconde entero.
+   */
+  overflow: hidden;
+  min-width: 0;
 }
 
 /* ---- Tabs de navegación (derecha) ---- */
 
+/*
+ * ⚠ La navegación NUNCA se encoge — etapa ANALYTICS-GATE.
+ *
+ * `.hub-header__inner` es un flex con tres hijos (marca · nav · usuario) y
+ * `justify-content: space-between`. Al agregar la quinta pestaña, el flex
+ * empezó a encoger la CAJA de la marca, pero `.hub-brand__module` tiene
+ * `white-space: nowrap` y no tenía `overflow`, así que el texto se desbordaba
+ * de su caja y quedaba dibujado DEBAJO de las pestañas.
+ *
+ * Medido en el navegador antes y después de agregar la pestaña: con cuatro
+ * había 106px de holgura a 1440; con cinco, -18. Y no se veía comparando cajas
+ * --las cajas no se solapaban, el texto sí-- sino midiendo el elemento que de
+ * verdad pinta el texto.
+ *
+ * De acá salen las dos reglas: la nav no cede espacio (es la navegación de la
+ * app), y el rótulo degrada primero recortándose y después escondiéndose.
+ */
 .hub-nav {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 .hub-nav__tab {
@@ -94,7 +123,22 @@
   gap: 7px;
   border: none;
   border-radius: var(--radius-full);
-  padding: 8px 20px;
+  /*
+   * 16px y no 20px de padding lateral — etapa ANALYTICS-GATE.
+   *
+   * Con cinco pestañas la nav dejó de entrar junto al rótulo del módulo dentro
+   * de `--container-max` (1380px): faltaban 43px. Los pone la nav, que es la
+   * que creció, y no el correo del menú de usuario ni el rótulo. Cuatro píxeles
+   * por lado en cinco pestañas son 40, más 8 de bajar el `gap` de 8 a 6: 48.
+   * Medido después: el rótulo vuelve a ocupar sus 124px enteros --los mismos
+   * que ocupaba con cuatro pestañas-- y quedan 32px de holgura.
+   *
+   * Se eligió esto y no achicar el correo porque el correo es funcional --dice
+   * con qué cuenta estás-- y el rótulo es identificación del producto; pagar
+   * con cualquiera de los dos habría sido degradar algo que informa para
+   * conservar espacio que ya se estaba usando de más.
+   */
+  padding: 8px 16px;
   font-family: inherit;
   font-size: 12px;
   font-weight: 700;
@@ -236,6 +280,20 @@
 /* ---------------------------------------------------------------------------
  * 4. Responsive — el spec prohíbe scroll horizontal del <body> (§6)
  * ------------------------------------------------------------------------ */
+
+/*
+ * El rótulo del módulo se esconde ANTES que a 900px -- etapa ANALYTICS-GATE.
+ *
+ * Con cinco pestañas deja de entrar alrededor de 1400px, y un rótulo recortado
+ * a "ANALYT…" no informa nada: es ruido al lado de la marca, que ya identifica
+ * el producto. Por debajo de ese ancho se va entero y la nav queda completa.
+ */
+@media (max-width: 1439px) {
+  .hub-brand__divider,
+  .hub-brand__module {
+    display: none;
+  }
+}
 
 @media (max-width: 900px) {
   .hub-header__inner {

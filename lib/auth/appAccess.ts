@@ -62,6 +62,20 @@ export function hasAppAccess(user: UserLike): boolean {
  */
 export const OUTLOOK_CLAIM = 'outlook';
 
+/**
+ * Etapa ANALYTICS-GATE: el módulo Analytics.
+ *
+ * ⚠ Antes no estaba apagado por permiso sino por CÓDIGO: su entrada del menú
+ * estaba comentada (etapa `fix/hide-analytics-nav-tab`) mientras se terminaba
+ * el rediseño. Eso lo dejaba invisible para todos --incluido quien tenía que
+ * verlo-- y encendido para cualquiera que supiera escribir `/analytics` en la
+ * barra de direcciones: lo peor de las dos cosas.
+ *
+ * Con un claim, quién lo ve es un dato y no una línea comentada: se otorga y
+ * se quita sin desplegar, y la ruta queda cerrada para el resto.
+ */
+export const ANALYTICS_CLAIM = 'analytics';
+
 /** true si el usuario tiene ese claim entre sus `allowed_apps`. */
 export function hasClaim(user: UserLike, claim: string): boolean {
   const allowedApps = user?.app_metadata?.allowed_apps;

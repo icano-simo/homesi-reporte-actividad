@@ -38,6 +38,13 @@ export const DEFAULT_LANDING = '/pipeline';
 export const OUTLOOK_PATH = '/outlook';
 
 /**
+ * Etapa ANALYTICS-GATE: el módulo Analytics, con el mismo mecanismo que
+ * Outlook. Vive acá por el mismo motivo: la consumen `proxy.ts` y
+ * `ServiceHubHeader`, y duplicarla es cómo se desincronizan.
+ */
+export const ANALYTICS_PATH = '/analytics';
+
+/**
  * Rutas del flujo de autenticación. No forman parte de la app en sí, así que
  * no llevan el shell del Service Hub (header con tabs de módulo): mostrar la
  * navegación a alguien que todavía no entró no tiene sentido, y en /no-access
