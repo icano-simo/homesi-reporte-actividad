@@ -6363,3 +6363,58 @@ Realtor, NPPM pasa de 8 a 9 columnas) y **V4** (borra
   antes del bloque de contexto (Owner / NPPM Realtor / Recruited By /
   Referred By de V3c), en cualquiera de las 3 vistas de estrategia --
   posición consistente, no se reordenó nada de V3c.
+
+## Etapa FIX-COMBINED-STRATEGY -- Combined Total by Branch no respetaba el filtro de estrategia
+
+Con una píldora de estrategia activa (vista `By strategy` de
+`app/pipeline/PivotTable.tsx`, `pill !== 'All'`), la sección "Combined
+Total by Branch" ignoraba el filtro en tres lugares distintos, mientras
+las tablas Banked - Retail/Brokered sí lo respetaban:
+
+1. **La suma por branch y el Grand Total**: mostraban el total de TODAS
+   las estrategias en vez de solo la elegida (ej. 85 en vez de 18 con
+   B2B filtrado).
+2. **Los 4 drill-downs "Combined"** (Total Pipeline, Healthy Pipeline,
+   Closed, CTC/Closing): el número ya filtrado era correcto, pero el
+   modal traía préstamos de OTRAS estrategias de más -- caso real
+   confirmado: branch 776/NPPM mostraba "1" pero el drill-down traía 2
+   préstamos (el NPPM real + uno de estrategia Own production).
+3. **El punto/indicador de CTC/Closing**: podía aparecer encendido y
+   clickeable con la población real elegible en cero -- caso real
+   confirmado: branch 760, un préstamo Delayed en el bucket "Closing"
+   encendía el punto, pero el drill-down (que exige `healthy === true`,
+   igual que "Projected to Close") no tenía nada que mostrar.
+
+### Causa raíz
+
+Los tres bugs comparten el mismo origen: cálculos independientes
+armados sobre datos SIN filtrar por `pill`/`healthy`, en vez de
+reutilizar la MISMA fuente ya filtrada que el resto del pivot ya usaba
+(`row.strategyRows` filtradas por estrategia, y `ctcRawCount +
+closingRawCount` -- la población healthy-only ya calculada por
+`splitCtcAndClosing` -- para el punto de CTC/Closing). Cada número/lista
+se recalculaba por su cuenta en vez de derivarse de una única fuente
+consistente, así que cada uno podía desincronizarse del resto sin que
+nada lo evitara estructuralmente.
+
+### Cambio de criterio deliberado -- el punto de CTC/Closing
+
+El punto CtcDot tenía un diseño previo, documentado como decisión
+aceptada: era un "indicador de presencia" (`closingCount`, el bucket
+"Closing" completo, sin exigir `healthy`), deliberadamente DISTINTO de
+la población que el drill-down audita (`healthy === true`) -- se
+aceptaba que el punto pudiera estar encendido sin que hubiera
+necesariamente algo real que auditar detrás.
+
+Ese criterio queda reemplazado: confirmado que un punto que promete un
+drill-down y abre un modal vacío no es un indicador útil en ninguna
+vista, con o sin estrategia elegida. El punto ahora se enciende siempre
+por la población elegible (`ctcRawCount + closingRawCount`), en las 4
+variantes donde aparece (`By branch`, fila de estrategia, desglose por
+estrategia, y Combined). El campo `closingCount` (bucketTotal) sigue
+existiendo sin tocar -- sigue siendo la fuente real de pull-through/
+forecast, sólo dejó de decidir si un punto se enciende.
+
+### Archivos
+
+`app/pipeline/PivotTable.tsx` únicamente.
