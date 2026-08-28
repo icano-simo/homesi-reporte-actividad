@@ -1,0 +1,276 @@
+/*
+ * ============================================================================
+ * REGLAS PROPIAS DE OUTLOOK — sólo el editor (etapa OL2)
+ * ============================================================================
+ *
+ * El layout ya importa `bp-visual.css` y de ahí sale todo lo demás: las tablas
+ * `.piv`, los botones, `.field`, `.bp-form__*`, `.bp-notice`. Acá van SÓLO las
+ * clases que el editor necesita y que allá no existen.
+ *
+ * ⚠ Lo que el layout anticipó: "si algún día Outlook necesita reglas propias,
+ * van en un `app/outlook/styles/` aparte". Este es ese día. Nada de esto se
+ * agrega a `bp-visual.css`: son formularios de este módulo, y meterlos ahí
+ * cargaría reglas de Outlook a todo el Business Plan.
+ *
+ * Todos los colores salen de las variables ya definidas -- ninguna literal
+ * nueva, para que el módulo siga el tema como los otros.
+ */
+
+.ol-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 520px;
+}
+
+.ol-editor__block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--slate-200);
+}
+.ol-editor__block:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.ol-editor__h {
+  margin: 0;
+  font-size: var(--ol-text);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--slate-700);
+}
+.ol-editor__rev {
+  margin-left: 8px;
+  font-size: var(--ol-text);
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* Fila de formulario: los campos crecen, el botón se alinea abajo con ellos. */
+.ol-editor__row {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ol-editor__grow {
+  flex: 1 1 220px;
+}
+.ol-editor__num {
+  width: 84px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.ol-editor__sel {
+  min-width: 104px;
+}
+.ol-editor__pct {
+  margin-left: 4px;
+  font-size: var(--ol-text);
+  color: var(--slate-400);
+}
+
+.ol-editor__hint {
+  margin: 0;
+  font-size: var(--ol-text);
+  line-height: 1.55;
+  color: var(--slate-500);
+}
+
+.ol-editor__tbl {
+  width: auto;
+  min-width: 0;
+}
+
+.ol-editor__msg {
+  margin: 0;
+}
+
+/* ── Una revisión de la regla, como tarjeta ──────────────────────────────── */
+.ol-editor__rev-card {
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  background: var(--slate-50);
+}
+/* La vigente se distingue: en una lista de revisiones, cuál manda es el dato. */
+.ol-editor__rev-card.is-current {
+  border-color: var(--brand-300, var(--slate-400));
+  background: var(--white, #fff);
+}
+.ol-editor__rev-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--ol-text);
+  color: var(--slate-600);
+}
+.ol-editor__tag {
+  font-size: var(--ol-text);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--slate-200);
+  color: var(--slate-700);
+}
+.ol-editor__rev-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 5px;
+}
+.ol-editor__seg {
+  font-size: var(--ol-text);
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--slate-200);
+  background: var(--white, #fff);
+  color: var(--slate-600);
+}
+.ol-editor__rev-note {
+  margin-top: 5px;
+  font-size: var(--ol-text);
+  font-style: italic;
+  color: var(--slate-500);
+}
+
+/* El lápiz que abre el editor desde una celda de la tabla. Discreto hasta que
+   se pasa por encima: la tabla es para leer, editar es la excepción. */
+.ol-edit {
+  margin-left: 5px;
+  border: none;
+  background: none;
+  padding: 0 2px;
+  font-size: var(--ol-text);
+  color: var(--slate-400);
+  cursor: pointer;
+  opacity: 0.55;
+}
+.ol-edit:hover,
+.ol-edit:focus-visible {
+  opacity: 1;
+  color: var(--slate-700);
+  text-decoration: underline;
+}
+
+/*
+ * ── La pregunta del modo, y los meses del modo B — etapa OL4 ──────────────
+ *
+ * Dos botones grandes y no un `<select>`: son DOS opciones con nombre y una
+ * frase que las distingue, y esa frase es la que evita tener que explicar los
+ * dos modos en un párrafo aparte. Un desplegable escondería la mitad de la
+ * pregunta detrás de un clic.
+ *
+ * `role="radiogroup"` y `aria-checked` porque para el lector de pantalla esto es
+ * una elección entre dos, no dos acciones sueltas.
+ */
+.ol-modes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.ol-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  text-align: left;
+  padding: 9px 12px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  background: var(--white, #fff);
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.14s, background 0.14s;
+}
+.ol-mode:hover {
+  border-color: var(--sky);
+}
+.ol-mode.is-on {
+  border-color: var(--navy);
+  background: var(--accent-soft);
+}
+.ol-mode__name {
+  font-size: var(--ol-text);
+  font-weight: 700;
+  color: var(--navy);
+}
+.ol-mode__hint {
+  font-size: var(--ol-text);
+  color: var(--slate-500);
+  line-height: 1.4;
+}
+
+/* Los cuatro meses del modo B, uno al lado del otro: la fila que se está fijando
+   tiene la misma forma que la fila que se va a ver en la tabla. */
+.ol-months {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* El modo que no se puede guardar todavía: visible, y claramente no elegible. */
+.ol-mode:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.ol-mode:disabled:hover {
+  border-color: var(--slate-200);
+}
+
+/*
+ * ── La escala del editor — etapa OL5 ──────────────────────────────────────
+ *
+ * Ver la cabecera de `ol-scale.css`. Acá sólo lo que es propio del modal.
+ */
+
+/*
+ * Los rótulos de campo dejaron de ser versalitas de 10px. Eran chicos para no
+ * competir con el valor; ahora no compiten porque son más tenues, que es la
+ * misma jerarquía sin un tamaño más.
+ */
+.ol-editor .bp-form__label {
+  font-size: var(--ol-text);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--slate-500);
+}
+
+/* Los encabezados de sección, por peso y color en vez de por tamaño. */
+.ol-editor .ol-editor__h {
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--slate-500);
+}
+
+/* El botón de guardar hereda el tamaño base como el resto del formulario. */
+.ol-editor .bp-btn--small {
+  font-size: var(--ol-text);
+}
+
+/* Las notas del historial, que venían de `.bp-history__note` en 11px. */
+.ol-editor .bp-history__note {
+  font-size: var(--ol-text);
+}
+
+/*
+ * ⚠ EL ÚNICO TAMAÑO GRANDE ADENTRO DEL MODAL.
+ *
+ * Los números de la vista previa son el RESULTADO de la decisión que se está
+ * tomando: es lo que se vino a ver. Todo lo demás del modal --rótulos, reglas,
+ * historial-- existe para producirlos.
+ *
+ * El otro grande es el título del modal, que ya está en 14px por
+ * `.bp-modal__title` y no se toca desde acá: es el mismo valor y es una clase
+ * compartida con el Business Plan.
+ */
+.ol-preview tbody td {
+  font-size: var(--ol-lg);
+}

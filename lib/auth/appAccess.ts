@@ -39,6 +39,31 @@ type UserLike = Pick<User, 'app_metadata'> | null | undefined;
  * y un `.includes` sobre eso rompería la página en vez de negar el acceso.
  */
 export function hasAppAccess(user: UserLike): boolean {
+  return hasClaim(user, APP_NAME);
+}
+
+/**
+ * ============================================================================
+ * ⚠ CLAIMS POR MÓDULO — etapa OL1
+ * ============================================================================
+ *
+ * `hasAppAccess` responde "¿puede abrir esta app?". Hasta OL1 esa era la única
+ * pregunta: quien tenía `commercial_activity` veía los cuatro módulos.
+ *
+ * Outlook es el primero con su propio permiso. Los cuatro que lo tienen
+ * (Jorge Campodónico, Pier Laino, Fernando Orduz, Isabella Cano) tienen TAMBIÉN
+ * `commercial_activity`, así que el gate de la app entera sigue siendo el
+ * primero en aplicarse y este claim se suma; no lo reemplaza. Verificado contra
+ * `auth.users` antes de escribir esto.
+ *
+ * El nombre tiene que coincidir exactamente con lo que revisa
+ * `outlook.has_access()` en la base. Si divergen, la UI y RLS dirían cosas
+ * distintas -- y la que protege los datos es la de la base.
+ */
+export const OUTLOOK_CLAIM = 'outlook';
+
+/** true si el usuario tiene ese claim entre sus `allowed_apps`. */
+export function hasClaim(user: UserLike, claim: string): boolean {
   const allowedApps = user?.app_metadata?.allowed_apps;
-  return Array.isArray(allowedApps) && allowedApps.includes(APP_NAME);
+  return Array.isArray(allowedApps) && allowedApps.includes(claim);
 }

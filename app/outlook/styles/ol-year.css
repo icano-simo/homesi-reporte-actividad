@@ -1,0 +1,123 @@
+/*
+ * ============================================================================
+ * LA TABLA DE DOCE MESES — etapa OL3
+ * ============================================================================
+ *
+ * Dos problemas que resuelve esta hoja, y ninguno es decorativo.
+ *
+ * ---------------------------------------------------------------------------
+ * 1. ⚠ `table-layout: fixed` CON DIECISÉIS COLUMNAS RECORTA EN SILENCIO
+ * ---------------------------------------------------------------------------
+ * La regla base es `table.piv { table-layout: fixed; width: 100% }`. Con eso la
+ * tabla NUNCA desborda: reparte el 100% entre las columnas y lo que no entra se
+ * corta con `overflow: hidden`. Con seis columnas funciona; con doce meses más
+ * nombre, total, benchmark y regla, cada columna queda en ~6% y los números se
+ * recortan sin que nada avise.
+ *
+ * Es exactamente el modo de fallar de BP36 --una columna que existía en el DOM y
+ * medía cero-- y por eso acá se verifica el ANCHO RENDERIZADO y no que el texto
+ * esté presente. El texto siempre está presente.
+ *
+ * Solución: `table-layout: auto` y `width: auto` con `min-width: 100%`, para que
+ * la tabla crezca hasta lo que necesite y `.tbl-scroll` (que ya tiene
+ * `overflow-x: auto`) haga scroll horizontal. La primera columna es sticky por
+ * la regla base de `td.lbl`, así que el nombre queda a la vista mientras se
+ * corre el año.
+ *
+ * ---------------------------------------------------------------------------
+ * 2. TRES CLASES DE NÚMERO EN UNA MISMA FILA
+ * ---------------------------------------------------------------------------
+ * Real, pronóstico y presupuesto no son comparables entre sí, y en una fila de
+ * doce celdas iguales nada lo dice. El color de fondo es tenue a propósito: la
+ * banda tiene que ser distinguible sin competir con el número, que es lo que se
+ * viene a leer. El rótulo de la fila de arriba es el que nombra; el fondo sólo
+ * marca dónde empieza y termina cada banda.
+ *
+ * Los colores salen de variables existentes con alfa, no de literales nuevos.
+ */
+
+table.piv.ol-year {
+  table-layout: auto;
+  width: auto;
+  min-width: 100%;
+}
+
+/* Los meses no necesitan más que esto; el contenido define el resto. */
+table.piv.ol-year td.ol-m,
+table.piv.ol-year th.ol-m {
+  min-width: 46px;
+}
+table.piv.ol-year td.lbl,
+table.piv.ol-year th.lbl {
+  min-width: 190px;
+}
+
+/* ── Las tres bandas ─────────────────────────────────────────────────────── */
+
+/* Real: lo cerrado. Neutro -- es el suelo contra el que se lee todo lo demás. */
+.ol-m--actual {
+  background: #f8fafc;
+}
+/* Pronóstico: un mes en curso, mitad hecho y mitad pipeline. */
+.ol-m--forecast {
+  background: #a6deff26;
+}
+/* Presupuesto: lo que este módulo decide. */
+.ol-m--budget {
+  background: #ecfdf54d;
+}
+
+/*
+ * ⚠ Especificidad: `tr.metric:nth-child(odd) td` y `tr.grp td` pintan fondo con
+ * (0,2,1) y (0,1,1). Una clase sola --(0,1,0)-- pierde y la banda no se vería en
+ * las filas impares ni en las de grupo. Por eso van calificadas con la tabla y
+ * la fila, igual que ya está anotado en `bp-visual.css` para el centrado.
+ */
+table.piv.ol-year tr.metric td.ol-m--actual,
+table.piv.ol-year tr.metric:nth-child(odd) td.ol-m--actual,
+table.piv.ol-year tr.grp td.ol-m--actual {
+  background: #f1f5f9;
+}
+table.piv.ol-year tr.metric td.ol-m--forecast,
+table.piv.ol-year tr.metric:nth-child(odd) td.ol-m--forecast,
+table.piv.ol-year tr.grp td.ol-m--forecast {
+  background: #a6deff33;
+}
+table.piv.ol-year tr.metric td.ol-m--budget,
+table.piv.ol-year tr.metric:nth-child(odd) td.ol-m--budget,
+table.piv.ol-year tr.grp td.ol-m--budget {
+  background: #d1fae566;
+}
+/* El hover sigue ganando: es la ayuda para leer una fila larga de doce meses. */
+table.piv.ol-year tr.metric:hover td.ol-m,
+table.piv.ol-year tr.grp.togg:hover td.ol-m {
+  background: #a6deff47;
+}
+
+/* ── Los rótulos de banda ────────────────────────────────────────────────── */
+
+table.piv.ol-year thead .yr-row th.ol-band {
+  border-bottom: 2px solid var(--white, #fff);
+}
+.ol-band--actual {
+  background: #f1f5f9;
+  color: var(--slate-500);
+}
+.ol-band--forecast {
+  background: #a6deff40;
+  color: var(--navy);
+}
+.ol-band--budget {
+  background: #d1fae580;
+  color: var(--emerald-800);
+}
+.ol-band--decide {
+  background: var(--slate-100);
+  color: var(--slate-500);
+}
+
+/*
+ * La etiqueta al lado de un número ("+4", "no LOs assigned", "rev 3") se define
+ * en `ol-scale.css`: en la etapa OL5 dejó de distinguirse por tamaño y pasó a
+ * distinguirse por color, que es lo que permite tener una sola escala.
+ */
