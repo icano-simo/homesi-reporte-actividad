@@ -122,4 +122,15 @@ export interface LoanRecord {
    * la columna exista, no un argumento para tratarla como redundante.
    */
   nppmRecruitedBy: string;
+  /**
+   * Etapa: "Stage SF" en el drill-down de App Date.
+   *
+   * `sf_stage` de Salesforce: el embudo de VENTA/CRM de la oportunidad
+   * (Needs Analysis, Proposal, Qualification, Negotiation, Closed Won, Closed
+   * Lost), NO el milestone de procesamiento del préstamo (Processing,
+   * Underwriting, etc. -- eso vive únicamente en `pipeline_forecast`, fuera de
+   * alcance acá). '' cuando el préstamo no tiene Salesforce asociado
+   * (`has_salesforce = false`) -- 1.555 de 4.800 filas hoy.
+   */
+  sfStage: string;
 }

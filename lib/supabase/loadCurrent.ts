@@ -38,6 +38,7 @@ interface LoanRecordV2Row {
   nppm_realtor: string | null;
   referred_by_realtor: string | null;
   nppm_recruited_by: string | null;
+  sf_stage: string | null;
 }
 
 const COLUMNS =
@@ -46,7 +47,9 @@ const COLUMNS =
   'is_affinity, loan_channel, counts_for_division, synced_at, ' +
   // Etapa V3: estrategia y su contexto. Ver LoanRecord para el estado real de
   // cada una -- `nppm_realtor` existe pero hoy no trae ni un valor.
-  'strategy, opportunity_owner, nppm_realtor, referred_by_realtor, nppm_recruited_by';
+  'strategy, opportunity_owner, nppm_realtor, referred_by_realtor, nppm_recruited_by, ' +
+  // Etapa "Stage SF": embudo de venta en Salesforce, ver LoanRecord.sfStage.
+  'sf_stage';
 
 export interface CurrentReport {
   records: LoanRecord[];
@@ -204,6 +207,7 @@ export async function loadCurrentReport(): Promise<CurrentReport | null> {
     nppmRealtor: row.nppm_realtor ?? '',
     referredByRealtor: row.referred_by_realtor ?? '',
     nppmRecruitedBy: row.nppm_recruited_by ?? '',
+    sfStage: row.sf_stage ?? '',
   }));
 
   /*

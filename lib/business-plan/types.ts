@@ -49,12 +49,31 @@ export interface EmployeeBranch {
 }
 
 /**
- * De qué sistema viene un nombre crudo.
- *   roster      -> el canónico, el que se muestra en pantalla
- *   salesforce  -> pipeline_forecast.pipeline_loans / pipeline_resolved_loans
- *   slquery     -> activity_report.loan_records_v2
+ * De qué sistema viene un identificador crudo.
+ *   roster       -> el canónico, el que se muestra en pantalla
+ *   salesforce   -> pipeline_forecast.pipeline_loans / pipeline_resolved_loans
+ *   slquery      -> activity_report.loan_records_v2, por NOMBRE
+ *   person_code  -> activity_report.loan_records_v2, por `loan_officer_person_code`
+ *
+ * ⚠ `person_code` no es un nombre — etapa BP37. Es el código de persona que
+ * trae la tabla de actividad, y su alias existe para que la identidad sea un
+ * DATO DECLARADO y no una convención derivada.
+ *
+ * La alternativa que se descartó era compararlo en runtime contra
+ * `split_part(email, '@', 1)`. Funciona hoy y es frágil por dos motivos: un
+ * cambio de email rompe la resolución, y la regla ya tenía una colisión --
+ * `maria.guerrero` era el prefijo de dos filas de `dim_employee` (que además
+ * resultaron ser la misma persona duplicada, ya consolidada). Una regla con una
+ * colisión latente no es una identidad, es una coincidencia. El prefijo del
+ * email se usa UNA vez, para sembrar los alias, y nunca más en runtime.
  */
-export type SourceSystem = 'roster' | 'salesforce' | 'slquery';
+/*
+ * ⚠ Agregar un literal acá NO alcanza: `org.employee_alias` tiene un CHECK que
+ * enumera los `source_system` permitidos (`employee_alias_source_system_check`).
+ * TypeScript compila igual y el error aparece recién al insertar, contra la
+ * base. Pasó al sembrar `person_code`, el 2026-08-28.
+ */
+export type SourceSystem = 'roster' | 'salesforce' | 'slquery' | 'person_code';
 
 export interface EmployeeAlias {
   source_system: SourceSystem;
@@ -447,6 +466,16 @@ export interface BusinessPlanData {
     rowsWithoutOfficer: number;
     unmappedNames: { source: SourceSystem; nameRaw: string; rows: number }[];
     benchmarkTableAvailable: boolean;
+    /**
+     * Por qué vía resolvió cada fila de actividad — etapa BP37.
+     *
+     * Es la señal de salud de la resolución por identidad. Si `byPersonCode`
+     * cae a cero de un día para el otro, los alias de `person_code` se
+     * perdieron o el sync dejó de mandar el código, y todo el módulo estaría
+     * colgando del respaldo por nombre sin que nada falle. Ese era exactamente
+     * el modo de falla silenciosa que se buscaba cerrar acá.
+     */
+    activityResolution: { byPersonCode: number; byName: number; unresolved: number };
     /** Los 3 meses de la ventana del Qualifier 1 (el último, proyectado). */
     windowMonths: string[];
     /**
