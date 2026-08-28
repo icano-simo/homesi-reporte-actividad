@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import type { LoanRecord } from '@/lib/domain/types';
 import type { DrillDownContext } from '@/lib/aggregation/loansForCell';
+import type { StrategyFilter } from '@/lib/domain/strategy';
 import { METRICS, MONTH_NAMES } from '@/config/metrics';
 import { CloseIcon } from '@/components/ui/icons';
 
@@ -13,6 +14,12 @@ export interface LoanDetailModalProps {
   context: DrillDownContext | null;
   /** Ya filtrados por loansForCell() -- este componente no filtra ni calcula nada, solo muestra. */
   loans: LoanRecord[];
+  /**
+   * Etapa V3: la estrategia activa en pantalla. NO filtra nada acá --`loans` ya
+   * viene filtrado-- sólo decide QUÉ COLUMNAS tienen sentido mostrar. Ver el
+   * comentario del `<colgroup>`.
+   */
+  strategyFilter: StrategyFilter;
 }
 
 /**
@@ -61,7 +68,7 @@ function contextField(context: DrillDownContext): { label: string; value: string
   return { label: 'Branch', value: context.branch ?? 'All branches' };
 }
 
-export default function LoanDetailModal({ isOpen, onClose, context, loans }: LoanDetailModalProps) {
+export default function LoanDetailModal({ isOpen, onClose, context, loans, strategyFilter }: LoanDetailModalProps) {
   useEffect(() => {
     if (!isOpen) return;
     function handleKeyDown(e: KeyboardEvent) {
@@ -83,6 +90,70 @@ export default function LoanDetailModal({ isOpen, onClose, context, loans }: Loa
     };
   }, [isOpen]);
 
+  /*
+   * ⚠ Etapa V3 -- QUÉ COLUMNAS SE MUESTRAN, Y POR QUÉ NO SIEMPRE LAS OCHO.
+   *
+   * Con las 8 fijas la tabla queda ilegible: el modal mide 768px y Channel se
+   * corta en "Banked - ...", Owner en "Javier Peñ..." y Referred By en
+   * "WALTER ...". Verificado en pantalla antes de decidir esto.
+   *
+   * Las dos primeras condiciones son complementarias a propósito -- nunca están
+   * las dos a la vez, así que se alternan en vez de sumarse:
+   *
+   *   * `showStrategy` -- sólo con el filtro en "All". Ahí la columna informa
+   *     (cinco valores distintos). Con una estrategia elegida diría el mismo
+   *     valor en todas las filas: ocupa ancho para repetir lo que ya dice el
+   *     rótulo del filtro y de la fila Total.
+   *   * `showContext` -- exactamente al revés. Owner y Referred By son el
+   *     detalle que se mira cuando ya se está dentro de una estrategia; en la
+   *     vista general son dos columnas de contexto que nadie pidió y que
+   *     aprietan las seis de siempre.
+   *
+   * Resultado: 6 columnas con el filtro en "All" (las mismas de siempre, con
+   * Strategy en el lugar de B2B), 7 con una estrategia elegida, y 9 sólo en
+   * NPPM -- ver `showRecruiter`, abajo.
+   */
+  const showStrategy = strategyFilter === 'all';
+  const showContext = !showStrategy;
+  /*
+   * Etapa V3b: el BD que reclutó al NPPM, SÓLO en la vista NPPM.
+   *
+   * Fuera de NPPM la columna no significa nada -- en las otras estrategias el
+   * campo viene vacío o nombra a alguien que no tiene rol en ese negocio-- así
+   * que aparecer siempre le costaría ancho a las siete que sí aplican.
+   *
+   * Etapa V3c: son DOS columnas, `NPPM Realtor` y `Recruited By`. La cadena
+   * completa sólo se entiende con las tres del medio juntas: de quién es la
+   * oportunidad, qué NPPM está detrás, y qué BD reclutó a ese NPPM.
+   *
+   * ⚠ Cada una se solapa con una vecina y ninguna es un duplicado. Medido sobre
+   * los 92 préstamos NPPM: `nppmRecruitedBy` coincide con `opportunityOwner` en
+   * 68 y difiere en 8; `nppmRealtor` coincide con `referredByRealtor` en 73 y
+   * difiere en 15. Esas divergencias son justamente lo que las columnas vienen
+   * a mostrar, y no se ven sin tenerlas al lado.
+   */
+  const showRecruiter = strategyFilter === 'NPPM';
+  /*
+   * Etapa "Stage SF": columna nueva, independiente de las de arriba -- no
+   * depende de `strategyFilter` sino de la MÉTRICA del drill-down. Solo tiene
+   * sentido para App Date: es el estado de venta en Salesforce mientras el
+   * préstamo todavía no cerró ni se volvió adverse, y en las otras métricas
+   * (fc/cr/cl) no aporta nada que esas vistas ya no digan de otra forma.
+   *
+   * Al ser independiente, se SUMA a cualquiera de los 3 casos de arriba en vez
+   * de reemplazar uno: 6→7 en "All", 7→8 con una estrategia elegida, 8→9 en
+   * NPPM. El caso de 8 (estrategia elegida + App Date) es nuevo y pasa a
+   * necesitar el modal ancho igual que NPPM -- ver `isWide` más abajo.
+   */
+  const showStageSf = context?.metric === 'ap';
+  /**
+   * Ensancha el modal en los dos casos que llegan a 8+ columnas: NPPM (ya
+   * ensanchaba antes de esta etapa) y ahora también estrategia elegida +
+   * App Date. El caso "All" + App Date se queda en 7, mismo régimen que
+   * "estrategia elegida" sin Stage SF -- entra cómodo en 768px.
+   */
+  const isWide = showRecruiter || (showStageSf && showContext);
+
   if (!isOpen || !context) return null;
 
   const countLabel = loans.length.toLocaleString('en-US') + (loans.length === 1 ? ' loan' : ' loans');
@@ -99,7 +170,27 @@ export default function LoanDetailModal({ isOpen, onClose, context, loans }: Loa
     <div className="modal-overlay" onClick={onClose}>
       {/* stopPropagation: un click DENTRO de la caja no debe cerrar el modal. */}
       <div
-        className="modal-box"
+        /*
+         * ⚠ Etapa V3b: el ancho sigue a la cantidad de columnas.
+         *
+         * Con 8 --sólo en NPPM-- los 768px de `.modal-box` no alcanzan: se
+         * truncaba hasta el Loan #, que es el identificador de la fila.
+         * `.modal-box--wide` no es una clase nueva: la creó el modal de
+         * Forecast para este mismo problema con sus 8 columnas (ver
+         * components.css). Se reusa en vez de inventar otra, y en vez de
+         * sacrificar una columna: acá las tres de contexto dicen cosas
+         * distintas --quién es dueño de la oportunidad, qué realtor refirió y
+         * qué BD reclutó a ese realtor-- así que ninguna sobra.
+         *
+         * Los casos de 6 y 7 columnas se quedan en 768px, donde entran
+         * cómodos. Ensanchar siempre sería pagar el ancho de la vista más
+         * cargada en todas las demás.
+         *
+         * Etapa "Stage SF": el mismo problema aparece ahora también con
+         * estrategia elegida + App Date (7→8) -- `isWide` cubre ese caso
+         * además de NPPM.
+         */
+        className={'modal-box' + (isWide ? ' modal-box--wide' : '')}
         role="dialog"
         aria-modal="true"
         aria-label={ariaLabel}
@@ -142,9 +233,30 @@ export default function LoanDetailModal({ isOpen, onClose, context, loans }: Loa
         </div>
 
         <div className="modal-body">
+          {/*
+            `.modal-table-scroll` acompaña a `--wide`, igual que en Forecast: si
+            el viewport es tan angosto que ni 92vw alcanza, scrollea la tabla en
+            vez de comprimir las columnas hasta que dejen de leerse.
+          */}
+          <div className={isWide ? 'modal-table-scroll' : undefined}>
           <table className="piv">
             {/*
-             * Anchos explícitos: las 6 columnas entran sin scroll horizontal.
+             * ⚠ Etapa V3: de 6 a 8 columnas.
+             *
+             * "B2B" (Yes/No) se reemplaza por "Strategy" con el valor real. No
+             * se pierde información: B2B pasa a ser uno de los cinco valores
+             * posibles en vez de un booleano que escondía a los otros cuatro.
+             * Own Production domina la columna (3.449 de 4.794, ~72%) y eso es
+             * correcto, no un error de datos.
+             *
+             * Se agregan Owner y Referred By. NO se agrega "NPPM Realtor",
+             * aunque estaba pedida: `nppm_realtor` es NULL en las 4.794 filas,
+             * incluidos los 92 préstamos NPPM, así que sería una columna
+             * permanentemente vacía. El campo se lee igual (ver
+             * LoanRecord.nppmRealtor) y el día que el sync la llene, agregarla
+             * es una columna más acá.
+             *
+             * Anchos explícitos: las 8 columnas entran sin scroll horizontal.
              * Ajuste post-validación visual: se quitó Affinity -- no es un
              * atributo individual del loan en este drill-down (Affinity es un
              * modelo de negocio que Activity ya representa vía branch
@@ -155,12 +267,36 @@ export default function LoanDetailModal({ isOpen, onClose, context, loans }: Loa
              * loan, y ya puede mostrar 'AFFINITY' cuando corresponde.
              */}
             <colgroup>
-              <col style={{ width: '20%' }} />
-              <col style={{ width: '20%' }} />
-              <col style={{ width: '12%' }} />
-              <col style={{ width: '18%' }} />
-              <col style={{ width: '10%' }} />
-              <col style={{ width: '20%' }} />
+              {/*
+                Los anchos de la variante con contexto están medidos, no
+                estimados: con Channel en 14% "Banked - Retail" se cortaba en
+                "Banked - Ret...". Es un vocabulario de dos valores fijos, así
+                que se le da lo que necesita (17%) sacándoselo a Loan # -- doce
+                dígitos entran de sobra en 15%.
+
+                ⚠ Estos porcentajes NO se aplican en ningún caso `isWide`
+                (NPPM, o estrategia elegida + App Date): ahí el modal lleva
+                `.modal-table-scroll`, y esa regla pone la tabla en
+                `table-layout: auto; width: auto` (components.css), así que las
+                columnas se dimensionan al contenido. Es justamente lo que da
+                cero truncamiento con 8-9 columnas, y también por qué la tabla no
+                estira hasta el borde del modal ancho: toma lo que necesita y
+                nada más, igual que el modal de Forecast. Los `<col>` se dejan
+                porque siguen rigiendo en las variantes NO anchas (6, 7 sin
+                Stage SF, 7 con Stage SF en "All").
+              */}
+              <col style={{ width: showStrategy ? (showStageSf ? '15%' : '20%') : showRecruiter ? '13%' : '15%' }} />
+              <col style={{ width: showStrategy ? (showStageSf ? '17%' : '20%') : showRecruiter ? '15%' : '17%' }} />
+              <col style={{ width: showStrategy ? (showStageSf ? '8%' : '11%') : showRecruiter ? '7%' : '8%' }} />
+              <col style={{ width: showStrategy ? (showStageSf ? '15%' : '17%') : showRecruiter ? '15%' : '17%' }} />
+              {showStrategy && <col style={{ width: showStageSf ? '12%' : '13%' }} />}
+              <col style={{ width: showStrategy ? (showStageSf ? '18%' : '19%') : showRecruiter ? '11%' : '13%' }} />
+              {showStageSf && <col style={{ width: showStrategy ? '15%' : '13%' }} />}
+              {/* Etapa V3c: 4 columnas de contexto en NPPM (Owner/NPPM Realtor/Recruited By/Referred By), 2 fuera de NPPM (Owner/Referred By). Ver comentario del <thead> abajo. */}
+              {showContext && <col style={{ width: showRecruiter ? '12%' : '15%' }} />}
+              {showRecruiter && <col style={{ width: '12%' }} />}
+              {showRecruiter && <col style={{ width: '12%' }} />}
+              {showContext && <col style={{ width: showRecruiter ? '12%' : '15%' }} />}
             </colgroup>
             <thead>
               <tr className="mo-row">
@@ -168,8 +304,21 @@ export default function LoanDetailModal({ isOpen, onClose, context, loans }: Loa
                 <th style={{ textAlign: 'left' }}>Loan Officer</th>
                 <th style={{ textAlign: 'left' }}>Branch</th>
                 <th style={{ textAlign: 'left' }}>Channel</th>
-                <th>B2B</th>
+                {showStrategy && <th style={{ textAlign: 'left' }}>Strategy</th>}
                 <th style={{ textAlign: 'left' }}>Program</th>
+                {showStageSf && <th style={{ textAlign: 'left' }}>Stage SF</th>}
+                {/*
+                  Etapa V3c: en NPPM las tres del medio se leen como una cadena
+                  de atribución, en este orden -- de quién es la oportunidad,
+                  qué NPPM está detrás del préstamo, y qué BD reclutó a ese
+                  NPPM. "Referred By" queda al final porque contesta otra
+                  pregunta (quién refirió ESTE caso), no un eslabón de esa
+                  cadena.
+                */}
+                {showContext && <th style={{ textAlign: 'left' }}>Owner</th>}
+                {showRecruiter && <th style={{ textAlign: 'left' }}>NPPM Realtor</th>}
+                {showRecruiter && <th style={{ textAlign: 'left' }}>Recruited By</th>}
+                {showContext && <th style={{ textAlign: 'left' }}>Referred By</th>}
               </tr>
             </thead>
             <tbody>
@@ -185,21 +334,55 @@ export default function LoanDetailModal({ isOpen, onClose, context, loans }: Loa
                   <td style={{ textAlign: 'left' }} title={channelLabel(loan.loanInfoChannel)}>
                     {channelLabel(loan.loanInfoChannel)}
                   </td>
-                  <td style={{ textAlign: 'center' }}>{loan.isB2B ? 'Yes' : 'No'}</td>
+                  {showStrategy && (
+                    <td style={{ textAlign: 'left' }} title={loan.strategy}>
+                      {loan.strategy || '—'}
+                    </td>
+                  )}
                   <td style={{ textAlign: 'left' }} title={loan.loanProgram}>
                     {loan.loanProgram || '—'}
                   </td>
+                  {showStageSf && (
+                    <td style={{ textAlign: 'left' }} title={loan.sfStage}>
+                      {loan.sfStage || '—'}
+                    </td>
+                  )}
+                  {showContext && (
+                    <td style={{ textAlign: 'left' }} title={loan.opportunityOwner}>
+                      {loan.opportunityOwner || '—'}
+                    </td>
+                  )}
+                  {showRecruiter && (
+                    <td style={{ textAlign: 'left' }} title={loan.nppmRealtor}>
+                      {loan.nppmRealtor || '—'}
+                    </td>
+                  )}
+                  {showRecruiter && (
+                    <td style={{ textAlign: 'left' }} title={loan.nppmRecruitedBy}>
+                      {loan.nppmRecruitedBy || '—'}
+                    </td>
+                  )}
+                  {showContext && (
+                    <td style={{ textAlign: 'left' }} title={loan.referredByRealtor}>
+                      {loan.referredByRealtor || '—'}
+                    </td>
+                  )}
                 </tr>
               ))}
               {!loans.length && (
                 <tr>
-                  <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={6}>
+                  <td
+                    className="lbl"
+                    style={{ color: 'var(--slate-500)', fontWeight: 500 }}
+                    colSpan={(showStrategy ? 6 : showRecruiter ? 9 : 7) + (showStageSf ? 1 : 0)}
+                  >
                     No loans.
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
+          </div>
         </div>
       </div>
     </div>

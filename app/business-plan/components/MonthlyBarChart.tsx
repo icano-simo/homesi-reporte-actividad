@@ -75,11 +75,45 @@ export default function MonthlyBarChart({
    * son los valores exactos; el reparto lo resuelve `apportionByWeight`.
    */
   const segTotal = Math.round(projection.projectedTotal);
+  /*
+   * ⚠ ¿HAY ALGO QUE APILAR? — etapa BP38
+   *
+   * Con `segTotal` en 0 los tres segmentos salen en `0%` --`pct()` no puede
+   * repartir sobre un total de cero-- y la barra del mes en curso quedaba
+   * INVISIBLE, mientras los otros once meses en cero sí mostraban su línea
+   * base. La causa está repartida entre el TSX y el CSS y no se ve mirando uno
+   * solo de los dos:
+   *
+   *   * `.bp-chart__bar` trae `min-height: 1px` con `background: var(--navy)`.
+   *     Esa es la línea base de un mes en cero.
+   *   * `.bp-chart__bar--current` hereda el `min-height` pero pone
+   *     `background: none`, porque su color lo dan los tres segmentos.
+   *
+   * Resultado: una caja de 1px, transparente, con tres hijos de altura cero.
+   * Medido antes del arreglo: 11 de 29 perfiles así, `background:
+   * rgba(0, 0, 0, 0)` y los tres segmentos en `0%`.
+   *
+   * Cuando no hay nada que apilar se dibuja la barra plana, la MISMA que usan
+   * los otros once meses. Así el mes en curso en cero es indistinguible de
+   * cualquier otro mes en cero, que es exactamente lo que tiene que pasar: cero
+   * es un valor, no un dato ausente.
+   *
+   * Cubre también un caso que el reporte no mencionaba y que era peor: una
+   * proyección de 0,4 redondea a 0, así que los segmentos quedaban en `0%`
+   * igual y la barra desaparecía **teniendo algo que mostrar**. Ahora se dibuja
+   * con su altura real; el valor exacto sigue en el `title`.
+   */
+  const stacked = segTotal > 0;
   const seg = apportionByWeight(segTotal, [
     projection.closedToDate,
     projection.inCtc + projection.inClosing,
     projection.projectedFromHealthy,
   ]);
+
+  /* Una sola definición: la usan las dos ramas de render del mes en curso. */
+  const currentTitle =
+    `Closed ${seg[0]} · CTC/Closing ${seg[1]} · projected ${seg[2]}` +
+    ` (exact projection ${projection.projectedTotal.toFixed(2)})`;
 
   return (
     <div className="bp-chart">
@@ -115,14 +149,11 @@ export default function MonthlyBarChart({
                 <div className="bp-chart__value" title={isCurrent ? 'Exact: ' + total.toFixed(2) : undefined}>
                   {total > 0 ? Math.round(total) : ''}
                 </div>
-                {isCurrent ? (
+                {isCurrent && stacked ? (
                   <div
                     className="bp-chart__bar bp-chart__bar--current"
                     style={{ height: scale(total) + 'px' }}
-                    title={
-                      `Closed ${seg[0]} · CTC/Closing ${seg[1]} · projected ${seg[2]}` +
-                      ` (exact projection ${projection.projectedTotal.toFixed(2)})`
-                    }
+                    title={currentTitle}
                   >
                     {/* Orden de apilado: lo más cierto abajo. */}
                     <div className="bp-seg bp-seg--projected" style={{ height: pct(seg[2], segTotal) }} />
@@ -130,8 +161,20 @@ export default function MonthlyBarChart({
                     <div className="bp-seg bp-seg--closed" style={{ height: pct(seg[0], segTotal) }} />
                   </div>
                 ) : (
-                  /* Navy: en los meses anteriores la barra entera son cierres. */
-                  <div className="bp-chart__bar" style={{ height: scale(total) + 'px' }} title={`${total} closings`} />
+                  /*
+                   * Barra plana. Los meses anteriores y siguientes son cierres
+                   * enteros; el mes en curso cae acá sólo cuando no hay nada que
+                   * apilar (ver `stacked`), y entonces se ve igual que ellos.
+                   *
+                   * El `title` sí distingue: el del mes en curso explica que es
+                   * una proyección y da el valor exacto, que es lo que un cero
+                   * redondeado esconde.
+                   */
+                  <div
+                    className="bp-chart__bar"
+                    style={{ height: scale(total) + 'px' }}
+                    title={isCurrent ? currentTitle : `${total} closings`}
+                  />
                 )}
               </button>
             );

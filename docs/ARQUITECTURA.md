@@ -26,8 +26,8 @@ File Creations, Credit Reports, Applications, Closings — por branch, loan offi
 
 ### Estructura de carpetas (plana — un solo dominio cuando se construyó)
 ```
-/lib/parsing/     -- extracción técnica: RawLoanRow, excelValueToYearMonth (UTC en las 6 rutas de conversión)
-/lib/domain/      -- reglas de negocio: classifyBranch, closingMonth (Banked-Retail->fundingMonth, Brokered->completionMonth)
+/lib/parsing/     -- (V4) sólo el alias YearMonth; RawLoanRow y el lector de Excel se borraron con la carga manual
+/lib/domain/      -- reglas de negocio: classifyBranch, strategy (los valores y su precedencia)
 /lib/aggregation/ -- computeMetricMaps, buildReportTree (measure como parámetro explícito, nunca global)
 /lib/export/      -- exportación a Excel (reutiliza ReportTree, no recalcula; muestra los 20 branches siempre)
 /lib/persistence/ -- cliente Supabase, fijo al schema `activity_report`
@@ -41,7 +41,7 @@ File Creations, Credit Reports, Applications, Closings — por branch, loan offi
 
 ### Decisiones de arquitectura clave
 - TypeScript desde el inicio; Next.js App Router (no Vite) pensando en escalar.
-- `RawLoanRow` (extracción técnica) y `LoanRecord` (clasificado) como tipos separados — capa de parsing nunca conoce reglas de negocio, y viceversa.
+- ~~`RawLoanRow` (extracción técnica) y `LoanRecord` (clasificado) como tipos separados~~ — vigente mientras Activity parseaba un Excel. Desde V4 la fuente llega ya clasificada desde BigQuery y `RawLoanRow` no existe; `LoanRecord` quedó como el único tipo del dominio. La separación sigue viva en Forecast, que sí parsea (`lib/pipeline/types.ts`).
 - `Branch` tipado como `string` (abierto), `MetricKey` como unión estricta (`'fc'|'cr'|'ap'|'cl'`).
 - Un bug real del HTML legado se corrigió con aprobación explícita de Heather: el drill-down por Loan Officer ignoraba el toggle Cantidad/Monto (siempre mostraba cantidad); ya corregido.
 
@@ -7203,3 +7203,106 @@ esta rama -- cero hallazgos nuevos.
 ### Archivos
 
 `app/pipeline/TabAnalytics.tsx` únicamente.
+
+---
+
+## Etapa V4 — se borra el camino de carga manual de Commercial Activity
+
+Con V2 en main, Commercial Activity y Business Plan leen de
+`activity_report.loan_records_v2`, sincronizada desde BigQuery. V2b había quitado
+el acceso desde la UI y dejado los módulos en el repo como red de seguridad por
+si el sync fallaba en los primeros días. Estable desde entonces, así que se
+borran.
+
+### Por qué borrar y no dejarlo apagado
+
+Un camino muerto que todavía sabe escribir en las tablas viejas es peor que
+ninguno: `saveUpload` hacía `insert` contra `loan_records` y escribía
+`upload_batches`, así que **bastaba con que alguien lo importara por error para
+que escribiera sin que nada fallara**. Dos rutas conviviendo y el resultado
+dependiendo de quién llama es el patrón que ya costó tiempo dos veces en este
+proyecto -- el `tone` del icono en BP21-BP28, y el filtro del mes en BP33.
+
+### Archivos borrados
+
+| Archivo | Por qué |
+|---|---|
+| `lib/supabase/saveUpload.ts` | el objetivo de la etapa |
+| `lib/domain/classifyLoan.ts` | sin importadores al caer saveUpload |
+| `lib/domain/isHelocLien2.ts` | ídem |
+| `lib/parsing/workbookReader.ts` | ídem |
+| `lib/parsing/excelDate.ts` | su único importador era workbookReader |
+| `config/requiredColumns.ts` | su único importador era workbookReader |
+
+Y `RawLoanRow` sale de `lib/parsing/types.ts`, que se queda por `YearMonth`.
+
+### Lo que se verificó antes de borrar, caso por caso
+
+- **`scripts/test-parser.ts` NO usaba este parser.** Usa
+  `lib/pipeline/sources/salesforce-file.ts`, el de Forecast. Dos parsers
+  distintos con nombres parecidos.
+- **La dependencia `xlsx` se queda**: la sigue usando ese mismo parser de
+  Forecast.
+- **`config/requiredColumns.ts` era huérfano transitivo**, no estaba en la lista
+  del brief: su único importador era `workbookReader`.
+- `tsc` confirma el grafo, no sólo el grep: cero errores tras borrar los seis.
+
+### Lo que NO se tocó
+
+- **`loan_records` y `upload_batches` siguen en la base**, como respaldo hasta
+  confirmar que el sync es estable. Las borra la usuaria.
+- **`lib/aggregation/fixtures.ts` es un huérfano PREEXISTENTE** -- nadie lo
+  importa, y no lo dejó huérfano esta etapa. Se reporta pero no se borra.
+
+---
+
+## Etapa STAGE-SF-1 -- columna "Stage SF" en App Date (Commercial Activity)
+
+Columna nueva en el drill-down de App Date del modal de Commercial
+Activity (`components/report/LoanDetailModal.tsx`), con el valor de
+`sf_stage` -- ya nativo en `activity_report.loan_records_v2`, sin
+necesidad de ningún cruce con `pipeline_forecast`. Valores reales
+observados: Qualification, Negotiation, Closed Won, Closed Lost (entre
+otros del embudo de venta de Salesforce).
+
+`sf_stage` es el embudo de VENTA/CRM de la oportunidad, no el milestone
+de procesamiento del préstamo (eso vive únicamente en
+`pipeline_forecast.pipeline_loans`, fuera de alcance acá) -- distinción
+confirmada en el diagnóstico previo a esta etapa.
+
+La columna se muestra con `showStageSf = context.metric === 'ap'`,
+independiente del filtro de estrategia (`strategyFilter`): se suma a
+los 3 casos ya existentes en vez de reemplazar ninguno (6→7 columnas en
+"All", 7→8 con una estrategia elegida, 8→9 en NPPM -- conteo de NPPM
+según esta etapa; ver la nota de la etapa siguiente sobre por qué ya no
+es el real).
+
+### Archivos
+
+`lib/domain/types.ts` (campo `sfStage` en `LoanRecord`),
+`lib/supabase/loadCurrent.ts` (columna `sf_stage` agregada al SELECT y
+al mapeo), `lib/domain/classifyLoan.ts` (default `''` en el camino
+muerto de carga manual, mismo criterio que los otros campos que ese
+archivo no puede producir -- **archivo borrado por la Etapa V4 de
+arriba en el mismo merge que integró esta etapa a `main`**, ver esa
+sección), `components/report/LoanDetailModal.tsx` (columna nueva y
+ajuste de `isWide`).
+
+### Nota post-merge -- reconciliación con V3c (NPPM Realtor) y V4
+
+Esta etapa se ramificó de `main` antes de dos cambios que también
+tocaron `components/report/LoanDetailModal.tsx`: **V3c** (columna NPPM
+Realtor, NPPM pasa de 8 a 9 columnas) y **V4** (borra
+`classifyLoan.ts`, arriba). Al mergear `main` sobre esta rama:
+
+- El conteo de NPPM + App Date pasa de 9 (asumido en el párrafo de
+  arriba) a **10** -- Stage SF se suma al nuevo total de V3c, no al
+  viejo.
+- `classifyLoan.ts` se acepta borrado (V4); la línea `sfStage: ''` que
+  esta etapa le había agregado se pierde con el archivo, sin
+  reemplazo -- era código muerto de todas formas, confirmado en el
+  diagnóstico previo a esta etapa.
+- Stage SF se ubica siempre inmediatamente después de "Program" y
+  antes del bloque de contexto (Owner / NPPM Realtor / Recruited By /
+  Referred By de V3c), en cualquiera de las 3 vistas de estrategia --
+  posición consistente, no se reordenó nada de V3c.

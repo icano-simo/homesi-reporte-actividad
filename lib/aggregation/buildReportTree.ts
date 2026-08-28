@@ -2,7 +2,7 @@ import type { LoanRecord } from '@/lib/domain/types';
 import type { YearMonth } from '@/lib/parsing/types';
 import { METRICS } from '@/config/metrics';
 import { BRANCH_ORDER, type Branch } from '@/config/roster';
-import { computeMetricMaps, amountFor, METRIC_MONTH_FIELD } from './metricMaps';
+import { computeMetricMaps, amountFor, countsIn, METRIC_MONTH_FIELD } from './metricMaps';
 import { sumMonths } from './sumMonths';
 import type {
   Measure,
@@ -45,7 +45,17 @@ export function buildReportTree(options: BuildReportTreeOptions): ReportTree {
   // -- `scoped` se mantiene como nombre solo para no tocar el resto del cuerpo.
   const scoped = records;
 
-  const total = { maps: computeMetricMaps(scoped, measure) };
+  /*
+   * ⚠ Etapa V2: el nodo `total` es el ÚNICO de todo el módulo que agrega en
+   * scope 'division'. Alimenta la fila Total del pivot, las tarjetas del KPI
+   * strip cuando no hay sucursal elegida, y el Excel exportado -- los tres
+   * lugares donde el número que se lee es "lo que reporta la división".
+   *
+   * Las filas de sucursal y sus desgloses van en 'detail', más abajo. Ver el
+   * comentario de `countsIn()` para por qué los dos números pueden no coincidir
+   * y por qué eso acá no es un bug.
+   */
+  const total = { maps: computeMetricMaps(scoped, measure, 'division') };
 
   const byBranch = new Map<Branch, LoanRecord[]>();
   for (const record of scoped) {
@@ -59,7 +69,9 @@ export function buildReportTree(options: BuildReportTreeOptions): ReportTree {
   const branches: ReportTreeBranch[] = [];
   for (const branch of order) {
     const branchRecords = byBranch.get(branch) ?? [];
-    const branchMaps = computeMetricMaps(branchRecords, measure);
+    // 'detail': la fila de una sucursal muestra lo que esa sucursal se ganó,
+    // HELOC de segundo gravamen incluidos.
+    const branchMaps = computeMetricMaps(branchRecords, measure, 'detail');
 
     let active = 0;
     for (const { key } of METRICS) active += sumMonths(branchMaps[key], months);
@@ -68,8 +80,10 @@ export function buildReportTree(options: BuildReportTreeOptions): ReportTree {
     const metricGroups: ReportTreeMetricGroup[] = METRICS.map(({ key, label }) => {
       const byItem = new Map<string, MetricMap>();
       for (const record of branchRecords) {
-        const ym = record[METRIC_MONTH_FIELD[key]];
-        if (!ym) continue;
+        // Mismo scope 'detail' que el total de la sucursal de arriba: el
+        // desglose por Loan Officer/BD tiene que sumar exactamente esa fila.
+        if (!countsIn(record, key, 'detail')) continue;
+        const ym = record[METRIC_MONTH_FIELD[key]] as string;
         const name = record[drillBy];
         let map = byItem.get(name);
         if (!map) {

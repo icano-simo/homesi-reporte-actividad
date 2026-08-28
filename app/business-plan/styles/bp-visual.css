@@ -325,16 +325,60 @@
   width: 20%;
 }
 
-/* Anchos del directorio. Etapa BP17: seis columnas en vez de ocho -- salieron
-   Benchmark y GAP. 30 + 4 x 14 + 14 = 100%. */
+/*
+ * Anchos del directorio — reparto de BP36b.
+ *
+ * Ocho columnas: casilla (34px) + nombre + CINCO numéricas + veredicto.
+ * 26 + 5 x 11 + 13 = 94%, y el 6% restante lo absorbe la casilla en px.
+ *
+ * Las numéricas bajan de 14% a 11%: sostienen un dígito, a veces dos, y el
+ * ancho lo pedía el ENCABEZADO, no el dato. Eso se resuelve abajo achicando el
+ * encabezado, no ensanchando cinco columnas.
+ *
+ * ⚠ Nada de esto puede producir scroll horizontal: `table.piv` es
+ * `table-layout: fixed` + `width: 100%`, así que la tabla iguala al contenedor
+ * y el texto que no entra se recorta. Medido de 1152 a 1920px: cero scroll.
+ * Lo que se degradaba era el ALTO del encabezado -- 4 líneas en 1280px.
+ */
 .bp-table--los col.bp-col-name {
-  width: 30%;
+  width: 26%;
 }
 .bp-table--los col.bp-col-metric {
-  width: 14%;
+  width: 11%;
 }
 .bp-table--los col.bp-col-status {
-  width: 14%;
+  width: 13%;
+}
+
+/*
+ * El encabezado de esta tabla, compactado — BP36b.
+ *
+ * Los rótulos nuevos son largos ("Current month pipeline", "Next month
+ * pipeline") y en la regla base van en MAYÚSCULAS con `letter-spacing: 0.07em`
+ * a 10.5px, que es lo que los empujaba a tres y cuatro líneas. Se bajan las
+ * tres cosas sólo acá: el resto de las tablas de la app conserva el encabezado
+ * unificado de UX4.
+ *
+ * `table.piv.bp-table--los` y no una clase suelta: la regla base es
+ * `table.piv thead .mo-row th`, con especificidad (0,1,3). Una clase sola
+ * pierde y no se aplicaría nada -- el mismo cuidado que ya está anotado para el
+ * centrado y el padding de estas tablas.
+ */
+table.piv.bp-table--los thead .mo-row th {
+  font-size: 9.5px;
+  letter-spacing: 0.03em;
+  padding-left: 6px;
+  padding-right: 6px;
+  /* Los rótulos parten por palabra; ninguno tiene una palabra que no entre. */
+  white-space: normal;
+}
+/*
+ * El aire horizontal de los datos también baja: con cinco columnas numéricas de
+ * un dígito, 12px de padding a cada lado era casi todo el ancho de la celda.
+ */
+table.piv.bp-table--los tbody td {
+  padding-left: 8px;
+  padding-right: 8px;
 }
 
 /*
@@ -3223,11 +3267,51 @@ table.piv.bp-table--cards .badge--pill {
   position: relative;
   flex-shrink: 0;
   width: 172px;
+  /*
+   * BP36 -- red de seguridad. Con el recorte de `.bp-fstep__name-text` nada
+   * debería salirse, pero la tarjeta tiene ancho fijo y varios hijos: si mañana
+   * se agrega uno que no se encoge, que quede cortado adentro y no rompiendo la
+   * fila. El scroll horizontal del stepper vive en `.bp-fstep`, no acá, así que
+   * esto no se lo come.
+   */
+  overflow: hidden;
 }
 .bp-fstep__name {
   display: flex;
-  align-items: center;
+  /*
+   * ⚠ BP36 -- `flex-start` y no `center`: cuando el nombre ocupa dos líneas, el
+   * icono centrado contra ese bloque queda flotando a media altura. Alineado
+   * arriba, queda a la altura de la primera línea, que es donde se lo busca.
+   */
+  align-items: flex-start;
   gap: 6px;
+  /*
+   * `min-width: 0` es lo que arregla el desborde. Un flex item nace con
+   * `min-width: auto`, o sea que NO se encoge por debajo de su contenido: el
+   * nombre largo se llevaba la tarjeta de 172px por delante. Con esto puede
+   * angostarse y recién entonces el recorte de abajo tiene efecto.
+   */
+  min-width: 0;
+}
+/* El icono no participa del encogimiento: es de tamaño fijo (size=14) y
+   deformarlo para ganar 14px no arregla nada. */
+.bp-fstep__name .bp-glyph {
+  flex-shrink: 0;
+}
+/*
+ * Dos líneas y elipsis. Se eligió recorte y no salto libre para que todas las
+ * tarjetas midan lo mismo: el stepper es una fila horizontal, y una tarjeta más
+ * alta que las otras corre la fila entera -- que es justo el síntoma que se
+ * reportó. El nombre completo queda en el `title`.
+ */
+.bp-fstep__name-text {
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  /* Corta dentro de una palabra sólo si una palabra sola no entra. */
+  overflow-wrap: anywhere;
 }
 /* El acento del nodo abierto vive en la seccion 23 (BP24). Las tres reglas que
    habia aca -- nombre, pildora e icono aclarados -- existian solo para
@@ -4169,8 +4253,21 @@ table.piv tr.metric.is-picked td.lbl {
   color: var(--slate-400);
   padding-bottom: 2px;
 }
+/*
+ * ⚠ BP36 -- acá había `white-space: nowrap`, y era la causa de un desborde
+ * PREEXISTENTE, distinto del de las tarjetas de nodo.
+ *
+ * La grilla de esta lista es `minmax(0, 1fr) 190px 90px`. "Due (day of node)"
+ * en mayúsculas con `letter-spacing: 0.08em` mide ~110px, así que con `nowrap`
+ * se salía de su columna de 90px: el `<ul>` medía 830px de ancho y 876px de
+ * contenido, y el rótulo aparecía cortado en "DUE (DAY OF NODE".
+ *
+ * Se deja envolver. Es un encabezado `aria-hidden`, decorativo: partirlo en dos
+ * líneas no le quita nada, y así el rótulo se lee entero sin tocar el ancho de
+ * la grilla ni el del modal.
+ */
 .bp-fdetail__steps-head span {
-  white-space: nowrap;
+  min-width: 0;
 }
 .bp-fdetail__note {
   font-size: 11px;

@@ -322,6 +322,20 @@ select.field {
 }
 
 /*
+ * Etapa V2b — procedencia del dato, debajo de los pills de estado.
+ *
+ * Va en una línea aparte y no en un pill más: un pill es un dato que se
+ * consulta (cuándo se actualizó, cuántas filas, qué rango); esto es contexto
+ * que se lee una vez y después se ignora. Mismo tamaño y color que `.foot-note`
+ * del pie, que cumple ese mismo papel al final de la página.
+ */
+.source-note__origin {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  color: var(--slate-500);
+}
+
+/*
  * `.topbar`, `.toolbar-row` y `.loaded-row` (la franja gris a todo el ancho
  * del layout viejo) se BORRARON en la etapa UX1: los reemplazan `.control-bar`,
  * `.control-group` y `.control-bar__status`.
@@ -1204,12 +1218,14 @@ tr.mrow .chev {
  * Forecast (app/pipeline/LoanDetailModal.tsx) con 8 columnas -- a 768px
  * (el máximo compartido de `.modal-box`) varias quedaban truncadas.
  *
- * `.modal-box--wide` y `.modal-table-scroll` son clases NUEVAS, agregadas
- * solo en el JSX de ese modal -- el modal de Activity
- * (components/report/LoanDetailModal.tsx, 6 columnas) no las lleva y sigue
- * exactamente en 768px, sin ningún cambio acá. `.modal-box`/`.modal-body`
- * base tampoco se tocan -- estas reglas solo se activan cuando la clase
- * nueva está presente.
+ * `.modal-box--wide` y `.modal-table-scroll` se activan sólo cuando la clase
+ * está presente en el JSX; `.modal-box`/`.modal-body` base no se tocan.
+ *
+ * Actualización (etapa V3b): el modal de Activity también las usa ahora, pero
+ * SÓLO en la vista NPPM, que es la única donde llega a 8 columnas. Sus otras
+ * dos variantes (6 y 7) siguen exactamente en 768px. O sea que estas reglas ya
+ * no son exclusivas de Forecast -- son la respuesta compartida a "esta tabla
+ * tiene más columnas de las que entran".
  */
 /*
  * Etapa FIX (ancho ajustado al contenido) -- reportado con captura real: con

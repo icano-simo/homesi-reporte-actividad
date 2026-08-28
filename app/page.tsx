@@ -1,11 +1,21 @@
 'use client';
 
-import { useEffect, useState, type ChangeEvent } from 'react';
-import { read } from 'xlsx';
-import { readWorkbook } from '@/lib/parsing/workbookReader';
-import type { RawLoanRow, YearMonth } from '@/lib/parsing/types';
-import { classifyLoan } from '@/lib/domain/classifyLoan';
-import { isHelocLien2 } from '@/lib/domain/isHelocLien2';
+/*
+ * ⚠ Etapa V2b/V4: acá había 5 imports más (`read` de xlsx, `readWorkbook`,
+ * `classifyLoan`, `isHelocLien2`, `saveUpload`) que sostenían la carga manual
+ * de archivo desde esta pantalla.
+ *
+ * V2b quitó el acceso desde la UI y dejó los módulos en el repo por si el sync
+ * de BigQuery fallaba en los primeros días. Estable desde entonces, así que V4
+ * los borró: un camino muerto que todavía sabe escribir en las tablas viejas es
+ * peor que ninguno -- alcanza con que alguien lo importe por error para que
+ * escriba sin que nada falle.
+ *
+ * Si hiciera falta volver, están en el historial: `git show` sobre el commit de
+ * V4 los trae enteros.
+ */
+import { useEffect, useState } from 'react';
+import type { YearMonth } from '@/lib/parsing/types';
 import type { LoanRecord } from '@/lib/domain/types';
 import { buildReportTree } from '@/lib/aggregation/buildReportTree';
 import { buildLoanOfficerTree } from '@/lib/aggregation/buildLoanOfficerTree';
@@ -13,18 +23,36 @@ import { deriveMonthRange, ymLabel } from '@/lib/aggregation/months';
 import { loansForCell, type DrillDownContext } from '@/lib/aggregation/loansForCell';
 import type { Measure } from '@/lib/aggregation/types';
 import { exportToExcel } from '@/lib/export/exportToExcel';
-import { saveUpload } from '@/lib/supabase/saveUpload';
 import { loadCurrentReport } from '@/lib/supabase/loadCurrent';
 import { BRANCH_ORDER, type Branch } from '@/config/roster';
 import { METRICS, type MetricKey } from '@/config/metrics';
-import { UploadIcon, DownloadIcon, FileSheetIcon } from '@/components/ui/icons';
+import { DownloadIcon, FileSheetIcon } from '@/components/ui/icons';
 import SummaryCards from '@/components/report/SummaryCards';
 import PivotTable from '@/components/report/PivotTable';
 import LoanOfficerTable from '@/components/report/LoanOfficerTable';
 import LoanDetailModal from '@/components/report/LoanDetailModal';
 import Toolbar, { type GroupBy, type ChannelFilter } from '@/components/report/Toolbar';
+import { matchesStrategy, strategyLabel, type StrategyFilter } from '@/lib/domain/strategy';
 
-type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+/**
+ * ⚠ Cuándo se actualizó por última vez, en la zona de quien mira.
+ *
+ * Acá SÍ corresponde `new Date(...)`, al revés de lo que hace `monthOf()` en
+ * loadCurrent.ts. No es la misma clase de dato: `synced_at` es un `timestamptz`
+ * -- un INSTANTE, con offset incluido en el texto ('...T01:33:28.858+00:00') --
+ * y convertirlo a la hora local es exactamente lo que se quiere. Las fechas de
+ * `monthOf()` son días de calendario sin hora ni zona; ahí construir un Date
+ * inventaría una medianoche UTC y correría el mes.
+ *
+ * Formato de 24 horas y día/mes/año, que es como lo lee la usuaria.
+ */
+function formatLastSync(iso: string): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return '';
+  const fecha = at.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const hora = at.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: false });
+  return `Actualizado el ${fecha} a las ${hora}`;
+}
 
 /**
  * Extrae un mensaje legible tanto de un Error nativo como de un error de
@@ -79,10 +107,16 @@ export default function Home() {
   // (excluyente) por 2 conceptos separados -- ver GroupBy/ChannelFilter en
   // Toolbar.tsx para el porqué. `groupBy` sigue siendo un modo de
   // presentación único a la vez (Branch×Metric o Loan Officer, igual que
-  // antes); `b2bOnly`/`channelFilter` son filtros de datos independientes,
+  // antes); `strategyFilter`/`channelFilter` son filtros de datos independientes,
   // combinables entre sí y con cualquier groupBy.
   const [groupBy, setGroupBy] = useState<GroupBy>('branch');
-  const [b2bOnly, setB2bOnly] = useState(false);
+  /*
+   * Etapa V3: reemplaza al booleano `b2bOnly`. B2B era un interruptor aparte
+   * cuando en realidad es una de cinco estrategias mutuamente excluyentes; el
+   * selector lo pone en su lugar y de paso hace alcanzables las otras cuatro,
+   * que antes no se podían aislar desde ninguna pantalla.
+   */
+  const [strategyFilter, setStrategyFilter] = useState<StrategyFilter>('all');
   const [channelFilter, setChannelFilter] = useState<ChannelFilter>('all');
   // Etapa 12 (agregado): criterio de orden de la agrupación "Por Loan Officer" -- solo importa cuando groupBy==='loanOfficer'.
   const [sortBy, setSortBy] = useState<MetricKey | 'total'>('total');
@@ -102,8 +136,18 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   // Indicador simple de "generando..." para el botón Descargar Excel (Etapa 9b).
   const [isExporting, setIsExporting] = useState(false);
-  // Indicador de saveUpload() en curso (Etapa 11) -- no bloquea el render.
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
+  /*
+   * Etapa V2b: `max(synced_at)` de loan_records_v2, tal como lo devuelve
+   * loadCurrentReport. Reemplaza al indicador de guardado (`saveStatus`), que
+   * describía una acción que esta pantalla ya no puede iniciar.
+   *
+   * Se llena dentro del efecto de montaje, nunca en el render del servidor.
+   * Eso importa: `toLocaleDateString` da resultados distintos según la zona del
+   * proceso, así que formatear esto durante el SSR produciría una fecha del
+   * servidor y otra del navegador -- un mismatch de hidratación. Arrancando en
+   * null, el servidor no pinta ninguna fecha.
+   */
+  const [lastSync, setLastSync] = useState<string | null>(null);
   // true mientras se consulta loadCurrentReport() al montar -- evita mostrar
   // el emptyState de "sube tu archivo" antes de saber si hay algo guardado.
   const [isLoadingInitial, setIsLoadingInitial] = useState(true);
@@ -114,7 +158,7 @@ export default function Home() {
     setRecords(loanRecords);
     setFileName(name);
     setGroupBy('branch');
-    setB2bOnly(false);
+    setStrategyFilter('all');
     setChannelFilter('all');
     setSortBy('total');
     setMeasure('count');
@@ -126,9 +170,10 @@ export default function Home() {
     setError(null);
   }
 
-  // Al montar: si nadie cargó un archivo en esta sesión, restaurar el último
-  // reporte guardado en Supabase (is_current=true), si existe. No dispara
-  // saveUpload() de nuevo -- esos datos ya están guardados.
+  // Al montar: leer el estado actual de `loan_records_v2`. La condición
+  // `records !== null` sobrevive de cuando esta pantalla podía tener datos
+  // cargados a mano en la sesión; hoy nadie más los setea, así que en la
+  // práctica siempre entra.  
   useEffect(() => {
     if (records !== null) return;
     let cancelled = false;
@@ -136,6 +181,7 @@ export default function Home() {
       .then((current) => {
         if (cancelled || !current) return;
         applyLoadedReport(current.records, current.fileName);
+        setLastSync(current.uploadedAt);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -151,48 +197,12 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      try {
-        const result = ev.target?.result;
-        if (!(result instanceof ArrayBuffer)) throw new Error('No se pudo leer el archivo.');
-        const workbook = read(new Uint8Array(result), { type: 'array' });
-        const parsedRows: RawLoanRow[] = readWorkbook(workbook);
-        if (!parsedRows.length) throw new Error('El archivo no tiene filas de datos');
-        // Exclusión global (regla de negocio confirmada por Isabella,
-        // 2026-08-18): HELOC LIEN POSITION = 2 nunca debe convertirse en
-        // LoanRecord ni guardarse en Supabase -- se filtra ACÁ, sobre
-        // RawLoanRow, antes de classifyLoan() y antes de saveUpload(), para
-        // que quede fuera del universo entero de Activity (ver
-        // lib/domain/isHelocLien2.ts).
-        const rawRows = parsedRows.filter((r) => !isHelocLien2(r));
-        const loanRecords = rawRows.map(classifyLoan);
-
-        applyLoadedReport(loanRecords, file.name);
-
-        // Guardar en Supabase sin bloquear el render -- el reporte ya se ve
-        // en pantalla independientemente de cómo salga esto.
-        setSaveStatus('saving');
-        saveUpload(loanRecords, rawRows, file.name)
-          .then(() => setSaveStatus('saved'))
-          .catch((err) => {
-            console.error('saveUpload failed', err);
-            setSaveStatus('error');
-          });
-      } catch (err) {
-        setError(errorMessage(err));
-        setRecords(null);
-        setFileName(null);
-      }
-    };
-    reader.onerror = () => setError('No se pudo leer el archivo.');
-    reader.readAsArrayBuffer(file);
-    e.target.value = '';
-  }
+  /*
+   * ⚠ Etapa V2b: acá vivía `handleFileChange`, el lector del .xlsx que armaba
+   * los LoanRecord y los persistía. Se fue con el botón que lo disparaba, y en
+   * V4 se borraron también los módulos que usaba -- ver el comentario de los
+   * imports arriba.
+   */
 
   function handleToggleCollapse(id: string) {
     setCollapsed((prev) => {
@@ -243,6 +253,9 @@ export default function Home() {
         months: monthsShown,
         measure,
         fileName: fileName ?? 'archivo',
+        // Etapa V3: la primera hoja del libro pasa a ser la de la estrategia
+        // elegida. Ver exportToExcel para qué hace con 'all'.
+        strategyFilter,
       });
     } catch (err) {
       setError(errorMessage(err));
@@ -279,17 +292,24 @@ export default function Home() {
   const filteredRecords = records
     ? records.filter(
         (r) =>
-          (!b2bOnly || r.isB2B) &&
+          matchesStrategy(r.strategy, strategyFilter) &&
           (channelFilter === 'all' ||
             (channelFilter === 'empty' ? r.loanInfoChannel === '' : r.loanInfoChannel === channelFilter)),
       )
     : null;
 
-  // Etapa 2: drillBy sigue derivándose de b2bOnly (antes de view==='b2b'), no
-  // es estado independiente -- así se preserva EXACTO el comportamiento de
-  // "Solo B2B" (desglose por BD) sin inventar un tercer control de UI que
-  // nadie pidió. Ver LOAN OFFICER en el brief de esta etapa.
-  const drillBy: 'loanOfficer' | 'bd' = b2bOnly ? 'bd' : 'loanOfficer';
+
+  /*
+   * ⚠ Etapa V3: antes era `b2bOnly ? 'bd' : 'loanOfficer'`. La regla no cambia,
+   * cambia de dónde sale: el desglose por BD tiene sentido SÓLO en B2B, porque
+   * el Business Developer es quien define esa estrategia. En Affinity, NPPM,
+   * Recruitment y Own Production el BD no es la dimensión que explica nada, así
+   * que se desglosa por Loan Officer igual que con el filtro en "All".
+   *
+   * Es exactamente el comportamiento que tenía el toggle: 'B2B only' -> BD,
+   * cualquier otra cosa -> Loan Officer.
+   */
+  const drillBy: 'loanOfficer' | 'bd' = strategyFilter === 'B2B' ? 'bd' : 'loanOfficer';
 
   // Etapa 12: SummaryCards siempre necesita un ReportTree válido
   // (tree.total.maps), incluso con groupBy==='loanOfficer' -- por eso `tree`
@@ -298,7 +318,7 @@ export default function Home() {
   // (ver JSX abajo), pero SummaryCards sí lo usa en los 2 casos. Etapa 2: a
   // diferencia de antes (donde la vista "Por Loan Officer" forzaba
   // view:'main', o sea SIN filtro B2B, porque B2B y Loan Officer eran
-  // exclusivos), ahora si b2bOnly/channelFilter están activos SÍ se
+  // exclusivos), ahora si strategyFilter/channelFilter están activos SÍ se
   // reflejan acá también -- es la combinación nueva que esta etapa habilita
   // (B2B + Loan Officer + Channel, ver COMPATIBILIDAD caso 8).
   const tree = filteredRecords
@@ -338,7 +358,7 @@ export default function Home() {
   const channelFilterLabel = channelFilter === 'empty' ? 'Empty / Unclassified' : channelFilter;
   const kpiStripLabel =
     'Monthly Totals' +
-    (b2bOnly ? ' — B2B' : '') +
+    (strategyFilter !== 'all' ? ' — ' + strategyLabel(strategyFilter) : '') +
     (channelFilter !== 'all' ? ' — ' + channelFilterLabel : '') +
     (groupBy === 'loanOfficer' ? ' (all branches)' : '') +
     (measure === 'amount' ? ' — Volume ($)' : '');
@@ -353,12 +373,18 @@ export default function Home() {
           </p>
         </div>
         <div className="control-group">
-          {/* CTA de marca: la carga de archivo es la acción principal de la vista. */}
-          <label className="btn cta" htmlFor="fileInput">
-            <UploadIcon />
-            Upload file
-          </label>
-          <input type="file" id="fileInput" accept=".xlsx,.xls" onChange={handleFileChange} />
+          {/*
+            Etapa V2b: acá estaba el CTA "Upload file" con su <input type=file>.
+            La fuente es `loan_records_v2`, que se sincroniza desde BigQuery
+            cada vez que alguien sube Encompass por la app de cargas; dejar el
+            botón invitaba a cargar un archivo que ya no es la fuente y que
+            competiría con el sync.
+
+            "Download Excel" queda solo en el grupo y conserva su estilo
+            (`primary`, no `cta`): pasó a ser la única acción de la pantalla,
+            pero eso no lo convierte en la acción de marca, y nadie pidió
+            cambiarle el color.
+          */}
           <button className="btn primary" disabled={!records || isExporting} onClick={handleExportExcel}>
             <DownloadIcon />
             {isExporting ? 'Generating…' : 'Download Excel'}
@@ -372,22 +398,33 @@ export default function Home() {
        * `disabled` y sin ningún handler desde la migración a Next. Ocupaban la
        * mitad de la barra superior sin hacer nada.
        */}
-      <div className="control-bar__status" style={{ marginBottom: '20px' }}>
-        {records && fileName && (
-          <>
-            <span className="pill">File: {fileName}</span>
-            <span className="pill">Rows: {records.length.toLocaleString('en-US')}</span>
-            {monthRange?.minYM && monthRange?.maxYM && (
-              <span className="pill">
-                Range: {ymLabel(monthRange.minYM)} → {ymLabel(monthRange.maxYM)}
-              </span>
-            )}
-          </>
-        )}
-        {saveStatus === 'saving' && <span className="pill">Saving to the cloud…</span>}
-        {saveStatus === 'saved' && <span className="pill ok">Saved</span>}
-        {saveStatus === 'error' && <span className="pill warn">Could not save to the cloud</span>}
-        {error && <span className="pill warn">{error}</span>}
+      {/*
+        Etapa V2b: donde estaba el pill "Fuente: <archivo>" ahora va cuándo se
+        actualizó el dato. Es la pregunta que reemplaza a "¿qué archivo estoy
+        mirando?" cuando nadie carga archivos: lo único que la usuaria necesita
+        saber del origen es si está fresco.
+
+        Sigue siendo un pill y no un bloque de texto suelto: al lado quedan Rows
+        y Range, y un párrafo entre dos pills se ve como algo que se cayó de
+        lugar. La procedencia va debajo, en letra chica, porque es contexto que
+        se lee una vez -- no un dato que se consulta.
+      */}
+      <div className="source-note" style={{ marginBottom: '20px' }}>
+        <div className="control-bar__status">
+          {lastSync && <span className="pill">{formatLastSync(lastSync)}</span>}
+          {records && (
+            <>
+              <span className="pill">Rows: {records.length.toLocaleString('en-US')}</span>
+              {monthRange?.minYM && monthRange?.maxYM && (
+                <span className="pill">
+                  Range: {ymLabel(monthRange.minYM)} → {ymLabel(monthRange.maxYM)}
+                </span>
+              )}
+            </>
+          )}
+          {error && <span className="pill warn">{error}</span>}
+        </div>
+        {records && <p className="source-note__origin">Datos de Encompass y Salesforce, vía BigQuery</p>}
       </div>
 
       {records === null && isLoadingInitial && (
@@ -401,20 +438,23 @@ export default function Home() {
       )}
 
       {records === null && !isLoadingInitial && (
+        /*
+          Etapa V2b: este estado vacío pedía subir un .xlsx y ofrecía el botón.
+          Ya no hay nada que la usuaria pueda hacer desde acá para llenarlo: si
+          está vacío es porque el sync todavía no corrió o falló, y eso se
+          arregla subiendo Encompass por la app de cargas, no en esta pantalla.
+          El texto dice dónde mirar en vez de ofrecer una acción que no existe.
+        */
         <div id="emptyState" className="empty">
           <div className="drop-ic">
             <FileSheetIcon size={24} />
           </div>
-          <h2>Upload your query file</h2>
+          <h2>Todavía no hay datos de actividad</h2>
           <p>
-            Upload the <b>.xlsx</b> with the report columns (True OrgID, fileCreation, CreditReport, App_Date,
-            loan_info_channel, milestones, loan_officer, B2B Loans, BD). Everything is computed in your browser — no data
-            leaves your machine.
+            La actividad se sincroniza desde BigQuery cada vez que se sube Encompass por la app de cargas. Si esta
+            pantalla sigue vacía después de una carga, avisá al equipo de datos: el que falló es el sync, no este
+            reporte.
           </p>
-          <label className="btn cta" htmlFor="fileInput" style={{ display: 'inline-flex' }}>
-            <UploadIcon />
-            Select file
-          </label>
         </div>
       )}
 
@@ -442,8 +482,8 @@ export default function Home() {
           <Toolbar
             groupBy={groupBy}
             onGroupByChange={setGroupBy}
-            b2bOnly={b2bOnly}
-            onB2bOnlyChange={setB2bOnly}
+            strategyFilter={strategyFilter}
+            onStrategyFilterChange={setStrategyFilter}
             channelFilter={channelFilter}
             onChannelFilterChange={setChannelFilter}
             measure={measure}
@@ -489,17 +529,27 @@ export default function Home() {
                   showTotal={showTotal}
                   collapsed={collapsed}
                   onToggleCollapse={handleToggleCollapse}
-                  b2bOnly={b2bOnly}
+                  strategyFilter={strategyFilter}
                   onDrillDown={setDrillDown}
                 />
               </div>
             </div>
           )}
 
+          {/*
+            Etapa V2: la frase "Dates are read in UTC to avoid month drift"
+            describía cómo la app leía las fechas cuando venían del Excel. Ya no
+            aplica: `loan_records_v2` las trae como `date` y el mes se toma
+            recortando el texto 'YYYY-MM-DD', sin construir ningún Date -- que
+            es JUSTAMENTE lo que evita el corrimiento (ver `monthOf()` en
+            lib/supabase/loadCurrent.ts). El objetivo es el mismo; el mecanismo
+            que la nota describía dejó de existir.
+          */}
           <div className="foot-note">
             <b>Closings:</b> the Funding date is used for Banked-Retail, or the Completion date for Brokered.{' '}
             <b>Branch:</b> <i>True OrgID</i> is used; OrgIDs outside the official roster are grouped under “Branch Out of
-            Division”. Dates are read in UTC to avoid month drift.
+            Division”. <b>Source:</b> the data is synced from BigQuery; each row is one loan, so the report always
+            reflects the current state rather than a single upload.
           </div>
         </div>
       )}
@@ -508,6 +558,14 @@ export default function Home() {
         isOpen={drillDown !== null}
         context={drillDown}
         loans={drillDownLoans}
+        /*
+         * Etapa V3: `drillDownLoans` ya sale de `filteredRecords`, así que el
+         * modal muestra exactamente lo que contó la celda -- el filtro de
+         * estrategia entra por el mismo camino que los de canal y branch. Esto
+         * NO es para filtrar de nuevo: es para que el modal sepa qué columnas
+         * valen la pena en cada caso (ver `showStrategy`/`showContext` allá).
+         */
+        strategyFilter={strategyFilter}
         onClose={() => setDrillDown(null)}
       />
     </div>

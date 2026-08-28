@@ -13,7 +13,6 @@ import {
   NotFoundState,
   RoleChip,
   VerdictBadge,
-  fmtActivityAvg,
   fmtAvg,
   exactTitle,
 } from '../../components/shared';
@@ -154,9 +153,20 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
                   3 meses cerrados. Antes eran el acumulado del lote, que no se
                   puede comparar ni entre personas ni entre meses.
                 */}
+                {/*
+                  ⚠ BP36b -- UN `<col>` POR COLUMNA, y son OCHO.
+                  BP36 sumó "Next month pipeline" al `thead` y al `tbody` pero
+                  no acá, así que el colgroup quedó con siete para ocho
+                  columnas: con `table-layout: fixed` los anchos se corrieron
+                  una posición -- `bp-col-status`, que es el ancho pensado para
+                  Verdict, cayó sobre la columna del pipeline del mes siguiente
+                  y Verdict se quedó con el resto. Se veía como una columna
+                  vacía, no como un ancho mal repartido.
+                */}
                 <colgroup>
                   <col className="bp-col-pick" />
                   <col className="bp-col-name" />
+                  <col className="bp-col-metric" />
                   <col className="bp-col-metric" />
                   <col className="bp-col-metric" />
                   <col className="bp-col-metric" />
@@ -196,11 +206,24 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
                         }
                       />
                     </th>
+                    {/*
+                      ⚠ BP36 -- la tabla cambia de PREGUNTA, no de formato.
+                      Antes mostraba cuatro promedios de los 3 meses cerrados:
+                      qué hizo la persona. Ahora muestra el mes en curso y el
+                      que viene contra su objetivo: si va a llegar.
+
+                      BP36b -- "Closings so far" y no "this month": son los que
+                      lleva HASTA HOY, no los del mes cerrado. Y "Current month
+                      pipeline" en vez de "Total pipeline", que hace simétrico el
+                      par con "Next month pipeline" y saca la ambigüedad de
+                      "total".
+                    */}
                     <th className="lbl">Loan Officer</th>
-                    <th className="bp-center">Avg Closings 3M</th>
-                    <th className="bp-center">Avg Credit Apps</th>
-                    <th className="bp-center">Avg Pre-Approvals</th>
-                    <th className="bp-center">Avg File Creations</th>
+                    <th className="bp-center">Benchmark</th>
+                    <th className="bp-center">Closings so far</th>
+                    <th className="bp-center">Current month pipeline</th>
+                    <th className="bp-center">Forecast total</th>
+                    <th className="bp-center">Next month pipeline</th>
                     <th className="bp-center">Verdict</th>
                   </tr>
                 </thead>
@@ -247,27 +270,35 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
                           </span>
                         )}
                       </td>
-                      <td className="bp-center" title={exactTitle(lo.q1.avgWithCurrent)}>
-                        {fmtAvg(lo.q1.avgWithCurrent)}
+                      {/*
+                        `—` y no `0` cuando no hay benchmark: son cosas
+                        distintas. Un cero diría "su objetivo es cerrar cero"; el
+                        guion dice "todavía nadie le fijó objetivo", que es el
+                        caso real y el que hay que resolver.
+                      */}
+                      <td className={'bp-center' + (lo.monthlyBenchmark === null ? ' zero' : '')}>
+                        {lo.monthlyBenchmark === null ? '—' : lo.monthlyBenchmark}
                       </td>
-                      {/* Promedios mensuales, no acumulados: comparables entre personas. */}
-                      <td
-                        className={'bp-center' + (lo.trailingActivityAvg.applications ? '' : ' zero')}
-                        title={exactTitle(lo.trailingActivityAvg.applications)}
-                      >
-                        {fmtActivityAvg(lo.trailingActivityAvg.applications)}
+                      <td className={'bp-center' + (lo.projection.closedToDate ? '' : ' zero')}>
+                        {lo.projection.closedToDate}
+                      </td>
+                      {/* Los mismos tres números que las tarjetas del perfil, de
+                          la misma fuente: `lo.projection`. Si acá dice otra cosa
+                          que allá, es un bug, no dos criterios. */}
+                      <td className={'bp-center' + (lo.projection.totalPipeline ? '' : ' zero')}>
+                        {lo.projection.totalPipeline}
                       </td>
                       <td
-                        className={'bp-center' + (lo.trailingActivityAvg.creditReports ? '' : ' zero')}
-                        title={exactTitle(lo.trailingActivityAvg.creditReports)}
+                        className={'bp-center' + (lo.projection.projectedTotal ? '' : ' zero')}
+                        title={exactTitle(lo.projection.projectedTotal)}
                       >
-                        {fmtActivityAvg(lo.trailingActivityAvg.creditReports)}
+                        {fmtAvg(lo.projection.projectedTotal)}
                       </td>
                       <td
-                        className={'bp-center' + (lo.trailingActivityAvg.fileCreations ? '' : ' zero')}
-                        title={exactTitle(lo.trailingActivityAvg.fileCreations)}
+                        className={'bp-center' + (lo.pipeline.nextMonthOpenLoans ? '' : ' zero')}
+                        title={`Open loans due to close in ${data.diagnostics.pipelineMonths.next}`}
                       >
-                        {fmtActivityAvg(lo.trailingActivityAvg.fileCreations)}
+                        {lo.pipeline.nextMonthOpenLoans}
                       </td>
                       <td className="bp-center">
                         <VerdictBadge verdict={lo.verdict} />
@@ -276,7 +307,7 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
                   ))}
                   {!visibleLos.length && (
                     <tr>
-                      <td className="lbl bp-empty-cell" colSpan={7}>
+                      <td className="lbl bp-empty-cell" colSpan={8}>
                         No loan officer matches that search.
                       </td>
                     </tr>

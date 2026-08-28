@@ -3,6 +3,7 @@
 import type { Measure } from '@/lib/aggregation/types';
 import type { YearMonth } from '@/lib/parsing/types';
 import type { Branch } from '@/config/roster';
+import { STRATEGY_ORDER, type StrategyFilter } from '@/lib/domain/strategy';
 import { ymLabel } from '@/lib/aggregation/months';
 import { ExpandIcon, CollapseIcon } from '@/components/ui/icons';
 
@@ -34,10 +35,14 @@ export type ChannelFilter = 'all' | 'Banked - Retail' | 'Brokered' | 'empty';
 export interface ToolbarProps {
   groupBy: GroupBy;
   onGroupByChange: (groupBy: GroupBy) => void;
-  /** Filtro de datos (LoanRecord.isB2B), independiente de groupBy -- ver nota arriba. */
-  b2bOnly: boolean;
-  onB2bOnlyChange: (b2bOnly: boolean) => void;
-  /** Filtro de datos (LoanRecord.loanInfoChannel), independiente de groupBy y de b2bOnly. */
+  /**
+   * Filtro de datos (LoanRecord.strategy) -- etapa V3, reemplaza al booleano
+   * `b2bOnly`. B2B deja de ser un interruptor aparte y pasa a ser UNO de los
+   * cinco valores posibles, que es lo que realmente es.
+   */
+  strategyFilter: StrategyFilter;
+  onStrategyFilterChange: (strategy: StrategyFilter) => void;
+  /** Filtro de datos (LoanRecord.loanInfoChannel), independiente de groupBy y de strategyFilter. */
   channelFilter: ChannelFilter;
   onChannelFilterChange: (channel: ChannelFilter) => void;
   measure: Measure;
@@ -66,10 +71,19 @@ const MEASURE_OPTIONS: { value: Measure; label: string }[] = [
   { value: 'amount', label: 'Volume ($)' },
 ];
 
-/** Etapa 2: mismo patrón visual que MEASURE_OPTIONS (seg de 2 botones) -- B2B pasa de "vista" a filtro combinable. */
-const B2B_OPTIONS: { value: boolean; label: string }[] = [
-  { value: false, label: 'All loans' },
-  { value: true, label: 'B2B only' },
+/*
+ * Etapa V3: pasa de `seg` de 2 botones a `select`, como Branch y Channel.
+ * Con 6 opciones un segmentado ocuparía toda la fila y obligaría a leer las
+ * cinco estrategias siempre, incluso para no elegir ninguna.
+ *
+ * ⚠ El orden sale de STRATEGY_ORDER, que es el de PRECEDENCIA, no el
+ * alfabético. Ver lib/domain/strategy.ts: así el desplegable enseña la
+ * jerarquía (Affinity gana sobre NPPM, NPPM sobre Recruitment, y así) sin que
+ * haya que explicarla en ningún texto.
+ */
+const STRATEGY_OPTIONS: { value: StrategyFilter; label: string }[] = [
+  { value: 'all', label: 'All strategies' },
+  ...STRATEGY_ORDER.map((s) => ({ value: s as StrategyFilter, label: s })),
 ];
 
 const CHANNEL_OPTIONS: { value: ChannelFilter; label: string }[] = [
@@ -99,8 +113,8 @@ const CHANNEL_OPTIONS: { value: ChannelFilter; label: string }[] = [
 export default function Toolbar({
   groupBy,
   onGroupByChange,
-  b2bOnly,
-  onB2bOnlyChange,
+  strategyFilter,
+  onStrategyFilterChange,
   channelFilter,
   onChannelFilterChange,
   measure,
@@ -164,19 +178,19 @@ export default function Toolbar({
         </div>
 
         <div className="control-group">
-          <span className="label-chip">B2B</span>
-          <div className="seg">
-            {B2B_OPTIONS.map((option) => (
-              <button
-                key={String(option.value)}
-                className={b2bOnly === option.value ? 'on' : ''}
-                onClick={() => onB2bOnlyChange(option.value)}
-                aria-pressed={b2bOnly === option.value}
-              >
+          <span className="label-chip">Strategy</span>
+          <select
+            className="field"
+            style={{ maxWidth: '180px' }}
+            value={strategyFilter}
+            onChange={(e) => onStrategyFilterChange(e.target.value as StrategyFilter)}
+          >
+            {STRATEGY_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
                 {option.label}
-              </button>
+              </option>
             ))}
-          </div>
+          </select>
         </div>
       </div>
 
