@@ -6,46 +6,61 @@ import Modal from '@/app/business-plan/components/Modal';
 import {
   benchmarkAt,
   cadenceLabel,
-  projectMonth,
+  modeLabel,
+  projectPlan,
   type BenchmarkPoint,
   type Cadence,
   type GrowthSegment,
   type OutlookStrategy,
+  type ProjectionMode,
+  type StrategyPlan,
 } from '@/lib/outlook/project';
 import type { OutlookData, OutlookLoanOfficer } from '@/lib/outlook/loadData';
-import { saveGrowthRuleRevision, saveStrategyBenchmark, type EditableStrategy } from '@/lib/outlook/save';
+import {
+  saveGrowthRuleRevision,
+  saveMonthlyTargets,
+  saveStrategyBenchmark,
+  setProjectionMode,
+  type EditableStrategy,
+} from '@/lib/outlook/save';
 
 /**
  * ============================================================================
- * EL EDITOR DE UNA ESTRATEGIA — benchmark, regla y qué pasaría (etapa OL2)
+ * EL EDITOR DE UNA ESTRATEGIA — etapas OL2 y OL4
  * ============================================================================
  *
- * Todo lo que se decide sobre un par (Loan Officer, estrategia) en un solo
- * lugar: el benchmark, los tramos de crecimiento, la vista previa del efecto y
- * la historia de las dos cosas.
+ * ---------------------------------------------------------------------------
+ * ⚠ PRIMERO EL MODO, DESPUÉS UN SOLO BLOQUE
+ * ---------------------------------------------------------------------------
+ * La versión de OL2 mostraba cuatro bloques a la vez --benchmark, constructor de
+ * tramos, vista previa e historial-- cada uno con su explicación. Para entender
+ * qué hacía cada uno había que leerlos todos, y sólo dos servían para la
+ * decisión que se venía a tomar.
+ *
+ * Ahora la pantalla arranca con UNA pregunta: ¿por porcentaje o mes a mes? Y
+ * según la respuesta muestra un bloque, no cuatro.
+ *
+ *   `growth`   un benchmark y una regla; los meses se calculan
+ *   `monthly`  un número por mes; el número es el número
  *
  * ---------------------------------------------------------------------------
- * ⚠ POR QUÉ ES UN MODAL Y NO UNA PÁGINA
+ * ⚠ LO DEL OTRO MODO NO SE BORRA, Y LA PANTALLA LO DICE
  * ---------------------------------------------------------------------------
- * La regla del portal es cero modales para NAVEGAR (ver
- * `app/business-plan/components/Modal.tsx`), y esto no navega: se abre, se
- * decide un número, se cierra y se vuelve a la tabla donde el efecto ya se ve.
- * El criterio de ese archivo aplica tal cual — no es un destino, y una URL
- * propia por cada par (persona × cinco estrategias) serían 300 páginas que nadie
- * va a compartir por link.
+ * Cambiar de modo no toca lo guardado del otro: la regla sigue ahí y los meses
+ * fijados también. Cuando el modo inactivo tiene algo guardado, se muestra en
+ * una línea --qué es y que no se está aplicando-- porque si no, alguien que
+ * vuelve a "por porcentaje" se encuentra con una regla que no puso.
  *
  * ---------------------------------------------------------------------------
- * ⚠ LA VISTA PREVIA NO ES ADORNO
+ * ⚠ LA VISTA PREVIA APARECE CUANDO HAY ALGO QUE PREVISUALIZAR
  * ---------------------------------------------------------------------------
- * Se guarda un benchmark y una regla; lo que le importa a quien decide es la
- * FILA de meses que sale de los dos. Con "25% trimestral desde septiembre" el
- * primer aumento cae en diciembre, y sin ver la fila eso se descubre después de
- * guardar, mirando la tabla y preguntando por qué tres meses salen iguales.
+ * En OL2 estaba siempre, y con la tabla vacía mostraba ceros contra ceros: una
+ * fila de nada que ocupaba el mismo espacio que la que sí importa. Ahora sale
+ * cuando el plan del formulario proyecta algo o cambia lo que ya está guardado.
  *
- * Corre con las MISMAS funciones que la tabla --`benchmarkAt` y `projectMonth`,
- * sin ninguna copia-- así que lo que muestra es lo que va a pasar. Una vista
- * previa con su propia aritmética sería peor que no tenerla: mentiría con
- * autoridad.
+ * Corre con `projectPlan`, LA MISMA función que arma la tabla, sin ninguna
+ * copia. Una vista previa con su propia aritmética sería peor que no tenerla:
+ * mentiría con autoridad, y nadie revisa dos veces lo que ya vio confirmado.
  */
 
 const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -83,122 +98,200 @@ export default function StrategyEditor({
   const months = data.remainingMonths;
   const savedSchedule = lo.benchmarkSchedules[strategy] ?? [];
   const savedSegments = lo.rulesByStrategy[strategy] ?? [];
+  const savedTargets = lo.targetsByStrategy[strategy] ?? {};
+  const savedMode: ProjectionMode = lo.modeByStrategy[strategy] ?? 'growth';
+  const modeSetBy = lo.modeSetBy[strategy] ?? null;
   const revision = lo.ruleRevision[strategy] ?? 0;
+  const targetRevision = lo.targetRevision[strategy] ?? 0;
   const effectiveMonth = data.effectiveFrom.slice(0, 7);
+  const monthlyAvailable = data.diagnostics.monthlyModeAvailable;
 
   /*
-   * Own Production entra al editor para su REGLA pero no para su benchmark: ese
-   * vive en `org.employee_benchmark` y el CHECK de `outlook.strategy_benchmark`
-   * lo rechaza. Ver la decisión 2 del esquema.
+   * Own Production entra al editor para su REGLA y para sus meses fijados, pero
+   * no para su benchmark: ese vive en `org.employee_benchmark` y el CHECK de
+   * `outlook.strategy_benchmark` lo rechaza. Ver la decisión 2 del esquema OL1.
    */
   const benchmarkEditable = strategy !== 'Own Production';
 
+  const [mode, setMode] = useState<ProjectionMode>(savedMode);
   const [benchValue, setBenchValue] = useState('');
-  const [benchNote, setBenchNote] = useState('');
   const [segments, setSegments] = useState<GrowthSegment[]>(
     savedSegments.length > 0
       ? savedSegments
       : [{ fromMonth: months[0] ?? data.currentMonth, cadence: 'quarterly', growthPct: 0 }]
   );
-  const [ruleNote, setRuleNote] = useState('');
-  const [busy, setBusy] = useState<'bench' | 'rule' | null>(null);
+  const [targets, setTargets] = useState<Record<string, string>>(() =>
+    Object.fromEntries(months.map((m) => [m, savedTargets[m] === undefined ? '' : String(savedTargets[m])]))
+  );
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
 
   /*
-   * La serie con lo que hay en el formulario: la guardada más el punto que se
-   * escribiría. Es exactamente lo que va a quedar en la base, porque el editor
-   * no puede modificar los puntos anteriores — sólo agregar el del mes siguiente.
+   * El plan que hay EN EL FORMULARIO. Es exactamente lo que va a quedar
+   * guardado: el editor no puede modificar los puntos anteriores del benchmark,
+   * sólo agregar el del mes siguiente.
    */
-  const draftBenchValue = benchValue.trim() === '' ? null : Number(benchValue);
+  const draftBench = benchValue.trim() === '' ? null : Number(benchValue);
   const draftSchedule: BenchmarkPoint[] =
-    draftBenchValue !== null && Number.isFinite(draftBenchValue) && benchmarkEditable
-      ? [...savedSchedule.filter((p) => p.fromMonth !== effectiveMonth), { fromMonth: effectiveMonth, value: draftBenchValue }]
+    draftBench !== null && Number.isFinite(draftBench) && benchmarkEditable
+      ? [...savedSchedule.filter((p) => p.fromMonth !== effectiveMonth), { fromMonth: effectiveMonth, value: draftBench }]
       : savedSchedule;
+  const draftTargets: Record<string, number> = {};
+  for (const m of months) {
+    const raw = targets[m]?.trim();
+    if (raw !== '' && raw !== undefined && Number.isFinite(Number(raw))) draftTargets[m] = Number(raw);
+  }
 
-  const preview = months.map((m) => projectMonth(m, benchmarkAt(draftSchedule, m), segments));
-  const previewSaved = months.map((m) => projectMonth(m, benchmarkAt(savedSchedule, m), savedSegments));
-  const changesPreview = preview.some((p, i) => p.value !== previewSaved[i].value);
+  const draftPlan: StrategyPlan = { mode, benchmarks: draftSchedule, segments, targets: draftTargets };
+  const savedPlan: StrategyPlan = {
+    mode: savedMode,
+    benchmarks: savedSchedule,
+    segments: savedSegments,
+    targets: savedTargets,
+  };
+  const preview = projectPlan(months, draftPlan);
+  const previewSaved = projectPlan(months, savedPlan);
+  const changes = preview.some((p, i) => p.value !== previewSaved[i].value);
+  /* Sale cuando hay algo que mirar: en OL2 mostraba ceros contra ceros. */
+  const showPreview = months.length > 0 && (changes || preview.some((p) => p.value !== 0));
+
+  /* Qué hay guardado en el modo que NO está elegido ahora mismo. */
+  const otherSaved =
+    mode === 'growth'
+      ? targetRevision > 0
+        ? `Hay meses fijados guardados (revisión ${targetRevision}: ${months
+            .map((m) => `${monthLabel(m)} ${savedTargets[m] ?? 0}`)
+            .join(' · ')}).`
+        : null
+      : savedSegments.length > 0
+        ? `Hay una regla guardada (revisión ${revision}: ${savedSegments
+            .map((g) => `${g.growthPct}% ${cadenceLabel(g.cadence)} desde ${monthLabel(g.fromMonth)}`)
+            .join(' · ')}).`
+        : null;
 
   const benchHistory = data.history.strategyBenchmarks
     .filter((r) => r.employee_key === lo.employeeKey && r.strategy === strategy)
-    .sort((a, b) => b.effective_from.localeCompare(a.effective_from) || b.created_at.localeCompare(a.created_at));
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
 
-  /* Las revisiones de la regla, agrupadas: una revisión es una decisión. */
+  /* Las revisiones de la regla y de los meses, agrupadas: cada una es una decisión. */
   const ruleRevisions = new Map<number, typeof data.history.growthRules>();
   for (const r of data.history.growthRules) {
     if (r.employee_key !== lo.employeeKey || r.strategy !== strategy) continue;
     ruleRevisions.set(r.revision, [...(ruleRevisions.get(r.revision) ?? []), r]);
   }
-  const revisionsDesc = [...ruleRevisions.entries()].sort((a, b) => b[0] - a[0]);
-
-  async function saveBenchmark() {
-    const parsed = Number(benchValue);
-    if (!Number.isFinite(parsed) || parsed < 0) {
-      setError('El benchmark tiene que ser un número de 0 o más.');
-      return;
-    }
-    setBusy('bench');
-    setError(null);
-    try {
-      await saveStrategyBenchmark({
-        employeeKey: lo.employeeKey,
-        strategy: strategy as EditableStrategy,
-        monthlyBenchmark: parsed,
-        /* ⚠ Siempre el primer día del mes SIGUIENTE. Ver `lib/outlook/save.ts`. */
-        effectiveFrom: data.effectiveFrom,
-        note: benchNote.trim() === '' ? null : benchNote.trim(),
-      });
-      await onSaved();
-      setSaved(`Benchmark guardado: ${fmt(parsed)} desde ${data.effectiveFrom}. Es una fila nueva; las anteriores siguen.`);
-      setBenchValue('');
-      setBenchNote('');
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(null);
-    }
+  const targetRevisions = new Map<number, typeof data.history.monthlyTargets>();
+  for (const r of data.history.monthlyTargets) {
+    if (r.employee_key !== lo.employeeKey || r.strategy !== strategy) continue;
+    targetRevisions.set(r.revision, [...(targetRevisions.get(r.revision) ?? []), r]);
   }
+  const modeHistory = data.history.projectionModes
+    .filter((r) => r.employee_key === lo.employeeKey && r.strategy === strategy)
+    .sort((a, b) => b.projection_mode_key - a.projection_mode_key);
+  const historyCount =
+    benchHistory.length + ruleRevisions.size + targetRevisions.size + modeHistory.length;
 
-  async function saveRule() {
-    /*
-     * Los tramos tienen que ir en orden y sin repetir mes: dos tramos que
-     * arrancan el mismo mes hacen ambiguo cuál rige, y `projectMonth` resolvería
-     * la ambigüedad en silencio quedándose con uno.
-     */
-    const monthsSeen = new Set<string>();
-    for (const seg of segments) {
-      if (monthsSeen.has(seg.fromMonth)) {
-        setError('Hay dos tramos que arrancan el mismo mes. Cada tramo tiene que empezar en un mes distinto.');
-        return;
-      }
-      monthsSeen.add(seg.fromMonth);
-      if (!Number.isFinite(seg.growthPct) || seg.growthPct < -100) {
-        setError('El crecimiento de un tramo no puede bajar de -100%.');
-        return;
-      }
-    }
-    setBusy('rule');
+  /*
+   * UN SOLO GUARDAR, y escribe únicamente lo que cambió.
+   *
+   * En OL2 había dos botones --uno para el benchmark y otro para la regla-- y
+   * eran dos mitades de la misma decisión: cuánto es la base y cuánto crece. Se
+   * podía guardar una y olvidarse de la otra, y la proyección quedaba a medio
+   * cambiar sin que nada avisara.
+   */
+  async function save() {
+    setBusy(true);
     setError(null);
+    setSaved(null);
+    const done: string[] = [];
     try {
-      const written = await saveGrowthRuleRevision({
-        employeeKey: lo.employeeKey,
-        strategy,
-        /* Ordenados por mes: el `segment_order` que se guarda es el de la lista. */
-        segments: [...segments].sort((a, b) => a.fromMonth.localeCompare(b.fromMonth)),
-        note: ruleNote.trim() === '' ? null : ruleNote.trim(),
-      });
-      await onSaved();
-      setSaved(
-        `Regla guardada como revisión ${written}` +
-          (written > 1 ? `. La revisión ${written - 1} queda entera y legible en el historial.` : '.')
-      );
-      setRuleNote('');
+      if (mode === 'growth') {
+        if (benchmarkEditable && benchValue.trim() !== '') {
+          const parsed = Number(benchValue);
+          if (!Number.isFinite(parsed) || parsed < 0) throw new Error('El benchmark tiene que ser un número de 0 o más.');
+          await saveStrategyBenchmark({
+            employeeKey: lo.employeeKey,
+            strategy: strategy as EditableStrategy,
+            monthlyBenchmark: parsed,
+            /* ⚠ Siempre el primer día del mes SIGUIENTE. Ver `lib/outlook/save.ts`. */
+            effectiveFrom: data.effectiveFrom,
+            note: note.trim() === '' ? null : note.trim(),
+          });
+          done.push(`benchmark ${fmt(parsed)} desde ${data.effectiveFrom}`);
+        }
+
+        /*
+         * Dos tramos no pueden arrancar el mismo mes: haría ambiguo cuál rige, y
+         * `projectMonth` resolvería la ambigüedad en silencio quedándose con uno.
+         */
+        const seen = new Set<string>();
+        for (const seg of segments) {
+          if (seen.has(seg.fromMonth)) throw new Error('Hay dos tramos que arrancan el mismo mes.');
+          seen.add(seg.fromMonth);
+          if (!Number.isFinite(seg.growthPct) || seg.growthPct < -100)
+            throw new Error('El crecimiento de un tramo no puede bajar de -100%.');
+        }
+        const ruleChanged =
+          segments.length !== savedSegments.length ||
+          segments.some(
+            (g, i) =>
+              g.fromMonth !== savedSegments[i]?.fromMonth ||
+              g.cadence !== savedSegments[i]?.cadence ||
+              g.growthPct !== savedSegments[i]?.growthPct
+          );
+        if (ruleChanged) {
+          const written = await saveGrowthRuleRevision({
+            employeeKey: lo.employeeKey,
+            strategy,
+            segments: [...segments].sort((a, b) => a.fromMonth.localeCompare(b.fromMonth)),
+            note: note.trim() === '' ? null : note.trim(),
+          });
+          done.push(`regla revisión ${written}`);
+        }
+      } else {
+        const targetsChanged =
+          months.some((m) => (draftTargets[m] ?? 0) !== (savedTargets[m] ?? 0)) || targetRevision === 0;
+        if (targetsChanged) {
+          const written = await saveMonthlyTargets({
+            employeeKey: lo.employeeKey,
+            strategy,
+            /* Los meses vacíos se guardan en 0: la revisión se lee entera. */
+            targets: Object.fromEntries(months.map((m) => [m, draftTargets[m] ?? 0])),
+            note: note.trim() === '' ? null : note.trim(),
+          });
+          done.push(`meses fijados, revisión ${written}`);
+        }
+      }
+
+      /*
+       * ⚠ El modo va ÚLTIMO, y sólo si cambió. Ver el bloque del orden en
+       * `save.ts`: si fallara, lo guardado queda sin aplicar y la proyección no
+       * se mueve, que es la mitad segura de fallar.
+       */
+      if (mode !== savedMode) {
+        await setProjectionMode({
+          employeeKey: lo.employeeKey,
+          strategy,
+          mode,
+          note: note.trim() === '' ? null : note.trim(),
+        });
+        done.push(`modo ${modeLabel(mode)}`);
+      }
+
+      if (done.length === 0) {
+        setSaved('No había nada que cambiar.');
+      } else {
+        await onSaved();
+        setSaved('Guardado: ' + done.join(' · ') + '.');
+        setBenchValue('');
+        setNote('');
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(null);
+      setBusy(false);
     }
   }
 
@@ -206,7 +299,6 @@ export default function StrategyEditor({
     setSegments((prev) => prev.map((s, j) => (j === i ? { ...s, ...change } : s)));
   }
 
-  /* El mes por defecto de un tramo nuevo: el siguiente al último que ya hay. */
   function addSegment() {
     const used = new Set(segments.map((s) => s.fromMonth));
     const free = months.find((m) => !used.has(m));
@@ -219,16 +311,62 @@ export default function StrategyEditor({
   return (
     <Modal title={`${lo.fullName} — ${strategy}`} onClose={onClose}>
       <div className="ol-editor">
-        {/* ── El benchmark ─────────────────────────────────────────────── */}
-        <section className="ol-editor__block">
-          <h3 className="ol-editor__h">Benchmark mensual</h3>
+        {/* ── La pregunta ─────────────────────────────────────────────── */}
+        <div className="ol-modes" role="radiogroup" aria-label="Cómo se fija el presupuesto">
+          {(['growth', 'monthly'] as ProjectionMode[]).map((m) => (
+            /*
+              ⚠ El modo mes a mes no se ofrece si sus tablas no están. Ofrecerlo
+              igual dejaría a alguien escribiendo cuatro números para descubrir
+              al apretar Guardar que no hay dónde ponerlos -- y el mensaje de
+              error, por claro que sea, llega después del trabajo perdido.
+            */
+            <button
+              key={m}
+              type="button"
+              role="radio"
+              aria-checked={mode === m}
+              disabled={m === 'monthly' && !monthlyAvailable}
+              className={'ol-mode' + (mode === m ? ' is-on' : '')}
+              onClick={() => setMode(m)}
+              title={
+                m === 'monthly' && !monthlyAvailable
+                  ? 'Falta aplicar docs/sql/2026-08-outlook-monthly-mode.sql'
+                  : undefined
+              }
+            >
+              <span className="ol-mode__name">
+                {m === 'growth' ? 'Por porcentaje de crecimiento' : 'Mes a mes'}
+              </span>
+              <span className="ol-mode__hint">
+                {m === 'monthly' && !monthlyAvailable
+                  ? 'falta aplicar el SQL de esta etapa'
+                  : m === 'growth'
+                    ? 'un benchmark y una regla; los meses se calculan'
+                    : 'el número de cada mes, escrito'}
+              </span>
+            </button>
+          ))}
+        </div>
 
-          {benchmarkEditable ? (
-            <>
+        {mode !== savedMode && (
+          <p className="ol-editor__hint">
+            Ahora rige <b>{modeLabel(savedMode)}</b>. Al guardar pasa a <b>{modeLabel(mode)}</b>.
+          </p>
+        )}
+        {mode === savedMode && modeSetBy && (
+          <p className="ol-editor__hint">
+            Modo <b>{modeLabel(savedMode)}</b>, elegido por {modeSetBy.setBy} el {stamp(modeSetBy.at)}.
+          </p>
+        )}
+
+        {/* ── Modo A: benchmark y regla ───────────────────────────────── */}
+        {mode === 'growth' && (
+          <section className="ol-editor__block">
+            {benchmarkEditable ? (
               <div className="ol-editor__row">
                 <div className="bp-form__field">
                   <label className="bp-form__label" htmlFor="ol-bench">
-                    Nuevo valor
+                    Benchmark mensual
                   </label>
                   <input
                     id="ol-bench"
@@ -238,206 +376,166 @@ export default function StrategyEditor({
                     className="field ol-editor__num"
                     value={benchValue}
                     onChange={(e) => setBenchValue(e.target.value)}
-                    placeholder={savedSchedule.length ? fmt(benchmarkAt(savedSchedule, months[0] ?? data.currentMonth)) : '0'}
+                    placeholder={fmt(benchmarkAt(savedSchedule, months[0] ?? data.currentMonth))}
                   />
                 </div>
-                <div className="bp-form__field ol-editor__grow">
-                  <label className="bp-form__label" htmlFor="ol-bench-note">
-                    Por qué este número (opcional)
-                  </label>
-                  <input
-                    id="ol-bench-note"
-                    type="text"
-                    className="field"
-                    value={benchNote}
-                    onChange={(e) => setBenchNote(e.target.value)}
-                  />
-                </div>
-                <button
-                  type="button"
-                  className="bp-btn bp-btn--small"
-                  onClick={saveBenchmark}
-                  disabled={busy !== null || benchValue.trim() === ''}
-                >
-                  {busy === 'bench' ? '…' : 'Guardar'}
-                </button>
               </div>
-              {/*
-                Que la fecha esté a la vista y no sólo en el código: quien carga
-                un presupuesto tiene que saber que no toca el mes en curso.
-              */}
+            ) : (
               <p className="ol-editor__hint">
-                Rige desde <b>{data.effectiveFrom}</b> — el primer día del mes siguiente. El mes en curso ya se está
-                midiendo contra el benchmark anterior y no se toca.
+                El benchmark de Own Production se edita en{' '}
+                <Link href={`/business-plan/lo/${lo.employeeKey}`}>el perfil del Business Plan</Link>. Acá se decide
+                cuánto crece.
               </p>
-            </>
-          ) : (
-            <p className="ol-editor__hint">
-              Own Production no se edita acá. Su benchmark vive en <code>org.employee_benchmark</code> y se cambia en{' '}
-              <Link href={`/business-plan/lo/${lo.employeeKey}`}>el perfil del Business Plan</Link>. Tenerlo en dos
-              lugares daría dos valores para el mismo dato y ninguna forma de saber cuál manda — el CHECK de la tabla lo
-              impide, no es una omisión. Su <b>regla de crecimiento</b> sí se decide acá, abajo.
-            </p>
-          )}
+            )}
 
-          {savedSchedule.length > 0 && benchmarkEditable && (
             <table className="piv ol-editor__tbl">
               <thead>
                 <tr className="mo-row">
-                  <th className="lbl">Rige desde</th>
-                  <th className="bp-center">Benchmark</th>
+                  <th className="lbl">Desde</th>
+                  <th className="lbl">Cada</th>
+                  <th className="bp-center">Crece</th>
+                  <th className="lbl"></th>
                 </tr>
               </thead>
               <tbody>
-                {[...savedSchedule]
-                  .sort((a, b) => b.fromMonth.localeCompare(a.fromMonth))
-                  .map((p) => (
-                    <tr key={p.fromMonth} className="metric">
-                      <td className="lbl">{p.fromMonth}</td>
-                      <td className="bp-center">{fmt(p.value)}</td>
-                    </tr>
-                  ))}
+                {segments.map((seg, i) => (
+                  <tr key={i} className="metric">
+                    <td className="lbl">
+                      <select
+                        className="field ol-editor__sel"
+                        value={seg.fromMonth}
+                        onChange={(e) => patch(i, { fromMonth: e.target.value })}
+                        aria-label="Mes desde el que aplica el tramo"
+                      >
+                        {/*
+                          Sólo los meses que este módulo proyecta. Un tramo que
+                          arranca antes cambiaría la cuenta de períodos desde un
+                          mes que la tabla no muestra: el número se movería sin
+                          nada visible que lo explique.
+                        */}
+                        {months.map((m) => (
+                          <option key={m} value={m}>
+                            {monthLabel(m)} {m.split('-')[0]}
+                          </option>
+                        ))}
+                        {!months.includes(seg.fromMonth) && (
+                          <option value={seg.fromMonth}>{seg.fromMonth} (guardado)</option>
+                        )}
+                      </select>
+                    </td>
+                    <td className="lbl">
+                      <select
+                        className="field ol-editor__sel"
+                        value={seg.cadence}
+                        onChange={(e) => patch(i, { cadence: e.target.value as Cadence })}
+                        aria-label="Cadencia del tramo"
+                      >
+                        {CADENCES.map((c) => (
+                          <option key={c} value={c}>
+                            {cadenceLabel(c)}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="bp-center">
+                      <input
+                        type="number"
+                        step="1"
+                        className="field ol-editor__num"
+                        value={String(seg.growthPct)}
+                        onChange={(e) => patch(i, { growthPct: Number(e.target.value) })}
+                        aria-label="Porcentaje de crecimiento del tramo"
+                      />
+                      <span className="ol-editor__pct">%</span>
+                    </td>
+                    <td className="lbl">
+                      {segments.length > 1 && (
+                        <button
+                          type="button"
+                          className="bp-linkish"
+                          onClick={() => setSegments((prev) => prev.filter((_, j) => j !== i))}
+                        >
+                          quitar
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
-          )}
-        </section>
 
-        {/* ── La regla ─────────────────────────────────────────────────── */}
-        <section className="ol-editor__block">
-          <h3 className="ol-editor__h">
-            Regla de crecimiento{' '}
-            <span className="bp-muted ol-editor__rev">
-              {revision === 0 ? 'sin revisión guardada' : `revisión ${revision} vigente · al guardar queda la ${revision + 1}`}
-            </span>
-          </h3>
+            <button
+              type="button"
+              className="bp-linkish"
+              onClick={addSegment}
+              disabled={segments.length >= months.length}
+            >
+              + otro tramo
+            </button>
+          </section>
+        )}
 
-          <table className="piv ol-editor__tbl">
-            <thead>
-              <tr className="mo-row">
-                <th className="lbl">Desde</th>
-                <th className="lbl">Cada</th>
-                <th className="bp-center">Crecimiento</th>
-                <th className="lbl"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {segments.map((seg, i) => (
-                <tr key={i} className="metric">
-                  <td className="lbl">
-                    <select
-                      className="field ol-editor__sel"
-                      value={seg.fromMonth}
-                      onChange={(e) => patch(i, { fromMonth: e.target.value })}
-                      aria-label="Mes desde el que aplica el tramo"
-                    >
-                      {/*
-                        Sólo los meses que este módulo proyecta. Un tramo que
-                        arranca antes cambiaría la cuenta de períodos --y por lo
-                        tanto los meses de acá-- desde un mes que la tabla no
-                        muestra: el número se movería sin nada visible que lo
-                        explique.
-                      */}
-                      {months.map((m) => (
-                        <option key={m} value={m}>
-                          {monthLabel(m)} {m.split('-')[0]}
-                        </option>
-                      ))}
-                      {!months.includes(seg.fromMonth) && (
-                        <option value={seg.fromMonth}>{seg.fromMonth} (guardado)</option>
-                      )}
-                    </select>
-                  </td>
-                  <td className="lbl">
-                    <select
-                      className="field ol-editor__sel"
-                      value={seg.cadence}
-                      onChange={(e) => patch(i, { cadence: e.target.value as Cadence })}
-                      aria-label="Cadencia del tramo"
-                    >
-                      {CADENCES.map((c) => (
-                        <option key={c} value={c}>
-                          {cadenceLabel(c)}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="bp-center">
+        {/* ── Modo B: el número de cada mes ───────────────────────────── */}
+        {mode === 'monthly' && (
+          <section className="ol-editor__block">
+            {months.length === 0 ? (
+              <p className="ol-editor__hint">No queda ningún mes del año por fijar.</p>
+            ) : (
+              <div className="ol-months">
+                {months.map((m) => (
+                  <div key={m} className="bp-form__field">
+                    <label className="bp-form__label" htmlFor={'ol-t-' + m}>
+                      {monthLabel(m)}
+                    </label>
                     <input
+                      id={'ol-t-' + m}
                       type="number"
                       step="1"
+                      min="0"
                       className="field ol-editor__num"
-                      value={String(seg.growthPct)}
-                      onChange={(e) => patch(i, { growthPct: Number(e.target.value) })}
-                      aria-label="Porcentaje de crecimiento del tramo"
+                      value={targets[m] ?? ''}
+                      onChange={(e) => setTargets((prev) => ({ ...prev, [m]: e.target.value }))}
                     />
-                    <span className="ol-editor__pct">%</span>
-                  </td>
-                  <td className="lbl">
-                    {segments.length > 1 && (
-                      <button
-                        type="button"
-                        className="bp-linkish"
-                        onClick={() => setSegments((prev) => prev.filter((_, j) => j !== i))}
-                      >
-                        quitar
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          <div className="ol-editor__row">
-            <button type="button" className="bp-linkish" onClick={addSegment} disabled={segments.length >= months.length}>
-              + agregar tramo
-            </button>
-            {segments.length >= months.length && (
-              <span className="bp-muted ol-editor__hint">
-                Un tramo por mes proyectado es el máximo: dos tramos no pueden arrancar el mismo mes.
-              </span>
+                  </div>
+                ))}
+              </div>
             )}
-          </div>
+          </section>
+        )}
 
-          {/*
-            El 0% no es un caso raro que haya que explicar en el código: es la
-            única forma de decir "no crece" en un modelo append-only, porque una
-            revisión sin tramos no tiene filas y entonces no existe.
-          */}
+        {/* ── Lo que queda guardado del otro modo ─────────────────────── */}
+        {otherSaved && (
           <p className="ol-editor__hint">
-            Para que no crezca, un tramo de <b>0%</b> — así queda firmado quién decidió que no creciera. Un tramo nuevo
-            reemplaza al anterior desde su mes: <b>el último tramo que arrancó es el que rige</b>.
+            {otherSaved} No se aplica mientras rija <b>{modeLabel(mode)}</b>, y no se borra: si volvés al otro modo,
+            vuelve a regir tal como está.
           </p>
+        )}
 
-          <div className="ol-editor__row">
-            <div className="bp-form__field ol-editor__grow">
-              <label className="bp-form__label" htmlFor="ol-rule-note">
-                Por qué esta regla (opcional)
-              </label>
-              <input
-                id="ol-rule-note"
-                type="text"
-                className="field"
-                value={ruleNote}
-                onChange={(e) => setRuleNote(e.target.value)}
-              />
-            </div>
-            <button type="button" className="bp-btn bp-btn--small" onClick={saveRule} disabled={busy !== null}>
-              {busy === 'rule' ? '…' : `Guardar revisión ${revision + 1}`}
-            </button>
+        {/* ── Guardar. Una sola línea de texto, y es la que hace falta ── */}
+        <div className="ol-editor__row">
+          <div className="bp-form__field ol-editor__grow">
+            <label className="bp-form__label" htmlFor="ol-note">
+              Por qué (opcional)
+            </label>
+            <input id="ol-note" type="text" className="field" value={note} onChange={(e) => setNote(e.target.value)} />
           </div>
-        </section>
+          <button type="button" className="bp-btn bp-btn--small" onClick={save} disabled={busy}>
+            {busy ? '…' : 'Guardar'}
+          </button>
+        </div>
+        <p className="ol-editor__hint">
+          Rige desde <b>{data.effectiveFrom}</b>, el primer día del mes siguiente.
+        </p>
 
-        {/* ── Qué pasaría ──────────────────────────────────────────────── */}
-        <section className="ol-editor__block">
-          <h3 className="ol-editor__h">
-            Qué pasaría <span className="bp-muted ol-editor__rev">sin guardar · las mismas funciones que la tabla</span>
-          </h3>
-          {months.length === 0 ? (
-            <p className="ol-editor__hint">
-              No queda ningún mes por proyectar este año. Lo que se guarde ahora rige desde {data.effectiveFrom}.
-            </p>
-          ) : (
+        {error && <div className="bp-notice bp-notice--warn ol-editor__msg">{error}</div>}
+        {saved && !error && <div className="bp-notice ol-editor__msg">{saved}</div>}
+
+        {/* ── Qué pasaría, sólo si hay algo que mirar ─────────────────── */}
+        {showPreview && (
+          <section className="ol-editor__block">
+            <h3 className="ol-editor__h">
+              Qué pasaría <span className="bp-muted ol-editor__rev">sin guardar</span>
+            </h3>
             <table className="piv ol-editor__tbl">
               <thead>
                 <tr className="mo-row">
@@ -450,16 +548,18 @@ export default function StrategyEditor({
                 </tr>
               </thead>
               <tbody>
-                <tr className="metric">
-                  <td className="lbl bp-muted">Hoy</td>
-                  {previewSaved.map((p) => (
-                    <td key={p.month} className={'bp-center' + (p.value ? '' : ' zero')}>
-                      {p.value}
-                    </td>
-                  ))}
-                </tr>
+                {changes && (
+                  <tr className="metric">
+                    <td className="lbl bp-muted">Hoy</td>
+                    {previewSaved.map((p) => (
+                      <td key={p.month} className={'bp-center' + (p.value ? '' : ' zero')}>
+                        {p.value}
+                      </td>
+                    ))}
+                  </tr>
+                )}
                 <tr className="metric" style={{ fontWeight: 700 }}>
-                  <td className="lbl">Con este cambio</td>
+                  <td className="lbl">{changes ? 'Con este cambio' : 'Proyección'}</td>
                   {preview.map((p) => (
                     <td key={p.month} className={'bp-center' + (p.value ? '' : ' zero')} title={p.explain}>
                       {p.value}
@@ -468,94 +568,127 @@ export default function StrategyEditor({
                 </tr>
               </tbody>
             </table>
-          )}
-          {months.length > 0 && (
-            <p className="ol-editor__hint">
-              {changesPreview ? (
-                <>
-                  Cada celda trae su cuenta en el tooltip. El aumento cae cuando se cumple el <b>período completo</b>:
-                  con {cadenceLabel(segments[0]?.cadence ?? 'quarterly')} desde {monthLabel(segments[0]?.fromMonth ?? (months[0] ?? data.currentMonth))}, el
-                  primer mes es el benchmark tal cual.
-                </>
-              ) : (
-                <>Con estos valores la proyección no cambia respecto de lo que ya está guardado.</>
-              )}
-            </p>
-          )}
-        </section>
+          </section>
+        )}
 
-        {error && <div className="bp-notice bp-notice--warn ol-editor__msg">{error}</div>}
-        {saved && !error && <div className="bp-notice ol-editor__msg">{saved}</div>}
-
-        {/* ── La historia ──────────────────────────────────────────────── */}
-        <section className="ol-editor__block">
+        {/* ── La historia, detrás de un enlace ────────────────────────── */}
+        <div>
           <button type="button" className="bp-linkish" onClick={() => setShowHistory((v) => !v)}>
-            {showHistory ? 'ocultar historial' : `ver historial (${benchHistory.length + revisionsDesc.length} decisión(es))`}
+            {showHistory ? 'ocultar historial' : `ver historial (${historyCount})`}
           </button>
+        </div>
 
-          {showHistory && (
-            <>
-              <h3 className="ol-editor__h">Benchmarks guardados</h3>
-              <table className="piv ol-editor__tbl">
-                <thead>
-                  <tr className="mo-row">
-                    <th className="lbl">Rige desde</th>
-                    <th className="bp-center">Valor</th>
-                    <th className="bp-left">Quién</th>
-                    <th className="bp-left">Cuándo</th>
-                    <th className="bp-left">Nota</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {benchHistory.map((r) => (
-                    <tr key={r.strategy_benchmark_key} className="metric">
-                      <td className="lbl">{r.effective_from}</td>
-                      <td className="bp-center">{fmt(Number(r.monthly_benchmark))}</td>
-                      <td className="bp-left">{r.set_by}</td>
-                      <td className="bp-left">{stamp(r.created_at)}</td>
-                      <td className="bp-left bp-history__note">{r.note ?? '—'}</td>
-                    </tr>
-                  ))}
-                  {benchHistory.length === 0 && (
-                    <tr>
-                      <td className="lbl bp-empty-cell" colSpan={5}>
-                        {benchmarkEditable
-                          ? 'Nadie fijó todavía el benchmark de esta estrategia.'
-                          : 'El historial de Own Production está en el perfil del Business Plan.'}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+        {showHistory && (
+          <section className="ol-editor__block">
+            {modeHistory.length > 0 && (
+              <>
+                <h3 className="ol-editor__h">Modo</h3>
+                <table className="piv ol-editor__tbl">
+                  <tbody>
+                    {modeHistory.map((r) => (
+                      <tr key={r.projection_mode_key} className="metric">
+                        <td className="lbl">{modeLabel(r.mode)}</td>
+                        <td className="bp-left">{r.set_by}</td>
+                        <td className="bp-left">{stamp(r.created_at)}</td>
+                        <td className="bp-left bp-history__note">{r.note ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            )}
 
-              <h3 className="ol-editor__h">Revisiones de la regla</h3>
-              {revisionsDesc.map(([rev, rows]) => (
-                <div key={rev} className={'ol-editor__rev-card' + (rev === revision ? ' is-current' : '')}>
-                  <div className="ol-editor__rev-head">
-                    <b>Revisión {rev}</b>
-                    {rev === revision && <span className="ol-editor__tag">vigente</span>}
-                    <span className="bp-muted">
-                      {rows[0].set_by} · {stamp(rows[0].created_at)}
-                    </span>
-                  </div>
-                  <div className="ol-editor__rev-body">
-                    {[...rows]
-                      .sort((a, b) => a.segment_order - b.segment_order)
-                      .map((r) => (
-                        <span key={r.growth_rule_key} className="ol-editor__seg">
-                          {Number(r.growth_pct)}% {cadenceLabel(r.cadence)} desde {r.from_month.slice(0, 7)}
+            {benchHistory.length > 0 && (
+              <>
+                <h3 className="ol-editor__h">Benchmarks</h3>
+                <table className="piv ol-editor__tbl">
+                  <tbody>
+                    {benchHistory.map((r) => (
+                      <tr key={r.strategy_benchmark_key} className="metric">
+                        <td className="lbl">
+                          {fmt(Number(r.monthly_benchmark))} <span className="bp-muted">desde {r.effective_from}</span>
+                        </td>
+                        <td className="bp-left">{r.set_by}</td>
+                        <td className="bp-left">{stamp(r.created_at)}</td>
+                        <td className="bp-left bp-history__note">{r.note ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            )}
+
+            {ruleRevisions.size > 0 && (
+              <>
+                <h3 className="ol-editor__h">Reglas</h3>
+                {[...ruleRevisions.entries()]
+                  .sort((a, b) => b[0] - a[0])
+                  .map(([rev, rows]) => (
+                    <div
+                      key={rev}
+                      className={'ol-editor__rev-card' + (rev === revision && savedMode === 'growth' ? ' is-current' : '')}
+                    >
+                      <div className="ol-editor__rev-head">
+                        <b>Revisión {rev}</b>
+                        {rev === revision && savedMode === 'growth' && <span className="ol-editor__tag">vigente</span>}
+                        <span className="bp-muted">
+                          {rows[0].set_by} · {stamp(rows[0].created_at)}
                         </span>
-                      ))}
-                  </div>
-                  {rows[0].note && <div className="ol-editor__rev-note">{rows[0].note}</div>}
-                </div>
-              ))}
-              {revisionsDesc.length === 0 && (
-                <p className="ol-editor__hint">No hay ninguna regla guardada para esta estrategia.</p>
-              )}
-            </>
-          )}
-        </section>
+                      </div>
+                      <div className="ol-editor__rev-body">
+                        {[...rows]
+                          .sort((a, b) => a.segment_order - b.segment_order)
+                          .map((r) => (
+                            <span key={r.growth_rule_key} className="ol-editor__seg">
+                              {Number(r.growth_pct)}% {cadenceLabel(r.cadence)} desde {r.from_month.slice(0, 7)}
+                            </span>
+                          ))}
+                      </div>
+                      {rows[0].note && <div className="ol-editor__rev-note">{rows[0].note}</div>}
+                    </div>
+                  ))}
+              </>
+            )}
+
+            {targetRevisions.size > 0 && (
+              <>
+                <h3 className="ol-editor__h">Meses fijados</h3>
+                {[...targetRevisions.entries()]
+                  .sort((a, b) => b[0] - a[0])
+                  .map(([rev, rows]) => (
+                    <div
+                      key={rev}
+                      className={
+                        'ol-editor__rev-card' + (rev === targetRevision && savedMode === 'monthly' ? ' is-current' : '')
+                      }
+                    >
+                      <div className="ol-editor__rev-head">
+                        <b>Revisión {rev}</b>
+                        {rev === targetRevision && savedMode === 'monthly' && (
+                          <span className="ol-editor__tag">vigente</span>
+                        )}
+                        <span className="bp-muted">
+                          {rows[0].set_by} · {stamp(rows[0].created_at)}
+                        </span>
+                      </div>
+                      <div className="ol-editor__rev-body">
+                        {[...rows]
+                          .sort((a, b) => a.target_month.localeCompare(b.target_month))
+                          .map((r) => (
+                            <span key={r.monthly_target_key} className="ol-editor__seg">
+                              {monthLabel(r.target_month.slice(0, 7))} {Number(r.target)}
+                            </span>
+                          ))}
+                      </div>
+                      {rows[0].note && <div className="ol-editor__rev-note">{rows[0].note}</div>}
+                    </div>
+                  ))}
+              </>
+            )}
+
+            {historyCount === 0 && <p className="ol-editor__hint">Todavía no hay nada guardado para esta estrategia.</p>}
+          </section>
+        )}
       </div>
     </Modal>
   );

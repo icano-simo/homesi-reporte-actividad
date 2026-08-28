@@ -1,7 +1,7 @@
 'use client';
 
 import { getSupabaseClient } from '@/lib/supabase/client';
-import type { Cadence, GrowthSegment, OutlookStrategy } from './project';
+import type { Cadence, GrowthSegment, OutlookStrategy, ProjectionMode } from './project';
 
 /*
  * ============================================================================
@@ -84,6 +84,18 @@ function readable(err: { code?: string; message: string }): Error {
     return new Error(
       'Alguien más guardó una revisión de esta regla mientras editabas. Recargá la pantalla y volvé a aplicar el cambio ' +
         'sobre la última versión, para no tapar su decisión con la tuya.'
+    );
+  }
+  /*
+   * PGRST205: la tabla no está en el cache de esquema de PostgREST, o sea que no
+   * existe. Pasa con las dos tablas de OL4 hasta que se aplique su SQL, y el
+   * mensaje crudo --"Could not find the table in the schema cache"-- no le dice
+   * a nadie qué hacer. Este sí.
+   */
+  if (err.code === 'PGRST205' || /Could not find the table/i.test(err.message)) {
+    return new Error(
+      'Falta aplicar el SQL de esta etapa: docs/sql/2026-08-outlook-monthly-mode.sql. ' +
+        'Nada se guardó y la proyección no cambió.'
     );
   }
   if (err.code === '42501' || /permission denied|row-level security/i.test(err.message)) {
@@ -222,4 +234,101 @@ export async function saveGrowthRuleRevision(input: {
   const { error } = await supabase.schema('outlook').from('growth_rule').insert(rows);
   if (error) throw readable(error);
   return revision;
+}
+
+/*
+ * ============================================================================
+ * EL SEGUNDO MODO — meses fijados a mano (etapa OL4)
+ * ============================================================================
+ *
+ * Mismas cuatro reglas de arriba: nunca se actualiza, `set_by` sale de la
+ * sesión, rige desde el mes siguiente y una edición es una revisión nueva y
+ * completa.
+ *
+ * ---------------------------------------------------------------------------
+ * ⚠ SON DOS INSERTS EN DOS TABLAS, Y EL ORDEN IMPORTA
+ * ---------------------------------------------------------------------------
+ * Guardar en modo mes a mes escribe los números y DESPUÉS activa el modo.
+ * PostgREST no da transacción entre dos tablas, así que hay que elegir qué pasa
+ * si el segundo falla, y las dos mitades no son simétricas:
+ *
+ *   números y después modo  ->  falla el modo: los números quedan guardados y
+ *                               sin aplicar. La proyección no cambia. Se
+ *                               reintenta y queda.
+ *
+ *   modo y después números  ->  falla lo segundo: el modo quedó en `monthly` y
+ *                               NO hay números. Todos los meses proyectan 0, en
+ *                               la pantalla de todos, sin que nadie lo haya
+ *                               pedido.
+ *
+ * El primero deja el trabajo a medias; el segundo cambia el presupuesto a cero.
+ * Por eso los números van primero.
+ */
+
+/** Los meses fijados de una estrategia. Devuelve la revisión escrita. */
+export async function saveMonthlyTargets(input: {
+  employeeKey: number;
+  strategy: OutlookStrategy;
+  /** 'YYYY-MM' → número. Los meses que no vengan quedan sin fijar (0). */
+  targets: Record<string, number>;
+  note: string | null;
+}): Promise<number> {
+  const months = Object.keys(input.targets).sort();
+  if (months.length === 0) {
+    throw new Error('No hay ningún mes que fijar.');
+  }
+
+  const set_by = await authorEmail();
+  const supabase = getSupabaseClient();
+
+  /* La revisión siguiente se lee de la BASE, no de la pantalla -- ver arriba. */
+  const { data: existing, error: readError } = await supabase
+    .schema('outlook')
+    .from('monthly_target')
+    .select('revision')
+    .eq('employee_key', input.employeeKey)
+    .eq('strategy', input.strategy)
+    .order('revision', { ascending: false })
+    .limit(1);
+  if (readError) throw readable(readError);
+  const revision = (existing?.[0]?.revision ?? 0) + 1;
+
+  const rows = months.map((m) => ({
+    employee_key: input.employeeKey,
+    strategy: input.strategy,
+    revision,
+    target_month: m + '-01',
+    target: input.targets[m],
+    set_by,
+    note: input.note,
+  }));
+
+  const { error } = await supabase.schema('outlook').from('monthly_target').insert(rows);
+  if (error) throw readable(error);
+  return revision;
+}
+
+/**
+ * Qué modo rige para (persona, estrategia).
+ *
+ * ⚠ Esto NO borra nada del otro modo. La regla de crecimiento y los meses
+ * fijados conviven guardados; lo único que cambia es cuál de los dos se aplica.
+ * Volver al modo anterior lo reactiva tal como estaba -- que es lo que hace que
+ * probar "¿y si lo fijo a mano?" no cueste perder la regla.
+ */
+export async function setProjectionMode(input: {
+  employeeKey: number;
+  strategy: OutlookStrategy;
+  mode: ProjectionMode;
+  note: string | null;
+}): Promise<void> {
+  const set_by = await authorEmail();
+  const { error } = await getSupabaseClient().schema('outlook').from('projection_mode').insert({
+    employee_key: input.employeeKey,
+    strategy: input.strategy,
+    mode: input.mode,
+    set_by,
+    note: input.note,
+  });
+  if (error) throw readable(error);
 }

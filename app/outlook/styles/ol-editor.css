@@ -159,3 +159,67 @@
   color: var(--slate-700);
   text-decoration: underline;
 }
+
+/*
+ * ── La pregunta del modo, y los meses del modo B — etapa OL4 ──────────────
+ *
+ * Dos botones grandes y no un `<select>`: son DOS opciones con nombre y una
+ * frase que las distingue, y esa frase es la que evita tener que explicar los
+ * dos modos en un párrafo aparte. Un desplegable escondería la mitad de la
+ * pregunta detrás de un clic.
+ *
+ * `role="radiogroup"` y `aria-checked` porque para el lector de pantalla esto es
+ * una elección entre dos, no dos acciones sueltas.
+ */
+.ol-modes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.ol-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  text-align: left;
+  padding: 9px 12px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  background: var(--white, #fff);
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.14s, background 0.14s;
+}
+.ol-mode:hover {
+  border-color: var(--sky);
+}
+.ol-mode.is-on {
+  border-color: var(--navy);
+  background: var(--accent-soft);
+}
+.ol-mode__name {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--navy);
+}
+.ol-mode__hint {
+  font-size: 11px;
+  color: var(--slate-500);
+  line-height: 1.4;
+}
+
+/* Los cuatro meses del modo B, uno al lado del otro: la fila que se está fijando
+   tiene la misma forma que la fila que se va a ver en la tabla. */
+.ol-months {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* El modo que no se puede guardar todavía: visible, y claramente no elegible. */
+.ol-mode:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.ol-mode:disabled:hover {
+  border-color: var(--slate-200);
+}

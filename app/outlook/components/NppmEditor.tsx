@@ -100,12 +100,6 @@ export default function NppmEditor({
   return (
     <Modal title={`${realtor} — benchmark NPPM`} onClose={onClose}>
       <div className="ol-editor">
-        <p className="ol-editor__hint">
-          <b>{realtor}</b> · {ytd} cerrado{ytd === 1 ? '' : 's'} este año con este Loan Officer. El benchmark es del{' '}
-          <b>realtor</b>, no del par realtor–Loan Officer: el mismo realtor trabaja con varias personas y branches, y lo
-          que se guarde acá vale en todas.
-        </p>
-
         <div className="ol-editor__row">
           <div className="bp-form__field">
             <label className="bp-form__label" htmlFor="ol-nppm">
@@ -139,12 +133,17 @@ export default function NppmEditor({
           </button>
         </div>
 
+        {/*
+          Una sola línea, con las dos cosas que hay que saber en el momento de
+          decidir: desde cuándo rige y que no proyecta. El porqué --que la
+          producción de un realtor se reparte entre varios Loan Officers y cuánto
+          le toca a cada uno no está definido-- está en la cabecera del archivo;
+          quien está cargando un número no lo necesita para cargarlo.
+        */}
         <p className="ol-editor__hint">
-          Rige desde <b>{data.effectiveFrom}</b>, el primer día del mes siguiente. <b>No proyecta por sí solo</b>: lo que
-          proyecta NPPM es el benchmark de la estrategia del Loan Officer. Este número es el compromiso con el que se
-          sumó al realtor, para poder contrastarlo contra lo que cerró. Que uno alimente al otro es una decisión
-          pendiente — la producción de un realtor se reparte entre los Loan Officers con los que trabaja, y cuánto le
-          toca a cada uno todavía no está definido.
+          Cerró <b>{ytd}</b> este año con este Loan Officer. Rige desde <b>{data.effectiveFrom}</b>, es del{' '}
+          <b>realtor</b> —no del par con este Loan Officer— y <b>no proyecta por sí solo</b>: lo que proyecta NPPM es el
+          benchmark de la estrategia. Que uno alimente al otro está pendiente de definir.
         </p>
 
         {error && <div className="bp-notice bp-notice--warn ol-editor__msg">{error}</div>}

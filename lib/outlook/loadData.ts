@@ -13,6 +13,8 @@ import {
   type Cadence,
   type GrowthSegment,
   type OutlookStrategy,
+  type ProjectionMode,
+  type StrategyPlan,
 } from './project';
 
 const PAGE_SIZE = 1000;
@@ -107,6 +109,28 @@ export interface GrowthRuleRow {
   created_at: string;
 }
 
+export interface MonthlyTargetRow {
+  monthly_target_key: number;
+  employee_key: number;
+  strategy: string;
+  revision: number;
+  target_month: string;
+  target: number | string;
+  set_by: string;
+  note: string | null;
+  created_at: string;
+}
+
+export interface ProjectionModeRow {
+  projection_mode_key: number;
+  employee_key: number;
+  strategy: string;
+  mode: ProjectionMode;
+  set_by: string;
+  note: string | null;
+  created_at: string;
+}
+
 export interface StrategyYtd {
   strategy: OutlookStrategy;
   /** Cerrados del año. Es la suma de `actualByMonth`, no un conteo aparte. */
@@ -177,6 +201,17 @@ export interface OutlookLoanOfficer {
    * punto vigente en ese mes, no este valor de portada. Ver `benchmarkAt`.
    */
   benchmarkSchedules: Partial<Record<OutlookStrategy, BenchmarkPoint[]>>;
+  /**
+   * El modo que RIGE en cada estrategia — etapa OL4. Sin fila guardada,
+   * `growth`, que es como se comportaba el módulo antes.
+   */
+  modeByStrategy: Partial<Record<OutlookStrategy, ProjectionMode>>;
+  /** Quién eligió el modo y cuándo. `null` si nadie lo eligió nunca. */
+  modeSetBy: Partial<Record<OutlookStrategy, { setBy: string; at: string } | null>>;
+  /** Modo `monthly`: los meses fijados de la revisión vigente — etapa OL4. */
+  targetsByStrategy: Partial<Record<OutlookStrategy, Record<string, number>>>;
+  /** La revisión vigente de los meses fijados, o 0 si no hay ninguna. */
+  targetRevision: Partial<Record<OutlookStrategy, number>>;
 }
 
 export interface OutlookBranch {
@@ -227,6 +262,8 @@ export interface OutlookData {
     strategyBenchmarks: StrategyBenchmarkRow[];
     nppmBenchmarks: NppmBenchmarkRow[];
     growthRules: GrowthRuleRow[];
+    monthlyTargets: MonthlyTargetRow[];
+    projectionModes: ProjectionModeRow[];
   };
   diagnostics: {
     activityRowsRead: number;
@@ -242,6 +279,15 @@ export interface OutlookData {
     currentMonthClosedRecords: number;
     /** Cerrados del mes en curso según Forecast, que es lo que va en el pronóstico. */
     currentMonthClosedForecast: number;
+    /**
+     * ¿Están las tablas de OL4? — `outlook.monthly_target` y
+     * `outlook.projection_mode`.
+     *
+     * ⚠ Se usa para NO OFRECER el modo mes a mes cuando no se puede guardar.
+     * Ofrecerlo igual dejaría a alguien escribiendo cuatro números para
+     * descubrir al apretar Guardar que no hay dónde ponerlos.
+     */
+    monthlyModeAvailable: boolean;
   };
 }
 
@@ -364,9 +410,22 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
   const rulesByKey = new Map<string, GrowthSegment[]>();
   const nppmScheduleByRealtor = new Map<string, BenchmarkPoint[]>();
   const revisionByKey = new Map<string, number>();
+  /* Etapa OL4 — el modo vigente y los meses fijados, por (persona, estrategia). */
+  const modeByKey = new Map<string, ProjectionMode>();
+  const modeSetByKey = new Map<string, { setBy: string; at: string }>();
+  const targetsByKey = new Map<string, Record<string, number>>();
+  const targetRevisionByKey = new Map<string, number>();
   let strategyBenchmarkRows = 0;
   let growthRuleRows = 0;
-  const history: OutlookData['history'] = { strategyBenchmarks: [], nppmBenchmarks: [], growthRules: [] };
+  /* ¿Se pueden leer las dos tablas de OL4? Si no, el modo mes a mes no se ofrece. */
+  let monthlyModeAvailable = false;
+  const history: OutlookData['history'] = {
+    strategyBenchmarks: [],
+    nppmBenchmarks: [],
+    growthRules: [],
+    monthlyTargets: [],
+    projectionModes: [],
+  };
 
   /*
    * Una serie desde filas append-only. Dos cosas que parecen detalle y no lo son:
@@ -391,11 +450,53 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
 
   try {
     const ol = supabase.schema('outlook');
-    const [benchRes, ruleRes, nppmRes] = await Promise.all([
+    const [benchRes, ruleRes, nppmRes, targetRes, modeRes] = await Promise.all([
       ol.from('strategy_benchmark').select('*'),
       ol.from('growth_rule').select('*'),
       ol.from('nppm_benchmark').select('*'),
+      ol.from('monthly_target').select('*'),
+      ol.from('projection_mode').select('*'),
     ]);
+
+    /*
+     * ⚠ Las dos tablas de OL4 se leen APARTE de las de OL1, y su error no
+     * apaga el módulo.
+     *
+     * El SQL de esta etapa lo aplica el revisor, así que puede no estar puesto
+     * todavía. Si faltara y esto compartiera el `if` con las otras, un 404 acá
+     * dejaría la pantalla sin benchmarks NI reglas -- todo el presupuesto en
+     * cero por una tabla que sólo hace falta para el segundo modo. Sin fila de
+     * modo el módulo se comporta exactamente como en OL3, que es la definición
+     * de una etapa que se puede aplicar en dos momentos.
+     */
+    if (!targetRes.error && !modeRes.error) {
+      monthlyModeAvailable = true;
+      const modes = (modeRes.data ?? []) as ProjectionModeRow[];
+      history.projectionModes = modes;
+      /* Vale la fila de `projection_mode_key` más alto -- ver el SQL de OL4. */
+      for (const m of [...modes].sort((a, b) => a.projection_mode_key - b.projection_mode_key)) {
+        const k = m.employee_key + '|' + m.strategy;
+        modeByKey.set(k, m.mode);
+        modeSetByKey.set(k, { setBy: m.set_by, at: m.created_at });
+      }
+
+      const targets = (targetRes.data ?? []) as MonthlyTargetRow[];
+      history.monthlyTargets = targets;
+      /* Sólo la revisión más alta de cada par, entera -- igual que las reglas. */
+      const maxTargetRev = new Map<string, number>();
+      for (const t of targets) {
+        const k = t.employee_key + '|' + t.strategy;
+        maxTargetRev.set(k, Math.max(maxTargetRev.get(k) ?? 0, t.revision));
+      }
+      for (const [k, rev] of maxTargetRev) targetRevisionByKey.set(k, rev);
+      for (const t of targets) {
+        const k = t.employee_key + '|' + t.strategy;
+        if (t.revision !== maxTargetRev.get(k)) continue;
+        const byMonth = targetsByKey.get(k) ?? {};
+        byMonth[t.target_month.slice(0, 7)] = Number(t.target);
+        targetsByKey.set(k, byMonth);
+      }
+    }
     if (!nppmRes.error) {
       const nppmRows = (nppmRes.data ?? []) as NppmBenchmarkRow[];
       history.nppmBenchmarks = nppmRows;
@@ -668,9 +769,19 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
 
     const rulesByStrategy: Partial<Record<OutlookStrategy, GrowthSegment[]>> = {};
     const ruleRevision: Partial<Record<OutlookStrategy, number>> = {};
+    const modeByStrategy: Partial<Record<OutlookStrategy, ProjectionMode>> = {};
+    const modeSetBy: Partial<Record<OutlookStrategy, { setBy: string; at: string } | null>> = {};
+    const targetsByStrategy: Partial<Record<OutlookStrategy, Record<string, number>>> = {};
+    const targetRevision: Partial<Record<OutlookStrategy, number>> = {};
     for (const s of OUTLOOK_STRATEGIES) {
-      rulesByStrategy[s] = rulesByKey.get(lo.employeeKey + '|' + s) ?? [];
-      ruleRevision[s] = revisionByKey.get(lo.employeeKey + '|' + s) ?? 0;
+      const k = lo.employeeKey + '|' + s;
+      rulesByStrategy[s] = rulesByKey.get(k) ?? [];
+      ruleRevision[s] = revisionByKey.get(k) ?? 0;
+      /* Sin fila de modo, `growth`: es como se comportaba el módulo antes. */
+      modeByStrategy[s] = modeByKey.get(k) ?? 'growth';
+      modeSetBy[s] = modeSetByKey.get(k) ?? null;
+      targetsByStrategy[s] = targetsByKey.get(k) ?? {};
+      targetRevision[s] = targetRevisionByKey.get(k) ?? 0;
     }
 
     const row: OutlookLoanOfficer = {
@@ -690,7 +801,18 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
        * para poder decirlo en el tooltip en vez de que alguien lo deduzca.
        */
       closedToDate: lo.projection.closedToDate,
-      benchmarkTotal: OUTLOOK_STRATEGIES.reduce((a, s) => a + (strategyBenchmarks[s] ?? 0), 0),
+      /*
+       * ⚠ Sólo las estrategias en modo `growth` — etapa OL4.
+       *
+       * El benchmark es la BASE de un cálculo. Una estrategia fijada mes a mes
+       * no tiene base: sus meses son el resultado directo. Sumar su benchmark
+       * guardado --que sigue ahí, sin aplicarse-- daría un total que no es la
+       * base de nada y que no explica ninguna celda de la fila.
+       */
+      benchmarkTotal: OUTLOOK_STRATEGIES.reduce(
+        (a, s) => a + (modeByStrategy[s] === 'monthly' ? 0 : (strategyBenchmarks[s] ?? 0)),
+        0
+      ),
       ownProductionBenchmark: lo.monthlyBenchmark,
       activePlan: lo.activePlan,
       primaryBranch: lo.branchCodes[0] ?? null,
@@ -700,6 +822,10 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       ruleRevision,
       strategyBenchmarks,
       benchmarkSchedules,
+      modeByStrategy,
+      modeSetBy,
+      targetsByStrategy,
+      targetRevision,
     };
     /*
      * En qué branches aparece: donde CERRÓ algo este año, más los del roster si
@@ -779,6 +905,7 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
        */
       currentMonthClosedRecords: branches.reduce((a, b) => a + (b.actualByMonth[currentMonth] ?? 0), 0),
       currentMonthClosedForecast: branches.reduce((a, b) => a + b.closedToDate, 0),
+      monthlyModeAvailable,
     },
   };
 }
@@ -799,7 +926,24 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
  * divergir, hay una suma.
  */
 
-import { projectMonth, type ProjectionStep } from './project';
+import { projectPlan, type ProjectionStep } from './project';
+
+/**
+ * El plan de una estrategia: el modo que rige y los datos de los DOS modos.
+ *
+ * ⚠ Vive acá y no en `project.ts` a propósito. `project.ts` es aritmética pura y
+ * no conoce al Loan Officer ni a la base; si importara `OutlookLoanOfficer` para
+ * escribir esta función, el motor pasaría a depender del loader y dejaría de
+ * poder probarse solo. Esto es la traducción entre los dos, y es de este lado.
+ */
+export function planOf(lo: OutlookLoanOfficer, strategy: OutlookStrategy): StrategyPlan {
+  return {
+    mode: lo.modeByStrategy[strategy] ?? 'growth',
+    benchmarks: lo.benchmarkSchedules[strategy] ?? [],
+    segments: lo.rulesByStrategy[strategy] ?? [],
+    targets: lo.targetsByStrategy[strategy] ?? {},
+  };
+}
 
 /** La proyección de un Loan Officer: la suma de sus cinco estrategias. */
 export function projectLoanOfficer(
@@ -810,11 +954,14 @@ export function projectLoanOfficer(
   const stepsByStrategy: Partial<Record<OutlookStrategy, ProjectionStep[]>> = {};
 
   for (const s of OUTLOOK_STRATEGIES) {
-    /* ⚠ El benchmark se resuelve MES POR MES: uno guardado hoy con efecto en
-       noviembre cambia noviembre y diciembre, no septiembre. Ver `benchmarkAt`. */
-    const schedule = lo.benchmarkSchedules[s] ?? [];
-    const segments = lo.rulesByStrategy[s] ?? [];
-    const steps = months.map((m) => projectMonth(m, benchmarkAt(schedule, m), segments));
+    /*
+     * ⚠ UNA SOLA PUERTA. `projectPlan` decide si los meses se calculan (modo
+     * `growth`, benchmark resuelto mes por mes con `benchmarkAt`) o se leen del
+     * número fijado (modo `monthly`). La vista previa del editor llama a la
+     * misma función con el plan del formulario, así que no puede mostrar algo
+     * que después la tabla no muestre.
+     */
+    const steps = projectPlan(months, planOf(lo, s));
     stepsByStrategy[s] = steps;
     for (const step of steps) {
       byMonth[step.month] = (byMonth[step.month] ?? 0) + step.value;

@@ -245,3 +245,77 @@ export function benchmarkAt(points: BenchmarkPoint[], month: string): number {
   }
   return best === null ? 0 : best.value;
 }
+
+/*
+ * ============================================================================
+ * LOS DOS MODOS, Y LA ÚNICA PUERTA POR LA QUE SE PROYECTA — etapa OL4
+ * ============================================================================
+ *
+ * Un presupuesto se puede fijar de dos maneras:
+ *
+ *   `growth`    benchmark + regla de crecimiento  ->  los meses se CALCULAN
+ *   `monthly`   un número por mes                 ->  los meses se ESCRIBEN
+ *
+ * ⚠ `projectPlan` es la ÚNICA función que decide cuál se usa, y la llaman los
+ * tres lugares que muestran un mes futuro: la tabla de la vista 1, la de la
+ * vista 2 y la vista previa del editor.
+ *
+ * Que sea una sola importa más de lo que parece. Una vista previa con su propia
+ * aritmética sería peor que no tener vista previa: mostraría con autoridad un
+ * número que después no aparece en la tabla, y nadie revisa dos veces algo que
+ * ya vio confirmado. El único modo de garantizar que la previa dice la verdad es
+ * que no tenga forma de mentir.
+ *
+ * `projectMonth` sigue siendo la aritmética del crecimiento y no sabe que existe
+ * el otro modo. `projectPlan` es la que elige.
+ */
+export type ProjectionMode = 'growth' | 'monthly';
+
+export interface StrategyPlan {
+  /** El modo que RIGE. Lo del otro modo queda guardado y no se aplica. */
+  mode: ProjectionMode;
+  /** Modo `growth`: la serie de benchmarks y los tramos. */
+  benchmarks: BenchmarkPoint[];
+  segments: GrowthSegment[];
+  /** Modo `monthly`: 'YYYY-MM' → número fijado. */
+  targets: Record<string, number>;
+}
+
+/**
+ * Un mes fijado a mano, con la misma forma que uno calculado.
+ *
+ * ⚠ Devuelve un `ProjectionStep` completo y no un número suelto: las celdas de
+ * la tabla muestran `step.explain` en el tooltip, y si este modo devolviera algo
+ * distinto habría que preguntar en cada celda de qué tipo es. Un mes fijado
+ * tiene benchmark 0, ningún tramo y cero períodos porque no depende de ninguno
+ * de los tres -- eso NO es "faltan datos", es lo que significa fijarlo a mano.
+ */
+function fixedMonth(month: string, target: number | undefined): ProjectionStep {
+  const value = target ?? 0;
+  return {
+    month,
+    benchmark: 0,
+    segment: null,
+    periods: 0,
+    multiplier: 1,
+    exact: value,
+    value: Math.round(value),
+    explain:
+      target === undefined
+        ? `Modo mes a mes · este mes no tiene número fijado → 0`
+        : `Modo mes a mes · número fijado a mano: ${value} · no depende de benchmark ni de regla`,
+  };
+}
+
+/** La proyección de una estrategia, por el modo que rige. */
+export function projectPlan(months: string[], plan: StrategyPlan): ProjectionStep[] {
+  if (plan.mode === 'monthly') {
+    return months.map((m) => fixedMonth(m, plan.targets[m]));
+  }
+  return months.map((m) => projectMonth(m, benchmarkAt(plan.benchmarks, m), plan.segments));
+}
+
+/** Cómo se llama el modo en la pantalla. */
+export function modeLabel(mode: ProjectionMode): string {
+  return mode === 'growth' ? 'por porcentaje' : 'mes a mes';
+}

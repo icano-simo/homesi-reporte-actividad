@@ -75,14 +75,23 @@ function bandOf(month: string, currentMonth: string): 'actual' | 'forecast' | 'b
 }
 
 /**
- * La regla en una línea, con lo que la vuelve legible: CUÁNDO cae el primer
- * aumento.
+ * Cómo se está fijando esta estrategia, en una línea.
  *
- * ⚠ Sin eso, "25% trimestral desde septiembre" con Sep/Oct/Nov todos iguales al
- * benchmark se lee como un error de la tabla. El benchmark ES el objetivo de
- * septiembre y el primer aumento cae al cumplirse el trimestre -- en diciembre.
+ * ⚠ Dice el MODO primero, porque es lo que decide si el resto de la línea
+ * significa algo — etapa OL4. Una regla de crecimiento en una estrategia fijada
+ * mes a mes está guardada y no se aplica, y mostrarla sin decirlo haría pensar
+ * que los meses salieron de ella.
+ *
+ * En modo `growth` la línea lleva CUÁNDO cae el primer aumento: sin eso, "25%
+ * trimestral desde septiembre" con Sep/Oct/Nov todos iguales al benchmark se lee
+ * como un error de la tabla. El benchmark ES el objetivo de septiembre y el
+ * primer aumento cae al cumplirse el trimestre -- en diciembre.
  */
 function ruleLabel(lo: OutlookLoanOfficer, strategy: OutlookStrategy, months: string[]): string {
+  if ((lo.modeByStrategy[strategy] ?? 'growth') === 'monthly') {
+    const rev = lo.targetRevision[strategy] ?? 0;
+    return rev === 0 ? 'mes a mes · sin números fijados' : 'mes a mes · números fijados a mano';
+  }
   const segments = lo.rulesByStrategy[strategy] ?? [];
   if (segments.length === 0) return 'sin regla';
   const steps = projectLoanOfficer(lo, months).stepsByStrategy[strategy] ?? [];
@@ -244,6 +253,10 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                 diferencia con el total de la persona. No se muestra como
                 número propio: sería un tercer total en la misma fila.
               */
+              /* Las que están fijadas mes a mes, para explicar el benchmark. */
+              const monthlyStrategies = OUTLOOK_STRATEGIES.filter(
+                (s) => (lo.modeByStrategy[s] ?? 'growth') === 'monthly'
+              );
               const strategiesTotal = OUTLOOK_STRATEGIES.reduce((acc, s) => {
                 const st = lo.strategies.find((x) => x.strategy === s);
                 const steps = stepsByStrategy[s] ?? [];
@@ -298,9 +311,16 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                     </td>
                     <td
                       className="bp-center"
-                      title="Suma de los benchmarks de sus cinco estrategias. Calculado, no editable."
+                      title={
+                        monthlyStrategies.length > 0
+                          ? `Suma de los benchmarks de las estrategias que proyectan por porcentaje. ` +
+                            `${monthlyStrategies.join(', ')} ${monthlyStrategies.length === 1 ? 'está fijada' : 'están fijadas'} ` +
+                            `mes a mes: sus meses no salen de un benchmark, así que no suman acá.`
+                          : 'Suma de los benchmarks de sus cinco estrategias. Calculado, no editable.'
+                      }
                     >
                       {fmt(lo.benchmarkTotal)}
+                      {monthlyStrategies.length > 0 && <span className="bp-muted ol-tag">+{monthlyStrategies.length} mes a mes</span>}
                     </td>
                     <td className="lbl">
                       {lo.activePlan ? (
@@ -325,6 +345,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                       const st = lo.strategies.find((x) => x.strategy === s);
                       const steps = stepsByStrategy[s] ?? [];
                       const bench = lo.strategyBenchmarks[s] ?? 0;
+                      const isMonthly = (lo.modeByStrategy[s] ?? 'growth') === 'monthly';
                       /*
                         ⚠ El mes en curso va en `null`, no en 0: Forecast lo
                         calcula sobre el pipeline, que no lleva la estrategia
@@ -379,16 +400,25 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                               cuánto es la base y cuánto crece-- y verlas juntas
                               es lo que evita guardar una sin mirar la otra.
                             */}
-                            <td className={'bp-center' + (bench ? '' : ' zero')}>
-                              {fmt(bench)}
+                            {/*
+                              El benchmark sólo significa algo en modo `growth`:
+                              es la BASE de un cálculo. En modo mes a mes los
+                              meses son el resultado directo, así que la celda
+                              dice `—` en vez de mostrar un número guardado que
+                              no está interviniendo en ninguna celda de la fila.
+                            */}
+                            <td className={'bp-center' + (isMonthly || !bench ? ' zero' : '')}>
+                              {isMonthly ? '—' : fmt(bench)}
                               <button
                                 type="button"
                                 className="ol-edit"
                                 onClick={() => setEditing({ employeeKey: lo.employeeKey, strategy: s })}
                                 title={
-                                  s === 'Own Production'
-                                    ? 'Su benchmark se edita en el Business Plan. Acá se edita su regla de crecimiento.'
-                                    : `Fijar el benchmark de ${s} y su regla de crecimiento`
+                                  isMonthly
+                                    ? 'Fijada mes a mes: el benchmark no interviene. Sigue guardado por si vuelve a modo porcentaje.'
+                                    : s === 'Own Production'
+                                      ? 'Su benchmark se edita en el Business Plan. Acá se edita su regla de crecimiento.'
+                                      : `Fijar el benchmark de ${s} y su regla de crecimiento`
                                 }
                               >
                                 editar
@@ -403,7 +433,9 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                               >
                                 {ruleLabel(lo, s, remainingMonths)}
                               </button>
-                              <span className="bp-muted ol-tag">rev {lo.ruleRevision[s] || '—'}</span>
+                              <span className="bp-muted ol-tag">
+                                rev {(isMonthly ? lo.targetRevision[s] : lo.ruleRevision[s]) || '—'}
+                              </span>
                             </td>
                           </tr>
 
@@ -546,6 +578,9 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
         motivo: el pronóstico se atribuye por el branch del <b>roster</b> y lo cerrado por el branch del{' '}
         <b>préstamo</b>. Donde no hay pronóstico —nadie rosterizado— la celda muestra lo ya cerrado del mes, que es un
         piso real; el tooltip de cada celda dice cuál de las dos lecturas está mostrando.{' '}
+        <b>Cada estrategia se fija de una de dos maneras</b>: por porcentaje —un benchmark y una regla, y los meses se
+        calculan— o <b>mes a mes</b>, escribiendo el número de cada mes. La columna de la derecha dice cuál rige. Lo
+        guardado del otro modo <b>no se borra y no se aplica</b>: volver al otro lo reactiva tal como estaba.{' '}
         <b>Todo lo que se edita se agrega, nunca se reemplaza</b>: un benchmark guardado es una fila nueva y una regla
         editada es una revisión nueva, las dos firmadas y fechadas, con las anteriores enteras en el historial. Y rige{' '}
         <b>desde el mes siguiente</b> — el mes en curso ya se está midiendo contra el benchmark anterior.
