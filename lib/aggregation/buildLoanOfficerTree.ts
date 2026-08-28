@@ -53,7 +53,13 @@ export function buildLoanOfficerTree(options: BuildLoanOfficerTreeOptions): Loan
 
   const officers: LoanOfficerTreeItem[] = [];
   for (const [name, officerRecords] of byOfficer) {
-    const maps = computeMetricMaps(officerRecords, measure);
+    /*
+     * Etapa V2: 'detail', no 'division'. Esta tabla mide PERSONAS -- es la
+     * misma decisión que rige el Business Plan: el HELOC de segundo gravamen
+     * lo gana quien lo originó. Además esta vista no tiene fila Total contra
+     * la cual descuadrar: `LoanOfficerTree` sólo tiene `officers`.
+     */
+    const maps = computeMetricMaps(officerRecords, measure, 'detail');
     const metricGroups: LoanOfficerMetricGroup[] = METRICS.map(({ key, label }) => ({
       metric: key,
       label,

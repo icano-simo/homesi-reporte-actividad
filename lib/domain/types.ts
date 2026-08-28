@@ -52,4 +52,25 @@ export interface LoanRecord {
    * el dato crudo.
    */
   affinity: string;
+  /**
+   * ⚠ ¿Este cierre suma en un TOTAL DE DIVISIÓN? — etapa V2.
+   *
+   * `closingMonth` dice si el préstamo cerró y en qué mes. Este flag dice algo
+   * distinto: si ese cierre le suma a la división o sólo a quien lo originó.
+   *
+   * Los HELOC de segundo gravamen cierran de verdad --el loan officer y su
+   * sucursal los ganan-- pero la división no gana nada con ellos, así que
+   * ningún total de división los cuenta. En `loan_records_v2` eso viene
+   * resuelto desde BigQuery: `counts_for_division` es exactamente
+   * `is_closed AND NOT is_second_lien_heloc` (verificado sobre las 4.794 filas:
+   * 468 cerrados, 463 que suman, y los 5 de diferencia son todos HELOC de
+   * segundo gravamen).
+   *
+   * Nunca es `true` con `closingMonth === null`: lo que no cerró no suma en
+   * ningún lado. La relación es de subconjunto, no de exclusión.
+   *
+   * Quién lo usa está en un solo lugar: `countsIn()` en
+   * lib/aggregation/metricMaps.ts.
+   */
+  countsForDivision: boolean;
 }

@@ -70,19 +70,34 @@ const WINDOW_MONTHS = 3;
  */
 const BLANK_OFFICER = '(blank)';
 
+/**
+ * Una fila de `activity_report.loan_records_v2` (etapa V2).
+ *
+ * ⚠ Las fechas son `date`, no el texto 'YYYY-MM' de la tabla vieja. PostgREST
+ * las manda como 'YYYY-MM-DD' y se recortan con `monthOf()` al entrar.
+ */
 interface ActivityRow {
   loan_officer: string | null;
-  file_creation_month: string | null;
-  credit_report_month: string | null;
-  app_date_month: string | null;
+  file_creation_date: string | null;
+  credit_report_date: string | null;
+  app_date: string | null;
   closing_month: string | null;
   branch: string | null;
   total_loan_amount: number | string | null;
   loan_number: string | null;
-  /* Etapa BP9. NULL en los lotes cargados antes de que se persistieran. */
   loan_program: string | null;
   loan_folder_name: string | null;
-  loan_info_channel_raw: string | null;
+  loan_channel: string | null;
+}
+
+/**
+ * ⚠ `date` -> 'YYYY-MM'. Recorte de texto y no `new Date(...)`: construir un
+ * Date desde 'YYYY-MM-DD' lo lee como UTC medianoche, y al oeste de Greenwich
+ * `getMonth()` devuelve el mes anterior para los días 1 -- que es justo lo que
+ * es `closing_month`. Mismo criterio que `closesInMonth()`, más abajo.
+ */
+function monthOf(date: string | null): string | null {
+  return date ? date.slice(0, 7) : null;
 }
 
 interface PipelineLoanRow {
@@ -321,26 +336,38 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
     /* tabla ausente: rige la regla general */
   }
 
-  // ── 3. Commercial Activity: lote activo ──────────────────────────────────
-  const { data: batches, error: batchError } = await supabase
-    .from('upload_batches')
-    .select('id')
-    .eq('is_current', true)
-    .limit(1);
-  if (batchError) throw new Error('upload_batches: ' + batchError.message);
-  const batchId = batches?.[0]?.id as string | undefined;
-
-  const activityRows: ActivityRow[] = batchId
-    ? await readAll<ActivityRow>((from, to) =>
-        supabase
-          .from('loan_records')
-          .select(
-            'loan_officer, file_creation_month, credit_report_month, app_date_month, closing_month, branch, total_loan_amount, loan_number, loan_program, loan_folder_name, loan_info_channel_raw'
-          )
-          .eq('upload_batch_id', batchId)
-          .range(from, to)
+  // ── 3. Commercial Activity: estado actual ────────────────────────────────
+  /*
+   * ⚠ Etapa V2: acá había un "lote activo". Ya no hay lotes.
+   *
+   * El grano de `loan_records_v2` es UN PRÉSTAMO, no préstamo x carga, así que
+   * no existe `upload_batch_id` ni hay nada que filtrar: se lee la tabla
+   * entera. Cambia el significado de esta sección -- pasa de "la foto del
+   * último archivo cargado" a "el estado actual según BigQuery"-- y es un
+   * cambio querido, no un efecto colateral.
+   *
+   * `readAll` sigue paginando de a 1000 por el límite de PostgREST, que no
+   * tenía nada que ver con los lotes.
+   *
+   * ⚠ Sobre los cierres: esta sección alimenta las métricas POR PERSONA, y el
+   * Business Plan mide personas de punta a punta -- también la revisión
+   * conjunta, que por BP31 tiene que dar exactamente la suma de los perfiles
+   * individuales. Por eso acá NO se aplica `counts_for_division`: un HELOC de
+   * segundo gravamen lo gana el loan officer que lo originó. La distinción
+   * vive sólo en los totales de división de la pantalla de actividad (ver
+   * `countsIn()` en lib/aggregation/metricMaps.ts).
+   */
+  const activityRows: ActivityRow[] = await readAll<ActivityRow>((from, to) =>
+    supabase
+      .from('loan_records_v2')
+      .select(
+        'loan_officer, file_creation_date, credit_report_date, app_date, closing_month, branch, total_loan_amount, loan_number, loan_program, loan_folder_name, loan_channel'
       )
-    : [];
+      // Sin orden explícito, PostgREST no garantiza que dos páginas seguidas
+      // no repitan ni salteen filas. `loan_number` es único en esta tabla.
+      .order('loan_number', { ascending: true })
+      .range(from, to)
+  );
 
   // ── 4. Forecast: snapshot activo ─────────────────────────────────────────
   const pf = supabase.schema('pipeline_forecast');
@@ -411,20 +438,44 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
   }
 
   for (const row of activityRows) {
-    const key = resolve('slquery', row.loan_officer);
+    /*
+     * ⚠ Etapa V2: el nombre vacío se traduce a '(blank)' ANTES de resolverlo.
+     *
+     * La tabla vieja guardaba los nombres ya normalizados por `classifyLoan`,
+     * que escribía literalmente '(blank)' cuando el officer venía vacío. v2
+     * trae el dato crudo: NULL o cadena vacía, en 221 de las 4.794 filas.
+     *
+     * Sin esta traducción esas filas entran a `resolve` como falsy, salen por
+     * el `if (!nameRaw) return null` y NO incrementan `rowsWithoutOfficer` --
+     * o sea que el diagnóstico de "filas sin loan officer" del pie de página
+     * caería a cero de golpe y parecería que el problema se resolvió solo.
+     *
+     * El caso de las MAYÚSCULAS no hace falta tocarlo: `aliasIndex.lookup`
+     * normaliza (trim + espacios + mayúsculas) antes de comparar, así que los
+     * 4.573 nombres que v2 trae en minúscula resuelven igual.
+     */
+    const officerRaw = row.loan_officer?.trim() ? row.loan_officer : BLANK_OFFICER;
+    const key = resolve('slquery', officerRaw);
     if (key === null) continue;
     let m = activityByEmployee.get(key);
     if (!m) {
       m = emptyActivity();
       activityByEmployee.set(key, m);
     }
-    if (row.file_creation_month) m.filesCreated += 1;
-    if (row.credit_report_month) m.preApprovals += 1;
-    if (row.app_date_month) m.creditApplications += 1;
-    bump(m.closingsByMonth, row.closing_month);
-    bump(m.filesByMonth, row.file_creation_month);
-    bump(m.creditReportsByMonth, row.credit_report_month);
-    bump(m.applicationsByMonth, row.app_date_month);
+    // Etapa V2: las cuatro fechas llegan como `date`; se recortan al mes una
+    // sola vez por fila y se usan abajo en todos lados.
+    const fileMonth = monthOf(row.file_creation_date);
+    const creditMonth = monthOf(row.credit_report_date);
+    const appMonth = monthOf(row.app_date);
+    const closingMonth = monthOf(row.closing_month);
+
+    if (fileMonth) m.filesCreated += 1;
+    if (creditMonth) m.preApprovals += 1;
+    if (appMonth) m.creditApplications += 1;
+    bump(m.closingsByMonth, closingMonth);
+    bump(m.filesByMonth, fileMonth);
+    bump(m.creditReportsByMonth, creditMonth);
+    bump(m.applicationsByMonth, appMonth);
 
     /*
      * Filas para los modales de detalle. Se guardan los cierres de TODOS los
@@ -439,14 +490,16 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
       amount: Number(row.total_loan_amount) || 0,
       loanProgram: row.loan_program,
       loanFolderName: row.loan_folder_name,
-      channel: row.loan_info_channel_raw,
+      // Etapa V2: `loan_channel` reemplaza a `loan_info_channel_raw`, con los
+      // mismos valores ('Banked - Retail' / 'Brokered').
+      channel: row.loan_channel,
     };
-    if (row.closing_month) {
-      m.closingsRowsByMonth[row.closing_month] = [...(m.closingsRowsByMonth[row.closing_month] ?? []), loan];
+    if (closingMonth) {
+      m.closingsRowsByMonth[closingMonth] = [...(m.closingsRowsByMonth[closingMonth] ?? []), loan];
     }
-    if (row.file_creation_month === thisMonth) m.currentMonthFiles.push(loan);
-    if (row.credit_report_month === thisMonth) m.currentMonthCreditReports.push(loan);
-    if (row.app_date_month === thisMonth) m.currentMonthApplications.push(loan);
+    if (fileMonth === thisMonth) m.currentMonthFiles.push(loan);
+    if (creditMonth === thisMonth) m.currentMonthCreditReports.push(loan);
+    if (appMonth === thisMonth) m.currentMonthApplications.push(loan);
   }
 
   for (const row of openLoanRows) {

@@ -51,5 +51,17 @@ export function classifyLoan(raw: RawLoanRow): LoanRecord {
     loanProgram: raw.loanProgram,
     loanFolderName: raw.loanFolderName,
     affinity: raw.affinity,
+    /*
+     * Etapa V2. Este camino es el de la CARGA MANUAL de archivo, que no trae
+     * `lien_position` ni ningún dato para saber si un préstamo es un HELOC de
+     * segundo gravamen. Sin ese dato, la única respuesta honesta es la que
+     * daba la app hasta ahora: todo lo que cerró suma en todos lados.
+     *
+     * No es un placeholder ni un "arreglar después": mientras la carga manual
+     * exista en paralelo, sus totales de división se comportan exactamente
+     * como antes de esta etapa. La distinción sólo aparece en los datos que
+     * vienen de BigQuery (loan_records_v2), que sí traen el flag resuelto.
+     */
+    countsForDivision: closingMonth !== null,
   };
 }
