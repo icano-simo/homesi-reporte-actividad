@@ -101,4 +101,19 @@ export interface LoanRecord {
   nppmRealtor: string;
   /** Quién refirió el caso. `''` si no aplica. Poblado en 903 de 4.794, sobre todo en B2B (645). */
   referredByRealtor: string;
+  /**
+   * El Business Developer que trajo al NPPM — etapa V3b.
+   *
+   * Es lo que se quería ver cuando se pidió `nppm_realtor`: ese campo nombra al
+   * NPPM que refiere a un amigo y está vacío en Salesforce (`NPPM_Realtor__c`
+   * no lo llena nadie), así que llega NULL en las 4.794 filas. Éste sí tiene
+   * datos: 273 en total, 76 de los 92 préstamos con `strategy = 'NPPM'`.
+   *
+   * ⚠ Dentro de NPPM se solapa fuerte con `opportunityOwner`: de esos 92, en 68
+   * los dos campos dicen lo mismo, en 16 éste viene vacío, y sólo en 8 aporta un
+   * nombre distinto. Esos 8 son justamente el caso que vale la pena mirar --un
+   * BD reclutó al NPPM pero la oportunidad la tiene otro-- y son la razón de que
+   * la columna exista, no un argumento para tratarla como redundante.
+   */
+  nppmRecruitedBy: string;
 }

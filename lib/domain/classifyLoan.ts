@@ -86,7 +86,7 @@ export function classifyLoan(raw: RawLoanRow): LoanRecord {
      */
     countsForDivision: closingMonth !== null,
     /*
-     * Etapa V3: el archivo no trae ninguna de estas cuatro. Van vacías, y eso
+     * Etapa V3: el archivo no trae ninguna de estas cinco. Van vacías, y eso
      * es visible en vez de inventado: un registro con `strategy: ''` sólo
      * aparece con el selector en "All strategies", nunca bajo una estrategia
      * concreta (ver `matchesStrategy` en lib/domain/strategy.ts).
@@ -99,5 +99,6 @@ export function classifyLoan(raw: RawLoanRow): LoanRecord {
     opportunityOwner: '',
     nppmRealtor: '',
     referredByRealtor: '',
+    nppmRecruitedBy: '',
   };
 }

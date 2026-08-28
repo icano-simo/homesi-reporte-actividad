@@ -97,8 +97,8 @@ export default function LoanDetailModal({ isOpen, onClose, context, loans, strat
    * corta en "Banked - ...", Owner en "Javier Peñ..." y Referred By en
    * "WALTER ...". Verificado en pantalla antes de decidir esto.
    *
-   * Las dos condiciones son complementarias a propósito, así nunca hay más de
-   * siete columnas a la vez:
+   * Las dos primeras condiciones son complementarias a propósito -- nunca están
+   * las dos a la vez, así que se alternan en vez de sumarse:
    *
    *   * `showStrategy` -- sólo con el filtro en "All". Ahí la columna informa
    *     (cinco valores distintos). Con una estrategia elegida diría el mismo
@@ -109,11 +109,26 @@ export default function LoanDetailModal({ isOpen, onClose, context, loans, strat
    *     vista general son dos columnas de contexto que nadie pidió y que
    *     aprietan las seis de siempre.
    *
-   * Resultado: 6 columnas en "All" (las mismas de siempre, con Strategy en el
-   * lugar de B2B) y 7 con una estrategia elegida.
+   * Resultado: 6 columnas con el filtro en "All" (las mismas de siempre, con
+   * Strategy en el lugar de B2B), 7 con una estrategia elegida, y 8 sólo en
+   * NPPM -- ver `showRecruiter`, abajo.
    */
   const showStrategy = strategyFilter === 'all';
   const showContext = !showStrategy;
+  /*
+   * Etapa V3b: el BD que reclutó al NPPM, SÓLO en la vista NPPM.
+   *
+   * Fuera de NPPM la columna no significa nada -- en las otras estrategias el
+   * campo viene vacío o nombra a alguien que no tiene rol en ese negocio-- así
+   * que aparecer siempre le costaría ancho a las siete que sí aplican.
+   *
+   * ⚠ Dentro de NPPM se solapa con Owner: de los 92 préstamos, en 68 dice lo
+   * mismo, en 16 está vacío y sólo en 8 aporta un nombre distinto. Se muestran
+   * las dos igual y a propósito: esos 8 --un BD reclutó al NPPM pero la
+   * oportunidad quedó en otras manos-- son la pregunta que la columna viene a
+   * responder, y no se pueden ver sin tener las dos al lado.
+   */
+  const showRecruiter = strategyFilter === 'NPPM';
 
   if (!isOpen || !context) return null;
 
@@ -131,7 +146,23 @@ export default function LoanDetailModal({ isOpen, onClose, context, loans, strat
     <div className="modal-overlay" onClick={onClose}>
       {/* stopPropagation: un click DENTRO de la caja no debe cerrar el modal. */}
       <div
-        className="modal-box"
+        /*
+         * ⚠ Etapa V3b: el ancho sigue a la cantidad de columnas.
+         *
+         * Con 8 --sólo en NPPM-- los 768px de `.modal-box` no alcanzan: se
+         * truncaba hasta el Loan #, que es el identificador de la fila.
+         * `.modal-box--wide` no es una clase nueva: la creó el modal de
+         * Forecast para este mismo problema con sus 8 columnas (ver
+         * components.css). Se reusa en vez de inventar otra, y en vez de
+         * sacrificar una columna: acá las tres de contexto dicen cosas
+         * distintas --quién es dueño de la oportunidad, qué realtor refirió y
+         * qué BD reclutó a ese realtor-- así que ninguna sobra.
+         *
+         * Los casos de 6 y 7 columnas se quedan en 768px, donde entran
+         * cómodos. Ensanchar siempre sería pagar el ancho de la vista más
+         * cargada en todas las demás.
+         */
+        className={'modal-box' + (showRecruiter ? ' modal-box--wide' : '')}
         role="dialog"
         aria-modal="true"
         aria-label={ariaLabel}
@@ -174,6 +205,12 @@ export default function LoanDetailModal({ isOpen, onClose, context, loans, strat
         </div>
 
         <div className="modal-body">
+          {/*
+            `.modal-table-scroll` acompaña a `--wide`, igual que en Forecast: si
+            el viewport es tan angosto que ni 92vw alcanza, scrollea la tabla en
+            vez de comprimir las columnas hasta que dejen de leerse.
+          */}
+          <div className={showRecruiter ? 'modal-table-scroll' : undefined}>
           <table className="piv">
             {/*
              * ⚠ Etapa V3: de 6 a 8 columnas.
@@ -208,15 +245,25 @@ export default function LoanDetailModal({ isOpen, onClose, context, loans, strat
                 "Banked - Ret...". Es un vocabulario de dos valores fijos, así
                 que se le da lo que necesita (17%) sacándoselo a Loan # -- doce
                 dígitos entran de sobra en 15%.
+
+                ⚠ En la vista NPPM estos porcentajes NO se aplican: ahí el modal
+                lleva `.modal-table-scroll`, y esa regla pone la tabla en
+                `table-layout: auto; width: auto` (components.css), así que las
+                columnas se dimensionan al contenido. Es justamente lo que da
+                cero truncamiento con 8 columnas, y también por qué la tabla no
+                estira hasta el borde del modal ancho: toma lo que necesita y
+                nada más, igual que el modal de Forecast. Los `<col>` se dejan
+                porque siguen rigiendo en las variantes de 6 y 7.
               */}
-              <col style={{ width: showStrategy ? '20%' : '15%' }} />
-              <col style={{ width: showStrategy ? '20%' : '17%' }} />
-              <col style={{ width: showStrategy ? '11%' : '8%' }} />
-              <col style={{ width: '17%' }} />
+              <col style={{ width: showStrategy ? '20%' : showRecruiter ? '13%' : '15%' }} />
+              <col style={{ width: showStrategy ? '20%' : showRecruiter ? '15%' : '17%' }} />
+              <col style={{ width: showStrategy ? '11%' : showRecruiter ? '7%' : '8%' }} />
+              <col style={{ width: showRecruiter ? '15%' : '17%' }} />
               {showStrategy && <col style={{ width: '13%' }} />}
-              <col style={{ width: showStrategy ? '19%' : '13%' }} />
-              {showContext && <col style={{ width: '15%' }} />}
-              {showContext && <col style={{ width: '15%' }} />}
+              <col style={{ width: showStrategy ? '19%' : showRecruiter ? '11%' : '13%' }} />
+              {showContext && <col style={{ width: showRecruiter ? '13%' : '15%' }} />}
+              {showContext && <col style={{ width: showRecruiter ? '13%' : '15%' }} />}
+              {showRecruiter && <col style={{ width: '13%' }} />}
             </colgroup>
             <thead>
               <tr className="mo-row">
@@ -228,6 +275,7 @@ export default function LoanDetailModal({ isOpen, onClose, context, loans, strat
                 <th style={{ textAlign: 'left' }}>Program</th>
                 {showContext && <th style={{ textAlign: 'left' }}>Owner</th>}
                 {showContext && <th style={{ textAlign: 'left' }}>Referred By</th>}
+                {showRecruiter && <th style={{ textAlign: 'left' }}>Recruited By</th>}
               </tr>
             </thead>
             <tbody>
@@ -261,17 +309,23 @@ export default function LoanDetailModal({ isOpen, onClose, context, loans, strat
                       {loan.referredByRealtor || '—'}
                     </td>
                   )}
+                  {showRecruiter && (
+                    <td style={{ textAlign: 'left' }} title={loan.nppmRecruitedBy}>
+                      {loan.nppmRecruitedBy || '—'}
+                    </td>
+                  )}
                 </tr>
               ))}
               {!loans.length && (
                 <tr>
-                  <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={showStrategy ? 6 : 7}>
+                  <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={showStrategy ? 6 : showRecruiter ? 8 : 7}>
                     No loans.
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
+          </div>
         </div>
       </div>
     </div>
