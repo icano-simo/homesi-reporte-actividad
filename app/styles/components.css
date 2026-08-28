@@ -296,6 +296,20 @@ select.field {
 }
 
 /*
+ * Etapa V2b — procedencia del dato, debajo de los pills de estado.
+ *
+ * Va en una línea aparte y no en un pill más: un pill es un dato que se
+ * consulta (cuándo se actualizó, cuántas filas, qué rango); esto es contexto
+ * que se lee una vez y después se ignora. Mismo tamaño y color que `.foot-note`
+ * del pie, que cumple ese mismo papel al final de la página.
+ */
+.source-note__origin {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  color: var(--slate-500);
+}
+
+/*
  * `.topbar`, `.toolbar-row` y `.loaded-row` (la franja gris a todo el ancho
  * del layout viejo) se BORRARON en la etapa UX1: los reemplazan `.control-bar`,
  * `.control-group` y `.control-bar__status`.
