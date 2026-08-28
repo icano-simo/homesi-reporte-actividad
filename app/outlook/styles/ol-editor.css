@@ -37,7 +37,7 @@
 
 .ol-editor__h {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--ol-text);
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -45,7 +45,7 @@
 }
 .ol-editor__rev {
   margin-left: 8px;
-  font-size: 10.5px;
+  font-size: var(--ol-text);
   font-weight: 600;
   letter-spacing: 0;
   text-transform: none;
@@ -71,13 +71,13 @@
 }
 .ol-editor__pct {
   margin-left: 4px;
-  font-size: 11px;
+  font-size: var(--ol-text);
   color: var(--slate-400);
 }
 
 .ol-editor__hint {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--ol-text);
   line-height: 1.55;
   color: var(--slate-500);
 }
@@ -107,11 +107,11 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 11.5px;
+  font-size: var(--ol-text);
   color: var(--slate-600);
 }
 .ol-editor__tag {
-  font-size: 9.5px;
+  font-size: var(--ol-text);
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -127,7 +127,7 @@
   margin-top: 5px;
 }
 .ol-editor__seg {
-  font-size: 11px;
+  font-size: var(--ol-text);
   padding: 1px 7px;
   border-radius: 999px;
   border: 1px solid var(--slate-200);
@@ -136,7 +136,7 @@
 }
 .ol-editor__rev-note {
   margin-top: 5px;
-  font-size: 11px;
+  font-size: var(--ol-text);
   font-style: italic;
   color: var(--slate-500);
 }
@@ -148,7 +148,7 @@
   border: none;
   background: none;
   padding: 0 2px;
-  font-size: 10.5px;
+  font-size: var(--ol-text);
   color: var(--slate-400);
   cursor: pointer;
   opacity: 0.55;
@@ -197,12 +197,12 @@
   background: var(--accent-soft);
 }
 .ol-mode__name {
-  font-size: 12.5px;
+  font-size: var(--ol-text);
   font-weight: 700;
   color: var(--navy);
 }
 .ol-mode__hint {
-  font-size: 11px;
+  font-size: var(--ol-text);
   color: var(--slate-500);
   line-height: 1.4;
 }
@@ -222,4 +222,55 @@
 }
 .ol-mode:disabled:hover {
   border-color: var(--slate-200);
+}
+
+/*
+ * ── La escala del editor — etapa OL5 ──────────────────────────────────────
+ *
+ * Ver la cabecera de `ol-scale.css`. Acá sólo lo que es propio del modal.
+ */
+
+/*
+ * Los rótulos de campo dejaron de ser versalitas de 10px. Eran chicos para no
+ * competir con el valor; ahora no compiten porque son más tenues, que es la
+ * misma jerarquía sin un tamaño más.
+ */
+.ol-editor .bp-form__label {
+  font-size: var(--ol-text);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--slate-500);
+}
+
+/* Los encabezados de sección, por peso y color en vez de por tamaño. */
+.ol-editor .ol-editor__h {
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--slate-500);
+}
+
+/* El botón de guardar hereda el tamaño base como el resto del formulario. */
+.ol-editor .bp-btn--small {
+  font-size: var(--ol-text);
+}
+
+/* Las notas del historial, que venían de `.bp-history__note` en 11px. */
+.ol-editor .bp-history__note {
+  font-size: var(--ol-text);
+}
+
+/*
+ * ⚠ EL ÚNICO TAMAÑO GRANDE ADENTRO DEL MODAL.
+ *
+ * Los números de la vista previa son el RESULTADO de la decisión que se está
+ * tomando: es lo que se vino a ver. Todo lo demás del modal --rótulos, reglas,
+ * historial-- existe para producirlos.
+ *
+ * El otro grande es el título del modal, que ya está en 14px por
+ * `.bp-modal__title` y no se toca desde acá: es el mismo valor y es una clase
+ * compartida con el Business Plan.
+ */
+.ol-preview tbody td {
+  font-size: var(--ol-lg);
 }

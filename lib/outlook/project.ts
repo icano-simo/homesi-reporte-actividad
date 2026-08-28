@@ -140,7 +140,7 @@ export function projectMonth(
       multiplier: 1,
       exact: benchmark,
       value: Math.round(benchmark),
-      explain: `Benchmark ${benchmark} · sin regla que aplique a este mes → ${Math.round(benchmark)}`,
+      explain: `Benchmark ${benchmark} · no rule applies to this month → ${Math.round(benchmark)}`,
     };
   }
 
@@ -160,8 +160,8 @@ export function projectMonth(
     explain:
       `Benchmark ${benchmark} × (1 + ${periods} × ${segment.growthPct}%) = ${exact.toFixed(2)}` +
       ` → ${Math.round(exact)}` +
-      `  ·  regla: ${segment.growthPct}% ${cadenceLabel(segment.cadence)} desde ${segment.fromMonth}` +
-      `  ·  ${periods} período(s) completo(s) de ${MONTHS_PER_PERIOD[segment.cadence]} mes(es)`,
+      `  ·  rule: ${segment.growthPct}% ${cadenceLabel(segment.cadence)} from ${segment.fromMonth}` +
+      `  ·  ${periods} full period(s) of ${MONTHS_PER_PERIOD[segment.cadence]} month(s)`,
   };
 }
 
@@ -186,7 +186,7 @@ export function projectMonth(
  */
 
 export function cadenceLabel(c: Cadence): string {
-  return c === 'monthly' ? 'mensual' : c === 'quarterly' ? 'trimestral' : 'semestral';
+  return c === 'monthly' ? 'monthly' : c === 'quarterly' ? 'quarterly' : 'semiannual';
 }
 
 /** La proyección de varios meses de una vez. */
@@ -302,8 +302,8 @@ function fixedMonth(month: string, target: number | undefined): ProjectionStep {
     value: Math.round(value),
     explain:
       target === undefined
-        ? `Modo mes a mes · este mes no tiene número fijado → 0`
-        : `Modo mes a mes · número fijado a mano: ${value} · no depende de benchmark ni de regla`,
+        ? `Month by month · no number set for this month → 0`
+        : `Month by month · set by hand: ${value} · does not depend on a benchmark or a rule`,
   };
 }
 
@@ -317,5 +317,5 @@ export function projectPlan(months: string[], plan: StrategyPlan): ProjectionSte
 
 /** Cómo se llama el modo en la pantalla. */
 export function modeLabel(mode: ProjectionMode): string {
-  return mode === 'growth' ? 'por porcentaje' : 'mes a mes';
+  return mode === 'growth' ? 'by growth rate' : 'month by month';
 }

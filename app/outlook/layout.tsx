@@ -13,6 +13,7 @@ import type { ReactNode } from 'react';
  */
 import '../business-plan/styles/bp-visual.css';
 /* Y las propias: el editor y la tabla del año -- ver la cabecera de cada una. */
+import './styles/ol-scale.css';
 import './styles/ol-editor.css';
 import './styles/ol-year.css';
 

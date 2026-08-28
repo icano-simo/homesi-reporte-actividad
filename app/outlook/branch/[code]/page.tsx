@@ -90,16 +90,16 @@ function bandOf(month: string, currentMonth: string): 'actual' | 'forecast' | 'b
 function ruleLabel(lo: OutlookLoanOfficer, strategy: OutlookStrategy, months: string[]): string {
   if ((lo.modeByStrategy[strategy] ?? 'growth') === 'monthly') {
     const rev = lo.targetRevision[strategy] ?? 0;
-    return rev === 0 ? 'mes a mes · sin números fijados' : 'mes a mes · números fijados a mano';
+    return rev === 0 ? 'month by month · no numbers set' : 'month by month · numbers set by hand';
   }
   const segments = lo.rulesByStrategy[strategy] ?? [];
-  if (segments.length === 0) return 'sin regla';
+  if (segments.length === 0) return 'no rule';
   const steps = projectLoanOfficer(lo, months).stepsByStrategy[strategy] ?? [];
   const firstRaise = steps.find((s) => s.periods >= 1);
   const s = segments[0];
-  const base = `${s.growthPct}% ${cadenceLabel(s.cadence)} desde ${monthLabel(s.fromMonth)}`;
-  const extra = segments.length > 1 ? ` (+${segments.length - 1} tramo${segments.length > 2 ? 's' : ''})` : '';
-  const raise = firstRaise ? ` · 1er aumento en ${monthLabel(firstRaise.month)}` : ' · sin aumento este año';
+  const base = `${s.growthPct}% ${cadenceLabel(s.cadence)} from ${monthLabel(s.fromMonth)}`;
+  const extra = segments.length > 1 ? ` (+${segments.length - 1} segment${segments.length > 2 ? 's' : ''})` : '';
+  const raise = firstRaise ? ` · 1st raise in ${monthLabel(firstRaise.month)}` : ' · no raise this year';
   return base + extra + raise;
 }
 
@@ -186,7 +186,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
   }
 
   return (
-    <div className="hub-container">
+    <div className="hub-container ol-page">
       <div className="page-head">
         <div>
           <div className="bp-breadcrumbs">
@@ -195,7 +195,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
           <h1 className="page-head__title">Branch {branch.branchCode}</h1>
           <p className="page-head__subtitle">
             {branch.loanOfficers.length} loan officer{branch.loanOfficers.length === 1 ? '' : 's'} · closed {branch.ytd}
-            {branch.unattributed > 0 ? ` (+${branch.unattributed} sin atribuir)` : ''} · {year} total{' '}
+            {branch.unattributed > 0 ? ` (+${branch.unattributed} unattributed)` : ''} · {year} total{' '}
             {fmt(branchYear.total)}
           </p>
         </div>
@@ -208,18 +208,18 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               <th className="lbl"></th>
               {actualMonths.length > 0 && (
                 <th className="bp-center ol-band ol-band--actual" colSpan={actualMonths.length}>
-                  Real — cerrado
+                  Actual — closed
                 </th>
               )}
-              <th className="bp-center ol-band ol-band--forecast">Pronóstico</th>
+              <th className="bp-center ol-band ol-band--forecast">Forecast</th>
               {remainingMonths.length > 0 && (
                 <th className="bp-center ol-band ol-band--budget" colSpan={remainingMonths.length}>
-                  Presupuesto
+                  Budget
                 </th>
               )}
               <th className="bp-center"></th>
               <th className="bp-center ol-band ol-band--decide" colSpan={2}>
-                Decisión
+                Decision
               </th>
             </tr>
             <tr className="mo-row">
@@ -286,14 +286,14 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                         className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth) + (loYear.byMonth[m] ? '' : ' zero')}
                         title={
                           m === currentMonth && here
-                            ? `Pronóstico del mes: ${lo.closedToDate} ya cerraron y el resto es pipeline con su tasa. ` +
-                              `Los cerrados van DENTRO de este número.`
+                            ? `Month forecast: ${lo.closedToDate} already closed and the rest is pipeline with its ` +
+                              `rate. Closings are INSIDE this number.`
                             : m === currentMonth && !here
-                              ? `Su pronóstico se carga al branch ${lo.primaryBranch ?? '(sin roster)'}, el de su ` +
-                                `roster. Acá se muestra lo que ya cerró en este branch este mes, que es real.`
+                              ? `Their forecast is charged to branch ${lo.primaryBranch ?? '(no roster)'}, their roster ` +
+                                `branch. What is shown here is what they already closed in this branch this month.`
                               : m > currentMonth && !here
-                              ? `Su pronóstico y su presupuesto se cargan al branch ${lo.primaryBranch ?? '(sin roster)'}, ` +
-                                `el de su roster. Sus cerrados sí se cuentan acá, porque son del préstamo.`
+                              ? `Their forecast and budget are charged to branch ${lo.primaryBranch ?? '(no roster)'}, ` +
+                                `their roster branch. Their closings do count here, because those belong to the loan.`
                               : undefined
                         }
                       >
@@ -303,8 +303,8 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                     <td
                       className="bp-center totcol"
                       title={
-                        `Suma de las doce columnas. Sus cinco estrategias suman ${strategiesTotal}: la diferencia es el ` +
-                        `pronóstico de ${monthLabel(currentMonth)}, que Forecast no abre por estrategia.`
+                        `Sum of the twelve columns. Their five strategies add up to ${strategiesTotal}: the ` +
+                        `difference is ${monthLabel(currentMonth)}'s forecast, which Forecast does not break down by strategy.`
                       }
                     >
                       {fmt(loYear.total)}
@@ -313,20 +313,22 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                       className="bp-center"
                       title={
                         monthlyStrategies.length > 0
-                          ? `Suma de los benchmarks de las estrategias que proyectan por porcentaje. ` +
-                            `${monthlyStrategies.join(', ')} ${monthlyStrategies.length === 1 ? 'está fijada' : 'están fijadas'} ` +
-                            `mes a mes: sus meses no salen de un benchmark, así que no suman acá.`
-                          : 'Suma de los benchmarks de sus cinco estrategias. Calculado, no editable.'
+                          ? `Sum of the benchmarks of the strategies projected by growth rate. ` +
+                            `${monthlyStrategies.join(', ')} ${monthlyStrategies.length === 1 ? 'is' : 'are'} set month ` +
+                            `by month: those months do not come from a benchmark, so they do not add up here.`
+                          : 'Sum of the benchmarks of their five strategies. Calculated, not editable.'
                       }
                     >
                       {fmt(lo.benchmarkTotal)}
-                      {monthlyStrategies.length > 0 && <span className="bp-muted ol-tag">+{monthlyStrategies.length} mes a mes</span>}
+                      {monthlyStrategies.length > 0 && (
+                        <span className="bp-muted ol-tag">+{monthlyStrategies.length} month by month</span>
+                      )}
                     </td>
                     <td className="lbl">
                       {lo.activePlan ? (
                         <span
                           className="bp-plan-chip"
-                          title={`${lo.activePlan.funnelName} · ${lo.activePlan.doneMilestones} de ${lo.activePlan.totalMilestones} etapas`}
+                          title={`${lo.activePlan.funnelName} · ${lo.activePlan.doneMilestones} of ${lo.activePlan.totalMilestones} milestones`}
                         >
                           {lo.activePlan.funnelName} ·{' '}
                           {Math.round(
@@ -335,7 +337,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                           %
                         </span>
                       ) : (
-                        <span className="bp-muted">sin funnel</span>
+                        <span className="bp-muted">no funnel</span>
                       )}
                     </td>
                   </tr>
@@ -364,7 +366,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                               {s === 'Own Production' && (
                                 <span
                                   className="bp-muted ol-tag"
-                                  title="Su benchmark se lee de org.employee_benchmark y se edita en el perfil del Business Plan, no acá."
+                                  title="Its benchmark is read from org.employee_benchmark and edited in the Business Plan profile, not here."
                                 >
                                   BP
                                 </span>
@@ -378,7 +380,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                                 }
                                 title={
                                   m === currentMonth
-                                    ? 'Forecast proyecta el mes sobre el pipeline, que no trae la estrategia. Repartir el total por estrategia sería inventarlo.'
+                                    ? 'Forecast projects the month from the pipeline, which does not carry the strategy. Splitting the total by strategy would be inventing it.'
                                     : m > currentMonth
                                       ? steps[remainingMonths.indexOf(m)]?.explain
                                       : undefined
@@ -389,7 +391,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                             ))}
                             <td
                               className="bp-center totcol"
-                              title={`Sin ${monthLabel(currentMonth)}: el mes en curso no se puede abrir por estrategia.`}
+                              title={`Without ${monthLabel(currentMonth)}: the current month cannot be broken down by strategy.`}
                             >
                               {fmt(sYear.total)}
                             </td>
@@ -415,20 +417,19 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                                 onClick={() => setEditing({ employeeKey: lo.employeeKey, strategy: s })}
                                 title={
                                   isMonthly
-                                    ? 'Fijada mes a mes: el benchmark no interviene. Sigue guardado por si vuelve a modo porcentaje.'
+                                    ? 'Set month by month: the benchmark does not take part. It stays saved in case this goes back to growth rate.'
                                     : s === 'Own Production'
-                                      ? 'Su benchmark se edita en el Business Plan. Acá se edita su regla de crecimiento.'
-                                      : `Fijar el benchmark de ${s} y su regla de crecimiento`
+                                      ? 'Its benchmark is edited in the Business Plan. What is edited here is its growth rule.'
+                                      : `Set ${s}'s benchmark and its growth rule`
                                 }
                               >
-                                editar
+                                edit
                               </button>
                             </td>
-                            <td className="lbl" style={{ fontSize: '11px' }}>
+                            <td className="lbl ol-rule">
                               <button
                                 type="button"
-                                className="bp-linkish"
-                                style={{ fontSize: '11px', textAlign: 'left' }}
+                                className="bp-linkish ol-rule__btn"
                                 onClick={() => setEditing({ employeeKey: lo.employeeKey, strategy: s })}
                               >
                                 {ruleLabel(lo, s, remainingMonths)}
@@ -468,20 +469,20 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                                   <td className="bp-center totcol">{fmt(rYear.total)}</td>
                                   <td
                                     className={'bp-center' + (r.benchmark ? '' : ' zero')}
-                                    title="Benchmark del realtor, no del par realtor–loan officer: el mismo realtor trabaja con varias personas y branches."
+                                    title="The realtor's benchmark, not the realtor–loan officer pair's: the same realtor works with several people and branches."
                                   >
                                     {fmt(r.benchmark)}
                                     <button
                                       type="button"
                                       className="ol-edit"
                                       onClick={() => setEditingNppm({ realtor: r.realtor, ytd: r.ytd })}
-                                      title={`Fijar el benchmark de ${r.realtor}`}
+                                      title={`Set ${r.realtor}'s benchmark`}
                                     >
-                                      editar
+                                      edit
                                     </button>
                                   </td>
-                                  <td className="lbl bp-muted" style={{ fontSize: '11px' }}>
-                                    su producción ya está contada en NPPM
+                                  <td className="lbl bp-muted ol-rule">
+                                    their production is already counted in NPPM
                                   </td>
                                 </tr>
                               );
@@ -520,10 +521,10 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
         cerrados y proyección en cero, sin texto, se reporta como bug.
       */}
       {projectsNothing && branch.ytd > 0 && (
-        <div className="bp-notice" style={{ marginTop: '14px' }}>
-          <b>{branch.branchCode} no proyecta.</b> Sus {branch.ytd} cerrados del año son reales, pero ningún Loan Officer
-          tiene este branch en su roster — y la proyección se carga al branch del roster de cada persona, porque es un
-          número por persona y no por préstamo. <b>A quién pertenece este presupuesto está pendiente de definir.</b>
+        <div className="bp-notice ol-notice">
+          <b>{branch.branchCode} does not project.</b> Its {branch.ytd} closings this year are real, but no Loan Officer
+          has this branch on their roster — and the projection is charged to each person&apos;s roster branch, because it is
+          one number per person, not per loan. <b>Who owns this budget is still to be decided.</b>
         </div>
       )}
 
@@ -559,31 +560,32 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
         />
       )}
 
-      <div className="foot-note" style={{ marginTop: '14px' }}>
-        <b>La jerarquía es el cálculo</b>: un realtor NPPM suma a la estrategia NPPM, que suma al Loan Officer, que suma
-        al branch. La producción de un realtor <b>no se cuenta dos veces</b> — su fila es el detalle de la de NPPM, no un
-        agregado aparte.{' '}
-        <b>Con una excepción, y es {monthLabel(currentMonth)}</b>: el total de una persona no da la suma de sus cinco
-        estrategias, y la diferencia es exactamente el pronóstico del mes. Forecast lo calcula sobre el pipeline, que no
-        lleva la estrategia consigo; repartirlo por peso del YTD sería inventar un número que parece dato. Las
-        estrategias tienen ese mes en <code>—</code> y su total no lo incluye. Queda como etapa propia:{' '}
-        <code>pipeline_loans</code> guarda los cinco crudos desde F6b y <code>lib/pipeline/strategy.ts</code> ya sabe
-        clasificarlos, así que es derivable sin inventar nada.{' '}
-        <b>El benchmark del Loan Officer</b> es la suma de sus cinco estrategias: calculado, no editable. El de{' '}
-        <b>Own Production</b> se lee de <code>org.employee_benchmark</code> y se sigue editando en el perfil del Business
-        Plan.{' '}
-        <b>Cada celda del presupuesto</b> trae su cuenta completa en el tooltip: benchmark, regla que aplicó, períodos y
-        resultado.{' '}
-        <b>{monthLabel(currentMonth)} es la única columna que puede no cerrar hacia arriba</b>, y siempre por el mismo
-        motivo: el pronóstico se atribuye por el branch del <b>roster</b> y lo cerrado por el branch del{' '}
-        <b>préstamo</b>. Donde no hay pronóstico —nadie rosterizado— la celda muestra lo ya cerrado del mes, que es un
-        piso real; el tooltip de cada celda dice cuál de las dos lecturas está mostrando.{' '}
-        <b>Cada estrategia se fija de una de dos maneras</b>: por porcentaje —un benchmark y una regla, y los meses se
-        calculan— o <b>mes a mes</b>, escribiendo el número de cada mes. La columna de la derecha dice cuál rige. Lo
-        guardado del otro modo <b>no se borra y no se aplica</b>: volver al otro lo reactiva tal como estaba.{' '}
-        <b>Todo lo que se edita se agrega, nunca se reemplaza</b>: un benchmark guardado es una fila nueva y una regla
-        editada es una revisión nueva, las dos firmadas y fechadas, con las anteriores enteras en el historial. Y rige{' '}
-        <b>desde el mes siguiente</b> — el mes en curso ya se está midiendo contra el benchmark anterior.
+      <div className="foot-note">
+        <b>The hierarchy is the calculation</b>: an NPPM realtor adds to the NPPM strategy, which adds to the Loan
+        Officer, which adds to the branch. A realtor&apos;s production is <b>not counted twice</b> — their row is the detail
+        of the NPPM row, not a separate total.{' '}
+        <b>With one exception, and it is {monthLabel(currentMonth)}</b>: a person&apos;s total is not the sum of their five
+        strategies, and the difference is exactly the month&apos;s forecast. Forecast computes it from the pipeline, which
+        does not carry the strategy; splitting it by YTD weight would invent a number that looks like data. The
+        strategies show <code>—</code> for that month and their total leaves it out. It is recorded as its own stage:{' '}
+        <code>pipeline_loans</code> has kept the five raw columns since F6b and <code>lib/pipeline/strategy.ts</code>{' '}
+        already knows how to classify them, so it is derivable without inventing anything.{' '}
+        <b>A Loan Officer&apos;s benchmark</b> is the sum of their five strategies: calculated, not editable.{' '}
+        <b>Own Production</b>&apos;s is read from <code>org.employee_benchmark</code> and is still edited in the Business
+        Plan profile.{' '}
+        <b>Every budget cell</b> carries its full arithmetic in the tooltip: benchmark, the rule that applied, periods
+        and result.{' '}
+        <b>{monthLabel(currentMonth)} is the only column that may not add up</b>, always for the same reason: the
+        forecast is attributed by <b>roster</b> branch and closings by <b>loan</b> branch. Where there is no forecast
+        —nobody rostered— the cell shows what already closed this month, a real floor; each cell&apos;s tooltip says which
+        of the two readings it is showing.{' '}
+        <b>Each strategy is set one of two ways</b>: by growth rate —a benchmark and a rule, and the months are
+        calculated— or <b>month by month</b>, writing each month&apos;s number. The right-hand column says which one rules.
+        What is saved under the other mode <b>is not deleted and is not applied</b>: switching back reactivates it
+        exactly as it was.{' '}
+        <b>Everything edited is appended, never replaced</b>: a saved benchmark is a new row and an edited rule is a new
+        revision, both signed and dated, with the previous ones intact in the history. And it takes effect{' '}
+        <b>from next month</b> — the current month is already being measured against the previous benchmark.
       </div>
     </div>
   );

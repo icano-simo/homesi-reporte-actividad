@@ -694,7 +694,7 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
     bump(actualByLoStrategy, sk, month);
 
     if (strategy === 'NPPM') {
-      const realtor = row.nppm_realtor?.trim() || '(sin nombre)';
+      const realtor = row.nppm_realtor?.trim() || '(no name)';
       bump(actualByLoStrategyRealtor, sk + '|' + realtor, month);
       const set = realtorsByStrategyKey.get(sk) ?? new Set<string>();
       set.add(realtor);

@@ -60,7 +60,7 @@ export type EditableStrategy = Exclude<OutlookStrategy, 'Own Production'>;
 async function authorEmail(): Promise<string> {
   const { data } = await getSupabaseClient().auth.getUser();
   const email = data.user?.email;
-  if (!email) throw new Error('No hay sesión activa: nadie a quien atribuir esta decisión.');
+  if (!email) throw new Error('No active session: there is nobody to attribute this decision to.');
   return email;
 }
 
@@ -75,15 +75,15 @@ async function authorEmail(): Promise<string> {
 function readable(err: { code?: string; message: string }): Error {
   if (err.code === '23514') {
     return new Error(
-      'La base rechazó el valor. Las restricciones que aplican: el benchmark no puede ser negativo, ' +
-        'la fecha tiene que ser el día 1 de un mes, el crecimiento no puede bajar de -100%, y ' +
-        '"Own Production" no se puede guardar acá — su benchmark vive en org.employee_benchmark.'
+      'The database rejected this value. The constraints that apply: a benchmark cannot be negative, ' +
+        'a date must be the 1st of a month, growth cannot go below -100%, and ' +
+        '"Own Production" cannot be stored here — its benchmark lives in org.employee_benchmark.'
     );
   }
   if (err.code === '23505') {
     return new Error(
-      'Alguien más guardó una revisión de esta regla mientras editabas. Recargá la pantalla y volvé a aplicar el cambio ' +
-        'sobre la última versión, para no tapar su decisión con la tuya.'
+      'Someone else saved a revision while you were editing. Reload and apply your change on top of the latest ' +
+        'version, so you do not overwrite their decision with yours.'
     );
   }
   /*
@@ -94,12 +94,12 @@ function readable(err: { code?: string; message: string }): Error {
    */
   if (err.code === 'PGRST205' || /Could not find the table/i.test(err.message)) {
     return new Error(
-      'Falta aplicar el SQL de esta etapa: docs/sql/2026-08-outlook-monthly-mode.sql. ' +
-        'Nada se guardó y la proyección no cambió.'
+      'This stage\'s SQL has not been applied yet: docs/sql/2026-08-outlook-monthly-mode.sql. ' +
+        'Nothing was saved and the projection did not change.'
     );
   }
   if (err.code === '42501' || /permission denied|row-level security/i.test(err.message)) {
-    return new Error('Tu sesión no tiene el permiso `outlook`, así que puede leer pero no guardar.');
+    return new Error('Your session does not have the `outlook` claim, so it can read but not save.');
   }
   return new Error(err.message);
 }
@@ -184,7 +184,7 @@ export async function saveGrowthRuleRevision(input: {
      * lo admite explícitamente, es una meseta-- y así queda firmado quién lo
      * decidió, que es lo que una revisión fantasma no podría contar.
      */
-    throw new Error('Una regla necesita al menos un tramo. Para que no crezca, poné 0%.');
+    throw new Error('A rule needs at least one segment. For no growth, use 0%.');
   }
 
   const set_by = await authorEmail();
@@ -275,7 +275,7 @@ export async function saveMonthlyTargets(input: {
 }): Promise<number> {
   const months = Object.keys(input.targets).sort();
   if (months.length === 0) {
-    throw new Error('No hay ningún mes que fijar.');
+    throw new Error('There is no month to set.');
   }
 
   const set_by = await authorEmail();

@@ -98,7 +98,6 @@ table.piv.ol-year tr.grp.togg:hover td.ol-m {
 
 table.piv.ol-year thead .yr-row th.ol-band {
   border-bottom: 2px solid var(--white, #fff);
-  font-size: 9.5px;
 }
 .ol-band--actual {
   background: #f1f5f9;
@@ -118,13 +117,7 @@ table.piv.ol-year thead .yr-row th.ol-band {
 }
 
 /*
- * Etiqueta chica al lado de un número: "+4", "sin LO asignados", "rev 3".
- * Nunca es el dato -- siempre lo explica -- así que va en tamaño y peso menores
- * y no puede empujar la celda a otra línea.
+ * La etiqueta al lado de un número ("+4", "no LOs assigned", "rev 3") se define
+ * en `ol-scale.css`: en la etapa OL5 dejó de distinguirse por tamaño y pasó a
+ * distinguirse por color, que es lo que permite tener una sola escala.
  */
-.ol-tag {
-  margin-left: 5px;
-  font-size: 10px;
-  font-weight: 600;
-  white-space: nowrap;
-}

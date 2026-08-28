@@ -144,7 +144,7 @@ export default function OutlookPage() {
   const closedThisMonth = data.branches.reduce((a, b) => a + b.closedToDate, 0);
 
   return (
-    <div className="hub-container">
+    <div className="hub-container ol-page">
       <div className="page-head">
         <div>
           <h1 className="page-head__title">Outlook</h1>
@@ -163,11 +163,11 @@ export default function OutlookPage() {
         alguien a correr un SQL que ya corrió.
       */}
       {!data.diagnostics.outlookTablesAvailable && (
-        <div className="bp-notice bp-notice--warn" style={{ marginBottom: '16px' }}>
-          No se puede leer el esquema <code>outlook</code>, así que no hay benchmarks de estrategia ni reglas de
-          crecimiento y las columnas del presupuesto caen al benchmark de Own Production. Los meses cerrados y el mes en
-          curso sí son reales. Si el SQL de <code>docs/sql/2026-08-outlook-schema.sql</code> ya se aplicó, falta el paso
-          que no es SQL: <b>Settings → API → Exposed schemas → agregar <code>outlook</code></b>.
+        <div className="bp-notice bp-notice--warn">
+          The <code>outlook</code> schema cannot be read, so there are no strategy benchmarks or growth rules and the
+          budget columns fall back to the Own Production benchmark. Closed months and the current month are still real.
+          If <code>docs/sql/2026-08-outlook-schema.sql</code> has already been applied, what is missing is the step that
+          is not SQL: <b>Settings → API → Exposed schemas → add <code>outlook</code></b>.
         </div>
       )}
 
@@ -177,10 +177,10 @@ export default function OutlookPage() {
         que aparezca como una diferencia sin causa.
       */}
       {data.diagnostics.actualsAfterCurrentMonth > 0 && (
-        <div className="bp-notice bp-notice--warn" style={{ marginBottom: '16px' }}>
-          Hay <b>{data.diagnostics.actualsAfterCurrentMonth}</b> préstamo(s) cerrado(s) con mes posterior a{' '}
-          {monthLabel(currentMonth)}. Esas columnas están mostrando el presupuesto, así que esa producción real no se ve.
-          Hay que revisar <code>closing_month</code> antes de usar el total del año.
+        <div className="bp-notice bp-notice--warn">
+          <b>{data.diagnostics.actualsAfterCurrentMonth}</b> closed loan(s) have a month later than{' '}
+          {monthLabel(currentMonth)}. Those columns are showing the budget, so that real production is not visible.
+          Check <code>closing_month</code> before using the year total.
         </div>
       )}
 
@@ -196,13 +196,13 @@ export default function OutlookPage() {
               <th className="lbl"></th>
               {actualMonths.length > 0 && (
                 <th className="bp-center ol-band ol-band--actual" colSpan={actualMonths.length}>
-                  Real — cerrado
+                  Actual — closed
                 </th>
               )}
-              <th className="bp-center ol-band ol-band--forecast">Pronóstico</th>
+              <th className="bp-center ol-band ol-band--forecast">Forecast</th>
               {remainingMonths.length > 0 && (
                 <th className="bp-center ol-band ol-band--budget" colSpan={remainingMonths.length}>
-                  Presupuesto
+                  Budget
                 </th>
               )}
               <th className="bp-center"></th>
@@ -248,10 +248,10 @@ export default function OutlookPage() {
                     <span
                       className="bp-muted ol-tag"
                       title={
-                        `${b.unattributed} préstamo(s) cerrado(s) en este branch por personas que no son Loan ` +
-                        `Officers de la división (están en org.source_name_excluded, con motivo escrito). ` +
-                        `Commercial Activity los cuenta porque mide el branch; Outlook no, porque presupuesta ` +
-                        `producción de la división. Cerrados atribuibles del año: ${b.ytd}.`
+                        `${b.unattributed} loan(s) closed in this branch by people who are not division Loan ` +
+                        `Officers (they are in org.source_name_excluded, each with a written reason). Commercial ` +
+                        `Activity counts them because it measures the branch; Outlook does not, because it budgets ` +
+                        `division production. Attributable closings this year: ${b.ytd}.`
                       }
                     >
                       +{b.unattributed}
@@ -267,17 +267,17 @@ export default function OutlookPage() {
                     title={
                       m === currentMonth
                         ? projectsNothing(b.branchCode)
-                          ? `Sin pronóstico: nadie tiene este branch en su roster, y el pronóstico del mes se carga al ` +
-                            `branch del roster de cada persona. Se muestra lo ya cerrado del mes ` +
-                            `(${b.actualByMonth[currentMonth] ?? 0}), que es un piso real y no un pronóstico.`
-                          : `Pronóstico del mes: ${b.closedToDate} ya cerraron (según Forecast, por roster) y el resto ` +
-                            `es pipeline con su tasa. Los cerrados están DENTRO de este número, no al lado. La ` +
-                            `actividad cuenta ${b.actualByMonth[currentMonth] ?? 0} cerrado(s) en este branch este mes, ` +
-                            `atribuidos por préstamo — los dos criterios son distintos y los dos legítimos.`
+                          ? `No forecast: nobody has this branch on their roster, and the month's forecast is charged ` +
+                            `to each person's roster branch. What is shown is what already closed this month ` +
+                            `(${b.actualByMonth[currentMonth] ?? 0}) — a real floor, not a forecast.`
+                          : `Month forecast: ${b.closedToDate} already closed (per Forecast, by roster) and the rest is ` +
+                            `pipeline with its rate. Closings are INSIDE this number, not next to it. Activity counts ` +
+                            `${b.actualByMonth[currentMonth] ?? 0} closing(s) in this branch this month, attributed by ` +
+                            `loan — the two criteria differ and both are legitimate.`
                         : m > currentMonth && projectsNothing(b.branchCode)
-                          ? `${b.branchCode} no proyecta: no hay Loan Officers con este branch en su roster. Sus ${b.ytd} ` +
-                            `cerrados del año son reales; la proyección se carga al branch del roster de cada persona. ` +
-                            `A quién pertenece este presupuesto está pendiente de definir.`
+                          ? `${b.branchCode} does not project: no Loan Officer has this branch on their roster. Its ` +
+                            `${b.ytd} closings this year are real; the projection is charged to each person's roster ` +
+                            `branch. Who owns this budget is still to be decided.`
                           : undefined
                     }
                   >
@@ -287,7 +287,7 @@ export default function OutlookPage() {
                 <td className="bp-center totcol">
                   {fmt(y.total)}
                   {b.ytd > 0 && projectsNothing(b.branchCode) && (
-                    <span className="bp-muted ol-tag">sin LO asignados</span>
+                    <span className="bp-muted ol-tag">no LOs assigned</span>
                   )}
                 </td>
               </tr>
@@ -305,27 +305,28 @@ export default function OutlookPage() {
         </table>
       </div>
 
-      {/* Las cosas que un número de esta tabla necesita para leerse. */}
-      <div className="foot-note" style={{ marginTop: '14px' }}>
-        <b>Tres clases de número en una fila.</b> <b>{actualMonths.length ? 'Ene–' + monthLabel(actualMonths[actualMonths.length - 1]) : 'La banda real'}</b>{' '}
-        es lo cerrado, leído de la actividad. <b>{monthLabel(currentMonth)}</b> es el pronóstico de Forecast, y{' '}
-        <b>ya incluye los {closedThisMonth} que cerraron</b> en el mes — por eso no hay una columna de YTD aparte: los
-        meses reales son el YTD, y sumarle el mes en curso contaría agosto dos veces.{' '}
-        <b>{remainingMonths.length ? monthLabel(remainingMonths[0]) + '–Dic' : 'El presupuesto'}</b> es benchmark ×
-        regla de crecimiento, la única parte que se decide en este módulo.{' '}
-        <b>El total del año</b> es la suma de las doce columnas, nada más.{' '}
-        <b>Donde no hay pronóstico</b> —un branch que nadie tiene en su roster— la columna del mes muestra lo ya
-        cerrado, que es un piso real y no una proyección: sin eso, AFFINITY perdía los 5 que cerró en el mes. El tooltip
-        de cada celda dice cuál de las dos lecturas está mostrando.{' '}
-        <b>El <span className="bp-muted">+N</span> junto al branch</b> son préstamos de ese branch cerrados por personas
-        que no son Loan Officers de HomeSí — Commercial Activity los cuenta, un presupuesto de división no.{' '}
-        <b>Real y presupuesto se atribuyen distinto</b>: lo cerrado va al branch del PRÉSTAMO; el pronóstico y el
-        presupuesto, al branch del ROSTER de cada persona, porque son un número por persona y no se pueden repartir.{' '}
-        <b>Un branch con <span className="bp-muted">sin LO asignados</span></b> tiene cerrados reales pero no proyecta:
-        nadie lo tiene en su roster. A quién pertenece ese presupuesto está pendiente de definir.
+      {/* Lo que un número de esta tabla necesita para poder leerse. */}
+      <div className="foot-note">
+        <b>Three kinds of number in one row.</b>{' '}
+        <b>{actualMonths.length ? 'Jan–' + monthLabel(actualMonths[actualMonths.length - 1]) : 'The actual band'}</b> is
+        what closed, read from activity. <b>{monthLabel(currentMonth)}</b> is the Forecast projection, and it{' '}
+        <b>already includes the {closedThisMonth} that closed</b> this month — which is why there is no separate YTD
+        column: the actual months are the YTD, and adding the current month on top would count it twice.{' '}
+        <b>{remainingMonths.length ? monthLabel(remainingMonths[0]) + '–Dec' : 'The budget'}</b> is benchmark × growth
+        rule, the only part decided in this module. <b>The year total</b> is the sum of the twelve columns, nothing
+        else.{' '}
+        <b>Where there is no forecast</b> —a branch nobody has on their roster— the month column shows what already
+        closed, a real floor rather than a projection: without it, AFFINITY lost the 5 it closed this month. Each cell&apos;s
+        tooltip says which of the two readings it is showing.{' '}
+        <b>The <span className="bp-muted">+N</span> next to a branch</b> is loans closed in that branch by people who
+        are not HomeSí Loan Officers — Commercial Activity counts them, a division budget does not.{' '}
+        <b>Actual and budget are attributed differently</b>: closings go to the LOAN&apos;s branch; the forecast and the
+        budget go to each person&apos;s ROSTER branch, because they are one number per person and cannot be split.{' '}
+        <b>A branch marked <span className="bp-muted">no LOs assigned</span></b> has real closings but does not project:
+        nobody has it on their roster. Who owns that budget is still to be decided.
       </div>
 
-      <div className="bp-diagnostics" style={{ marginTop: '16px' }}>
+      <div className="bp-diagnostics">
         <div>
           Bands: <code>{actualMonths.length}</code> actual · <code>{monthLabel(currentMonth)}</code> forecast ·{' '}
           <code>{remainingMonths.length}</code> budgeted · edits apply from <code>{data.effectiveFrom}</code>
@@ -349,8 +350,8 @@ export default function OutlookPage() {
           {data.diagnostics.currentMonthClosedRecords !== data.diagnostics.currentMonthClosedForecast && (
             <>
               {' '}
-              — <b>distintas</b>: dos sistemas cuentan el cierre del mes, como los 57 contra 59 de julio en Commercial
-              Activity. La columna del mes usa la de Forecast.
+              — <b>they differ</b>: two systems count the month&apos;s closings, like July&apos;s 57 against 59 in Commercial
+              Activity. The month column uses Forecast&apos;s.
             </>
           )}
         </div>

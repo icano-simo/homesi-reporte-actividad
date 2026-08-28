@@ -74,7 +74,7 @@ export default function NppmEditor({
   async function save() {
     const parsed = Number(value);
     if (!Number.isFinite(parsed) || parsed < 0) {
-      setError('El benchmark tiene que ser un número de 0 o más.');
+      setError('The benchmark must be a number of 0 or more.');
       return;
     }
     setBusy(true);
@@ -87,7 +87,7 @@ export default function NppmEditor({
         note: note.trim() === '' ? null : note.trim(),
       });
       await onSaved();
-      setSaved(`Guardado: ${parsed} desde ${data.effectiveFrom}. Es una fila nueva; las anteriores siguen enteras.`);
+      setSaved(`Saved: ${parsed} from ${data.effectiveFrom}. It is a new row; the previous ones stay intact.`);
       setValue('');
       setNote('');
     } catch (e) {
@@ -98,12 +98,12 @@ export default function NppmEditor({
   }
 
   return (
-    <Modal title={`${realtor} — benchmark NPPM`} onClose={onClose}>
+    <Modal title={`${realtor} — NPPM benchmark`} onClose={onClose}>
       <div className="ol-editor">
         <div className="ol-editor__row">
           <div className="bp-form__field">
             <label className="bp-form__label" htmlFor="ol-nppm">
-              Benchmark mensual
+              Monthly benchmark
             </label>
             <input
               id="ol-nppm"
@@ -118,7 +118,7 @@ export default function NppmEditor({
           </div>
           <div className="bp-form__field ol-editor__grow">
             <label className="bp-form__label" htmlFor="ol-nppm-note">
-              Por qué este número (opcional)
+              Why this number (optional)
             </label>
             <input
               id="ol-nppm-note"
@@ -129,7 +129,7 @@ export default function NppmEditor({
             />
           </div>
           <button type="button" className="bp-btn bp-btn--small" onClick={save} disabled={busy || value.trim() === ''}>
-            {busy ? '…' : 'Guardar'}
+            {busy ? '…' : 'Save'}
           </button>
         </div>
 
@@ -141,9 +141,9 @@ export default function NppmEditor({
           quien está cargando un número no lo necesita para cargarlo.
         */}
         <p className="ol-editor__hint">
-          Cerró <b>{ytd}</b> este año con este Loan Officer. Rige desde <b>{data.effectiveFrom}</b>, es del{' '}
-          <b>realtor</b> —no del par con este Loan Officer— y <b>no proyecta por sí solo</b>: lo que proyecta NPPM es el
-          benchmark de la estrategia. Que uno alimente al otro está pendiente de definir.
+          Closed <b>{ytd}</b> this year with this Loan Officer. Takes effect on <b>{data.effectiveFrom}</b>, belongs
+          to the <b>realtor</b> —not to the pair with this Loan Officer— and <b>does not project on its own</b>: what
+          projects NPPM is the strategy&apos;s benchmark. Whether one should feed the other is still to be decided.
         </p>
 
         {error && <div className="bp-notice bp-notice--warn ol-editor__msg">{error}</div>}
@@ -151,19 +151,19 @@ export default function NppmEditor({
 
         {spellings.length > 1 && (
           <p className="ol-editor__hint">
-            Este realtor está guardado con {spellings.length} escrituras distintas ({spellings.join(' · ')}). La app las
-            trata como la misma persona al leer.
+            This realtor is stored under {spellings.length} different spellings ({spellings.join(' · ')}). The app
+            treats them as the same person when reading.
           </p>
         )}
 
         <table className="piv ol-editor__tbl">
           <thead>
             <tr className="mo-row">
-              <th className="lbl">Rige desde</th>
-              <th className="bp-center">Valor</th>
-              <th className="bp-left">Quién</th>
-              <th className="bp-left">Cuándo</th>
-              <th className="bp-left">Nota</th>
+              <th className="lbl">Takes effect</th>
+              <th className="bp-center">Value</th>
+              <th className="bp-left">Who</th>
+              <th className="bp-left">When</th>
+              <th className="bp-left">Note</th>
             </tr>
           </thead>
           <tbody>
@@ -179,7 +179,7 @@ export default function NppmEditor({
             {history.length === 0 && (
               <tr>
                 <td className="lbl bp-empty-cell" colSpan={5}>
-                  Nadie fijó todavía el benchmark de este realtor.
+                  Nobody has set this realtor&apos;s benchmark yet.
                 </td>
               </tr>
             )}

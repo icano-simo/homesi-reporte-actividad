@@ -162,13 +162,13 @@ export default function StrategyEditor({
   const otherSaved =
     mode === 'growth'
       ? targetRevision > 0
-        ? `Hay meses fijados guardados (revisión ${targetRevision}: ${months
+        ? `There are saved monthly numbers (revision ${targetRevision}: ${months
             .map((m) => `${monthLabel(m)} ${savedTargets[m] ?? 0}`)
             .join(' · ')}).`
         : null
       : savedSegments.length > 0
-        ? `Hay una regla guardada (revisión ${revision}: ${savedSegments
-            .map((g) => `${g.growthPct}% ${cadenceLabel(g.cadence)} desde ${monthLabel(g.fromMonth)}`)
+        ? `There is a saved growth rule (revision ${revision}: ${savedSegments
+            .map((g) => `${g.growthPct}% ${cadenceLabel(g.cadence)} from ${monthLabel(g.fromMonth)}`)
             .join(' · ')}).`
         : null;
 
@@ -210,7 +210,7 @@ export default function StrategyEditor({
       if (mode === 'growth') {
         if (benchmarkEditable && benchValue.trim() !== '') {
           const parsed = Number(benchValue);
-          if (!Number.isFinite(parsed) || parsed < 0) throw new Error('El benchmark tiene que ser un número de 0 o más.');
+          if (!Number.isFinite(parsed) || parsed < 0) throw new Error('The benchmark must be a number of 0 or more.');
           await saveStrategyBenchmark({
             employeeKey: lo.employeeKey,
             strategy: strategy as EditableStrategy,
@@ -219,7 +219,7 @@ export default function StrategyEditor({
             effectiveFrom: data.effectiveFrom,
             note: note.trim() === '' ? null : note.trim(),
           });
-          done.push(`benchmark ${fmt(parsed)} desde ${data.effectiveFrom}`);
+          done.push(`benchmark ${fmt(parsed)} from ${data.effectiveFrom}`);
         }
 
         /*
@@ -228,10 +228,10 @@ export default function StrategyEditor({
          */
         const seen = new Set<string>();
         for (const seg of segments) {
-          if (seen.has(seg.fromMonth)) throw new Error('Hay dos tramos que arrancan el mismo mes.');
+          if (seen.has(seg.fromMonth)) throw new Error('Two segments start in the same month.');
           seen.add(seg.fromMonth);
           if (!Number.isFinite(seg.growthPct) || seg.growthPct < -100)
-            throw new Error('El crecimiento de un tramo no puede bajar de -100%.');
+            throw new Error("A segment's growth cannot go below -100%.");
         }
         const ruleChanged =
           segments.length !== savedSegments.length ||
@@ -248,7 +248,7 @@ export default function StrategyEditor({
             segments: [...segments].sort((a, b) => a.fromMonth.localeCompare(b.fromMonth)),
             note: note.trim() === '' ? null : note.trim(),
           });
-          done.push(`regla revisión ${written}`);
+          done.push(`growth rule revision ${written}`);
         }
       } else {
         const targetsChanged =
@@ -261,7 +261,7 @@ export default function StrategyEditor({
             targets: Object.fromEntries(months.map((m) => [m, draftTargets[m] ?? 0])),
             note: note.trim() === '' ? null : note.trim(),
           });
-          done.push(`meses fijados, revisión ${written}`);
+          done.push(`monthly numbers, revision ${written}`);
         }
       }
 
@@ -277,14 +277,14 @@ export default function StrategyEditor({
           mode,
           note: note.trim() === '' ? null : note.trim(),
         });
-        done.push(`modo ${modeLabel(mode)}`);
+        done.push(`mode ${modeLabel(mode)}`);
       }
 
       if (done.length === 0) {
-        setSaved('No había nada que cambiar.');
+        setSaved('Nothing had changed.');
       } else {
         await onSaved();
-        setSaved('Guardado: ' + done.join(' · ') + '.');
+        setSaved('Saved: ' + done.join(' · ') + '.');
         setBenchValue('');
         setNote('');
       }
@@ -312,7 +312,7 @@ export default function StrategyEditor({
     <Modal title={`${lo.fullName} — ${strategy}`} onClose={onClose}>
       <div className="ol-editor">
         {/* ── La pregunta ─────────────────────────────────────────────── */}
-        <div className="ol-modes" role="radiogroup" aria-label="Cómo se fija el presupuesto">
+        <div className="ol-modes" role="radiogroup" aria-label="How the budget is set">
           {(['growth', 'monthly'] as ProjectionMode[]).map((m) => (
             /*
               ⚠ El modo mes a mes no se ofrece si sus tablas no están. Ofrecerlo
@@ -330,19 +330,17 @@ export default function StrategyEditor({
               onClick={() => setMode(m)}
               title={
                 m === 'monthly' && !monthlyAvailable
-                  ? 'Falta aplicar docs/sql/2026-08-outlook-monthly-mode.sql'
+                  ? 'docs/sql/2026-08-outlook-monthly-mode.sql has not been applied yet'
                   : undefined
               }
             >
-              <span className="ol-mode__name">
-                {m === 'growth' ? 'Por porcentaje de crecimiento' : 'Mes a mes'}
-              </span>
+              <span className="ol-mode__name">{m === 'growth' ? 'By growth rate' : 'Month by month'}</span>
               <span className="ol-mode__hint">
                 {m === 'monthly' && !monthlyAvailable
-                  ? 'falta aplicar el SQL de esta etapa'
+                  ? "this stage's SQL has not been applied"
                   : m === 'growth'
-                    ? 'un benchmark y una regla; los meses se calculan'
-                    : 'el número de cada mes, escrito'}
+                    ? 'a benchmark and a rule; the months are calculated'
+                    : "each month's number, written"}
               </span>
             </button>
           ))}
@@ -350,12 +348,12 @@ export default function StrategyEditor({
 
         {mode !== savedMode && (
           <p className="ol-editor__hint">
-            Ahora rige <b>{modeLabel(savedMode)}</b>. Al guardar pasa a <b>{modeLabel(mode)}</b>.
+            <b>{modeLabel(savedMode)}</b> rules now. Saving switches it to <b>{modeLabel(mode)}</b>.
           </p>
         )}
         {mode === savedMode && modeSetBy && (
           <p className="ol-editor__hint">
-            Modo <b>{modeLabel(savedMode)}</b>, elegido por {modeSetBy.setBy} el {stamp(modeSetBy.at)}.
+            Set <b>{modeLabel(savedMode)}</b> by {modeSetBy.setBy} on {stamp(modeSetBy.at)}.
           </p>
         )}
 
@@ -366,7 +364,7 @@ export default function StrategyEditor({
               <div className="ol-editor__row">
                 <div className="bp-form__field">
                   <label className="bp-form__label" htmlFor="ol-bench">
-                    Benchmark mensual
+                    Monthly benchmark
                   </label>
                   <input
                     id="ol-bench"
@@ -382,18 +380,18 @@ export default function StrategyEditor({
               </div>
             ) : (
               <p className="ol-editor__hint">
-                El benchmark de Own Production se edita en{' '}
-                <Link href={`/business-plan/lo/${lo.employeeKey}`}>el perfil del Business Plan</Link>. Acá se decide
-                cuánto crece.
+                Own Production&apos;s benchmark is edited in{' '}
+                <Link href={`/business-plan/lo/${lo.employeeKey}`}>the Business Plan profile</Link>. What is decided
+                here is how much it grows.
               </p>
             )}
 
             <table className="piv ol-editor__tbl">
               <thead>
                 <tr className="mo-row">
-                  <th className="lbl">Desde</th>
-                  <th className="lbl">Cada</th>
-                  <th className="bp-center">Crece</th>
+                  <th className="lbl">From</th>
+                  <th className="lbl">Every</th>
+                  <th className="bp-center">Growth</th>
                   <th className="lbl"></th>
                 </tr>
               </thead>
@@ -405,7 +403,7 @@ export default function StrategyEditor({
                         className="field ol-editor__sel"
                         value={seg.fromMonth}
                         onChange={(e) => patch(i, { fromMonth: e.target.value })}
-                        aria-label="Mes desde el que aplica el tramo"
+                        aria-label="Month the segment starts in"
                       >
                         {/*
                           Sólo los meses que este módulo proyecta. Un tramo que
@@ -419,7 +417,7 @@ export default function StrategyEditor({
                           </option>
                         ))}
                         {!months.includes(seg.fromMonth) && (
-                          <option value={seg.fromMonth}>{seg.fromMonth} (guardado)</option>
+                          <option value={seg.fromMonth}>{seg.fromMonth} (saved)</option>
                         )}
                       </select>
                     </td>
@@ -428,7 +426,7 @@ export default function StrategyEditor({
                         className="field ol-editor__sel"
                         value={seg.cadence}
                         onChange={(e) => patch(i, { cadence: e.target.value as Cadence })}
-                        aria-label="Cadencia del tramo"
+                        aria-label="Segment cadence"
                       >
                         {CADENCES.map((c) => (
                           <option key={c} value={c}>
@@ -444,7 +442,7 @@ export default function StrategyEditor({
                         className="field ol-editor__num"
                         value={String(seg.growthPct)}
                         onChange={(e) => patch(i, { growthPct: Number(e.target.value) })}
-                        aria-label="Porcentaje de crecimiento del tramo"
+                        aria-label="Segment growth percentage"
                       />
                       <span className="ol-editor__pct">%</span>
                     </td>
@@ -455,7 +453,7 @@ export default function StrategyEditor({
                           className="bp-linkish"
                           onClick={() => setSegments((prev) => prev.filter((_, j) => j !== i))}
                         >
-                          quitar
+                          remove
                         </button>
                       )}
                     </td>
@@ -470,7 +468,7 @@ export default function StrategyEditor({
               onClick={addSegment}
               disabled={segments.length >= months.length}
             >
-              + otro tramo
+              + another segment
             </button>
           </section>
         )}
@@ -479,7 +477,7 @@ export default function StrategyEditor({
         {mode === 'monthly' && (
           <section className="ol-editor__block">
             {months.length === 0 ? (
-              <p className="ol-editor__hint">No queda ningún mes del año por fijar.</p>
+              <p className="ol-editor__hint">There is no month left to set this year.</p>
             ) : (
               <div className="ol-months">
                 {months.map((m) => (
@@ -506,8 +504,8 @@ export default function StrategyEditor({
         {/* ── Lo que queda guardado del otro modo ─────────────────────── */}
         {otherSaved && (
           <p className="ol-editor__hint">
-            {otherSaved} No se aplica mientras rija <b>{modeLabel(mode)}</b>, y no se borra: si volvés al otro modo,
-            vuelve a regir tal como está.
+            {otherSaved} It is not applied while <b>{modeLabel(mode)}</b> rules, and it is not deleted: switching
+            back brings it into effect exactly as it is.
           </p>
         )}
 
@@ -515,16 +513,16 @@ export default function StrategyEditor({
         <div className="ol-editor__row">
           <div className="bp-form__field ol-editor__grow">
             <label className="bp-form__label" htmlFor="ol-note">
-              Por qué (opcional)
+              Why (optional)
             </label>
             <input id="ol-note" type="text" className="field" value={note} onChange={(e) => setNote(e.target.value)} />
           </div>
           <button type="button" className="bp-btn bp-btn--small" onClick={save} disabled={busy}>
-            {busy ? '…' : 'Guardar'}
+            {busy ? '…' : 'Save'}
           </button>
         </div>
         <p className="ol-editor__hint">
-          Rige desde <b>{data.effectiveFrom}</b>, el primer día del mes siguiente.
+          Takes effect on <b>{data.effectiveFrom}</b>, the first day of next month.
         </p>
 
         {error && <div className="bp-notice bp-notice--warn ol-editor__msg">{error}</div>}
@@ -534,9 +532,9 @@ export default function StrategyEditor({
         {showPreview && (
           <section className="ol-editor__block">
             <h3 className="ol-editor__h">
-              Qué pasaría <span className="bp-muted ol-editor__rev">sin guardar</span>
+              What would happen <span className="bp-muted ol-editor__rev">not saved yet</span>
             </h3>
-            <table className="piv ol-editor__tbl">
+            <table className="piv ol-editor__tbl ol-preview">
               <thead>
                 <tr className="mo-row">
                   <th className="lbl"></th>
@@ -550,7 +548,7 @@ export default function StrategyEditor({
               <tbody>
                 {changes && (
                   <tr className="metric">
-                    <td className="lbl bp-muted">Hoy</td>
+                    <td className="lbl bp-muted">Today</td>
                     {previewSaved.map((p) => (
                       <td key={p.month} className={'bp-center' + (p.value ? '' : ' zero')}>
                         {p.value}
@@ -559,7 +557,7 @@ export default function StrategyEditor({
                   </tr>
                 )}
                 <tr className="metric" style={{ fontWeight: 700 }}>
-                  <td className="lbl">{changes ? 'Con este cambio' : 'Proyección'}</td>
+                  <td className="lbl">{changes ? 'With this change' : 'Projection'}</td>
                   {preview.map((p) => (
                     <td key={p.month} className={'bp-center' + (p.value ? '' : ' zero')} title={p.explain}>
                       {p.value}
@@ -574,7 +572,7 @@ export default function StrategyEditor({
         {/* ── La historia, detrás de un enlace ────────────────────────── */}
         <div>
           <button type="button" className="bp-linkish" onClick={() => setShowHistory((v) => !v)}>
-            {showHistory ? 'ocultar historial' : `ver historial (${historyCount})`}
+            {showHistory ? 'hide history' : `view history (${historyCount})`}
           </button>
         </div>
 
@@ -582,7 +580,7 @@ export default function StrategyEditor({
           <section className="ol-editor__block">
             {modeHistory.length > 0 && (
               <>
-                <h3 className="ol-editor__h">Modo</h3>
+                <h3 className="ol-editor__h">Mode</h3>
                 <table className="piv ol-editor__tbl">
                   <tbody>
                     {modeHistory.map((r) => (
@@ -606,7 +604,7 @@ export default function StrategyEditor({
                     {benchHistory.map((r) => (
                       <tr key={r.strategy_benchmark_key} className="metric">
                         <td className="lbl">
-                          {fmt(Number(r.monthly_benchmark))} <span className="bp-muted">desde {r.effective_from}</span>
+                          {fmt(Number(r.monthly_benchmark))} <span className="bp-muted">from {r.effective_from}</span>
                         </td>
                         <td className="bp-left">{r.set_by}</td>
                         <td className="bp-left">{stamp(r.created_at)}</td>
@@ -620,7 +618,7 @@ export default function StrategyEditor({
 
             {ruleRevisions.size > 0 && (
               <>
-                <h3 className="ol-editor__h">Reglas</h3>
+                <h3 className="ol-editor__h">Growth rules</h3>
                 {[...ruleRevisions.entries()]
                   .sort((a, b) => b[0] - a[0])
                   .map(([rev, rows]) => (
@@ -629,8 +627,8 @@ export default function StrategyEditor({
                       className={'ol-editor__rev-card' + (rev === revision && savedMode === 'growth' ? ' is-current' : '')}
                     >
                       <div className="ol-editor__rev-head">
-                        <b>Revisión {rev}</b>
-                        {rev === revision && savedMode === 'growth' && <span className="ol-editor__tag">vigente</span>}
+                        <b>Revision {rev}</b>
+                        {rev === revision && savedMode === 'growth' && <span className="ol-editor__tag">in effect</span>}
                         <span className="bp-muted">
                           {rows[0].set_by} · {stamp(rows[0].created_at)}
                         </span>
@@ -640,7 +638,7 @@ export default function StrategyEditor({
                           .sort((a, b) => a.segment_order - b.segment_order)
                           .map((r) => (
                             <span key={r.growth_rule_key} className="ol-editor__seg">
-                              {Number(r.growth_pct)}% {cadenceLabel(r.cadence)} desde {r.from_month.slice(0, 7)}
+                              {Number(r.growth_pct)}% {cadenceLabel(r.cadence)} from {r.from_month.slice(0, 7)}
                             </span>
                           ))}
                       </div>
@@ -652,7 +650,7 @@ export default function StrategyEditor({
 
             {targetRevisions.size > 0 && (
               <>
-                <h3 className="ol-editor__h">Meses fijados</h3>
+                <h3 className="ol-editor__h">Monthly numbers</h3>
                 {[...targetRevisions.entries()]
                   .sort((a, b) => b[0] - a[0])
                   .map(([rev, rows]) => (
@@ -663,9 +661,9 @@ export default function StrategyEditor({
                       }
                     >
                       <div className="ol-editor__rev-head">
-                        <b>Revisión {rev}</b>
+                        <b>Revision {rev}</b>
                         {rev === targetRevision && savedMode === 'monthly' && (
-                          <span className="ol-editor__tag">vigente</span>
+                          <span className="ol-editor__tag">in effect</span>
                         )}
                         <span className="bp-muted">
                           {rows[0].set_by} · {stamp(rows[0].created_at)}
@@ -686,7 +684,7 @@ export default function StrategyEditor({
               </>
             )}
 
-            {historyCount === 0 && <p className="ol-editor__hint">Todavía no hay nada guardado para esta estrategia.</p>}
+            {historyCount === 0 && <p className="ol-editor__hint">Nothing has been saved for this strategy yet.</p>}
           </section>
         )}
       </div>
