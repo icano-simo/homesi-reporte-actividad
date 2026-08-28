@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useEffect, useState } from 'react';
+import { Fragment, use, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
   loadOutlookData,
@@ -11,6 +11,8 @@ import {
   type OutlookLoanOfficer,
 } from '@/lib/outlook/loadData';
 import { OUTLOOK_STRATEGIES, cadenceLabel, type OutlookStrategy } from '@/lib/outlook/project';
+import StrategyEditor from '@/app/outlook/components/StrategyEditor';
+import NppmEditor from '@/app/outlook/components/NppmEditor';
 
 /**
  * ============================================================================
@@ -26,6 +28,19 @@ import { OUTLOOK_STRATEGIES, cadenceLabel, type OutlookStrategy } from '@/lib/ou
  *
  * Cada nivel es la suma del de abajo. Si una fila no da la suma de las que
  * tiene debajo, es un bug -- no hay una segunda fórmula que pueda divergir.
+ *
+ * ---------------------------------------------------------------------------
+ * ETAPA OL2 — acá se DECIDE, no sólo se mira
+ * ---------------------------------------------------------------------------
+ * Cada fila de estrategia abre su editor (benchmark + regla de crecimiento) y
+ * cada fila de realtor abre el suyo. La edición vive donde está el número que
+ * cambia, no en una pantalla de configuración aparte: quien mira una proyección
+ * en cero y quiere arreglarla ya está en la fila correcta.
+ *
+ * ⚠ Al guardar se RECARGA todo con `loadOutlookData`, no se parchea el estado en
+ * memoria. Es más lento y es a propósito: lo que queda en la pantalla es lo que
+ * la base devuelve, así que un guardado que no tuvo el efecto esperado se ve
+ * acá y no en el próximo refresh de alguien más.
  */
 
 const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -61,6 +76,22 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
   const [data, setData] = useState<OutlookData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<Set<number>>(new Set());
+
+  /* Qué se está editando: (persona, estrategia) o (realtor). Nunca los dos. */
+  const [editing, setEditing] = useState<{ employeeKey: number; strategy: OutlookStrategy } | null>(null);
+  const [editingNppm, setEditingNppm] = useState<{ realtor: string; ytd: number } | null>(null);
+
+  /*
+   * Recargar todo después de guardar. No hay `cancelled` acá a propósito: esto
+   * corre por una acción del usuario que ya vio el guardado, no en el montaje.
+   */
+  const reload = useCallback(
+    () =>
+      loadOutlookData()
+        .then(setData)
+        .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e))),
+    []
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -145,9 +176,18 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               const currentHere = lo.primaryBranch === branch.branchCode ? lo.currentMonth : 0;
               const projectedHere = lo.primaryBranch === branch.branchCode ? byMonth : {};
 
+              /*
+                ⚠ La `key` va en el FRAGMENT, no en el primer <tr>.
+                Cada Loan Officer rinde varias filas hermanas --la suya, cinco de
+                estrategia y las de realtors-- y React necesita la key en el
+                elemento que devuelve el `map`. Con `<>` no se le puede poner, y
+                por eso hay `Fragment` explícito: la versión anterior dejaba un
+                warning de keys duplicadas en consola y, peor, permitía que React
+                reusara el estado de una fila para otra al reordenarse la tabla.
+              */
               return (
-                <>
-                  <tr key={lo.employeeKey} className="grp togg d1" onClick={() => toggle(lo.employeeKey)}>
+                <Fragment key={lo.employeeKey}>
+                  <tr className="grp togg d1" onClick={() => toggle(lo.employeeKey)}>
                     <td className="lbl">
                       <span className={'chev' + (isOpen ? ' open' : '')} aria-hidden="true">
                         ›
@@ -197,8 +237,8 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                       const steps = stepsByStrategy[s] ?? [];
                       const bench = lo.strategyBenchmarks[s] ?? 0;
                       return (
-                        <>
-                          <tr key={lo.employeeKey + '-' + s} className="metric mrow">
+                        <Fragment key={lo.employeeKey + '-' + s}>
+                          <tr className="metric mrow">
                             <td className="lbl" style={{ paddingLeft: '30px' }}>
                               {s}
                               {s === 'Own Production' && (
@@ -225,7 +265,28 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                             >
                               —
                             </td>
-                            <td className={'bp-center' + (bench ? '' : ' zero')}>{fmt(bench)}</td>
+                            {/*
+                              El benchmark se edita desde la celda del benchmark
+                              y la regla desde la celda de la regla. Las dos
+                              abren el mismo editor: son una sola decisión --
+                              cuánto es la base y cuánto crece-- y verlas juntas
+                              es lo que evita guardar una sin mirar la otra.
+                            */}
+                            <td className={'bp-center' + (bench ? '' : ' zero')}>
+                              {fmt(bench)}
+                              <button
+                                type="button"
+                                className="ol-edit"
+                                onClick={() => setEditing({ employeeKey: lo.employeeKey, strategy: s })}
+                                title={
+                                  s === 'Own Production'
+                                    ? 'Su benchmark se edita en el Business Plan. Acá se edita su regla de crecimiento.'
+                                    : `Fijar el benchmark de ${s} y su regla de crecimiento`
+                                }
+                              >
+                                editar
+                              </button>
+                            </td>
                             {months.map((m, i) => (
                               <td
                                 key={m}
@@ -236,7 +297,17 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                               </td>
                             ))}
                             <td className="lbl" style={{ fontSize: '11px' }}>
-                              {ruleLabel(lo, s, months)}
+                              <button
+                                type="button"
+                                className="bp-linkish"
+                                style={{ fontSize: '11px', textAlign: 'left' }}
+                                onClick={() => setEditing({ employeeKey: lo.employeeKey, strategy: s })}
+                              >
+                                {ruleLabel(lo, s, months)}
+                              </button>
+                              <span className="bp-muted" style={{ fontSize: '10px', marginLeft: '6px' }}>
+                                rev {lo.ruleRevision[s] || '—'}
+                              </span>
                             </td>
                           </tr>
 
@@ -254,6 +325,14 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                                   title="Benchmark del realtor, no del par realtor–loan officer: el mismo realtor trabaja con varias personas y branches."
                                 >
                                   {fmt(r.benchmark)}
+                                  <button
+                                    type="button"
+                                    className="ol-edit"
+                                    onClick={() => setEditingNppm({ realtor: r.realtor, ytd: r.ytd })}
+                                    title={`Fijar el benchmark de ${r.realtor}`}
+                                  >
+                                    editar
+                                  </button>
                                 </td>
                                 {months.map((m) => (
                                   <td key={m} className="bp-center zero">
@@ -265,10 +344,10 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                                 </td>
                               </tr>
                             ))}
-                        </>
+                        </Fragment>
                       );
                     })}
-                </>
+                </Fragment>
               );
             })}
 
@@ -307,6 +386,38 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
         </div>
       )}
 
+      {/*
+        Los editores. Se busca la persona en `branch.loanOfficers` en cada render
+        y no se guarda el objeto en el estado: después de un guardado, `reload`
+        reemplaza `data` entera, y un objeto guardado apuntaría a la versión
+        vieja -- el editor seguiría mostrando el benchmark anterior al que se
+        acaba de escribir, que es exactamente el bug que uno no revisa.
+      */}
+      {editing &&
+        (() => {
+          const lo = branch.loanOfficers.find((l) => l.employeeKey === editing.employeeKey);
+          if (!lo) return null;
+          return (
+            <StrategyEditor
+              lo={lo}
+              strategy={editing.strategy}
+              data={data}
+              onClose={() => setEditing(null)}
+              onSaved={reload}
+            />
+          );
+        })()}
+
+      {editingNppm && (
+        <NppmEditor
+          realtor={editingNppm.realtor}
+          ytd={editingNppm.ytd}
+          data={data}
+          onClose={() => setEditingNppm(null)}
+          onSaved={reload}
+        />
+      )}
+
       <div className="foot-note" style={{ marginTop: '14px' }}>
         <b>La jerarquía es el cálculo</b>: un realtor NPPM suma a la estrategia NPPM, que suma al Loan Officer, que suma
         al branch. La producción de un realtor <b>no se cuenta dos veces</b> — su fila es el detalle de la de NPPM, no un
@@ -319,7 +430,10 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
         etapa propia: <code>pipeline_loans</code> guarda los cinco crudos desde F6b y{' '}
         <code>lib/pipeline/strategy.ts</code> ya sabe clasificarlos, así que es derivable sin inventar nada.{' '}
         <b>Cada celda proyectada</b> trae su cuenta completa en el tooltip: benchmark, regla que aplicó, períodos y
-        resultado.
+        resultado.{' '}
+        <b>Todo lo que se edita se agrega, nunca se reemplaza</b>: un benchmark guardado es una fila nueva y una regla
+        editada es una revisión nueva, las dos firmadas y fechadas, con las anteriores enteras en el historial. Y rige{' '}
+        <b>desde el mes siguiente</b> — el mes en curso ya se está midiendo contra el benchmark anterior.
       </div>
     </div>
   );

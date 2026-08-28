@@ -105,10 +105,30 @@ export function projectMonth(
    * El tramo que rige es el ÚLTIMO cuyo mes de inicio ya pasó. Se ordena acá y
    * no se confía en el orden de entrada: un tramo agregado después puede tener
    * un mes anterior, y "el último que aplica" no es "el último de la lista".
+   *
+   * ---------------------------------------------------------------------------
+   * ⚠ ACÁ HABÍA UN COMPARADOR INVERTIDO, Y CON UN SOLO TRAMO ERA INVISIBLE
+   * ---------------------------------------------------------------------------
+   * La versión de OL1 ordenaba con `monthsBetween(a.fromMonth, b.fromMonth)`,
+   * que es POSITIVO cuando `b` es posterior a `a`. Como comparador eso ordena al
+   * revés --el más nuevo primero-- así que `applicable[length - 1]` devolvía el
+   * tramo MÁS VIEJO, no el más nuevo.
+   *
+   * Con un tramo por regla, que es todo lo que había hasta OL1, las dos
+   * versiones dan idéntico y el bug no existe. Apareció en la primera prueba de
+   * OL2 con tres tramos: "40% trimestral desde septiembre, 0% mensual desde
+   * octubre, 10% mensual desde noviembre" proyectaba diciembre con el 40% de
+   * septiembre en vez del 10% de noviembre --6 en lugar de 4-- porque tomaba el
+   * primero. El constructor de reglas habría entregado un presupuesto donde el
+   * segundo tramo no hace nada, sin error y con el dato guardado bien.
+   *
+   * Se compara por texto: 'YYYY-MM' ordena igual alfabética que
+   * cronológicamente, y así el comparador no depende de leer bien el signo de
+   * otra función.
    */
   const applicable = segments
     .filter((s) => monthsBetween(s.fromMonth, month) >= 0)
-    .sort((a, b) => monthsBetween(a.fromMonth, b.fromMonth));
+    .sort((a, b) => a.fromMonth.localeCompare(b.fromMonth));
   const segment = applicable.length > 0 ? applicable[applicable.length - 1] : null;
 
   if (segment === null) {
@@ -176,4 +196,52 @@ export function projectMonths(
   segments: GrowthSegment[]
 ): ProjectionStep[] {
   return months.map((m) => projectMonth(m, benchmark, segments));
+}
+
+/*
+ * ============================================================================
+ * EL BENCHMARK ES UNA SERIE, NO UN NÚMERO — etapa OL2
+ * ============================================================================
+ *
+ * Hasta OL1 el benchmark entraba como un escalar, porque no había forma de
+ * editarlo y la tabla estaba vacía. Con el editor ya no alcanza:
+ *
+ *   - todo lo que se guarda rige desde el PRIMER DÍA DEL MES SIGUIENTE, nunca
+ *     sobre el mes en curso (ver `docs/sql/2026-08-outlook-schema.sql`);
+ *   - la tabla es append-only, así que un mismo (persona, estrategia) acumula
+ *     varias filas con distintos `effective_from`;
+ *   - y nada impide --ni debería-- fijar hoy un benchmark que arranca en
+ *     noviembre.
+ *
+ * Entonces cada mes proyectado usa el benchmark vigente EN ESE MES: la fila de
+ * `effective_from` más alto que ya empezó. Con un escalar, un benchmark que
+ * arranca en noviembre se habría aplicado a septiembre o se habría ignorado
+ * entero, y en los dos casos el número saldría sin que nada fallara.
+ *
+ * ⚠ La regla de crecimiento NO se mueve cuando cambia el benchmark: sus períodos
+ * se cuentan desde el `fromMonth` del tramo. Un benchmark nuevo en noviembre no
+ * reinicia el trimestre; cambia la base sobre la que se multiplica. Es lo que
+ * hace que las dos decisiones --cuánto es la base y cuánto crece-- se puedan
+ * tomar por separado.
+ */
+export interface BenchmarkPoint {
+  /** Primer mes en que rige, 'YYYY-MM'. */
+  fromMonth: string;
+  value: number;
+}
+
+/**
+ * El benchmark vigente en `month`: el punto de `fromMonth` más alto que no lo
+ * supera. Si ninguno arrancó todavía, 0 — no el primero futuro.
+ *
+ * ⚠ Los puntos se ordenan acá y no se confía en el orden de entrada, por lo
+ * mismo que en `projectMonth`: una fila insertada después puede regir antes.
+ */
+export function benchmarkAt(points: BenchmarkPoint[], month: string): number {
+  let best: BenchmarkPoint | null = null;
+  for (const p of points) {
+    if (monthsBetween(p.fromMonth, month) < 0) continue;
+    if (best === null || monthsBetween(best.fromMonth, p.fromMonth) > 0) best = p;
+  }
+  return best === null ? 0 : best.value;
 }

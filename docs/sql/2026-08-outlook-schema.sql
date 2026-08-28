@@ -308,6 +308,20 @@ where e.is_loan_officer
 --        (employee_key, strategy, monthly_benchmark, effective_from, set_by)
 --      values (1, 'Own Production', 3, '2026-09-01', 'prueba');
 --
+--    MEDIDO en la etapa OL2, corriendo los dos inserts en el proyecto real:
+--
+--      Own Production  -> 23514 violates check "strategy_benchmark_strategy_check"
+--      2026-09-15      -> 23514 violates check "strategy_benchmark_effective_from_check"
+--
+--    Los dos son 23514, que es el código que `lib/outlook/save.ts` traduce a un
+--    mensaje legible en la pantalla. El de la fecha importa tanto como el otro:
+--    es el que sostiene "el benchmark rige desde el día 1", así que la app puede
+--    mandar el mes siguiente sabiendo que un error de cálculo no pasa igual.
+--
+--    Y las políticas, contadas: 3 de SELECT, 3 de INSERT, CERO de UPDATE y
+--    DELETE. Es lo que hace append-only al modelo -- no hay por dónde
+--    sobrescribir desde la app, ni por error ni a propósito.
+--
 -- 3. Cuántas reglas sembró, y que todas sean revisión 1 con un solo tramo:
 --
 --      select count(*) as reglas,

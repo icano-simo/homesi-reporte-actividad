@@ -1,0 +1,161 @@
+/*
+ * ============================================================================
+ * REGLAS PROPIAS DE OUTLOOK — sólo el editor (etapa OL2)
+ * ============================================================================
+ *
+ * El layout ya importa `bp-visual.css` y de ahí sale todo lo demás: las tablas
+ * `.piv`, los botones, `.field`, `.bp-form__*`, `.bp-notice`. Acá van SÓLO las
+ * clases que el editor necesita y que allá no existen.
+ *
+ * ⚠ Lo que el layout anticipó: "si algún día Outlook necesita reglas propias,
+ * van en un `app/outlook/styles/` aparte". Este es ese día. Nada de esto se
+ * agrega a `bp-visual.css`: son formularios de este módulo, y meterlos ahí
+ * cargaría reglas de Outlook a todo el Business Plan.
+ *
+ * Todos los colores salen de las variables ya definidas -- ninguna literal
+ * nueva, para que el módulo siga el tema como los otros.
+ */
+
+.ol-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 520px;
+}
+
+.ol-editor__block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--slate-200);
+}
+.ol-editor__block:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.ol-editor__h {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--slate-700);
+}
+.ol-editor__rev {
+  margin-left: 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* Fila de formulario: los campos crecen, el botón se alinea abajo con ellos. */
+.ol-editor__row {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ol-editor__grow {
+  flex: 1 1 220px;
+}
+.ol-editor__num {
+  width: 84px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.ol-editor__sel {
+  min-width: 104px;
+}
+.ol-editor__pct {
+  margin-left: 4px;
+  font-size: 11px;
+  color: var(--slate-400);
+}
+
+.ol-editor__hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--slate-500);
+}
+
+.ol-editor__tbl {
+  width: auto;
+  min-width: 0;
+}
+
+.ol-editor__msg {
+  margin: 0;
+}
+
+/* ── Una revisión de la regla, como tarjeta ──────────────────────────────── */
+.ol-editor__rev-card {
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  background: var(--slate-50);
+}
+/* La vigente se distingue: en una lista de revisiones, cuál manda es el dato. */
+.ol-editor__rev-card.is-current {
+  border-color: var(--brand-300, var(--slate-400));
+  background: var(--white, #fff);
+}
+.ol-editor__rev-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--slate-600);
+}
+.ol-editor__tag {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--slate-200);
+  color: var(--slate-700);
+}
+.ol-editor__rev-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 5px;
+}
+.ol-editor__seg {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--slate-200);
+  background: var(--white, #fff);
+  color: var(--slate-600);
+}
+.ol-editor__rev-note {
+  margin-top: 5px;
+  font-size: 11px;
+  font-style: italic;
+  color: var(--slate-500);
+}
+
+/* El lápiz que abre el editor desde una celda de la tabla. Discreto hasta que
+   se pasa por encima: la tabla es para leer, editar es la excepción. */
+.ol-edit {
+  margin-left: 5px;
+  border: none;
+  background: none;
+  padding: 0 2px;
+  font-size: 10.5px;
+  color: var(--slate-400);
+  cursor: pointer;
+  opacity: 0.55;
+}
+.ol-edit:hover,
+.ol-edit:focus-visible {
+  opacity: 1;
+  color: var(--slate-700);
+  text-decoration: underline;
+}

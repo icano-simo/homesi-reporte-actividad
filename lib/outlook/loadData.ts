@@ -6,7 +6,14 @@ import { classifyBranch } from '@/lib/domain/classifyBranch';
 import { addMonths } from '@/lib/business-plan/impact';
 import { loadBusinessPlanData } from '@/lib/business-plan/loadData';
 import type { BusinessPlanData, LoanOfficerRow } from '@/lib/business-plan/types';
-import { OUTLOOK_STRATEGIES, type Cadence, type GrowthSegment, type OutlookStrategy } from './project';
+import {
+  OUTLOOK_STRATEGIES,
+  benchmarkAt,
+  type BenchmarkPoint,
+  type Cadence,
+  type GrowthSegment,
+  type OutlookStrategy,
+} from './project';
 
 const PAGE_SIZE = 1000;
 
@@ -48,6 +55,58 @@ const PAGE_SIZE = 1000;
  * a la división, y este módulo es un presupuesto de división.
  */
 
+/*
+ * ============================================================================
+ * LAS FILAS CRUDAS, ENTERAS — etapa OL2
+ * ============================================================================
+ *
+ * El loader ya no se queda sólo con lo vigente: expone TODAS las filas de las
+ * tres tablas en `OutlookData.history`.
+ *
+ * ⚠ No es un extra del editor, es lo que hace útil al append-only. Guardar la
+ * historia y no mostrarla es tener el costo del modelo sin el beneficio: la
+ * pregunta que justifica todo esto --"quién puso que Recruitment crecía 20%
+ * desde octubre"-- se contesta leyendo estas filas.
+ *
+ * Son pocas y caben: 185 reglas y una decena de benchmarks. El día que no
+ * quepan, se lee por (persona, estrategia) al abrir el editor; hoy paginar
+ * sería complejidad sin motivo.
+ */
+export interface StrategyBenchmarkRow {
+  strategy_benchmark_key: number;
+  employee_key: number;
+  strategy: string;
+  monthly_benchmark: number | string;
+  effective_from: string;
+  set_by: string;
+  note: string | null;
+  created_at: string;
+}
+
+export interface NppmBenchmarkRow {
+  nppm_benchmark_key: number;
+  nppm_realtor: string;
+  monthly_benchmark: number | string;
+  effective_from: string;
+  set_by: string;
+  note: string | null;
+  created_at: string;
+}
+
+export interface GrowthRuleRow {
+  growth_rule_key: number;
+  employee_key: number;
+  strategy: string;
+  revision: number;
+  segment_order: number;
+  from_month: string;
+  cadence: Cadence;
+  growth_pct: number | string;
+  set_by: string;
+  note: string | null;
+  created_at: string;
+}
+
 export interface StrategyYtd {
   strategy: OutlookStrategy;
   ytd: number;
@@ -87,7 +146,18 @@ export interface OutlookLoanOfficer {
   primaryBranch: string | null;
   strategies: StrategyYtd[];
   rulesByStrategy: Partial<Record<OutlookStrategy, GrowthSegment[]>>;
+  /**
+   * La revisión VIGENTE de la regla de cada estrategia, o 0 si nunca se guardó
+   * ninguna — etapa OL2. La próxima edición escribe `revision + 1`.
+   */
+  ruleRevision: Partial<Record<OutlookStrategy, number>>;
+  /** El benchmark que rige el PRIMER mes proyectado. Es el que se muestra. */
   strategyBenchmarks: Partial<Record<OutlookStrategy, number>>;
+  /**
+   * La serie completa por estrategia — etapa OL2. Cada mes proyectado usa el
+   * punto vigente en ese mes, no este valor de portada. Ver `benchmarkAt`.
+   */
+  benchmarkSchedules: Partial<Record<OutlookStrategy, BenchmarkPoint[]>>;
 }
 
 export interface OutlookBranch {
@@ -118,6 +188,12 @@ export interface OutlookData {
   branches: OutlookBranch[];
   /** El mes desde el que rige cualquier benchmark editado hoy. */
   effectiveFrom: string;
+  /** Las filas crudas de las tres tablas, para historial y edición — OL2. */
+  history: {
+    strategyBenchmarks: StrategyBenchmarkRow[];
+    nppmBenchmarks: NppmBenchmarkRow[];
+    growthRules: GrowthRuleRow[];
+  };
   diagnostics: {
     activityRowsRead: number;
     ytdRowsCounted: number;
@@ -200,11 +276,39 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
    * tablas opcionales: una tabla ausente no debe romper la pantalla.
    */
   let outlookTablesAvailable = false;
-  const strategyBenchmarkByKey = new Map<string, number>();
+  /*
+   * ⚠ Ya no es `Map<clave, número>` sino `Map<clave, serie>`: el benchmark
+   * vigente depende del MES que se esté proyectando. Ver `benchmarkAt` en
+   * `project.ts`.
+   */
+  const benchmarkScheduleByKey = new Map<string, BenchmarkPoint[]>();
   const rulesByKey = new Map<string, GrowthSegment[]>();
-  const nppmBenchmarkByRealtor = new Map<string, number>();
+  const nppmScheduleByRealtor = new Map<string, BenchmarkPoint[]>();
+  const revisionByKey = new Map<string, number>();
   let strategyBenchmarkRows = 0;
   let growthRuleRows = 0;
+  const history: OutlookData['history'] = { strategyBenchmarks: [], nppmBenchmarks: [], growthRules: [] };
+
+  /*
+   * Una serie desde filas append-only. Dos cosas que parecen detalle y no lo son:
+   *
+   *   1. Se ordena por `created_at` y la última escrita GANA sobre las anteriores
+   *      del mismo `effective_from`. Sin eso, dos ediciones para el mismo mes
+   *      --que el modelo permite y no puede evitar, porque no hay UPDATE-- dejan
+   *      el resultado a merced del orden en que PostgREST devolvió las filas.
+   *   2. NO se filtra por mes: una fila que arranca en noviembre tiene que
+   *      quedar en la serie para que noviembre y diciembre la usen. El filtro
+   *      viejo (`effective_from > currentMonth -> descartar`) habría tirado
+   *      justamente todo lo que escribe el editor, porque todo rige desde el mes
+   *      siguiente.
+   */
+  function scheduleFrom(rows: { effective_from: string; monthly_benchmark: number | string; created_at: string }[]): BenchmarkPoint[] {
+    const byMonth = new Map<string, number>();
+    for (const r of [...rows].sort((a, b) => a.created_at.localeCompare(b.created_at))) {
+      byMonth.set(r.effective_from.slice(0, 7), Number(r.monthly_benchmark));
+    }
+    return [...byMonth.entries()].map(([fromMonth, value]) => ({ fromMonth, value }));
+  }
 
   try {
     const ol = supabase.schema('outlook');
@@ -214,40 +318,42 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       ol.from('nppm_benchmark').select('*'),
     ]);
     if (!nppmRes.error) {
+      const nppmRows = (nppmRes.data ?? []) as NppmBenchmarkRow[];
+      history.nppmBenchmarks = nppmRows;
       /* Por nombre normalizado: los datos traen 'FRED A GOMEZ' y 'Fred A Gomez'
          para la misma persona, y el benchmark es uno. */
-      for (const n of (nppmRes.data ?? []) as { nppm_realtor: string; monthly_benchmark: number | string; effective_from: string }[]) {
-        if (n.effective_from.slice(0, 7) > currentMonth) continue;
-        nppmBenchmarkByRealtor.set(normName(n.nppm_realtor), Number(n.monthly_benchmark));
+      const byRealtor = new Map<string, NppmBenchmarkRow[]>();
+      for (const n of nppmRows) {
+        const k = normName(n.nppm_realtor);
+        byRealtor.set(k, [...(byRealtor.get(k) ?? []), n]);
       }
+      for (const [k, rows2] of byRealtor) nppmScheduleByRealtor.set(k, scheduleFrom(rows2));
     }
     if (!benchRes.error && !ruleRes.error) {
       outlookTablesAvailable = true;
-      const benches = (benchRes.data ?? []) as {
-        employee_key: number;
-        strategy: string;
-        monthly_benchmark: number | string;
-        effective_from: string;
-      }[];
+      const benches = (benchRes.data ?? []) as StrategyBenchmarkRow[];
+      history.strategyBenchmarks = benches;
       strategyBenchmarkRows = benches.length;
-      /* La versión vigente: la de `effective_from` más alto que ya empezó. */
+      /*
+       * ⚠ ESTO ESTABA MAL Y NO SE VEÍA PORQUE LA TABLA ESTABA VACÍA.
+       *
+       * La versión anterior hacía `Math.max(prev, valor)`: se quedaba con el
+       * benchmark MÁS ALTO de la historia, no con el más reciente. Con 0 filas
+       * daba lo mismo; con el editor puesto, bajar un benchmark de 6 a 4 no
+       * habría tenido ningún efecto y la pantalla habría seguido mostrando 6
+       * para siempre, sin error, sin aviso y con la fila nueva guardada.
+       *
+       * Un presupuesto que sólo puede subir no es un presupuesto.
+       */
+      const benchByKey = new Map<string, StrategyBenchmarkRow[]>();
       for (const b of benches) {
-        if (b.effective_from.slice(0, 7) > currentMonth) continue;
         const k = b.employee_key + '|' + b.strategy;
-        const prev = strategyBenchmarkByKey.get(k);
-        if (prev === undefined) strategyBenchmarkByKey.set(k, Number(b.monthly_benchmark));
-        else strategyBenchmarkByKey.set(k, Math.max(prev, Number(b.monthly_benchmark)));
+        benchByKey.set(k, [...(benchByKey.get(k) ?? []), b]);
       }
+      for (const [k, rows2] of benchByKey) benchmarkScheduleByKey.set(k, scheduleFrom(rows2));
 
-      const rules = (ruleRes.data ?? []) as {
-        employee_key: number;
-        strategy: string;
-        revision: number;
-        segment_order: number;
-        from_month: string;
-        cadence: Cadence;
-        growth_pct: number | string;
-      }[];
+      const rules = (ruleRes.data ?? []) as GrowthRuleRow[];
+      history.growthRules = rules;
       growthRuleRows = rules.length;
       /* Sólo la revisión más alta de cada (empleado, estrategia) -- ver el SQL. */
       const maxRevision = new Map<string, number>();
@@ -255,7 +361,8 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
         const k = r.employee_key + '|' + r.strategy;
         maxRevision.set(k, Math.max(maxRevision.get(k) ?? 0, r.revision));
       }
-      for (const r of rules) {
+      for (const [k, rev] of maxRevision) revisionByKey.set(k, rev);
+      for (const r of [...rules].sort((a, b) => a.segment_order - b.segment_order)) {
         const k = r.employee_key + '|' + r.strategy;
         if (r.revision !== maxRevision.get(k)) continue;
         const list = rulesByKey.get(k) ?? [];
@@ -401,7 +508,9 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
               .filter(([k]) => k.startsWith(sk + '|'))
               .map(([k, v]) => {
                 const realtor = k.slice((sk + '|').length);
-                return { realtor, ytd: v, benchmark: nppmBenchmarkByRealtor.get(normName(realtor)) ?? null };
+                const schedule = nppmScheduleByRealtor.get(normName(realtor)) ?? [];
+                const at = benchmarkAt(schedule, displayMonth);
+                return { realtor, ytd: v, benchmark: schedule.length === 0 ? null : at };
               })
               .sort((a, b) => b.ytd - a.ytd || a.realtor.localeCompare(b.realtor))
           : [];
@@ -409,19 +518,37 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
     });
   }
 
+  /*
+   * El mes que manda para MOSTRAR un benchmark en la columna: el primero
+   * proyectado. Es el que gobierna las celdas proyectadas de esa fila, así que
+   * la columna 'Benchmark' y las columnas de meses hablan del mismo número. En
+   * diciembre no queda ninguno por proyectar y se cae al mes en curso.
+   */
+  const displayMonth = remainingMonths[0] ?? currentMonth;
+
   for (const lo of bp.loanOfficers) {
+    const benchmarkSchedules: Partial<Record<OutlookStrategy, BenchmarkPoint[]>> = {};
     const strategyBenchmarks: Partial<Record<OutlookStrategy, number>> = {};
     for (const s of OUTLOOK_STRATEGIES) {
-      /* Own Production NO se lee de outlook: viene de org.employee_benchmark. */
-      strategyBenchmarks[s] =
+      /*
+       * Own Production NO se lee de outlook: viene de org.employee_benchmark.
+       * Su serie es de un solo punto que rige desde siempre --el valor vigente
+       * que ya resolvió el Business Plan-- para que el motor trate a las cinco
+       * estrategias igual y no haya un caso especial dentro del cálculo.
+       */
+      const schedule: BenchmarkPoint[] =
         s === 'Own Production'
-          ? (lo.monthlyBenchmark ?? 0)
-          : (strategyBenchmarkByKey.get(lo.employeeKey + '|' + s) ?? 0);
+          ? [{ fromMonth: '0000-01', value: lo.monthlyBenchmark ?? 0 }]
+          : (benchmarkScheduleByKey.get(lo.employeeKey + '|' + s) ?? []);
+      benchmarkSchedules[s] = schedule;
+      strategyBenchmarks[s] = benchmarkAt(schedule, displayMonth);
     }
 
     const rulesByStrategy: Partial<Record<OutlookStrategy, GrowthSegment[]>> = {};
+    const ruleRevision: Partial<Record<OutlookStrategy, number>> = {};
     for (const s of OUTLOOK_STRATEGIES) {
       rulesByStrategy[s] = rulesByKey.get(lo.employeeKey + '|' + s) ?? [];
+      ruleRevision[s] = revisionByKey.get(lo.employeeKey + '|' + s) ?? 0;
     }
 
     const row: OutlookLoanOfficer = {
@@ -437,7 +564,9 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       /* Placeholder: se reemplaza por branch al armar el mapa, abajo. */
       strategies: [],
       rulesByStrategy,
+      ruleRevision,
       strategyBenchmarks,
+      benchmarkSchedules,
     };
     /*
      * En qué branches aparece: donde CERRÓ algo este año, más los del roster si
@@ -486,6 +615,7 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
     currentMonth,
     branches,
     effectiveFrom: addMonths(currentMonth, 1) + '-01',
+    history,
     diagnostics: {
       activityRowsRead: rows.length,
       ytdRowsCounted,
@@ -524,9 +654,11 @@ export function projectLoanOfficer(
   const stepsByStrategy: Partial<Record<OutlookStrategy, ProjectionStep[]>> = {};
 
   for (const s of OUTLOOK_STRATEGIES) {
-    const benchmark = lo.strategyBenchmarks[s] ?? 0;
+    /* ⚠ El benchmark se resuelve MES POR MES: uno guardado hoy con efecto en
+       noviembre cambia noviembre y diciembre, no septiembre. Ver `benchmarkAt`. */
+    const schedule = lo.benchmarkSchedules[s] ?? [];
     const segments = lo.rulesByStrategy[s] ?? [];
-    const steps = months.map((m) => projectMonth(m, benchmark, segments));
+    const steps = months.map((m) => projectMonth(m, benchmarkAt(schedule, m), segments));
     stepsByStrategy[s] = steps;
     for (const step of steps) {
       byMonth[step.month] = (byMonth[step.month] ?? 0) + step.value;
