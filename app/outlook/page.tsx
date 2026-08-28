@@ -100,11 +100,19 @@ export default function OutlookPage() {
         benchmarks de las cuatro estrategias nuevas son 0 y las proyecciones
         salen en 0. Un cero sin explicación se lee como "no va a cerrar nada".
       */}
+      {/*
+        ⚠ El aviso dice "no se puede LEER", no "no está aplicado". La diferencia
+        importa y costó un rato: el esquema puede estar creado y sembrado --185
+        reglas-- y aun así devolver 406, porque PostgREST sólo sirve los schemas
+        de "Exposed schemas". Un aviso que dijera "no está aplicado" mandaría a
+        alguien a correr un SQL que ya corrió.
+      */}
       {!data.diagnostics.outlookTablesAvailable && (
         <div className="bp-notice bp-notice--warn" style={{ marginBottom: '16px' }}>
-          El esquema <code>outlook</code> todavía no está aplicado, así que no hay benchmarks de estrategia ni reglas de
-          crecimiento: las columnas proyectadas salen en cero. YTD y el mes en curso sí son reales. El SQL está en{' '}
-          <code>docs/sql/2026-08-outlook-schema.sql</code>.
+          No se puede leer el esquema <code>outlook</code>, así que no hay benchmarks de estrategia ni reglas de
+          crecimiento y las columnas proyectadas caen al benchmark de Own Production. YTD y el mes en curso sí son
+          reales. Si el SQL de <code>docs/sql/2026-08-outlook-schema.sql</code> ya se aplicó, falta el paso que no es
+          SQL: <b>Settings → API → Exposed schemas → agregar <code>outlook</code></b>.
         </div>
       )}
 
@@ -150,7 +158,31 @@ export default function OutlookPage() {
                   }}
                 >
                   <td className="lbl">{b.branchCode}</td>
-                  <td className={'bp-center' + (b.ytd ? '' : ' zero')}>{fmt(b.ytd)}</td>
+                  {/*
+                    ⚠ El "+N sin atribuir" no es un detalle: es la explicación de
+                    por qué este YTD no coincide con el de Commercial Activity.
+                    Allá el 747 marca 51 y acá 47, y la diferencia son 4
+                    préstamos de gente que no pertenece a la división. Sin este
+                    número, alguien que compara las dos pantallas concluye que
+                    una está mal.
+                  */}
+                  <td className={'bp-center' + (b.ytd ? '' : ' zero')}>
+                    {fmt(b.ytd)}
+                    {b.unattributed > 0 && (
+                      <span
+                        className="bp-muted"
+                        style={{ fontSize: '10.5px', marginLeft: '5px' }}
+                        title={
+                          `${b.unattributed} préstamo(s) cerrado(s) en este branch por personas que no son Loan ` +
+                          `Officers de la división (están en org.source_name_excluded, con motivo escrito). ` +
+                          `Commercial Activity los cuenta porque mide el branch; Outlook no, porque presupuesta ` +
+                          `producción de la división.`
+                        }
+                      >
+                        +{b.unattributed} sin atribuir
+                      </span>
+                    )}
+                  </td>
                   <td className={'bp-center' + (b.currentMonth ? '' : ' zero')}>{fmt(b.currentMonth)}</td>
                   {months.map((m) => (
                     <td key={m} className={'bp-center' + (projected[m] ? '' : ' zero')}>
@@ -174,6 +206,22 @@ export default function OutlookPage() {
             </tr>
           </tbody>
         </table>
+      </div>
+
+      {/*
+        Las tres cosas que un número de esta tabla necesita para leerse, y que
+        no se deducen mirándola.
+      */}
+      <div className="foot-note" style={{ marginTop: '14px' }}>
+        <b>YTD</b>: cerrados del año atribuibles a la división. Un{' '}
+        <span className="bp-muted">+N sin atribuir</span> son préstamos de ese branch cerrados por personas que no son
+        Loan Officers de HomeSí — Commercial Activity los cuenta, un presupuesto de división no.{' '}
+        <b>Mes actual y proyección</b>: se cargan al branch del roster de cada persona, no al del préstamo. Son un número
+        por persona y no se pueden repartir; Forecast agrega por branch del préstamo, así que los dos criterios son
+        legítimos y distintos.{' '}
+        <b>Los meses proyectados</b>: con la regla inicial de 25% trimestral desde septiembre, el benchmark ES el
+        objetivo de septiembre y el primer aumento cae en <b>diciembre</b> — por eso Sep, Oct y Nov salen iguales. No es
+        un error de la tabla.
       </div>
 
       <div className="bp-diagnostics" style={{ marginTop: '16px' }}>

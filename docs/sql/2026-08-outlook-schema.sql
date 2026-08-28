@@ -10,6 +10,22 @@
 -- Ejecutar como `postgres` en el SQL Editor de Supabase (proyecto simoOS-prod).
 -- Idempotente: se puede correr entero de nuevo sin duplicar nada.
 --
+-- ============================================================================
+-- ⚠ HAY UN PASO QUE NO ES SQL Y SIN ÉL NADA DE ESTO SE PUEDE LEER
+-- ============================================================================
+--
+--     Supabase → Settings → API → Exposed schemas → agregar `outlook`
+--
+-- PostgREST sólo sirve los schemas de esa lista. Con el schema creado, las
+-- tablas sembradas y RLS puesta, `supabase.schema('outlook').from(...)` sigue
+-- devolviendo **406 Not Acceptable** hasta que se agregue ahí. Medido: 185
+-- reglas en la base y la app leyendo cero.
+--
+-- Es el mismo mecanismo, al revés, que protege a `maintenance`: ese schema NO
+-- se expone a propósito, y por eso sus funciones no son alcanzables por la API.
+-- Acá se necesita lo contrario, y es un checkbox, no una migración -- por eso no
+-- se descubre leyendo este archivo si no está dicho.
+--
 -- ⚠ Nada de esto es un cálculo. Es un PRESUPUESTO COMERCIAL: los números salen
 -- de decisiones de gestión, y por eso cada fila lleva autor y fecha y nada se
 -- sobrescribe nunca.

@@ -51,8 +51,16 @@ const PAGE_SIZE = 1000;
 export interface StrategyYtd {
   strategy: OutlookStrategy;
   ytd: number;
-  /* Dentro de NPPM, quién lo trajo. Vacío en las otras cuatro. */
-  byRealtor: { realtor: string; ytd: number }[];
+  /**
+   * Dentro de NPPM, los realtors por nombre. Vacío en las otras cuatro.
+   *
+   * ⚠ El benchmark es del REALTOR, no del par (realtor, Loan Officer): el mismo
+   * realtor trabaja con varias personas y en varias branches -- Laura Delgado
+   * está en el 733 con Aimmee Buendía y en el 776 con Silvio Arteaga. Lo que se
+   * atribuye al Loan Officer es la producción de cada caso, que es lo que dicen
+   * los datos; el compromiso es del realtor.
+   */
+  byRealtor: { realtor: string; ytd: number; benchmark: number | null }[];
 }
 
 export interface OutlookLoanOfficer {
@@ -65,6 +73,18 @@ export interface OutlookLoanOfficer {
   benchmarkTotal: number;
   ownProductionBenchmark: number | null;
   activePlan: LoanOfficerRow['activePlan'];
+  /**
+   * El branch al que se le carga su MES ACTUAL y sus proyecciones — OL1b.
+   *
+   * ⚠ No es lo mismo que dónde aparece la persona. Su YTD se reparte por branch
+   * del préstamo (puede estar en dos); su proyección no se puede repartir,
+   * porque es un número por persona y no por préstamo. Se carga entera al
+   * branch de su roster.
+   *
+   * Sin esto había un doble conteo: alguien con producción en dos branches
+   * sumaba su proyección completa en los dos.
+   */
+  primaryBranch: string | null;
   strategies: StrategyYtd[];
   rulesByStrategy: Partial<Record<OutlookStrategy, GrowthSegment[]>>;
   strategyBenchmarks: Partial<Record<OutlookStrategy, number>>;
@@ -74,6 +94,20 @@ export interface OutlookBranch {
   branchCode: string;
   ytd: number;
   currentMonth: number;
+  /**
+   * Préstamos cerrados EN ESTE BRANCH cuyo originador no pertenece a la
+   * división — etapa OL1b.
+   *
+   * No es un error ni un dato faltante: son personas en
+   * `org.source_name_excluded`, excluidas con motivo escrito porque no son Loan
+   * Officers de HomeSí. Outlook mide producción ATRIBUIBLE a la división, que
+   * es lo que se puede presupuestar; Commercial Activity los cuenta porque mide
+   * el branch, no la división.
+   *
+   * Se expone para que la diferencia con Commercial Activity se explique en la
+   * pantalla y no preguntando: 47 (+4 sin atribuir) contra los 51 de allá.
+   */
+  unattributed: number;
   loanOfficers: OutlookLoanOfficer[];
 }
 
@@ -103,6 +137,11 @@ export function remainingMonthsOf(currentMonth: string): string[] {
     out.push(m);
   }
   return out;
+}
+
+/** Mismo criterio que `aliasIndex`: trim, espacios colapsados, mayúsculas. */
+function normName(name: string): string {
+  return name.trim().replace(/\s+/g, ' ').toUpperCase();
 }
 
 async function readAll<T>(
@@ -163,15 +202,25 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
   let outlookTablesAvailable = false;
   const strategyBenchmarkByKey = new Map<string, number>();
   const rulesByKey = new Map<string, GrowthSegment[]>();
+  const nppmBenchmarkByRealtor = new Map<string, number>();
   let strategyBenchmarkRows = 0;
   let growthRuleRows = 0;
 
   try {
     const ol = supabase.schema('outlook');
-    const [benchRes, ruleRes] = await Promise.all([
+    const [benchRes, ruleRes, nppmRes] = await Promise.all([
       ol.from('strategy_benchmark').select('*'),
       ol.from('growth_rule').select('*'),
+      ol.from('nppm_benchmark').select('*'),
     ]);
+    if (!nppmRes.error) {
+      /* Por nombre normalizado: los datos traen 'FRED A GOMEZ' y 'Fred A Gomez'
+         para la misma persona, y el benchmark es uno. */
+      for (const n of (nppmRes.data ?? []) as { nppm_realtor: string; monthly_benchmark: number | string; effective_from: string }[]) {
+        if (n.effective_from.slice(0, 7) > currentMonth) continue;
+        nppmBenchmarkByRealtor.set(normName(n.nppm_realtor), Number(n.monthly_benchmark));
+      }
+    }
     if (!benchRes.error && !ruleRes.error) {
       outlookTablesAvailable = true;
       const benches = (benchRes.data ?? []) as {
@@ -288,6 +337,7 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
    * dispersas en cinco branches que la división no tiene.
    */
   const ytdByBranch = new Map<string, number>();
+  const unattributedByBranch = new Map<string, number>();
   const ytdByBranchLo = new Map<string, number>();
   const ytdByLo = new Map<number, number>();
   const ytdByLoStrategy = new Map<string, number>();
@@ -300,6 +350,8 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
     const lo = resolveOfficer(row);
     if (!lo) {
       unresolvedOfficers += 1;
+      const b = classifyBranch(row.branch ?? '');
+      unattributedByBranch.set(b, (unattributedByBranch.get(b) ?? 0) + 1);
       continue;
     }
     ytdRowsCounted += 1;
@@ -311,7 +363,14 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
     const strategy = (OUTLOOK_STRATEGIES as readonly string[]).includes(row.strategy ?? '')
       ? (row.strategy as OutlookStrategy)
       : 'Own Production';
-    const sk = lo.employeeKey + '|' + strategy;
+    /*
+     * ⚠ La clave lleva el BRANCH. Sin él, el desglose por estrategia de una
+     * persona sumaba sus filas de TODOS los branches mientras su fila de LO
+     * mostraba sólo las de este -- y las estrategias no daban su total.
+     * Medido: Aimmee Buendía cerraba 30 en el 733 y sus estrategias sumaban 31,
+     * porque una fila de Own Production de otro branch se colaba.
+     */
+    const sk = branch + '|' + lo.employeeKey + '|' + strategy;
     ytdByLoStrategy.set(sk, (ytdByLoStrategy.get(sk) ?? 0) + 1);
 
     if (strategy === 'NPPM') {
@@ -331,19 +390,26 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
    * total. Antes aparecía en los dos con el total completo.
    */
   const branchMap = new Map<string, OutlookLoanOfficer[]>();
-  for (const lo of bp.loanOfficers) {
-    const strategies: StrategyYtd[] = OUTLOOK_STRATEGIES.map((s) => {
-      const sk = lo.employeeKey + '|' + s;
+
+  /* El desglose de UNA persona EN UN branch. La clave lleva los tres. */
+  function strategiesOf(lo: LoanOfficerRow, branchCode: string): StrategyYtd[] {
+    return OUTLOOK_STRATEGIES.map((s) => {
+      const sk = branchCode + '|' + lo.employeeKey + '|' + s;
       const byRealtor =
         s === 'NPPM'
           ? [...ytdByLoStrategyRealtor.entries()]
               .filter(([k]) => k.startsWith(sk + '|'))
-              .map(([k, v]) => ({ realtor: k.slice((sk + '|').length), ytd: v }))
+              .map(([k, v]) => {
+                const realtor = k.slice((sk + '|').length);
+                return { realtor, ytd: v, benchmark: nppmBenchmarkByRealtor.get(normName(realtor)) ?? null };
+              })
               .sort((a, b) => b.ytd - a.ytd || a.realtor.localeCompare(b.realtor))
           : [];
       return { strategy: s, ytd: ytdByLoStrategy.get(sk) ?? 0, byRealtor };
     });
+  }
 
+  for (const lo of bp.loanOfficers) {
     const strategyBenchmarks: Partial<Record<OutlookStrategy, number>> = {};
     for (const s of OUTLOOK_STRATEGIES) {
       /* Own Production NO se lee de outlook: viene de org.employee_benchmark. */
@@ -367,7 +433,9 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       benchmarkTotal: OUTLOOK_STRATEGIES.reduce((a, s) => a + (strategyBenchmarks[s] ?? 0), 0),
       ownProductionBenchmark: lo.monthlyBenchmark,
       activePlan: lo.activePlan,
-      strategies,
+      primaryBranch: lo.branchCodes[0] ?? null,
+      /* Placeholder: se reemplaza por branch al armar el mapa, abajo. */
+      strategies: [],
       rulesByStrategy,
       strategyBenchmarks,
     };
@@ -383,8 +451,12 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
 
     for (const code of codes) {
       const list = branchMap.get(code) ?? [];
-      /* El YTD de la persona EN ESE BRANCH, no su total. */
-      list.push({ ...row, ytd: ytdByBranchLo.get(code + '|' + lo.employeeKey) ?? 0 });
+      /* El YTD y el desglose de la persona EN ESE BRANCH, no sus totales. */
+      list.push({
+        ...row,
+        ytd: ytdByBranchLo.get(code + '|' + lo.employeeKey) ?? 0,
+        strategies: strategiesOf(lo, code),
+      });
       branchMap.set(code, list);
     }
   }
@@ -395,7 +467,16 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       /* El YTD del branch sale de las FILAS, no de sumar personas: así no
          depende de que la atribución por persona esté completa. */
       ytd: ytdByBranch.get(branchCode) ?? 0,
-      currentMonth: los.reduce((a, l) => a + l.currentMonth, 0),
+      /*
+       * Sólo de quienes tienen ESTE branch como primario: la proyección de una
+       * persona es un número por persona y no se puede repartir entre branches.
+       * Sumar `l.currentMonth` de todos los que aparecen acá contaría dos veces
+       * a quien produce en dos branches.
+       */
+      currentMonth: los
+        .filter((l) => l.primaryBranch === branchCode)
+        .reduce((a, l) => a + l.currentMonth, 0),
+      unattributed: unattributedByBranch.get(branchCode) ?? 0,
       loanOfficers: los.sort((a, b) => b.ytd - a.ytd || a.fullName.localeCompare(b.fullName)),
     }))
     .sort((a, b) => b.ytd - a.ytd || a.branchCode.localeCompare(b.branchCode));
@@ -459,6 +540,9 @@ export function projectBranch(branch: OutlookBranch, months: string[]): Record<s
   const byMonth: Record<string, number> = {};
   for (const m of months) byMonth[m] = 0;
   for (const lo of branch.loanOfficers) {
+    /* Mismo criterio que el mes actual: la proyección de una persona se carga
+       a su branch de roster, una sola vez. Ver `primaryBranch`. */
+    if (lo.primaryBranch !== branch.branchCode) continue;
     const { byMonth: loMonths } = projectLoanOfficer(lo, months);
     for (const m of months) byMonth[m] += loMonths[m] ?? 0;
   }
