@@ -14,9 +14,19 @@
 -- funcionando como antes. Sin sembrar, la app reporta `0 person code / 4.127
 -- name (fallback) / 673 unresolved`, que es exactamente lo que resolvía antes.
 --
--- Lo que cambia al sembrar NO es la cobertura --son 4.092 por código y 147 por
--- nombre, mismo total-- sino de qué depende la atadura. Ver la sección de
--- cobertura más abajo, que corrige un número que parecía la ganancia y no lo era.
+-- Lo que cambia al sembrar NO es la cobertura sino de qué depende la atadura.
+-- Ver la sección de cobertura más abajo, que corrige un número que parecía la
+-- ganancia y no lo era.
+--
+-- ⚠ MEDIDO DESPUÉS DE SEMBRAR (2026-08-28): el panel reporta
+--   `3.980 person code · 147 name · 673 unresolved`, suma 4.800.
+--
+-- No 4.092 por código, como daba la proyección: la diferencia son 112 filas de
+-- 12 personas excluidas a propósito, que `resolveActivityOfficer` descarta
+-- ANTES de probar el código. La consulta de verificación 2, más abajo, ya
+-- descuenta esas filas -- si se las cuenta sin descontar da 4.092 y parece un
+-- desacuerdo entre la app y el SQL, cuando en realidad están midiendo dos cosas
+-- distintas: "filas cuyo código resuelve" contra "filas resueltas por código".
 --
 --
 -- ---------------------------------------------------------------------------
@@ -58,8 +68,8 @@
 -- COBERTURA MEDIDA (4.800 filas de loan_records_v2, 2026-08-28)
 -- ---------------------------------------------------------------------------
 --   por nombre ........... 4.127
---   por código ........... 4.092
---   por alguna de las 2 .. 4.239   <- a lo que se llega con este cambio
+--   por código ........... 4.092   <- SIN descontar las excluidas; la app cuenta 3.980
+--   por alguna de las 2 .. 4.239
 --   por ninguna ..........   561
 --   sólo por código ......   112
 --   sólo por nombre ......   147   <- por qué el nombre NO se borra
@@ -130,6 +140,16 @@
 -- ---------------------------------------------------------------------------
 -- PASO 1 — sembrar
 -- ---------------------------------------------------------------------------
+-- ⚠ ANTES DEL INSERT: `employee_alias` tiene un CHECK que enumera los
+-- `source_system` permitidos (`employee_alias_source_system_check`). Traía sólo
+-- 'salesforce', 'slquery' y 'roster', así que este insert falla con ese nombre
+-- de constraint hasta que se lo amplíe. Ya se amplió el 2026-08-28 para incluir
+-- 'person_code'.
+--
+-- Queda anotado porque no es descubrible desde el código: agregar un literal a
+-- `SourceSystem` en TypeScript compila y pasa los tests, y recién revienta
+-- contra la base. La próxima fuente que se agregue necesita las dos cosas.
+--
 -- Se siembran TODOS los empleados con email, no sólo los 42 que hoy aparecen
 -- en la tabla de actividad: el que aparezca la semana que viene ya va a tener
 -- su alias, sin que nadie tenga que acordarse de agregarlo.
@@ -189,7 +209,36 @@ on conflict (source_system, name_raw) do nothing;
 --                           and not exists (select 1 from a where a.n = r.n)) as sin_resolver
 --      from r;
 --
---    Esperado con los datos del 2026-08-28: 4.092 / 147 / 561, y la suma 4.800.
+--    ⚠ Esa consulta cuenta "filas cuyo código resuelve" y NO descuenta las
+--    excluidas, así que da 4.092 / 147 / 561. La app descuenta 112 filas de 12
+--    personas excluidas a propósito y por eso reporta 3.980 / 147 / 673. Las
+--    dos sumas dan 4.800 y las dos son correctas para lo que miden -- pero la
+--    que hay que comparar contra el panel es la de abajo, que sí descuenta:
+--
+--      with a as (
+--        select upper(btrim(regexp_replace(name_raw, '\s+', ' ', 'g'))) as n
+--          from org.employee_alias where source_system = 'slquery'
+--      ),
+--      p as (select upper(btrim(name_raw)) as code
+--              from org.employee_alias where source_system = 'person_code'),
+--      x as (select upper(btrim(name_raw)) as n
+--              from org.source_name_excluded where source_system = 'slquery'),
+--      r as (
+--        select upper(btrim(coalesce(loan_officer_person_code, ''))) as code,
+--               upper(btrim(regexp_replace(coalesce(nullif(btrim(loan_officer), ''), '(blank)'),
+--                                          '\s+', ' ', 'g'))) as n
+--          from activity_report.loan_records_v2
+--      )
+--      select
+--        count(*) filter (where not exists (select 1 from x where x.n = r.n)
+--                           and exists (select 1 from p where p.code = r.code)) as por_codigo,
+--        count(*) filter (where not exists (select 1 from x where x.n = r.n)
+--                           and not exists (select 1 from p where p.code = r.code)
+--                           and exists (select 1 from a where a.n = r.n)) as por_nombre,
+--        count(*) as total
+--      from r;
+--
+--    Esperado: 3.980 por código y 147 por nombre, sobre 4.800.
 --
 -- 3. En la app, abrir el Business Plan y mirar `diagnostics.activityResolution`.
 --    `byPersonCode` tiene que dejar de ser 0.

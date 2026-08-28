@@ -67,6 +67,12 @@ export interface EmployeeBranch {
  * colisión latente no es una identidad, es una coincidencia. El prefijo del
  * email se usa UNA vez, para sembrar los alias, y nunca más en runtime.
  */
+/*
+ * ⚠ Agregar un literal acá NO alcanza: `org.employee_alias` tiene un CHECK que
+ * enumera los `source_system` permitidos (`employee_alias_source_system_check`).
+ * TypeScript compila igual y el error aparece recién al insertar, contra la
+ * base. Pasó al sembrar `person_code`, el 2026-08-28.
+ */
 export type SourceSystem = 'roster' | 'salesforce' | 'slquery' | 'person_code';
 
 export interface EmployeeAlias {
