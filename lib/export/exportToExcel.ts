@@ -3,7 +3,24 @@ import type { LoanRecord } from '@/lib/domain/types';
 import type { YearMonth } from '@/lib/parsing/types';
 import type { Measure } from '@/lib/aggregation/types';
 import { buildReportTree } from '@/lib/aggregation/buildReportTree';
+import { matchesStrategy, type StrategyFilter } from '@/lib/domain/strategy';
 import { buildBranchSheet, buildDrillSheet } from './sheetBuilders';
+
+/**
+ * Nombre de la hoja de estrategia, dentro del límite de 31 caracteres que
+ * impone Excel.
+ *
+ * Con el filtro en 'all' devuelve el nombre histórico tal cual, para no
+ * romperle el archivo a nadie que ya lo tenga referenciado. Con una estrategia
+ * elegida, `'Activity By Branch Own Production'` daría 33 caracteres y ExcelJS
+ * lo rechazaría, así que en ese caso se cae al prefijo corto -- que entra
+ * siempre: el nombre más largo posible es 'Activity Own Production' (23).
+ */
+function strategySheetName(filter: StrategyFilter): string {
+  if (filter === 'all') return 'Activity By Branch B2B';
+  const largo = 'Activity By Branch ' + filter;
+  return largo.length <= 31 ? largo : 'Activity ' + filter;
+}
 
 export interface ExportToExcelOptions {
   records: LoanRecord[];
@@ -16,6 +33,13 @@ export interface ExportToExcelOptions {
    * incorpora el nombre de origen -- ver Riesgos en la respuesta.
    */
   fileName: string;
+  /**
+   * Etapa V3: la estrategia elegida en pantalla. La PRIMERA hoja del libro
+   * pasa a ser la de esa estrategia; con 'all' queda exactamente como estaba
+   * (la hoja B2B desglosada por BD). Las otras dos hojas nunca filtran, igual
+   * que antes.
+   */
+  strategyFilter: StrategyFilter;
 }
 
 /**
@@ -35,22 +59,42 @@ export interface ExportToExcelOptions {
  * B2B/LO.
  */
 export async function exportToExcel(options: ExportToExcelOptions): Promise<void> {
-  const { records, months, measure } = options;
+  const { records, months, measure, strategyFilter } = options;
   const workbook = new Workbook();
 
-  // Etapa 2 (refacción de filtros de app/page.tsx): buildReportTree() ya no
-  // filtra por B2B internamente (antes vía `view: 'b2b'`) -- el filtro se
-  // aplica acá, mismo criterio (`r.isB2B`) que ya usaba, sin cambiar qué
-  // hoja resulta. Las otras 2 hojas seguían pasando `view: 'main'` (sin
-  // filtro), así que usan `records` sin filtrar, sin cambios.
-  const b2bTree = buildReportTree({
-    records: records.filter((r) => r.isB2B),
+  /*
+   * Etapa V3: esta hoja era siempre la de B2B, filtrada por `r.isB2B` y
+   * desglosada por BD. Ahora sigue al selector de la pantalla.
+   *
+   *   * `strategyFilter === 'all'` -> idéntica a antes, incluido el nombre de
+   *     la hoja y el predicado: sigue siendo `r.isB2B`, NO `strategy === 'B2B'`.
+   *     En los datos de v2 los dos dan el mismo conjunto (759 y 759, cero
+   *     discrepancias medidas), pero en un archivo cargado a mano `strategy`
+   *     viene vacía y `isB2B` no: cambiar el predicado dejaría esa hoja vacía
+   *     en el único camino que todavía puede producir esos registros.
+   *   * Con una estrategia elegida -> esa estrategia, y el desglose deja de ser
+   *     por BD salvo en B2B, por el mismo motivo que en pantalla: el Business
+   *     Developer sólo explica algo dentro de B2B.
+   *
+   * Las otras 2 hojas siguen sin filtrar, como siempre.
+   */
+  const sheetStrategy: StrategyFilter = strategyFilter === 'all' ? 'B2B' : strategyFilter;
+  const strategyTree = buildReportTree({
+    records: records.filter((r) =>
+      strategyFilter === 'all' ? r.isB2B : matchesStrategy(r.strategy, sheetStrategy)
+    ),
     months,
     measure,
     branchFilter: 'all',
-    drillBy: 'bd',
+    drillBy: sheetStrategy === 'B2B' ? 'bd' : 'loanOfficer',
   });
-  buildDrillSheet(workbook.addWorksheet('Activity By Branch B2B'), b2bTree, months, measure, 'BD');
+  buildDrillSheet(
+    workbook.addWorksheet(strategySheetName(strategyFilter)),
+    strategyTree,
+    months,
+    measure,
+    sheetStrategy === 'B2B' ? 'BD' : 'Loan Officer'
+  );
 
   const branchTree = buildReportTree({
     records,

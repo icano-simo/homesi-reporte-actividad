@@ -32,12 +32,21 @@ interface LoanRecordV2Row {
   loan_channel: string | null;
   counts_for_division: boolean;
   synced_at: string;
+  /* Etapa V3. `nppm_realtor` llega siempre NULL hoy -- ver LoanRecord.nppmRealtor. */
+  strategy: string | null;
+  opportunity_owner: string | null;
+  nppm_realtor: string | null;
+  referred_by_realtor: string | null;
+  nppm_recruited_by: string | null;
 }
 
 const COLUMNS =
   'branch, loan_officer, bd, is_b2b, file_creation_date, credit_report_date, app_date, ' +
   'closing_month, total_loan_amount, loan_number, loan_program, loan_folder_name, ' +
-  'is_affinity, loan_channel, counts_for_division, synced_at';
+  'is_affinity, loan_channel, counts_for_division, synced_at, ' +
+  // Etapa V3: estrategia y su contexto. Ver LoanRecord para el estado real de
+  // cada una -- `nppm_realtor` existe pero hoy no trae ni un valor.
+  'strategy, opportunity_owner, nppm_realtor, referred_by_realtor, nppm_recruited_by';
 
 export interface CurrentReport {
   records: LoanRecord[];
@@ -185,6 +194,16 @@ export async function loadCurrentReport(): Promise<CurrentReport | null> {
      */
     affinity: row.is_affinity ? 'X' : '',
     countsForDivision: row.counts_for_division,
+    /*
+     * Etapa V3. Se pasan tal cual, sin normalizar ni mapear: la clasificación
+     * ya la hizo BigQuery y esta capa no la reinterpreta. El `?? ''` es sólo
+     * para no propagar NULL a un tipo que en el dominio es string.
+     */
+    strategy: row.strategy ?? '',
+    opportunityOwner: row.opportunity_owner ?? '',
+    nppmRealtor: row.nppm_realtor ?? '',
+    referredByRealtor: row.referred_by_realtor ?? '',
+    nppmRecruitedBy: row.nppm_recruited_by ?? '',
   }));
 
   /*

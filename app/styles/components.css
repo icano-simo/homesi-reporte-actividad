@@ -1198,12 +1198,14 @@ tr.mrow .chev {
  * Forecast (app/pipeline/LoanDetailModal.tsx) con 8 columnas -- a 768px
  * (el máximo compartido de `.modal-box`) varias quedaban truncadas.
  *
- * `.modal-box--wide` y `.modal-table-scroll` son clases NUEVAS, agregadas
- * solo en el JSX de ese modal -- el modal de Activity
- * (components/report/LoanDetailModal.tsx, 6 columnas) no las lleva y sigue
- * exactamente en 768px, sin ningún cambio acá. `.modal-box`/`.modal-body`
- * base tampoco se tocan -- estas reglas solo se activan cuando la clase
- * nueva está presente.
+ * `.modal-box--wide` y `.modal-table-scroll` se activan sólo cuando la clase
+ * está presente en el JSX; `.modal-box`/`.modal-body` base no se tocan.
+ *
+ * Actualización (etapa V3b): el modal de Activity también las usa ahora, pero
+ * SÓLO en la vista NPPM, que es la única donde llega a 8 columnas. Sus otras
+ * dos variantes (6 y 7) siguen exactamente en 768px. O sea que estas reglas ya
+ * no son exclusivas de Forecast -- son la respuesta compartida a "esta tabla
+ * tiene más columnas de las que entran".
  */
 .modal-box.modal-box--wide {
   max-width: min(92vw, 1400px);

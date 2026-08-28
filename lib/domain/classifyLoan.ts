@@ -37,6 +37,28 @@ export function classifyLoan(raw: RawLoanRow): LoanRecord {
     branch: classifyBranch(raw.trueOrgId),
     loanOfficer: loanOfficer ? loanOfficer.toUpperCase() : '(blank)',
     bd: bd ? bd : '(blank)',
+    /*
+     * ============================================================================
+     * ⚠ ESTO NO ES CÓMO SE CALCULA B2B. NO LO COPIES.
+     * ============================================================================
+     *
+     * Lee la columna "B2B Loans" del ARCHIVO, y el archivo usa la regla vieja:
+     * "el dueño de la oportunidad es un Business Developer", sin precedencia.
+     * Con esa regla, un préstamo con dueño BD pero `Strategy__c = 'NPPM'`
+     * cuenta como B2B -- medido contra `loan_records_v2`: son **85 de los 92
+     * préstamos NPPM**. La regla vieja se los come a casi todos.
+     *
+     * La regla correcta es `strategy = 'B2B'`, con la precedencia Affinity >
+     * NPPM > Recruitment > B2B > Own Production aplicada antes. Eso ya viene
+     * resuelto desde BigQuery en `loan_records_v2.is_b2b`, y está verificado:
+     * `is_b2b` coincide exactamente con `strategy = 'B2B'` en las 4.794 filas
+     * (759 y 759, cero discrepancias).
+     *
+     * Esta línea sobrevive porque es el único valor que la carga manual puede
+     * producir -- ese camino ya no tiene entrada en la UI (etapa V2b) y el
+     * archivo no trae `strategy`. Si necesitás saber cómo se decide B2B, mirá
+     * lib/domain/strategy.ts, no esto.
+     */
     isB2B: raw.b2bLoans.trim() === 'B2B',
     // Mismo valor crudo (sin trim ni normalizar) que se usó arriba para
     // decidir closingMonth -- se expone tal cual, ver comentario en types.ts.
@@ -63,5 +85,20 @@ export function classifyLoan(raw: RawLoanRow): LoanRecord {
      * vienen de BigQuery (loan_records_v2), que sí traen el flag resuelto.
      */
     countsForDivision: closingMonth !== null,
+    /*
+     * Etapa V3: el archivo no trae ninguna de estas cinco. Van vacías, y eso
+     * es visible en vez de inventado: un registro con `strategy: ''` sólo
+     * aparece con el selector en "All strategies", nunca bajo una estrategia
+     * concreta (ver `matchesStrategy` en lib/domain/strategy.ts).
+     *
+     * ⚠ Lo que NO se hace acá es derivar `strategy` de `isB2B`. Sería la regla
+     * vieja disfrazada de la nueva: marcaría como B2B a los 85 NPPM de arriba,
+     * y encima con la etiqueta que dice que la precedencia ya se aplicó.
+     */
+    strategy: '',
+    opportunityOwner: '',
+    nppmRealtor: '',
+    referredByRealtor: '',
+    nppmRecruitedBy: '',
   };
 }

@@ -5,36 +5,23 @@ import type { ReportTree, ReportTreeBranch, ReportTreeMetricGroup, Measure } fro
 import type { YearMonth } from '@/lib/parsing/types';
 import type { Branch } from '@/config/roster';
 import type { DrillDownContext } from '@/lib/aggregation/loansForCell';
+import { strategyLabel, type StrategyFilter } from '@/lib/domain/strategy';
 import { METRICS, MONTH_NAMES } from '@/config/metrics';
-import { sumMonths } from '@/lib/aggregation/sumMonths';
-import { fmtVal } from '@/lib/aggregation/format';
 import { ChevronRightIcon } from '@/components/ui/icons';
 import PivotRow from './PivotRow';
 
-/**
- * ⚠ Etapa V2: los dos números de Closed, para la nota al pie del Total.
+/*
+ * ⚠ Etapa V2c: acá vivía `closedTotals()`, que comparaba el Closed del Total
+ * contra la suma de las filas de sucursal para decidir si mostrar una nota
+ * explicando la diferencia. La nota se quitó por pedido explícito, sin
+ * reemplazo.
  *
- * El Total agrega en scope 'division' y las filas de sucursal en 'detail'
- * (ver `countsIn()` en lib/aggregation/metricMaps.ts), así que en Closed
- * pueden no coincidir: un HELOC de segundo gravamen lo gana la sucursal que lo
- * originó, pero la división no cuenta ese cierre.
- *
- * Se calculan los dos y se comparan en vez de asumir que siempre difieren: en
- * la mayoría de los períodos dan igual, y una nota que aparece siempre deja de
- * leerse. Sale sola cuando hay algo que explicar.
- *
- * Devuelve los dos totales, no la resta, porque la nota los muestra a los dos
- * -- así el texto sirve igual con measure 'count' que con 'amount', sin tener
- * que decir "N préstamos" cuando el número en pantalla son dólares.
+ * Los DOS NÚMEROS NO CAMBIAN: el Total sigue agregando en scope 'division'
+ * (sin los HELOC de segundo gravamen) y las filas de sucursal en 'detail' (con
+ * ellos), así que el Total puede seguir dando menos que la suma de sus filas.
+ * Lo único que se fue es el texto que lo explicaba en pantalla; el porqué sigue
+ * documentado en `countsIn()`, en lib/aggregation/metricMaps.ts.
  */
-function closedTotals(tree: ReportTree, months: YearMonth[]): { division: number; branches: number } {
-  const division = sumMonths(tree.total.maps.cl, months);
-  const branches = tree.branches.reduce((sum, b) => {
-    const group = b.metricGroups.find((g) => g.metric === 'cl');
-    return sum + (group ? sumMonths(group.total, months) : 0);
-  }, 0);
-  return { division, branches };
-}
 
 export interface PivotTableProps {
   tree: ReportTree;
@@ -45,14 +32,12 @@ export interface PivotTableProps {
   collapsed: Set<string>;
   onToggleCollapse: (id: string) => void;
   /**
-   * Etapa 2: reemplaza `view: 'main'|'b2b'`. Decide el label de la 3ra
-   * columna ("BD" vs "Loan Officer") y el de la fila Total -- ahora es
-   * directamente el filtro B2B (app/page.tsx), no una "vista": el drill por
-   * BD sigue siendo consecuencia de que B2B esté activo (mismo
-   * comportamiento que antes), pero B2B ya no excluye ninguna otra
-   * combinación de filtros/agrupación.
+   * Etapa V3 (antes `b2bOnly: boolean`): decide las dos etiquetas dinámicas
+   * --el encabezado de la 3ra columna y el rótulo de la fila Total-- y, de
+   * ahí, por qué campo se desglosa. Sigue siendo sólo presentación:
+   * `ReportTree` ya viene filtrado, el cálculo no depende de esto.
    */
-  b2bOnly: boolean;
+  strategyFilter: StrategyFilter;
   /**
    * Drill-down (Fase 1): dispara la apertura del modal con el contexto de la
    * celda clickeada. Opcional a propósito -- si no se provee, ninguna celda
@@ -234,10 +219,11 @@ function BranchRows({
  * filtrado por branch, ver buildReportTree) pero no se debe mostrar --
  * ese es el bug corregido en esta etapa.
  *
- * `b2bOnly` (Etapa 2, antes `view`) resuelve las dos etiquetas dinámicas del
- * legacy: `drillLbl` ('BD' vs 'Loan Officer' en el header de la 3ra columna)
- * y `total.label` ('Total (B2B)' vs 'Total'). Es solo texto -- ReportTree no
- * necesita saber qué filtro está activo, el cálculo no cambia.
+ * `strategyFilter` (Etapa V3, antes `b2bOnly`, y antes de eso `view`) resuelve
+ * las dos etiquetas dinámicas del legacy: `drillLbl` ('BD' vs 'Loan Officer' en
+ * el header de la 3ra columna) y `total.label` ('Total (B2B)' vs 'Total'). Es
+ * solo texto -- ReportTree no necesita saber qué filtro está activo, el cálculo
+ * no cambia.
  */
 export default function PivotTable({
   tree,
@@ -246,20 +232,20 @@ export default function PivotTable({
   showTotal,
   collapsed,
   onToggleCollapse,
-  b2bOnly,
+  strategyFilter,
   onDrillDown,
 }: PivotTableProps) {
   const totalCollapsed = collapsed.has('total');
-  const drillLabel = b2bOnly ? 'BD' : 'Loan Officer';
-  const totalLabel = b2bOnly ? 'Total (B2B)' : 'Total';
+  // Etapa V3: mismo criterio que antes, con la estrategia en vez del booleano.
+  // El desglose por BD sigue siendo exclusivo de B2B -- ver el comentario de
+  // `drillBy` en app/page.tsx.
+  const drillLabel = strategyFilter === 'B2B' ? 'BD' : 'Loan Officer';
+  const totalLabel = strategyFilter === 'all' ? 'Total' : 'Total (' + strategyLabel(strategyFilter) + ')';
   // Mismo criterio que ya usa app/page.tsx para construir el ReportTree
-  // (drillBy = b2bOnly ? 'bd' : 'loanOfficer') -- se deriva acá también,
+  // (drillBy = strategyFilter === 'B2B' ? 'bd' : 'loanOfficer') -- se deriva acá también,
   // igual que ya hacía drillLabel un renglón arriba, para saber qué campo de
   // LoanRecord corresponde al nombre de cada item del desglose.
-  const drillBy: 'loanOfficer' | 'bd' = b2bOnly ? 'bd' : 'loanOfficer';
-  // Etapa V2: sólo se usa dentro del bloque `showTotal`, pero se calcula acá
-  // porque los hooks/derivados del componente viven todos juntos arriba.
-  const closed = closedTotals(tree, months);
+  const drillBy: 'loanOfficer' | 'bd' = strategyFilter === 'B2B' ? 'bd' : 'loanOfficer';
 
   return (
     <table className="piv piv--tree" id="pivot">
@@ -303,25 +289,6 @@ export default function PivotTable({
                   onCellClick={onDrillDown ? (ym) => onDrillDown({ metric: key, month: ym }) : undefined}
                 />
               ))}
-            {!totalCollapsed && closed.division !== closed.branches && (
-              /*
-               * ⚠ Etapa V2. Sin esta nota, el Total de Closed se lee como un
-               * error de suma: da menos que las filas que tiene abajo.
-               *
-               * No es un error -- son dos preguntas distintas. Los HELOC de
-               * segundo gravamen los gana la sucursal y el loan officer que los
-               * originaron; la división no gana nada con ellos y no los cuenta.
-               * La regla está en `countsIn()`, y acá se explica en el único
-               * lugar donde el usuario ve la consecuencia.
-               */
-              <tr className="metric">
-                <td className="lbl" colSpan={months.length + 2} style={{ color: 'var(--slate-500)', fontWeight: 500, paddingLeft: '26px' }}>
-                  Closed: el Total dice {fmtVal(closed.division, measure)} y las sucursales suman{' '}
-                  {fmtVal(closed.branches, measure)}. La diferencia son HELOC de segundo gravamen: cuentan para la
-                  sucursal y el loan officer que los originaron, no para la división.
-                </td>
-              </tr>
-            )}
           </>
         )}
 
