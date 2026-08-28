@@ -1,5 +1,6 @@
 import type { ResolvedLoan } from './types';
 import type { DateRange } from './aggregate';
+import { NO_PROGRAM_LABEL, NO_PROPERTY_STATE_LABEL, NO_TYPE_LABEL } from './labels';
 
 /**
  * ============================================================================
@@ -26,10 +27,11 @@ export interface RankingRow {
   amount: number;
 }
 
-const NO_PROGRAM_LABEL = 'Sin programa';
-const NO_TYPE_LABEL = 'Sin tipo';
-/** Etapa PROPERTY-STATE-1: exportado (a diferencia de los dos de arriba) porque el drill-down de TabAnalytics.tsx necesita re-derivar la misma etiqueta -- ver el comentario de DRILLDOWN_NO_PROGRAM_LABEL en ese archivo. */
-export const NO_PROPERTY_STATE_LABEL = 'Sin estado';
+/*
+ * Las tres etiquetas de fila vacía viven en `./labels`, con una sola definición
+ * cada una. Antes dos de ellas estaban acá sin exportar y duplicadas a mano en
+ * TabAnalytics.tsx -- ver la cabecera de ese archivo.
+ */
 
 /** Préstamos funded cuya `disbursementDate` cae dentro del rango, inclusive en los dos extremos. */
 export function fundedLoansInRange(loans: ResolvedLoan[], range: DateRange): ResolvedLoan[] {
