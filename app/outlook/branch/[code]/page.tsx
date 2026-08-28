@@ -3,10 +3,10 @@
 import { Fragment, use, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
+  composeYear,
   loadOutlookData,
   projectLoanOfficer,
   projectBranch,
-  yearTotal,
   type OutlookData,
   type OutlookLoanOfficer,
 } from '@/lib/outlook/loadData';
@@ -16,11 +16,11 @@ import NppmEditor from '@/app/outlook/components/NppmEditor';
 
 /**
  * ============================================================================
- * OUTLOOK — VISTA 2: dentro de un branch (etapa OL1b)
+ * OUTLOOK — VISTA 2: dentro de un branch (etapas OL1b, OL2 y OL3)
  * ============================================================================
  *
  * Los Loan Officers del branch y, debajo de cada uno, sus cinco estrategias.
- * Dentro de NPPM, los realtors por nombre.
+ * Dentro de NPPM, los realtors por nombre. Por columna, los doce meses del año.
  *
  * ⚠ La jerarquía visual ES la jerarquía del cálculo:
  *
@@ -41,14 +41,37 @@ import NppmEditor from '@/app/outlook/components/NppmEditor';
  * memoria. Es más lento y es a propósito: lo que queda en la pantalla es lo que
  * la base devuelve, así que un guardado que no tuvo el efecto esperado se ve
  * acá y no en el próximo refresh de alguien más.
+ *
+ * ---------------------------------------------------------------------------
+ * ETAPA OL3 — los doce meses, y LA ÚNICA FILA QUE NO CIERRA
+ * ---------------------------------------------------------------------------
+ * Las tres bandas (real · pronóstico · presupuesto) son las mismas que en la
+ * vista 1 y se rotulan igual.
+ *
+ * ⚠ El total de un Loan Officer NO da la suma de sus cinco estrategias, y la
+ * diferencia es exactamente el pronóstico del mes en curso: Forecast lo calcula
+ * sobre el pipeline, que no lleva la estrategia consigo, así que las estrategias
+ * tienen ese mes en `—` y su total no lo incluye.
+ *
+ * Es la única excepción a "cada nivel es la suma del de abajo" en todo el
+ * módulo, y está dicha en la pantalla --en el tooltip del total y en la nota al
+ * pie-- porque una jerarquía que casi siempre cierra y una vez no, sin
+ * explicación, se reporta como bug. Se cierra el día que el mes en curso se
+ * pueda abrir por estrategia (ver la etapa pendiente en `project.ts`).
  */
 
 const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const monthLabel = (ym: string) => MONTH_ABBR[Number(ym.split('-')[1]) - 1];
 
+/** `—` no se puede saber · `–` cero · el número. */
 function fmt(n: number | null): string {
-  if (n === null || !n) return '–';
+  if (n === null) return '—';
+  if (!n) return '–';
   return Number.isInteger(n) ? String(n) : n.toFixed(1);
+}
+
+function bandOf(month: string, currentMonth: string): 'actual' | 'forecast' | 'budget' {
+  return month < currentMonth ? 'actual' : month === currentMonth ? 'forecast' : 'budget';
 }
 
 /**
@@ -121,11 +144,28 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
     );
   }
 
-  const months = data.remainingMonths;
-  const branchProjected = projectBranch(branch, months);
+  const { monthsOfYear, actualMonths, currentMonth, remainingMonths } = data;
+  const year = currentMonth.split('-')[0];
   /* Nadie con este branch en su roster: tiene cerrados y no proyecta. Ver vista 1. */
   const projectsNothing = !branch.loanOfficers.some((l) => l.primaryBranch === branch.branchCode);
-  const colCount = 5 + months.length;
+  /*
+   * ⚠ El mes en curso: el pronóstico, o lo cerrado del mes cuando no hay ninguno.
+   *
+   * Misma regla que la vista 1, y por el mismo motivo: el pronóstico se atribuye
+   * por roster y lo cerrado por préstamo, así que un branch sin nadie
+   * rosterizado tiene pronóstico 0 -- y sus cierres reales del mes se perderían.
+   * Medido en AFFINITY: 5 cerrados en agosto que la primera versión no mostraba.
+   */
+  const branchCurrent = projectsNothing ? (branch.actualByMonth[currentMonth] ?? 0) : branch.currentMonth;
+  const branchYear = composeYear(
+    monthsOfYear,
+    currentMonth,
+    branch.actualByMonth,
+    branchCurrent,
+    projectBranch(branch, remainingMonths)
+  );
+  /* nombre + doce meses + total + benchmark + regla */
+  const colCount = monthsOfYear.length + 4;
 
   function toggle(key: number) {
     setOpen((prev) => {
@@ -145,47 +185,80 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
           </div>
           <h1 className="page-head__title">Branch {branch.branchCode}</h1>
           <p className="page-head__subtitle">
-            {branch.loanOfficers.length} loan officer{branch.loanOfficers.length === 1 ? '' : 's'} · YTD {branch.ytd}
-            {branch.unattributed > 0 ? ` (+${branch.unattributed} sin atribuir)` : ''} · year total{' '}
-            {fmt(yearTotal(branch.ytd, branch.currentMonth, branchProjected))}
+            {branch.loanOfficers.length} loan officer{branch.loanOfficers.length === 1 ? '' : 's'} · closed {branch.ytd}
+            {branch.unattributed > 0 ? ` (+${branch.unattributed} sin atribuir)` : ''} · {year} total{' '}
+            {fmt(branchYear.total)}
           </p>
         </div>
       </div>
 
       <div className="tbl-scroll">
-        <table className="piv bp-table--los">
+        <table className="piv bp-table--los ol-year">
           <thead>
+            <tr className="yr-row">
+              <th className="lbl"></th>
+              {actualMonths.length > 0 && (
+                <th className="bp-center ol-band ol-band--actual" colSpan={actualMonths.length}>
+                  Real — cerrado
+                </th>
+              )}
+              <th className="bp-center ol-band ol-band--forecast">Pronóstico</th>
+              {remainingMonths.length > 0 && (
+                <th className="bp-center ol-band ol-band--budget" colSpan={remainingMonths.length}>
+                  Presupuesto
+                </th>
+              )}
+              <th className="bp-center"></th>
+              <th className="bp-center ol-band ol-band--decide" colSpan={2}>
+                Decisión
+              </th>
+            </tr>
             <tr className="mo-row">
               <th className="lbl">Loan Officer / Strategy</th>
-              <th className="bp-center">YTD</th>
-              <th className="bp-center">{monthLabel(data.currentMonth)}</th>
-              <th className="bp-center">Benchmark</th>
-              {months.map((m) => (
-                <th key={m} className="bp-center">
+              {monthsOfYear.map((m) => (
+                <th key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
                   {monthLabel(m)}
                 </th>
               ))}
+              <th className="bp-center totcol">{year}</th>
+              <th className="bp-center">Benchmark</th>
               <th className="lbl">Rule / Funnel</th>
             </tr>
           </thead>
           <tbody>
             {branch.loanOfficers.map((lo) => {
-              const { byMonth, stepsByStrategy } = projectLoanOfficer(lo, months);
+              const { byMonth, stepsByStrategy } = projectLoanOfficer(lo, remainingMonths);
               const isOpen = open.has(lo.employeeKey);
-              /* El mes actual se carga al branch del roster -- ver primaryBranch. */
-              const currentHere = lo.primaryBranch === branch.branchCode ? lo.currentMonth : 0;
-              const projectedHere = lo.primaryBranch === branch.branchCode ? byMonth : {};
-
+              /* El mes actual y la proyección se cargan al branch del roster. */
+              const here = lo.primaryBranch === branch.branchCode;
               /*
-                ⚠ La `key` va en el FRAGMENT, no en el primer <tr>.
-                Cada Loan Officer rinde varias filas hermanas --la suya, cinco de
-                estrategia y las de realtors-- y React necesita la key en el
-                elemento que devuelve el `map`. Con `<>` no se le puede poner, y
-                por eso hay `Fragment` explícito: la versión anterior dejaba un
-                warning de keys duplicadas en consola y, peor, permitía que React
-                reusara el estado de una fila para otra al reordenarse la tabla.
+               * Quien no tiene este branch en su roster no aporta pronóstico
+               * acá, pero sus cerrados del mes en este branch son reales: se
+               * muestran, con la misma regla que el branch. Ver el bloque de la
+               * celda del mes en curso más arriba.
+               */
+              const loCurrent = here ? lo.currentMonth : (lo.actualByMonth[currentMonth] ?? 0);
+              const loYear = composeYear(monthsOfYear, currentMonth, lo.actualByMonth, loCurrent, here ? byMonth : {});
+              /*
+                La suma de las cinco estrategias, sólo para poder EXPLICAR la
+                diferencia con el total de la persona. No se muestra como
+                número propio: sería un tercer total en la misma fila.
               */
+              const strategiesTotal = OUTLOOK_STRATEGIES.reduce((acc, s) => {
+                const st = lo.strategies.find((x) => x.strategy === s);
+                const steps = stepsByStrategy[s] ?? [];
+                const proj: Record<string, number | null> = {};
+                remainingMonths.forEach((m, i) => (proj[m] = here ? (steps[i]?.value ?? 0) : 0));
+                return acc + composeYear(monthsOfYear, currentMonth, st?.actualByMonth ?? {}, null, proj).total;
+              }, 0);
+
               return (
+                /*
+                  ⚠ La `key` va en el FRAGMENT, no en el primer <tr>.
+                  Cada Loan Officer rinde varias filas hermanas --la suya, cinco
+                  de estrategia y las de realtors-- y React necesita la key en el
+                  elemento que devuelve el `map`.
+                */
                 <Fragment key={lo.employeeKey}>
                   <tr className="grp togg d1" onClick={() => toggle(lo.employeeKey)}>
                     <td className="lbl">
@@ -194,25 +267,41 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                       </span>
                       {lo.fullName}
                     </td>
-                    <td className="bp-center">{fmt(lo.ytd)}</td>
-                    <td
-                      className={'bp-center' + (currentHere ? '' : ' zero')}
-                      title={
-                        lo.primaryBranch === branch.branchCode
-                          ? undefined
-                          : `Su proyección se carga al branch ${lo.primaryBranch ?? '(sin roster)'}, el de su roster.`
-                      }
-                    >
-                      {fmt(currentHere)}
-                    </td>
-                    <td className="bp-center" title="Suma de los benchmarks de sus cinco estrategias. Calculado, no editable.">
-                      {fmt(lo.benchmarkTotal)}
-                    </td>
-                    {months.map((m) => (
-                      <td key={m} className={'bp-center' + (projectedHere[m] ? '' : ' zero')}>
-                        {fmt(projectedHere[m] ?? 0)}
+                    {monthsOfYear.map((m) => (
+                      <td
+                        key={m}
+                        className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth) + (loYear.byMonth[m] ? '' : ' zero')}
+                        title={
+                          m === currentMonth && here
+                            ? `Pronóstico del mes: ${lo.closedToDate} ya cerraron y el resto es pipeline con su tasa. ` +
+                              `Los cerrados van DENTRO de este número.`
+                            : m === currentMonth && !here
+                              ? `Su pronóstico se carga al branch ${lo.primaryBranch ?? '(sin roster)'}, el de su ` +
+                                `roster. Acá se muestra lo que ya cerró en este branch este mes, que es real.`
+                              : m > currentMonth && !here
+                              ? `Su pronóstico y su presupuesto se cargan al branch ${lo.primaryBranch ?? '(sin roster)'}, ` +
+                                `el de su roster. Sus cerrados sí se cuentan acá, porque son del préstamo.`
+                              : undefined
+                        }
+                      >
+                        {fmt(loYear.byMonth[m] ?? null)}
                       </td>
                     ))}
+                    <td
+                      className="bp-center totcol"
+                      title={
+                        `Suma de las doce columnas. Sus cinco estrategias suman ${strategiesTotal}: la diferencia es el ` +
+                        `pronóstico de ${monthLabel(currentMonth)}, que Forecast no abre por estrategia.`
+                      }
+                    >
+                      {fmt(loYear.total)}
+                    </td>
+                    <td
+                      className="bp-center"
+                      title="Suma de los benchmarks de sus cinco estrategias. Calculado, no editable."
+                    >
+                      {fmt(lo.benchmarkTotal)}
+                    </td>
                     <td className="lbl">
                       {lo.activePlan ? (
                         <span
@@ -236,6 +325,16 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                       const st = lo.strategies.find((x) => x.strategy === s);
                       const steps = stepsByStrategy[s] ?? [];
                       const bench = lo.strategyBenchmarks[s] ?? 0;
+                      /*
+                        ⚠ El mes en curso va en `null`, no en 0: Forecast lo
+                        calcula sobre el pipeline, que no lleva la estrategia
+                        consigo. Un 0 diría que esta estrategia no va a cerrar
+                        nada este mes, que es una afirmación que nadie hizo.
+                      */
+                      const proj: Record<string, number | null> = {};
+                      remainingMonths.forEach((m, i) => (proj[m] = here ? (steps[i]?.value ?? 0) : 0));
+                      const sYear = composeYear(monthsOfYear, currentMonth, st?.actualByMonth ?? {}, null, proj);
+
                       return (
                         <Fragment key={lo.employeeKey + '-' + s}>
                           <tr className="metric mrow">
@@ -243,27 +342,35 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                               {s}
                               {s === 'Own Production' && (
                                 <span
-                                  className="bp-muted"
-                                  style={{ fontSize: '10px', marginLeft: '6px' }}
+                                  className="bp-muted ol-tag"
                                   title="Su benchmark se lee de org.employee_benchmark y se edita en el perfil del Business Plan, no acá."
                                 >
-                                  (benchmark del Business Plan)
+                                  BP
                                 </span>
                               )}
                             </td>
-                            <td className={'bp-center' + (st?.ytd ? '' : ' zero')}>{fmt(st?.ytd ?? 0)}</td>
-                            {/*
-                              ⚠ El mes actual NO se puede abrir por estrategia:
-                              sale de la proyección de Forecast, que se calcula
-                              sobre el snapshot del pipeline y no lleva la
-                              estrategia consigo. Repartirlo por peso del YTD
-                              sería inventar un número, así que dice '—'.
-                            */}
+                            {monthsOfYear.map((m) => (
+                              <td
+                                key={m}
+                                className={
+                                  'bp-center ol-m ol-m--' + bandOf(m, currentMonth) + (sYear.byMonth[m] ? '' : ' zero')
+                                }
+                                title={
+                                  m === currentMonth
+                                    ? 'Forecast proyecta el mes sobre el pipeline, que no trae la estrategia. Repartir el total por estrategia sería inventarlo.'
+                                    : m > currentMonth
+                                      ? steps[remainingMonths.indexOf(m)]?.explain
+                                      : undefined
+                                }
+                              >
+                                {fmt(sYear.byMonth[m] ?? null)}
+                              </td>
+                            ))}
                             <td
-                              className="bp-center zero"
-                              title="Forecast proyecta el mes sobre el pipeline, que no trae la estrategia. Repartir el total por estrategia sería inventarlo."
+                              className="bp-center totcol"
+                              title={`Sin ${monthLabel(currentMonth)}: el mes en curso no se puede abrir por estrategia.`}
                             >
-                              —
+                              {fmt(sYear.total)}
                             </td>
                             {/*
                               El benchmark se edita desde la celda del benchmark
@@ -287,15 +394,6 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                                 editar
                               </button>
                             </td>
-                            {months.map((m, i) => (
-                              <td
-                                key={m}
-                                className={'bp-center' + (steps[i]?.value ? '' : ' zero')}
-                                title={steps[i]?.explain}
-                              >
-                                {fmt(steps[i]?.value ?? 0)}
-                              </td>
-                            ))}
                             <td className="lbl" style={{ fontSize: '11px' }}>
                               <button
                                 type="button"
@@ -303,47 +401,59 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                                 style={{ fontSize: '11px', textAlign: 'left' }}
                                 onClick={() => setEditing({ employeeKey: lo.employeeKey, strategy: s })}
                               >
-                                {ruleLabel(lo, s, months)}
+                                {ruleLabel(lo, s, remainingMonths)}
                               </button>
-                              <span className="bp-muted" style={{ fontSize: '10px', marginLeft: '6px' }}>
-                                rev {lo.ruleRevision[s] || '—'}
-                              </span>
+                              <span className="bp-muted ol-tag">rev {lo.ruleRevision[s] || '—'}</span>
                             </td>
                           </tr>
 
                           {/* Los realtors NPPM, por nombre, con su propio benchmark. */}
                           {s === 'NPPM' &&
-                            (st?.byRealtor ?? []).map((r) => (
-                              <tr key={lo.employeeKey + '-nppm-' + r.realtor} className="metric drow">
-                                <td className="lbl" style={{ paddingLeft: '52px' }}>
-                                  {r.realtor}
-                                </td>
-                                <td className="bp-center">{fmt(r.ytd)}</td>
-                                <td className="bp-center zero">—</td>
-                                <td
-                                  className={'bp-center' + (r.benchmark ? '' : ' zero')}
-                                  title="Benchmark del realtor, no del par realtor–loan officer: el mismo realtor trabaja con varias personas y branches."
-                                >
-                                  {fmt(r.benchmark)}
-                                  <button
-                                    type="button"
-                                    className="ol-edit"
-                                    onClick={() => setEditingNppm({ realtor: r.realtor, ytd: r.ytd })}
-                                    title={`Fijar el benchmark de ${r.realtor}`}
-                                  >
-                                    editar
-                                  </button>
-                                </td>
-                                {months.map((m) => (
-                                  <td key={m} className="bp-center zero">
-                                    —
+                            (st?.byRealtor ?? []).map((r) => {
+                              /*
+                                Un realtor tiene meses reales y nada más: su
+                                benchmark no proyecta (ver `NppmEditor`), así que
+                                del mes en curso en adelante va `—` y no 0.
+                              */
+                              const rYear = composeYear(monthsOfYear, currentMonth, r.actualByMonth, null, {});
+                              return (
+                                <tr key={lo.employeeKey + '-nppm-' + r.realtor} className="metric drow">
+                                  <td className="lbl" style={{ paddingLeft: '52px' }}>
+                                    {r.realtor}
                                   </td>
-                                ))}
-                                <td className="lbl bp-muted" style={{ fontSize: '11px' }}>
-                                  su producción ya está contada en NPPM
-                                </td>
-                              </tr>
-                            ))}
+                                  {monthsOfYear.map((m) => (
+                                    <td
+                                      key={m}
+                                      className={
+                                        'bp-center ol-m ol-m--' +
+                                        bandOf(m, currentMonth) +
+                                        (rYear.byMonth[m] ? '' : ' zero')
+                                      }
+                                    >
+                                      {fmt(rYear.byMonth[m] ?? null)}
+                                    </td>
+                                  ))}
+                                  <td className="bp-center totcol">{fmt(rYear.total)}</td>
+                                  <td
+                                    className={'bp-center' + (r.benchmark ? '' : ' zero')}
+                                    title="Benchmark del realtor, no del par realtor–loan officer: el mismo realtor trabaja con varias personas y branches."
+                                  >
+                                    {fmt(r.benchmark)}
+                                    <button
+                                      type="button"
+                                      className="ol-edit"
+                                      onClick={() => setEditingNppm({ realtor: r.realtor, ytd: r.ytd })}
+                                      title={`Fijar el benchmark de ${r.realtor}`}
+                                    >
+                                      editar
+                                    </button>
+                                  </td>
+                                  <td className="lbl bp-muted" style={{ fontSize: '11px' }}>
+                                    su producción ya está contada en NPPM
+                                  </td>
+                                </tr>
+                              );
+                            })}
                         </Fragment>
                       );
                     })}
@@ -353,14 +463,13 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
 
             <tr className="metric" style={{ fontWeight: 700 }}>
               <td className="lbl">Branch {branch.branchCode}</td>
-              <td className="bp-center">{fmt(branch.ytd)}</td>
-              <td className="bp-center">{fmt(branch.currentMonth)}</td>
-              <td className="bp-center">–</td>
-              {months.map((m) => (
-                <td key={m} className="bp-center">
-                  {fmt(branchProjected[m] ?? 0)}
+              {monthsOfYear.map((m) => (
+                <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
+                  {fmt(branchYear.byMonth[m] ?? null)}
                 </td>
               ))}
+              <td className="bp-center totcol">{fmt(branchYear.total)}</td>
+              <td className="bp-center">–</td>
               <td className="lbl"></td>
             </tr>
             {!branch.loanOfficers.length && (
@@ -422,15 +531,21 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
         <b>La jerarquía es el cálculo</b>: un realtor NPPM suma a la estrategia NPPM, que suma al Loan Officer, que suma
         al branch. La producción de un realtor <b>no se cuenta dos veces</b> — su fila es el detalle de la de NPPM, no un
         agregado aparte.{' '}
+        <b>Con una excepción, y es {monthLabel(currentMonth)}</b>: el total de una persona no da la suma de sus cinco
+        estrategias, y la diferencia es exactamente el pronóstico del mes. Forecast lo calcula sobre el pipeline, que no
+        lleva la estrategia consigo; repartirlo por peso del YTD sería inventar un número que parece dato. Las
+        estrategias tienen ese mes en <code>—</code> y su total no lo incluye. Queda como etapa propia:{' '}
+        <code>pipeline_loans</code> guarda los cinco crudos desde F6b y <code>lib/pipeline/strategy.ts</code> ya sabe
+        clasificarlos, así que es derivable sin inventar nada.{' '}
         <b>El benchmark del Loan Officer</b> es la suma de sus cinco estrategias: calculado, no editable. El de{' '}
         <b>Own Production</b> se lee de <code>org.employee_benchmark</code> y se sigue editando en el perfil del Business
         Plan.{' '}
-        <b>El mes actual por estrategia</b> dice <code>—</code> porque Forecast proyecta sobre el pipeline, que no lleva
-        la estrategia consigo; repartir el total por peso del YTD sería inventar un número que parece dato. Queda como
-        etapa propia: <code>pipeline_loans</code> guarda los cinco crudos desde F6b y{' '}
-        <code>lib/pipeline/strategy.ts</code> ya sabe clasificarlos, así que es derivable sin inventar nada.{' '}
-        <b>Cada celda proyectada</b> trae su cuenta completa en el tooltip: benchmark, regla que aplicó, períodos y
+        <b>Cada celda del presupuesto</b> trae su cuenta completa en el tooltip: benchmark, regla que aplicó, períodos y
         resultado.{' '}
+        <b>{monthLabel(currentMonth)} es la única columna que puede no cerrar hacia arriba</b>, y siempre por el mismo
+        motivo: el pronóstico se atribuye por el branch del <b>roster</b> y lo cerrado por el branch del{' '}
+        <b>préstamo</b>. Donde no hay pronóstico —nadie rosterizado— la celda muestra lo ya cerrado del mes, que es un
+        piso real; el tooltip de cada celda dice cuál de las dos lecturas está mostrando.{' '}
         <b>Todo lo que se edita se agrega, nunca se reemplaza</b>: un benchmark guardado es una fila nueva y una regla
         editada es una revisión nueva, las dos firmadas y fechadas, con las anteriores enteras en el historial. Y rige{' '}
         <b>desde el mes siguiente</b> — el mes en curso ya se está midiendo contra el benchmark anterior.

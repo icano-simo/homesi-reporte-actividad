@@ -12,8 +12,9 @@ import type { ReactNode } from 'react';
  * `app/outlook/styles/` aparte y ESTA sigue siendo la base.
  */
 import '../business-plan/styles/bp-visual.css';
-/* Y las propias, que son sólo las del editor -- ver la cabecera del archivo. */
+/* Y las propias: el editor y la tabla del año -- ver la cabecera de cada una. */
 import './styles/ol-editor.css';
+import './styles/ol-year.css';
 
 /**
  * ============================================================================
