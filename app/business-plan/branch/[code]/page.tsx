@@ -13,7 +13,6 @@ import {
   NotFoundState,
   RoleChip,
   VerdictBadge,
-  fmtActivityAvg,
   fmtAvg,
   exactTitle,
 } from '../../components/shared';
@@ -196,11 +195,18 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
                         }
                       />
                     </th>
+                    {/*
+                      ⚠ BP36 -- la tabla cambia de PREGUNTA, no de formato.
+                      Antes mostraba cuatro promedios de los 3 meses cerrados:
+                      qué hizo la persona. Ahora muestra el mes en curso y el
+                      que viene contra su objetivo: si va a llegar.
+                    */}
                     <th className="lbl">Loan Officer</th>
-                    <th className="bp-center">Avg Closings 3M</th>
-                    <th className="bp-center">Avg Credit Apps</th>
-                    <th className="bp-center">Avg Pre-Approvals</th>
-                    <th className="bp-center">Avg File Creations</th>
+                    <th className="bp-center">Benchmark</th>
+                    <th className="bp-center">Closings this month</th>
+                    <th className="bp-center">Total pipeline</th>
+                    <th className="bp-center">Forecast total</th>
+                    <th className="bp-center">Next month pipeline</th>
                     <th className="bp-center">Verdict</th>
                   </tr>
                 </thead>
@@ -247,27 +253,35 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
                           </span>
                         )}
                       </td>
-                      <td className="bp-center" title={exactTitle(lo.q1.avgWithCurrent)}>
-                        {fmtAvg(lo.q1.avgWithCurrent)}
+                      {/*
+                        `—` y no `0` cuando no hay benchmark: son cosas
+                        distintas. Un cero diría "su objetivo es cerrar cero"; el
+                        guion dice "todavía nadie le fijó objetivo", que es el
+                        caso real y el que hay que resolver.
+                      */}
+                      <td className={'bp-center' + (lo.monthlyBenchmark === null ? ' zero' : '')}>
+                        {lo.monthlyBenchmark === null ? '—' : lo.monthlyBenchmark}
                       </td>
-                      {/* Promedios mensuales, no acumulados: comparables entre personas. */}
-                      <td
-                        className={'bp-center' + (lo.trailingActivityAvg.applications ? '' : ' zero')}
-                        title={exactTitle(lo.trailingActivityAvg.applications)}
-                      >
-                        {fmtActivityAvg(lo.trailingActivityAvg.applications)}
+                      <td className={'bp-center' + (lo.projection.closedToDate ? '' : ' zero')}>
+                        {lo.projection.closedToDate}
+                      </td>
+                      {/* Los mismos tres números que las tarjetas del perfil, de
+                          la misma fuente: `lo.projection`. Si acá dice otra cosa
+                          que allá, es un bug, no dos criterios. */}
+                      <td className={'bp-center' + (lo.projection.totalPipeline ? '' : ' zero')}>
+                        {lo.projection.totalPipeline}
                       </td>
                       <td
-                        className={'bp-center' + (lo.trailingActivityAvg.creditReports ? '' : ' zero')}
-                        title={exactTitle(lo.trailingActivityAvg.creditReports)}
+                        className={'bp-center' + (lo.projection.projectedTotal ? '' : ' zero')}
+                        title={exactTitle(lo.projection.projectedTotal)}
                       >
-                        {fmtActivityAvg(lo.trailingActivityAvg.creditReports)}
+                        {fmtAvg(lo.projection.projectedTotal)}
                       </td>
                       <td
-                        className={'bp-center' + (lo.trailingActivityAvg.fileCreations ? '' : ' zero')}
-                        title={exactTitle(lo.trailingActivityAvg.fileCreations)}
+                        className={'bp-center' + (lo.pipeline.nextMonthOpenLoans ? '' : ' zero')}
+                        title={`Open loans due to close in ${data.diagnostics.pipelineMonths.next}`}
                       >
-                        {fmtActivityAvg(lo.trailingActivityAvg.fileCreations)}
+                        {lo.pipeline.nextMonthOpenLoans}
                       </td>
                       <td className="bp-center">
                         <VerdictBadge verdict={lo.verdict} />
@@ -276,7 +290,7 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
                   ))}
                   {!visibleLos.length && (
                     <tr>
-                      <td className="lbl bp-empty-cell" colSpan={7}>
+                      <td className="lbl bp-empty-cell" colSpan={8}>
                         No loan officer matches that search.
                       </td>
                     </tr>

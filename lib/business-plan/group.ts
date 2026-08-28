@@ -264,6 +264,22 @@ export function aggregateGroup(
     pipeline: {
       openLoans: openLoans.length,
       resolvedFunded: members.reduce((a, m) => a + m.pipeline.resolvedFunded, 0),
+      /*
+       * ⚠ BP36 — este es una SUMA, no un conteo deduplicado, al revés que
+       * `openLoans` de arriba.
+       *
+       * `openLoans` puede deduplicar porque el grupo tiene la lista de
+       * préstamos del mes (`openLoanDetail`) y se le puede sacar los repetidos
+       * -- lo que cuenta `sharedOpenLoans`. Del mes siguiente sólo se guarda el
+       * conteo por persona, así que un préstamo que resuelva a dos miembros se
+       * cuenta dos veces acá.
+       *
+       * Hoy no se muestra en ninguna vista de grupo: la columna nueva vive sólo
+       * en el directorio del branch, donde cada fila es UNA persona y no hay
+       * nada que deduplicar. Si algún día va a una vista de grupo, primero hay
+       * que guardar la lista en `loadData` y deduplicarla como se hace arriba.
+       */
+      nextMonthOpenLoans: members.reduce((a, m) => a + m.pipeline.nextMonthOpenLoans, 0),
     },
     openLoanDetail: openLoans,
     resolvedLoanDetail: dedupeResolved(members.flatMap((m) => m.resolvedLoanDetail)),
