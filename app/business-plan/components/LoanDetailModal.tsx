@@ -23,10 +23,13 @@ import Modal from './Modal';
  *   pipeline_forecast   número de préstamo, prestatario, monto, milestone y
  *                       fecha estimada de cierre. Todo disponible.
  *
- *   activity_report     NO tiene nombre de prestatario -- el export no lo trae.
- *                       El número de préstamo SÍ (está en REQUIRED_COLUMNS); en
- *                       BP9 se reportó lo contrario por error. Quedan número,
- *                       monto, canal, programa y folder.
+ *   activity_report     ⚠ Actualización V4: `loan_records_v2` SÍ trae
+ *                       `borrower_name`, al revés de la tabla vieja, donde el
+ *                       export no lo incluía. `ActivityLoan` todavía no lo
+ *                       expone --ningún modal lo muestra-- así que hoy este
+ *                       modal sigue con número, monto, canal, programa y
+ *                       folder. Si se quiere el prestatario, el dato está en
+ *                       la tabla; ver el comentario de `ActivityLoan`.
  *
  * Por eso el modal de una barra de un mes pasado muestra menos columnas que el
  * de una tarjeta del pipeline. No es un olvido; está anotado en

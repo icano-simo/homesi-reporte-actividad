@@ -1,15 +1,18 @@
 'use client';
 
 /*
- * ⚠ Etapa V2b: acá había 5 imports más (`read` de xlsx, `readWorkbook`,
+ * ⚠ Etapa V2b/V4: acá había 5 imports más (`read` de xlsx, `readWorkbook`,
  * `classifyLoan`, `isHelocLien2`, `saveUpload`) que sostenían la carga manual
  * de archivo desde esta pantalla.
  *
- * Se quitó el ACCESO, no el código: los 4 módulos siguen intactos en el repo,
- * sin un solo cambio, por si el sync de BigQuery falla en los primeros días y
- * hay que volver. Revertir es revertir este commit -- no hay nada que
- * reescribir. Borrarlos de verdad es un cambio aparte, cuando esto lleve un
- * tiempo estable.
+ * V2b quitó el acceso desde la UI y dejó los módulos en el repo por si el sync
+ * de BigQuery fallaba en los primeros días. Estable desde entonces, así que V4
+ * los borró: un camino muerto que todavía sabe escribir en las tablas viejas es
+ * peor que ninguno -- alcanza con que alguien lo importe por error para que
+ * escriba sin que nada falle.
+ *
+ * Si hiciera falta volver, están en el historial: `git show` sobre el commit de
+ * V4 los trae enteros.
  */
 import { useEffect, useState } from 'react';
 import type { YearMonth } from '@/lib/parsing/types';
@@ -167,9 +170,10 @@ export default function Home() {
     setError(null);
   }
 
-  // Al montar: si nadie cargó un archivo en esta sesión, restaurar el último
-  // reporte guardado en Supabase (is_current=true), si existe. No dispara
-  // saveUpload() de nuevo -- esos datos ya están guardados.
+  // Al montar: leer el estado actual de `loan_records_v2`. La condición
+  // `records !== null` sobrevive de cuando esta pantalla podía tener datos
+  // cargados a mano en la sesión; hoy nadie más los setea, así que en la
+  // práctica siempre entra.  
   useEffect(() => {
     if (records !== null) return;
     let cancelled = false;
@@ -195,10 +199,9 @@ export default function Home() {
 
   /*
    * ⚠ Etapa V2b: acá vivía `handleFileChange`, el lector del .xlsx que armaba
-   * los LoanRecord con `classifyLoan` y los guardaba con `saveUpload`.
-   *
-   * Se fue con el botón que lo disparaba. Los 4 módulos que usaba siguen
-   * intactos en lib/ -- ver el comentario de los imports arriba.
+   * los LoanRecord y los persistía. Se fue con el botón que lo disparaba, y en
+   * V4 se borraron también los módulos que usaba -- ver el comentario de los
+   * imports arriba.
    */
 
   function handleToggleCollapse(id: string) {

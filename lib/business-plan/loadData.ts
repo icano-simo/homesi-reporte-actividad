@@ -62,7 +62,7 @@ const WINDOW_MONTHS = 3;
 
 /**
  * Centinela que produce NUESTRO propio parser, no un nombre de la fuente:
- * `classifyLoan()` normaliza un loan officer vacío a '(blank)'.
+ * la carga manual normalizaba un loan officer vacío a '(blank)'.
  *
  * Se reconoce explícitamente para no listarlo como "nombre sin clasificar" --
  * nadie va a agregar '(blank)' a `org.employee_alias`, y dejarlo en el
@@ -441,7 +441,7 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
     /*
      * ⚠ Etapa V2: el nombre vacío se traduce a '(blank)' ANTES de resolverlo.
      *
-     * La tabla vieja guardaba los nombres ya normalizados por `classifyLoan`,
+     * La tabla vieja guardaba los nombres ya normalizados por la carga manual,
      * que escribía literalmente '(blank)' cuando el officer venía vacío. v2
      * trae el dato crudo: NULL o cadena vacía, en 221 de las 4.794 filas.
      *

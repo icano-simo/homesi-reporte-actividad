@@ -26,8 +26,8 @@ File Creations, Credit Reports, Applications, Closings — por branch, loan offi
 
 ### Estructura de carpetas (plana — un solo dominio cuando se construyó)
 ```
-/lib/parsing/     -- extracción técnica: RawLoanRow, excelValueToYearMonth (UTC en las 6 rutas de conversión)
-/lib/domain/      -- reglas de negocio: classifyBranch, closingMonth (Banked-Retail->fundingMonth, Brokered->completionMonth)
+/lib/parsing/     -- (V4) sólo el alias YearMonth; RawLoanRow y el lector de Excel se borraron con la carga manual
+/lib/domain/      -- reglas de negocio: classifyBranch, strategy (los valores y su precedencia)
 /lib/aggregation/ -- computeMetricMaps, buildReportTree (measure como parámetro explícito, nunca global)
 /lib/export/      -- exportación a Excel (reutiliza ReportTree, no recalcula; muestra los 20 branches siempre)
 /lib/persistence/ -- cliente Supabase, fijo al schema `activity_report`
@@ -41,7 +41,7 @@ File Creations, Credit Reports, Applications, Closings — por branch, loan offi
 
 ### Decisiones de arquitectura clave
 - TypeScript desde el inicio; Next.js App Router (no Vite) pensando en escalar.
-- `RawLoanRow` (extracción técnica) y `LoanRecord` (clasificado) como tipos separados — capa de parsing nunca conoce reglas de negocio, y viceversa.
+- ~~`RawLoanRow` (extracción técnica) y `LoanRecord` (clasificado) como tipos separados~~ — vigente mientras Activity parseaba un Excel. Desde V4 la fuente llega ya clasificada desde BigQuery y `RawLoanRow` no existe; `LoanRecord` quedó como el único tipo del dominio. La separación sigue viva en Forecast, que sí parsea (`lib/pipeline/types.ts`).
 - `Branch` tipado como `string` (abierto), `MetricKey` como unión estricta (`'fc'|'cr'|'ap'|'cl'`).
 - Un bug real del HTML legado se corrigió con aprobación explícita de Heather: el drill-down por Loan Officer ignoraba el toggle Cantidad/Monto (siempre mostraba cantidad); ya corregido.
 
@@ -6260,3 +6260,54 @@ carga real desde localhost para confirmar contra la base.
 `lib/pipeline/sources/salesforce-file.ts` únicamente -- tipos, mappers
 y la RPC no se tocaron (ya estaban bien, el problema era exclusivamente
 la resolución del nombre de columna en el parser).
+
+
+---
+
+## Etapa V4 — se borra el camino de carga manual de Commercial Activity
+
+Con V2 en main, Commercial Activity y Business Plan leen de
+`activity_report.loan_records_v2`, sincronizada desde BigQuery. V2b había quitado
+el acceso desde la UI y dejado los módulos en el repo como red de seguridad por
+si el sync fallaba en los primeros días. Estable desde entonces, así que se
+borran.
+
+### Por qué borrar y no dejarlo apagado
+
+Un camino muerto que todavía sabe escribir en las tablas viejas es peor que
+ninguno: `saveUpload` hacía `insert` contra `loan_records` y escribía
+`upload_batches`, así que **bastaba con que alguien lo importara por error para
+que escribiera sin que nada fallara**. Dos rutas conviviendo y el resultado
+dependiendo de quién llama es el patrón que ya costó tiempo dos veces en este
+proyecto -- el `tone` del icono en BP21-BP28, y el filtro del mes en BP33.
+
+### Archivos borrados
+
+| Archivo | Por qué |
+|---|---|
+| `lib/supabase/saveUpload.ts` | el objetivo de la etapa |
+| `lib/domain/classifyLoan.ts` | sin importadores al caer saveUpload |
+| `lib/domain/isHelocLien2.ts` | ídem |
+| `lib/parsing/workbookReader.ts` | ídem |
+| `lib/parsing/excelDate.ts` | su único importador era workbookReader |
+| `config/requiredColumns.ts` | su único importador era workbookReader |
+
+Y `RawLoanRow` sale de `lib/parsing/types.ts`, que se queda por `YearMonth`.
+
+### Lo que se verificó antes de borrar, caso por caso
+
+- **`scripts/test-parser.ts` NO usaba este parser.** Usa
+  `lib/pipeline/sources/salesforce-file.ts`, el de Forecast. Dos parsers
+  distintos con nombres parecidos.
+- **La dependencia `xlsx` se queda**: la sigue usando ese mismo parser de
+  Forecast.
+- **`config/requiredColumns.ts` era huérfano transitivo**, no estaba en la lista
+  del brief: su único importador era `workbookReader`.
+- `tsc` confirma el grafo, no sólo el grep: cero errores tras borrar los seis.
+
+### Lo que NO se tocó
+
+- **`loan_records` y `upload_batches` siguen en la base**, como respaldo hasta
+  confirmar que el sync es estable. Las borra la usuaria.
+- **`lib/aggregation/fixtures.ts` es un huérfano PREEXISTENTE** -- nadie lo
+  importa, y no lo dejó huérfano esta etapa. Se reporta pero no se borra.
