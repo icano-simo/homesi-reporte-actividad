@@ -1,11 +1,12 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createMiddlewareClient, withAuthCookies } from '@/lib/supabase/middleware';
-import { hasAppAccess } from '@/lib/auth/appAccess';
+import { hasAppAccess, hasClaim, OUTLOOK_CLAIM } from '@/lib/auth/appAccess';
 import {
   LOGIN_PATH,
   NO_ACCESS_PATH,
   CHANGE_PASSWORD_PATH,
   DEFAULT_LANDING,
+  OUTLOOK_PATH,
   PASSWORD_CHANGE_ROUTES,
   matchesRoute,
 } from '@/lib/auth/routes';
@@ -116,6 +117,49 @@ export async function proxy(request: NextRequest) {
     }
     const url = request.nextUrl.clone();
     url.pathname = NO_ACCESS_PATH;
+    url.search = '';
+    return withAuthCookies(response(), NextResponse.redirect(url));
+  }
+
+  /*
+   * ============================================================================
+   * ⚠ MÓDULO OUTLOOK: UN CLAIM PROPIO, ADEMÁS DEL DE LA APP — etapa OL1
+   * ============================================================================
+   *
+   * Outlook es el primer módulo con su propio permiso. El gate de arriba ya
+   * comprobó `commercial_activity`; esto agrega el segundo requisito para las
+   * rutas bajo `/outlook` y para su API.
+   *
+   * Va DESPUÉS del gate de la app y ANTES del de contraseña temporal, en ese
+   * orden a propósito: a alguien que no puede ver el módulo no tiene sentido
+   * mandarlo a cambiar la contraseña para después negarle la entrada.
+   *
+   * ---------------------------------------------------------------------------
+   * POR QUÉ REDIRIGE AL LANDING Y NO A /no-access
+   * ---------------------------------------------------------------------------
+   * `/no-access` dice "no tenés acceso a esta aplicación", y a esta aplicación
+   * sí lo tienen: les falta un módulo, no la app. Mandarlos ahí sería mentirles
+   * y, peor, el gate de más abajo los rebotaría de vuelta al landing igual --
+   * un rebote doble por una frase incorrecta.
+   *
+   * Además la pestaña ni se dibuja para ellos (ver ServiceHubHeader), así que
+   * llegar acá significa haber escrito la URL a mano. Devolverlos al landing es
+   * la respuesta que no confirma ni desmiente que el módulo exista.
+   */
+  const isOutlook =
+    pathname === OUTLOOK_PATH ||
+    pathname.startsWith(OUTLOOK_PATH + '/') ||
+    pathname.startsWith('/api' + OUTLOOK_PATH);
+
+  if (isOutlook && !hasClaim(user, OUTLOOK_CLAIM)) {
+    if (isApi) {
+      return withAuthCookies(
+        response(),
+        NextResponse.json({ error: 'No access to Outlook' }, { status: 403 })
+      );
+    }
+    const url = request.nextUrl.clone();
+    url.pathname = DEFAULT_LANDING;
     url.search = '';
     return withAuthCookies(response(), NextResponse.redirect(url));
   }
