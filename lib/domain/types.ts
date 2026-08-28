@@ -87,16 +87,21 @@ export interface LoanRecord {
   /** Dueño de la oportunidad en Salesforce. `''` si el préstamo no tiene. Poblado en 3.226 de 4.794. */
   opportunityOwner: string;
   /**
-   * ⚠ El NPPM contratado. HOY LLEGA SIEMPRE VACÍO.
+   * El NPPM que está detrás del préstamo — etapa V3c.
    *
-   * Medido sobre las 4.794 filas de `loan_records_v2`: `nppm_realtor` es NULL
-   * en TODAS, incluidos los 92 préstamos con `strategy = 'NPPM'`. Se lee igual
-   * --está pedido y el día que el sync la llene ya está enchufada-- pero
-   * ninguna pantalla le dedica una columna, porque hoy sería una columna vacía.
+   * ⚠ Hasta el 2026-08-27 este campo llegaba NULL en todas las filas y esta
+   * misma documentación decía que estaba vacío en Salesforce. No lo estaba: la
+   * consulta de origen apuntaba a `Contact` y el campo referencia un objeto
+   * propio (`salesforce.NPPM__c`), así que no resolvía nada. Corregido en
+   * BigQuery y sincronizado el 2026-08-28.
    *
-   * Lo que sí tiene datos es otra cosa: `realtor_es_nppm` y `nppm_recruited_by`
-   * (273 filas cada una). Si lo que se quería mostrar era eso, es un campo
-   * distinto y hay que pedirlo aparte.
+   * Medido tras el arreglo: 88 de los 92 préstamos con `strategy = 'NPPM'`
+   * traen nombre, con 9 realtors distintos (Laura Delgado 42, FRED A GOMEZ 26).
+   * Fuera de NPPM no aparece en ninguna fila.
+   *
+   * Se solapa con `referredByRealtor` --coinciden en 73 de los 92-- pero
+   * difieren en 15, así que no es un duplicado. Y cada realtor mapea a UN solo
+   * `nppmRecruitedBy` en los datos de hoy.
    */
   nppmRealtor: string;
   /** Quién refirió el caso. `''` si no aplica. Poblado en 903 de 4.794, sobre todo en B2B (645). */
