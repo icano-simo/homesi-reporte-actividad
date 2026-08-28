@@ -121,17 +121,17 @@ function monthOf(date: string | null): YearMonth | null {
  *
  * Lo mismo con la normalización de nombres: en v2, 4.573 de 4.794 loan
  * officers NO vienen en mayúscula y 221 vienen vacíos. La tabla vieja los
- * guardaba ya normalizados (`classifyLoan` lo hacía antes de escribir), así
+ * guardaba ya normalizados (lo hacía la carga manual antes de escribir), así
  * que el desglose por Loan Officer siempre agrupó por el nombre en mayúscula.
  * Sin repetirlo acá, el mismo officer se partiría en dos filas según cómo lo
  * escribió el origen.
  */
 export async function loadCurrentReport(): Promise<CurrentReport | null> {
-  // Etapa UX1b: sin Supabase configurado no hay nada que restaurar, y no es un
+  // Etapa UX1b: sin Supabase configurado no hay nada que leer, y no es un
   // error que valga la pena mostrarle al usuario al abrir la página -- el
-  // estado válido es "no hay reporte guardado" (null), igual que cuando la
-  // base está vacía. El aviso ruidoso queda para saveUpload(), que sí es una
-  // acción que la persona pidió explícitamente y que no se va a completar.
+  // estado válido es "no hay datos" (null), igual que cuando la tabla está
+  // vacía. Antes existía un camino ruidoso para el guardado manual, que sí era
+  // una acción pedida explícitamente; ese camino se fue en V4.
   if (!isSupabaseConfigured()) return null;
 
   const supabase = getSupabaseClient();
@@ -162,8 +162,8 @@ export async function loadCurrentReport(): Promise<CurrentReport | null> {
     // Ver el bloque "QUÉ SE SIGUE CALCULANDO ACÁ": esto no reasigna sucursales,
     // sólo traduce el valor ya resuelto a las claves de BRANCH_ORDER.
     branch: classifyBranch(row.branch ?? ''),
-    // Misma normalización que aplicaba classifyLoan antes de guardar, para que
-    // el desglose siga agrupando por la misma clave.
+    // Misma normalización que aplicaba la carga manual antes de guardar, para
+    // que el desglose siga agrupando por la misma clave.
     loanOfficer: row.loan_officer?.trim() ? row.loan_officer.trim().toUpperCase() : '(blank)',
     bd: row.bd?.trim() ? row.bd.trim() : '(blank)',
     isB2B: row.is_b2b,
@@ -178,7 +178,7 @@ export async function loadCurrentReport(): Promise<CurrentReport | null> {
     /*
      * `closing_month` y no `closing_date`: es el mes canónico que ya resolvió
      * BigQuery (incluida la regla de Disbursement Date sobre Funding/Completion
-     * que antes vivía en classifyLoan). Verificado: es no-nulo exactamente en
+     * que antes vivía en la carga manual). Verificado: es no-nulo exactamente en
      * las 468 filas con `is_closed`, ni una de más ni una de menos.
      */
     closingMonth: monthOf(row.closing_month),

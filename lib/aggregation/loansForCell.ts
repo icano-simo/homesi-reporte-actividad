@@ -49,8 +49,8 @@ export interface DrillDownContext {
  * contrato que ya exige buildReportTree/buildLoanOfficerTree (ver comentario
  * en BuildReportTreeOptions.records): este módulo no decide qué filtrar,
  * solo selecciona. `closingMonth` en particular ya viene resuelto por
- * classifyLoan() (incluida la regla de Disbursement Date) -- acá solo se
- * compara contra `context.month`, nunca se recalcula.
+ * BigQuery (incluida la regla de Disbursement Date) -- acá solo se compara
+ * contra `context.month`, nunca se recalcula.
  */
 export function loansForCell(records: LoanRecord[], context: DrillDownContext): LoanRecord[] {
   const field = METRIC_MONTH_FIELD[context.metric];

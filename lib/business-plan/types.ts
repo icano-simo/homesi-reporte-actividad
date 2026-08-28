@@ -52,7 +52,7 @@ export interface EmployeeBranch {
  * De qué sistema viene un nombre crudo.
  *   roster      -> el canónico, el que se muestra en pantalla
  *   salesforce  -> pipeline_forecast.pipeline_loans / pipeline_resolved_loans
- *   slquery     -> activity_report.loan_records
+ *   slquery     -> activity_report.loan_records_v2
  */
 export type SourceSystem = 'roster' | 'salesforce' | 'slquery';
 
@@ -69,7 +69,7 @@ export interface EmployeeAlias {
  * Etapa BP3.
  *
  * La regla general es que un préstamo se atribuye al branch DEL PRÉSTAMO
- * (`loan_records.branch` / `pipeline_loans.branch`), no al branch asignado a la
+ * (`loan_records_v2.branch` / `pipeline_loans.branch`), no al branch asignado a la
  * persona. Esta tabla es la lista, confirmada por el negocio, de las personas
  * cuya producción se fuerza a un branch sin importar lo que digan las fuentes.
  *
@@ -125,16 +125,32 @@ export type MilestoneBucket = 'Started' | 'Processing' | 'Underwriting' | 'Closi
  * Etapa BP9. Hace falta para los modales de detalle: hasta ahora el módulo
  * sólo guardaba conteos por mes.
  *
- * ⚠ `loan_records` NO tiene nombre de prestatario: el export de Commercial
- * Activity no lo trae. El NÚMERO de préstamo sí (está en REQUIRED_COLUMNS);
- * en BP9 se reportó lo contrario por error y se corrigió en BP11.
+ * ⚠ Actualización V4: `loan_records_v2` SÍ tiene `borrower_name`.
+ *
+ * Este comentario decía que la tabla de actividad no traía nombre de
+ * prestatario, y era cierto de `loan_records`: el export de Commercial Activity
+ * no lo incluía. `loan_records_v2` viene de BigQuery y sí lo trae.
+ *
+ * `ActivityLoan` igual no lo expone todavía, porque ninguna pantalla del
+ * Business Plan lo muestra y agregarlo sin consumidor sería cargar memoria por
+ * cada préstamo de cada mes. Si algún modal lo pide, el dato está en la tabla:
+ * es agregarlo al select de `loadData` y a esta interfaz, nada más.
  */
 export interface ActivityLoan {
-  /** Etapa BP11: está en REQUIRED_COLUMNS, siempre viene en el archivo. */
+  /*
+   * `loan_number` es NOT NULL en `loan_records_v2` y además su clave: es único
+   * en las 4.800 filas. Sigue tipado nullable porque esta interfaz nació
+   * cuando el dato venía de un archivo y podía faltar.
+   */
   loanNumber: string | null;
   branch: string | null;
   amount: number;
-  /** Nulos en los lotes cargados antes de BP9; ver `saveUpload.ts`. */
+  /*
+   * Etapa V4: antes decía "nulos en los lotes cargados antes de BP9, ver
+   * saveUpload.ts". Ya no hay lotes ni saveUpload -- el grano de
+   * `loan_records_v2` es un préstamo, no préstamo x carga. Siguen siendo
+   * nullable porque la columna lo es en la tabla.
+   */
   loanProgram: string | null;
   loanFolderName: string | null;
   channel: string | null;
@@ -168,7 +184,7 @@ export interface OpenLoan {
 
 /**
  * Métricas de actividad de una persona. Vienen de Commercial Activity
- * (`activity_report.loan_records`, vía alias `slquery`).
+ * (`activity_report.loan_records_v2`, vía alias `slquery`).
  *
  * OJO CON LA ATRIBUCIÓN: son el total de la PERSONA, no de un branch. Un Loan
  * Officer puede tener producción en branches distintos al suyo -- el préstamo
@@ -201,6 +217,24 @@ export interface ActivityMetrics {
 export interface PipelineMetrics {
   openLoans: number;
   resolvedFunded: number;
+  /**
+   * Oportunidades vivas con fecha estimada de cierre el MES SIGUIENTE — BP36.
+   *
+   * "Vivas" no necesita ningún filtro de estado, y eso es una propiedad de la
+   * fuente, no un descuido: `pipeline_loans` sólo tiene los abiertos. Los
+   * adverse y closed lost viven en `pipeline_resolved_loans` -- verificado
+   * sobre el snapshot activo: 339 adverse, ninguno en la tabla de abiertos.
+   * Si alguien agrega acá un chequeo de estado, está tapando otro problema.
+   *
+   * Es la MISMA definición de pipeline que `projection.totalPipeline`, con la
+   * ventana corrida un mes: las dos salen de `closesInMonth`, llamada con dos
+   * meses distintos.
+   *
+   * ⚠ En un grupo (`aggregateGroup`) este número NO está deduplicado, a
+   * diferencia de `openLoans`. Ver el comentario allá antes de mostrarlo en
+   * una vista de grupo.
+   */
+  nextMonthOpenLoans: number;
 }
 
 /* ─────────────────────────── Qualifiers ────────────────────────────────── */
@@ -415,6 +449,12 @@ export interface BusinessPlanData {
     benchmarkTableAvailable: boolean;
     /** Los 3 meses de la ventana del Qualifier 1 (el último, proyectado). */
     windowMonths: string[];
+    /**
+     * Las dos ventanas de pipeline que se calcularon, derivadas de la fecha del
+     * sistema — BP36. Están acá para que la derivación sea auditable desde la
+     * app y no haya que confiar en que el código hizo la cuenta bien.
+     */
+    pipelineMonths: { current: string; next: string };
     /** Los 3 meses cerrados del promedio de contexto. */
     closedMonths: string[];
     attributionOverrides: { fullName: string; forcedBranchCode: string; reason: string | null }[];

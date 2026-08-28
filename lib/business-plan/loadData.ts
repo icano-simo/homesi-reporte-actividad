@@ -1,6 +1,9 @@
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { buildAliasIndex, buildExcludedIndex } from './aliasIndex';
 import { lastCompleteMonths, currentWindowMonths, currentYearMonth } from './months';
+/* BP36: `addMonths` ya existía para la línea base de impacto; se reusa para
+   derivar el mes siguiente en vez de escribir una segunda aritmética de mes. */
+import { addMonths } from './impact';
 import { closesInMonth, combineVerdict, evaluateQualifier1, evaluateQualifier2, projectCurrentMonth } from './qualifiers';
 import { DEFAULT_RATES, toRateSettings, type RateKey, type RateSettings } from './rates';
 import { branchStatus } from './intervention';
@@ -62,7 +65,7 @@ const WINDOW_MONTHS = 3;
 
 /**
  * Centinela que produce NUESTRO propio parser, no un nombre de la fuente:
- * `classifyLoan()` normaliza un loan officer vacío a '(blank)'.
+ * la carga manual normalizaba un loan officer vacío a '(blank)'.
  *
  * Se reconoce explícitamente para no listarlo como "nombre sin clasificar" --
  * nadie va a agregar '(blank)' a `org.employee_alias`, y dejarlo en el
@@ -132,7 +135,7 @@ function emptyActivity(): ActivityMetrics {
 }
 
 function emptyPipeline(): PipelineMetrics {
-  return { openLoans: 0, resolvedFunded: 0 };
+  return { openLoans: 0, resolvedFunded: 0, nextMonthOpenLoans: 0 };
 }
 
 /** Lee una tabla completa paginando. */
@@ -165,6 +168,15 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
   const windowMonths = currentWindowMonths(reference, WINDOW_MONTHS);
   const closedMonths = lastCompleteMonths(reference, WINDOW_MONTHS);
   const thisMonth = currentYearMonth(reference);
+  /*
+   * El mes siguiente, DERIVADO de la fecha del sistema — BP36. Nunca escrito a
+   * mano: en septiembre esta línea da '2026-10' sola.
+   *
+   * `addMonths` opera sobre la cadena 'YYYY-MM', no sobre `Date`, así que
+   * diciembre rueda bien -- verificado: 2026-12 -> 2027-01. Con `Date` habría
+   * que cuidar además el corrimiento de huso que ese mismo módulo documenta.
+   */
+  const nextMonth = addMonths(thisMonth, 1);
   const yearPrefix = String(reference.getFullYear()) + '-';
 
   // ── 1. Roster canónico ───────────────────────────────────────────────────
@@ -441,7 +453,7 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
     /*
      * ⚠ Etapa V2: el nombre vacío se traduce a '(blank)' ANTES de resolverlo.
      *
-     * La tabla vieja guardaba los nombres ya normalizados por `classifyLoan`,
+     * La tabla vieja guardaba los nombres ya normalizados por la carga manual,
      * que escribía literalmente '(blank)' cuando el officer venía vacío. v2
      * trae el dato crudo: NULL o cadena vacía, en 221 de las 4.794 filas.
      *
@@ -525,6 +537,25 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
      * `m.openLoans` de arriba NO se filtra a propósito: es el conteo crudo de
      * presencia en Forecast que usa el diagnóstico, no un número de pantalla.
      */
+    /*
+     * ⚠ BP36 — el conteo del mes siguiente va ANTES del `continue`.
+     *
+     * Tiene que estar acá arriba: el `continue` de abajo es el filtro de BP33,
+     * y todo lo que pasa después ve sólo los préstamos del mes en curso. Poner
+     * este conteo después daría cero siempre.
+     *
+     * Se reusa `closesInMonth` con el otro mes en vez de escribir una segunda
+     * comparación: la regla de "cierra en el mes X" sigue teniendo UNA sola
+     * definición, que es lo que BP33 vino a arreglar. Lo único que cambia entre
+     * las dos llamadas es el argumento.
+     *
+     * No se guarda la lista de esos préstamos, sólo el conteo: ninguna pantalla
+     * los abre todavía. El día que haya un modal, acá va la lista.
+     */
+    if (closesInMonth({ estClosingDate: row.est_closing_date }, nextMonth)) {
+      m.nextMonthOpenLoans += 1;
+    }
+
     if (!closesInMonth({ estClosingDate: row.est_closing_date }, thisMonth)) continue;
 
     const list = openLoansByEmployee.get(key) ?? [];
@@ -772,6 +803,7 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
       benchmarkTableAvailable,
       windowMonths,
       closedMonths,
+      pipelineMonths: { current: thisMonth, next: nextMonth },
       attributionOverrides: [...overrideDetail.entries()]
         .map(([employeeKey, d]) => ({
           fullName: employeeByKey.get(employeeKey)?.full_name ?? 'employee_key ' + employeeKey,

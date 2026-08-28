@@ -127,9 +127,19 @@ export default function FunnelExplorer({
                 onClick={() => setActive(nodeKey)}
               >
                 <span className="bp-fstep__n">{i + 1}</span>
+                {/*
+                  BP36: el nombre va en su propio <span>, no como texto suelto
+                  al lado del icono. Suelto era un flex item anónimo, y a esos
+                  no se les puede aplicar ni recorte ni `min-width: 0` -- por eso
+                  "B2B Coach - Why it's worth it. And why you can" se salía de la
+                  tarjeta de 172px en vez de partirse. El `title` da el nombre
+                  completo cuando el recorte a dos líneas lo corta.
+                */}
                 <span className="bp-fstep__name">
                   <FunnelGlyph icon={node?.icon} size={14} />
-                  {node?.name ?? 'unknown node'}
+                  <span className="bp-fstep__name-text" title={node?.name ?? 'unknown node'}>
+                    {node?.name ?? 'unknown node'}
+                  </span>
                 </span>
                 <span className="bp-pill bp-pill--sky">
                   {count} stages · day {ranges[i].fromDay}–{ranges[i].toDay}
@@ -243,7 +253,12 @@ export default function FunnelExplorer({
         <button type="button" className="bp-btn" onClick={onClose}>
           Close
         </button>
-        <span className="bp-catalog__hint">Activating copies the template into this person&apos;s own plan.</span>
+        {/*
+          BP36: acá estaba "Activating copies the template into this person's own
+          plan." Se quitó: al lado de los botones, en el momento de decidir, no
+          agrega nada -- lo que la persona necesita saber para decidir está en el
+          cuerpo del modal.
+        */}
       </div>
     </Modal>
   );
