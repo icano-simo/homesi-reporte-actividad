@@ -103,13 +103,21 @@ export interface BranchRow {
    */
   closingCount: number;
   /**
-   * Aditivo, no reemplaza a `closingCount` de arriba (el punto CtcDot sigue
-   * usando ese, sin tocar). Desglose de "Projected to Close": cuántos de los
-   * loans HEALTHY (no bucketTotal -- Projected to Close nunca incluye
-   * Delayed, ver el bug fix en buildBranchRows) tenían milestone crudo
-   * "Clear To Close" vs "Closing" (ver `splitCtcAndClosing`, aggregate.ts).
-   * `ctcRawCount + closingRawCount` == `branchForecastRow.bucketHealthy.Closing`,
-   * NO `closingCount`. Mismo criterio de canal: 0 para Brokered.
+   * Aditivo, no reemplaza a `closingCount` de arriba -- ese sigue siendo el
+   * que alimenta pull-through/forecast (ver aggregate.ts), sin tocar.
+   * Desglose de "Projected to Close": cuántos de los loans HEALTHY (no
+   * bucketTotal -- Projected to Close nunca incluye Delayed, ver el bug fix
+   * en buildBranchRows) tenían milestone crudo "Clear To Close" vs "Closing"
+   * (ver `splitCtcAndClosing`, aggregate.ts). `ctcRawCount + closingRawCount`
+   * == `branchForecastRow.bucketHealthy.Closing`, NO `closingCount`. Mismo
+   * criterio de canal: 0 para Brokered.
+   *
+   * Etapa FIX-CTC-STRATEGY: el punto CtcDot YA NO usa `closingCount` para
+   * decidir si se enciende -- pasó a usar esta suma (`ctcEligibleCount()`,
+   * más abajo). Confirmado por Heather: un loan Delayed en el bucket Closing
+   * encendía el punto sin que hubiera ningún préstamo real que auditar detrás
+   * -- el punto tiene que reflejar la misma población elegible que el
+   * drill-down, en todas las vistas (con o sin estrategia).
    */
   ctcRawCount: number;
   closingRawCount: number;
@@ -588,38 +596,100 @@ interface CombinedBranchRow {
   projectedToClose: number;
   /** Etapa F5k, Parte 3: suma de `row.closingCount` de las 2 filas (Banked + Brokered) de esta branch -- como Brokered siempre aporta 0 (ver BranchRow), esto termina siendo solo la parte Banked, tal como pide el brief. */
   closingCount: number;
+  /**
+   * Etapa FIX-CTC-STRATEGY: aditivo, no reemplaza a `closingCount` de arriba
+   * -- mismo motivo que en `StrategyRow` (ver el comentario ahí). Necesario
+   * acá para que el punto CtcDot de Combined Total by Branch también pueda
+   * encenderse por la población ELEGIBLE (healthy) cuando hay una estrategia
+   * activa, en vez de por `closingCount` (bucketTotal, sin filtrar healthy).
+   */
+  ctcRawCount: number;
+  closingRawCount: number;
   totalForecast: number;
+}
+
+/**
+ * Etapa FIX-COMBINED-STRATEGY: cuánto aporta ESTA fila (un branch+canal) a
+ * Combined Total by Branch, según la vista activa -- mismo criterio que
+ * `blockSubtotalForView`, aplicado por branch en vez de por canal.
+ *
+ * Sin píldora (o `byStrategy` false): la fila completa, sin filtrar -- lo que
+ * `row.totalCount`/`row.closedCount`/etc. ya traen de `buildBranchRows`.
+ * Con una píldora activa: solo `row.strategyRows` de esa estrategia, sumadas
+ * con `addSubtotal` -- misma fuente que ya alimenta el desglose visible
+ * (`shownStrategyRows`/`StrategyBreakdown`), ningún cálculo nuevo.
+ */
+function combinedRowForView(row: BranchRow, byStrategy: boolean, pill: Strategy | 'All'): BlockSubtotal {
+  if (!byStrategy || pill === 'All') {
+    return {
+      closedCount: row.closedCount,
+      totalCount: row.totalCount,
+      healthyCount: row.healthyCount,
+      projectedToClose: row.projectedToClose,
+      closingCount: row.closingCount,
+      ctcRawCount: row.ctcRawCount,
+      closingRawCount: row.closingRawCount,
+      totalForecast: row.totalForecast,
+    };
+  }
+  return row.strategyRows.filter((sr) => sr.strategy === pill).reduce(addSubtotal, EMPTY_SUBTOTAL);
 }
 
 /**
  * Agrupa branchRows (ya sumadas por buildBranchRows) por branch, para la
  * sección "Combined Total by Branch". No es un cálculo nuevo: es la misma suma
  * que ya hace addSubtotal, reagrupada por branch en vez de por canal.
+ *
+ * Etapa FIX-COMBINED-STRATEGY: bug real -- esta función y el `grandTotal` de
+ * más abajo se calculaban sobre `branchRows` sin filtrar, ANTES del `.map()`
+ * de bloques, así que con una píldora de estrategia activa mostraban el total
+ * de TODAS las estrategias (85) en vez de solo la elegida (18 en B2B) --
+ * mismo bug que ya se había corregido para los subtotales "Subtotal Banked -
+ * Retail"/"Subtotal Brokered" (`blockSubtotalForView`, commit 0804a2d), pero
+ * ese fix no cubrió Combined Total by Branch.
+ *
+ * El `grandTotal` se devuelve calculado ACÁ, acumulando la MISMA
+ * `combinedRowForView` que arma cada fila -- nunca una tercera fuente
+ * independiente (como era antes, sumando `block.subtotal` sin filtrar): así
+ * es estructuralmente imposible que el total general se desincronice de la
+ * suma de las filas visibles.
  */
-function buildCombinedByBranch(branchRows: BranchRow[]): CombinedBranchRow[] {
+function buildCombinedByBranch(
+  branchRows: BranchRow[],
+  byStrategy: boolean,
+  pill: Strategy | 'All'
+): { rows: CombinedBranchRow[]; grandTotal: BlockSubtotal } {
   const map = new Map<string, CombinedBranchRow>();
+  let grandTotal = EMPTY_SUBTOTAL;
   for (const row of branchRows) {
+    const contribution = combinedRowForView(row, byStrategy, pill);
+    grandTotal = addSubtotal(grandTotal, contribution);
     const existing = map.get(row.branch);
     if (existing) {
-      existing.closedCount += row.closedCount;
-      existing.totalCount += row.totalCount;
-      existing.healthyCount += row.healthyCount;
-      existing.projectedToClose += row.projectedToClose;
-      existing.closingCount += row.closingCount;
-      existing.totalForecast += row.totalForecast;
+      existing.closedCount += contribution.closedCount;
+      existing.totalCount += contribution.totalCount;
+      existing.healthyCount += contribution.healthyCount;
+      existing.projectedToClose += contribution.projectedToClose;
+      existing.closingCount += contribution.closingCount;
+      existing.ctcRawCount += contribution.ctcRawCount;
+      existing.closingRawCount += contribution.closingRawCount;
+      existing.totalForecast += contribution.totalForecast;
     } else {
       map.set(row.branch, {
         branch: row.branch,
-        closedCount: row.closedCount,
-        totalCount: row.totalCount,
-        healthyCount: row.healthyCount,
-        projectedToClose: row.projectedToClose,
-        closingCount: row.closingCount,
-        totalForecast: row.totalForecast,
+        closedCount: contribution.closedCount,
+        totalCount: contribution.totalCount,
+        healthyCount: contribution.healthyCount,
+        projectedToClose: contribution.projectedToClose,
+        closingCount: contribution.closingCount,
+        ctcRawCount: contribution.ctcRawCount,
+        closingRawCount: contribution.closingRawCount,
+        totalForecast: contribution.totalForecast,
       });
     }
   }
-  return [...map.values()].sort((a, b) => a.branch.localeCompare(b.branch));
+  const rows = [...map.values()].sort((a, b) => a.branch.localeCompare(b.branch));
+  return { rows, grandTotal };
 }
 
 function openLoanToModalLoan(loan: PipelineLoan): LoanDetailModalLoan {
@@ -650,20 +720,52 @@ function openLoanToModalLoan(loan: PipelineLoan): LoanDetailModalLoan {
 }
 
 /**
- * Drill-down del punto CtcDot: mismo filtro exacto que ya usa el desglose de
- * texto "X CTC + X Closing" (ver splitCtcAndClosing/ctcRawCount/
- * closingRawCount, aggregate.ts + page.tsx) -- healthy === true SIEMPRE
- * (Projected to Close nunca incluye Delayed) + rawMilestone en las 2
- * etiquetas crudas que el bucket combinado "Closing" fusiona. Deliberadamente
- * NO usa `closingCount`/`bucketTotal.Closing` (el que enciende el punto en
- * sí, sin filtrar por healthy, ver CtcDot) -- ese conteo es el indicador de
- * presencia del punto, no la población que este modal debe auditar; el modal
- * explica el desglose de texto ya visible, no el punto.
+ * Drill-down del punto CtcDot: healthy === true SIEMPRE (Projected to Close
+ * nunca incluye Delayed) + rawMilestone en las 2 etiquetas crudas que el
+ * bucket combinado "Closing" fusiona -- mismo filtro exacto que ya usa el
+ * desglose de texto "X CTC + X Closing" (ver splitCtcAndClosing/ctcRawCount/
+ * closingRawCount, aggregate.ts + page.tsx).
+ *
+ * Etapa FIX-CTC-STRATEGY: hasta esa etapa, esta población (healthy-only) y
+ * `closingCount`/`bucketTotal.Closing` (el que encendía el punto, TODOS los
+ * loans sin filtrar por healthy) eran DELIBERADAMENTE distintas -- el punto
+ * era "indicador de presencia", no tenía que coincidir con lo que este modal
+ * audita. Se descartó esa distinción (ver `ctcEligibleCount`, abajo): un loan
+ * Delayed encendiendo un punto que abre un modal vacío no es un indicador
+ * útil en ninguna vista, con o sin estrategia elegida.
  */
 function ctcClosingEligibleLoans(loans: PipelineLoan[]): PipelineLoan[] {
   return loans.filter(
     (loan) => loan.healthy === true && (loan.rawMilestone === 'Clear To Close' || loan.rawMilestone === 'Closing')
   );
+}
+
+/**
+ * Etapa FIX-CTC-STRATEGY -- bug real reportado por Heather, en 2 tandas:
+ * primero con una estrategia elegida (branch 760), después confirmado
+ * también en "By branch" sin ninguna estrategia (mismo branch 760): el punto
+ * CtcDot se encendía y era clickeable, pero el modal abría con 0 préstamos
+ * reales.
+ *
+ * Causa, en las dos tandas: `closingCount` (`countByMilestoneBucket(...).
+ * Closing` -- TODOS los loans en el bucket Closing, sin exigir `healthy`) es
+ * lo que encendía el punto en `BranchDataRow`/`StrategyRowsGroup`/
+ * `StrategyBreakdown`/Combined, mientras el drill-down (`ctcClosingEligibleLoans`,
+ * arriba) y "Projected to Close" (el forecast) exigen `healthy === true`. Si
+ * el ÚNICO loan de una fila en el bucket Closing está Delayed, `closingCount`
+ * da 1 (punto encendido) pero la población elegible da 0 -- el punto miente,
+ * en cualquier vista.
+ *
+ * `ctcRawCount + closingRawCount` (BranchRow/StrategyRow/CombinedBranchRow)
+ * YA es exactamente la población elegible -- es `splitCtcAndClosing(healthy)`
+ * de `buildBranchRows`/`buildStrategyRows`, la MISMA fuente que ya arma el
+ * texto "X CTC + X Closing" bajo Projected to Close. Ningún cálculo nuevo: se
+ * usa esa suma para decidir si el punto de CUALQUIER fila debe encenderse --
+ * `closingCount` (bucketTotal) sigue existiendo, pero solo alimenta
+ * pull-through/forecast (aggregate.ts), ya no ningún punto.
+ */
+function ctcEligibleCount(row: { ctcRawCount: number; closingRawCount: number }): number {
+  return row.ctcRawCount + row.closingRawCount;
 }
 
 /** Agrupa los loans ya filtrados por ctcClosingEligibleLoans() en las 2 secciones del modal -- omite la sección que quede vacía (un branch con solo CTC no debe mostrar un header "Closing:" sin filas debajo). */
@@ -964,8 +1066,8 @@ function BranchDataRow({
       <td className="val col-forecast">
         <span className="ctc-cell">
           <CtcDot
-            count={row.closingCount}
-            onClick={row.closingCount > 0 ? () => onOpenCtcClosing(row) : undefined}
+            count={ctcEligibleCount(row)}
+            onClick={ctcEligibleCount(row) > 0 ? () => onOpenCtcClosing(row) : undefined}
             title={formatCtcClosingTooltip(row.branchForecastRow.loans)}
           />
           {fmtForecast(row.projectedToClose)}
@@ -1034,8 +1136,8 @@ function StrategyRowsGroup({
           <td className="val col-forecast">
             <span className="ctc-cell">
               <CtcDot
-                count={sr.closingCount}
-                onClick={sr.closingCount > 0 ? () => onOpenCtcClosing(row, sr) : undefined}
+                count={ctcEligibleCount(sr)}
+                onClick={ctcEligibleCount(sr) > 0 ? () => onOpenCtcClosing(row, sr) : undefined}
                 title={formatCtcClosingTooltip(sr.loans)}
               />
               {fmtForecast(sr.projectedToClose)}
@@ -1097,8 +1199,8 @@ function StrategyBreakdown({
           <td className="val col-forecast">
             <span className="ctc-cell">
               <CtcDot
-                count={sr.closingCount}
-                onClick={sr.closingCount > 0 ? () => onOpenCtcClosing(row, sr) : undefined}
+                count={ctcEligibleCount(sr)}
+                onClick={ctcEligibleCount(sr) > 0 ? () => onOpenCtcClosing(row, sr) : undefined}
                 title={formatCtcClosingTooltip(sr.loans)}
               />
               {fmtForecast(sr.projectedToClose)}
@@ -1185,8 +1287,6 @@ export default function PivotTable({
 
   const branchRows = buildBranchRows(rows, resolvedLoans, dateRange, knownBranches, rates);
   const blocks = buildChannelBlocks(branchRows);
-  const grandTotal = blocks.reduce((acc, block) => addSubtotal(acc, block.subtotal), EMPTY_SUBTOTAL);
-  const combinedByBranch = buildCombinedByBranch(branchRows);
 
   /*
    * ¿Hay datos de estrategia? Si el snapshot se restauró desde Supabase, los
@@ -1200,6 +1300,14 @@ export default function PivotTable({
   const isAllBranches = selectedBranch === 'ALL';
   const showStrategyControls = isAllBranches && strategyAvailable;
   const byStrategy = showStrategyControls && view === 'strategy';
+
+  /*
+   * Etapa FIX-COMBINED-STRATEGY: `combinedByBranch` y su `grandTotal` se
+   * calculan DESPUÉS de conocer `byStrategy`/`pill` -- antes se armaban más
+   * arriba, sin filtrar, y por eso Combined Total by Branch ignoraba la
+   * píldora activa mientras las tablas Banked/Brokered sí la respetaban.
+   */
+  const { rows: combinedByBranch, grandTotal } = buildCombinedByBranch(branchRows, byStrategy, pill);
 
   /**
    * Etapa EXCEL-1: `null` si no hay filtro real que aplicar (vista
@@ -1384,17 +1492,39 @@ export default function PivotTable({
     return branchRows.filter((r) => r.branch === branch);
   }
 
+  /**
+   * Etapa FIX-COMBINED-DRILLDOWN: bug real -- los 4 openers "Combined" de
+   * abajo listaban `branchForecastRow.loans`/`resolvedLoans`, el pool crudo
+   * del branch (las 2 filas de canal juntas), sin aplicar la píldora activa.
+   * El conteo (`combinedRowForView`, fix anterior) sí filtraba por
+   * estrategia, así que con una píldora elegida el número era correcto pero
+   * el drill-down traía préstamos de OTRAS estrategias de más -- caso real:
+   * branch 776/NPPM mostraba "1" pero el modal traía 2 (el NPPM real +
+   * 776002071111, que es Own production).
+   *
+   * Mismo criterio que ya usan los openers NO combinados (`openStrategyTotal`
+   * y hermanos, que reciben `sr.loans` ya filtrado por `shownStrategyRows`):
+   * sin píldora (o `byStrategy` false) no filtra nada, `pill` es la única
+   * condición.
+   */
+  function strategyFilteredLoans<T extends { branch: string; strategyRaw: string; opportunityOwnerTitle: string }>(
+    loans: T[]
+  ): T[] {
+    if (!byStrategy || pill === 'All') return loans;
+    return loans.filter((loan) => classifyStrategy(loan) === pill);
+  }
+
   function openCombinedTotalPipeline(branch: string) {
-    const loans = branchRowsFor(branch)
-      .flatMap((r) => r.branchForecastRow.loans)
-      .map(openLoanToModalLoan);
+    const loans = strategyFilteredLoans(branchRowsFor(branch).flatMap((r) => r.branchForecastRow.loans)).map(
+      openLoanToModalLoan
+    );
     setModal({ context: contextForBranch(branch), metric: 'Total Pipeline', loans });
   }
 
   function openCombinedHealthyPipeline(branch: string) {
-    const loans = branchRowsFor(branch)
-      .flatMap((r) => r.branchForecastRow.loans.filter((l) => l.healthy === true))
-      .map(openLoanToModalLoan);
+    const loans = strategyFilteredLoans(
+      branchRowsFor(branch).flatMap((r) => r.branchForecastRow.loans.filter((l) => l.healthy === true))
+    ).map(openLoanToModalLoan);
     setModal({ context: contextForBranch(branch), metric: 'Healthy Pipeline', loans });
   }
 
@@ -1403,12 +1533,14 @@ export default function PivotTable({
   // puede pertenecer a los 2 canales a la vez, así que no hay riesgo de
   // duplicar un préstamo al no filtrar por canal).
   function openCombinedClosed(branch: string) {
-    const closedLoans = resolvedLoans.filter(
-      (loan) =>
-        loan.status === 'funded' &&
-        loan.branch === branch &&
-        loan.disbursementDate >= dateRange.startDate &&
-        loan.disbursementDate <= dateRange.endDate
+    const closedLoans = strategyFilteredLoans(
+      resolvedLoans.filter(
+        (loan) =>
+          loan.status === 'funded' &&
+          loan.branch === branch &&
+          loan.disbursementDate >= dateRange.startDate &&
+          loan.disbursementDate <= dateRange.endDate
+      )
     );
     setModal({ context: contextForBranch(branch), metric: 'Closed', loans: closedLoans.map(closedLoanToModalLoan) });
   }
@@ -1423,7 +1555,9 @@ export default function PivotTable({
    * combinado real, igual que el resto de los openers "Combined".
    */
   function openCombinedCtcClosing(branch: string) {
-    const eligible = ctcClosingEligibleLoans(branchRowsFor(branch).flatMap((r) => r.branchForecastRow.loans));
+    const eligible = strategyFilteredLoans(
+      ctcClosingEligibleLoans(branchRowsFor(branch).flatMap((r) => r.branchForecastRow.loans))
+    );
     setModal({
       context: contextForBranch(branch),
       metric: 'CTC + Closing',
@@ -1602,9 +1736,11 @@ export default function PivotTable({
                   <td className="val col-forecast">
                     <span className="ctc-cell">
                       <CtcDot
-                        count={row.closingCount}
-                        onClick={row.closingCount > 0 ? () => openCombinedCtcClosing(row.branch) : undefined}
-                        title={formatCtcClosingTooltip(branchRowsFor(row.branch).flatMap((r) => r.branchForecastRow.loans))}
+                        count={ctcEligibleCount(row)}
+                        onClick={ctcEligibleCount(row) > 0 ? () => openCombinedCtcClosing(row.branch) : undefined}
+                        title={formatCtcClosingTooltip(
+                          strategyFilteredLoans(branchRowsFor(row.branch).flatMap((r) => r.branchForecastRow.loans))
+                        )}
                       />
                       {fmtForecast(row.projectedToClose)}
                     </span>
