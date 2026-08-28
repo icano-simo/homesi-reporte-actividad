@@ -229,7 +229,7 @@ export async function POST(request: Request) {
     const file = formData.get('file');
 
     if (!(file instanceof File)) {
-      return NextResponse.json({ error: 'No se recibió ningún archivo.' }, { status: 400 });
+      return NextResponse.json({ error: 'No file was received.' }, { status: 400 });
     }
 
     const arrayBuffer = await file.arrayBuffer();
@@ -244,9 +244,9 @@ export async function POST(request: Request) {
     const { dataAsOf, source: dataAsOfSource } = parseDataAsOf(file.name);
     if (!dataAsOf) {
       warnings.push(
-        'No se pudo determinar la fecha real del export a partir del nombre de archivo ("' +
+        'Could not determine the real export date from the file name ("' +
           file.name +
-          '") -- el snapshot se guarda igual, pero sin fecha de referencia (data_as_of).'
+          '") -- the snapshot is saved anyway, but without a reference date (data_as_of).'
       );
     }
 
@@ -260,7 +260,7 @@ export async function POST(request: Request) {
     if (needsReview) {
       const emptyHalf = result.openLoans.length === 0 ? 'openLoans (pipeline_loans)' : 'resolvedLoans (pipeline_resolved_loans)';
       warnings.push(
-        'El archivo vino con ' + emptyHalf + ' vacío -- el snapshot se guardó, pero no se activó. Requiere revisión.'
+        'The file came with ' + emptyHalf + ' empty -- the snapshot was saved but not activated. It needs review.'
       );
     }
 
@@ -273,7 +273,7 @@ export async function POST(request: Request) {
     let saved: SaveResult | null = null;
     const supabase = await getSupabaseForecast();
     if (!supabase) {
-      warnings.push('No se pudo guardar en Supabase: faltan las variables de entorno de conexión.');
+      warnings.push('Could not save to Supabase: the connection environment variables are missing.');
     } else {
       try {
         // Etapa S1: una sola llamada RPC transaccional, reemplaza el
@@ -311,9 +311,9 @@ export async function POST(request: Request) {
       } catch (persistErr) {
         const msg = errorMessage(persistErr);
         warnings.push(
-          'No se pudo guardar en Supabase: ' +
+          'Could not save to Supabase: ' +
             msg +
-            ' -- los datos se muestran igual esta sesión, pero no vas a poder recuperarlos al recargar la página.'
+            ' -- the data is still shown for this session, but it will be gone if you reload the page.'
         );
       }
     }

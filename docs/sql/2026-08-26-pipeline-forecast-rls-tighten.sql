@@ -269,7 +269,8 @@ grant select on pipeline_forecast.branch_managers to authenticated;
 -- limit 5;
 --
 -- Si la carga real devuelve un error de la RPC (403/42501 o el mensaje de
--- persistencia de parse/route.ts, "No se pudo guardar en Supabase..."), el
+-- persistencia de parse/route.ts, "Could not save to Supabase..." -- estaba en
+-- espanol hasta que se tradujeron los mensajes de Forecast), el
 -- GRANT de columna del PASO 1 quedó corto -- la función toca alguna columna
 -- más además de is_active, hay que identificarla y agregarla al GRANT antes
 -- de re-intentar.
