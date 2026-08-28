@@ -42,6 +42,7 @@ import {
 import { buildStrategyMix, type StrategyMixRow } from '@/lib/pipeline/strategyMix';
 import { classifyStrategy, hasStrategyData, type Strategy } from '@/lib/pipeline/strategy';
 import { buildParetoRows, type ParetoRow } from '@/lib/pipeline/paretoMix';
+import { US_MAP_VIEWBOX, US_STATE_PATHS } from '@/lib/pipeline/usStatesSvgPaths';
 import { getForecastDb, isSupabaseConfigured } from '@/lib/supabase/client';
 import PeriodSelector from './PeriodSelector';
 import { useOrgRoster, type OrgRoster } from './useOrgRoster';
@@ -260,8 +261,19 @@ function ScorecardTable({
   return (
     <div className="tbl-card">
       <div className="tbl-card__head">
-        {/* Etapa FIX: se quita el conteo entre paréntesis del título -- mismo criterio que RankingTable. El total sigue disponible en la fila "Total" del pie de la tabla. */}
-        <span className="tbl-card__title">{title}</span>
+        {/*
+          Etapa FIX: se quita el conteo entre paréntesis del título -- mismo
+          criterio que RankingTable. El total sigue disponible en la fila
+          "Total" del pie de la tabla.
+
+          Etapa FIX-SCORECARD-TITLES: "{title} Performance" en vez de
+          "{title}" a secas -- antes repetía literal el encabezado de la
+          primera columna (ej. tarjeta "Branch" con columna "Branch" debajo),
+          una duplicación confusa. El `columnLabel` de la columna NO cambia
+          -- ahí "Branch"/"Loan Officer"/"Business Developer" sigue siendo
+          correcto, es la tarjeta la que necesitaba un nombre propio.
+        */}
+        <span className="tbl-card__title">{title} Performance</span>
         {diagnostic && diagnostic.count > 0 && (
           <span
             title={`${diagnostic.summary}\n${diagnostic.detail}`}
@@ -273,12 +285,24 @@ function ScorecardTable({
       </div>
       <div className="tbl-scroll">
         <table className="piv">
+          {/*
+            Etapa FIX-SCORECARD-WIDTH: la columna de nombre (34%) y las 2 de
+            monto (20% cada una) dejaban espacio sobrante con contenido corto
+            (branch codes de 3 dígitos, montos de ~10 caracteres) -- se
+            angostan las 3 (34→24, 20→16 cada una), y el ancho ganado (18%)
+            se reparte hacia Closed (14→20, tiene la barra de proporción
+            además del número) y % of Total (12→24, para no quedar
+            apretado). `table-layout: fixed` (components.css, sin tocar) hace
+            que estos % se respeten tal cual, con ellipsis + title en el
+            contenido que no entre -- mismo mecanismo ya usado en toda la
+            app, no uno nuevo.
+          */}
           <colgroup>
-            <col style={{ width: '34%' }} />
-            <col style={{ width: '14%' }} />
+            <col style={{ width: '24%' }} />
             <col style={{ width: '20%' }} />
-            <col style={{ width: '20%' }} />
-            <col style={{ width: '12%' }} />
+            <col style={{ width: '16%' }} />
+            <col style={{ width: '16%' }} />
+            <col style={{ width: '24%' }} />
           </colgroup>
           <thead>
             <tr className="mo-row">
@@ -933,23 +957,49 @@ function loansForScorecardCut(
 }
 
 /**
- * Paleta fija por NOMBRE de estrategia -- a diferencia de `TYPE_COLORS`
- * (Loan Type, Parte 3), acá `Strategy` es un enum cerrado de 5 valores
- * (`lib/pipeline/strategy.ts`), así que se puede mapear cada nombre a un
- * color fijo en vez de ciclar por orden de aparición -- no depende de qué
- * estrategia aparece primero en los datos del período, siempre el mismo
- * color para la misma estrategia. No existía ninguna paleta previa para
- * estas 5 categorías en ningún otro lado de Forecast (la vista "By
- * strategy" de PivotTable.tsx no colorea por estrategia, solo texto plano
- * + un pill neutro de filtro) -- se define acá, con tokens existentes.
+ * Etapa FIX-STRATEGY-COLORS, revertida parcialmente -- la versión anterior
+ * de este fix ciclaba solo los 3 colores oficiales de marca
+ * (`navy`/`coral`/`sky`, `tokens.css`), repitiendo 2 pares (Own production/
+ * Recruitment ambas navy; B2B/NPPM ambas coral) para evitar cualquier color
+ * semántico de estado. Confirmado por diagnóstico previo: `tokens.css` no
+ * tiene NINGUNA variante clara/oscura de esos 3 (ni `--navy-*`, ni
+ * `--coral-*`, ni `--sky-*`) -- solo 3 tonos de marca en total, cero techo
+ * más alto sin inventar un hex nuevo.
+ *
+ * Se vuelve a 5 colores distintos, uno por estrategia -- los 3 de marca para
+ * las 3 estrategias MÁS frecuentes (mismo orden de `STRATEGY_ORDER`, que ya
+ * es de mayor a menor volumen, ver su comentario en lib/pipeline/strategy.ts),
+ * y 2 tonos SEMÁNTICOS ya existentes -- pero deliberadamente los más SUTILES
+ * de sus escalas, no los más saturados/brillantes ya reservados para
+ * indicadores de estado real en otras partes de la app:
+ *
+ *   - `--emerald-700` (#047857, verde oscuro apagado) para Recruitment --
+ *     mismo tono ya usado en la app (ClosedValue y similares), pero acá sin
+ *     significado de "positivo": es solo la 4ta categoría del donut.
+ *   - `--amber-700` (#b45309, ocre/marrón apagado) para NPPM, NO
+ *     `--amber-500` (#f59e0b, dorado vibrante) -- ese es el tono que sí usa
+ *     el chip "Transferred" de Forecast con significado de advertencia real;
+ *     `--amber-700` es la variante deliberadamente menos saturada de la
+ *     misma escala, para que compita menos con navy/coral/sky.
+ *
+ * Deliberadamente se evita toda la familia `--rose-*` (`--rose-700`
+ * #be123c): es roja, igual que `--coral` (#ff4040) -- confundiría la
+ * estrategia de ese color con el resaltado de mes seleccionado que ya usa
+ * `--coral` en Monthly Trends (`.trend-chart__col--highlight .trend-chart__bar`,
+ * forecast-visual.css), y encima es el color reservado para "negativo/riesgo"
+ * en el resto de la app.
  */
 const STRATEGY_COLORS: Record<Strategy, string> = {
   'Own production': 'var(--navy)',
-  B2B: 'var(--emerald-700)',
+  B2B: 'var(--coral)',
   Affinity: 'var(--sky)',
-  Recruitment: 'var(--amber-500)',
-  NPPM: 'var(--rose-700)',
+  Recruitment: 'var(--emerald-700)',
+  NPPM: 'var(--amber-700)',
 };
+
+function colorForStrategy(strategy: Strategy): string {
+  return STRATEGY_COLORS[strategy];
+}
 
 /**
  * Dona SVG a mano -- cada segmento es un `<path>` de arco (`M`/`A`),
@@ -1003,7 +1053,7 @@ function StrategyDonutChart({
             cy={cy}
             r={radius}
             fill="none"
-            stroke={STRATEGY_COLORS[segments[0].row.strategy]}
+            stroke={colorForStrategy(segments[0].row.strategy)}
             strokeWidth={strokeWidth}
             style={onSegmentClick ? { cursor: 'pointer' } : undefined}
             onClick={onSegmentClick ? () => onSegmentClick(segments[0].row) : undefined}
@@ -1020,7 +1070,7 @@ function StrategyDonutChart({
                 key={row.strategy}
                 d={`M ${start.x} ${start.y} A ${radius} ${radius} 0 ${largeArc} 1 ${end.x} ${end.y}`}
                 fill="none"
-                stroke={STRATEGY_COLORS[row.strategy]}
+                stroke={colorForStrategy(row.strategy)}
                 strokeWidth={strokeWidth}
                 style={onSegmentClick ? { cursor: 'pointer' } : undefined}
                 onClick={onSegmentClick ? () => onSegmentClick(row) : undefined}
@@ -1057,7 +1107,7 @@ function StrategyDonutChart({
                 width: '8px',
                 height: '8px',
                 borderRadius: '50%',
-                background: STRATEGY_COLORS[row.strategy],
+                background: colorForStrategy(row.strategy),
                 flexShrink: 0,
               }}
             />
@@ -1078,27 +1128,38 @@ function StrategyDonutChart({
 }
 
 /**
- * Solo las primeras N categorías llevan nombre en el eje X y número
- * sobre la barra -- de ahí en más, sin etiqueta (el detalle sigue
- * disponible por tooltip en cualquier barra). Ajuste posterior: la
- * versión anterior mostraba una etiqueta cada 4 más allá de las
- * primeras 8 -- se quitó esa parte a pedido explícito, deja el eje
- * limpio en vez de una etiqueta suelta cada tanto.
+ * Etapa FIX-PARETO-LABELS -- reemplaza el corte de AJUSTES-ANALYTICS-1
+ * punto 7: ese fix ya había notado que ocultar etiquetas por completo más
+ * allá de un número fijo (8, o incluso "sólo si el total pasa de 15")
+ * seguía dejando categorías reales sin nombre visible en ningún lado del
+ * eje (YTD con 37+ Loan Officers, caso reportado). Se quita el ocultamiento
+ * por completo: TODAS las barras llevan nombre y número, siempre.
  *
- * Etapa AJUSTES-ANALYTICS-1, punto 7: el corte fijo en 8 aplicaba SIEMPRE,
- * sin importar el total -- con 13 categorías reales (caso reportado,
- * Selected period), las últimas 5 quedaban sin ningún nombre visible aunque
- * 13 entra perfectamente en el eje sin amontonarse. `PARETO_SHOW_ALL_MAX`
- * es el techo bajo el cual mostrar TODAS los nombres en vez de recortar --
- * el recorte a `PARETO_ALWAYS_LABELED` sigue existiendo, pero solo entra en
- * juego con muchas categorías de verdad (YTD con 30+ Loan Officers reales).
+ * Lo que evitaba el ocultamiento -- que dos etiquetas rotadas se
+ * superpongan -- pasa a resolverse por RECORTE (`truncateParetoLabel`,
+ * abajo) en vez de por omisión: con la rotación -45° ya existente,
+ * `barWidth + gap` (36px) es la distancia FIJA entre anclas de texto
+ * consecutivas, sin importar cuántas categorías haya (`plotWidth` crece
+ * con el total, el espacio POR barra no se achica) -- así que el largo
+ * máximo seguro de una etiqueta es una constante, no algo que dependa de
+ * `total`.
  */
-const PARETO_ALWAYS_LABELED = 8;
-const PARETO_SHOW_ALL_MAX = 15;
+const PARETO_LABEL_MAX_CHARS = 10;
 
-function paretoShouldLabel(i: number, total: number): boolean {
-  if (total <= PARETO_SHOW_ALL_MAX) return true;
-  return i < PARETO_ALWAYS_LABELED;
+/**
+ * Recorte estimado por caracteres, no por medición real de texto -- no hay
+ * `getBBox`/`canvas.measureText` disponible en este render (ningún otro
+ * chart de la app mide texto tampoco). A 9px de fuente sans-serif, ~5.5px
+ * por caracter; rotado -45°, la proyección horizontal es ×cos(45°) ≈ 3.9px
+ * por caracter. Con 36px de presupuesto por barra y margen de seguridad,
+ * ~10 caracteres es el techo antes de arriesgar que la etiqueta de una
+ * barra invada el espacio de la anterior. El nombre completo sigue
+ * disponible en el tooltip (`<title>`) de la barra, el punto, y la propia
+ * etiqueta -- el recorte es solo del texto visible en el eje.
+ */
+function truncateParetoLabel(label: string): string {
+  if (label.length <= PARETO_LABEL_MAX_CHARS) return label;
+  return label.slice(0, PARETO_LABEL_MAX_CHARS - 1) + '…';
 }
 
 /**
@@ -1130,13 +1191,13 @@ function paretoTooltip(r: ParetoRow, rank: number, totalCategories: number): str
  * puramente local, sin recalcular nada ni tocar el resto de la pestaña.
  *
  * Con muchas categorías (Loan Officer en YTD puede traer 30+ nombres
- * reales), mostrar TODAS las etiquetas las vuelve ilegibles y ocultarlas
- * TODAS obliga a adivinar -- las primeras `PARETO_ALWAYS_LABELED` llevan
- * etiqueta + número sobre la barra (`paretoShouldLabel`); de ahí en más,
- * sin etiqueta de nombre en el eje (ajuste explícito: no "una cada 4",
- * eje limpio en vez de una etiqueta suelta cada tanto). Ninguna
- * categoría se omite del chart en sí -- todas tienen su barra y su
- * punto, con el detalle completo siempre disponible por tooltip.
+ * reales), TODAS llevan número sobre la barra y nombre en el eje (Etapa
+ * FIX-PARETO-LABELS) -- los nombres largos se recortan con "…"
+ * (`truncateParetoLabel`) para que la rotación -45° no las haga
+ * solaparse entre sí, en vez de ocultar categorías enteras. Ninguna
+ * categoría se omite del chart -- todas tienen su barra, su número, su
+ * nombre (recortado o no) y su punto, con el nombre completo siempre
+ * disponible por tooltip.
  */
 /** Etapa BI-REDESIGN-2, punto 3: se agrega Business Developer como 3er corte -- mismas 2 dimensiones (period/ytd) que ya tenían branch/loanOfficer, sin cálculo nuevo (ver `buildParetoRows` en TabAnalytics, llamado con `businessDeveloperScorecard.rows`). */
 interface ParetoDataByCut {
@@ -1250,38 +1311,34 @@ function ParetoChart({
                   <title>{paretoTooltip(r, i + 1, rows.length)}</title>
                 </rect>
               ))}
-              {/* Número sobre la barra -- mismo patrón que Closings by Month -- solo donde hay espacio real (primeras N, ver paretoShouldLabel). */}
-              {rows.map(
-                (r, i) =>
-                  paretoShouldLabel(i, rows.length) && (
-                    <text
-                      key={r.label + '-val'}
-                      x={xCenter(i)}
-                      y={yForCount(r.count) - 4}
-                      textAnchor="middle"
-                      fontSize="9"
-                      fill="var(--slate-500)"
-                    >
-                      {fmtInt(r.count)}
-                    </text>
-                  )
-              )}
-              {rows.map(
-                (r, i) =>
-                  paretoShouldLabel(i, rows.length) && (
-                    <text
-                      key={r.label + '-lbl'}
-                      x={xCenter(i)}
-                      y={plotHeight + 14}
-                      textAnchor="end"
-                      fontSize="9"
-                      fill="var(--slate-500)"
-                      transform={`rotate(-45 ${xCenter(i)} ${plotHeight + 14})`}
-                    >
-                      {r.label}
-                    </text>
-                  )
-              )}
+              {/* Número sobre la barra -- mismo patrón que Closings by Month -- ahora en TODAS las barras (Etapa FIX-PARETO-LABELS). */}
+              {rows.map((r, i) => (
+                <text
+                  key={r.label + '-val'}
+                  x={xCenter(i)}
+                  y={yForCount(r.count) - 4}
+                  textAnchor="middle"
+                  fontSize="9"
+                  fill="var(--slate-500)"
+                >
+                  {fmtInt(r.count)}
+                </text>
+              ))}
+              {/* Nombre rotado -45° -- TODAS las barras (Etapa FIX-PARETO-LABELS), recortado si es largo (truncateParetoLabel) para que no se solape con la etiqueta vecina; <title> propio para el nombre completo si el mouse pasa justo sobre el texto y no sobre la barra/punto. */}
+              {rows.map((r, i) => (
+                <text
+                  key={r.label + '-lbl'}
+                  x={xCenter(i)}
+                  y={plotHeight + 14}
+                  textAnchor="end"
+                  fontSize="9"
+                  fill="var(--slate-500)"
+                  transform={`rotate(-45 ${xCenter(i)} ${plotHeight + 14})`}
+                >
+                  {truncateParetoLabel(r.label)}
+                  <title>{r.label}</title>
+                </text>
+              ))}
               {/*
                 Curva acumulada: `--sky` (no `--rose-700`/rojo -- ese
                 color ya significa "atención/advertencia" en el resto de
@@ -1336,6 +1393,171 @@ function ParetoChart({
               )}
             </g>
           </svg>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * ============================================================================
+ * MAPA DE EE.UU. — Property State, Etapa MAP-PREVIEW-1
+ * ============================================================================
+ *
+ * Prueba visual, sección NUEVA -- no reemplaza ni toca la tabla existente
+ * "Subject Property State" (RankingTable, más abajo en Product Mix &
+ * Geography). Misma fuente de datos (`propertyStateRanking`, ya filtrada por
+ * período/branch por construcción, igual que toda la pestaña) -- ningún
+ * cálculo nuevo, solo una segunda forma de mostrar el mismo ranking.
+ *
+ * Geometría real de los 50 estados + DC (`lib/pipeline/usStatesSvgPaths.ts`,
+ * adaptado del mapa en blanco de Wikipedia/Wikimedia Commons, dominio
+ * público -- ver el comentario de ese archivo). Un solo `<svg>` con un
+ * `<path>` por estado, coloreado según los datos reales del período activo:
+ *
+ *   - Sin datos ese período: `--slate-200` PLANO, sin opacidad -- gris casi
+ *     invisible, igual en TODOS los estados sin datos (grupo 1).
+ *   - Con datos: interpolación RGB real entre `--sky` (166,222,255) y
+ *     `--navy` (0,26,64) -- los mismos 2 valores numéricos que YA existen en
+ *     `tokens.css`, no hex nuevo, solo leídos y mezclados en vez de usados
+ *     sueltos. Etapa anterior de este mismo mapa usaba opacidad sobre un
+ *     solo color (`--navy` @ 25-100%) -- confirmado en pantalla que eso NO
+ *     daba contraste real contra el gris (ambos quedaban en un gris/azul
+ *     parecido a baja opacidad). Interpolar 2 colores en vez de graduar la
+ *     opacidad de 1 solo garantiza que el estado con MENOS volumen siga
+ *     siendo un azul reconocible (`--sky`), nunca un gris disfrazado.
+ *   - Escala RELATIVA al min/max de ESTE período (`blendSkyToNavy`, abajo):
+ *     con Selected period (rango real 1-7) y con YTD (rango real 1-87) el
+ *     mismo estado puede pintarse distinto, a propósito -- la intensidad
+ *     siempre se lee contra el resto de los datos QUE SE ESTÁN MOSTRANDO.
+ *     Se recalcula solo -- `rows` cambia cuando cambia el período/branch
+ *     (mismo prop que ya recibe `RankingTable`), sin estado ni efecto propio.
+ */
+const US_MAP_SKY_RGB: [number, number, number] = [166, 222, 255];
+const US_MAP_NAVY_RGB: [number, number, number] = [0, 26, 64];
+/**
+ * Etapa FIX-MAP-2: el máximo real (`t=1`, --navy puro, RGB casi 0,0,0 en la
+ * práctica) se veía casi negro -- reportado en pantalla. Se tapa el camino
+ * en 78% en vez de 100%: el estado de MÁS volumen llega a un azul marino
+ * oscuro todavía reconocible como azul, nunca al extremo casi negro de
+ * `--navy` puro. El mínimo (`t=0`, `--sky` puro) no cambia.
+ */
+const US_MAP_MAX_BLEND = 0.78;
+
+function blendSkyToNavy(count: number, minCount: number, maxCount: number): string {
+  const tRaw = maxCount === minCount ? 1 : (count - minCount) / (maxCount - minCount);
+  const t = tRaw * US_MAP_MAX_BLEND;
+  const [r1, g1, b1] = US_MAP_SKY_RGB;
+  const [r2, g2, b2] = US_MAP_NAVY_RGB;
+  const r = Math.round(r1 + (r2 - r1) * t);
+  const g = Math.round(g1 + (g2 - g1) * t);
+  const b = Math.round(b1 + (b2 - b1) * t);
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+function PropertyStateMap({
+  rows,
+  onStateClick,
+}: {
+  rows: RankingRow[];
+  /** `undefined` en un estado sin datos -- ese caso nunca es clickeable, sin importar si el caller pasa la prop. */
+  onStateClick?: (row: RankingRow) => void;
+}) {
+  const byCode = new Map(rows.filter((r) => r.label !== NO_PROPERTY_STATE_LABEL && r.count > 0).map((r) => [r.label, r]));
+  const counts = [...byCode.values()].map((r) => r.count);
+  const minCount = counts.length ? Math.min(...counts) : 0;
+  const maxCount = counts.length ? Math.max(...counts) : 0;
+  /** Etapa FIX-MAP-2: mismo orden que la tabla "Subject Property State" de arriba (desc por count) -- la leyenda es un resumen, no una segunda fuente de verdad con su propio criterio de orden. */
+  const legendRows = [...byCode.values()].sort((a, b) => b.count - a.count);
+  /** Etapa FIX-MAP-4: suma de los estados LISTADOS en la leyenda (no de `rows` completo) -- es un total de "lo que se ve acá", no una segunda fuente de verdad con su propio universo. */
+  const legendTotalCount = legendRows.reduce((sum, r) => sum + r.count, 0);
+  const legendTotalAmount = legendRows.reduce((sum, r) => sum + r.amount, 0);
+
+  return (
+    // Etapa FIX-MAP-3: mapa + leyenda lado a lado, columnas de flexbox --
+    // reemplaza el `position: relative`/leyenda superpuesta de FIX-MAP-2
+    // (tapaba estados del mapa que quedaban debajo). `flex-basis` en % en
+    // vez de `width` fijo: las 2 columnas siguen siendo proporcionales si
+    // la tarjeta se angosta (viewport chico), sin desbordar.
+    <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
+      <div style={{ flex: '0 1 68%', minWidth: 0 }}>
+        <svg
+          viewBox={US_MAP_VIEWBOX}
+          role="img"
+          aria-label="Funded loans by property state"
+          className="us-map-svg"
+          style={{ width: '100%', height: 'auto' }}
+        >
+          {US_STATE_PATHS.map((state) => {
+            const row = byCode.get(state.code);
+            const clickable = row !== undefined && Boolean(onStateClick);
+            return (
+              <path
+                key={state.code}
+                d={state.d}
+                stroke="var(--canvas)"
+                strokeWidth={0.75}
+                fill={row ? blendSkyToNavy(row.count, minCount, maxCount) : 'var(--slate-200)'}
+                className={'us-map-state' + (clickable ? ' us-map-state--clickable' : '')}
+                onClick={clickable ? () => onStateClick!(row!) : undefined}
+                role={clickable ? 'button' : undefined}
+                tabIndex={clickable ? 0 : undefined}
+              >
+                <title>
+                  {row
+                    ? `${state.name}: ${fmtInt(row.count)} loan${row.count === 1 ? '' : 's'}, $${fmtAmount(row.amount)}`
+                    : `${state.name}: no funded loans in this period`}
+                </title>
+              </path>
+            );
+          })}
+        </svg>
+      </div>
+      {/*
+        Etapa FIX-MAP-3: columna propia (30-35% del ancho, ~32% acá), ya no
+        superpuesta -- encabezados "State/Count/Amount" (mismo texto que la
+        tabla grande de arriba, `columnLabel="State"` + "Count"/"Amount")
+        para que se lea como un resumen de la MISMA tabla, no una leyenda
+        con su propio vocabulario. Cada fila reusa el mismo `onStateClick`
+        que ya recibe el `<path>` de ese estado -- ningún handler nuevo, el
+        mismo drill-down sin importar si se hizo click en el mapa o en la
+        fila. Solo los estados CON datos reales (`legendRows`).
+      */}
+      {legendRows.length > 0 && (
+        <div style={{ flex: '0 1 32%', minWidth: 0 }} className="us-map-legend">
+          <div className="us-map-legend__row us-map-legend__row--header">
+            <span className="us-map-legend__swatch" style={{ background: 'transparent' }} />
+            <span className="us-map-legend__label">State</span>
+            <span className="us-map-legend__count">Count</span>
+            <span className="us-map-legend__amount">Amount</span>
+          </div>
+          {legendRows.map((row) => {
+            const clickable = Boolean(onStateClick);
+            return (
+              <div
+                key={row.label}
+                className={'us-map-legend__row' + (clickable ? ' us-map-legend__row--clickable' : '')}
+                onClick={clickable ? () => onStateClick!(row) : undefined}
+                role={clickable ? 'button' : undefined}
+                tabIndex={clickable ? 0 : undefined}
+              >
+                <span
+                  className="us-map-legend__swatch"
+                  style={{ background: blendSkyToNavy(row.count, minCount, maxCount) }}
+                />
+                <span className="us-map-legend__label">{row.label}</span>
+                <span className="us-map-legend__count">{fmtInt(row.count)}</span>
+                {/* Etapa FIX-MAP-4: monto completo (fmtAmount), no fmtAmountShort -- se pidió el numero real, no una version redondeada a "M"/"K". */}
+                <span className="us-map-legend__amount">${fmtAmount(row.amount)}</span>
+              </div>
+            );
+          })}
+          <div className="us-map-legend__row us-map-legend__row--total">
+            <span className="us-map-legend__swatch" style={{ background: 'transparent' }} />
+            <span className="us-map-legend__label">Total</span>
+            <span className="us-map-legend__count">{fmtInt(legendTotalCount)}</span>
+            <span className="us-map-legend__amount">${fmtAmount(legendTotalAmount)}</span>
+          </div>
         </div>
       )}
     </div>
@@ -1817,6 +2039,30 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
   }, []);
 
   /**
+   * Etapa FIX-SCORECARD-BRANCH-FILTER -- `buildBranchScorecard` arma una
+   * fila por CADA branch presente en los loans que recibe, sin filtrar
+   * (confirmado en su propio comentario, `lib/pipeline/scorecards.ts`:
+   * "nunca para descartar un loan"). La tabla de Branch (y el corte
+   * "Branch" de Pareto, que reusa `branchScorecard.rows`/
+   * `ytdBranchScorecard.rows` sin recalcular nada) mostraba entonces
+   * CUALQUIER branch con datos -- el mismo tipo de fuga que ya se corrigió
+   * para el selector de arriba (`availableBranches`), pero sin filtrar acá.
+   *
+   * Se filtra ANTES de construir el scorecard, con la MISMA fuente
+   * dinámica que ya usa el selector -- `forecastBranchCodes`, cargada en
+   * tiempo real contra `pipeline_forecast.branches` (ver el `useEffect` de
+   * arriba) -- nunca una lista escrita a mano. Si mañana se agrega o quita
+   * un branch de esa tabla, esta tabla lo refleja solo con el próximo
+   * fetch, sin tocar código. Mientras `forecastBranchCodes` no cargó
+   * (todavía vacío), el filtro deja la tabla vacía en vez de mostrar
+   * branches sin confirmar -- mismo criterio conservador que
+   * `availableBranches`.
+   */
+  function filterToForecastBranches(loans: ResolvedLoan[]): ResolvedLoan[] {
+    return loans.filter((l) => forecastBranchCodes.has(l.branch));
+  }
+
+  /**
    * `availableBranches` es la INTERSECCIÓN de "branches con préstamos en
    * este snapshot" y "branches que Forecast estudia" (`forecastBranchCodes`)
    * -- se calcula sobre `resolvedLoans` SIN filtrar por el branch ya
@@ -1881,7 +2127,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
   const typeRanking = buildLoanTypeRanking(fundedInRange);
   const propertyStateRanking = buildPropertyStateRanking(fundedInRange);
 
-  const branchScorecard = buildBranchScorecard(fundedInRange, orgRoster.knownBranchCodes);
+  const branchScorecard = buildBranchScorecard(filterToForecastBranches(fundedInRange), orgRoster.knownBranchCodes);
   const loanOfficerScorecard = buildLoanOfficerScorecard(
     fundedInRange,
     orgRoster.aliasIndex,
@@ -2003,7 +2249,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
    */
   const ytdRange = periodDateRange(getDefaultYtdSelection());
   const ytdFunded = fundedLoansInRange(branchFilteredLoans, ytdRange);
-  const ytdBranchScorecard = buildBranchScorecard(ytdFunded, orgRoster.knownBranchCodes);
+  const ytdBranchScorecard = buildBranchScorecard(filterToForecastBranches(ytdFunded), orgRoster.knownBranchCodes);
   const ytdLoanOfficerScorecard = buildLoanOfficerScorecard(
     ytdFunded,
     orgRoster.aliasIndex,
@@ -2141,7 +2387,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
       <DiagnosticsNote
         count={1}
         summary={`All 12 months of ${trendsYear} — months with no data yet show 0 explicitly, never omitted. The month(s) matching the period selected above are highlighted in coral.`}
-        detail="Read-only, no dependency on org -- entirely from pipeline_resolved_loans."
+        detail="These totals don't depend on branch or officer name matching, so they're always available even if that roster fails to load elsewhere on this page."
       />
 
       <div ref={trendsSectionRef} className={'trend-charts' + (trendsVisible ? ' trend-charts--enter' : '')}>
@@ -2202,7 +2448,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
             <DiagnosticsNote
               count={1}
               summary="Average loan amount per closing, by month (total amount ÷ closings -- not a margin or division earnings figure)."
-              detail="avgTicketByMonth() (lib/pipeline/trends.ts) divides the same monthlyTotals used by the Closings/Amount charts above (amount/count per month, 0 when count is 0) -- derived here, not a separate field from the export."
+              detail="Calculated from the same monthly totals shown in the Closings and Amount charts above -- shows 0 for any month with no closings, not an error."
             />
             <AvgTicketChart
               rows={avgTicketData}
@@ -2245,7 +2491,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
       <DiagnosticsNote
         count={1}
         summary="Funded loans (Disbursement Date), grouped by Loan Program, Loan Type, and Subject Property State, for the selected period."
-        detail="Read-only — doesn't affect pull-through, Healthy, Adverse, or strategy calculations elsewhere in Forecast."
+        detail="This breakdown is independent of the pull-through, Healthy, and Adverse figures shown elsewhere in Forecast -- viewing it doesn't change any of those numbers."
       />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '20px' }}>
@@ -2358,7 +2604,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
       <DiagnosticsNote
         count={1}
         summary="Branch, Loan Officer, and Business Developer are matched against the company roster, so name variants are combined."
-        detail="Resolved against org.dim_branch/org.employee_alias (schema org, read-only, same session as the rest of the app) — names are never compared with string equality, only via the alias table."
+        detail="Name variants -- different spellings or nicknames across systems -- are matched through the company roster, not simple text comparison, so the same person is never split into two rows."
       />
 
       {orgRoster.loading && <p className="foot-note">Loading org roster…</p>}
@@ -2371,7 +2617,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
               title="Branch"
               columnLabel="Branch"
               rows={branchScorecard.rows}
-              totalCount={fundedInRange.length}
+              totalCount={filterToForecastBranches(fundedInRange).length}
               onRowClick={(row) =>
                 setDrillDown({
                   metric: 'Branch',
@@ -2412,7 +2658,8 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
             {bdOwnerDataMissing ? (
               <div className="tbl-card" style={{ padding: '16px' }}>
                 <div className="tbl-card__head">
-                  <span className="tbl-card__title">Business Developer</span>
+                  {/* Etapa FIX-SCORECARD-TITLES: mismo nombre que la variante con datos (ScorecardTable) -- es la misma tarjeta, solo su estado vacío. */}
+                  <span className="tbl-card__title">Business Developer Performance</span>
                 </div>
                 {/*
                   Etapa F7.20: mensaje explícito en vez de un scorecard vacío
@@ -2456,15 +2703,51 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
         secciones de arriba.
       */}
       <h4 style={{ margin: '8px 0 12px', fontSize: '15px', color: 'var(--navy)' }}>Productivity &amp; Concentration</h4>
+      {/*
+        Etapa FIX-CARD-HEIGHT: Strategy Mix y Pareto quedaban de altura
+        distinta -- el grid de 2 columnas SÍ estira sus 2 celdas a la misma
+        altura (`align-items: stretch` es el default de CSS Grid, ya vigente
+        acá sin declararlo), pero eso solo estira los `<div>` de columna en
+        sí, no a `.tbl-card` (components.css) adentro de cada uno -- esa
+        clase no tiene ninguna regla de altura, así que cada tarjeta seguía
+        creciendo solo hasta el alto de SU PROPIO contenido (Pareto, con
+        toggle + SVG de eje rotado, es intrínsecamente más alto que el
+        donut+leyenda compacto de Strategy Mix), dejando espacio vacío sin
+        usar debajo de la más corta en vez de que la tarjeta lo ocupara.
+
+        Fix: cada columna pasa a ser un flex container en columna
+        (`display: flex, flexDirection: column`) -- el `DiagnosticsNote` de
+        arriba mide su alto natural, y la tarjeta de abajo lleva `flex: 1`
+        para consumir el resto exacto del alto ya estirado por el grid. NO
+        se usa `height: 100%` en la tarjeta: eso mediría contra el 100% del
+        contenedor ENTERO (incluido el espacio que ya ocupa el
+        DiagnosticsNote arriba), desbordando por abajo -- `flex: 1` reparte
+        solo el sobrante real, sin importar qué tan alto sea ese texto de
+        arriba en cada columna.
+      */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '20px' }}>
-        <div>
-          <DiagnosticsNote
-            count={1}
-            summary="Every funded loan in the selected period, split by commercial strategy."
-            detail="classifyStrategy() (lib/pipeline/strategy.ts) applied directly to fundedInRange, same rule already used elsewhere in Forecast (Projected Forecast by strategy, PivotTable.tsx) -- no org dependency."
-          />
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          {/*
+            Etapa FIX-NOTE-ALIGN: el resumen de Strategy Mix ("Every funded
+            loan...") entra en 1 línea; el de Pareto ("Cumulative
+            concentration...", bien más largo) envuelve a 2 -- sin este
+            wrapper, la tarjeta de abajo arrancaba más arriba en la columna
+            de Strategy Mix que en la de Pareto, porque cada `DiagnosticsNote`
+            solo reserva el alto de SU PROPIO texto. `minHeight` fijo
+            (~2 líneas de `.foot-note`, 11.5px/line-height 1.55, + su margen)
+            reserva el mismo espacio en las dos columnas sin importar cuántas
+            líneas use el resumen real -- valor aproximado, no medido pixel a
+            pixel; si algún resumen cambia de largo, puede necesitar ajuste.
+          */}
+          <div style={{ minHeight: '62px' }}>
+            <DiagnosticsNote
+              count={1}
+              summary="Every funded loan in the selected period, split by commercial strategy."
+              detail="Uses the same strategy classification already shown in Forecast's Projected Forecast breakdown -- no dependency on branch or employee name matching."
+            />
+          </div>
           {strategyDataMissing ? (
-            <div className="tbl-card" style={{ padding: '16px' }}>
+            <div className="tbl-card" style={{ padding: '16px', flex: 1 }}>
               {/*
                 Etapa F7.23: mismo criterio que Business Developer (F7.20) --
                 un donut 100% "Own production" se leería como un resultado real
@@ -2475,31 +2758,47 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
               </p>
             </div>
           ) : (
-            <div className="tbl-card" style={{ padding: '16px' }}>
+            <div className="tbl-card" style={{ padding: '16px', flex: 1, display: 'flex', flexDirection: 'column' }}>
               <div className="tbl-card__head">
                 <span className="tbl-card__title">Strategy Mix</span>
               </div>
-              <StrategyDonutChart
-                rows={strategyMix}
-                onSegmentClick={(row) =>
-                  setDrillDown({
-                    metric: 'Strategy Mix',
-                    context: row.strategy,
-                    loans: fundedInRange.filter((l) => classifyStrategy(l) === row.strategy).map(closedLoanToModalLoan),
-                    hiddenColumns: ['milestone', 'status'],
-                  })
-                }
-              />
+              {/*
+                Etapa FIX-CARD-HEIGHT (parte 2): tras darle flex: 1 a la
+                tarjeta, el donut+leyenda (más bajo que Pareto) quedaba
+                pegado arriba, con el sobrante de altura como espacio vacío
+                debajo. Este wrapper toma ese sobrante (`flex: 1`, dentro de
+                la tarjeta ya en columna) y centra su contenido en el eje
+                vertical (`alignItems: center` -- el wrapper es fila, no
+                columna, así que el eje cruzado ES el vertical) -- mismo
+                ancho de siempre, solo cambia dónde queda dentro de la
+                tarjeta.
+              */}
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
+                <StrategyDonutChart
+                  rows={strategyMix}
+                  onSegmentClick={(row) =>
+                    setDrillDown({
+                      metric: 'Strategy Mix',
+                      context: row.strategy,
+                      loans: fundedInRange.filter((l) => classifyStrategy(l) === row.strategy).map(closedLoanToModalLoan),
+                      hiddenColumns: ['milestone', 'status'],
+                    })
+                  }
+                />
+              </div>
             </div>
           )}
         </div>
 
-        <div>
-          <DiagnosticsNote
-            count={1}
-            summary="Cumulative concentration of funded loans by branch or loan officer -- bars from the same scorecards above, line shows running % of total."
-            detail="Reuses branchScorecard.rows/loanOfficerScorecard.rows (already sorted desc by closedCount, buildBranchScorecard/buildLoanOfficerScorecard, lib/pipeline/scorecards.ts) -- no new grouping. Year to date mode computes its own range via getDefaultYtdSelection()/periodDateRange() (lib/pipeline/period.ts), independent of the period selector above."
-          />
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          {/* Etapa FIX-NOTE-ALIGN: mismo `minHeight` que la columna de Strategy Mix -- ver el comentario ahí. */}
+          <div style={{ minHeight: '62px' }}>
+            <DiagnosticsNote
+              count={1}
+              summary="Cumulative concentration of funded loans by branch or loan officer -- bars from the same scorecards above, line shows running % of total."
+              detail="Year to date totals cover January 1 through today, independent of the period selector above."
+            />
+          </div>
           {orgRoster.loading && <p className="foot-note">Loading org roster…</p>}
           {orgRoster.error && (
             <p className="pill warn" style={{ display: 'inline-flex' }}>
@@ -2507,7 +2806,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
             </p>
           )}
           {!orgRoster.loading && !orgRoster.error && (
-            <div className="tbl-card" style={{ padding: '16px' }}>
+            <div className="tbl-card" style={{ padding: '16px', flex: 1 }}>
               <div className="tbl-card__head">
                 <span className="tbl-card__title">Pareto — Branch / Loan Officer</span>
               </div>
@@ -2529,6 +2828,50 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
           )}
         </div>
       </div>
+
+      {/*
+        ==========================================================================
+        MAPA DE EE.UU. — Property State, Etapa MAP-PREVIEW-1
+        ==========================================================================
+        Sección COMPLETAMENTE NUEVA, al final de la pestaña -- pedido explícito
+        de NO tocar ni reemplazar la tabla "Subject Property State" de más
+        arriba (Product Mix & Geography), que sigue exactamente igual. Es una
+        prueba visual: si se aprueba, se decide en una etapa aparte si
+        reemplaza o complementa esa tabla.
+
+        Mismo gate que la tabla (`propertyStateDataMissing`) -- un snapshot sin
+        `property_state` capturado no debe mostrar un mapa 100% gris sin
+        explicación, mismo criterio que ya usa esa tabla y Strategy Mix.
+      */}
+      <h3 style={{ margin: '24px 0 12px' }}>Funded Loans by State (Map)</h3>
+      <DiagnosticsNote
+        count={1}
+        summary="Same data as the Subject Property State table above, shown as a map -- darker states had more funded loans this period."
+        detail="Preview only, next to the existing table -- nothing here changes if this section is removed or kept."
+      />
+      {propertyStateDataMissing ? (
+        <div className="tbl-card" style={{ padding: '16px' }}>
+          <p className="foot-note" style={{ margin: 0 }}>
+            No property state data in this snapshot — the map has nothing to color.
+          </p>
+        </div>
+      ) : (
+        <div className="tbl-card us-map-fade-in" style={{ padding: '16px' }}>
+          <PropertyStateMap
+            rows={propertyStateRanking}
+            onStateClick={(row) =>
+              setDrillDown({
+                metric: 'Subject Property State',
+                context: row.label,
+                loans: fundedInRange
+                  .filter((l) => (l.propertyState.trim() || NO_PROPERTY_STATE_LABEL) === row.label)
+                  .map(closedLoanToModalLoan),
+                hiddenColumns: ['propertyState', 'milestone', 'status'],
+              })
+            }
+          />
+        </div>
+      )}
 
       {/*
         Etapa F7, Parte 5: mismo modal que ya usa PivotTable -- una lista de

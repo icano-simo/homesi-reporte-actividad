@@ -7306,3 +7306,145 @@ Realtor, NPPM pasa de 8 a 9 columnas) y **V4** (borra
   antes del bloque de contexto (Owner / NPPM Realtor / Recruited By /
   Referred By de V3c), en cualquiera de las 3 vistas de estrategia --
   posición consistente, no se reordenó nada de V3c.
+
+---
+
+## Etapa ANALYTICS-BI-2 — ajustes visuales de Analytics y mapa de Property State
+
+Serie de fixes sobre `app/pipeline/TabAnalytics.tsx` (rediseño BI de la
+pestaña Analytics), todos en `feat/analytics-bi-redesign`. Se agrupan
+acá porque comparten rama y sesión de trabajo, pero son cambios
+independientes entre sí -- cada uno se documenta por separado.
+
+### Pareto: todas las etiquetas visibles, truncadas en vez de ocultas
+
+`truncateParetoLabel()` corta cualquier nombre a ~10 caracteres (con
+"…") en vez del comportamiento anterior, que directamente OCULTABA la
+etiqueta de las barras angostas del chart de Pareto -- una barra sin
+nombre se leía como un dato sin categoría, no como un problema de
+espacio. Aplica a las 3 vistas de Pareto (Branch/Loan Officer/Business
+Developer), sin cambiar el cálculo del ranking, solo el label
+renderizado.
+
+### Strategy Mix: paleta de 5 colores distintos
+
+`STRATEGY_COLORS` había pasado antes por una versión que ciclaba solo
+los 3 colores oficiales de marca (`--navy`/`--coral`/`--sky`,
+`tokens.css`), repitiendo 2 pares para evitar cualquier color
+semántico -- confirmado que `tokens.css` no tiene variantes
+clara/oscura de esos 3. Se revierte a 5 colores distintos: los 3 de
+marca para las 3 estrategias más frecuentes (mismo orden de
+`STRATEGY_ORDER`, que ya va de mayor a menor volumen), más
+`--emerald-700` para Recruitment y `--amber-700` para NPPM -- los tonos
+más SUTILES de esas escalas semánticas (no los más saturados, que ya
+están reservados para indicadores de estado real en otras pantallas),
+sin usar `--rose-700` para evitar confusión visual con `--coral`.
+
+### Altura de tarjetas y alineación de tooltips (Strategy Mix / Pareto)
+
+El donut de Strategy Mix y las tarjetas de Pareto quedaban de distinta
+altura entre sí cuando el `DiagnosticsNote` de una columna ocupaba más
+de una línea. Fix con flexbox: contenedor columna
+(`display: flex; flexDirection: column`), `flex: 1` en la tarjeta de
+abajo para que absorba el espacio sobrante, y un wrapper con
+`minHeight: 62px` alrededor del `DiagnosticsNote` de ambas columnas
+para que arranquen a la misma altura sin importar cuántas líneas use
+cada texto.
+
+### Tooltips de diagnóstico sin jerga técnica
+
+5 instancias de `DiagnosticsNote` (Strategy Mix, Branch/Loan
+Officer/Business Developer scorecards, Property State) tenían nombres
+de función, rutas de archivo y nombres de schema en el `detail` que ve
+el usuario final (ej. "Reuses branchScorecard.rows..."). Se reescriben
+a lenguaje de negocio -- el mecanismo interno sigue siendo el mismo,
+solo cambia lo que se muestra en el tooltip.
+
+### Scorecards (Branch/Loan Officer/Business Developer) filtrados dinámicamente a los branches de Forecast
+
+`buildBranchScorecard()` arma una fila por cada branch presente en los
+loans que recibe, sin filtrar (es su comportamiento documentado: "nunca
+para descartar un loan"). Eso dejaba pasar a la tabla de Branch --y al
+corte "Branch" de Pareto, que reusa esas mismas filas-- cualquier
+branch con datos, incluidos los que están fuera de la división. Nuevo
+helper `filterToForecastBranches()` filtra los loans ANTES de construir
+el scorecard, contra `forecastBranchCodes` -- la misma fuente dinámica
+que ya usa el selector de branch de arriba (`pipeline_forecast.branches`
+en tiempo real, vía el `useEffect` existente), nunca una lista escrita
+a mano. Si `forecastBranchCodes` todavía no cargó, la tabla queda vacía
+en vez de mostrar branches sin confirmar -- mismo criterio conservador
+que ya usaba el selector.
+
+### Commercial Scorecards: ancho de columnas y títulos "Performance"
+
+Las 3 tablas (Branch, Loan Officer, Business Developer) angostan la
+columna de nombre y las de monto (dejaban espacio sobrante con
+contenido corto -- códigos de 3 dígitos, montos de ~10 caracteres) y
+ensanchan Closed/% of Total. Título de cada tarjeta pasa a "{título}
+Performance" (ej. "Branch Performance") para no repetir el nombre de
+columna como título sin distinguir tarjeta de columna.
+
+### Mapa de EE.UU. para Property State (sección nueva, no reemplaza la tabla existente)
+
+Sección nueva al final de la pestaña, DESPUÉS de la tabla existente
+"Subject Property State" -- no la reemplaza, es una vista alternativa
+de los mismos datos (`propertyStateRanking`).
+
+- **Datos geográficos**: `lib/pipeline/usStatesSvgPaths.ts` (nuevo),
+  51 paths (50 estados + DC) parseados de un SVG de EE.UU. de fuente
+  única y coordenadas compartidas (dominio público/MIT, derivado de
+  Wikipedia) -- se descartó una primera fuente candidata
+  (`state-svg-defs`) porque cada estado traía su propio `viewBox`
+  normalizado independiente, inútil para un mapa compuesto real.
+- **Color**: interpolación RGB real sky→navy (`blendSkyToNavy()`),
+  relativa al rango de conteo del período activo, con techo en 78%
+  del blend (`US_MAP_MAX_BLEND`) para no llegar a un tono casi negro
+  en el extremo superior. Estados sin datos en gris (`--slate-200`),
+  sin efecto de hover (no son clickeables).
+- **Interacción**: click en un estado con datos abre el mismo
+  drill-down que ya usa la tabla ("Subject Property State"). Hover
+  tipo botón (`scale(1.04)` + sombra) solo en estados con datos, vía
+  `transform-box: fill-box` para que el escalado crezca desde el
+  centro de la silueta del estado y no desde la esquina del `<svg>`.
+  `:focus-visible` restaurado para navegación por teclado tras quitar
+  el rectángulo de foco nativo del navegador (defecto de un
+  `role="button"` sobre un `<path>`, no un elemento nativamente
+  enfocable).
+- **Leyenda**: columna propia al lado del mapa (68% mapa / 32%
+  leyenda, flexbox, no superpuesta), con encabezados "State / Count /
+  Amount" (mismo texto que la tabla grande), hover/click por fila
+  reusando el mismo handler que ya recibe el `<path>` de ese estado, y
+  fila "Total" al pie sumando los estados listados (mismo criterio
+  visual que la fila Total de `RankingTable`). Monto mostrado
+  completo (`fmtAmount`, ej. "$2,145,975"), no abreviado.
+- **Animación de entrada**: fade + traslado sutil
+  (`us-map-fade-in`), respetando `prefers-reduced-motion: reduce`
+  (se desactiva del todo, no se acorta).
+
+#### Conocido, sin resolver: Colorado no reacciona al hover en el mapa
+
+Confirmado en DevTools real: el `<path>` de Colorado tiene la clase
+`us-map-state--clickable` y el `<title>` correctos, pero
+`clientWidth`/`clientHeight` = 0 en ese elemento. Se revisó el string
+`d` de Colorado en `usStatesSvgPaths.ts` byte por byte (sin caracteres
+ocultos, sintaxis idéntica a cualquier otro estado) y se calculó su
+área real (fórmula del shoelace): ~10.300 unidades² sobre una bounding
+box de ~12.430 -- una forma sólida y no degenerada, del mismo orden de
+magnitud que cualquier otro estado. No se encontró ningún defecto en
+los datos del path.
+
+`clientWidth`/`clientHeight` no son la propiedad correcta para medir el
+área geométrica de un `<path>` SVG (no participan del modelo de caja
+CSS) -- la comparación real pendiente es `getBBox()` sobre Colorado
+contra un estado que sí reacciona, para confirmar si el navegador está
+parseando un `d` distinto al que hay en el archivo (posible caché de
+build/HMR desactualizado) o si el problema está en otro lado. Hasta
+tener ese dato, no se tocaron las coordenadas de Colorado -- reescribir
+una forma que ya es geométricamente válida, sobre una hipótesis sin
+confirmar, arriesgaba introducir una distorsión real donde hoy no hay
+ninguna.
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx`, `app/styles/components.css`,
+`lib/pipeline/usStatesSvgPaths.ts` (nuevo).

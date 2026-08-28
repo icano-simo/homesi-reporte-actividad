@@ -1117,6 +1117,183 @@ tr.mrow .chev {
   }
 }
 
+/*
+ * Etapa MAP-PREVIEW-1 -- entrada sutil del mapa de EE.UU. de Analytics
+ * (TabAnalytics.tsx, PropertyStateMap). Mismo patrón exacto que `.modal-box`/
+ * `modal-in` arriba: fade + un desplazamiento chico (no scale, para no
+ * distorsionar la proporción del mapa mientras entra), y `animation: none`
+ * bajo `prefers-reduced-motion: reduce` -- nunca se anima para quien lo pidió
+ * explícito, no se reduce la duración, se saca del todo.
+ */
+.us-map-fade-in {
+  animation: us-map-fade-in 0.3s ease-out;
+}
+@keyframes us-map-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .us-map-fade-in {
+    animation: none;
+  }
+}
+
+/*
+ * Etapa FIX-MAP-1 -- cada `<path>` de estado (clickeable o no) suprime el
+ * outline nativo de foco: sin esto, un click de mouse sobre un `<path
+ * tabIndex={0}>` deja el rectángulo de foco del navegador dibujado sobre el
+ * bounding box del path (no sobre su silueta real) -- se ve como un
+ * recuadro de selección pegado encima del estado, exactamente el defecto
+ * reportado. `:focus-visible` lo repone SOLO para navegación por teclado
+ * (mismo anillo `--sky` que ya usa `.btn`/`.tab-btn`/`.pill` -- no un
+ * estilo nuevo), así que la accesibilidad de teclado no se pierde, sólo el
+ * foco que dispara un click de mouse.
+ */
+.us-map-state {
+  outline: none;
+}
+.us-map-state:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 1px;
+}
+
+/*
+ * Etapa FIX-MAP-1 -- "se siente clickeable": solo los estados CON datos
+ * llevan esta clase (ver PropertyStateMap) -- los grises sin datos no
+ * tienen ningún efecto de hover, a propósito, porque no son clickeables.
+ * `transform-box: fill-box` + `transform-origin: center` hacen que el
+ * `scale()` crezca desde el CENTRO DE SU PROPIA silueta -- sin esto, el
+ * origen de transformación es el del `<svg>` completo (esquina superior
+ * izquierda), y un estado lejos de esa esquina "saldría disparado" hacia
+ * afuera en vez de agrandarse en el lugar. La sombra reusa el mismo
+ * rgba(0, 26, 64, ...) -- RGB de `--navy` -- que ya usan `--shadow-xs`/
+ * `--shadow-sm` (tokens.css), sin inventar un color de sombra nuevo.
+ */
+.us-map-state--clickable {
+  cursor: pointer;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 0.15s ease, filter 0.15s ease;
+}
+.us-map-state--clickable:hover,
+.us-map-state--clickable:focus-visible {
+  transform: scale(1.04);
+  filter: drop-shadow(0 2px 4px rgba(0, 26, 64, 0.35));
+}
+
+/*
+ * Etapa FIX-MAP-3 -- leyenda como columna propia al lado del mapa (ya no
+ * superpuesta, ver el `display: flex` en PropertyStateMap) -- formato de
+ * leyenda de mapa (cuadradito + texto chico apilado), NO la tabla grande de
+ * "Subject Property State" de arriba: sin `<table>`, sin bordes de celda,
+ * solo filas simples. Ya no necesita fondo semitransparente ni
+ * `pointer-events: none` (eso era para flotar encima del mapa) -- ahora
+ * vive en su propio espacio, y sus filas SÍ deben recibir el click.
+ */
+.us-map-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 11px;
+  line-height: 1.5;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.us-map-legend__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+}
+/*
+ * Etapa FIX-MAP-3: encabezado "State/Count/Amount" -- mismo texto que
+ * `RankingTable` (columnLabel="State" + "Count"/"Amount"), mismo tratamiento
+ * visual que `.mo-row th` (mayúscula chica, slate, sin negrita) en vez del
+ * estilo de dato (`--navy` bold) que llevan las filas reales.
+ */
+.us-map-legend__row--header {
+  color: var(--slate-500);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-bottom: 1px solid var(--slate-200);
+  padding-bottom: 4px;
+  margin-bottom: 2px;
+}
+/* Etapa FIX-MAP-3: mismo hover que `tr.metric:hover` (components.css) -- mismo rgba exacto, para que la leyenda se sienta parte del mismo lenguaje visual que el resto de las tablas de ranking. */
+.us-map-legend__row--clickable {
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.us-map-legend__row--clickable:hover {
+  background: rgba(166, 222, 255, 0.2); /* 'Light Sky' @20%, mismo valor que tr.metric:hover */
+}
+.us-map-legend__row--clickable:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: -1px;
+}
+.us-map-legend__swatch {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.us-map-legend__label {
+  color: var(--navy);
+  font-weight: 700;
+  width: 24px;
+  flex-shrink: 0;
+}
+.us-map-legend__row--header .us-map-legend__label {
+  color: inherit;
+  font-weight: inherit;
+}
+.us-map-legend__count {
+  color: var(--slate-600);
+  flex: 0.8;
+  text-align: right;
+}
+/* Etapa FIX-MAP-4: monto completo ("$2,145,975") en vez de la version corta ("$2.1M") -- necesita mas espacio que Count, por eso flex 1.2 contra 0.8 y no 1/1 parejo. */
+.us-map-legend__amount {
+  color: var(--slate-500);
+  flex: 1.2;
+  text-align: right;
+}
+.us-map-legend__row--header .us-map-legend__count,
+.us-map-legend__row--header .us-map-legend__amount {
+  color: inherit;
+}
+/*
+ * Etapa FIX-MAP-4: fila "Total" al pie de la leyenda -- mismo tratamiento
+ * visual que `tr.grp.total` (fondo `--accent-soft`, borde superior navy),
+ * adaptado a filas `<div>` en vez de `<td>`. El label ("Total", 5
+ * caracteres) no entra en el `width: 24px` pensado para códigos de 2
+ * letras -- se anula a `auto` sólo acá.
+ */
+.us-map-legend__row--total {
+  background: var(--accent-soft);
+  border-top: 2px solid var(--navy);
+  margin-top: 2px;
+  font-weight: 700;
+}
+.us-map-legend__row--total .us-map-legend__label {
+  width: auto;
+}
+.us-map-legend__row--total .us-map-legend__count,
+.us-map-legend__row--total .us-map-legend__amount {
+  color: var(--navy);
+}
+
 .modal-header {
   display: flex;
   align-items: flex-start;
