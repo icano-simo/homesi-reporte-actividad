@@ -1211,7 +1211,34 @@ tr.mrow .chev {
  * base tampoco se tocan -- estas reglas solo se activan cuando la clase
  * nueva está presente.
  */
+/*
+ * Etapa FIX (ancho ajustado al contenido) -- reportado con captura real: con
+ * pocas columnas visibles (ej. 7 desde Analytics, sin Notes) quedaba
+ * espacio en blanco visible después de "Amount", porque `.modal-box` base
+ * fija `width: 100%` -- la caja SIEMPRE se estira hasta su `max-width`
+ * (92vw/1400px), sin importar que la tabla de adentro (`table.piv`,
+ * `width: auto`, ya se dimensiona por contenido real desde el refinamiento
+ * anterior) sea más angosta.
+ *
+ * Fix: `width: fit-content` en vez de heredar el `100%` de `.modal-box` --
+ * la caja se dimensiona por su contenido (el más ancho entre el header y
+ * la tabla), respetando el mismo `max-width` de siempre como TECHO -- nunca
+ * más ancha que antes (el caso con más columnas sigue topando en
+ * min(92vw, 1400px) exactamente igual), pero sí más angosta cuando hay
+ * menos columnas. El piso ya existía sin tocarlo: `.modal-table-scroll
+ * table.piv { min-width: 700px }` (regla de abajo) evita que la caja se
+ * angoste de más incluso con pocas columnas, y `.modal-table-scroll {
+ * overflow-x: auto }` sigue siendo el mismo colchón de siempre si un
+ * viewport angosto no alcanza ni para ese mínimo -- por eso no hace falta
+ * tocar ninguna otra regla para que siga siendo responsive.
+ *
+ * Acotado a `.modal-box--wide` (LoanDetailModal.tsx, Forecast/Analytics) --
+ * el modal base de Activity (`components/report/LoanDetailModal.tsx`, 6
+ * columnas fijas) no lleva esta clase y sigue con `width: 100%` de
+ * `.modal-box`, sin cambios, como siempre.
+ */
 .modal-box.modal-box--wide {
+  width: fit-content;
   max-width: min(92vw, 1400px);
 }
 /*

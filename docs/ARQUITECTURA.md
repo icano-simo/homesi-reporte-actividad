@@ -6900,4 +6900,306 @@ commitear todavía -- falta verlo en pantalla").
 LoanDetailModal.tsx` (punto 6b: columna Notes opcional, columnas
 Strategy/Branch nuevas), `lib/pipeline/paretoMix.ts` (punto 6a: campo
 `key` en `ParetoRow`).
-components.css` (`.mcard--accent-left`).
+
+## Etapa AJUSTES-ANALYTICS-1 FIX -- selector de Branch limitado a los branches que estudia Forecast
+
+Corrección sobre el punto 5 de la etapa anterior: `availableBranches`
+se calculaba como los branches distintos presentes en `resolvedLoans`
+(cualquier status) sin ningún filtro adicional -- eso incluye
+cualquier código con historial en `pipeline_resolved_loans`, esté o no
+dentro de la división que Forecast realmente estudia (confirmado con
+datos reales del snapshot activo id 86: 23 branches distintos,
+incluyendo códigos como `'913'`, `'199'`, `'700'`/`'701'`, ninguno de
+ellos parte del roster real).
+
+### Diagnóstico previo (sin cambios de código, tarea aparte)
+
+Antes de este fix se pidió un diagnóstico de solo lectura para
+entender de dónde salía el número mostrado en pantalla (19). Se
+confirmó que `availableBranches` no dependía de `org.dim_branch` en
+absoluto -- sólo de `resolvedLoans` crudo -- y que el 19 reportado no
+coincidía con ningún conteo reproducible contra el snapshot activo en
+ese momento (23 cualquier status / 22 sólo funded), explicado como
+muy probablemente una diferencia de snapshot activo entre el momento
+de la captura y el del diagnóstico (esta sesión tuvo cargas
+concurrentes reales). `org.dim_branch` no pudo consultarse desde un
+script standalone (`42501 permission denied for schema org`, con
+`service_role` Y con `anon key`) -- consistente con que ese schema
+sólo es legible con una sesión de usuario autenticada real (la que sí
+tiene el navegador), no confirmado más allá de eso.
+
+### Fix real
+
+El roster correcto de "branches que Forecast estudia" no es
+`org.dim_branch` (que ni siquiera es accesible desde acá sin sesión) --
+es **`pipeline_forecast.branches`** (columna `code`), la MISMA tabla
+que ya usa `app/pipeline/page.tsx` para armar `knownBranches` (que
+`PivotTable.tsx` usa para no mostrar filas fantasma de branches sin
+actividad real, ver la nota de la Etapa F4g en ese archivo). Se
+replica el mismo patrón de acceso EXACTO -- pedido explícito de la
+tarea, "no inventar un mecanismo nuevo":
+
+- `getForecastDb()` (mismo cliente de `lib/supabase/client.ts`, con
+  sesión, apuntado al schema `pipeline_forecast` -- el mismo que ya
+  usa `page.tsx` y el mismo mecanismo, distinto cliente/schema, que ya
+  usa `useOrgRoster()` para `org`).
+- `.from('branches').select('code')`, cargado una sola vez al montar
+  (`useEffect` con deps `[]`), guardado en un `Set<string>` local
+  (`forecastBranchCodes`) -- mismo criterio que `knownBranches` en
+  `page.tsx`.
+
+Se implementó DENTRO de `TabAnalytics.tsx` (no en `app/analytics/
+page.tsx`, aunque el alcance de la tarea lo permitía "si hacía
+falta"): no hizo falta, porque `TabAnalytics.tsx` ya es
+"prácticamente standalone" (decisión ya documentada en
+ANALYTICS-TAB-1) y ya trae su propio `useOrgRoster()` interno con el
+mismo patrón -- agregar una fuente de datos más ahí es consistente con
+esa arquitectura, y evita tocar la página wrapper. `app/analytics/
+page.tsx` queda sin cambios.
+
+`availableBranches` pasa a ser la INTERSECCIÓN:
+```ts
+const availableBranches = [...new Set(resolvedLoans.map((l) => l.branch))]
+  .filter(Boolean)
+  .filter((b) => forecastBranchCodes.has(b))
+  .sort();
+```
+Si `forecastBranchCodes` todavía no cargó (o falla), queda vacío -- el
+selector muestra sólo "All branches" hasta que resuelva, mismo criterio
+conservador que ya usa `knownBranches` en `PivotTable.tsx` ("si falla,
+se deja su estado vacío, el consumidor ya maneja el caso sin romper la
+página"): preferible a mostrar, aunque sea un instante, branches fuera
+de división.
+
+`branchFilteredLoans` (el filtro real aplicado a los datos) no cambió
+-- sigue filtrando `resolvedLoans` por `l.branch === selectedBranch`;
+como `selectedBranch` sólo puede ser 'ALL' o un valor que salió de
+`availableBranches`, la intersección ya garantiza que nunca se puede
+elegir un branch fuera de división.
+
+### Verificado con datos reales
+
+Mismo snapshot activo (id 86), mismo mecanismo real
+(`pipeline_forecast.branches`, vía `service_role` de solo lectura,
+script temporal borrado después de correr):
+
+- `pipeline_forecast.branches`: 14 códigos totales.
+- Intersección con los branches presentes en `resolvedLoans` (23):
+  **12** -- `703, 707, 710, 716, 724, 728, 733, 747, 760, 770, 776,
+  Affinity`.
+- Excluidos (11): `150, 199, 203, 225, 276, 700, 701, 718, 741, 771,
+  913` -- todos tenían préstamos reales en el snapshot pero no forman
+  parte del roster de Forecast.
+- `'913'` (branch "fuera de división" ya conocido de sesiones
+  anteriores): confirmado que YA NO aparece en la intersección.
+
+12 es estrictamente menor que 23 (el número de antes de este fix), y
+es un subconjunto real de esos 23, como debía ser.
+
+### Verificación
+
+`npx tsc --noEmit -p .` sin errores. `npm run build` compila limpio
+(Turbopack, 17/17 páginas). `npm run lint` reporta el mismo 1 error +
+1 warning preexistentes de `app/pipeline/page.tsx`, sin diff en ese
+archivo en esta rama -- cero hallazgos nuevos.
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx` únicamente -- `app/analytics/page.tsx`
+no necesitó cambios (confirmado, no modificado).
+
+## Etapa AJUSTES-ANALYTICS-1 FIX 2 -- hover no se veía en filas con la barra de proporción
+
+Reportado en pantalla: las filas con la barra sutil de fondo (Count/
+Closed, `rankBarStyle`, ver punto 2 de AJUSTES-ANALYTICS-1) no
+mostraban el hover celeste (`tr.metric:hover`, components.css) que sí
+tienen el resto de las filas. La hipótesis del pedido era z-index/orden
+de capas -- investigado, esa NO es la causa real.
+
+### Causa real
+
+No hay ningún elemento posicionado detrás ni pseudo-elemento -- la
+barra es, literal, el `background` de la propia `<td>` (un solo
+elemento, confirmado leyendo `RankingTable`/`ScorecardTable`), así que
+"z-index" no aplica: no hay dos elementos compitiendo por una pila de
+apilamiento.
+
+La causa real es de **especificidad de CSS**: `rankBarStyle()` devolvía
+`{ background: '<gradiente>' }`, aplicado como `style={...}` INLINE.
+El shorthand `background` resetea TODOS sus sub-valores no
+mencionados a su inicial -- incluido `background-color: transparent` --
+y ese reset viaja con la precedencia de un estilo inline, que gana
+SIEMPRE sobre cualquier regla de hoja de estilos, sin importar la
+especificidad de su selector (ni `!important` hace falta invocar acá,
+ni sería lo correcto). Por eso `tr.metric:hover td { background:
+rgba(166,222,255,.2) }` nunca llegaba a pintarse en estas celdas
+específicas -- no es que quedara tapado visualmente por encima, es que
+su propio `background-color` perdía la cascada antes de intentar
+pintarse.
+
+### Fix
+
+`rankBarStyle()` pasa a devolver `backgroundImage` (un longhand,
+NO el shorthand `background`) -- así `background-color` queda SIN
+declarar inline, y la hoja de estilos (hover, zebra-striping de filas
+impares, `tr.metric:nth-child(odd)`) vuelve a poder fijarlo con
+normalidad; el `background-image` de la barra se sigue pintando
+ENCIMA de ese color, como una capa más -- ninguna de las dos "tapa" a
+la otra, son dos capas independientes del mismo elemento.
+
+Segundo ajuste, necesario para que ambas capas se noten realmente
+"conviviendo" y no solo coexistiendo técnicamente: el color de relleno
+de la barra pasa de `var(--accent-soft)` (hex sólido y opaco,
+`#eef6fd`) a `rgba(166, 222, 255, 0.35)` -- mismo triplete RGB que ya
+usa la regla de hover (166,222,255 = 'Light Sky', el mismo valor que
+`--sky`, ya hardcodeado igual en `components.css`), sólo con más
+alpha para seguir leyéndose clara en reposo. Con un color sólido y
+opaco, la porción "llena" de la barra habría seguido tapando
+visualmente el hover ahí debajo aunque `background-color` cascadeara
+bien -- con alpha, el hover se nota incluso sobre la parte llena (el
+azul se profundiza al pasar el mouse, en vez de quedarse exactamente
+igual). Cero hex nuevo: mismo triplete que ya vive en `components.css`.
+
+Alcance real de la tarea (desviación explicada): el pedido acotaba el
+alcance a `forecast-visual.css`/`components.css` -- pero la causa real
+está en el estilo INLINE que arma `TabAnalytics.tsx`, no en ninguna
+regla de esas 2 hojas (ambas ya estaban bien escritas, con la
+especificidad correcta -- el problema nunca fue de CSS puro). Ningún
+`!important` en la hoja de estilos habría arreglado esto de forma
+limpia sin arriesgar otros efectos; el fix real vive en el mismo lugar
+que generaba el problema.
+
+### Verificación
+
+`npx tsc --noEmit -p .` sin errores. `npm run build` compila limpio
+(Turbopack, 17/17 páginas). `npm run lint`: mismo resultado
+preexistente de `app/pipeline/page.tsx`, sin diff en ese archivo en
+esta rama -- cero hallazgos nuevos.
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx` únicamente (`rankBarStyle()`) --
+`forecast-visual.css`/`components.css` no necesitaron ningún cambio
+(confirmado, no modificados).
+
+## Etapa AJUSTES-ANALYTICS-1 FIX 3 -- ancho del modal ajustado al contenido, con máximo fijo
+
+Reportado con captura real: `LoanDetailModal.tsx` (el modal "ancho" de
+Forecast/Analytics, `.modal-box--wide`) dejaba espacio en blanco
+visible después de "Amount" cuando había pocas columnas visibles (ej.
+7 desde Analytics, sin Notes).
+
+### Causa real
+
+`.modal-box` base fija `width: 100%` (además de `max-width: 768px`).
+`.modal-box--wide` (components.css) sólo sobreescribía `max-width` a
+`min(92vw, 1400px)` -- nunca tocaba `width`, así que seguía heredando
+el `100%` de la regla base. Resultado: la caja SIEMPRE se estira hasta
+su `max-width`, sin importar que la tabla de adentro
+(`.modal-table-scroll table.piv`, ya con `table-layout: auto; width:
+auto` desde un refinamiento anterior) sea más angosta -- el "espacio
+sobrante" ya estaba documentado como comportamiento esperado en el
+comentario de esa época ("si el modal queda más ancho que la tabla, el
+espacio sobrante rodea la tabla") pero con menos columnas se volvió
+demasiado notorio.
+
+### Fix
+
+Un solo cambio, acotado a `.modal-box.modal-box--wide`
+(components.css):
+```css
+.modal-box.modal-box--wide {
+  width: fit-content;
+  max-width: min(92vw, 1400px);
+}
+```
+`width: fit-content` reemplaza al `100%` heredado -- la caja se
+dimensiona por su contenido real (el más ancho entre el header y la
+tabla) en vez de estirarse siempre al máximo. El mismo `max-width` de
+siempre sigue actuando como TECHO: el caso con más columnas (Notes
+incluida, PivotTable/Forecast) topa exactamente en el mismo
+`min(92vw, 1400px)` de antes -- no se ensanchó ni se angostó ahí. El
+piso ya existía sin tocarlo: `.modal-table-scroll table.piv {
+min-width: 700px }` evita que la caja se angoste de más incluso con
+muy pocas columnas, y `.modal-table-scroll { overflow-x: auto }` sigue
+siendo el mismo colchón de siempre si un viewport angosto no alcanza
+ni para ese mínimo -- ninguna otra regla necesitó tocarse para que
+siga siendo responsive.
+
+Cero cambios en `app/pipeline/LoanDetailModal.tsx`: las columnas ya se
+renderizan condicionalmente vía `<col>`/`<td>` (mecanismo de
+`hiddenColumns`/`showStrategyColumn`/`showBranchColumn`, ya existente)
+-- la tabla ya varía su ancho de contenido real según cuántas columnas
+se rendericen de verdad, esta etapa sólo deja que la CAJA del modal
+respete ese ancho en vez de ignorarlo.
+
+Acotado a `.modal-box--wide`: el modal base de Activity
+(`components/report/LoanDetailModal.tsx`, 6 columnas fijas) no lleva
+esa clase y sigue con `width: 100%` de `.modal-box`, sin ningún
+cambio, como siempre.
+
+### Verificación
+
+`npx tsc --noEmit -p .` sin errores. `npm run build` compila limpio
+(Turbopack, 17/17 páginas). `npm run lint`: mismo resultado
+preexistente de `app/pipeline/page.tsx`, sin diff en ese archivo en
+esta rama -- cero hallazgos nuevos.
+
+⚠ No verificado en navegador (sin herramienta de automatización de
+navegador disponible en este entorno, confirmado en una etapa
+anterior) -- el mecanismo (`width: fit-content` + `max-width` como
+techo, sobre una tabla que ya se dimensiona por contenido real) es
+sólido por especificación CSS estándar (soportado en los navegadores
+evergreen actuales), pero la confirmación visual real -- 7 columnas
+más angosto, todas las columnas igual que antes, responsive en
+pantallas angostas -- queda para la revisión manual pedida
+explícitamente en la tarea.
+
+### Archivos
+
+`app/styles/components.css` únicamente (`.modal-box.modal-box--wide`)
+-- `app/pipeline/LoanDetailModal.tsx` no necesitó cambios (confirmado,
+no modificado).
+
+## Etapa FIX — renombrar subtítulo de Capa 4, quitar conteo de títulos de tabla
+
+Dos ajustes visuales menores en Analytics.
+
+### Subtítulo de Capa 4
+
+`"Commercial Scorecards & Pareto"` → `"Commercial Scorecards"` -- el
+Pareto ya tiene su propio subtítulo debajo ("Productivity &
+Concentration"), mencionarlo también arriba era una duplicación
+confusa (dos nombres para la misma sección).
+
+### Conteo entre paréntesis en títulos de tabla
+
+`RankingTable`/`ScorecardTable` (los 2 componentes compartidos que
+arman las 6 tablas de rankings/scorecards) mostraban `{title}
+({fmtInt(rowsTotalCount)})` en el header -- ej. "Loan Program (30)",
+"Loan Officer (29)" -- confuso, se leía como si el número fuera un
+dato de la fila en vez del total de filas. Se quita de las 2
+funciones -- alcanza a las 6 tablas de una sola vez, sin tocar cada
+una por separado:
+
+- `RankingTable`: Loan Program, Loan Type, Subject Property State.
+- `ScorecardTable`: Branch, Loan Officer, Business Developer.
+
+El total sigue disponible sin duplicarlo -- ya está en la fila
+"Total" del pie de cada tabla, que no se tocó. Los demás títulos de
+Analytics que también llevan un número (Closings by Month, Amount
+Closed by Month, Pareto — Branch / Loan Officer) NO se tocaron --
+fuera del patrón "tabla de ranking/scorecard" que pedía la tarea, y
+en esos casos el número sí tiene sentido en el título (es la métrica
+principal del chart, no un total redundante con un pie de tabla).
+
+### Verificación
+
+`npx tsc --noEmit -p .` sin errores. `npm run build` compila limpio
+(Turbopack, 17/17 páginas). `npm run lint`: mismo resultado
+preexistente de `app/pipeline/page.tsx`, sin diff en ese archivo en
+esta rama -- cero hallazgos nuevos.
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx` únicamente.

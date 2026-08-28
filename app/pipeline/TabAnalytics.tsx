@@ -42,6 +42,7 @@ import {
 import { buildStrategyMix, type StrategyMixRow } from '@/lib/pipeline/strategyMix';
 import { classifyStrategy, hasStrategyData, type Strategy } from '@/lib/pipeline/strategy';
 import { buildParetoRows, type ParetoRow } from '@/lib/pipeline/paretoMix';
+import { getForecastDb, isSupabaseConfigured } from '@/lib/supabase/client';
 import PeriodSelector from './PeriodSelector';
 import { useOrgRoster, type OrgRoster } from './useOrgRoster';
 import LoanDetailModal, { type LoanDetailModalColumn, type LoanDetailModalLoan } from './LoanDetailModal';
@@ -81,15 +82,47 @@ function fmtAmountShort(n: number): string {
  * horizontal delgada detrás del label de cada fila, proporcional a su
  * conteo contra el máximo de la tabla -- mismo objetivo visual que Pareto
  * (escanear "grande vs. chico" de un vistazo) pero sin SVG, un solo
- * `<td>` con gradiente en vez de un elemento nuevo. `--accent-soft`
- * (tokens.css, ya usado para hovers suaves en el resto de la app) es el
- * único color -- cero hex nuevo. `max <= 0` (tabla vacía) devuelve `{}`
- * -- sin barra, no una división por cero silenciosa.
+ * `<td>` con gradiente en vez de un elemento nuevo. `max <= 0` (tabla
+ * vacía) devuelve `{}` -- sin barra, no una división por cero silenciosa.
+ *
+ * Etapa FIX (hover no se veía en filas con barra) -- causa real, NO era
+ * z-index/orden de capas (acá no hay ningún elemento posicionado detrás
+ * ni pseudo-elemento -- el "detrás del número" es, literal, el
+ * `background` de la propia `<td>`, un solo elemento). La causa real es
+ * de ESPECIFICIDAD de CSS: este objeto se aplica como `style={...}`
+ * inline, y antes devolvía `background: <gradiente>` -- el shorthand
+ * `background` resetea TODOS sus sub-valores no mencionados a su inicial,
+ * incluido `background-color: transparent`, y ese reset viaja con
+ * precedencia de estilo inline (gana SIEMPRE sobre cualquier regla de
+ * hoja de estilos, sin importar su especificidad de selector). Por eso
+ * `tr.metric:hover td { background: rgba(166,222,255,.2) }`
+ * (components.css) nunca llegaba a pintarse en estas celdas -- no es que
+ * quedara tapado visualmente, es que el propio `background-color` del
+ * hover perdía la cascada antes de intentar pintarse.
+ *
+ * Fix: se devuelve `backgroundImage` (un longhand, NO el shorthand
+ * `background`) -- así `background-color` queda SIN declarar inline, y
+ * la hoja de estilos (hover, zebra-striping de filas impares) vuelve a
+ * poder fijarlo con normalidad; `background-image` (esta barra) se sigue
+ * pintando ENCIMA de ese color, como una capa más -- ninguna de las dos
+ * "tapa" a la otra, son capas independientes del mismo elemento.
+ *
+ * Segundo ajuste, mismo fix: el color de relleno pasa de `var(--accent-
+ * soft)` (hex sólido y opaco, #eef6fd) a `rgba(166, 222, 255, 0.35)` --
+ * mismo triplete RGB que ya usa el hover (166,222,255 = 'Light Sky',
+ * mismo valor que --sky, hardcodeado igual en la regla de hover de
+ * components.css), sólo con más alpha para seguir leyéndose clara en
+ * reposo. Con un color sólido y opaco, la porción "llena" de la
+ * barra habría seguido tapando el hover ahí debajo aunque
+ * `background-color` cascadeara bien -- con alpha, el hover se nota
+ * incluso sobre la parte llena (el azul se profundiza al pasar el mouse,
+ * en vez de quedarse igual). Cero hex nuevo: mismo triplete que ya vive
+ * en components.css, no un color inventado.
  */
 function rankBarStyle(value: number, max: number): CSSProperties {
   if (max <= 0) return {};
   const pct = Math.max(0, Math.min(100, (value / max) * 100));
-  return { background: `linear-gradient(to right, var(--accent-soft) ${pct}%, transparent ${pct}%)` };
+  return { backgroundImage: `linear-gradient(to right, rgba(166, 222, 255, 0.35) ${pct}%, transparent ${pct}%)` };
 }
 
 function RankingTable({
@@ -125,9 +158,8 @@ function RankingTable({
   return (
     <div className="tbl-card">
       <div className="tbl-card__head">
-        <span className="tbl-card__title">
-          {title} ({fmtInt(rowsTotalCount)})
-        </span>
+        {/* Etapa FIX: se quita el conteo entre paréntesis del título -- confundía (ej. "Loan Program (30)" se leía como si 30 fuera un dato de programa, no el total de filas). El total sigue disponible en la fila "Total" del pie de la tabla, sin duplicarlo acá arriba. */}
+        <span className="tbl-card__title">{title}</span>
       </div>
       <div className="tbl-scroll">
         <table className="piv">
@@ -228,9 +260,8 @@ function ScorecardTable({
   return (
     <div className="tbl-card">
       <div className="tbl-card__head">
-        <span className="tbl-card__title">
-          {title} ({fmtInt(rowsTotalCount)})
-        </span>
+        {/* Etapa FIX: se quita el conteo entre paréntesis del título -- mismo criterio que RankingTable. El total sigue disponible en la fila "Total" del pie de la tabla. */}
+        <span className="tbl-card__title">{title}</span>
         {diagnostic && diagnostic.count > 0 && (
           <span
             title={`${diagnostic.summary}\n${diagnostic.detail}`}
@@ -1736,12 +1767,6 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
    * aparte" -- esta es esa etapa), y el alcance de esta tarea es
    * TabAnalytics.tsx, no esa página wrapper.
    *
-   * `availableBranches` se calcula sobre `resolvedLoans` SIN filtrar -- el
-   * <select> debe listar siempre todos los branches del snapshot,
-   * independientemente de cuál esté elegido ahora mismo (mismo criterio que
-   * `availableBranches` en page.tsx, que tampoco se recalcula sobre el
-   * subconjunto ya filtrado).
-   *
    * `branchFilteredLoans` es el ÚNICO punto de filtrado: todo lo que antes
    * leía `resolvedLoans` directo (fundedInRange, previousFunded,
    * previousFullFunded, ytdFunded, earliestDate, monthlyTotals,
@@ -1751,8 +1776,58 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
    * cálculo por separado.
    */
   const [selectedBranch, setSelectedBranch] = useState<string>('ALL');
-  const availableBranches = [...new Set(resolvedLoans.map((l) => l.branch))].filter(Boolean).sort();
   const branchFilteredLoans = selectedBranch === 'ALL' ? resolvedLoans : resolvedLoans.filter((l) => l.branch === selectedBranch);
+
+  /**
+   * Etapa FIX (selector de Branch limitado a los branches que estudia
+   * Forecast) -- `resolvedLoans` trae CUALQUIER branch con historial en
+   * `pipeline_resolved_loans` (confirmado con datos reales: 23 branches
+   * distintos hoy, incluye códigos fuera de división, ej. '913'). El
+   * roster real de branches que Forecast estudia es
+   * `pipeline_forecast.branches` (columna `code`) -- la MISMA tabla que ya
+   * consulta `app/pipeline/page.tsx` (`knownBranches`, usada en
+   * `PivotTable.tsx` para no mostrar filas fantasma de branches sin
+   * actividad real). Se replica acá el mismo patrón de acceso EXACTO
+   * (`getForecastDb()` -- mismo cliente con sesión, mismo schema, mismo
+   * `.from('branches').select('code')`, cargado una sola vez al montar) en
+   * vez de inventar un mecanismo nuevo -- mismo criterio arquitectónico
+   * que ya sigue `useOrgRoster()` (hook propio de esta pestaña, sin pasar
+   * por `app/analytics/page.tsx`): `TabAnalytics.tsx` ya es
+   * "prácticamente standalone" (ver la nota de ANALYTICS-TAB-1 en ese
+   * archivo), así que no hace falta tocar la página wrapper para agregar
+   * una fuente de datos más.
+   *
+   * `forecastBranchCodes` vacío (todavía no cargó, o falló) deja
+   * `availableBranches` vacío -- mismo criterio conservador que ya usa
+   * `knownBranches` en PivotTable.tsx ("si falla, se deja su estado
+   * vacío, [el consumidor] ya maneja el caso sin romper la página"): un
+   * selector con solo "All branches" mientras carga es preferible a
+   * mostrar de nuevo, aunque sea un instante, branches fuera de división.
+   */
+  const [forecastBranchCodes, setForecastBranchCodes] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+    getForecastDb()
+      .from('branches')
+      .select('code')
+      .then(({ data, error }) => {
+        if (error || !data) return;
+        setForecastBranchCodes(new Set((data as { code: string }[]).map((row) => row.code)));
+      });
+  }, []);
+
+  /**
+   * `availableBranches` es la INTERSECCIÓN de "branches con préstamos en
+   * este snapshot" y "branches que Forecast estudia" (`forecastBranchCodes`)
+   * -- se calcula sobre `resolvedLoans` SIN filtrar por el branch ya
+   * elegido, el <select> debe listar siempre todas las opciones válidas,
+   * no solo la actual (mismo criterio que `availableBranches` en
+   * page.tsx, que tampoco se recalcula sobre el subconjunto ya filtrado).
+   */
+  const availableBranches = [...new Set(resolvedLoans.map((l) => l.branch))]
+    .filter(Boolean)
+    .filter((b) => forecastBranchCodes.has(b))
+    .sort();
 
   /** Etapa F7, Parte 5: drill-down de rankings/scorecards hacia el mismo LoanDetailModal que ya usa PivotTable. `null` = cerrado. */
   const [drillDown, setDrillDown] = useState<{
@@ -2264,7 +2339,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
 
       {/*
         ==========================================================================
-        CAPA 4 — COMMERCIAL SCORECARDS & PARETO (reorganizada, mismo contenido)
+        CAPA 4 — COMMERCIAL SCORECARDS (reorganizada, mismo contenido)
         ==========================================================================
         Scorecards (Branch/Loan Officer/Business Developer) sin cambios --
         son la mitad "Commercial Scorecards" del nombre de esta capa. Debajo,
@@ -2272,8 +2347,14 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
         ("Productivity & Concentration", pedido explícito del brief) en vez
         de quedar como 2 secciones sueltas -- mismo grid de 2 columnas que
         ya usa Capa 3, ningún componente nuevo.
+
+        Etapa FIX: el título de la capa pasa de "Commercial Scorecards &
+        Pareto" a "Commercial Scorecards" a secas -- el Pareto ya tiene su
+        propio subtítulo debajo ("Productivity & Concentration"),
+        mencionarlo también acá arriba era una duplicación confusa (dos
+        nombres para la misma sección, uno más específico que el otro).
       */}
-      <h3 style={{ margin: '24px 0 12px' }}>Commercial Scorecards &amp; Pareto</h3>
+      <h3 style={{ margin: '24px 0 12px' }}>Commercial Scorecards</h3>
       <DiagnosticsNote
         count={1}
         summary="Branch, Loan Officer, and Business Developer are matched against the company roster, so name variants are combined."
