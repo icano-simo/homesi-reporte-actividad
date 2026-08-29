@@ -24,13 +24,34 @@ import { classifyStrategy, hasStrategyData, STRATEGY_ORDER, type Strategy } from
 import SummaryCards, { type SummaryBlock } from './SummaryCards';
 import type { MilestoneCascadeRow } from './MilestoneCascade';
 import PivotTable, { buildBranchRows, type BranchForecastRow, type BranchRow, type StrategyRow } from './PivotTable';
-import UploadButton, { PIPELINE_FILE_INPUT_ID } from './UploadButton';
 import AdverseTable, { type ChannelFilter } from './AdverseTable';
 import Topbar from './Topbar';
 import TabNavigation, { type TabType } from './TabNavigation';
 import TabMilestoneMatrix from './TabMilestoneMatrix';
 import { getForecastDb, isSupabaseConfigured } from '@/lib/supabase/client';
-import { DownloadIcon, FileSheetIcon, UploadIcon } from '@/components/ui/icons';
+import { DownloadIcon, FileSheetIcon } from '@/components/ui/icons';
+
+/**
+ * ⚠ Cuándo se actualizó el snapshot, en la zona de quien mira.
+ *
+ * Gemelo de `formatLastSync` en app/page.tsx (Actividad), y por el mismo
+ * motivo: `uploaded_at` es un `timestamptz` -- un INSTANTE con offset -- así
+ * que convertirlo a hora local es exactamente lo que se quiere. Distinto de
+ * `activeSnapshotDate`, que es un día de calendario y NO se pasa por `new
+ * Date()` (ver el comentario de S1 más abajo).
+ *
+ * El texto va en inglés y no en español como el de Actividad: esta pantalla
+ * está en inglés entera, por una decisión anterior (rama
+ * fix/forecast-messages-in-english). Misma información y mismo formato de
+ * fecha; sólo cambia el idioma del rótulo.
+ */
+function formatLastUpload(iso: string): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return '';
+  const fecha = at.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const hora = at.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: false });
+  return `Updated on ${fecha} at ${hora}`;
+}
 
 /**
  * Etapa F4: mismos valores que DEMO_RATES (F3). El input editable en la UI
@@ -169,9 +190,18 @@ function parseSnapshotId(value: unknown): number | null {
  */
 export default function PipelinePage() {
   const [data, setData] = useState<ParseApiResponse | null>(null);
-  const [fileName, setFileName] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /*
+   * `uploaded_at` del snapshot activo, completo -- con hora, no recortado a
+   * los 10 caracteres como `activeSnapshotDate`.
+   *
+   * Arranca en null y se llena dentro del efecto de montaje, nunca en el
+   * render del servidor: `toLocaleDateString` da resultados distintos según la
+   * zona del proceso, así que formatearlo durante el SSR pintaría la fecha del
+   * servidor y después la del navegador -- un mismatch de hidratación. Es la
+   * misma precaución que toma app/page.tsx con `lastSync`.
+   */
+  const [lastUploadedAt, setLastUploadedAt] = useState<string | null>(null);
   // Etapa F5e: dos controles independientes en vez de uno -- ver Decisiones
   // en la respuesta de esta etapa. pipelineDateRange sigue siendo el mismo
   // DateRange de siempre (Total/Healthy Pipeline + Adverse); forecastMonth
@@ -243,9 +273,9 @@ export default function PipelinePage() {
   // /api/pipeline/latest YA devuelve `uploadedAt` -- antes se descartaba,
   // ahora se usa.
   const [activeSnapshotDate, setActiveSnapshotDate] = useState<string | null>(null);
-  // Etapa F5k: true mientras se genera/descarga el Excel -- evita doble
-  // click y le da feedback visual al botón (mismo patrón que isLoading del
-  // upload).
+  // Etapa F5k: true mientras se genera/descarga el Excel -- evita doble click
+  // y le da feedback visual al botón. Es el único estado de "trabajando" que
+  // queda en la pantalla: el de la carga se fue con ella.
   const [isExporting, setIsExporting] = useState(false);
 
   // Etapa F5a: si nadie subió un archivo en esta sesión (data===null),
@@ -274,7 +304,8 @@ export default function PipelinePage() {
         }
         if (!body || !body.snapshot) return;
         setData({ openLoans: body.openLoans, resolvedLoans: body.resolvedLoans, warnings: body.warnings ?? [] });
-        setFileName(body.snapshot.fileName);
+        // `body.snapshot.fileName` ya no se guarda: no lo consume nadie desde
+        // que el pill "File:" se fue. /api/pipeline/latest lo sigue devolviendo.
         // Etapa EXCEL-6: id del snapshot restaurado, para la portada del Excel.
         setActiveSnapshotId(parseSnapshotId(body.snapshot.id));
         /*
@@ -295,6 +326,16 @@ export default function PipelinePage() {
               ? body.snapshot.uploadedAt
               : null;
         setActiveSnapshotDate(stamp ? stamp.slice(0, 10) : null);
+        /*
+         * Para el rótulo del header va `uploaded_at` y NO `data_as_of`, que es
+         * lo que usa la línea de arriba. Son dos preguntas distintas: a qué
+         * día pertenece el dato (data_as_of, lo que decide el período) y
+         * cuándo se refrescó por última vez (uploaded_at, lo que la usuaria
+         * mira para saber si vale la pena volver a cargar la página).
+         */
+        setLastUploadedAt(
+          typeof body.snapshot.uploadedAt === 'string' ? body.snapshot.uploadedAt : null,
+        );
       })
       .catch((err) => {
         if (cancelled) return;
@@ -388,40 +429,22 @@ export default function PipelinePage() {
     };
   }, [data]);
 
-  async function handleFileSelected(file: File) {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      const res = await fetch('/api/pipeline/parse', { method: 'POST', body: formData });
-      const body = await res.json();
-      if (!res.ok) {
-        throw new Error(typeof body?.error === 'string' ? body.error : 'Could not process the file.');
-      }
-      setData(body as ParseApiResponse);
-      setFileName(file.name);
-      // Etapa F5j: el snapshot se crea en este mismo request, del lado del
-      // servidor, con new Date().toISOString().slice(0,10) -- usar "ahora"
-      // acá es la fecha real, no una aproximación (parse/route.ts no está
-      // en la lista de archivos de esta etapa, así que no devuelve la fecha
-      // de vuelta; no hace falta, ya la sabemos).
-      setActiveSnapshotDate(new Date().toISOString().slice(0, 10));
-      // Etapa EXCEL-6: id del snapshot recién creado, para la portada del
-      // Excel -- ya venía en la respuesta (`saved.snapshot_id`, ver
-      // SaveResult en /api/pipeline/parse), solo faltaba leerlo acá.
-      // `null` si no se pudo persistir esta sesión (`saved` viene null).
-      setActiveSnapshotId(parseSnapshotId(body?.saved?.snapshot_id));
-    } catch (err) {
-      setError(errorMessage(err));
-      setData(null);
-      setFileName(null);
-      setActiveSnapshotDate(null);
-      setActiveSnapshotId(null);
-    } finally {
-      setIsLoading(false);
-    }
-  }
+  /*
+   * Acá vivía `handleFileSelected`, que subía el archivo a /api/pipeline/parse.
+   *
+   * Se retira el ACCESO desde esta pantalla, no el endpoint: el archivo ahora
+   * se sube por la app de cargas, que lo deja en BigQuery, y el job del sync
+   * arma el snapshot. Los dos caminos escribían en `pipeline_snapshots` con la
+   * misma regla de un snapshot por día, así que el segundo en correr pisaba al
+   * primero -- producían lo mismo, pero era duplicidad esperando a que alguien
+   * cambiara uno solo.
+   *
+   * Con esto se va también el `setActiveSnapshotDate(new Date()...)` que había
+   * acá: la fecha del snapshot ahora sale SIEMPRE de la base, del efecto de
+   * restauración de arriba. Mientras existía la carga era correcto -- el
+   * snapshot se creaba en ese mismo request -- pero sin ella "ahora" sería la
+   * hora de mirar la pantalla, no la del dato.
+   */
 
   // Etapa F5e: forecastMonth ('YYYY-MM' del MonthSelector nuevo) es
   // completamente independiente de pipelineDateRange -- ya no se deriva de
@@ -1122,7 +1145,13 @@ export default function PipelinePage() {
           <p className="fc-month">{forecastMonthLabel}</p>
         </div>
         <div className="fc-actions">
-          <UploadButton onFileSelected={handleFileSelected} isLoading={isLoading} />
+          {/*
+            Acá estaba "Upload file", al lado de "Download Excel". Se fue: desde
+            esta pantalla ya no se sube nada. Queda sólo descargar, que es la
+            única acción de archivo que la usuaria todavía inicia desde acá.
+            Cuándo se actualizó el dato pasó a la barra de control, junto a los
+            demás indicadores de estado (ver Topbar).
+          */}
           {data && (
             /*
              * Etapa EXCEL-4: además de `isExporting`, deshabilitado mientras
@@ -1149,7 +1178,6 @@ export default function PipelinePage() {
           del contenido -- ahora es la tarjeta de control (spec §3B) dentro del
           mismo contenedor de 1440px que el resto de la vista. */}
       <Topbar
-        fileName={fileName}
         pipelineDateRange={pipelineDateRange}
         onPipelineDateRangeChange={setPipelineDateRange}
         forecastMonth={forecastMonth}
@@ -1158,8 +1186,15 @@ export default function PipelinePage() {
         selectedBranch={selectedBranch}
         onSelectBranch={setSelectedBranch}
         error={error}
-        formatDetected={data?.formatDetected}
-        saveStatus={data?.persisted === true ? 'saved' : data?.persisted === false ? 'error' : 'idle'}
+        /*
+         * Se van `formatDetected` y `saveStatus`. Los dos salían de la
+         * respuesta de /api/pipeline/parse, que ya no se llama desde acá: la
+         * restauración desde Supabase nunca trajo esos campos, así que sin la
+         * carga quedaban permanentemente en undefined/'idle'. Y "Saving to
+         * Supabase…" en una pantalla que no puede guardar es peor que no decir
+         * nada.
+         */
+        lastUpdatedLabel={lastUploadedAt ? formatLastUpload(lastUploadedAt) : null}
       />
 
       {!data && isLoadingInitial && (
@@ -1169,23 +1204,22 @@ export default function PipelinePage() {
         </div>
       )}
 
-      {!data && !isLoading && !isLoadingInitial && (
+      {!data && !isLoadingInitial && (
+        /*
+         * El estado vacío ya no ofrece subir el archivo, así que tiene que
+         * decir dónde se sube. Sin eso queda una pantalla que informa que no
+         * hay nada y no da ninguna salida -- el peor final posible para quien
+         * entró justamente a mirar el pipeline.
+         */
         <div className="empty">
           <div className="drop-ic">
             <FileSheetIcon size={24} />
           </div>
-          <h2>Load the pipeline report</h2>
-          <p>Upload the Salesforce file (Excel). The app detects the format automatically.</p>
-          <label className="btn cta" htmlFor={PIPELINE_FILE_INPUT_ID} style={{ display: 'inline-flex' }}>
-            <UploadIcon />
-            Select file
-          </label>
-        </div>
-      )}
-
-      {isLoading && (
-        <div className="empty">
-          <h2>Processing file…</h2>
+          <h2>No pipeline snapshot yet</h2>
+          <p>
+            The Salesforce file is now uploaded from the Data Uploads app. Once it is loaded, the
+            snapshot appears here on its own — there is nothing to upload from this screen.
+          </p>
         </div>
       )}
 
