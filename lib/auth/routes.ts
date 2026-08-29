@@ -30,6 +30,21 @@ export const COMPLETE_PASSWORD_CHANGE_PATH = '/api/auth/complete-password-change
 export const DEFAULT_LANDING = '/pipeline';
 
 /**
+ * Etapa OL1: el módulo Outlook, que exige el claim `outlook` además del gate de
+ * la app. La constante vive acá porque la consumen `proxy.ts` (para el gate) y
+ * `ServiceHubHeader` (para no dibujar la pestaña), y duplicarla es cómo se
+ * desincronizan.
+ */
+export const OUTLOOK_PATH = '/outlook';
+
+/**
+ * Etapa ANALYTICS-GATE: el módulo Analytics, con el mismo mecanismo que
+ * Outlook. Vive acá por el mismo motivo: la consumen `proxy.ts` y
+ * `ServiceHubHeader`, y duplicarla es cómo se desincronizan.
+ */
+export const ANALYTICS_PATH = '/analytics';
+
+/**
  * Rutas del flujo de autenticación. No forman parte de la app en sí, así que
  * no llevan el shell del Service Hub (header con tabs de módulo): mostrar la
  * navegación a alguien que todavía no entró no tiene sentido, y en /no-access

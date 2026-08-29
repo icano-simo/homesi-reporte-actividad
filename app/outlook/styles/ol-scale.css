@@ -1,0 +1,133 @@
+/*
+ * ============================================================================
+ * LA ESCALA TIPOGRÁFICA DEL MÓDULO — dos tamaños y nada más (etapa OL5)
+ * ============================================================================
+ *
+ * Antes de esta etapa el módulo usaba nueve tamaños distintos: 9.5, 10, 10.5,
+ * 11, 11.5, 12, 12.5 y 14, más el 15 del título de página. Ninguno estaba
+ * elegido; cada uno venía de la clase que tenía más a mano.
+ *
+ * Ahora hay DOS:
+ *
+ *   --ol-text  12px   todo el texto del módulo
+ *   --ol-lg    14px   sólo lo que tiene que destacar: el título del modal y los
+ *                     números de la vista previa, que son el resultado de la
+ *                     decisión que se está tomando
+ *
+ * Los dos valores YA EXISTÍAN en la app y no se inventó ninguno: 12px es el
+ * cuerpo de `table.piv` y de `.field`; 14px es `.bp-modal__title`. Elegir los
+ * que ya estaban es lo que hace que el módulo se siga viendo parte del portal.
+ *
+ * ---------------------------------------------------------------------------
+ * ⚠ LO QUE ERA UN TAMAÑO INTERMEDIO AHORA ES OTRA COSA
+ * ---------------------------------------------------------------------------
+ * Las etiquetas de campo, los rótulos de banda, las etiquetas al lado de un
+ * número ("+4", "no LOs assigned", "rev 3") y las notas al pie estaban en 9.5 o
+ * 10 o 11 px para que no compitieran con el dato. Ahora están en el tamaño
+ * base y se distinguen por COLOR --`--slate-400` / `--slate-500`-- y por
+ * espacio. Es la misma jerarquía dicha con otro recurso, y uno que no obliga a
+ * inventar un tamaño cada vez que aparece un nivel nuevo.
+ *
+ * ---------------------------------------------------------------------------
+ * ⚠ LO QUE NO ENTRA EN ESTA ESCALA, Y POR QUÉ
+ * ---------------------------------------------------------------------------
+ * El H1 de la página, su subtítulo, las tabs y los breadcrumbs son CHROME
+ * COMPARTIDO: los pinta el layout del portal y son idénticos en Commercial
+ * Activity, Forecast y Business Plan. Bajarlos al tamaño base acá dejaría a
+ * Outlook con una cabecera distinta de la de los otros cuatro módulos, que es
+ * exactamente el tipo de inconsistencia que esta etapa viene a sacar.
+ *
+ * ---------------------------------------------------------------------------
+ * ⚠ ESTAS HOJAS SON GLOBALES, NO MÓDULOS CSS
+ * ---------------------------------------------------------------------------
+ * `app/outlook/layout.tsx` las importa, y una vez cargadas sus selectores valen
+ * en toda la app. Por eso todo lo que toca una clase compartida --`.foot-note`,
+ * `.bp-form__label`, las cabeceras de `table.piv`-- va calificado con `.ol-page`
+ * o `.ol-year`. Sin ese prefijo, esta etapa le cambiaría la tipografía al
+ * Business Plan sin que nadie lo pidiera.
+ */
+
+.ol-page,
+.ol-editor {
+  --ol-text: 12px;
+  --ol-lg: 14px;
+  /*
+   * ⚠ El tamaño base se pone acá para que la HERENCIA haga el trabajo.
+   *
+   * Sin esto quedaban elementos en 14px que no tenían ningún `font-size`
+   * propio: `.bp-linkish` está declarado como `font-size: inherit`, así que
+   * subía hasta el `body` a buscarlo. Los enlaces "+ another segment" y "view
+   * history" salían del tamaño del título sin que nada en el módulo lo pidiera.
+   *
+   * Declarar la base en la raíz del módulo cierra esa vía: lo que no tenga
+   * tamaño propio hereda el base, no el del documento.
+   */
+  font-size: var(--ol-text);
+}
+
+/* ── Todo el texto del módulo, al tamaño base ────────────────────────────── */
+
+.ol-page .foot-note,
+.ol-page .bp-diagnostics,
+.ol-page .bp-notice,
+.ol-page .bp-plan-chip,
+.ol-page .bp-empty-cell {
+  font-size: var(--ol-text);
+}
+
+/* Las cabeceras de la tabla: la regla base de `bp-table--los` las pone en
+   9.5px, y la de bandas en 10px. Acá las dos van al tamaño base.
+   ⚠ La especificidad tiene que ganarle a `table.piv.bp-table--los thead
+   .mo-row th` (0,3,3): por eso se repite la cadena entera con `.ol-year`. */
+table.piv.bp-table--los.ol-year thead .mo-row th,
+table.piv.ol-year thead .yr-row th,
+table.piv.ol-year thead .yr-row th.ol-band {
+  font-size: var(--ol-text);
+}
+
+/*
+ * Las filas de detalle --los realtors NPPM-- venían en 11px por
+ * `tr.metric.drow td`, y las cabeceras de las tablas del modal en 10.5px por
+ * `table.piv thead .mo-row th`. Las dos son reglas heredadas de la hoja
+ * compartida y las dos hay que traerlas al tamaño base.
+ *
+ * ⚠ Ninguna de las dos se veía leyendo el CSS del módulo: no hay un
+ * `font-size` escrito acá que las produzca. Aparecieron midiendo el tamaño
+ * RENDERIZADO de cada elemento con texto propio, que es el único método que
+ * encuentra lo que se hereda. Es la misma lección de BP36: revisar el DOM y no
+ * el archivo.
+ */
+table.piv.ol-year tr.metric.drow td,
+table.piv.ol-year tr.metric.drow td.lbl,
+.ol-editor table.piv thead .mo-row th,
+.ol-editor table.piv thead .mo-row th.lbl {
+  font-size: var(--ol-text);
+}
+
+/* La celda de la regla, que estaba en 11px por estilo en línea. */
+.ol-year .ol-rule,
+.ol-year .ol-rule__btn {
+  font-size: var(--ol-text);
+  text-align: left;
+}
+
+/* Etiqueta al lado de un número. Ya no es más chica: es más tenue. */
+.ol-tag {
+  margin-left: 6px;
+  font-size: var(--ol-text);
+  font-weight: 400;
+  color: var(--slate-400);
+  white-space: nowrap;
+}
+
+/* Los márgenes que estaban en línea en el TSX. */
+.ol-page .foot-note,
+.ol-page .ol-notice {
+  margin-top: 14px;
+}
+.ol-page .bp-diagnostics {
+  margin-top: 16px;
+}
+.ol-page .bp-notice--warn {
+  margin-bottom: 16px;
+}

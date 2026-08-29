@@ -153,9 +153,20 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
                   3 meses cerrados. Antes eran el acumulado del lote, que no se
                   puede comparar ni entre personas ni entre meses.
                 */}
+                {/*
+                  ⚠ BP36b -- UN `<col>` POR COLUMNA, y son OCHO.
+                  BP36 sumó "Next month pipeline" al `thead` y al `tbody` pero
+                  no acá, así que el colgroup quedó con siete para ocho
+                  columnas: con `table-layout: fixed` los anchos se corrieron
+                  una posición -- `bp-col-status`, que es el ancho pensado para
+                  Verdict, cayó sobre la columna del pipeline del mes siguiente
+                  y Verdict se quedó con el resto. Se veía como una columna
+                  vacía, no como un ancho mal repartido.
+                */}
                 <colgroup>
                   <col className="bp-col-pick" />
                   <col className="bp-col-name" />
+                  <col className="bp-col-metric" />
                   <col className="bp-col-metric" />
                   <col className="bp-col-metric" />
                   <col className="bp-col-metric" />
@@ -200,11 +211,17 @@ export default function BranchDirectoryPage({ params }: { params: Promise<{ code
                       Antes mostraba cuatro promedios de los 3 meses cerrados:
                       qué hizo la persona. Ahora muestra el mes en curso y el
                       que viene contra su objetivo: si va a llegar.
+
+                      BP36b -- "Closings so far" y no "this month": son los que
+                      lleva HASTA HOY, no los del mes cerrado. Y "Current month
+                      pipeline" en vez de "Total pipeline", que hace simétrico el
+                      par con "Next month pipeline" y saca la ambigüedad de
+                      "total".
                     */}
                     <th className="lbl">Loan Officer</th>
                     <th className="bp-center">Benchmark</th>
-                    <th className="bp-center">Closings this month</th>
-                    <th className="bp-center">Total pipeline</th>
+                    <th className="bp-center">Closings so far</th>
+                    <th className="bp-center">Current month pipeline</th>
                     <th className="bp-center">Forecast total</th>
                     <th className="bp-center">Next month pipeline</th>
                     <th className="bp-center">Verdict</th>

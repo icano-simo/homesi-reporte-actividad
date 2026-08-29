@@ -1,5 +1,6 @@
 import type { ResolvedLoan } from './types';
 import { utcToday } from './period';
+import { NO_TYPE_LABEL } from './labels';
 
 /**
  * ============================================================================
@@ -91,14 +92,14 @@ export function avgTicketByMonth(totals: MonthlyTotal[]): MonthlyAvgTicket[] {
   }));
 }
 
-/** Mismo criterio que buildMonthlyTotals, desglosado por loan_type dentro de cada mes -- vacío -> "Sin tipo", mismo placeholder que analytics.ts. */
+/** Mismo criterio que buildMonthlyTotals, desglosado por loan_type dentro de cada mes -- vacío -> `NO_TYPE_LABEL`, el mismo placeholder que usa el ranking. */
 export function buildMonthlyTypeBreakdown(loans: ResolvedLoan[], year: number): MonthlyTypeBreakdown[] {
   const byMonth = new Map<string, Map<string, { count: number; amount: number }>>();
   const yearPrefix = String(year) + '-';
   for (const loan of loans) {
     if (loan.status !== 'funded' || !loan.disbursementDate.startsWith(yearPrefix)) continue;
     const month = loan.disbursementDate.slice(0, 7);
-    const label = loan.loanType.trim() || 'Sin tipo';
+    const label = loan.loanType.trim() || NO_TYPE_LABEL;
     const byType = byMonth.get(month) ?? new Map<string, { count: number; amount: number }>();
     const cur = byType.get(label) ?? { count: 0, amount: 0 };
     cur.count += 1;

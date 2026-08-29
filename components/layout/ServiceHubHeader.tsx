@@ -4,8 +4,9 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 import BrandLockup from './HomesiLogo';
-import { BarChartIcon, TrendingUpIcon, TargetIcon } from '@/components/ui/icons';
-import { isAuthRoute } from '@/lib/auth/routes';
+import { BarChartIcon, TrendingUpIcon, TargetIcon, CalendarIcon, PieChartIcon } from '@/components/ui/icons';
+import { ANALYTICS_PATH, isAuthRoute, OUTLOOK_PATH } from '@/lib/auth/routes';
+import { ANALYTICS_CLAIM, OUTLOOK_CLAIM } from '@/lib/auth/appAccess';
 import UserMenu from './UserMenu';
 
 /*
@@ -28,24 +29,40 @@ interface NavTab {
   href: string;
   label: string;
   icon: ReactNode;
+  /**
+   * Etapa OL1: claim que hace falta para que la pestaña SE DIBUJE. Sin esto la
+   * pestaña es pública dentro de la app, que es el caso de las tres primeras.
+   *
+   * ⚠ Esto no protege nada -- de eso se encargan `proxy.ts` y RLS. Existe para
+   * que nadie vea una puerta que no puede abrir.
+   */
+  claim?: string;
 }
 
 const NAV_TABS: NavTab[] = [
   { href: '/', label: 'Commercial Activity', icon: <BarChartIcon /> },
   { href: '/pipeline', label: 'Forecast & Pipeline', icon: <TrendingUpIcon /> },
   { href: '/business-plan', label: 'Business Plan', icon: <TargetIcon /> },
-  // Etapa ANALYTICS-TAB-1: antes un sub-tab de Forecast & Pipeline (F7),
-  // ahora ruta propia -- ver app/analytics/page.tsx y la nota en
-  // docs/ARQUITECTURA.md.
-  //
-  // Etapa fix/hide-analytics-nav-tab: entrada comentada temporalmente --
-  // el rediseño de Analytics (4 capas) sigue en curso en otra rama y
-  // todavía no está listo para verse desde el menú principal. La ruta
-  // (app/analytics/page.tsx) y su código siguen intactos -- se puede
-  // seguir accediendo directo por URL mientras se termina. Restaurar
-  // esta entrada (y el import de PieChartIcon de @/components/ui/icons
-  // arriba) cuando el rediseño esté listo para publicarse.
-  // { href: '/analytics', label: 'Analytics', icon: <PieChartIcon /> },
+  /*
+   * Etapa ANALYTICS-TAB-1: antes un sub-tab de Forecast & Pipeline (F7), ahora
+   * ruta propia -- ver app/analytics/page.tsx y la nota en docs/ARQUITECTURA.md.
+   *
+   * ⚠ Etapa ANALYTICS-GATE: esta entrada estuvo COMENTADA (etapa
+   * `fix/hide-analytics-nav-tab`) mientras se terminaba el rediseño. Apagarla
+   * por código tenía dos problemas al mismo tiempo: no la veía nadie --tampoco
+   * quien tenía que revisarla-- y la ruta seguía abierta para cualquiera que
+   * escribiera la URL, porque comentar una pestaña no cierra nada.
+   *
+   * Ahora está detrás del claim `analytics`, igual que Outlook: la ven quienes
+   * lo tengan, y `proxy.ts` cierra la ruta para el resto. Volver a esconderla
+   * es quitar el claim, sin desplegar.
+   */
+  { href: ANALYTICS_PATH, label: 'Analytics', icon: <PieChartIcon />, claim: ANALYTICS_CLAIM },
+  /*
+   * Etapa OL1 — Outlook: la proyección del resto del año. Es la primera
+   * pestaña con claim propio; hoy la ven cuatro personas.
+   */
+  { href: OUTLOOK_PATH, label: 'Outlook', icon: <CalendarIcon />, claim: OUTLOOK_CLAIM },
 ];
 
 /**
@@ -67,8 +84,23 @@ function isTabActive(pathname: string, href: string): boolean {
 /** Título de módulo del header. Constante nombrada para no repetir el string. */
 const MODULE_TITLE = 'Analytics Portal';
 
-export default function ServiceHubHeader() {
+export default function ServiceHubHeader({ allowedApps }: { allowedApps: string[] }) {
   const pathname = usePathname();
+  /*
+   * ⚠ Etapa OL1: las pestañas con `claim` sólo se dibujan si la sesión lo tiene,
+   * y los claims llegan POR PROP DESDE EL SERVIDOR.
+   *
+   * El primer intento fue un hook que leía la sesión en el cliente. No sirve, y
+   * el motivo vale anotarlo: el cliente de navegador devuelve el usuario pero
+   * SIN `app_metadata.allowed_apps` -- medido, el hook resolvía `[]` con una
+   * sesión que sí tenía el claim, así que la pestaña no aparecía nunca.
+   *
+   * Leerlo en el servidor es además mejor por dos razones que no dependen de
+   * ese bug: es la MISMA fuente que usa el gate de `proxy.ts`, así que la
+   * pestaña y el gate no pueden discrepar; y no hay parpadeo, porque el HTML ya
+   * llega con las pestañas que corresponden.
+   */
+  const visibleTabs = NAV_TABS.filter((tab) => !tab.claim || allowedApps.includes(tab.claim));
 
   /*
    * Etapa AUTH1: /login y /no-access no llevan el shell de la app. Mostrarle
@@ -92,7 +124,7 @@ export default function ServiceHubHeader() {
         </div>
 
         <nav className="hub-nav" aria-label={MODULE_TITLE}>
-          {NAV_TABS.map((tab) => {
+          {visibleTabs.map((tab) => {
             const isActive = isTabActive(pathname, tab.href);
             return (
               <Link

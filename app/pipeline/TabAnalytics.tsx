@@ -9,9 +9,9 @@ import {
   earliestFundedDisbursementDate,
   fundedLoansInRange,
   hasPropertyStateData,
-  NO_PROPERTY_STATE_LABEL,
   type RankingRow,
 } from '@/lib/pipeline/analytics';
+import { NO_PROGRAM_LABEL, NO_PROPERTY_STATE_LABEL, NO_TYPE_LABEL } from '@/lib/pipeline/labels';
 import {
   buildBranchScorecard,
   buildBusinessDeveloperScorecard,
@@ -86,7 +86,7 @@ function RankingTable({
   /*
    * Red de seguridad, mismo criterio que splitCtcAndClosing/aggregate.ts: el
    * ranking agrupa TODOS los loans que recibe (el vacío va a "Sin
-   * programa"/"Sin tipo", nunca se descarta uno), así que la suma de sus
+   * programa"/"sin tipo", nunca se descarta uno), así que la suma de sus
    * counts tiene que coincidir siempre con el total de funded del período.
    * Si no coincide, es un préstamo contado dos veces o ninguna -- se avisa en
    * dev, no se esconde.
@@ -397,13 +397,12 @@ function shortMonth(month: string): string {
 
 /*
  * Paleta fija de colores categóricos (tokens, cero hex nuevo) para la barra
- * apilada por Loan Type -- "Sin tipo" siempre en slate (mismo criterio que
+ * apilada por Loan Type -- `NO_TYPE_LABEL` siempre en slate (mismo criterio que
  * el resto de la app para un placeholder, nunca un color "real"), el resto
  * cicla por orden de aparición (no hay un enum fijo de loan_type).
  */
 const TYPE_COLORS = ['var(--navy)', 'var(--emerald-700)', 'var(--amber-500)', 'var(--rose-700)', 'var(--sky)'];
 const NO_TYPE_COLOR = 'var(--slate-400)';
-const NO_TYPE_LABEL = 'Sin tipo';
 
 /** Texto de la etiqueta dentro de cada segmento -- claro sobre navy/emerald/rose (oscuros), oscuro sobre amber/sky (claros). Mismo orden que TYPE_COLORS. */
 const TYPE_TEXT_COLORS = ['var(--canvas)', 'var(--canvas)', 'var(--navy)', 'var(--canvas)', 'var(--navy)'];
@@ -753,22 +752,14 @@ function AvgTicketChart({
   );
 }
 
-/**
- * Placeholders de fila vacía -- MISMO texto que `NO_PROGRAM_LABEL`/
- * `NO_TYPE_LABEL` en `lib/pipeline/analytics.ts` (no exportados ahí, y ese
- * archivo está fuera del alcance de esta etapa). Duplicado a propósito
- * solo para poder re-derivar, en el click, qué loans cayeron en cada fila
- * del ranking -- si el texto del placeholder cambia algún día en
- * `analytics.ts`, este archivo hay que actualizarlo a mano también.
- *
- * Etapa PROPERTY-STATE-1: `NO_PROPERTY_STATE_LABEL` NO se duplica acá --
- * `lib/pipeline/analytics.ts` SÍ está en el alcance de esta etapa (a
- * diferencia de cuando se armaron estas dos), así que se exporta desde ahí
- * y se importa directo, evitando el mismo riesgo de desincronización que
- * este comentario advierte para los otros dos.
+/*
+ * ⚠ Acá vivían dos copias a mano de los placeholders de fila vacía, con un
+ * comentario que declaraba la duplicación y pedía mantenerlas sincronizadas.
+ * Ahora las tres se importan de `lib/pipeline/labels.ts`, que es su única
+ * definición -- ver la cabecera de ese archivo. El drill-down compara POR
+ * TEXTO contra `row.label`, así que dos copias que se separan dejan la fila
+ * visible y el detalle vacío, sin error y sin aviso.
  */
-const DRILLDOWN_NO_PROGRAM_LABEL = 'Sin programa';
-const DRILLDOWN_NO_TYPE_LABEL = 'Sin tipo';
 
 /**
  * ¿Este loan resuelve, vía `org.employee_alias`, al mismo `employeeKey` que
@@ -1390,7 +1381,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
               metric: 'Loan Program',
               context: row.label,
               loans: fundedInRange
-                .filter((l) => (l.loanProgram.trim() || DRILLDOWN_NO_PROGRAM_LABEL) === row.label)
+                .filter((l) => (l.loanProgram.trim() || NO_PROGRAM_LABEL) === row.label)
                 .map(closedLoanToModalLoan),
               hiddenColumns: ['loanProgram', 'milestone', 'status'],
             })
@@ -1406,7 +1397,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
               metric: 'Loan Type',
               context: row.label,
               loans: fundedInRange
-                .filter((l) => (l.loanType.trim() || DRILLDOWN_NO_TYPE_LABEL) === row.label)
+                .filter((l) => (l.loanType.trim() || NO_TYPE_LABEL) === row.label)
                 .map(closedLoanToModalLoan),
               hiddenColumns: ['loanType', 'milestone', 'status'],
             })
@@ -1424,7 +1415,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
         <div className="tbl-card" style={{ padding: '16px', marginBottom: '20px' }}>
           {/*
             Etapa PROPERTY-STATE-1: mismo criterio que Strategy Mix (F7.23) --
-            un ranking 100% "Sin estado" se leería como un resultado real de
+            un ranking 100% `NO_PROPERTY_STATE_LABEL` se leería como un resultado real de
             negocio, y acá es un default silencioso por falta de datos (el
             snapshot todavía no capturó property_state, o se subió antes de
             esta etapa). El número es el conteo REAL de este snapshot activo,

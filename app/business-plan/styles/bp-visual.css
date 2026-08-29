@@ -325,16 +325,60 @@
   width: 20%;
 }
 
-/* Anchos del directorio. Etapa BP17: seis columnas en vez de ocho -- salieron
-   Benchmark y GAP. 30 + 4 x 14 + 14 = 100%. */
+/*
+ * Anchos del directorio — reparto de BP36b.
+ *
+ * Ocho columnas: casilla (34px) + nombre + CINCO numéricas + veredicto.
+ * 26 + 5 x 11 + 13 = 94%, y el 6% restante lo absorbe la casilla en px.
+ *
+ * Las numéricas bajan de 14% a 11%: sostienen un dígito, a veces dos, y el
+ * ancho lo pedía el ENCABEZADO, no el dato. Eso se resuelve abajo achicando el
+ * encabezado, no ensanchando cinco columnas.
+ *
+ * ⚠ Nada de esto puede producir scroll horizontal: `table.piv` es
+ * `table-layout: fixed` + `width: 100%`, así que la tabla iguala al contenedor
+ * y el texto que no entra se recorta. Medido de 1152 a 1920px: cero scroll.
+ * Lo que se degradaba era el ALTO del encabezado -- 4 líneas en 1280px.
+ */
 .bp-table--los col.bp-col-name {
-  width: 30%;
+  width: 26%;
 }
 .bp-table--los col.bp-col-metric {
-  width: 14%;
+  width: 11%;
 }
 .bp-table--los col.bp-col-status {
-  width: 14%;
+  width: 13%;
+}
+
+/*
+ * El encabezado de esta tabla, compactado — BP36b.
+ *
+ * Los rótulos nuevos son largos ("Current month pipeline", "Next month
+ * pipeline") y en la regla base van en MAYÚSCULAS con `letter-spacing: 0.07em`
+ * a 10.5px, que es lo que los empujaba a tres y cuatro líneas. Se bajan las
+ * tres cosas sólo acá: el resto de las tablas de la app conserva el encabezado
+ * unificado de UX4.
+ *
+ * `table.piv.bp-table--los` y no una clase suelta: la regla base es
+ * `table.piv thead .mo-row th`, con especificidad (0,1,3). Una clase sola
+ * pierde y no se aplicaría nada -- el mismo cuidado que ya está anotado para el
+ * centrado y el padding de estas tablas.
+ */
+table.piv.bp-table--los thead .mo-row th {
+  font-size: 9.5px;
+  letter-spacing: 0.03em;
+  padding-left: 6px;
+  padding-right: 6px;
+  /* Los rótulos parten por palabra; ninguno tiene una palabra que no entre. */
+  white-space: normal;
+}
+/*
+ * El aire horizontal de los datos también baja: con cinco columnas numéricas de
+ * un dígito, 12px de padding a cada lado era casi todo el ancho de la celda.
+ */
+table.piv.bp-table--los tbody td {
+  padding-left: 8px;
+  padding-right: 8px;
 }
 
 /*
