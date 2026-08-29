@@ -82,7 +82,7 @@ function findHeaderRowIndex(aoa: unknown[][], searchLimit = 25): number {
     if (row.map(normalizeHeaderCell).includes('Opportunity Name')) return i;
   }
   throw new Error(
-    'No se encontró la fila de encabezado (columna "Opportunity Name") en las primeras ' + searchLimit + ' filas.'
+    'Could not find the header row (the "Opportunity Name" column) in the first ' + searchLimit + ' rows.'
   );
 }
 
@@ -156,7 +156,7 @@ function resolveColumnIndexes(headerRow: unknown[]): Record<string, number> {
 
   const missing = REQUIRED_COLUMNS.filter((col) => idx[col] === -1);
   if (missing.length) {
-    throw new Error('Faltan columnas requeridas en el archivo: ' + missing.join(', '));
+    throw new Error('Required columns are missing from the file: ' + missing.join(', '));
   }
   return idx;
 }
@@ -207,7 +207,7 @@ function extractSourceLoanId(opportunityName: string, warnings: string[]): strin
   const match = opportunityName.match(/(\d{9,})$/);
   if (match) return match[1];
   warnings.push(
-    'No se pudo extraer sourceLoanId de "Opportunity Name" con la regex esperada; se usó el nombre completo: "' +
+    'Could not extract sourceLoanId from "Opportunity Name" with the expected pattern; used the full name instead: "' +
       opportunityName +
       '"'
   );
@@ -227,9 +227,9 @@ function extractBorrowerName(opportunityName: string, warnings: string[], source
   warnings.push(
     'Loan ' +
       sourceLoanId +
-      ': no se pudo separar el nombre del prestatario de "Opportunity Name" ("' +
+      ': could not split the borrower name out of "Opportunity Name" ("' +
       opportunityName +
-      '"); se usó el nombre completo.'
+      '"); used the full name instead.'
   );
   return opportunityName;
 }
@@ -420,11 +420,13 @@ function deriveCloseMonth(row: RawRow, warnings: string[], sourceLoanId: string)
     const label = String(row.closeMonthRaw).trim();
     const parsed = parseCloseMonthLabel(label);
     if (parsed) return parsed;
-    warnings.push('Loan ' + sourceLoanId + ': no se pudo interpretar Close Month "' + label + '".');
+    warnings.push('Loan ' + sourceLoanId + ': could not read Close Month "' + label + '".');
   }
   const ym = toYearMonth(parseDateCell(row.estClosingDateRaw));
   if (ym) return ym;
-  warnings.push('Loan ' + sourceLoanId + ': no se pudo derivar closeMonth (sin Close Month ni Est. Closing Date válida); quedó vacío.');
+  warnings.push(
+    'Loan ' + sourceLoanId + ': could not derive closeMonth (no Close Month and no valid Est. Closing Date); left empty.'
+  );
   return '';
 }
 
@@ -443,12 +445,12 @@ function classifyRow(
 
   if (row.loanFolder && !KNOWN_LOAN_FOLDERS.has(row.loanFolder)) {
     warnings.push(
-      'Loan ' + sourceLoanId + ': Loan Folder inesperado "' + row.loanFolder + '" (no afecta la clasificación, que siempre la da Stage).'
+      'Loan ' + sourceLoanId + ': unexpected Loan Folder "' + row.loanFolder + '" (does not affect classification, which always comes from Stage).'
     );
   }
 
   if (row.channel !== 'Banked - Retail' && row.channel !== 'Brokered') {
-    warnings.push('Loan ' + sourceLoanId + ': Loan Channel desconocido "' + row.channel + '" -- fila descartada.');
+    warnings.push('Loan ' + sourceLoanId + ': unknown Loan Channel "' + row.channel + '" -- row discarded.');
     return {};
   }
   // Seguro: recién se validó arriba que row.channel es uno de los 2 valores de la unión.
@@ -458,7 +460,7 @@ function classifyRow(
     const bucket = MILESTONE_BUCKET[row.currentMilestone.trim()];
     if (!bucket) {
       warnings.push(
-        'Loan ' + sourceLoanId + ': Current Milestone desconocido "' + row.currentMilestone + '" con Stage=Negotiation -- no se contó en ningún bucket.'
+        'Loan ' + sourceLoanId + ': unknown Current Milestone "' + row.currentMilestone + '" with Stage=Negotiation -- not counted in any bucket.'
       );
       return {};
     }
@@ -605,14 +607,14 @@ function classifyRow(
     warnings.push(
       'Loan ' +
         sourceLoanId +
-        ': Stage "Needs Analysis" (reconocido, no es un error de parseo) -- Loan Folder "' +
+        ': Stage "Needs Analysis" (recognised, not a parsing error) -- Loan Folder "' +
         row.loanFolder +
-        '" no es "Adverse Loans", así que no se clasifica como Adverse; pendiente de una regla de negocio para el resto. No se cuenta en Total Pipeline, Healthy Pipeline, Forecast ni Adverse.'
+        '" is not "Adverse Loans", so it is not classified as Adverse; a business rule for the rest is still pending. Not counted in Total Pipeline, Healthy Pipeline, Forecast or Adverse.'
     );
     return {};
   }
 
-  warnings.push('Loan ' + sourceLoanId + ': Stage desconocido "' + row.stage + '" -- fila descartada.');
+  warnings.push('Loan ' + sourceLoanId + ': unknown Stage "' + row.stage + '" -- row discarded.');
   return {};
 }
 
@@ -647,13 +649,13 @@ export function parseSalesforcePipelineFile(buffer: Buffer): {
 
   if (idx['Disbursement Date'] === -1) {
     warnings.push(
-      'Disbursement Date no disponible en este archivo, usando Est. Closing Date como aproximación -- fecha menos precisa.'
+      'Disbursement Date is not available in this file; using Est. Closing Date as an approximation -- a less precise date.'
     );
   }
 
   if (idx['Loan Status'] === -1) {
     warnings.push(
-      'Loan Status no disponible en este archivo -- la tabla de Adverse no podrá distinguir "Application withdrawn" y quedará vacía.'
+      'Loan Status is not available in this file -- the Adverse table will not be able to tell "Application withdrawn" apart and will come out empty.'
     );
   }
 

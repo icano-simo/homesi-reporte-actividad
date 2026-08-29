@@ -128,7 +128,7 @@ export async function POST(request: Request) {
     const body = await request.json();
     const rows = body?.rows;
     if (!Array.isArray(rows)) {
-      return NextResponse.json({ error: 'Falta "rows" en el body.' }, { status: 400 });
+      return NextResponse.json({ error: '"rows" is missing from the body.' }, { status: 400 });
     }
     const cover = body?.cover as CoverSheetData | undefined;
     const strategySummary = body?.strategySummary as StrategySummaryPayload | undefined;
