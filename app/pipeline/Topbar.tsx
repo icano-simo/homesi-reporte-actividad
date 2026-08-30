@@ -7,7 +7,6 @@ import DateRangeInput from './DateRangeInput';
 import MonthSelector from './MonthSelector';
 
 export interface TopbarProps {
-  fileName: string | null;
   pipelineDateRange: DateRange;
   onPipelineDateRangeChange: (range: DateRange) => void;
   forecastMonth: string;
@@ -17,14 +16,26 @@ export interface TopbarProps {
   selectedBranch: string;
   onSelectBranch: (branch: string) => void;
   error?: string | null;
-  formatDetected?: 'A' | 'B';
-  saveStatus?: 'idle' | 'saving' | 'saved' | 'error';
+  /**
+   * "Updated on DD/MM/YYYY at HH:MM", ya formateado por page.tsx.
+   *
+   * Llega armado y no como fecha cruda a propósito: el formato depende de la
+   * zona de quien mira, así que se calcula del lado del cliente después de
+   * montar. Acá sólo se pinta.
+   *
+   * Ocupa el lugar de `formatDetected` y `saveStatus`, que describían la carga
+   * que esta pantalla ya no hace.
+   */
+  lastUpdatedLabel?: string | null;
 }
 
 /**
- * Barra de control de Forecast: compone los 3 controles que ya existían
- * (UploadButton / DateRangeInput / MonthSelector, sin tocar su lógica) más el
- * selector de Branch global.
+ * Barra de control de Forecast: compone DateRangeInput y MonthSelector, sin
+ * tocar su lógica, más el selector de Branch global.
+ *
+ * Antes también componía UploadButton. Ese componente se eliminó junto con la
+ * carga desde esta pantalla; en su lugar la barra muestra cuándo se actualizó
+ * el snapshot.
  *
  * Etapa UX1: dejó de ser la franja gris `.topbar` a todo el ancho del layout
  * viejo -- ahora es la tarjeta blanca `.control-bar` (spec §3B) dentro del
@@ -47,7 +58,6 @@ export interface TopbarProps {
  *   Month     están, para que estar plegados no signifique estar ocultos.
  */
 export default function Topbar({
-  fileName,
   pipelineDateRange,
   onPipelineDateRangeChange,
   forecastMonth,
@@ -56,8 +66,7 @@ export default function Topbar({
   selectedBranch,
   onSelectBranch,
   error,
-  formatDetected,
-  saveStatus,
+  lastUpdatedLabel,
 }: TopbarProps) {
   const [showParams, setShowParams] = useState(false);
 
@@ -122,18 +131,26 @@ export default function Topbar({
         <div className="fc-params">
           <DateRangeInput value={pipelineDateRange} onChange={onPipelineDateRangeChange} />
           <MonthSelector value={forecastMonth} onChange={onForecastMonthChange} />
-          {/* Nombre de archivo: antes vivía siempre visible en control-bar__status;
-              se mueve acá adentro (mismo panel que Range/Month) para que el
-              engranaje sea el único punto de entrada a "detalles de esta carga". */}
-          {fileName && <span className="pill">File: {fileName}</span>}
+          {/*
+            Acá estaba el pill "File: <nombre>". Se va con la carga: el snapshot
+            ya no viene de un archivo que alguien eligió en esta pantalla, y
+            `file_name` pasó a ser 'bigquery:<batch>' -- un identificador para
+            auditar en la base, no algo que signifique nada en pantalla. Lo que
+            la gente necesita saber del origen es si está fresco, y eso lo dice
+            "Updated on ..." en la barra.
+          */}
         </div>
       )}
 
+      {/*
+        Donde estaban los indicadores de la carga ("Format detected", "Saving to
+        Supabase…") ahora va cuándo se actualizó el dato -- la misma pregunta
+        que reemplaza a "¿qué archivo estoy mirando?" cuando nadie carga
+        archivos desde acá. Mismo cambio, y por el mismo motivo, que ya se hizo
+        en Actividad (app/page.tsx, `lastSync`).
+      */}
       <div className="control-bar__status">
-        {formatDetected && <span className="pill">Format detected: {formatDetected}</span>}
-        {saveStatus === 'saving' && <span className="pill">Saving to Supabase…</span>}
-        {saveStatus === 'saved' && <span className="pill ok">Saved to Supabase</span>}
-        {saveStatus === 'error' && <span className="pill warn">Could not save to Supabase</span>}
+        {lastUpdatedLabel && <span className="pill">{lastUpdatedLabel}</span>}
         {error && <span className="pill warn">{error}</span>}
       </div>
     </div>
