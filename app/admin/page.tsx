@@ -146,15 +146,15 @@ export default function AdminPage() {
       */}
       {diagnostics.rosterError && (
         <div className="bp-notice bp-notice--warn adm-notice">
-          No se pudo leer <code>org.roster_v2</code>: {diagnostics.rosterError}
+          No se pudo leer <code>org.roster_current</code>: {diagnostics.rosterError}
         </div>
       )}
       {!diagnostics.rosterError && diagnostics.rosterRows === 0 && (
         <div className="bp-notice bp-notice--warn adm-notice">
-          <b>El roster viene vacío.</b> La lectura de <code>org.roster_v2</code> no dio error y devolvió cero filas, que
-          con RLS puede significar dos cosas distintas: que la tabla todavía no tiene datos, o que falta la política que
-          deja leerla con el claim <code>admin</code>. Las dos se ven igual desde acá. Ver{' '}
-          <code>docs/sql/2026-08-admin-roster-rls.sql</code>.
+          <b>El roster viene vacío.</b> La lectura de <code>org.roster_current</code> no dio error y devolvió cero
+          filas. El permiso está bien —la tabla tiene su <code>GRANT</code> y su política por el claim{' '}
+          <code>admin</code>—, así que lo que falta son los datos: el roster todavía no se sincroniza desde{' '}
+          <code>hr_centralizado.roster_for_admin</code>. Son 108 personas.
         </div>
       )}
 
@@ -371,7 +371,7 @@ export default function AdminPage() {
 
       <div className="bp-diagnostics adm-diag">
         <div>
-          <code>{diagnostics.rosterRows}</code> personas en <code>org.roster_v2</code> ·{' '}
+          <code>{diagnostics.rosterRows}</code> personas en <code>org.roster_current</code> ·{' '}
           <code>{diagnostics.changeRows}</code> filas en <code>org.roster_change_log</code> · historia de cargas:{' '}
           <code>{hayHistoriaDeCargas ? 'sí' : 'no'}</code>
         </div>

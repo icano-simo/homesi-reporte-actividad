@@ -7,7 +7,7 @@ import { getSupabaseClient } from '@/lib/supabase/client';
  * EL ROSTER DE RRHH Y LOS CAMBIOS ENTRE CARGAS — etapa ADMIN-1
  * ============================================================================
  *
- * Lee dos tablas y no calcula nada: `org.roster_v2` (el roster vigente) y
+ * Lee dos tablas y no calcula nada: `org.roster_current` (el roster vigente) y
  * `org.roster_change_log` (altas, bajas y cambios detectados al comparar una
  * carga con la anterior).
  *
@@ -24,6 +24,36 @@ import { getSupabaseClient } from '@/lib/supabase/client';
  * día lo hiciera, cada columna tiene que decir de cuál de los dos branches
  * habla, porque el mismo número con dos significados es el error más caro que
  * este proyecto ya cometió.
+ *
+ * ---------------------------------------------------------------------------
+ * ⚠ SE LLAMA `roster_current`, Y ANTES SE LLAMABA `roster_v2`
+ * ---------------------------------------------------------------------------
+ * El renombre no fue cosmético: "v2" sugería que venía a reemplazar un "v1", y
+ * el candidato obvio era `org.dim_employee`. No lo reemplaza -- resuelven cosas
+ * distintas, y `dim_employee` sigue siendo el roster canónico que usan Business
+ * Plan y Outlook para atribuir producción. Un nombre que insinúa una migración
+ * que no existe cuesta más caro que uno largo.
+ *
+ * ---------------------------------------------------------------------------
+ * ⚠ SI ESTA PANTALLA APARECE VACÍA, SON TRES CAUSAS DISTINTAS Y SE VEN IGUAL
+ * ---------------------------------------------------------------------------
+ * Medido contra la base, en este orden:
+ *
+ *   sin GRANT a `authenticated`  ->  error "Could not find the table ... in the
+ *                                    schema cache". PostgREST arma su cache con
+ *                                    lo que el rol puede ver: sin permiso, la
+ *                                    tabla no entra y la API contesta como si
+ *                                    no existiera.
+ *   con GRANT, sin política RLS  ->  CERO FILAS y `error: null`. Indistinguible
+ *                                    de una tabla vacía. ESTE es el peligroso.
+ *   con las dos                  ->  las filas.
+ *
+ * RLS no rechaza: FILTRA. Por eso el loader guarda el error de cada lectura por
+ * separado y la pantalla dice cuál de los tres casos está viendo, en vez de
+ * mostrar una tabla vacía que no distingue ninguno.
+ *
+ * Hoy las dos tablas tienen GRANT y política correctas; lo que falta es que
+ * alguien las llene. Ver el bloque de `AdminData.diagnostics`.
  *
  * ---------------------------------------------------------------------------
  * ⚠ ESTA PANTALLA NO DA NI QUITA DE BAJA A NADIE
@@ -121,7 +151,7 @@ export async function loadAdminData(): Promise<AdminData> {
    * que no dice cuál de los tres es.
    */
   const [rosterRes, changeRes] = await Promise.all([
-    org.from('roster_v2').select('*').order('branch_code', { ascending: true }).order('display_name', { ascending: true }),
+    org.from('roster_current').select('*').order('branch_code', { ascending: true }).order('display_name', { ascending: true }),
     org.from('roster_change_log').select('*').order('detected_at', { ascending: false }),
   ]);
 
