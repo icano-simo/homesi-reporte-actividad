@@ -5,6 +5,18 @@
 -- Ejecutar como `postgres` en el SQL Editor de Supabase (proyecto simoOS-prod).
 -- Idempotente.
 --
+-- APLICADO el 2026-08-30. Verificado despues:
+--
+--   select indexrelid::regclass::text from pg_index
+--    where indrelid = 'org.roster_current'::regclass;   -> org.roster_current_pkey
+--
+--   -- y no queda ningun objeto del schema con 'roster_v2' en el nombre
+--   select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace
+--    where n.nspname = 'org' and c.relname like '%roster_v2%';   -> 0
+--
+-- Se conserva como registro de por que el indice se llamaba distinto que su
+-- tabla, no como algo pendiente.
+--
 -- ⚠ ESTO NO ARREGLA NADA QUE ESTÉ ROTO. Es sólo un nombre.
 --
 -- `org.roster_v2` se renombró a `org.roster_current` --"v2" sugería que venía a
