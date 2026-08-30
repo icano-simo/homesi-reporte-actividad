@@ -6418,3 +6418,58 @@ forecast, sólo dejó de decidir si un punto se enciende.
 ### Archivos
 
 `app/pipeline/PivotTable.tsx` únicamente.
+
+---
+
+## Etapa RETIRE-UPLOAD -- se retira la carga manual de Forecast, y qué queda pendiente
+
+El archivo de Salesforce se sube ahora desde la app de Data Uploads, que lo deja
+en BigQuery, y el job de `simo-sync` (`lib/sync/pipelineSnapshot.ts`, cron de
+Vercel a las 08:00 UTC) construye el snapshot.
+
+### Por qué
+
+Había **dos caminos escribiendo `pipeline_snapshots`** bajo la misma regla de uno
+por día, así que el que corriera segundo pisaba al primero. Producían las mismas
+filas -- que es justamente lo que lo hacía difícil de ver: nada fallaba. Pero es
+duplicación esperando a que alguien cambie una y no la otra, el mismo patrón que
+ya costó tiempo con el `tone` del icono (BP21-BP28) y el filtro del mes (BP33).
+
+### Lo que se fue
+
+`app/pipeline/UploadButton.tsx` entero, su uso en el header, `handleFileSelected`,
+el estado "Processing file…" y el botón del estado vacío que reusaba
+`PIPELINE_FILE_INPUT_ID`. En su lugar la barra de control dice cuándo se refrescó
+el snapshot por última vez.
+
+### ⚠ PENDIENTE -- lo que sigue existiendo sin entrada desde la UI
+
+| Archivo | Estado |
+|---|---|
+| `app/api/pipeline/parse/route.ts` | vivo, sin forma de llamarlo desde la app |
+| `lib/pipeline/sources/salesforce-file.ts` | ídem, es el parser que usa esa ruta |
+
+**Se retiran cuando esto lleve unas semanas estable, no ahora.** La diferencia
+con la etapa V4 --donde el camino muerto se borró el mismo día-- es deliberada y
+vale la pena entenderla:
+
+- En V4 el código muerto **sabía escribir**: `saveUpload` hacía `insert` contra
+  las tablas viejas, así que bastaba con que alguien lo importara por error para
+  que escribiera sin que nada fallara. Dejarlo era el riesgo.
+- Acá el camino que queda es la **red de seguridad**: si el job se porta mal en
+  sus primeros días, hay a qué volver. Y no escribe solo -- necesita que alguien
+  haga un POST con un archivo.
+
+El día que se borren, se van los dos juntos: la ruta no tiene otro consumidor y
+el parser no tiene otro llamador.
+
+### Verificación del job antes de retirar la carga
+
+Escribió el snapshot **93** reemplazando al 92, con 108 en pipeline, 799
+resueltos, 459 funded, un solo `is_active` y los 108 `source_loan_id` bien
+formados.
+
+### Archivos
+
+`app/pipeline/Topbar.tsx`, `app/pipeline/page.tsx`, y `app/pipeline/UploadButton.tsx`
+(borrado).
