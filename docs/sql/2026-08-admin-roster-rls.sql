@@ -1,0 +1,144 @@
+-- ===========================================================================
+-- ADMIN — lo que le falta a `org.roster_v2` para que la pantalla la lea
+-- ===========================================================================
+--
+-- Ejecutar como `postgres` en el SQL Editor de Supabase (proyecto simoOS-prod).
+-- Idempotente: se puede correr entero de nuevo.
+--
+-- ⚠ ESTO NO ES UNA MEJORA. Sin esto la sección Admin no puede leer el roster,
+-- tenga la tabla 0 filas o las 108.
+--
+--
+-- ---------------------------------------------------------------------------
+-- LO QUE SE MIDIÓ, ANTES DE ESCRIBIR ESTO
+-- ---------------------------------------------------------------------------
+--
+--   select count(*) from org.roster_v2;                    -> 0 filas
+--   select count(*) from org.roster_change_log;            -> 0 filas
+--
+--   -- políticas
+--   select tablename, policyname, cmd from pg_policies
+--    where schemaname = 'org' and tablename like 'roster%';
+--     -> roster_change_log  SELECT  (claim admin)
+--     -> roster_change_log  UPDATE  (claim admin)
+--     -> roster_v2          NINGUNA
+--
+--   -- permisos de tabla
+--   select table_name, grantee, privilege_type
+--     from information_schema.role_table_grants
+--    where table_schema = 'org' and table_name like 'roster%'
+--      and grantee = 'authenticated';
+--     -> roster_change_log  SELECT, UPDATE
+--     -> roster_v2          NINGUNO
+--
+--   -- y RLS está encendida en las dos
+--   select relname, relrowsecurity from pg_class c
+--     join pg_namespace n on n.oid = c.relnamespace
+--    where n.nspname = 'org' and relname like 'roster%';
+--     -> las dos true
+--
+-- `roster_change_log` está completa y correcta. `roster_v2` tiene RLS encendida
+-- y CERO políticas, y encima ningún GRANT para `authenticated`. Son dos motivos
+-- independientes por los que la app lee cero, y hay que arreglar los dos.
+--
+--
+-- ---------------------------------------------------------------------------
+-- ⚠ LOS DOS FALTANTES FALLAN DISTINTO, Y CONVIENE SABER CUÁL SE ESTÁ VIENDO
+-- ---------------------------------------------------------------------------
+-- MEDIDO desde la app, con una sesión que SÍ tiene el claim `admin`:
+--
+--     Could not find the table 'org.roster_v2' in the schema cache
+--
+-- O sea que hoy NO falla en silencio: falla con un error. La causa es el GRANT
+-- que falta, no la política -- PostgREST arma su cache de esquema con lo que el
+-- rol puede ver, y una tabla sin ningún permiso para `authenticated` no entra al
+-- cache y la API contesta como si no existiera.
+--
+-- El orden de los síntomas, entonces, es:
+--
+--   sin GRANT              -> error "no existe la tabla" (lo de hoy)
+--   con GRANT, sin política -> CERO FILAS y `error: null`, indistinguible de
+--                              una tabla vacía
+--   con las dos            -> las filas
+--
+-- El segundo es el peligroso, y es el que este archivo previene aplicando los
+-- dos pasos juntos. RLS no rechaza: FILTRA. Es el mismo modo de fallar que el
+-- 406 de `outlook` en la etapa OL1 -- esquema creado, 185 reglas sembradas, y
+-- la app leyendo cero por un paso que no estaba en el SQL.
+--
+-- Por eso la pantalla de Admin separa los tres casos: muestra el error cuando
+-- lo hay, y cuando ve cero filas SIN error dice las dos causas posibles y
+-- nombra este archivo, en vez de mostrar una tabla vacía.
+-- ===========================================================================
+
+
+-- ---------------------------------------------------------------------------
+-- PASO 1 — permiso de tabla
+-- ---------------------------------------------------------------------------
+-- Sólo SELECT. La pantalla de Admin no escribe en el roster: no da ni quita de
+-- baja a nadie, y esa es una decisión de negocio, no una omisión (un archivo de
+-- RRHH incompleto desactivaría a quien sí está trabajando). Lo único que la
+-- pantalla escribe es el `acknowledged` de `roster_change_log`, que ya tiene su
+-- GRANT y su política.
+grant select on org.roster_v2 to authenticated;
+
+
+-- ---------------------------------------------------------------------------
+-- PASO 2 — la política que falta
+-- ---------------------------------------------------------------------------
+-- Mismo criterio exacto que las dos de `roster_change_log`, para que las tres
+-- digan lo mismo:
+--
+--     (auth.jwt() -> 'app_metadata' -> 'allowed_apps') ? 'admin'
+--
+-- ⚠ El nombre del claim tiene que coincidir con `ADMIN_CLAIM` en
+-- `lib/auth/appAccess.ts`. Si divergen, la UI y la base dirían cosas distintas
+-- -- y la que protege los datos es la de la base: `proxy.ts` sólo evita que
+-- alguien vea una puerta que no puede abrir.
+drop policy if exists roster_v2_admin_select on org.roster_v2;
+create policy roster_v2_admin_select on org.roster_v2
+  for select to authenticated
+  using ((((auth.jwt() -> 'app_metadata') -> 'allowed_apps') ? 'admin'));
+
+
+-- ---------------------------------------------------------------------------
+-- PASO 3 — NO hay paso 3
+-- ---------------------------------------------------------------------------
+-- Sin políticas de INSERT, UPDATE ni DELETE sobre `org.roster_v2`, a propósito.
+-- El roster lo escribe el sync desde el archivo de RRHH, con `service_role`;
+-- nadie desde el navegador. Es lo mismo que hace append-only al esquema
+-- `outlook`: la ausencia de política no es un olvido, es la garantía.
+
+
+-- ===========================================================================
+-- VERIFICACIÓN
+-- ===========================================================================
+--
+-- 1. La tabla queda con SELECT y nada más para `authenticated`:
+--
+--      select grantee, string_agg(privilege_type, ', ') from information_schema.role_table_grants
+--       where table_schema = 'org' and table_name = 'roster_v2' group by 1;
+--
+-- 2. Una sola política, de SELECT:
+--
+--      select policyname, cmd from pg_policies
+--       where schemaname = 'org' and tablename = 'roster_v2';
+--
+-- 3. Desde la app, con una sesión que TENGA el claim `admin`, la sección Admin
+--    tiene que mostrar las 108 personas agrupadas por branch. Con una sesión
+--    SIN el claim, `proxy.ts` la manda al landing antes de renderizar.
+--
+-- 4. ⚠ Y el que de verdad importa: que la tabla tenga filas. Hoy tiene CERO.
+--    Con la política puesta y la tabla vacía, la pantalla sigue viéndose igual
+--    de vacía -- lo que cambia es que ya no hay dos causas posibles, sólo una.
+--
+--      select count(*) from org.roster_v2;
+--
+--
+-- ===========================================================================
+-- PARA REVERTIR
+-- ===========================================================================
+--
+--   drop policy if exists roster_v2_admin_select on org.roster_v2;
+--   revoke select on org.roster_v2 from authenticated;
+-- ===========================================================================

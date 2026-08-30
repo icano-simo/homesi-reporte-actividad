@@ -1,0 +1,220 @@
+/*
+ * ============================================================================
+ * ADMIN — reglas propias (etapa ADMIN-1)
+ * ============================================================================
+ *
+ * Misma escala de dos tamaños que Outlook: 12px para todo el texto y 14px sólo
+ * para lo que tiene que destacar --acá, el código del branch, que es lo que la
+ * usuaria pidió ver explícito--. Los valores no son nuevos: 12px es el cuerpo
+ * de `table.piv`, 14px es `.bp-modal__title`.
+ *
+ * ⚠ Estas hojas son globales, no CSS modules: una vez importadas sus selectores
+ * valen en toda la app. Por eso todo lo que toca una clase compartida va
+ * calificado con `.adm-page`.
+ */
+
+.adm-page {
+  --adm-text: 12px;
+  --adm-lg: 14px;
+  font-size: var(--adm-text);
+}
+
+.adm-page .foot-note,
+.adm-page .bp-notice,
+.adm-page .bp-empty,
+.adm-page .bp-diagnostics {
+  font-size: var(--adm-text);
+}
+.adm-page .bp-btn--small {
+  font-size: var(--adm-text);
+}
+table.piv.adm-tbl thead .mo-row th {
+  font-size: var(--adm-text);
+}
+
+/*
+ * ⚠ `table-layout: auto`, y no el `fixed` de la regla base de `table.piv`.
+ *
+ * Con `fixed` la tabla nunca desborda: reparte el ancho y RECORTA lo que no
+ * entra. Medido en la primera pasada: "Heather Pena" salía "Heather Pena…" y la
+ * marca `agregada a mano` no se veía en absoluto -- o sea que las dos cosas que
+ * esta pantalla tiene que destacar eran justo las que desaparecían.
+ *
+ * Es el mismo modo de fallar de BP36 y de la tabla de doce meses de Outlook: el
+ * texto está en el DOM y mide cero. Con `auto` + `min-width`, la columna del
+ * nombre crece con su contenido y `.tbl-scroll` scrollea si hace falta.
+ */
+table.piv.adm-tbl {
+  table-layout: auto;
+  width: 100%;
+}
+/* El nombre puede envolver: lleva marcas al lado y no tiene por qué caber en
+   una línea. Las demás columnas siguen en una sola. */
+table.piv.adm-tbl td.lbl:first-child,
+table.piv.adm-tbl th.lbl:first-child {
+  white-space: normal;
+  text-overflow: clip;
+  overflow: visible;
+  min-width: 230px;
+}
+/* Las tres fechas dicen casi siempre "sin registro": no necesitan mas ancho
+   que su encabezado. */
+table.piv.adm-tbl td.bp-center,
+table.piv.adm-tbl th.bp-center {
+  white-space: nowrap;
+}
+
+.adm-block {
+  margin-top: 22px;
+}
+.adm-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.adm-h {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--adm-lg);
+  font-weight: 700;
+  color: var(--navy);
+}
+.adm-h3 {
+  margin: 14px 0 6px;
+  font-size: var(--adm-text);
+  font-weight: 700;
+  color: var(--slate-500);
+}
+.adm-hint {
+  margin: 0 0 12px;
+  font-size: var(--adm-text);
+  line-height: 1.55;
+  color: var(--slate-500);
+}
+.adm-notice {
+  margin: 10px 0;
+}
+.adm-foot,
+.adm-diag {
+  margin-top: 18px;
+}
+.adm-filtros {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* ── Un branch ───────────────────────────────────────────────────────────── */
+
+/*
+ * El código del branch es lo único en 14px de toda la pantalla: la usuaria pidió
+ * verlo explícito, y "explícito" acá quiere decir que se encuentre barriendo la
+ * página con la vista, sin leer.
+ */
+.adm-branch {
+  margin-top: 16px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  background: #fff;
+  overflow: hidden;
+}
+.adm-branch__head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--slate-50);
+  border-bottom: 1px solid var(--slate-200);
+}
+.adm-branch__code {
+  font-family: var(--font-display);
+  font-size: var(--adm-lg);
+  font-weight: 700;
+  color: var(--navy);
+  letter-spacing: 0.02em;
+}
+
+.adm-muted {
+  color: var(--slate-400);
+}
+
+/* ── Estado y marcas ─────────────────────────────────────────────────────── */
+
+.adm-estado {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: var(--radius-full);
+  background: var(--slate-100);
+  color: var(--slate-500);
+  font-weight: 600;
+}
+.adm-estado.is-on {
+  background: var(--emerald-50);
+  color: var(--emerald-700);
+}
+
+/*
+ * Las marcas van al lado del nombre, no en columna propia: son excepciones --
+ * dos personas agregadas a mano y dos corregidas sobre 108-- y una columna que
+ * está vacía en 106 filas ocupa ancho para no decir nada.
+ */
+.adm-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--slate-200);
+  background: var(--slate-50);
+  color: var(--slate-500);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.adm-tag--add {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--navy);
+}
+.adm-tag--fix {
+  background: var(--amber-50, #fffbeb);
+  border-color: var(--amber-200, #fde68a);
+  color: var(--amber-800, #92400e);
+  white-space: normal;
+}
+
+/* ── Un cambio del log ───────────────────────────────────────────────────── */
+
+.adm-cambio {
+  border: 1px solid var(--slate-200);
+  border-left: 3px solid var(--navy);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  margin-top: 8px;
+  background: #fff;
+}
+/* Lo revisado se apaga, no se esconde: sigue siendo historia consultable. */
+.adm-cambio.is-done {
+  border-left-color: var(--slate-200);
+  background: var(--slate-50);
+}
+.adm-cambio__main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.adm-cambio__valores {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+.adm-cambio__pie {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+}

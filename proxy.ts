@@ -1,10 +1,11 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createMiddlewareClient, withAuthCookies } from '@/lib/supabase/middleware';
-import { ANALYTICS_CLAIM, hasAppAccess, hasClaim, OUTLOOK_CLAIM } from '@/lib/auth/appAccess';
+import { ADMIN_CLAIM, ANALYTICS_CLAIM, hasAppAccess, hasClaim, OUTLOOK_CLAIM } from '@/lib/auth/appAccess';
 import {
   LOGIN_PATH,
   NO_ACCESS_PATH,
   CHANGE_PASSWORD_PATH,
+  ADMIN_PATH,
   ANALYTICS_PATH,
   DEFAULT_LANDING,
   OUTLOOK_PATH,
@@ -163,6 +164,7 @@ export async function proxy(request: NextRequest) {
   const CLAIMED_MODULES: { path: string; claim: string; label: string }[] = [
     { path: OUTLOOK_PATH, claim: OUTLOOK_CLAIM, label: 'Outlook' },
     { path: ANALYTICS_PATH, claim: ANALYTICS_CLAIM, label: 'Analytics' },
+    { path: ADMIN_PATH, claim: ADMIN_CLAIM, label: 'Admin' },
   ];
 
   for (const mod of CLAIMED_MODULES) {

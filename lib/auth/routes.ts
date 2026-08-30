@@ -44,6 +44,9 @@ export const OUTLOOK_PATH = '/outlook';
  */
 export const ANALYTICS_PATH = '/analytics';
 
+/** Etapa ADMIN-1: la sección Admin, detrás del claim `admin`. */
+export const ADMIN_PATH = '/admin';
+
 /**
  * Rutas del flujo de autenticación. No forman parte de la app en sí, así que
  * no llevan el shell del Service Hub (header con tabs de módulo): mostrar la
