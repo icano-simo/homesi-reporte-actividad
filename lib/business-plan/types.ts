@@ -278,11 +278,31 @@ export interface CurrentMonthProjection {
   closedToDate: number;
   totalPipeline: number;
   healthyPipeline: number;
+  /**
+   * Cuántos de los que cierran este mes están en CTC y cuántos en Closing.
+   *
+   * ⚠ Son CONTEOS, para mostrar. Lo que aportan a la proyección es
+   * `ctcClosingProjected`, que no es el conteo -- ver ahí.
+   */
   inCtc: number;
   inClosing: number;
+  /**
+   * ⚠ LO QUE CTC/CLOSING APORTAN A LA PROYECCIÓN, ya con su tasa.
+   *
+   * Existe para que nadie tenga que multiplicar por su cuenta. Hasta este cambio
+   * un préstamo en Closing aportaba 1,0 --el conteo-- así que el conteo y el
+   * aporte eran el mismo número y la barra apilada usaba `inCtc + inClosing`
+   * directamente. Ahora aportan `rates.milestone.Closing` cada uno, y si la
+   * barra siguiera usando el conteo sus tres segmentos dejarían de sumar la
+   * proyección: se rompería sin que ningún error lo diga.
+   *
+   * Con este campo hay UNA definición del aporte y la barra la lee en vez de
+   * recalcularla.
+   */
+  ctcClosingProjected: number;
   /** Aporte de los healthy que NO están en CTC/Closing, ya con su tasa. */
   projectedFromHealthy: number;
-  /** cerrados + CTC + Closing + aporte con tasa. Es un pronóstico, no un conteo. */
+  /** cerrados + CTC/Closing con tasa + aporte con tasa. Un pronóstico, no un conteo. */
   projectedTotal: number;
   byMilestone: Record<MilestoneBucket, number>;
   banked: ChannelBreakdown;
