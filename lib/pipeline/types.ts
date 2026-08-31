@@ -6,6 +6,16 @@ export type PipelineLoan = {
   healthy: boolean | null;
   closeMonth: string;
   amount: number;
+  /**
+   * Hotfix loan-officer-null: la columna real en `pipeline_loans`/
+   * `pipeline_resolved_loans` admite NULL -- confirmado contra 4 loans reales
+   * (todos con `opportunity_owner = 'sf integrations'`, sin loan officer
+   * humano asignado). El tipo se mantiene `string` porque el mapeo
+   * (`app/api/pipeline/latest/route.ts`, `?? ''`) normaliza cualquier NULL
+   * ANTES de construir este objeto -- si se agrega un campo nuevo que lea
+   * directo de una columna nullable, hay que agregarle el mismo `?? ''` ahí,
+   * no asumir que el tipo de la fila de Supabase ya lo garantiza.
+   */
   loanOfficer: string;
   rawMilestone: string;
   rawHealthiness: string;
@@ -94,6 +104,7 @@ export type ResolvedLoan = {
    */
   disbursementDate: string;
   amount: number;
+  /** Hotfix loan-officer-null: mismo significado que en PipelineLoan, ver ese comentario. */
   loanOfficer: string;
   /** Etapa F4d: mismo significado que en PipelineLoan. */
   borrowerName: string;

@@ -16,6 +16,7 @@ import {
   buildBranchScorecard,
   buildBusinessDeveloperScorecard,
   buildLoanOfficerScorecard,
+  UNKNOWN_PERSON_KEY,
   type PersonScorecardResult,
   type ScorecardRow,
 } from '@/lib/pipeline/scorecards';
@@ -377,7 +378,17 @@ function personDiagnosticsNote(result: PersonScorecardResult): { count: number; 
     );
   }
   if (blankCount > 0) {
-    detailParts.push(`${fmtInt(blankCount)} with no Loan Officer/Owner value recorded.`);
+    /*
+     * Hotfix loan-officer-null: estos loans ya no se descartan de la tabla --
+     * se agrupan en su propia fila visible ("Unknown Loan Officer"/"Unknown
+     * Business Developer"). El ícono de advertencia se mantiene igual porque
+     * la fila por sí sola no explica POR QUÉ falta el nombre (un problema de
+     * datos en el origen que hay que corregir en Salesforce), solo que
+     * existe -- el tooltip sigue siendo la única explicación de fondo.
+     */
+    detailParts.push(
+      `${fmtInt(blankCount)} with no Loan Officer/Owner value recorded -- shown as their own row instead of being excluded.`
+    );
   }
   const detail = detailParts.join('\n');
 
@@ -781,6 +792,12 @@ function loanResolvesToEmployeeKey(
   employeeKeyStr: string
 ): boolean {
   const nameRaw = getRawName(loan).trim();
+  // Hotfix loan-officer-null: la fila "Unknown Loan Officer"/"Unknown
+  // Business Developer" (buildPersonScorecard, lib/pipeline/scorecards.ts)
+  // agrupa justamente los loans con nombre vacío -- son estos los que debe
+  // abrir su drill-down, no los que resuelven contra el alias index (que
+  // nunca incluye un nombre vacío).
+  if (employeeKeyStr === UNKNOWN_PERSON_KEY) return !nameRaw;
   if (!nameRaw) return false;
   const { employeeKey } = aliasIndex.lookup('salesforce', nameRaw);
   return employeeKey !== null && String(employeeKey) === employeeKeyStr;
@@ -1490,7 +1507,12 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
               title="Loan Officer"
               columnLabel="Loan Officer"
               rows={loanOfficerScorecard.rows}
-              totalCount={loanOfficerScorecard.diagnostics.resolvedCount}
+              // Hotfix loan-officer-null: `rows` ahora incluye la fila "Unknown
+              // Loan Officer" además de las resueltas -- el total de
+              // reconciliación tiene que crecer con ella o el chequeo de
+              // ScorecardTable (rowsTotalCount !== totalCount) avisaría un
+              // falso descuadre en dev.
+              totalCount={loanOfficerScorecard.diagnostics.resolvedCount + loanOfficerScorecard.diagnostics.blankCount}
               onRowClick={(row) =>
                 setDrillDown({
                   metric: 'Loan Officer',
@@ -1528,7 +1550,8 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
                 title="Business Developer"
                 columnLabel="Business Developer"
                 rows={businessDeveloperScorecard.rows}
-                totalCount={businessDeveloperScorecard.diagnostics.resolvedCount}
+                // Hotfix loan-officer-null: mismo motivo que en Loan Officer arriba.
+                totalCount={businessDeveloperScorecard.diagnostics.resolvedCount + businessDeveloperScorecard.diagnostics.blankCount}
                 onRowClick={(row) =>
                   setDrillDown({
                     metric: 'Business Developer',

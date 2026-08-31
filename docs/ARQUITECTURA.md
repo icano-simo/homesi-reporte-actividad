@@ -6473,3 +6473,74 @@ formados.
 
 `app/pipeline/Topbar.tsx`, `app/pipeline/page.tsx`, y `app/pipeline/UploadButton.tsx`
 (borrado).
+
+---
+
+## Hotfix loan-officer-null — `/analytics` rompía con `loan_officer` NULL
+
+Producción caída: `/analytics` tiraba `TypeError: Cannot read properties
+of null (reading 'trim')` para cualquier snapshot que tuviera al menos un
+préstamo sin Loan Officer asignado en Salesforce.
+
+### Causa real
+
+`app/api/pipeline/latest/route.ts` mapeaba `loanOfficer: r.loan_officer`
+sin `?? ''`, a diferencia de todos sus campos vecinos (`loanType`,
+`loanProgram`, `opportunityOwner`, `propertyState`, que sí lo tenían). La
+columna real en `pipeline_loans`/`pipeline_resolved_loans` admite `NULL`
+-- confirmado contra 4 préstamos reales del snapshot activo, los 4 con
+`opportunity_owner = 'sf integrations'` (registros de automatización de
+Salesforce sin loan officer humano asignado). `buildPersonScorecard()`
+(`lib/pipeline/scorecards.ts`) hace `getRawName(loan).trim()` sobre ese
+campo -- un `NULL` real ahí revienta antes de llegar a ningún chequeo de
+negocio.
+
+Confirmado que el problema persiste en el origen (BigQuery/Salesforce):
+el mismo snapshot subido más tarde ese mismo día trajo los mismos 4
+`source_loan_id` con `loan_officer` NULL -- no se corrigió aguas arriba,
+este fix es del lado de la app.
+
+### Decisión de negocio -- visible, no oculto
+
+Antes, un `loanOfficer` vacío incrementaba `blankCount` y el préstamo se
+descartaba de `rows` en silencio -- desaparecía de la tabla y del total
+sin ningún rastro. Se decidió que estos préstamos NO deben desaparecer:
+se agrupan en una fila sintética visible ("Unknown Loan Officer"/"Unknown
+Business Developer" según el scorecard), con su `closedCount`/
+`totalAmount` sumando igual que cualquier fila real, para que el
+problema quede a la vista en pantalla hasta que se corrija en origen, en
+vez de esconderse detrás de un total que sigue "cuadrando".
+
+`blankCount` se sigue acumulando igual que antes -- el ícono de
+advertencia (`personDiagnosticsNote()`) sigue contándolo, porque la fila
+por sí sola no explica *por qué* falta el nombre; el tooltip es lo único
+que aclara que es un problema de datos de origen pendiente de corregir.
+
+### Qué NO era el bug (descartado con evidencia, no por suposición)
+
+- **No es un problema de permisos/acceso** -- se revisó `lib/auth/appAccess.ts`
+  y todo `components/layout/`: cero llamadas a `.trim()` en el código de
+  sesión/autenticación.
+- **No es una fila que "debería aparecer y no aparece"** bajo el período
+  por defecto ("This Month") -- de los 4 préstamos afectados, 3 son
+  `status: 'adverse'` (nunca entran a `fundedLoansInRange`, en ningún
+  período, por diseño preexistente) y el único `funded` disbursó en
+  julio, fuera del mes en curso. Simulado paso a paso contra el snapshot
+  activo real: 0 de los 4 entran al scorecard bajo "This Month" -- la
+  fila no aparece ahí porque matemáticamente no corresponde, no por un
+  bug de cálculo ni de render. Con Year to Date sí debería aparecer,
+  con `count=1, amount=$657.000` (solo el préstamo funded).
+
+### Archivos
+
+`app/api/pipeline/latest/route.ts` (el `?? ''` que corrige el borde de
+entrada, y las interfaces `PipelineLoanRow`/`ResolvedLoanRow` ahora
+declaran `loan_officer: string | null`, honesto con la columna real),
+`lib/pipeline/types.ts` (comentario documentando que la columna admite
+NULL, para que el próximo campo no repita el mismo bug),
+`lib/pipeline/scorecards.ts` (`buildPersonScorecard` agrupa en
+`UNKNOWN_PERSON_KEY` en vez de descartar; `unknownLabel` parametrizado
+por caller), `app/pipeline/TabAnalytics.tsx` (`loanResolvesToEmployeeKey`
+reconoce la fila sintética para que su drill-down abra los préstamos
+correctos; `totalCount` de las 2 tablas ajustado a incluir la fila
+nueva).

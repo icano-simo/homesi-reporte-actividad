@@ -39,7 +39,8 @@ interface PipelineLoanRow {
   close_month: string;
   est_closing_date: string | null;
   amount: number | string | null;
-  loan_officer: string;
+  /** Hotfix loan-officer-null: la columna admite NULL real (ver el mapeo `?? ''` abajo, y lib/pipeline/types.ts). */
+  loan_officer: string | null;
   borrower_name: string;
   milestone_date: string | null;
   branch_transferred: boolean;
@@ -65,7 +66,8 @@ interface ResolvedLoanRow {
   status: ResolvedLoan['status'];
   disbursement_date: string;
   amount: number | string | null;
-  loan_officer: string;
+  /** Hotfix loan-officer-null: la columna admite NULL real -- confirmado contra 4 loans reales en esta tabla (ver el mapeo `?? ''` abajo, y lib/pipeline/types.ts). */
+  loan_officer: string | null;
   borrower_name: string;
   loan_status: string;
   est_closing_date: string | null;
@@ -167,7 +169,13 @@ export async function GET() {
       healthy: r.healthy,
       closeMonth: r.close_month,
       amount: Number(r.amount) || 0,
-      loanOfficer: r.loan_officer,
+      // Hotfix loan-officer-null: la columna admite NULL real en la base
+      // (primer snapshot con casos reales, ver lib/pipeline/types.ts) --
+      // sin el `?? ''`, un NULL llegaba tal cual a un campo tipado `string`
+      // y rompía cualquier `.trim()` corriente abajo (buildPersonScorecard,
+      // lib/pipeline/scorecards.ts). Mismo criterio que loanType/loanProgram
+      // y el resto de los campos opcionales de este mapeo.
+      loanOfficer: r.loan_officer ?? '',
       rawMilestone: r.raw_milestone,
       rawHealthiness: r.raw_healthiness,
       estClosingDate: r.est_closing_date,
@@ -243,7 +251,8 @@ export async function GET() {
       status: r.status,
       disbursementDate: r.disbursement_date,
       amount: Number(r.amount) || 0,
-      loanOfficer: r.loan_officer,
+      // Hotfix loan-officer-null: mismo motivo que en openLoans arriba.
+      loanOfficer: r.loan_officer ?? '',
       borrowerName: r.borrower_name,
       milestoneDate: null,
       branchTransferred: r.branch_transferred,
