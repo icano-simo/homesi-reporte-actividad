@@ -8,7 +8,7 @@ import {
   projectBranch,
   type OutlookLoanOfficer,
 } from '@/lib/outlook/loadData';
-import { OUTLOOK_STRATEGIES, cadenceLabel, type OutlookStrategy } from '@/lib/outlook/project';
+import { cadenceLabel, type OutlookStrategy } from '@/lib/outlook/project';
 import { fmt } from '@/lib/outlook/format';
 import { useOutlookDataContext } from '@/lib/outlook/useOutlookData';
 import StrategyEditor from '@/app/outlook/components/StrategyEditor';
@@ -195,8 +195,6 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
     branchCurrent,
     projectBranch(branch, remainingMonths)
   );
-  /* nombre + doce meses + total + benchmark + regla */
-  const colCount = monthsOfYear.length + 4;
 
   /*
    * ⚠ Cuantos benchmarks de estrategia hay CARGADOS en este branch.
@@ -267,32 +265,86 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
     };
   }
 
-  /**
-   * ⚠ QUIÉN APORTA A ESTA ESTRATEGIA, Y POR QUÉ TENER UNA REGLA NO CUENTA.
+
+  /*
+   * ==========================================================================
+   * LAS CINCO FILAS, CALCULADAS UNA VEZ — etapa OL9
+   * ==========================================================================
    *
-   * Aporta quien tenga PRODUCCIÓN, o BENCHMARK, o MESES FIJADOS a mano. Los
-   * tres mueven un número de la fila de la estrategia.
-   *
-   * Tener una regla de crecimiento NO alcanza, y esto se descubrió mirando la
-   * pantalla: la siembra de OL1 dejó 185 reglas --las 37 personas × 5
-   * estrategias-- así que "tiene regla" es verdad para TODOS. Con esa condición
-   * cada estrategia abría las 9 personas del branch, 45 filas casi todas en `–`
-   * y todas con el mismo texto de regla. Una regla sobre un benchmark en cero no
-   * proyecta nada: es una intención guardada, no un aporte.
-   *
-   * Quien no aporta sigue siendo alcanzable --hay que poder fijarle un
-   * presupuesto-- detrás de "show the N with no budget", al final de la
-   * estrategia abierta. Lo que se ve por defecto es lo que tiene números.
+   * ⚠ Salieron del JSX porque ahora las lee DOS veces: las filas y el total del
+   * branch, que es su suma. Calcularlas dentro del `map` y sumar aparte habria
+   * dejado dos definiciones del mismo numero, y la de abajo podria no dar la
+   * suma de las de arriba -- que es exactamente lo que este total viene a
+   * garantizar.
    */
-  /* Arrow y no `function`: una declaracion hoisted pierde el estrechamiento de
-     `branch` que hizo el guard de arriba. */
-  const contributes = (lo: OutlookLoanOfficer, s: OutlookStrategy): boolean => {
-    const st = lo.strategies.find((x) => x.strategy === s);
-    if (st && st.ytd) return true;
-    if (lo.strategyBenchmarks[s]) return true;
-    if (Object.keys(lo.targetsByStrategy[s] ?? {}).length) return true;
-    return false;
-  };
+  const strategyRows = branch.byStrategy
+    /*
+      ⚠ NPPM NO SE MUESTRA DONDE NO HAY REALTORS. Se abre por realtor, así que
+      sin realtors es una fila que no se puede abrir y no tiene nada que decir;
+      el 747 no tiene ninguno. Las tres de branch SÍ se quedan aunque estén en
+      cero: son el lugar donde se les fija el presupuesto.
+    */
+    .filter((bs) => bs.strategy !== 'NPPM' || bs.realtors.length > 0)
+    .map((bs) => {
+      const s = bs.strategy;
+      /*
+        ⚠ EL PRESUPUESTO SOLO SE PROYECTA DONDE HAY DE DONDE.
+        Own Production proyecta: su benchmark vive en `org.employee_benchmark`,
+        por persona, y el motor ya lo resuelve. Las otras no: sus tablas de
+        decisión cuelgan de `employee_key` y una estrategia del branch no tiene
+        dónde guardar su presupuesto todavía. Van en `null` --celda vacía-- y no
+        en 0, que afirmaría que se decidió que no cierre nada.
+      */
+      const proyecta = s === 'Own Production';
+      const proj: Record<string, number | null> = {};
+      if (proyecta) {
+        for (const lo of branch.loanOfficers) {
+          const steps = projectLoanOfficer(lo, remainingMonths).stepsByStrategy[s] ?? [];
+          remainingMonths.forEach((m, i) => {
+            proj[m] = (proj[m] ?? 0) + (steps[i]?.value ?? 0);
+          });
+        }
+      }
+      /*
+        El mes en curso es lo REAL cerrado, no el pronóstico y no un hueco:
+        ninguna fila de acá tiene pronóstico --el pipeline no lleva la estrategia
+        consigo-- y la regla del módulo para ese caso es la de AFFINITY.
+      */
+      const sYear = composeYear(
+        monthsOfYear,
+        currentMonth,
+        bs.actualByMonth,
+        bs.actualByMonth[currentMonth] ?? 0,
+        proj
+      );
+      const bench =
+        s === 'Own Production'
+          ? branch.loanOfficers.reduce((a, lo) => a + (lo.strategyBenchmarks[s] ?? 0), 0)
+          : s === 'NPPM'
+            ? bs.realtors.reduce((a, r) => a + r.benchmark, 0)
+            : null;
+      return { bs, s, proyecta, sYear, bench };
+    });
+
+  /*
+   * ⚠ EL TOTAL DEL BRANCH ES LA SUMA DE LAS CINCO. Nada más.
+   *
+   * No sale de `projectBranch` ni de sumar personas: se suma lo que la tabla
+   * muestra, columna por columna. Así el total no puede discrepar de sus filas
+   * por construcción, que es lo que una tabla de presupuesto necesita.
+   *
+   * ⚠ CONSECUENCIA QUE HAY QUE SABER: el mes en curso de esta suma es lo REAL
+   * cerrado, mientras la lista de branches muestra el PRONÓSTICO de ese mes. Los
+   * dos números son correctos y distintos, y la diferencia es la parte del
+   * pronóstico que todavía no cerró. El subtítulo la dice para que nadie tenga
+   * que descubrirla comparando dos pantallas.
+   */
+  const totalByMonth: Record<string, number | null> = {};
+  for (const m of monthsOfYear) {
+    const aportan = strategyRows.filter((r) => r.sYear.byMonth[m] !== null);
+    totalByMonth[m] = aportan.length === 0 ? null : aportan.reduce((a, r) => a + (r.sYear.byMonth[m] ?? 0), 0);
+  }
+  const totalFromStrategies = strategyRows.reduce((a, r) => a + r.sYear.total, 0);
 
   return (
     <div className="hub-container ol-page">
@@ -327,28 +379,78 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                 (+{branch.unattributed} outside the division)
               </span>
             ) : null}{' '}
-            · {year} total {fmt(branchYear.total)}
+            {/*
+              ⚠ LOS DOS TOTALES SON DISTINTOS Y LOS DOS SON CORRECTOS, y se
+              muestran juntos para que nadie tenga que descubrirlo comparando dos
+              pantallas.
+
+              El de la tabla es la suma de las cinco estrategias, y su mes en
+              curso es lo REAL cerrado. El de la lista de branches usa el
+              PRONOSTICO de ese mes. La diferencia es exactamente la parte del
+              pronostico que todavia no cerro.
+            */}
+            · {year} total {fmt(totalFromStrategies)}
+            {Math.abs(branchYear.total - totalFromStrategies) > 0.001 && (
+              <span
+                title={
+                  `The table adds up the five strategies, where ${monthLabel(currentMonth)} is what actually closed. ` +
+                  `The branch list shows ${fmt(branchYear.total)} because it uses the month's forecast instead. The ` +
+                  `difference is the part of that forecast that has not closed yet.`
+                }
+              >
+                {' '}
+                ({fmt(branchYear.total)} in the branch list, which forecasts {monthLabel(currentMonth)})
+              </span>
+            )}
           </p>
         </div>
       </div>
 
       {/*
-        ══════════════════════════ BLOQUE 1 ══════════════════════════════════
-        Las personas, en filas planas. Nada que abrir: quién es y cuánto hace.
+        ══════════════════════ UNA SOLA TABLA — etapa OL9 ═════════════════════
+        Cada estrategia se abre por lo que corresponde a SU unidad de decision
+        -- ver `BranchStrategy` en el loader:
+
+          Own Production  por LOAN OFFICER
+          NPPM            por REALTOR
+          B2B             no se abre: es del branch
+          Recruitment     no se abre: es del branch
+          Affinity        no se abre: es del branch
+
+        ⚠ HABIA UN BLOQUE DE LOAN OFFICERS ARRIBA Y SE FUE. Su contenido vive
+        dentro de Own Production, que ya se abria por persona, asi que eran dos
+        listas de la misma gente en la misma pantalla. Lo que se movio con el:
+        el rol (BM) y el estado del roster, que van al lado del nombre en su
+        fila. Lo que se saco: la columna de funnel, que es informacion de
+        Business Plan y no tiene lugar en una tabla de presupuesto.
+
+        ⚠ Y LO QUE DEJO DE EXISTIR: la fila con el TOTAL de una persona. Galo
+        Rizzo mostraba 45 arriba --sus cinco estrategias-- y 38 abajo en Own
+        Production; queda el 38. Un presupuesto se arma por estrategia, asi que
+        esta bien; pero "cuanto hace Galo Rizzo en total" pasa a ser una
+        pregunta de Business Plan y ya no se contesta aca.
       */}
-      <h2 className="ol-block__title">Loan officers</h2>
+      <h2 className="ol-block__title">Budget by strategy</h2>
 
       <div className="tbl-scroll">
         <table className="piv bp-table--los ol-year">
           <thead>
+            {/*
+              ⚠ LAS BANDAS VOLVIERON, Y CON UN ROTULO DISTINTO. Vivian en la
+              cabecera del bloque de Loan Officers, que en OL9 dejo de existir.
+
+              Y aca `Actual — closed` llega HASTA EL MES EN CURSO inclusive, no
+              hasta el anterior: en esta tabla ese mes es lo que cerro, no un
+              pronostico -- ninguna estrategia tiene pronostico porque el
+              pipeline no lleva la estrategia consigo. Copiar la banda
+              `Forecast` de la otra vista habria rotulado como pronostico una
+              columna de cierres reales.
+            */}
             <tr className="yr-row">
               <th className="lbl"></th>
-              {actualMonths.length > 0 && (
-                <th className="bp-center ol-band ol-band--actual" colSpan={actualMonths.length}>
-                  Actual — closed
-                </th>
-              )}
-              <th className="bp-center ol-band ol-band--forecast">Forecast</th>
+              <th className="bp-center ol-band ol-band--actual" colSpan={actualMonths.length + 1}>
+                Actual — closed
+              </th>
               {remainingMonths.length > 0 && (
                 <th className="bp-center ol-band ol-band--budget" colSpan={remainingMonths.length}>
                   Budget
@@ -360,158 +462,6 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               </th>
             </tr>
             <tr className="mo-row">
-              <th className="lbl">Loan officer</th>
-              {monthsOfYear.map((m) => (
-                <th key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
-                  {monthLabel(m)}
-                </th>
-              ))}
-              <th className="bp-center totcol">{year}</th>
-              <th className="bp-center">Benchmark</th>
-              <th className="lbl">Funnel</th>
-            </tr>
-          </thead>
-          <tbody>
-            {branch.loanOfficers.map((lo) => {
-              const { byMonth } = projectLoanOfficer(lo, remainingMonths);
-              const here = isHere(lo);
-              /*
-               * Quien no tiene este branch en su roster no aporta pronóstico
-               * acá, pero sus cerrados del mes en este branch son reales: se
-               * muestran, con la misma regla que el branch.
-               */
-              const loCurrent = here ? lo.currentMonth : (lo.actualByMonth[currentMonth] ?? 0);
-              const loYear = composeYear(monthsOfYear, currentMonth, lo.actualByMonth, loCurrent, here ? byMonth : {});
-              const monthlyStrategies = OUTLOOK_STRATEGIES.filter(
-                (s) => (lo.modeByStrategy[s] ?? 'growth') === 'monthly'
-              );
-              const tag = STATE_TAG[lo.rosterState];
-
-              return (
-                <tr key={lo.employeeKey} className="metric">
-                  <td className="lbl">
-                    {lo.fullName}
-                    {tag && (
-                      <span className="bp-muted ol-tag" title={tag.title}>
-                        {tag.text}
-                      </span>
-                    )}
-                    {!lo.hasIdentity && (
-                      <span
-                        className="bp-muted ol-tag"
-                        title={
-                          'The roster says they produce, but there is no person_code alias tying them to an internal ' +
-                          'identity, and benchmark and plan both hang off it. Shown with name and branch so the ' +
-                          'branch total keeps adding up. Someone has to create the alias.'
-                        }
-                      >
-                        no internal identity
-                      </span>
-                    )}
-                    {/*
-                      El rol, que la tabla ya tiene y no cuesta nada mostrar. Son
-                      10 de los productores, y en `org.employee_branch` tienen
-                      DOS filas --una 'LO' y una 'BM'--, que es lo que hacía que
-                      un conteo ingenuo diera 44 personas en vez de 34.
-                    */}
-                    {lo.isBranchManager && (
-                      <span className="bp-muted ol-tag" title="Manages the branch as well as producing.">
-                        BM
-                      </span>
-                    )}
-                  </td>
-                  {monthsOfYear.map((m) => (
-                    <td
-                      key={m}
-                      className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}
-                      title={
-                        m === currentMonth
-                          ? `Month forecast: ${lo.closedToDate} already closed and the rest is pipeline with its ` +
-                            `rate. Closings are INSIDE this number.`
-                          : undefined
-                      }
-                    >
-                      {fmt(loYear.byMonth[m] ?? null)}
-                    </td>
-                  ))}
-                  <td
-                    className="bp-center totcol"
-                    title={
-                      `Sum of the twelve columns, ${monthLabel(currentMonth)} included. Below, by strategy, that ` +
-                      `month says "no data": Forecast does not break it down by strategy.`
-                    }
-                  >
-                    {fmt(loYear.total)}
-                  </td>
-                  <td
-                    className="bp-center"
-                    title={
-                      monthlyStrategies.length > 0
-                        ? `Sum of the benchmarks of the strategies projected by growth rate. ` +
-                          `${monthlyStrategies.join(', ')} ${monthlyStrategies.length === 1 ? 'is' : 'are'} set month ` +
-                          `by month: their months are the result, not a base, so their benchmark is not part of this.`
-                        : 'Sum of the five strategy benchmarks. Set them in Budget by strategy, below.'
-                    }
-                  >
-                    {fmt(lo.benchmarkTotal)}
-                  </td>
-                  <td className="lbl">
-                    {lo.activePlan ? (
-                      <span
-                        className="bp-plan-chip"
-                        title={`${lo.activePlan.funnelName} · ${lo.activePlan.doneMilestones} of ${lo.activePlan.totalMilestones} milestones`}
-                      >
-                        {lo.activePlan.funnelName} ·{' '}
-                        {Math.round((lo.activePlan.doneMilestones / Math.max(1, lo.activePlan.totalMilestones)) * 100)}%
-                      </span>
-                    ) : (
-                      <span className="bp-muted">no funnel</span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-
-            <tr className="metric ol-total">
-              <td className="lbl">Branch {branch.branchCode}</td>
-              {monthsOfYear.map((m) => (
-                <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
-                  {fmt(branchYear.byMonth[m] ?? null)}
-                </td>
-              ))}
-              <td className="bp-center totcol">{fmt(branchYear.total)}</td>
-              {/* El branch no tiene benchmark propio: la celda queda vacia. */}
-              <td className="bp-center"></td>
-              <td className="lbl"></td>
-            </tr>
-            {!branch.loanOfficers.length && (
-              <tr>
-                <td className="lbl bp-empty-cell" colSpan={colCount}>
-                  No loan officers in this branch.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/*
-        ══════════════════════════ BLOQUE 2 ══════════════════════════════════
-        El presupuesto por estrategia. Cada estrategia se abre por lo que
-        corresponde a SU unidad de decision -- ver `BranchStrategy` en el loader:
-
-          Own Production  por LOAN OFFICER
-          NPPM            por REALTOR
-          B2B             no se abre: es del branch
-          Recruitment     no se abre: es del branch
-          Affinity        no se abre: es del branch
-      */}
-      <h2 className="ol-block__title">Budget by strategy</h2>
-
-      <div className="tbl-scroll">
-        <table className="piv bp-table--los ol-year">
-          <thead>
-            <tr className="mo-row">
               <th className="lbl">Strategy</th>
               {monthsOfYear.map((m) => (
                 <th key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
@@ -521,84 +471,13 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               <th className="bp-center totcol">{year}</th>
               <th className="bp-center">Benchmark</th>
               <th className="lbl">Rule</th>
+              {/* Sin columna de funnel: es informacion de Business Plan. */}
             </tr>
           </thead>
           <tbody>
-            {branch.byStrategy
-              /*
-                ⚠ NPPM NO SE MUESTRA DONDE NO HAY REALTORS.
-                Se abre por realtor, así que sin realtors es una fila que no se
-                puede abrir y que no tiene nada que decir. El 747 no tiene
-                ninguno: mostrarla ahí sería una estrategia vacía compitiendo con
-                las cuatro que sí existen.
-
-                Las tres de branch --B2B, Recruitment, Affinity-- SÍ se quedan
-                aunque estén en cero: son el lugar donde se les fija el
-                presupuesto, y una estrategia sin presupuesto todavía es
-                justamente la que hay que ver.
-              */
-              .filter((bs) => bs.strategy !== 'NPPM' || bs.realtors.length > 0)
-              .map((bs) => {
-              const s = bs.strategy;
+            {strategyRows.map(({ bs, s, proyecta, sYear, bench }) => {
               const abierta = open.has('s:' + s);
               const plegable = bs.opensBy !== 'branch';
-
-              /*
-                ⚠ EL PRESUPUESTO SOLO SE PROYECTA DONDE HAY DE DONDE.
-
-                Own Production proyecta: su benchmark vive en
-                `org.employee_benchmark`, por persona, y el motor ya lo resuelve.
-
-                Las otras cuatro no proyectan, y no es lo mismo que proyectar
-                cero: `outlook.strategy_benchmark` cuelga de `employee_key`, asi
-                que una estrategia que ahora es DEL BRANCH no tiene donde guardar
-                su presupuesto. Los meses van en `null` --celda vacia-- porque no
-                hay ningun numero fijado, y un 0 afirmaria que se decidio que no
-                cierre nada. El SQL para guardarlo esta entregado sin ejecutar en
-                docs/sql; hasta entonces la fila lo dice en su columna de regla.
-              */
-              const proyecta = s === 'Own Production';
-              const proj: Record<string, number | null> = {};
-              if (proyecta) {
-                for (const lo of branch.loanOfficers) {
-                  const steps = projectLoanOfficer(lo, remainingMonths).stepsByStrategy[s] ?? [];
-                  remainingMonths.forEach((m, i) => {
-                    proj[m] = (proj[m] ?? 0) + (steps[i]?.value ?? 0);
-                  });
-                }
-              }
-              /*
-                ⚠ EL MES EN CURSO DE ESTE BLOQUE ES LO REAL CERRADO, no el
-                pronóstico y no un hueco.
-                Ninguna fila de acá tiene pronóstico: Forecast lo calcula sobre
-                el pipeline, que no lleva la estrategia consigo. La regla del
-                módulo para ese caso ya existe y es la de AFFINITY -- pronóstico
-                si proyecta, y si no, lo que cerró.
-                Lo que se ganó al aplicarla, medido: Laura Delgado tiene 5
-                cierres en el 776 y la fila mostraba 2, porque 3 son de agosto y
-                la celda de agosto estaba vacía. Tres cierres reales que no se
-                veían en ninguna parte de la pantalla.
-              */
-              const sYear = composeYear(
-                monthsOfYear,
-                currentMonth,
-                bs.actualByMonth,
-                bs.actualByMonth[currentMonth] ?? 0,
-                proj
-              );
-
-              /*
-                El benchmark de la estrategia. Own Production suma los de sus
-                personas; NPPM suma los de sus realtors --con el promedio de 3
-                meses como default--; las otras tres no tienen benchmark posible
-                todavia y van vacias.
-              */
-              const bench =
-                s === 'Own Production'
-                  ? branch.loanOfficers.reduce((a, lo) => a + (lo.strategyBenchmarks[s] ?? 0), 0)
-                  : s === 'NPPM'
-                    ? bs.realtors.reduce((a, r) => a + r.benchmark, 0)
-                    : null;
 
               const conBenchmark = branch.loanOfficers.filter((lo) => (lo.strategyBenchmarks[s] ?? 0) > 0).length;
               const regla =
@@ -708,6 +587,37 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                         <tr key={'s-' + s + '-' + lo.employeeKey} className="metric mrow">
                           <td className="lbl" style={{ paddingLeft: '30px' }}>
                             {lo.fullName}
+                            {/*
+                              ⚠ EL ESTADO Y EL ROL VIVIAN EN EL BLOQUE DE ARRIBA,
+                              que en OL9 dejo de existir. Se mudaron aca y no se
+                              perdieron: son lo que distingue a Isabel Wagner
+                              --una baja con produccion real-- de alguien que
+                              sigue produciendo, y a los 10 que ademas dirigen su
+                              branch. Sin eso la fila dice un nombre y un numero
+                              y hay que preguntar quien es.
+                            */}
+                            {STATE_TAG[lo.rosterState] && (
+                              <span className="bp-muted ol-tag" title={STATE_TAG[lo.rosterState].title}>
+                                {STATE_TAG[lo.rosterState].text}
+                              </span>
+                            )}
+                            {!lo.hasIdentity && (
+                              <span
+                                className="bp-muted ol-tag"
+                                title={
+                                  'The roster says they produce, but there is no person_code alias tying them to an ' +
+                                  'internal identity, and benchmark and plan both hang off it. Shown with name and ' +
+                                  'branch so the branch total keeps adding up. Someone has to create the alias.'
+                                }
+                              >
+                                no internal identity
+                              </span>
+                            )}
+                            {lo.isBranchManager && (
+                              <span className="bp-muted ol-tag" title="Manages the branch as well as producing.">
+                                BM
+                              </span>
+                            )}
                           </td>
                           {monthsOfYear.map((m) => (
                             <td
@@ -831,7 +741,35 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
 
                 </Fragment>
               );
-              })}
+            })}
+
+            {/*
+              El total del branch: la SUMA de las cinco filas de arriba, columna
+              por columna. Ver `totalByMonth` -- no se calcula por otra via.
+            */}
+            <tr className="metric ol-total">
+              <td className="lbl">Branch {branch.branchCode}</td>
+              {monthsOfYear.map((m) => (
+                <td
+                  key={m}
+                  className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}
+                  title={
+                    m === currentMonth
+                      ? `What actually closed in ${monthLabel(m)}, because no strategy has a forecast. The branch ` +
+                        `list shows the month's FORECAST instead — both are right, and the difference is the part of ` +
+                        `the forecast that has not closed yet.`
+                      : undefined
+                  }
+                >
+                  {fmt(totalByMonth[m])}
+                </td>
+              ))}
+              <td className="bp-center totcol" title="The sum of the five strategies, column by column.">
+                {fmt(totalFromStrategies)}
+              </td>
+              <td className="bp-center"></td>
+              <td className="lbl"></td>
+            </tr>
           </tbody>
         </table>
       </div>
