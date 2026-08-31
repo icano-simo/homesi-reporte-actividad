@@ -33,14 +33,33 @@
   box-shadow: var(--shadow-xs);
 }
 
-.hub-header__inner {
+/*
+ * ⚠ DOS FILAS — etapa OL6. Antes era un solo `__inner` con marca, nav y usuario
+ * compitiendo por el ancho; con seis pestañas el flex encogía la marca y el
+ * rótulo del módulo salía cortado. Ver la nota en `ServiceHubHeader.tsx`.
+ *
+ * Las dos filas comparten `--container-max` y el padding lateral, que es lo que
+ * las alinea con `.hub-container` y con el borde de las tablas (ver la nota de
+ * `bp-visual.css` sobre esa alineación).
+ */
+.hub-header__top,
+.hub-header__bar {
   max-width: var(--container-max);
   margin: 0 auto;
-  padding: 14px 32px;
+  padding: 0 32px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 24px;
+}
+.hub-header__top {
+  justify-content: space-between;
+  padding-top: 12px;
+  padding-bottom: 10px;
+}
+.hub-header__bar {
+  border-top: 1px solid var(--slate-100);
+  padding-top: 8px;
+  padding-bottom: 8px;
 }
 
 /* ---- Branding (izquierda) ---- */
@@ -94,26 +113,18 @@
 /* ---- Tabs de navegación (derecha) ---- */
 
 /*
- * ⚠ La navegación NUNCA se encoge — etapa ANALYTICS-GATE.
+ * La nav no se encoge. Viene de ANALYTICS-GATE, cuando compartía fila con la
+ * marca y el flex le comía el ancho al rótulo del módulo hasta dibujarlo debajo
+ * de las pestañas. Desde OL6 tiene su propia fila y ya no compite con nadie,
+ * pero la regla se queda: es la navegación de la app y no tiene por qué ceder.
  *
- * `.hub-header__inner` es un flex con tres hijos (marca · nav · usuario) y
- * `justify-content: space-between`. Al agregar la quinta pestaña, el flex
- * empezó a encoger la CAJA de la marca, pero `.hub-brand__module` tiene
- * `white-space: nowrap` y no tenía `overflow`, así que el texto se desbordaba
- * de su caja y quedaba dibujado DEBAJO de las pestañas.
- *
- * Medido en el navegador antes y después de agregar la pestaña: con cuatro
- * había 106px de holgura a 1440; con cinco, -18. Y no se veía comparando cajas
- * --las cajas no se solapaban, el texto sí-- sino midiendo el elemento que de
- * verdad pinta el texto.
- *
- * De acá salen las dos reglas: la nav no cede espacio (es la navegación de la
- * app), y el rótulo degrada primero recortándose y después escondiéndose.
+ * `gap: 8px` volvió a su valor original en OL6 -- había bajado a 6 para ganar
+ * 8px cuando las dos cosas convivían en una fila.
  */
 .hub-nav {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   flex-shrink: 0;
 }
 
@@ -124,21 +135,11 @@
   border: none;
   border-radius: var(--radius-full);
   /*
-   * 16px y no 20px de padding lateral — etapa ANALYTICS-GATE.
-   *
-   * Con cinco pestañas la nav dejó de entrar junto al rótulo del módulo dentro
-   * de `--container-max` (1380px): faltaban 43px. Los pone la nav, que es la
-   * que creció, y no el correo del menú de usuario ni el rótulo. Cuatro píxeles
-   * por lado en cinco pestañas son 40, más 8 de bajar el `gap` de 8 a 6: 48.
-   * Medido después: el rótulo vuelve a ocupar sus 124px enteros --los mismos
-   * que ocupaba con cuatro pestañas-- y quedan 32px de holgura.
-   *
-   * Se eligió esto y no achicar el correo porque el correo es funcional --dice
-   * con qué cuenta estás-- y el rótulo es identificación del producto; pagar
-   * con cualquiera de los dos habría sido degradar algo que informa para
-   * conservar espacio que ya se estaba usando de más.
+   * 20px, el valor original. Había bajado a 16 en ANALYTICS-GATE para hacerle
+   * lugar al rótulo del módulo en la misma fila; con la nav en su propia fila
+   * (OL6) esa presión no existe y el parche se deshace.
    */
-  padding: 8px 16px;
+  padding: 8px 20px;
   font-family: inherit;
   font-size: 12px;
   font-weight: 700;
@@ -233,7 +234,7 @@
   max-width: var(--container-max);
   margin: 0 auto;
   /* Etapa UX6: 32px laterales (antes 24) -- más aire entre el contenido y el
-     borde de la ventana. Coincide con el padding de `.hub-header__inner`, así
+     borde de la ventana. Coincide con el padding de `.hub-header__top`, así
      que logo y contenido quedan a la misma línea vertical. */
   padding: 32px 32px 64px;
 }
@@ -282,24 +283,27 @@
  * ------------------------------------------------------------------------ */
 
 /*
- * El rótulo del módulo se esconde ANTES que a 900px -- etapa ANALYTICS-GATE.
- *
- * Con cinco pestañas deja de entrar alrededor de 1400px, y un rótulo recortado
- * a "ANALYT…" no informa nada: es ruido al lado de la marca, que ya identifica
- * el producto. Por debajo de ese ancho se va entero y la nav queda completa.
+ * Acá vivía un `@media (max-width: 1439px)` que escondía el rótulo del módulo
+ * -- ANALYTICS-GATE, cuando la nav y la marca compartían fila y no entraban
+ * juntas. Con las dos filas de OL6 el rótulo entra a cualquier ancho, así que
+ * se fue. El de 900px de más abajo se queda: ahí lo que falta es espacio de
+ * verdad, no espacio robado por la nav.
  */
-@media (max-width: 1439px) {
-  .hub-brand__divider,
-  .hub-brand__module {
-    display: none;
-  }
-}
 
 @media (max-width: 900px) {
-  .hub-header__inner {
-    padding: 12px 16px;
+  .hub-header__top,
+  .hub-header__bar {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .hub-header__top {
     flex-wrap: wrap;
     row-gap: 12px;
+  }
+  /* La barra scrollea en vez de envolver: seis pestañas en dos líneas empujan
+     todo el contenido de cada pantalla hacia abajo. */
+  .hub-header__bar {
+    overflow-x: auto;
   }
   .hub-brand__divider,
   .hub-brand__module {

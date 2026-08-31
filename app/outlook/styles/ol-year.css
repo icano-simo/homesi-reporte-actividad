@@ -121,3 +121,56 @@ table.piv.ol-year thead .yr-row th.ol-band {
  * en `ol-scale.css`: en la etapa OL5 dejó de distinguirse por tamaño y pasó a
  * distinguirse por color, que es lo que permite tener una sola escala.
  */
+
+/*
+ * ============================================================================
+ * EL TÍTULO DE CADA BLOQUE — etapa OL7
+ * ============================================================================
+ *
+ * La vista 2 pasó de una tabla a dos: las personas arriba, el presupuesto por
+ * estrategia abajo. Sin un rótulo entre las dos, la segunda se lee como una
+ * continuación de la primera y sus totales --que no incluyen el mes en curso--
+ * parecen no cuadrar.
+ *
+ * ⚠ NO USA UN TAMAÑO NUEVO. La escala del módulo son dos (ver `ol-scale.css`) y
+ * este título usa el base, distinguiéndose por PESO, color y espacio. Un `h2`
+ * con su tamaño de navegador habría metido un tercer tamaño por la ventana.
+ *
+ * ⚠ Y va calificado con `.ol-page`, porque los CSS que importa un layout son
+ * GLOBALES, no módulos: un `.ol-block__title` suelto pintaría cualquier cosa que
+ * mañana use ese nombre en otro módulo.
+ */
+.ol-page .ol-block__title {
+  margin: 22px 0 8px;
+  font-size: var(--ol-text);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--slate-500);
+}
+
+/* El primero va pegado a la cabecera de la página, que ya trae su aire. */
+.ol-page .ol-block__title:first-of-type {
+  margin-top: 6px;
+}
+
+/*
+ * ============================================================================
+ * LAS DOS TABLAS ARRANCAN EN LA MISMA COLUMNA — etapa OL7
+ * ============================================================================
+ *
+ * La vista 2 son dos tablas independientes con los MISMOS doce meses. Sin esto,
+ * cada una le daba a su primera columna el ancho de su propio contenido --248px
+ * arriba, 400 abajo-- y los meses quedaban corridos entre las dos. Comparar la
+ * fila de una estrategia con la de una persona obligaba a leer la cabecera cada
+ * vez, que es justo lo que una tabla alineada te ahorra.
+ *
+ * ⚠ Es `width`, NO `table-layout: fixed`. Con `auto`, un `width` es una
+ * sugerencia: si el contenido no entra, la celda crece y no se recorta nada. Con
+ * `fixed` se recorta EN SILENCIO, que es exactamente el fallo que hubo en el
+ * Business Plan --nombres y etiquetas cortados sin ningún aviso-- y que sólo se
+ * ve midiendo `scrollWidth` contra el ancho renderizado.
+ */
+.ol-page .ol-year th.lbl {
+  width: 260px;
+}

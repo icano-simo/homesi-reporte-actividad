@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { OutlookDataProvider } from '@/lib/outlook/useOutlookData';
 /*
  * ⚠ Se importa la hoja del Business Plan, no una nueva.
  *
@@ -31,6 +32,18 @@ import './styles/ol-year.css';
  * cuando redirige la persona ya vio la pantalla. Ver el bloque de Outlook en
  * `proxy.ts`.
  */
+/*
+ * ⚠ El Provider va ACÁ y no en cada pantalla — etapa OL6.
+ *
+ * Un `layout.tsx` envuelve a las rutas hijas y NO se desmonta al navegar entre
+ * ellas, así que los datos se cargan una vez para las dos vistas. Con el estado
+ * en cada pantalla, ir de la vista 1 a la de un branch volvía a pedir las 33
+ * consultas: medido, 5.4 s y 58 requests para una navegación.
+ *
+ * Ver `lib/outlook/useOutlookData.tsx`, que además memoiza la promesa a nivel
+ * de módulo -- eso es lo que hace que el doble montaje de efectos de React en
+ * desarrollo no duplique la carga.
+ */
 export default function OutlookLayout({ children }: { children: ReactNode }) {
-  return <>{children}</>;
+  return <OutlookDataProvider>{children}</OutlookDataProvider>;
 }

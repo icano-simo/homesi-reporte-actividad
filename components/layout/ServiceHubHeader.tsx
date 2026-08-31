@@ -120,15 +120,37 @@ export default function ServiceHubHeader({ allowedApps }: { allowedApps: string[
    */
   if (isAuthRoute(pathname)) return null;
 
+  /*
+   * ==========================================================================
+   * ⚠ DOS FILAS, NO UNA — etapa OL6
+   * ==========================================================================
+   *
+   * Arriba la identidad: marca, rótulo del módulo y el usuario a la derecha.
+   * Abajo la navegación, a lo ancho.
+   *
+   * Con seis pestañas en una sola fila el flex encogía la marca y "ANALYTICS
+   * PORTAL" quedaba cortado --se leía "ANALY"--. En la etapa ANALYTICS-GATE eso
+   * se había compensado con dos parches: esconder el rótulo por debajo de
+   * 1440px y bajar el padding de las pestañas de 20 a 16. Los dos se deshacen
+   * acá, porque desaparece la causa: ninguna de las dos filas compite por el
+   * ancho de la otra.
+   *
+   * El `UserMenu` se muda a la fila de arriba. Estaba dentro de `<nav>`, que
+   * era incorrecto además de apretado: cerrar sesión no es un destino de
+   * navegación entre módulos.
+   */
   return (
     <header className="hub-header">
-      <div className="hub-header__inner">
+      <div className="hub-header__top">
         <div className="hub-brand">
           <BrandLockup />
           <span className="hub-brand__divider" aria-hidden="true" />
           <span className="hub-brand__module">{MODULE_TITLE}</span>
         </div>
+        <UserMenu />
+      </div>
 
+      <div className="hub-header__bar">
         <nav className="hub-nav" aria-label={MODULE_TITLE}>
           {visibleTabs.map((tab) => {
             const isActive = isTabActive(pathname, tab.href);
@@ -144,8 +166,6 @@ export default function ServiceHubHeader({ allowedApps }: { allowedApps: string[
               </Link>
             );
           })}
-          <span className="hub-brand__divider" aria-hidden="true" />
-          <UserMenu />
         </nav>
       </div>
     </header>
