@@ -376,15 +376,26 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
    * del mes, el benchmark de Own Production y el funnel activo. Outlook no
    * duplica ninguno de los cuatro.
    */
-  const bp: BusinessPlanData = await loadBusinessPlanData(reference);
-
-  const currentMonth = bp.diagnostics.pipelineMonths.current;
-  const remainingMonths = remainingMonthsOf(currentMonth);
-  const yearPrefix = currentMonth.split('-')[0] + '-';
-  const monthsOfYear = monthsOfYearFor(Number(currentMonth.split('-')[0]));
-
-  /* Cierres del año en curso, con su estrategia y su realtor NPPM. */
-  const rows = await readAll<ActivityYtdRow>((from, to) =>
+  /*
+   * ==========================================================================
+   * ⚠ LAS CUATRO LECTURAS ARRANCAN JUNTAS — etapa OL6
+   * ==========================================================================
+   *
+   * Antes iban en serie: primero se esperaba el Business Plan entero, después
+   * las páginas de `loan_records_v2`, después las cinco tablas de `outlook`, y
+   * al final las dos de `org`. Cuatro esperas encadenadas para cuatro cosas que
+   * no se necesitan entre sí.
+   *
+   * Verificado antes de tocarlo: NINGUNA de las tres lecturas de abajo usa nada
+   * de `bp`. La consulta de actividad no filtra por mes --el filtro del año se
+   * hace en JS, más abajo, con `yearPrefix`-- y los bloques de `outlook` y `org`
+   * no miran `currentMonth`. Por eso pueden empezar antes de que el Business
+   * Plan termine, sin cambiar un solo número.
+   *
+   * Se lanzan y se esperan todas en un `Promise.all`: si una falla, el error
+   * sale por ahí y ninguna promesa queda sin atender.
+   */
+  const activityPromise = readAll<ActivityYtdRow>((from, to) =>
     supabase
       .from('loan_records_v2')
       .select('loan_officer, loan_officer_person_code, branch, strategy, nppm_realtor, closing_month')
@@ -393,6 +404,34 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       .order('loan_number', { ascending: true })
       .range(from, to)
   );
+
+  const outlookPromise = (async () => {
+    const ol = supabase.schema('outlook');
+    return Promise.all([
+      ol.from('strategy_benchmark').select('*'),
+      ol.from('growth_rule').select('*'),
+      ol.from('nppm_benchmark').select('*'),
+      ol.from('monthly_target').select('*'),
+      ol.from('projection_mode').select('*'),
+    ]);
+  })();
+
+  const orgPromise = Promise.all([
+    supabase.schema('org').from('employee_alias').select('*'),
+    supabase.schema('org').from('source_name_excluded').select('source_system, name_raw'),
+  ]);
+
+  const [bp, rows, outlookTables, orgTables] = await Promise.all([
+    loadBusinessPlanData(reference) as Promise<BusinessPlanData>,
+    activityPromise,
+    outlookPromise,
+    orgPromise,
+  ]);
+
+  const currentMonth = bp.diagnostics.pipelineMonths.current;
+  const remainingMonths = remainingMonthsOf(currentMonth);
+  const yearPrefix = currentMonth.split('-')[0] + '-';
+  const monthsOfYear = monthsOfYearFor(Number(currentMonth.split('-')[0]));
 
   /*
    * Las tablas de `outlook` pueden no existir todavía -- el SQL lo aplica el
@@ -449,14 +488,8 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
   }
 
   try {
-    const ol = supabase.schema('outlook');
-    const [benchRes, ruleRes, nppmRes, targetRes, modeRes] = await Promise.all([
-      ol.from('strategy_benchmark').select('*'),
-      ol.from('growth_rule').select('*'),
-      ol.from('nppm_benchmark').select('*'),
-      ol.from('monthly_target').select('*'),
-      ol.from('projection_mode').select('*'),
-    ]);
+    /* Ya pedidas arriba, en paralelo con el resto -- ver el bloque de OL6. */
+    const [benchRes, ruleRes, nppmRes, targetRes, modeRes] = outlookTables;
 
     /*
      * ⚠ Las dos tablas de OL4 se leen APARTE de las de OL1, y su error no
@@ -583,10 +616,8 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
    * etapa no debe tocar -- pero se reusan `buildAliasIndex` y
    * `buildExcludedIndex`, que son las piezas que de verdad importan.
    */
-  const [aliasRes, excludedRes] = await Promise.all([
-    supabase.schema('org').from('employee_alias').select('*'),
-    supabase.schema('org').from('source_name_excluded').select('source_system, name_raw'),
-  ]);
+  /* Ya pedidas arriba, en paralelo con el resto -- ver el bloque de OL6. */
+  const [aliasRes, excludedRes] = orgTables;
   if (aliasRes.error) throw new Error('org.employee_alias: ' + aliasRes.error.message);
   const aliasIndex = buildAliasIndex((aliasRes.data ?? []) as never[]);
   const excludedIndex = buildExcludedIndex((excludedRes.data ?? []) as never[]);
