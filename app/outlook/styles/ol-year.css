@@ -299,3 +299,18 @@ table.piv.ol-year thead .yr-row th.ol-band {
 .ol-page .ol-edit {
   color: var(--slate-400);
 }
+
+/*
+ * La fila de reconciliación: lo que ninguna estrategia reclama.
+ *
+ * ⚠ NO ES UNA ESTRATEGIA, y no puede parecerlo: va en cursiva y atenuada, sin
+ * el peso de `tr.grp`, para que se lea como la línea que cierra la cuenta y no
+ * como una sexta categoría de producción. Pero SÍ suma al total, así que
+ * tampoco puede desaparecer visualmente -- de ahí el borde superior punteado,
+ * que dice "esto se suma" sin competir con los datos.
+ */
+.ol-page table.piv.ol-year tr.ol-residual td {
+  font-style: italic;
+  color: var(--slate-500);
+  border-top: 1px dashed var(--slate-300);
+}

@@ -339,12 +339,66 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * pronóstico que todavía no cerró. El subtítulo la dice para que nadie tenga
    * que descubrirla comparando dos pantallas.
    */
-  const totalByMonth: Record<string, number | null> = {};
+  const strategiesByMonth: Record<string, number | null> = {};
   for (const m of monthsOfYear) {
     const aportan = strategyRows.filter((r) => r.sYear.byMonth[m] !== null);
-    totalByMonth[m] = aportan.length === 0 ? null : aportan.reduce((a, r) => a + (r.sYear.byMonth[m] ?? 0), 0);
+    strategiesByMonth[m] = aportan.length === 0 ? null : aportan.reduce((a, r) => a + (r.sYear.byMonth[m] ?? 0), 0);
   }
-  const totalFromStrategies = strategyRows.reduce((a, r) => a + r.sYear.total, 0);
+
+  /*
+   * ==========================================================================
+   * LA FILA DE RECONCILIACIÓN — lo que ninguna estrategia reclama
+   * ==========================================================================
+   *
+   * `residual[m] = lo que muestra la lista de branches − lo que suman las cinco`
+   *
+   * ⚠ ES UN RESIDUO PURO, y por eso el total sigue siendo la suma de las filas:
+   * sumar las cinco más el residuo da, por construcción, el número de la lista.
+   * Definirlo como "el pipeline que falta cerrar" habría sido una segunda
+   * fórmula que puede desviarse; así no puede.
+   *
+   * ⚠ Y VA POR MES, NO SÓLO EN EL MES EN CURSO. Empezó como una fila con una
+   * sola celda --agosto, el pronóstico que no se puede abrir por estrategia--
+   * hasta que la medición mostró una SEGUNDA causa, en otro mes: el 733 tiene
+   * mayo 7 en esta tabla y 6 en la lista. Es el cierre NPPM de Daniel Rodriguez,
+   * que cuenta para el realtor y no para el branch porque su originador está
+   * excluido de la división (ver el `+1` en la fila de NPPM). Con el residuo
+   * limitado a agosto el total NO habría cuadrado en el 733: 75 + 2,2 = 77,2
+   * contra 76,2. Por mes cuadra siempre.
+   *
+   * Las dos causas de hoy, entonces:
+   *   mes en curso   el pronóstico del mes, que el pipeline no abre por
+   *                  estrategia. Desaparece el día que lo haga.
+   *   otros meses    cierres contados a un realtor y no al branch.
+   *
+   * ⚠ PUEDE SER NEGATIVO Y NO SE CLAMPEA. Medido: el 710 da −0,6 -- cerró 2 en
+   * agosto y su pronóstico era 1,4, porque sus 2 préstamos abiertos del mes no
+   * son healthy. Un `max(0, ...)` rompería justo el invariante que esta fila
+   * viene a garantizar, y taparía una noticia: ese branch ya pasó lo que se
+   * esperaba del mes. Por eso el rótulo lo dice al derecho --"already above
+   * forecast"-- y no describe el signo.
+   */
+  const residual: Record<string, number> = {};
+  for (const m of monthsOfYear) {
+    residual[m] = (branchYear.byMonth[m] ?? 0) - (strategiesByMonth[m] ?? 0);
+  }
+  const residualTotal = monthsOfYear.reduce((a, m) => a + residual[m], 0);
+  /* Sólo se muestra si hay algo que reconciliar: 11 de 16 no la necesitan. */
+  const showResidual = monthsOfYear.some((m) => Math.abs(residual[m]) > 0.001);
+  const currentAboveForecast = residual[currentMonth] < -0.001;
+
+  /*
+   * El total: la suma de las filas que la tabla MUESTRA, incluida la de
+   * reconciliación. Da el mismo número que la lista de branches, por
+   * construcción -- y así el invariante "el total es la suma de las filas"
+   * sigue siendo literal en vez de casi.
+   */
+  const totalByMonth: Record<string, number | null> = {};
+  for (const m of monthsOfYear) {
+    const base = strategiesByMonth[m];
+    totalByMonth[m] = base === null && !showResidual ? null : (base ?? 0) + residual[m];
+  }
+  const totalFromStrategies = strategyRows.reduce((a, r) => a + r.sYear.total, 0) + residualTotal;
 
   return (
     <div className="hub-container ol-page">
@@ -380,28 +434,11 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               </span>
             ) : null}{' '}
             {/*
-              ⚠ LOS DOS TOTALES SON DISTINTOS Y LOS DOS SON CORRECTOS, y se
-              muestran juntos para que nadie tenga que descubrirlo comparando dos
-              pantallas.
-
-              El de la tabla es la suma de las cinco estrategias, y su mes en
-              curso es lo REAL cerrado. El de la lista de branches usa el
-              PRONOSTICO de ese mes. La diferencia es exactamente la parte del
-              pronostico que todavia no cerro.
+              Un solo total, porque la tabla ahora cuadra con la lista: la fila
+              de reconciliacion lleva la diferencia. Antes aca habia dos numeros
+              y una explicacion de por que no coincidian.
             */}
             · {year} total {fmt(totalFromStrategies)}
-            {Math.abs(branchYear.total - totalFromStrategies) > 0.001 && (
-              <span
-                title={
-                  `The table adds up the five strategies, where ${monthLabel(currentMonth)} is what actually closed. ` +
-                  `The branch list shows ${fmt(branchYear.total)} because it uses the month's forecast instead. The ` +
-                  `difference is the part of that forecast that has not closed yet.`
-                }
-              >
-                {' '}
-                ({fmt(branchYear.total)} in the branch list, which forecasts {monthLabel(currentMonth)})
-              </span>
-            )}
           </p>
         </div>
       </div>
@@ -744,8 +781,60 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
             })}
 
             {/*
-              El total del branch: la SUMA de las cinco filas de arriba, columna
-              por columna. Ver `totalByMonth` -- no se calcula por otra via.
+              LO QUE NINGUNA ESTRATEGIA RECLAMA. Ver `residual` arriba: es un
+              residuo puro, asi que el total sigue siendo la suma de las filas.
+              No se muestra cuando no hay nada que reconciliar.
+            */}
+            {showResidual && (
+              <tr className="metric ol-residual">
+                <td className="lbl">
+                  {currentAboveForecast
+                    ? `${monthLabel(currentMonth)} already above forecast`
+                    : `${monthLabel(currentMonth)} pipeline, no strategy yet`}
+                  <span
+                    className="bp-muted ol-tag"
+                    title={
+                      currentAboveForecast
+                        ? `This branch has already closed more this month than its forecast expected: ` +
+                          `${fmt(strategiesByMonth[currentMonth])} closed against a forecast of ` +
+                          `${fmt(branchYear.byMonth[currentMonth])}. The row carries the difference so the total ` +
+                          `matches the branch list.`
+                        : `The part of ${monthLabel(currentMonth)}'s forecast that no strategy can claim: Forecast ` +
+                          `projects the month from the pipeline, which does not carry the strategy. This row goes ` +
+                          `away the day it does.`
+                    }
+                  >
+                    not a strategy
+                  </span>
+                </td>
+                {monthsOfYear.map((m) => (
+                  <td
+                    key={m}
+                    className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}
+                    title={
+                      Math.abs(residual[m]) <= 0.001
+                        ? undefined
+                        : m === currentMonth
+                          ? `The branch list shows ${fmt(branchYear.byMonth[m])} for ${monthLabel(m)} and the five ` +
+                            `strategies add up to ${fmt(strategiesByMonth[m])}. This is the difference.`
+                          : `${monthLabel(m)} differs from the branch list by ${fmt(residual[m])}: closings counted ` +
+                            `for a realtor but not for the branch, because the loan officer who originated them is ` +
+                            `outside the division. See the tag on the NPPM row.`
+                    }
+                  >
+                    {Math.abs(residual[m]) <= 0.001 ? '' : fmt(residual[m])}
+                  </td>
+                ))}
+                <td className="bp-center totcol">{fmt(residualTotal)}</td>
+                <td className="bp-center"></td>
+                <td className="lbl"></td>
+              </tr>
+            )}
+
+            {/*
+              El total del branch: la SUMA de las filas de arriba, columna por
+              columna, incluida la de reconciliacion. Ver `totalByMonth` -- no se
+              calcula por otra via, y da el mismo numero que la lista.
             */}
             <tr className="metric ol-total">
               <td className="lbl">Branch {branch.branchCode}</td>
@@ -755,9 +844,8 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                   className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}
                   title={
                     m === currentMonth
-                      ? `What actually closed in ${monthLabel(m)}, because no strategy has a forecast. The branch ` +
-                        `list shows the month's FORECAST instead — both are right, and the difference is the part of ` +
-                        `the forecast that has not closed yet.`
+                      ? `The month's forecast, same as in the branch list. The five strategies add up to ` +
+                        `${fmt(strategiesByMonth[m])} — what actually closed — and the row above carries the rest.`
                       : undefined
                   }
                 >
