@@ -141,6 +141,51 @@ table.piv.adm-tbl th.bp-center {
   color: var(--slate-400);
 }
 
+/*
+ * ── Estado de la SUCURSAL, en el encabezado del grupo ───────────────────────
+ *
+ * DELIBERADAMENTE DISTINTO de `.adm-estado`, que es el estado de la PERSONA en
+ * la columna "Estado" de la tabla. Son dos cosas independientes que conviven en
+ * la misma tarjeta --hoy hay una sucursal inactiva con una persona activa
+ * adentro-- y si se vieran iguales, el encabezado se leería como un resumen de
+ * las filas de abajo.
+ *
+ * La diferencia es de FORMA, no sólo de color: éste va en versalitas con borde
+ * y fondo transparente; el de la persona es una pastilla rellena sin borde.
+ * Alguien que no distinga los verdes igual ve que no son la misma clase de cosa.
+ */
+.adm-branch__state {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--slate-300);
+  background: transparent;
+  color: var(--slate-500);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.adm-branch__state--on {
+  border-color: var(--emerald-200);
+  color: var(--emerald-700);
+}
+.adm-branch__state--off {
+  border-color: var(--rose-200);
+  color: var(--rose-700);
+}
+
+/*
+ * "N personas activas acá", en una sucursal inactiva. NO es una advertencia: no
+ * hay nada que arreglar -- la sucursal cerró y la persona sigue empleada. Va en
+ * tono neutro por eso; en ámbar o rojo se leería como un error a corregir, que
+ * es exactamente la confusión que este texto viene a evitar.
+ */
+.adm-branch__mixed {
+  color: var(--slate-500);
+  font-style: italic;
+}
+
 /* ── Estado y marcas ─────────────────────────────────────────────────────── */
 
 .adm-estado {
