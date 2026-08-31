@@ -1528,14 +1528,19 @@ function ParetoChart({
 
 /**
  * ============================================================================
- * MAPA DE EE.UU. — Property State, Etapa MAP-PREVIEW-1
+ * MAPA DE EE.UU. — Property State
  * ============================================================================
  *
- * Prueba visual, sección NUEVA -- no reemplaza ni toca la tabla existente
- * "Subject Property State" (RankingTable, más abajo en Product Mix &
- * Geography). Misma fuente de datos (`propertyStateRanking`, ya filtrada por
+ * Etapa MAP-PREVIEW-1: nació como una prueba visual aparte, sin tocar la
+ * tabla "Subject Property State" que existía entonces. Etapa
+ * FIX-REMOVE-PROPERTY-STATE-TABLE: esa tabla se retiró (este componente ya
+ * cubre la misma información -- State/Count/Amount + Total + drill-down),
+ * y este mapa pasó a ser la única pieza de "Geography" de Product Mix &
+ * Geography, dentro de esa sección (ya no al final de la pestaña).
+ *
+ * Misma fuente de datos (`propertyStateRanking`, ya filtrada por
  * período/branch por construcción, igual que toda la pestaña) -- ningún
- * cálculo nuevo, solo una segunda forma de mostrar el mismo ranking.
+ * cálculo nuevo.
  *
  * Geometría real de los 50 estados + DC (`lib/pipeline/usStatesSvgPaths.ts`,
  * adaptado del mapa en blanco de Wikipedia/Wikimedia Commons, dominio
@@ -1582,6 +1587,18 @@ function blendSkyToNavy(count: number, minCount: number, maxCount: number): stri
   return `rgb(${r}, ${g}, ${b})`;
 }
 
+/**
+ * FIX-MAP-LEGEND-TOOLTIP: código -> nombre completo del estado, para el
+ * `title` nativo de la leyenda. Reusa `US_STATE_PATHS` (lib/pipeline/
+ * usStatesSvgPaths.ts, ya importado para dibujar el mapa) -- ese archivo
+ * YA tiene los 51 pares código/nombre reales (confirmado: "CO" ->
+ * "Colorado", etc.), así que no hace falta un diccionario nuevo duplicado.
+ * `Map` construido UNA sola vez a nivel de módulo (no adentro de
+ * `PropertyStateMap`, que se re-renderiza en cada cambio de período/branch)
+ * -- `US_STATE_PATHS` es una constante estática, nunca cambia en runtime.
+ */
+const US_STATE_NAME_BY_CODE = new Map(US_STATE_PATHS.map((s) => [s.code, s.name]));
+
 function PropertyStateMap({
   rows,
   onStateClick,
@@ -1594,7 +1611,7 @@ function PropertyStateMap({
   const counts = [...byCode.values()].map((r) => r.count);
   const minCount = counts.length ? Math.min(...counts) : 0;
   const maxCount = counts.length ? Math.max(...counts) : 0;
-  /** Etapa FIX-MAP-2: mismo orden que la tabla "Subject Property State" de arriba (desc por count) -- la leyenda es un resumen, no una segunda fuente de verdad con su propio criterio de orden. */
+  /** Etapa FIX-MAP-2: orden desc por count (mismo criterio que ya usaba la tabla "Subject Property State" antes de retirarse, Etapa FIX-REMOVE-PROPERTY-STATE-TABLE) -- la leyenda es un resumen, no una fuente de verdad con su propio criterio de orden. */
   const legendRows = [...byCode.values()].sort((a, b) => b.count - a.count);
   /** Etapa FIX-MAP-4: suma de los estados LISTADOS en la leyenda (no de `rows` completo) -- es un total de "lo que se ve acá", no una segunda fuente de verdad con su propio universo. */
   const legendTotalCount = legendRows.reduce((sum, r) => sum + r.count, 0);
@@ -1672,8 +1689,14 @@ function PropertyStateMap({
                   className="us-map-legend__swatch"
                   style={{ background: blendSkyToNavy(row.count, minCount, maxCount) }}
                 />
-                <span className="us-map-legend__label">{row.label}</span>
-                <span className="us-map-legend__count">{fmtInt(row.count)}</span>
+                {/* FIX-MAP-LEGEND-TOOLTIP: `row.label` es el código de 2 letras -- `title` nativo con el nombre completo, mismo mecanismo de tooltip ya usado en otras columnas truncadas de la app (ej. `title={row.label}` en `ScorecardTable`, más arriba en este archivo). `?? row.label` es un respaldo defensivo, nunca debería faltar: los códigos que puede traer `row.label` acá son exactamente los 51 de `US_STATE_PATHS` (es el mismo `state.code` que ya usa el mapa para pintar), nunca uno fuera de esa lista. */}
+                <span className="us-map-legend__label" title={US_STATE_NAME_BY_CODE.get(row.label) ?? row.label}>
+                  {row.label}
+                </span>
+                {/* Etapa FIX-MAP-LEGEND-BAR: misma barra de proporción detrás del label que ya usan Loan Program/Loan Type (rankBarStyle, RankingTable más arriba) -- acá contra `maxCount` (el máximo real entre los estados CON datos, ya calculado arriba para el color del mapa), no contra el total general. */}
+                <span className="us-map-legend__count" style={rankBarStyle(row.count, maxCount)}>
+                  {fmtInt(row.count)}
+                </span>
                 {/* Etapa FIX-MAP-4: monto completo (fmtAmount), no fmtAmountShort -- se pidió el numero real, no una version redondeada a "M"/"K". */}
                 <span className="us-map-legend__amount">${fmtAmount(row.amount)}</span>
               </div>
@@ -2612,20 +2635,30 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
         ==========================================================================
         CAPA 3 — PRODUCT MIX & GEOGRAPHY (reorganizada, mismos rankings de siempre)
         ==========================================================================
-        Etapa AJUSTES-ANALYTICS-1, punto 3: grid de **3 columnas parejas**,
-        una sola fila -- Loan Program, Loan Type y Subject Property State
-        lado a lado (antes: 2 columnas, con Loan Program+Loan Type apilados
-        en la primera). Loan Type Distribution by Month sigue APARTE, a
-        ancho completo (`gridColumn: '1 / -1'`, sigue abarcando las 3
-        columnas del grid nuevo) -- eso no cambia, seguía leyéndose bien a
-        ese ancho desde el fix de BI-REDESIGN-2 (punto sobre el grid de 2
-        columnas, comentario ya reemplazado por este). Subject Property
-        State: se evaluó la barra horizontal en vez de tabla plana (nota
-        del brief), pero con las 793 filas reales de este snapshot ya
-        clasificadas en ~40 estados/territorios, una tabla con barra DETRÁS
-        del label (mismo mecanismo transversal de abajo, `rankBarStyle`)
-        cumple el pedido sin construir un componente de barras nuevo -- ver
-        `RankingTable` más arriba.
+        Etapa FIX-REMOVE-PROPERTY-STATE-TABLE: la tabla "Subject Property
+        State" (RankingTable) se retira -- el mapa (`PropertyStateMap`, con
+        su leyenda State/Count/Amount + fila Total + drill-down por clic)
+        cubre exactamente la misma información, ahora también con la barra
+        de proporción que tenía la tabla (ver el ajuste dentro de
+        `PropertyStateMap`). Mostrar las dos era mantener dos fuentes
+        visuales de un mismo dato -- el riesgo de que se desincronicen a
+        futuro (una se actualiza, la otra no) sin ganar nada a cambio.
+        Confirmado por grep que ninguna otra parte del archivo usa esa
+        instancia específica de RankingTable -- `propertyStateRanking` (el
+        dato) SIGUE existiendo, lo sigue leyendo el mapa más abajo.
+        `propertyStateDataMissing` también sigue existiendo -- lo usa el
+        gate del mapa, que ya tenía su propio mensaje (no dependía del de
+        la tabla).
+        El mapa, que antes vivía solo al final de la pestaña como "preview"
+        aparte (sin tocar la tabla, etapa original), se MUEVE acá adentro
+        -- es la pieza real de "Geography" del nombre de esta capa, tiene
+        sentido que viva en su sección, no después de Commercial Scorecards
+        y Productivity & Concentration.
+        Grid: de 3 columnas parejas (Program/Type/State) a 2 (Program/Type
+        únicamente) -- el mapa necesita mucho más ancho que un tercio de
+        columna para que el mapa+leyenda (68%/32% interno) se lea bien, así
+        que pasa a fila completa (`gridColumn: '1 / -1'`), igual que Loan
+        Type Distribution by Month.
       */}
       <h3 id="analytics-section-mix" style={{ margin: '24px 0 12px' }}>
         Product Mix &amp; Geography
@@ -2637,7 +2670,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
         detail="This breakdown is independent of the pull-through, Healthy, and Adverse figures shown elsewhere in Forecast -- viewing it doesn't change any of those numbers."
       />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '20px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '20px' }}>
         <RankingTable
           title="Loan Program"
           columnLabel="Program"
@@ -2672,7 +2705,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
         />
 
         {propertyStateDataMissing ? (
-          <div className="tbl-card" style={{ padding: '16px' }}>
+          <div className="tbl-card" style={{ padding: '16px', gridColumn: '1 / -1' }}>
             {/*
               Etapa PROPERTY-STATE-1: mismo criterio que Strategy Mix (F7.23) --
               un ranking 100% "Sin estado" se leería como un resultado real de
@@ -2689,22 +2722,24 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
             </p>
           </div>
         ) : (
-          <RankingTable
-            title="Subject Property State"
-            columnLabel="State"
-            rows={propertyStateRanking}
-            totalCount={fundedInRange.length}
-            onRowClick={(row) =>
-              setDrillDown({
-                metric: 'Subject Property State',
-                context: row.label,
-                loans: fundedInRange
-                  .filter((l) => (l.propertyState.trim() || NO_PROPERTY_STATE_LABEL) === row.label)
-                  .map(closedLoanToModalLoan),
-                hiddenColumns: ['propertyState', 'milestone', 'status'],
-              })
-            }
-          />
+          <div className="tbl-card us-map-fade-in" style={{ padding: '16px', gridColumn: '1 / -1' }}>
+            <div className="tbl-card__head">
+              <span className="tbl-card__title">Subject Property State</span>
+            </div>
+            <PropertyStateMap
+              rows={propertyStateRanking}
+              onStateClick={(row) =>
+                setDrillDown({
+                  metric: 'Subject Property State',
+                  context: row.label,
+                  loans: fundedInRange
+                    .filter((l) => (l.propertyState.trim() || NO_PROPERTY_STATE_LABEL) === row.label)
+                    .map(closedLoanToModalLoan),
+                  hiddenColumns: ['propertyState', 'milestone', 'status'],
+                })
+              }
+            />
+          </div>
         )}
 
         <div className="tbl-card" style={{ padding: '16px', gridColumn: '1 / -1' }}>
@@ -2981,50 +3016,6 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
           )}
         </div>
       </div>
-
-      {/*
-        ==========================================================================
-        MAPA DE EE.UU. — Property State, Etapa MAP-PREVIEW-1
-        ==========================================================================
-        Sección COMPLETAMENTE NUEVA, al final de la pestaña -- pedido explícito
-        de NO tocar ni reemplazar la tabla "Subject Property State" de más
-        arriba (Product Mix & Geography), que sigue exactamente igual. Es una
-        prueba visual: si se aprueba, se decide en una etapa aparte si
-        reemplaza o complementa esa tabla.
-
-        Mismo gate que la tabla (`propertyStateDataMissing`) -- un snapshot sin
-        `property_state` capturado no debe mostrar un mapa 100% gris sin
-        explicación, mismo criterio que ya usa esa tabla y Strategy Mix.
-      */}
-      <h3 style={{ margin: '24px 0 12px' }}>Funded Loans by State (Map)</h3>
-      <DiagnosticsNote
-        count={1}
-        summary="Same data as the Subject Property State table above, shown as a map -- darker states had more funded loans this period."
-        detail="Preview only, next to the existing table -- nothing here changes if this section is removed or kept."
-      />
-      {propertyStateDataMissing ? (
-        <div className="tbl-card" style={{ padding: '16px' }}>
-          <p className="foot-note" style={{ margin: 0 }}>
-            No property state data in this snapshot — the map has nothing to color.
-          </p>
-        </div>
-      ) : (
-        <div className="tbl-card us-map-fade-in" style={{ padding: '16px' }}>
-          <PropertyStateMap
-            rows={propertyStateRanking}
-            onStateClick={(row) =>
-              setDrillDown({
-                metric: 'Subject Property State',
-                context: row.label,
-                loans: fundedInRange
-                  .filter((l) => (l.propertyState.trim() || NO_PROPERTY_STATE_LABEL) === row.label)
-                  .map(closedLoanToModalLoan),
-                hiddenColumns: ['propertyState', 'milestone', 'status'],
-              })
-            }
-          />
-        </div>
-      )}
 
       {/*
         Etapa F7, Parte 5: mismo modal que ya usa PivotTable -- una lista de
