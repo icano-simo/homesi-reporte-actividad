@@ -1025,3 +1025,62 @@ table.piv tr.strat-break-row td {
 .metric--drill {
   cursor: pointer;
 }
+
+/*
+ * ---------------------------------------------------------------------------
+ * Etapa PULIDO-1, FIX -- sombra de tarjeta, acotada a la pestaña Analytics
+ * ---------------------------------------------------------------------------
+ * Causa real reportada: `.tbl-card`/`.mcard` (components.css) ya tienen
+ * `box-shadow: var(--shadow-xs)` -- no hay ningún `border` "rompiendo" el
+ * mecanismo, las dos propiedades conviven sin conflicto -- pero ESE border
+ * (1px, `--slate-200`, pasa a `--sky` celeste en `:hover`) es una línea
+ * nítida que domina visualmente sobre una sombra de sólo 2px de blur y 5%
+ * de opacidad: el ojo lee "un borde" (celeste al pasar el mouse), nunca
+ * llega a percibir la sombra al lado.
+ *
+ * Fix: `--shadow-sm` (tokens.css, mismo color/fórmula que `--shadow-xs`,
+ * sólo más blur/opacidad) ACOTADO a `.analytics-tab` -- el wrapper que
+ * envuelve todo `TabAnalytics.tsx` (antes un Fragment, ver ese archivo).
+ * Deliberadamente NO se sube el valor de `--shadow-xs` en sí: es el
+ * default de `.tbl-card`/`.mcard` en TODA la app (Forecast Projected,
+ * Business Plan, Commercial Activity) -- cambiarlo ahí habría sido un
+ * ajuste visual global no pedido, con blast radius muy por fuera del
+ * alcance de esta etapa (pulido de Analytics únicamente).
+ */
+.analytics-tab .tbl-card,
+.analytics-tab .mcard {
+  box-shadow: var(--shadow-sm);
+}
+
+/*
+ * FIX-HERO-HOVER: `.mcard:hover` (components.css) solo cambia `border-color`
+ * -- nunca redefine `box-shadow`, así que el hover se veía IDÉNTICO al
+ * reposo (mismo `--shadow-sm` de la regla de arriba, sin ningún cambio).
+ * `--shadow-md` (tokens.css) es el escalón siguiente, pensado para esto --
+ * mismo alcance acotado a `.analytics-tab` que la regla de reposo, no un
+ * cambio global de `.mcard:hover` que afectaría también a Business Plan y
+ * Commercial Activity, fuera del alcance de este fix.
+ */
+.analytics-tab .tbl-card:hover,
+.analytics-tab .mcard:hover {
+  box-shadow: var(--shadow-md);
+}
+
+/*
+ * FIX-HERO-HOVER-2: confirmado en pantalla que subir la sombra sola no
+ * alcanzaba -- `.mcard:hover` (components.css) sigue fijando
+ * `border-color: var(--sky)` (hex sólido, alto contraste), y ese borde
+ * domina la atención sobre cualquier sombra difusa a su lado. `.tbl-card`
+ * no tiene ningún `border-color` de `:hover` propio (solo `.mcard` lo
+ * tiene), así que este ajuste es solo para `.mcard`.
+ *
+ * Fix: mismo RGB de `--sky` (166, 222, 255) pero con alpha reducido en vez
+ * del hex sólido -- sigue siendo reconocible como "el mismo lenguaje de
+ * hover celeste" de toda la app, solo menos saturado, para dejarle lugar a
+ * la sombra. Acotado a `.analytics-tab` -- fuera de Analytics (Business
+ * Plan, Commercial Activity), `.mcard:hover` sigue mostrando el borde
+ * `--sky` sólido de siempre, sin cambios.
+ */
+.analytics-tab .mcard:hover {
+  border-color: rgba(166, 222, 255, 0.5);
+}

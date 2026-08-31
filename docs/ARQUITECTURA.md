@@ -6261,6 +6261,949 @@ carga real desde localhost para confirmar contra la base.
 y la RPC no se tocaron (ya estaban bien, el problema era exclusivamente
 la resolución del nombre de columna en el parser).
 
+## Etapa BI-REDESIGN-1 -- Analytics reorganizado en 4 capas narrativas
+
+Rediseño de Isa, adaptado a las convenciones ya existentes del proyecto
+(sin Tailwind, sin font-mono, cero hexadecimales nuevos). Reordena
+contenido ya construido en `app/pipeline/TabAnalytics.tsx` -- ningún
+cálculo de negocio existente se tocó (pull-through, Healthy, Adverse,
+estrategia comercial siguen exactamente igual), y no se agregó ningún
+filtro global nuevo (Channel/Program/State como dropdown quedó
+explícitamente fuera de esta etapa, decisión de Isa).
+
+### Las 4 capas, de arriba hacia abajo
+
+1. **Hero KPI Header** (nuevo) -- 4 tarjetas: Total Closed Volume,
+   Closed Loans, Average Ticket (las 3 con delta % vs. el período
+   anterior comparable), y Top Strategy & % share (sin delta, ver más
+   abajo por qué).
+2. **Monthly Trends** (reorganizada) -- grid de 2 columnas: Closings by
+   Month + Amount Closed by Month apilados en la columna izquierda
+   (más ancha, `1.6fr`), Avg Ticket by Month en la derecha (`1fr`).
+   Loan Type Distribution by Month queda debajo, sin reubicar -- el
+   brief de Isa no lo menciona en ninguna de las 4 capas, así que se
+   dejó tal cual (mismo criterio "reacomodar, no reconstruir": lo no
+   mencionado no se toca ni se elimina).
+3. **Product Mix & Geography** (reorganizada, título nuevo) -- grid de
+   2 columnas: Loan Program + Loan Type apilados a la izquierda,
+   Subject Property State a la derecha.
+4. **Commercial Scorecards & Pareto** (reorganizada, título nuevo) --
+   Scorecards de Branch/Loan Officer/Business Developer sin cambios
+   (es la mitad "Commercial Scorecards" del nombre), y debajo una
+   sub-sección "Productivity & Concentration" (`<h4>`, grid de 2
+   columnas) agrupando Strategy Mix + Pareto -- pedido explícito del
+   brief ("agrupados visualmente como una sola sección").
+
+Ningún componente de chart/tabla se reconstruyó: `SimpleMonthlyChart`,
+`AvgTicketChart`, `TypeBreakdownChart`, `RankingTable`, `ScorecardTable`,
+`StrategyDonutChart`, `ParetoChart` son exactamente las mismas funciones
+de siempre, sólo reubicadas en el JSX. La nota de diagnóstico que
+describía Loan Program/Loan Type (antes suelta arriba de todo, sin
+relación visual con su contenido) se movió junto a los rankings que
+describe, en Capa 3 -- mismo texto, ampliado para mencionar también
+Property State.
+
+### Decisión de nombres, no explícita en el brief -- anotada para que no sorprenda
+
+El brief nombra la sub-sección de Pareto+Strategy Mix en español
+("Productividad y Concentración") pero el resto de la interfaz de esta
+pestaña es 100% inglés (todos los demás títulos de sección: "Scorecards",
+"Monthly Trends", "Strategy Mix", "Pareto"...) -- se tradujo a
+"Productivity & Concentration" para no romper esa convención, no porque
+el brief lo pidiera en inglés explícitamente. Mismo criterio para los 2
+títulos de capa nuevos ("Product Mix & Geography", "Commercial
+Scorecards & Pareto"), tomados literales del nombre de cada capa en el
+brief.
+
+### El delta del Hero KPI -- cálculo exacto
+
+Contra el **período anterior comparable**, calculado según el modo del
+selector (`previousPeriodRange()`, TabAnalytics.tsx):
+
+- **Month**: el mes calendario inmediatamente anterior (diciembre del
+  año previo si el mes elegido es enero).
+- **Quarter**: el trimestre calendario inmediatamente anterior (Q4 del
+  año previo si el trimestre elegido es Q1).
+- **YTD**: mismo corte día/mes, un año antes -- ej. elegido 2026 con
+  "hoy" 26 de agosto, el rango anterior es `2025-01-01` a `2025-08-26`,
+  **no** el año calendario 2025 completo. `periodDateRange()` no sirve
+  para este caso tal cual: su rama YTD sólo recorta "a la fecha" cuando
+  el año pedido es el año EN CURSO: para cualquier año pasado devuelve
+  el calendario completo (12 meses), que compararía un año cerrado
+  contra un YTD que todavía no cerró. El rango se arma a mano en
+  `previousPeriodRange()` para este caso puntual, sin pasar por esa
+  función.
+
+**Sin período anterior con datos**: si `fundedLoansInRange()` sobre ese
+rango anterior devuelve 0 préstamos (podría ser porque el rango cae
+antes del historial que capturó el snapshot, o porque ese mes/trimestre/
+año real tuvo cero cierres), `computeDelta()` devuelve `null` y
+`DeltaBadge` muestra **"No prior period"** -- nunca un delta inventado ni
+un falso 0%, pedido explícito de Isa. Mismo criterio se aplica también
+si el período anterior SÍ tiene préstamos pero el valor puntual que se
+compara da 0 (ej. `previousVolume === 0` con `previousCount > 0` sería
+un caso extremo -- un loan con `amount = 0` real -- tratado igual, sin
+división por cero).
+
+**Top Strategy** (4ta tarjeta) no lleva delta -- no lo pedía el brief
+para esa tarjeta específicamente, y una estrategia "líder" cambiando de
+mes a mes no tiene la misma lectura año-contra-año que un monto/conteo.
+Se gatea con el mismo criterio ya usado para el donut de Strategy Mix
+(`strategyDataMissing`, Etapa F7.23) más el caso de período sin ningún
+funded loan -- ninguno de los dos casos muestra una estrategia inventada.
+
+### Mejora transversal -- barra horizontal en tablas de ranking
+
+`rankBarStyle()` (TabAnalytics.tsx): un `<td>` con
+`background: linear-gradient(...)` -- gradiente de `var(--accent-soft)`
+a transparente, cortado en el % que representa esa fila contra el
+máximo de la tabla. Un solo token existente, cero elemento DOM nuevo
+(no una barra SVG aparte, un solo `<td>` con su fondo calculado) --
+aplicado al `<td>` del label en `RankingTable` (Loan Program, Loan Type,
+Property State, las 3 comparten el componente) y en `ScorecardTable`
+(Branch, Loan Officer, Business Developer) contra `closedCount`. Mismo
+objetivo visual que Pareto ("grande vs. chico" de un vistazo) sin
+duplicar su mecanismo SVG.
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx` (todo el trabajo real -- Hero KPI nuevo,
+reordenamiento de las 4 capas, `rankBarStyle`). `app/analytics/page.tsx`
+sin cambios de código -- ya renderiza `TabAnalytics` tal cual, no
+necesitó tocarse para que el rediseño se reflejara ahí. Sin CSS nuevo:
+las 4 capas reusan clases ya existentes (`.hero-banner`, `.mcard`,
+`.kpi-hero__value`, `.badge--up/down/flat`) del banner ejecutivo de
+Forecast (`app/pipeline/SummaryCards.tsx`, referencia tomada de ahí) y
+del componente de tendencia ya usado en Commercial Activity
+(`components/report/SummaryCards.tsx`, mismo patrón de flecha+color).
+
+## Etapa BI-REDESIGN-2 -- corrección del delta (día-a-día), Loan Type dentro de Product Mix, Business Developer en Pareto
+
+Sobre BI-REDESIGN-2, mismo alcance declarado
+(`app/pipeline/TabAnalytics.tsx`, `docs/ARQUITECTURA.md` -- `lib/pipeline/
+paretoMix.ts` terminó sin necesitar cambios, ver el punto 3 más abajo).
+
+### Punto 1 -- el bug real del delta, y la corrección
+
+BI-REDESIGN-1 comparaba el período actual (que en un mes/trimestre EN
+CURSO sólo tiene datos hasta HOY -- ningún loan puede tener
+`disbursementDate` en el futuro) contra el período anterior COMPLETO
+-- agosto-hasta-el-26 contra julio completo, comparación desigual que
+mostraba una caída artificial mientras el mes seguía en curso, sin
+reflejar el ritmo real. YTD ya comparaba bien desde esa misma etapa
+(mismo corte día/mes, un año antes); ese criterio se generaliza acá a
+Month/Quarter.
+
+**`currentPeriodProgress(selection, today)`** calcula, EXACTO por modo,
+cuánto del período elegido ya transcurrió: `elapsed` (días hasta hoy
+inclusive), `total` (días del período completo), `inProgress` (¿"hoy"
+cae dentro del período elegido?). El criterio de `inProgress` es el
+año/mes/trimestre calendario de HOY comparado contra el de la
+selección -- deliberadamente NO se deriva de `periodDateRange()`, que
+para YTD ya recorta `endDate` a "hoy" cuando el año es el actual: comparar
+`hoy >= range.endDate` para decidir "¿está en curso?" daría SIEMPRE
+`false` para YTD por construcción, el mismo tipo de bug que el rango
+comparable ya había evitado una vez, reaparecido si "en curso" se
+derivara del mismo lugar recortado.
+
+**`previousPeriodComparison(selection, progress)`** usa `progress` para
+capar el período anterior:
+- **Período actual ya CERRADO** (el usuario navegó a un mes/trimestre/
+  año pasado): sin distorsión que corregir -- completo contra completo,
+  como ya hacía BI-REDESIGN-1 (el bug sólo existía para el período EN
+  CURSO).
+- **Período actual EN CURSO**: el anterior se capa a los primeros N
+  días (mismo N que lleva transcurrido el actual) -- "día 26 de agosto"
+  compara contra "día 26 de julio", nunca contra julio completo.
+- **YTD**: sin cambios -- ya era día-a-día correcto desde BI-REDESIGN-1.
+
+**Verificación con números reales**, snapshot activo id 84, hoy 26 de
+agosto de 2026 (query de solo lectura, service_role, sin escritura):
+
+| | Volumen | Conteo |
+|---|---|---|
+| Agosto 1-26 (actual) | $9,428,401 | 27 |
+| Julio 1-26 (anterior CAPADO -- delta nuevo) | $13,580,879 | 40 |
+| Julio 1-31 (anterior COMPLETO -- delta viejo) | $19,487,582 | 57 |
+
+- **Delta VIEJO** (BI-REDESIGN-1, con el bug): agosto vs. julio
+  completo -> **Volumen -51.6%, Conteo -52.6%**.
+- **Delta NUEVO** (BI-REDESIGN-2, corregido): agosto 1-26 vs. julio
+  1-26 -> **Volumen -30.6%, Conteo -32.5%**.
+
+Los dos números son negativos (agosto real va por debajo de julio en
+este snapshot) -- la corrección no "arregla" el resultado para que se
+vea mejor, lo hace HONESTO: el bug anterior exageraba la caída en ~21
+puntos porcentuales al restarle 5 días completos de producción a julio
+del lado del actual sin restárselos también al lado del anterior.
+
+### Proyección de ritmo (`computePaceProjection`)
+
+`projectedValue = (currentValue / elapsed) * total` -- ritmo actual
+extrapolado a los días totales del período. Se compara contra el
+período anterior **COMPLETO** (`previousFullVolume`/`previousFullCount`,
+sin capar -- a propósito, es la comparación que sí tiene sentido para
+"¿terminaría por encima o por debajo de julio?", a diferencia del delta
+principal que compara día-a-día). `null` (no se muestra nada) en 3
+casos:
+1. Período ya cerrado (`!progress.inProgress`) -- nada que proyectar,
+   ya pasó.
+2. Menos de `MIN_DAYS_FOR_PROJECTION = 3` días transcurridos -- pedido
+   explícito del brief ("al menos 3 días"); con 1-2 días un solo loan
+   grande/chico distorsiona el proyectado mucho más de lo que un ritmo
+   real justificaría.
+3. Sin período anterior COMPLETO con datos -- mismo criterio de
+   honestidad que el delta principal, nunca "por encima/por debajo de
+   $0".
+
+**Ejemplo real** (mismo snapshot, agosto día 26 de 31, `elapsed=26`
+pasado el umbral de 3):
+```
+volumen proyectado = 9,428,401 / 26 × 31 = $11,241,555 -> por DEBAJO de julio completo ($19,487,582)
+conteo proyectado  =        27 / 26 × 31 =           32 -> por DEBAJO de julio completo (57)
+```
+Texto en pantalla (tarjetas Volume/Count únicamente -- ver por qué
+Average Ticket queda afuera, abajo): *"On pace to close at $11,241,555,
+below July 2026's $19,487,582"* -- `previousFullLabel` es siempre el
+período anterior COMPLETO (julio en este ejemplo), nunca el actual.
+
+Average Ticket NO lleva proyección -- es un promedio/ratio, no una
+cantidad que se acumule con el tiempo, así que "ritmo × días" no tiene
+el mismo significado matemático ahí (proyectar un promedio hacia
+adelante multiplicándolo por días no produce un promedio, produce un
+número sin interpretación real). Top Strategy tampoco -- ninguna de
+las dos estaba en el pedido explícito del brief para esta pieza.
+
+### Punto 2 -- Loan Type Distribution by Month, reubicado
+
+Se movió de Capa 2 (Monthly Trends, donde vivía suelto a todo el ancho
+debajo del grid de 2 columnas) hacia adentro del grid de Capa 3
+(Product Mix & Geography), como **tercera columna** (el grid pasó de
+`repeat(2, ...)` a `repeat(3, ...)`) -- no fila. Se eligió columna
+porque `TypeBreakdownChart` usa flexbox fluido para sus 12 columnas
+mensuales (`flex: 1 1 0` por mes, `forecast-visual.css`), no un SVG de
+ancho fijo como `AvgTicketChart` (`width={640}`, con scroll horizontal
+de respaldo) -- se adapta bien a un tercio del ancho sin perder
+legibilidad ni necesitar scroll.
+
+### Punto 3 -- Business Developer en el Pareto
+
+Tercer botón del toggle de corte (`cut`), junto a Branch/Loan Officer
+-- mismo patrón exacto, sin lógica nueva. `buildParetoRows()`
+(`lib/pipeline/paretoMix.ts`) ya era genérica sobre `ScorecardRow[]`
+(esa es literalmente su firma desde que se escribió, Etapa F7 Parte 11)
+-- **no necesitó ningún cambio** para aceptar
+`businessDeveloperScorecard.rows`/`ytdBusinessDeveloperScorecard.rows`,
+confirmado leyendo el archivo antes de tocar nada. Se agregó
+`ytdBusinessDeveloperScorecard` (mismo patrón que
+`ytdBranchScorecard`/`ytdLoanOfficerScorecard`, ya existían) para
+completar la dimensión YTD del toggle.
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx` únicamente -- `lib/pipeline/
+paretoMix.ts` estaba en el alcance declarado "por si hacía falta", y no
+hizo falta (confirmado, no modificado).
+
+## Etapa PULIDO-1 -- sombra, tarjeta destacada y hover del Hero KPI/tablas de Analytics
+
+Pedido de 3 partes; 2 de las 3 ya estaban satisfechas por el sistema de
+diseño compartido -- confirmado por lectura de código (`components.css`,
+`forecast-visual.css`, y las propias clases que usa `TabAnalytics.tsx`),
+no asumido. Sólo la 3ra necesitó un cambio real.
+
+### Punto 1 -- sombra sutil en las tarjetas: YA EXISTÍA, sin cambios
+
+`--shadow-xs: 0 1px 2px rgba(0, 26, 64, 0.05)` (tokens.css, ya definida
+desde el rediseño de marca UX1) está aplicada en `.tbl-card` y `.mcard`
+(components.css, líneas ~348 y ~563) -- las DOS únicas clases de
+"tarjeta" que usa toda la pestaña. Confirmado con un conteo real: 35
+ocurrencias de `tbl-card`/`mcard`/`metric` en `TabAnalytics.tsx`, y
+ningún wrapper de sección usa un `<div>` sin esa clase. Ningún archivo
+del módulo Forecast (`forecast-visual.css`) sobreescribe o anula el
+`box-shadow` de esas 2 clases -- la única regla que toca `.mcard` ahí
+(`.hero-banner .mcard { text-align: center; }`) es de alineación de
+texto, no de sombra. Por pedido explícito ("si ya existe un token de
+sombra, reusarlo"), no se creó ninguna variable nueva -- crear una
+habría sido reinventar algo que ya está resuelto, y además compartido
+con Business Plan (decenas de usos de `--shadow-xs`/`--shadow-lg` en
+`bp-visual.css`), donde tocarlo hubiera sido un cambio fuera de
+alcance con blast radius real.
+
+⚠ No verificado en navegador -- si en pantalla la sombra se sigue
+viendo imperceptible, el problema no es que falte la regla (existe y
+aplica), sino que `0.05` de opacidad / `2px` de blur puede ser
+demasiado sutil para el ojo en la práctica. Ese ajuste de VALOR (no de
+mecanismo) queda pendiente de una etapa aparte si la revisión visual
+lo confirma -- no se tocó el token por las dudas, para no arriesgar el
+resto de la app con un cambio no confirmado.
+
+### Punto 2 -- tarjeta destacada del Hero KPI: `mcard--sky`, variante ya existente
+
+`Total Closed Volume` (la primera tarjeta) pasó de `className="mcard"`
+a `className="mcard mcard--sky"` -- **no es un token nuevo**:
+`.mcard--sky` (components.css) ya existe, fondo `rgba(166, 222, 255,
+0.15)` + borde `rgba(166, 222, 255, 0.4)` ('Light Sky' tenue, mismo
+derivado de marca que `--accent-soft`/`--sky`), y es la MISMA clase que
+ya usa la tarjeta "Total Forecast" del banner ejecutivo de Forecast
+(`app/pipeline/SummaryCards.tsx`) para destacar su número headline --
+mismo criterio semántico acá: Total Closed Volume es el número
+principal de Analytics. El valor del número se queda en navy
+(`.kpi-hero__value` base, sin variante de color) -- mismo patrón que
+esa tarjeta de referencia, que tampoco recolorea el número sobre el
+fondo sky. Sin CSS nuevo: la clase ya existía, sólo se aplicó donde no
+estaba.
+
+### Punto 3 -- hover de filas en las 6+ tablas: YA EXISTÍA, sin cambios
+
+`tr.metric:hover td, tr.metric:hover td.lbl { background: rgba(166,
+222, 255, 0.2); }` (components.css, ~línea 761) más `tr.metric td {
+transition: background 0.12s ease; }` (~línea 751) es una regla
+GLOBAL, sin scope a ningún módulo -- y las 6 tablas nombradas (Loan
+Program, Loan Type, Property State via `RankingTable`; Branch, Loan
+Officer, Business Developer via `ScorecardTable`) son, sin excepción,
+`<table className="piv">` con `<tr className="metric">` por fila --
+mismos 2 componentes compartidos para las 6, ningún wrapper de tabla
+propio por sección. No hay ningún override en `forecast-visual.css`
+que toque `tr.metric:hover` para esas tablas -- la única regla
+relacionada ahí (`.piv--exec tbody tr.metric:hover td.col-pipeline`)
+está scopeada a `.piv--exec`, exclusiva de las tablas ejecutivas de
+`PivotTable.tsx` (Branch/canal), que ninguna de las 6 tablas de
+Analytics usa. Ya había, además, un comentario explícito de una etapa
+anterior (F7 Parte 5, junto a `.metric--drill`) confirmando lo mismo:
+"El hover de fondo (`tr.metric:hover`, ya global en components.css) no
+cambia". Mismo timing (0.12s ease) y mismo color (Light Sky @20%) en
+las 6 tablas, por construcción -- no había ninguna que unificar.
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx` únicamente -- un `className` agregado
+(punto 2). `tokens.css`/`components.css`/`forecast-visual.css` sin
+cambios -- confirmado que ya resolvían los puntos 1 y 3, no hizo falta
+tocarlos.
+
+## Etapa PULIDO-1 FIX -- redondeo de la proyección, sombra corregida, tarjeta destacada con acento
+
+Corrección de 3 problemas detectados al revisar en pantalla el resultado
+de la Etapa PULIDO-1 anterior. Los 3 son cambios reales de código (a
+diferencia de esa etapa previa, donde 2 de 3 puntos ya estaban
+resueltos).
+
+### Punto 1 -- decimales en la proyección de conteo
+
+`PaceNote` recibe `pace.projectedValue`, resultado de
+`(currentValue / progress.elapsed) * progress.total` -- una división
+que en general NO da un entero, aunque el valor de origen (conteo de
+préstamos) sí lo sea siempre. El call-site de conteo pasaba
+`formatValue={fmtInt}` directo sobre ese resultado sin redondear, y
+`fmtInt` (`n.toLocaleString('en-US')`) no trunca ni redondea -- de ahí
+que se mostraran decimales tipo "32,192" en vez de "32". Fix acotado al
+call-site del conteo únicamente:
+`formatValue={(n) => fmtInt(Math.round(n))}` -- no se tocó `fmtInt` en
+sí (se usa en otros lugares con valores ya genuinamente enteros, ej.
+`currentCount`, y ahí no hacía falta ni corresponde envolver con
+`Math.round`).
+
+El lado de monto (`volumePace`) se revisó por separado y se confirmó
+que YA estaba correcto sin cambios: usa
+`formatValue={(n) => '$' + fmtAmount(n)}`, y `fmtAmount` ya aplica
+`maximumFractionDigits: 0` en el `toLocaleString`, que redondea (no
+trunca) a dólares enteros al mostrarse. Confirmado leyendo el código,
+no asumido.
+
+### Punto 2 -- sombra percibida como línea/borde
+
+Causa real, confirmada leyendo las reglas de `.mcard`/`.tbl-card`
+(components.css): NO hay un conflicto técnico entre `border` y
+`box-shadow` -- son propiedades independientes, conviven sin pisarse.
+El problema es perceptual: `border: 1px solid var(--slate-200)` (que
+en `:hover` pasa a `border-color: var(--sky)`, un celeste sólido y
+nítido) es una línea de 1px totalmente opaca, mientras que
+`--shadow-xs` (`0 1px 2px rgba(0, 26, 64, 0.05)`) tiene sólo 2px de
+blur y 5% de opacidad -- al lado de un borde opaco, esa sombra es
+prácticamente imperceptible. Es exactamente lo que reportaba el pedido
+("se percibe como un borde delineado azul") -- el "azul" es el
+`border-color: var(--sky)` del estado `:hover`, no la sombra.
+
+Siguiendo el criterio explícito del pedido (mecanismo sano + valor
+insuficiente → subir el valor; mecanismo roto → arreglar el mecanismo,
+no el valor), se confirmó que el mecanismo está sano y se subió el
+valor, pero SIN tocar `--shadow-xs` globalmente -- ese token es el
+default compartido de `.mcard`/`.tbl-card` en Forecast Projected,
+Business Plan y Commercial Activity además de Analytics (decenas de
+usos confirmados en `bp-visual.css` en una etapa anterior), y subirlo
+ahí habría sido un cambio visual global no pedido. En cambio:
+
+- `tokens.css`: nuevo token `--shadow-sm: 0 2px 6px rgba(0, 26, 64,
+  0.1)` -- mismo color/fórmula que `--shadow-xs` (navy a baja
+  opacidad), sólo con más blur y opacidad. No reemplaza a
+  `--shadow-xs`, que sigue siendo el default de toda la app.
+- `forecast-visual.css`: regla nueva `.analytics-tab .tbl-card,
+  .analytics-tab .mcard { box-shadow: var(--shadow-sm); }`, acotada al
+  wrapper `.analytics-tab` (nuevo, ver abajo) -- sólo afecta a la
+  pestaña Analytics.
+- `TabAnalytics.tsx`: el `return` del componente, que antes envolvía
+  todo en un Fragment (`<>...</>`), ahora envuelve en
+  `<div className="analytics-tab">...</div>` -- necesario para poder
+  scopear la regla de arriba sin tocar ningún otro módulo.
+
+### Punto 3 -- tarjeta destacada del Hero KPI, más notoria
+
+El fondo `mcard--sky` (aplicado en la Etapa PULIDO-1 anterior) se
+sentía plano por sí solo. Se agregó un tratamiento adicional, sin
+inventar ningún hex nuevo:
+
+- `components.css`: nueva clase modificadora `.mcard--accent-left {
+  border-left: 4px solid var(--navy); }`, declarada justo después de
+  `.mcard--emerald`/`.mcard--sky` -- deliberadamente DESPUÉS, porque
+  esas dos fijan `border-color` (shorthand de color, los 4 lados) y
+  `.mcard--accent-left` usa `border-left` (shorthand más específico:
+  ancho+estilo+color del lado izquierdo) -- para que gane la cascada en
+  el lado izquierdo sin tener que subir la especificidad del selector.
+  Genérica (no exclusiva de `--sky`): cualquier variante de `.mcard`
+  puede combinarse con este acento.
+- `TabAnalytics.tsx`: la tarjeta "Total Closed Volume" pasa de
+  `className="mcard mcard--sky"` a
+  `className="mcard mcard--sky mcard--accent-left"`.
+
+`--navy` ya es el color primario de marca (`--navy: #001a40`, usado en
+toda la app) -- cero hex nuevos.
+
+### Verificación
+
+`npx tsc --noEmit -p .` sin errores. `npm run build` compila limpio
+(Turbopack, 17/17 páginas). `npm run lint` reporta 1 error y 1 warning,
+ambos en `app/pipeline/page.tsx` (`react-hooks/set-state-in-effect` y
+`no-unused-vars`) -- confirmado con `git diff --name-only main --
+app/pipeline/page.tsx` que ese archivo no tiene ningún cambio en esta
+rama, es decir, el error ya existe en `main` y es preexistente a esta
+etapa, no introducido por ella.
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx` (redondeo del conteo, wrapper
+`.analytics-tab`, clase `mcard--accent-left` en la tarjeta destacada),
+`app/styles/tokens.css` (`--shadow-sm`), `app/pipeline/styles/
+forecast-visual.css` (regla scopeada de sombra), `app/styles/
+components.css` (`.mcard--accent-left`).
+
+## Etapa AJUSTES-ANALYTICS-1 -- 7 correcciones/peticiones sobre el rediseño de Analytics
+
+Siete puntos independientes sobre `TabAnalytics.tsx`, pedidos juntos en
+una sola tarea después de ver el rediseño de las etapas anteriores en
+pantalla. Archivos tocados: `app/pipeline/TabAnalytics.tsx`,
+`app/pipeline/LoanDetailModal.tsx`, `lib/pipeline/paretoMix.ts`.
+`lib/pipeline/scorecards.ts`/`lib/pipeline/paretoMix.ts` (el cálculo en
+sí) NO necesitaron reglas nuevas salvo lo del punto 6a abajo -- todo lo
+demás es JSX/CSS/wiring de UI sobre datos ya calculados.
+
+### Punto 1 -- "YTD" explícito en Monthly Trends
+
+Los títulos de "Closings by Month"/"Amount Closed by Month" mostraban
+un número (338, $117,294,305) que en realidad es el acumulado de los
+12 meses visibles en el chart (con 0 explícito en los que aún no
+tienen datos) -- se leía como si fuera el valor de un solo mes. Fix:
+`Closings by Month (338 YTD)` / `Amount Closed by Month
+($117,294,305 YTD)` -- mismo número, con el sufijo que aclara que es
+acumulado. Ningún cálculo cambió, sólo el texto del título.
+
+### Punto 2 -- barra de proporción, a la columna correcta
+
+`rankBarStyle()` (el gradiente sutil detrás del texto, ya existente
+desde BI-REDESIGN-1) vivía en la columna del NOMBRE (Program/Type/
+State/Branch/Loan Officer/Business Developer) -- se mueve a la columna
+de Count/Closed en los 2 componentes compartidos (`RankingTable`,
+`ScorecardTable`), que son los que arman las 6 tablas de la pestaña.
+Al ser componentes compartidos, el fix alcanza a las 6 tablas (Loan
+Program, Loan Type, Subject Property State, Branch, Loan Officer,
+Business Developer) de una sola vez, aunque el pedido nombraba
+explícitamente sólo 2 -- dejar la barra en columnas distintas según la
+tabla habría sido una inconsistencia nueva, no pedida.
+
+### Punto 3 -- Product Mix en 3 columnas
+
+El grid de "Product Mix & Geography" pasa de 2 columnas (Loan Program +
+Loan Type apilados en la primera, Subject Property State en la
+segunda) a **3 columnas parejas, una sola fila** -- las 3 tablas lado a
+lado. "Loan Type Distribution by Month" sigue aparte, a ancho completo
+(`gridColumn: '1 / -1'`, ahora abarca las 3 columnas del grid nuevo en
+vez de las 2 de antes) -- sin cambios en ese chart salvo el punto 4 y
+el drill-down del punto 6a.
+
+### Punto 4 -- paleta oficial de marca en Loan Type Distribution by Month
+
+`TYPE_COLORS` mezclaba 2 colores de marca (`--navy`, `--sky`) con 3
+colores SEMÁNTICOS de estado (`--emerald-700`, `--amber-500`,
+`--rose-700` -- reservados en el resto de la app para positivo/
+advertencia/negativo). Confirmado contra el header de `tokens.css`
+(no asumido): los únicos 4 colores "oficiales" de marca HomeSí son
+'Enriching Skies' (`--navy`, #001A40), 'Warm Embrace' (`--coral`,
+#FF4040), 'Light Sky' (`--sky`, #A6DEFF) y 'New Day' (`--canvas`,
+#FCFCFA) -- el último es el fondo del canvas global, ilegible como
+relleno de segmento sólido. Paleta nueva: `['var(--navy)',
+'var(--coral)', 'var(--sky)']` (3 colores, no 5) -- si un período trae
+más de 3 Loan Type reales, cicla por `idx % length` (mecanismo ya
+existente en `colorForType`, sin cambios ahí). "Sin tipo" sigue en
+slate (placeholder, no un color "real"), sin cambios. Cero hex nuevo.
+
+### Punto 5 -- filtro global de Branch
+
+Alcance funcional nuevo, no sólo visual. `app/analytics/page.tsx`
+(Etapa ANALYTICS-TAB-1) documentaba explícitamente "sin filtro de
+branch... si hiciera falta, es una etapa aparte" -- esta es esa etapa,
+implementada DENTRO de `TabAnalytics.tsx` (alcance de esta tarea, no
+la página wrapper) como estado local (`selectedBranch`, 'ALL' o un
+branch code -- mismo criterio que el selector de Branch ya existente
+en Forecast, `Topbar.tsx`/`page.tsx`, pero sin compartir estado con
+esa ruta).
+
+`branchFilteredLoans` es el ÚNICO punto de filtrado: reemplaza a
+`resolvedLoans` (el prop crudo) en absolutamente todos los cálculos
+derivados de la pestaña -- `fundedInRange`, `previousFunded`,
+`previousFullFunded`, `ytdFunded`, `earliestDate`, `monthlyTotals`,
+`monthlyTypeBreakdown` -- confirmado con `grep resolvedLoans` sobre el
+archivo final: la única referencia al prop crudo que queda es la
+construcción de `availableBranches` (que debe listar TODOS los
+branches del snapshot, no sólo los del filtro activo) y de
+`branchFilteredLoans` en sí. Como las 4 capas (Hero KPI, Monthly
+Trends, Product Mix, Scorecards/Pareto) ya leían sus datos a partir de
+esas variables derivadas, el filtro las alcanza a las 4 por
+construcción, sin tener que acordarse de aplicarlo cálculo por
+cálculo.
+
+Verificado con datos reales (snapshot activo id 86, lectura
+`service_role` sobre `pipeline_forecast.pipeline_resolved_loans`,
+sólo `SELECT`, script temporal borrado después de correrlo): mes en
+curso (2026-08), TODOS los branches -- 28 préstamos, $9,788,401;
+branch 716 solo -- 5 préstamos, $1,621,270. El subconjunto de branch
+es estrictamente menor en count y monto que el total, como debe ser
+-- confirma que el mecanismo de filtrado (mismos campos `branch` +
+`status='funded'` + `disbursement_date` que ya usa cada cálculo) narrows
+correctamente los mismos datos que alimentan Hero KPI/Monthly Trends/
+Product Mix/Scorecards/Pareto.
+
+### Punto 6a -- drill-down universal
+
+Antes del rediseño de Isa (BI-REDESIGN-1/2), TODOS los rankings/
+scorecards/donut de Strategy Mix ya tenían drill-down -- pero los 4
+charts nuevos/reubicados de Monthly Trends y Product Mix (Closings by
+Month, Amount Closed by Month, Avg Ticket by Month, Loan Type
+Distribution by Month) y el Pareto NUNCA lo tuvieron, desde que se
+crearon. Se agrega, mismo patrón (`setDrillDown` + `LoanDetailModal`)
+que ya usan los rankings:
+
+- **Closings/Amount/Avg Ticket by Month**: click en una barra/punto
+  abre los loans de ese mes. `loansForMonth()` (función nueva, mismo
+  criterio EXACTO que `buildMonthlyTotals`/`buildMonthlyTypeBreakdown`
+  de `lib/pipeline/trends.ts` -- `status === 'funded'` +
+  `disbursementDate` en ese mes) -- si este filtro se desincronizara
+  de esas 2 funciones, el modal mostraría una lista que no coincide
+  con el número que el chart ya mostró para ese mes.
+- **Loan Type Distribution by Month**: click en un segmento abre los
+  loans de ese mes Y ese tipo (`loansForMonthAndType()`, mismo
+  criterio + `DRILLDOWN_NO_TYPE_LABEL`).
+- **Pareto (Branch/Loan Officer/Business Developer × Selected
+  period/Year to date)**: click en una barra abre los loans de esa
+  categoría, en el modo (`period`/`ytd`) que el chart tenga elegido en
+  ese momento -- estado LOCAL del chart, así que el handler recibe
+  `cut`/`mode` desde `ParetoChart` (que sí los conoce) en vez de que
+  el padre intente adivinarlos. Esto necesitó extender `ParetoRow`
+  (`lib/pipeline/paretoMix.ts`) con un campo `key` (mismo `key`
+  estable de `ScorecardRow`, branch_code o employee_key) -- sin eso,
+  no había forma de volver a encontrar los loans de la barra
+  clickeada (`label` es texto de display, no una clave segura para
+  filtrar). `buildParetoRows()` en sí no cambió su lógica, sólo
+  propaga el campo.
+
+Refactor de paso: la lógica de filtrado de los 3 `ScorecardTable.
+onRowClick` (Branch/Loan Officer/Business Developer) estaba repetida
+inline en cada uno -- se extrae a `loansForScorecardCut()` porque
+Pareto ahora necesita la MISMA regla, aplicada a otra fuente de loans
+(`fundedInRange` o `ytdFunded` según el modo). Un solo lugar en vez de
+una 4ta copia divergente.
+
+Fuera de alcance, deliberado: las 4 tarjetas del Hero KPI Header
+(Total Closed Volume, etc.) NO llevan drill-down nuevo -- son números
+agregados de todo el período ya elegido arriba, sin una categoría o
+fila que abrir (a diferencia de un mes, un tipo, o una barra de
+Pareto); su detalle completo ya está disponible desglosado en los
+rankings/scorecards de más abajo en la misma pestaña.
+
+### Punto 6b -- Notes fuera, Strategy/Branch adentro (solo Analytics)
+
+`LoanDetailModal` mostraba siempre una columna "Notes" (Production
+Support Note History) -- no aplica a préstamos ya cerrados (los únicos
+que abre Analytics). Se agregan 2 mecanismos nuevos:
+
+- `'notes'` se agrega a `LoanDetailModalColumn` (el mecanismo de
+  opt-OUT ya existente, `hiddenColumns` -- mismo que usan `loanType`/
+  `loanProgram`/etc.) -- default sigue siendo MOSTRADA, así que los 3
+  consumidores existentes (PivotTable.tsx, TabMilestoneMatrix.tsx,
+  AdverseTable) siguen viéndola exactamente igual, sin tocarlos.
+- `showStrategyColumn`/`showBranchColumn` (props nuevos, booleanos,
+  default `false`) agregan 2 columnas que el modal nunca tuvo --
+  Strategy (`classifyStrategy(loan)`, ya importado en ese archivo para
+  el realtor NPPM, sin lógica de clasificación nueva) y Branch
+  (`loan.branch`). Deliberadamente un prop DEDICADO y no una entrada
+  más de `hiddenColumns`: el mecanismo de opt-out asume que el default
+  correcto es "mostrada", que es cierto para Notes pero NO para estas
+  2 -- si se hubieran agregado como opt-out, los 3 consumidores
+  existentes habrían empezado a mostrarlas sin haberlo pedido. Con
+  default `false`, sólo Analytics (que pasa `showStrategyColumn
+  showBranchColumn` fijo en `true` en su única invocación de
+  `<LoanDetailModal>`) las ve.
+
+Los 3 flags (`'notes'` en `hiddenColumns`, `showStrategyColumn`,
+`showBranchColumn`) se fijan en UN SOLO lugar -- el único
+`<LoanDetailModal>` que renderiza `TabAnalytics.tsx` -- en vez de
+repetirlos en cada uno de los ~12 `setDrillDown()` del archivo (los 6
+ya existentes más los agregados en el punto 6a). `PivotTable.tsx`
+(el otro consumidor real de `closedLoanToModalLoan`, para su propio
+drill-down de "Closed" en Combined Total by Branch) no se tocó -- sigue
+sin pasar estos 3 props, sigue mostrando Notes y sin Strategy/Branch,
+exactamente como antes de esta etapa.
+
+### Punto 7 -- Pareto, nombres cuando hay pocas categorías
+
+`paretoShouldLabel(i)` recortaba a las primeras 8 categorías SIEMPRE,
+sin importar el total -- con 13 categorías reales (caso reportado,
+Selected period), las últimas 5 quedaban sin ningún nombre visible
+aunque 13 entra perfectamente en el eje sin amontonarse. Fix:
+`paretoShouldLabel(i, total)` -- si `total <= 15`
+(`PARETO_SHOW_ALL_MAX`), muestra TODOS los nombres; si no, mantiene el
+recorte a las primeras 8 (`PARETO_ALWAYS_LABELED`, sin cambios en ese
+número) -- el recorte fijo sigue existiendo, pero sólo entra en juego
+con muchas categorías de verdad (YTD con 30+ Loan Officers reales).
+`lib/pipeline/paretoMix.ts` no necesitó ningún cambio para este punto
+(confirmado leyendo el código, no asumido) -- el criterio de cuántas
+etiquetas mostrar es puramente de presentación, en `TabAnalytics.tsx`.
+
+### Verificación
+
+`npx tsc --noEmit -p .` sin errores. `npm run build` compila limpio
+(Turbopack, 17/17 páginas). `npm run lint` reporta el mismo 1 error +
+1 warning preexistentes de `app/pipeline/page.tsx` de la etapa
+anterior (confirmado sin diff en ese archivo en esta rama) -- cero
+hallazgos nuevos en los 3 archivos tocados por esta etapa.
+
+Filtro de Branch verificado con datos reales de Supabase (ver punto 5
+arriba). El resto de los 7 puntos se verificó por lectura de código
+(tsc/build ya confirman que compila y que el flujo de tipos es
+consistente) -- la confirmación visual en pantalla (layout de 3
+columnas, colores del chart, posición de la barra, aspecto del modal)
+queda para la revisión manual pedida explícitamente en la tarea ("NO
+commitear todavía -- falta verlo en pantalla").
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx` (los 7 puntos), `app/pipeline/
+LoanDetailModal.tsx` (punto 6b: columna Notes opcional, columnas
+Strategy/Branch nuevas), `lib/pipeline/paretoMix.ts` (punto 6a: campo
+`key` en `ParetoRow`).
+
+## Etapa AJUSTES-ANALYTICS-1 FIX -- selector de Branch limitado a los branches que estudia Forecast
+
+Corrección sobre el punto 5 de la etapa anterior: `availableBranches`
+se calculaba como los branches distintos presentes en `resolvedLoans`
+(cualquier status) sin ningún filtro adicional -- eso incluye
+cualquier código con historial en `pipeline_resolved_loans`, esté o no
+dentro de la división que Forecast realmente estudia (confirmado con
+datos reales del snapshot activo id 86: 23 branches distintos,
+incluyendo códigos como `'913'`, `'199'`, `'700'`/`'701'`, ninguno de
+ellos parte del roster real).
+
+### Diagnóstico previo (sin cambios de código, tarea aparte)
+
+Antes de este fix se pidió un diagnóstico de solo lectura para
+entender de dónde salía el número mostrado en pantalla (19). Se
+confirmó que `availableBranches` no dependía de `org.dim_branch` en
+absoluto -- sólo de `resolvedLoans` crudo -- y que el 19 reportado no
+coincidía con ningún conteo reproducible contra el snapshot activo en
+ese momento (23 cualquier status / 22 sólo funded), explicado como
+muy probablemente una diferencia de snapshot activo entre el momento
+de la captura y el del diagnóstico (esta sesión tuvo cargas
+concurrentes reales). `org.dim_branch` no pudo consultarse desde un
+script standalone (`42501 permission denied for schema org`, con
+`service_role` Y con `anon key`) -- consistente con que ese schema
+sólo es legible con una sesión de usuario autenticada real (la que sí
+tiene el navegador), no confirmado más allá de eso.
+
+### Fix real
+
+El roster correcto de "branches que Forecast estudia" no es
+`org.dim_branch` (que ni siquiera es accesible desde acá sin sesión) --
+es **`pipeline_forecast.branches`** (columna `code`), la MISMA tabla
+que ya usa `app/pipeline/page.tsx` para armar `knownBranches` (que
+`PivotTable.tsx` usa para no mostrar filas fantasma de branches sin
+actividad real, ver la nota de la Etapa F4g en ese archivo). Se
+replica el mismo patrón de acceso EXACTO -- pedido explícito de la
+tarea, "no inventar un mecanismo nuevo":
+
+- `getForecastDb()` (mismo cliente de `lib/supabase/client.ts`, con
+  sesión, apuntado al schema `pipeline_forecast` -- el mismo que ya
+  usa `page.tsx` y el mismo mecanismo, distinto cliente/schema, que ya
+  usa `useOrgRoster()` para `org`).
+- `.from('branches').select('code')`, cargado una sola vez al montar
+  (`useEffect` con deps `[]`), guardado en un `Set<string>` local
+  (`forecastBranchCodes`) -- mismo criterio que `knownBranches` en
+  `page.tsx`.
+
+Se implementó DENTRO de `TabAnalytics.tsx` (no en `app/analytics/
+page.tsx`, aunque el alcance de la tarea lo permitía "si hacía
+falta"): no hizo falta, porque `TabAnalytics.tsx` ya es
+"prácticamente standalone" (decisión ya documentada en
+ANALYTICS-TAB-1) y ya trae su propio `useOrgRoster()` interno con el
+mismo patrón -- agregar una fuente de datos más ahí es consistente con
+esa arquitectura, y evita tocar la página wrapper. `app/analytics/
+page.tsx` queda sin cambios.
+
+`availableBranches` pasa a ser la INTERSECCIÓN:
+```ts
+const availableBranches = [...new Set(resolvedLoans.map((l) => l.branch))]
+  .filter(Boolean)
+  .filter((b) => forecastBranchCodes.has(b))
+  .sort();
+```
+Si `forecastBranchCodes` todavía no cargó (o falla), queda vacío -- el
+selector muestra sólo "All branches" hasta que resuelva, mismo criterio
+conservador que ya usa `knownBranches` en `PivotTable.tsx` ("si falla,
+se deja su estado vacío, el consumidor ya maneja el caso sin romper la
+página"): preferible a mostrar, aunque sea un instante, branches fuera
+de división.
+
+`branchFilteredLoans` (el filtro real aplicado a los datos) no cambió
+-- sigue filtrando `resolvedLoans` por `l.branch === selectedBranch`;
+como `selectedBranch` sólo puede ser 'ALL' o un valor que salió de
+`availableBranches`, la intersección ya garantiza que nunca se puede
+elegir un branch fuera de división.
+
+### Verificado con datos reales
+
+Mismo snapshot activo (id 86), mismo mecanismo real
+(`pipeline_forecast.branches`, vía `service_role` de solo lectura,
+script temporal borrado después de correr):
+
+- `pipeline_forecast.branches`: 14 códigos totales.
+- Intersección con los branches presentes en `resolvedLoans` (23):
+  **12** -- `703, 707, 710, 716, 724, 728, 733, 747, 760, 770, 776,
+  Affinity`.
+- Excluidos (11): `150, 199, 203, 225, 276, 700, 701, 718, 741, 771,
+  913` -- todos tenían préstamos reales en el snapshot pero no forman
+  parte del roster de Forecast.
+- `'913'` (branch "fuera de división" ya conocido de sesiones
+  anteriores): confirmado que YA NO aparece en la intersección.
+
+12 es estrictamente menor que 23 (el número de antes de este fix), y
+es un subconjunto real de esos 23, como debía ser.
+
+### Verificación
+
+`npx tsc --noEmit -p .` sin errores. `npm run build` compila limpio
+(Turbopack, 17/17 páginas). `npm run lint` reporta el mismo 1 error +
+1 warning preexistentes de `app/pipeline/page.tsx`, sin diff en ese
+archivo en esta rama -- cero hallazgos nuevos.
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx` únicamente -- `app/analytics/page.tsx`
+no necesitó cambios (confirmado, no modificado).
+
+## Etapa AJUSTES-ANALYTICS-1 FIX 2 -- hover no se veía en filas con la barra de proporción
+
+Reportado en pantalla: las filas con la barra sutil de fondo (Count/
+Closed, `rankBarStyle`, ver punto 2 de AJUSTES-ANALYTICS-1) no
+mostraban el hover celeste (`tr.metric:hover`, components.css) que sí
+tienen el resto de las filas. La hipótesis del pedido era z-index/orden
+de capas -- investigado, esa NO es la causa real.
+
+### Causa real
+
+No hay ningún elemento posicionado detrás ni pseudo-elemento -- la
+barra es, literal, el `background` de la propia `<td>` (un solo
+elemento, confirmado leyendo `RankingTable`/`ScorecardTable`), así que
+"z-index" no aplica: no hay dos elementos compitiendo por una pila de
+apilamiento.
+
+La causa real es de **especificidad de CSS**: `rankBarStyle()` devolvía
+`{ background: '<gradiente>' }`, aplicado como `style={...}` INLINE.
+El shorthand `background` resetea TODOS sus sub-valores no
+mencionados a su inicial -- incluido `background-color: transparent` --
+y ese reset viaja con la precedencia de un estilo inline, que gana
+SIEMPRE sobre cualquier regla de hoja de estilos, sin importar la
+especificidad de su selector (ni `!important` hace falta invocar acá,
+ni sería lo correcto). Por eso `tr.metric:hover td { background:
+rgba(166,222,255,.2) }` nunca llegaba a pintarse en estas celdas
+específicas -- no es que quedara tapado visualmente por encima, es que
+su propio `background-color` perdía la cascada antes de intentar
+pintarse.
+
+### Fix
+
+`rankBarStyle()` pasa a devolver `backgroundImage` (un longhand,
+NO el shorthand `background`) -- así `background-color` queda SIN
+declarar inline, y la hoja de estilos (hover, zebra-striping de filas
+impares, `tr.metric:nth-child(odd)`) vuelve a poder fijarlo con
+normalidad; el `background-image` de la barra se sigue pintando
+ENCIMA de ese color, como una capa más -- ninguna de las dos "tapa" a
+la otra, son dos capas independientes del mismo elemento.
+
+Segundo ajuste, necesario para que ambas capas se noten realmente
+"conviviendo" y no solo coexistiendo técnicamente: el color de relleno
+de la barra pasa de `var(--accent-soft)` (hex sólido y opaco,
+`#eef6fd`) a `rgba(166, 222, 255, 0.35)` -- mismo triplete RGB que ya
+usa la regla de hover (166,222,255 = 'Light Sky', el mismo valor que
+`--sky`, ya hardcodeado igual en `components.css`), sólo con más
+alpha para seguir leyéndose clara en reposo. Con un color sólido y
+opaco, la porción "llena" de la barra habría seguido tapando
+visualmente el hover ahí debajo aunque `background-color` cascadeara
+bien -- con alpha, el hover se nota incluso sobre la parte llena (el
+azul se profundiza al pasar el mouse, en vez de quedarse exactamente
+igual). Cero hex nuevo: mismo triplete que ya vive en `components.css`.
+
+Alcance real de la tarea (desviación explicada): el pedido acotaba el
+alcance a `forecast-visual.css`/`components.css` -- pero la causa real
+está en el estilo INLINE que arma `TabAnalytics.tsx`, no en ninguna
+regla de esas 2 hojas (ambas ya estaban bien escritas, con la
+especificidad correcta -- el problema nunca fue de CSS puro). Ningún
+`!important` en la hoja de estilos habría arreglado esto de forma
+limpia sin arriesgar otros efectos; el fix real vive en el mismo lugar
+que generaba el problema.
+
+### Verificación
+
+`npx tsc --noEmit -p .` sin errores. `npm run build` compila limpio
+(Turbopack, 17/17 páginas). `npm run lint`: mismo resultado
+preexistente de `app/pipeline/page.tsx`, sin diff en ese archivo en
+esta rama -- cero hallazgos nuevos.
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx` únicamente (`rankBarStyle()`) --
+`forecast-visual.css`/`components.css` no necesitaron ningún cambio
+(confirmado, no modificados).
+
+## Etapa AJUSTES-ANALYTICS-1 FIX 3 -- ancho del modal ajustado al contenido, con máximo fijo
+
+Reportado con captura real: `LoanDetailModal.tsx` (el modal "ancho" de
+Forecast/Analytics, `.modal-box--wide`) dejaba espacio en blanco
+visible después de "Amount" cuando había pocas columnas visibles (ej.
+7 desde Analytics, sin Notes).
+
+### Causa real
+
+`.modal-box` base fija `width: 100%` (además de `max-width: 768px`).
+`.modal-box--wide` (components.css) sólo sobreescribía `max-width` a
+`min(92vw, 1400px)` -- nunca tocaba `width`, así que seguía heredando
+el `100%` de la regla base. Resultado: la caja SIEMPRE se estira hasta
+su `max-width`, sin importar que la tabla de adentro
+(`.modal-table-scroll table.piv`, ya con `table-layout: auto; width:
+auto` desde un refinamiento anterior) sea más angosta -- el "espacio
+sobrante" ya estaba documentado como comportamiento esperado en el
+comentario de esa época ("si el modal queda más ancho que la tabla, el
+espacio sobrante rodea la tabla") pero con menos columnas se volvió
+demasiado notorio.
+
+### Fix
+
+Un solo cambio, acotado a `.modal-box.modal-box--wide`
+(components.css):
+```css
+.modal-box.modal-box--wide {
+  width: fit-content;
+  max-width: min(92vw, 1400px);
+}
+```
+`width: fit-content` reemplaza al `100%` heredado -- la caja se
+dimensiona por su contenido real (el más ancho entre el header y la
+tabla) en vez de estirarse siempre al máximo. El mismo `max-width` de
+siempre sigue actuando como TECHO: el caso con más columnas (Notes
+incluida, PivotTable/Forecast) topa exactamente en el mismo
+`min(92vw, 1400px)` de antes -- no se ensanchó ni se angostó ahí. El
+piso ya existía sin tocarlo: `.modal-table-scroll table.piv {
+min-width: 700px }` evita que la caja se angoste de más incluso con
+muy pocas columnas, y `.modal-table-scroll { overflow-x: auto }` sigue
+siendo el mismo colchón de siempre si un viewport angosto no alcanza
+ni para ese mínimo -- ninguna otra regla necesitó tocarse para que
+siga siendo responsive.
+
+Cero cambios en `app/pipeline/LoanDetailModal.tsx`: las columnas ya se
+renderizan condicionalmente vía `<col>`/`<td>` (mecanismo de
+`hiddenColumns`/`showStrategyColumn`/`showBranchColumn`, ya existente)
+-- la tabla ya varía su ancho de contenido real según cuántas columnas
+se rendericen de verdad, esta etapa sólo deja que la CAJA del modal
+respete ese ancho en vez de ignorarlo.
+
+Acotado a `.modal-box--wide`: el modal base de Activity
+(`components/report/LoanDetailModal.tsx`, 6 columnas fijas) no lleva
+esa clase y sigue con `width: 100%` de `.modal-box`, sin ningún
+cambio, como siempre.
+
+### Verificación
+
+`npx tsc --noEmit -p .` sin errores. `npm run build` compila limpio
+(Turbopack, 17/17 páginas). `npm run lint`: mismo resultado
+preexistente de `app/pipeline/page.tsx`, sin diff en ese archivo en
+esta rama -- cero hallazgos nuevos.
+
+⚠ No verificado en navegador (sin herramienta de automatización de
+navegador disponible en este entorno, confirmado en una etapa
+anterior) -- el mecanismo (`width: fit-content` + `max-width` como
+techo, sobre una tabla que ya se dimensiona por contenido real) es
+sólido por especificación CSS estándar (soportado en los navegadores
+evergreen actuales), pero la confirmación visual real -- 7 columnas
+más angosto, todas las columnas igual que antes, responsive en
+pantallas angostas -- queda para la revisión manual pedida
+explícitamente en la tarea.
+
+### Archivos
+
+`app/styles/components.css` únicamente (`.modal-box.modal-box--wide`)
+-- `app/pipeline/LoanDetailModal.tsx` no necesitó cambios (confirmado,
+no modificado).
+
+## Etapa FIX — renombrar subtítulo de Capa 4, quitar conteo de títulos de tabla
+
+Dos ajustes visuales menores en Analytics.
+
+### Subtítulo de Capa 4
+
+`"Commercial Scorecards & Pareto"` → `"Commercial Scorecards"` -- el
+Pareto ya tiene su propio subtítulo debajo ("Productivity &
+Concentration"), mencionarlo también arriba era una duplicación
+confusa (dos nombres para la misma sección).
+
+### Conteo entre paréntesis en títulos de tabla
+
+`RankingTable`/`ScorecardTable` (los 2 componentes compartidos que
+arman las 6 tablas de rankings/scorecards) mostraban `{title}
+({fmtInt(rowsTotalCount)})` en el header -- ej. "Loan Program (30)",
+"Loan Officer (29)" -- confuso, se leía como si el número fuera un
+dato de la fila en vez del total de filas. Se quita de las 2
+funciones -- alcanza a las 6 tablas de una sola vez, sin tocar cada
+una por separado:
+
+- `RankingTable`: Loan Program, Loan Type, Subject Property State.
+- `ScorecardTable`: Branch, Loan Officer, Business Developer.
+
+El total sigue disponible sin duplicarlo -- ya está en la fila
+"Total" del pie de cada tabla, que no se tocó. Los demás títulos de
+Analytics que también llevan un número (Closings by Month, Amount
+Closed by Month, Pareto — Branch / Loan Officer) NO se tocaron --
+fuera del patrón "tabla de ranking/scorecard" que pedía la tarea, y
+en esos casos el número sí tiene sentido en el título (es la métrica
+principal del chart, no un total redundante con un pie de tabla).
+
+### Verificación
+
+`npx tsc --noEmit -p .` sin errores. `npm run build` compila limpio
+(Turbopack, 17/17 páginas). `npm run lint`: mismo resultado
+preexistente de `app/pipeline/page.tsx`, sin diff en ese archivo en
+esta rama -- cero hallazgos nuevos.
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx` únicamente.
+
 ---
 
 ## Etapa V4 — se borra el camino de carga manual de Commercial Activity
@@ -6363,6 +7306,150 @@ Realtor, NPPM pasa de 8 a 9 columnas) y **V4** (borra
   antes del bloque de contexto (Owner / NPPM Realtor / Recruited By /
   Referred By de V3c), en cualquiera de las 3 vistas de estrategia --
   posición consistente, no se reordenó nada de V3c.
+
+---
+
+## Etapa ANALYTICS-BI-2 — ajustes visuales de Analytics y mapa de Property State
+
+Serie de fixes sobre `app/pipeline/TabAnalytics.tsx` (rediseño BI de la
+pestaña Analytics), todos en `feat/analytics-bi-redesign`. Se agrupan
+acá porque comparten rama y sesión de trabajo, pero son cambios
+independientes entre sí -- cada uno se documenta por separado.
+
+### Pareto: todas las etiquetas visibles, truncadas en vez de ocultas
+
+`truncateParetoLabel()` corta cualquier nombre a ~10 caracteres (con
+"…") en vez del comportamiento anterior, que directamente OCULTABA la
+etiqueta de las barras angostas del chart de Pareto -- una barra sin
+nombre se leía como un dato sin categoría, no como un problema de
+espacio. Aplica a las 3 vistas de Pareto (Branch/Loan Officer/Business
+Developer), sin cambiar el cálculo del ranking, solo el label
+renderizado.
+
+### Strategy Mix: paleta de 5 colores distintos
+
+`STRATEGY_COLORS` había pasado antes por una versión que ciclaba solo
+los 3 colores oficiales de marca (`--navy`/`--coral`/`--sky`,
+`tokens.css`), repitiendo 2 pares para evitar cualquier color
+semántico -- confirmado que `tokens.css` no tiene variantes
+clara/oscura de esos 3. Se revierte a 5 colores distintos: los 3 de
+marca para las 3 estrategias más frecuentes (mismo orden de
+`STRATEGY_ORDER`, que ya va de mayor a menor volumen), más
+`--emerald-700` para Recruitment y `--amber-700` para NPPM -- los tonos
+más SUTILES de esas escalas semánticas (no los más saturados, que ya
+están reservados para indicadores de estado real en otras pantallas),
+sin usar `--rose-700` para evitar confusión visual con `--coral`.
+
+### Altura de tarjetas y alineación de tooltips (Strategy Mix / Pareto)
+
+El donut de Strategy Mix y las tarjetas de Pareto quedaban de distinta
+altura entre sí cuando el `DiagnosticsNote` de una columna ocupaba más
+de una línea. Fix con flexbox: contenedor columna
+(`display: flex; flexDirection: column`), `flex: 1` en la tarjeta de
+abajo para que absorba el espacio sobrante, y un wrapper con
+`minHeight: 62px` alrededor del `DiagnosticsNote` de ambas columnas
+para que arranquen a la misma altura sin importar cuántas líneas use
+cada texto.
+
+### Tooltips de diagnóstico sin jerga técnica
+
+5 instancias de `DiagnosticsNote` (Strategy Mix, Branch/Loan
+Officer/Business Developer scorecards, Property State) tenían nombres
+de función, rutas de archivo y nombres de schema en el `detail` que ve
+el usuario final (ej. "Reuses branchScorecard.rows..."). Se reescriben
+a lenguaje de negocio -- el mecanismo interno sigue siendo el mismo,
+solo cambia lo que se muestra en el tooltip.
+
+### Scorecards (Branch/Loan Officer/Business Developer) filtrados dinámicamente a los branches de Forecast
+
+`buildBranchScorecard()` arma una fila por cada branch presente en los
+loans que recibe, sin filtrar (es su comportamiento documentado: "nunca
+para descartar un loan"). Eso dejaba pasar a la tabla de Branch --y al
+corte "Branch" de Pareto, que reusa esas mismas filas-- cualquier
+branch con datos, incluidos los que están fuera de la división. Nuevo
+helper `filterToForecastBranches()` filtra los loans ANTES de construir
+el scorecard, contra `forecastBranchCodes` -- la misma fuente dinámica
+que ya usa el selector de branch de arriba (`pipeline_forecast.branches`
+en tiempo real, vía el `useEffect` existente), nunca una lista escrita
+a mano. Si `forecastBranchCodes` todavía no cargó, la tabla queda vacía
+en vez de mostrar branches sin confirmar -- mismo criterio conservador
+que ya usaba el selector.
+
+### Commercial Scorecards: ancho de columnas y títulos "Performance"
+
+Las 3 tablas (Branch, Loan Officer, Business Developer) angostan la
+columna de nombre y las de monto (dejaban espacio sobrante con
+contenido corto -- códigos de 3 dígitos, montos de ~10 caracteres) y
+ensanchan Closed/% of Total. Título de cada tarjeta pasa a "{título}
+Performance" (ej. "Branch Performance") para no repetir el nombre de
+columna como título sin distinguir tarjeta de columna.
+
+### Mapa de EE.UU. para Property State (sección nueva, no reemplaza la tabla existente)
+
+Sección nueva al final de la pestaña, DESPUÉS de la tabla existente
+"Subject Property State" -- no la reemplaza, es una vista alternativa
+de los mismos datos (`propertyStateRanking`).
+
+- **Datos geográficos**: `lib/pipeline/usStatesSvgPaths.ts` (nuevo),
+  51 paths (50 estados + DC) parseados de un SVG de EE.UU. de fuente
+  única y coordenadas compartidas (dominio público/MIT, derivado de
+  Wikipedia) -- se descartó una primera fuente candidata
+  (`state-svg-defs`) porque cada estado traía su propio `viewBox`
+  normalizado independiente, inútil para un mapa compuesto real.
+- **Color**: interpolación RGB real sky→navy (`blendSkyToNavy()`),
+  relativa al rango de conteo del período activo, con techo en 78%
+  del blend (`US_MAP_MAX_BLEND`) para no llegar a un tono casi negro
+  en el extremo superior. Estados sin datos en gris (`--slate-200`),
+  sin efecto de hover (no son clickeables).
+- **Interacción**: click en un estado con datos abre el mismo
+  drill-down que ya usa la tabla ("Subject Property State"). Hover
+  tipo botón (`scale(1.04)` + sombra) solo en estados con datos, vía
+  `transform-box: fill-box` para que el escalado crezca desde el
+  centro de la silueta del estado y no desde la esquina del `<svg>`.
+  `:focus-visible` restaurado para navegación por teclado tras quitar
+  el rectángulo de foco nativo del navegador (defecto de un
+  `role="button"` sobre un `<path>`, no un elemento nativamente
+  enfocable).
+- **Leyenda**: columna propia al lado del mapa (68% mapa / 32%
+  leyenda, flexbox, no superpuesta), con encabezados "State / Count /
+  Amount" (mismo texto que la tabla grande), hover/click por fila
+  reusando el mismo handler que ya recibe el `<path>` de ese estado, y
+  fila "Total" al pie sumando los estados listados (mismo criterio
+  visual que la fila Total de `RankingTable`). Monto mostrado
+  completo (`fmtAmount`, ej. "$2,145,975"), no abreviado.
+- **Animación de entrada**: fade + traslado sutil
+  (`us-map-fade-in`), respetando `prefers-reduced-motion: reduce`
+  (se desactiva del todo, no se acorta).
+
+#### Conocido, sin resolver: Colorado no reacciona al hover en el mapa
+
+Confirmado en DevTools real: el `<path>` de Colorado tiene la clase
+`us-map-state--clickable` y el `<title>` correctos, pero
+`clientWidth`/`clientHeight` = 0 en ese elemento. Se revisó el string
+`d` de Colorado en `usStatesSvgPaths.ts` byte por byte (sin caracteres
+ocultos, sintaxis idéntica a cualquier otro estado) y se calculó su
+área real (fórmula del shoelace): ~10.300 unidades² sobre una bounding
+box de ~12.430 -- una forma sólida y no degenerada, del mismo orden de
+magnitud que cualquier otro estado. No se encontró ningún defecto en
+los datos del path.
+
+`clientWidth`/`clientHeight` no son la propiedad correcta para medir el
+área geométrica de un `<path>` SVG (no participan del modelo de caja
+CSS) -- la comparación real pendiente es `getBBox()` sobre Colorado
+contra un estado que sí reacciona, para confirmar si el navegador está
+parseando un `d` distinto al que hay en el archivo (posible caché de
+build/HMR desactualizado) o si el problema está en otro lado. Hasta
+tener ese dato, no se tocaron las coordenadas de Colorado -- reescribir
+una forma que ya es geométricamente válida, sobre una hipótesis sin
+confirmar, arriesgaba introducir una distorsión real donde hoy no hay
+ninguna.
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx`, `app/styles/components.css`,
+`lib/pipeline/usStatesSvgPaths.ts` (nuevo).
+
+---
 
 ## Etapa FIX-COMBINED-STRATEGY -- Combined Total by Branch no respetaba el filtro de estrategia
 
@@ -6544,3 +7631,35 @@ por caller), `app/pipeline/TabAnalytics.tsx` (`loanResolvesToEmployeeKey`
 reconoce la fila sintética para que su drill-down abra los préstamos
 correctos; `totalCount` de las 2 tablas ajustado a incluir la fila
 nueva).
+
+---
+
+## Fix Colorado sin hover en el mapa — causa real: orden de pintado, no geometría
+
+Confirmado con evidencia dura (muestreo real de punto-en-polígono, no
+sólo bounding box) que la geometría de Colorado es válida y que ningún
+vecino cubre más del 0.6% de su interior real. La causa era el orden de
+pintado del SVG: `US_STATE_PATHS` (`lib/pipeline/usStatesSvgPaths.ts`)
+se recorre en orden alfabético, y los 6 vecinos reales de Colorado (KS,
+NE, NM, OK, UT, WY) caen TODOS después de "CO" alfabéticamente -- sus
+`<path>` se pintaban encima del de Colorado en la franja de borde
+compartido, suficiente para tapar su área de hover ahí. Fix: Colorado se
+movió al final del array (última en pintarse, encima de todos sus
+vecinos), con un comentario en el archivo explicando por qué esa entrada
+rompe el orden alfabético a propósito.
+
+### Mejora futura (anotada, no implementada)
+
+Este fix resuelve el caso puntual de Colorado, pero el criterio
+("mover al final cuando aparece el síntoma") no escala si otro estado
+tiene el mismo problema. Una mejora real sería reordenar el array
+COMPLETO por un criterio que minimice el solapamiento en general -- por
+ejemplo, de mayor a menor área de bounding box, para que los estados
+grandes se pinten primero y cualquier vecino problemático quede siempre
+encima por construcción, sin tener que detectar y mover casos uno por
+uno cada vez que se reporte el mismo síntoma en un estado distinto.
+
+### Archivos
+
+`lib/pipeline/usStatesSvgPaths.ts` (Colorado movido al final, con
+comentario).

@@ -131,8 +131,30 @@ export interface LoanDetailModalLoan {
  */
 const NOT_AVAILABLE_TEXT = 'Not available for this snapshot';
 
-/** Nombres estables de columna -- mismo vocabulario que los campos de `LoanDetailModalLoan`, para `hiddenColumns`. */
-export type LoanDetailModalColumn = 'loanOfficer' | 'loanType' | 'loanProgram' | 'propertyState' | 'milestone' | 'status' | 'channel';
+/**
+ * Nombres estables de columna -- mismo vocabulario que los campos de
+ * `LoanDetailModalLoan`, para `hiddenColumns`.
+ *
+ * Etapa AJUSTES-ANALYTICS-1, punto 6b: se agrega `'notes'` -- a
+ * diferencia de las demás, Notes SIEMPRE se había renderizado sin ningún
+ * mecanismo de opt-out (columna fija, ver `visibleColumnCount`/el
+ * `<td className="note-cell">` de abajo). Se agrega al mismo array de
+ * opt-out (no un prop dedicado como `showChannelColumn`) porque el
+ * comportamiento por default (mostrada) es el correcto para los 3
+ * consumidores existentes (PivotTable.tsx, TabMilestoneMatrix.tsx,
+ * AdverseTable) -- ninguno la pasa hoy en `hiddenColumns`, así que ninguno
+ * cambia. Analytics (TabAnalytics.tsx) es el único que la agrega, porque
+ * ahí `loans` son siempre préstamos ya cerrados -- no aplica.
+ */
+export type LoanDetailModalColumn =
+  | 'loanOfficer'
+  | 'loanType'
+  | 'loanProgram'
+  | 'propertyState'
+  | 'milestone'
+  | 'status'
+  | 'channel'
+  | 'notes';
 
 export interface LoanDetailModalProps {
   isOpen: boolean;
@@ -161,6 +183,23 @@ export interface LoanDetailModalProps {
    * Default true: los demás callers no necesitan pasarlo.
    */
   showChannelColumn?: boolean;
+  /**
+   * Etapa AJUSTES-ANALYTICS-1, punto 6b: columnas Strategy/Branch,
+   * EXCLUSIVAS de Analytics (préstamos cerrados). Default `false` a
+   * propósito -- AL REVÉS de `showChannelColumn` (default `true`): acá el
+   * default protege a los 3 consumidores YA existentes (PivotTable.tsx,
+   * TabMilestoneMatrix.tsx, AdverseTable), que nunca pidieron estas 2
+   * columnas y no deben empezar a verlas por un cambio de default. Si en
+   * vez de un prop dedicado se hubiera agregado 'strategy'/'branch' al
+   * mecanismo de opt-OUT `hiddenColumns` (como `loanType`/`loanProgram`),
+   * agregar la columna habría cambiado el comportamiento de esos 3
+   * consumidores sin que ellos hicieran nada -- exactamente el riesgo que
+   * este punto de la tarea pide confirmar que NO pasa. `classifyStrategy`
+   * (ya importado en este archivo, para el realtor NPPM) calcula el valor
+   * de Strategy -- ninguna lógica de clasificación nueva.
+   */
+  showStrategyColumn?: boolean;
+  showBranchColumn?: boolean;
   /**
    * CTC/Closing (punto CtcDot, PivotTable.tsx): agrupa `loans` por milestone
    * real en vez de una sola tabla plana -- cada sección trae su propio
@@ -251,6 +290,8 @@ export default function LoanDetailModal({
   metric,
   loans,
   showChannelColumn = true,
+  showStrategyColumn = false,
+  showBranchColumn = false,
   hiddenColumns,
   sections,
 }: LoanDetailModalProps) {
@@ -261,16 +302,21 @@ export default function LoanDetailModal({
   const showPropertyStateColumn = !hiddenColumns?.includes('propertyState');
   const showMilestoneColumn = !hiddenColumns?.includes('milestone');
   const showStatusColumn = !hiddenColumns?.includes('status');
-  /** Loan #, Borrower, Amount, Notes son siempre visibles -- no tienen entrada en `hiddenColumns`. */
+  /** Etapa AJUSTES-ANALYTICS-1, punto 6b: Notes pasa a ser opcional -- ver el comentario largo en `LoanDetailModalColumn` arriba. */
+  const showNotesColumn = !hiddenColumns?.includes('notes');
+  /** Loan #, Borrower, Amount son siempre visibles -- no tienen entrada en `hiddenColumns` ni prop dedicado. */
   const visibleColumnCount =
-    4 +
+    3 +
     (showLoanOfficerColumn ? 1 : 0) +
     (showChannelColumn && !hiddenColumns?.includes('channel') ? 1 : 0) +
     (showLoanTypeColumn ? 1 : 0) +
     (showLoanProgramColumn ? 1 : 0) +
     (showPropertyStateColumn ? 1 : 0) +
+    (showStrategyColumn ? 1 : 0) +
+    (showBranchColumn ? 1 : 0) +
     (showMilestoneColumn ? 1 : 0) +
-    (showStatusColumn ? 1 : 0);
+    (showStatusColumn ? 1 : 0) +
+    (showNotesColumn ? 1 : 0);
   /**
    * Expansión de Notes POR FILA -- Set de sourceLoanId (identificador
    * estable ya usado como `key` en cada <tr>, ver el .map() más abajo), NO
@@ -416,6 +462,17 @@ export default function LoanDetailModal({
             {loan.propertyState || NOT_AVAILABLE_TEXT}
           </td>
         )}
+        {/* Etapa AJUSTES-ANALYTICS-1, punto 6b: Strategy/Branch -- ver el comentario de showStrategyColumn/showBranchColumn en LoanDetailModalProps. */}
+        {showStrategyColumn && (
+          <td style={{ textAlign: 'left' }} title={classifyStrategy(loan)}>
+            {classifyStrategy(loan)}
+          </td>
+        )}
+        {showBranchColumn && (
+          <td style={{ textAlign: 'left' }} title={loan.branch || '—'}>
+            {loan.branch || '—'}
+          </td>
+        )}
         <td className="val">{fmtAmount(loan.amount)}</td>
         {showMilestoneColumn && (
           <td style={{ textAlign: 'left' }} title={loan.rawMilestone}>
@@ -427,13 +484,15 @@ export default function LoanDetailModal({
             <HealthBadge rawHealthiness={loan.rawHealthiness} />
           </td>
         )}
-        <td className="note-cell">
-          <NoteCell
-            note={loan.noteHistory}
-            expanded={expandedNotes.has(loan.sourceLoanId)}
-            onToggle={() => toggleNote(loan.sourceLoanId)}
-          />
-        </td>
+        {showNotesColumn && (
+          <td className="note-cell">
+            <NoteCell
+              note={loan.noteHistory}
+              expanded={expandedNotes.has(loan.sourceLoanId)}
+              onToggle={() => toggleNote(loan.sourceLoanId)}
+            />
+          </td>
+        )}
       </tr>
     );
   }
@@ -489,10 +548,12 @@ export default function LoanDetailModal({
                 {showLoanTypeColumn && <col style={{ width: '120px' }} />}
                 {showLoanProgramColumn && <col style={{ width: '145px' }} />}
                 {showPropertyStateColumn && <col style={{ width: '90px' }} />}
+                {showStrategyColumn && <col style={{ width: '110px' }} />}
+                {showBranchColumn && <col style={{ width: '80px' }} />}
                 <col style={{ width: '95px' }} />
                 {showMilestoneColumn && <col style={{ width: '150px' }} />}
                 {showStatusColumn && <col style={{ width: '115px' }} />}
-                <col style={{ width: '240px' }} />
+                {showNotesColumn && <col style={{ width: '240px' }} />}
               </colgroup>
             <thead>
               <tr className="mo-row">
@@ -503,10 +564,12 @@ export default function LoanDetailModal({
                 {showLoanTypeColumn && <th style={{ textAlign: 'left' }}>Loan Type</th>}
                 {showLoanProgramColumn && <th style={{ textAlign: 'left' }}>Loan Program</th>}
                 {showPropertyStateColumn && <th style={{ textAlign: 'left' }}>Property State</th>}
+                {showStrategyColumn && <th style={{ textAlign: 'left' }}>Strategy</th>}
+                {showBranchColumn && <th style={{ textAlign: 'left' }}>Branch</th>}
                 <th>Amount</th>
                 {showMilestoneColumn && <th style={{ textAlign: 'left' }}>Milestone</th>}
                 {showStatusColumn && <th style={{ textAlign: 'left' }}>Status</th>}
-                <th style={{ textAlign: 'left' }}>Notes</th>
+                {showNotesColumn && <th style={{ textAlign: 'left' }}>Notes</th>}
               </tr>
             </thead>
             <tbody>
