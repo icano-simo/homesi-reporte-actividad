@@ -142,19 +142,26 @@ table.piv.ol-year tr.grp.togg:hover td.ol-m {
 
 /* ── Los rótulos de banda ────────────────────────────────────────────────── */
 
+/*
+ * ⚠ TOKENS, NO HEXADECIMALES — etapa OL11. Estos rótulos venían con
+ * `#f1f5f9`, `#a6deff40` y `#d1fae580`: los dos últimos con alfa en el hex, que
+ * es la forma más rápida de tener un color que no está en la paleta y que nadie
+ * puede volver a encontrar. Son los mismos colores, dichos con los tokens del
+ * portal, así que un cambio de paleta los alcanza.
+ */
 table.piv.ol-year thead .yr-row th.ol-band {
-  border-bottom: 2px solid var(--white, #fff);
+  border-bottom: 2px solid var(--white, transparent);
 }
 .ol-band--actual {
-  background: #f1f5f9;
+  background: var(--slate-100);
   color: var(--slate-500);
 }
 .ol-band--forecast {
-  background: #a6deff40;
+  background: color-mix(in srgb, var(--sky) 25%, transparent);
   color: var(--navy);
 }
 .ol-band--budget {
-  background: #d1fae580;
+  background: color-mix(in srgb, var(--emerald-50) 70%, transparent);
   color: var(--emerald-800);
 }
 .ol-band--decide {
@@ -313,4 +320,105 @@ table.piv.ol-year thead .yr-row th.ol-band {
   font-style: italic;
   color: var(--slate-500);
   border-top: 1px dashed var(--slate-300);
+}
+
+/*
+ * ============================================================================
+ * QUE NO SE VEA COMO UNA PLANILLA — etapa OL11
+ * ============================================================================
+ *
+ * Tres cambios, en orden de impacto, y ninguno inventa un color: todo sale de
+ * `app/styles/tokens.css`.
+ */
+
+/*
+ * 1. AIRE. La densidad base es `6px 10px` -- pensada para la vista ejecutiva del
+ * Business Plan, con muchas más filas. Acá una tabla de branch tiene entre 5 y
+ * 15 filas y el alto no es el problema; la lectura sí. 11px vertical separa las
+ * filas sin que la tabla deje de entrar en una pantalla.
+ *
+ * ⚠ `font-variant-numeric: tabular-nums` y NO una fuente mono: Inter con cifras
+ * de ancho fijo alinea las columnas igual y mantiene la tipografía del portal.
+ * Una mono acá haría que Outlook se leyera como una terminal y el resto no.
+ */
+.ol-page table.piv.ol-year td,
+.ol-page table.piv.ol-year th {
+  padding: 11px 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * 2. SIN LÍNEAS VERTICALES. Quedaba una retícula continua: el borde izquierdo de
+ * la columna del año, y las que OL8 puso al empezar cada banda. Una grilla
+ * cerrada es lo que hace que una tabla se lea como una hoja de cálculo -- cada
+ * celda encerrada en su caja, todas con el mismo peso.
+ *
+ * Sobrevive UNA, la que separa lo real de lo proyectado, porque ésa sí marca un
+ * cambio de significado y no sólo un cambio de columna.
+ */
+.ol-page table.piv.ol-year td.totcol,
+.ol-page table.piv.ol-year th.totcol {
+  border-left: 0;
+}
+.ol-page table.piv.ol-year td.ol-m--forecast,
+.ol-page table.piv.ol-year th.ol-m--forecast {
+  box-shadow: none;
+}
+
+/*
+ * 3. LO PROYECTADO, SEPARADO DE LO REAL. Un tinte muy suave sobre las columnas
+ * de presupuesto y un borde donde empiezan. El tinte es `--emerald-50` a media
+ * opacidad: el mismo verde del rótulo de la banda, así que la columna y su
+ * cabecera dicen lo mismo con el mismo color.
+ */
+.ol-page table.piv.ol-year td.ol-m--budget,
+.ol-page table.piv.ol-year th.ol-m--budget {
+  background: color-mix(in srgb, var(--emerald-50) 55%, transparent);
+}
+.ol-page table.piv.ol-year tr.metric:nth-child(odd) td.ol-m--budget,
+.ol-page table.piv.ol-year tr.grp td.ol-m--budget {
+  background: color-mix(in srgb, var(--emerald-50) 55%, transparent);
+}
+/* El borde donde EMPIEZA el presupuesto, y sólo ahí. */
+.ol-page table.piv.ol-year td.ol-m--budget:first-of-type,
+.ol-page table.piv.ol-year th.ol-m--budget:first-of-type {
+  border-left: 1px solid var(--emerald-200);
+}
+
+/*
+ * LA PÍLDORA DE LA REGLA. La columna decía `25% quarterly from Sep · 1st raise
+ * in Dec` en cada fila; con diez filas era una pared de texto. La píldora dice
+ * cuánto y cada cuánto, que es lo que se compara de un vistazo, y el resto vive
+ * en el tooltip.
+ *
+ * ⚠ En `--sky` / `--slate`, los tokens del portal. Nada de indigo, que no está
+ * en la paleta, y nada de emojis: un `📈` al lado de un porcentaje no es el
+ * lenguaje visual de este producto.
+ */
+.ol-page .ol-pill {
+  display: inline-block;
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-full);
+  padding: 2px 10px;
+  background: var(--accent-soft);
+  color: var(--navy);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.ol-page .ol-pill:hover {
+  background: var(--sky);
+}
+/* Sin decidir todavía: se ve que hay algo que hacer, sin gritar. */
+.ol-page .ol-pill--empty {
+  border-style: dashed;
+  border-color: var(--slate-300);
+  background: transparent;
+  color: var(--slate-500);
+}
+.ol-page .ol-pill--empty:hover {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--navy);
 }

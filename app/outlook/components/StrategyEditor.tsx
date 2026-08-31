@@ -16,6 +16,7 @@ import {
   type StrategyPlan,
 } from '@/lib/outlook/project';
 import type { OutlookData, OutlookLoanOfficer } from '@/lib/outlook/loadData';
+import type { OutlookSubject } from '@/lib/outlook/save';
 import {
   saveGrowthRuleRevision,
   saveMonthlyTargets,
@@ -75,6 +76,38 @@ function stamp(iso: string): string {
   return String(iso).slice(0, 16).replace('T', ' ');
 }
 
+/**
+ * ============================================================================
+ * QUIÉN DECIDE — una persona o un branch (etapa OL11)
+ * ============================================================================
+ *
+ * El editor dejó de recibir un `OutlookLoanOfficer` y recibe SÓLO lo que
+ * necesita: el sujeto al que pertenece la decisión, cómo se llama en el título,
+ * y los siete campos de configuración.
+ *
+ * ⚠ Es una interfaz estrecha y no un `OutlookLoanOfficer` sintético para el
+ * branch. Un objeto de persona fabricado --con `employeeKey` inventado, `ytd` en
+ * cero, `strategies` vacío-- habría compilado y dejado la puerta abierta a que
+ * el editor leyera cualquiera de esos campos falsos. Así, lo que no está en esta
+ * interfaz no se puede usar.
+ *
+ * Los siete campos son los mismos que ya tenía `OutlookLoanOfficer`, así que una
+ * persona se pasa tal cual; un branch los trae en su `BranchStrategy`.
+ */
+export interface OutlookEditable {
+  /** A quién pertenece la decisión. Ver `OutlookSubject` en `save.ts`. */
+  subject: OutlookSubject;
+  /** Cómo se llama en el título: "Galo Rizzo" o "Branch 747". */
+  label: string;
+  benchmarkSchedules: OutlookLoanOfficer['benchmarkSchedules'];
+  rulesByStrategy: OutlookLoanOfficer['rulesByStrategy'];
+  targetsByStrategy: OutlookLoanOfficer['targetsByStrategy'];
+  modeByStrategy: OutlookLoanOfficer['modeByStrategy'];
+  modeSetBy: OutlookLoanOfficer['modeSetBy'];
+  ruleRevision: OutlookLoanOfficer['ruleRevision'];
+  targetRevision: OutlookLoanOfficer['targetRevision'];
+}
+
 export default function StrategyEditor({
   lo,
   strategy,
@@ -82,7 +115,7 @@ export default function StrategyEditor({
   onClose,
   onSaved,
 }: {
-  lo: OutlookLoanOfficer;
+  lo: OutlookEditable;
   strategy: OutlookStrategy;
   data: OutlookData;
   onClose: () => void;
@@ -172,23 +205,32 @@ export default function StrategyEditor({
             .join(' · ')}).`
         : null;
 
+  /*
+   * ⚠ El historial es DEL SUJETO, no de la persona. Con `r.employee_key === ...`
+   * un branch habría visto vacío --sus filas tienen `employee_key` en NULL-- y,
+   * peor, un `employee_key` nulo comparado contra otro nulo habría mezclado los
+   * historiales de los dieciséis branches si alguien "arreglaba" el filtro.
+   */
+  const isMine = (r: { employee_key: number | null; branch_code: string | null }) =>
+    lo.subject.kind === 'employee' ? r.employee_key === lo.subject.employeeKey : r.branch_code === lo.subject.branchCode;
+
   const benchHistory = data.history.strategyBenchmarks
-    .filter((r) => r.employee_key === lo.employeeKey && r.strategy === strategy)
+    .filter((r) => isMine(r) && r.strategy === strategy)
     .sort((a, b) => b.created_at.localeCompare(a.created_at));
 
   /* Las revisiones de la regla y de los meses, agrupadas: cada una es una decisión. */
   const ruleRevisions = new Map<number, typeof data.history.growthRules>();
   for (const r of data.history.growthRules) {
-    if (r.employee_key !== lo.employeeKey || r.strategy !== strategy) continue;
+    if (!isMine(r) || r.strategy !== strategy) continue;
     ruleRevisions.set(r.revision, [...(ruleRevisions.get(r.revision) ?? []), r]);
   }
   const targetRevisions = new Map<number, typeof data.history.monthlyTargets>();
   for (const r of data.history.monthlyTargets) {
-    if (r.employee_key !== lo.employeeKey || r.strategy !== strategy) continue;
+    if (!isMine(r) || r.strategy !== strategy) continue;
     targetRevisions.set(r.revision, [...(targetRevisions.get(r.revision) ?? []), r]);
   }
   const modeHistory = data.history.projectionModes
-    .filter((r) => r.employee_key === lo.employeeKey && r.strategy === strategy)
+    .filter((r) => isMine(r) && r.strategy === strategy)
     .sort((a, b) => b.projection_mode_key - a.projection_mode_key);
   const historyCount =
     benchHistory.length + ruleRevisions.size + targetRevisions.size + modeHistory.length;
@@ -212,7 +254,7 @@ export default function StrategyEditor({
           const parsed = Number(benchValue);
           if (!Number.isFinite(parsed) || parsed < 0) throw new Error('The benchmark must be a number of 0 or more.');
           await saveStrategyBenchmark({
-            employeeKey: lo.employeeKey,
+            subject: lo.subject,
             strategy: strategy as EditableStrategy,
             monthlyBenchmark: parsed,
             /* ⚠ Siempre el primer día del mes SIGUIENTE. Ver `lib/outlook/save.ts`. */
@@ -243,7 +285,7 @@ export default function StrategyEditor({
           );
         if (ruleChanged) {
           const written = await saveGrowthRuleRevision({
-            employeeKey: lo.employeeKey,
+            subject: lo.subject,
             strategy,
             segments: [...segments].sort((a, b) => a.fromMonth.localeCompare(b.fromMonth)),
             note: note.trim() === '' ? null : note.trim(),
@@ -255,7 +297,7 @@ export default function StrategyEditor({
           months.some((m) => (draftTargets[m] ?? 0) !== (savedTargets[m] ?? 0)) || targetRevision === 0;
         if (targetsChanged) {
           const written = await saveMonthlyTargets({
-            employeeKey: lo.employeeKey,
+            subject: lo.subject,
             strategy,
             /* Los meses vacíos se guardan en 0: la revisión se lee entera. */
             targets: Object.fromEntries(months.map((m) => [m, draftTargets[m] ?? 0])),
@@ -272,7 +314,7 @@ export default function StrategyEditor({
        */
       if (mode !== savedMode) {
         await setProjectionMode({
-          employeeKey: lo.employeeKey,
+          subject: lo.subject,
           strategy,
           mode,
           note: note.trim() === '' ? null : note.trim(),
@@ -309,7 +351,7 @@ export default function StrategyEditor({
   }
 
   return (
-    <Modal title={`${lo.fullName} — ${strategy}`} onClose={onClose}>
+    <Modal title={`${lo.label} — ${strategy}`} onClose={onClose}>
       <div className="ol-editor">
         {/* ── La pregunta ─────────────────────────────────────────────── */}
         <div className="ol-modes" role="radiogroup" aria-label="How the budget is set">
@@ -380,9 +422,14 @@ export default function StrategyEditor({
               </div>
             ) : (
               <p className="ol-editor__hint">
+                {/* Own Production siempre es de una persona: el link solo existe ahi. */}
                 Own Production&apos;s benchmark is edited in{' '}
-                <Link href={`/business-plan/lo/${lo.employeeKey}`}>the Business Plan profile</Link>. What is decided
-                here is how much it grows.
+                {lo.subject.kind === 'employee' ? (
+                  <Link href={`/business-plan/lo/${lo.subject.employeeKey}`}>the Business Plan profile</Link>
+                ) : (
+                  'the Business Plan profile'
+                )}
+                . What is decided here is how much it grows.
               </p>
             )}
 

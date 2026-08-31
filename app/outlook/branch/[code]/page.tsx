@@ -4,14 +4,22 @@ import { Fragment, use, useState } from 'react';
 import Link from 'next/link';
 import {
   composeYear,
+  currentMonthByBranch,
   projectLoanOfficer,
   projectBranch,
   type OutlookLoanOfficer,
+  type BranchStrategy,
 } from '@/lib/outlook/loadData';
-import { cadenceLabel, type OutlookStrategy } from '@/lib/outlook/project';
+import {
+  cadenceLabel,
+  projectPlan,
+  type GrowthSegment,
+  type OutlookStrategy,
+  type ProjectionMode,
+} from '@/lib/outlook/project';
 import { fmt } from '@/lib/outlook/format';
 import { useOutlookDataContext } from '@/lib/outlook/useOutlookData';
-import StrategyEditor from '@/app/outlook/components/StrategyEditor';
+import StrategyEditor, { type OutlookEditable } from '@/app/outlook/components/StrategyEditor';
 import NppmEditor from '@/app/outlook/components/NppmEditor';
 
 /**
@@ -106,6 +114,71 @@ function ruleLabel(lo: OutlookLoanOfficer, strategy: OutlookStrategy, months: st
 }
 
 /**
+ * ⚠ ¿HAY UNA DECISIÓN QUE PROYECTAR? — etapa OL11.
+ *
+ * Sin esto, una estrategia sin presupuesto proyectaba 0 en vez de quedar vacía:
+ * `benchmarkAt([], m)` devuelve 0 y `projectMonth` sobre 0 da 0, así que la
+ * pantalla afirmaba "se decidió que no cierre nada" donde la verdad es "nadie
+ * decidió todavía". Es la misma distinción que sostiene `fmt`: el cero es un
+ * dato y la ausencia es otra cosa.
+ *
+ * Se mira el MODO vigente, no los dos: una estrategia en modo mes a mes con una
+ * regla vieja guardada no proyecta por la regla.
+ */
+function branchHasBudget(bs: BranchStrategy): boolean {
+  return bs.mode === 'monthly' ? bs.targetRevision > 0 : bs.benchmarkSchedule.length > 0;
+}
+
+/**
+ * ⚠ LA PÍLDORA: la regla en cuatro caracteres, no en una frase — etapa OL11.
+ *
+ * La columna decía `25% quarterly from Sep · 1st raise in Dec` en cada fila, y
+ * con diez filas era una pared de texto que había que leer entera para ver que
+ * todas decían lo mismo. Lo que se compara de un vistazo es CUÁNTO y CADA CUÁNTO;
+ * el resto --desde qué mes, cuándo cae el primer aumento, los meses proyectados--
+ * vive en el tooltip, que es donde se busca cuando hace falta.
+ */
+function pillOf(plan: {
+  mode: ProjectionMode;
+  rules: GrowthSegment[];
+  hasBenchmark: boolean;
+  targetRevision: number;
+}): string {
+  if (plan.mode === 'monthly') return plan.targetRevision === 0 ? 'set months' : 'by month';
+  if (plan.rules.length === 0) return plan.hasBenchmark ? 'no rule' : 'set budget';
+  const seg = plan.rules[0];
+  const cada = seg.cadence === 'monthly' ? 'mo' : seg.cadence === 'quarterly' ? 'qtr' : 'sem';
+  const extra = plan.rules.length > 1 ? ` +${plan.rules.length - 1}` : '';
+  return `${seg.growthPct}% / ${cada}${extra}`;
+}
+
+/** La píldora de una PERSONA en una estrategia. Mismo formato, otro sujeto. */
+function pillOfLo(lo: OutlookLoanOfficer, s: OutlookStrategy): string {
+  return pillOf({
+    mode: lo.modeByStrategy[s] ?? 'growth',
+    rules: lo.rulesByStrategy[s] ?? [],
+    hasBenchmark: (lo.benchmarkSchedules[s] ?? []).length > 0 || (lo.strategyBenchmarks[s] ?? 0) > 0,
+    targetRevision: lo.targetRevision[s] ?? 0,
+  });
+}
+
+/**
+ * Cómo se está fijando una estrategia DEL BRANCH, en una línea — etapa OL11.
+ *
+ * Mismo criterio que `ruleLabel` para una persona: el MODO primero, porque es lo
+ * que decide si el resto significa algo.
+ */
+function branchRuleLabel(bs: BranchStrategy): string {
+  if (bs.mode === 'monthly') {
+    return bs.targetRevision === 0 ? 'month by month · no numbers set' : 'month by month · numbers set by hand';
+  }
+  if (bs.rules.length === 0) return bs.benchmarkSchedule.length === 0 ? 'no budget set' : 'no rule';
+  const seg = bs.rules[0];
+  const extra = bs.rules.length > 1 ? ` (+${bs.rules.length - 1} segment${bs.rules.length > 2 ? 's' : ''})` : '';
+  return `${seg.growthPct}% ${cadenceLabel(seg.cadence)} from ${monthLabel(seg.fromMonth)}${extra}`;
+}
+
+/**
  * Qué dice el estado del roster, y por qué son cuatro rótulos y no dos.
  *
  * ⚠ EL RÓTULO DICE EL ESTADO REAL, no "ya no produce". `left` es alguien que
@@ -158,7 +231,15 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    */
   const [open, setOpen] = useState<Set<string>>(new Set());
   /* Qué se está editando: (persona, estrategia) o (realtor). Nunca los dos. */
-  const [editing, setEditing] = useState<{ employeeKey: number; strategy: OutlookStrategy } | null>(null);
+  /*
+   * ⚠ Se guarda QUIÉN y QUÉ, no el objeto. Después de guardar, `reload` reemplaza
+   * `data` entera; un objeto guardado en el estado apuntaría a la versión vieja y
+   * el editor seguiría mostrando el benchmark anterior al que se acaba de
+   * escribir. Se vuelve a buscar en cada render -- ver el bloque de los editores.
+   */
+  const [editing, setEditing] = useState<
+    { kind: 'employee'; employeeKey: number; strategy: OutlookStrategy } | { kind: 'branch'; strategy: OutlookStrategy } | null
+  >(null);
   const [editingNppm, setEditingNppm] = useState<{ realtor: string; ytd: number } | null>(null);
 
   if (error) return <div className="hub-container"><div className="bp-empty">Could not load Outlook: {error}</div></div>;
@@ -187,7 +268,14 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * rosterizado tiene pronóstico 0 -- y sus cierres reales del mes se perderían.
    * Medido en AFFINITY: 5 cerrados en agosto que la primera versión no mostraba.
    */
-  const branchCurrent = projectsNothing ? (branch.actualByMonth[currentMonth] ?? 0) : branch.currentMonth;
+  /*
+   * ⚠ EL MISMO ENTERO QUE LA LISTA, y por la misma función. Calcularlo acá con
+   * `Math.round(branch.currentMonth)` habría dado otro número --el reparto
+   * depende de TODOS los branches, no de este-- y las dos pantallas volverían a
+   * discrepar en el mes en curso, que es justo lo que la fila de reconciliación
+   * vino a cerrar.
+   */
+  const branchCurrent = currentMonthByBranch(data).get(branch.branchCode) ?? 0;
   const branchYear = composeYear(
     monthsOfYear,
     currentMonth,
@@ -295,16 +383,38 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
         dónde guardar su presupuesto todavía. Van en `null` --celda vacía-- y no
         en 0, que afirmaría que se decidió que no cierre nada.
       */
-      const proyecta = s === 'Own Production';
       const proj: Record<string, number | null> = {};
-      if (proyecta) {
+      let steps: ReturnType<typeof projectPlan> = [];
+      if (s === 'Own Production') {
+        /* Suma de las personas: su benchmark vive en `org.employee_benchmark`. */
         for (const lo of branch.loanOfficers) {
-          const steps = projectLoanOfficer(lo, remainingMonths).stepsByStrategy[s] ?? [];
+          const st = projectLoanOfficer(lo, remainingMonths).stepsByStrategy[s] ?? [];
           remainingMonths.forEach((m, i) => {
-            proj[m] = (proj[m] ?? 0) + (steps[i]?.value ?? 0);
+            proj[m] = (proj[m] ?? 0) + (st[i]?.value ?? 0);
           });
         }
+      } else if (bs.opensBy === 'branch' && branchHasBudget(bs)) {
+        /*
+         * ⚠ LA MISMA PUERTA QUE UNA PERSONA — etapa OL11.
+         *
+         * `projectPlan` decide si los meses se calculan (modo `growth`) o se leen
+         * del número fijado (modo `monthly`). Es la función que ya usan las
+         * personas y la vista previa del editor, así que un presupuesto de branch
+         * no puede proyectar distinto de como el editor lo mostró.
+         */
+        steps = projectPlan(remainingMonths, {
+          mode: bs.mode,
+          benchmarks: bs.benchmarkSchedule,
+          segments: bs.rules,
+          targets: bs.targets,
+        });
+        remainingMonths.forEach((m, i) => (proj[m] = steps[i]?.value ?? 0));
       }
+      /*
+       * NPPM sigue sin proyectar: su benchmark es del realtor y todavía no hay
+       * regla que diga cómo crece. Sus meses de presupuesto quedan vacíos.
+       */
+      const proyecta = s === 'Own Production' || (bs.opensBy === 'branch' && branchHasBudget(bs));
       /*
         El mes en curso es lo REAL cerrado, no el pronóstico y no un hueco:
         ninguna fila de acá tiene pronóstico --el pipeline no lleva la estrategia
@@ -322,8 +432,16 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
           ? branch.loanOfficers.reduce((a, lo) => a + (lo.strategyBenchmarks[s] ?? 0), 0)
           : s === 'NPPM'
             ? bs.realtors.reduce((a, r) => a + r.benchmark, 0)
-            : null;
-      return { bs, s, proyecta, sYear, bench };
+            : /*
+               * Del branch. Vacío en dos casos, y los dos significan lo mismo --
+               * que no hay un número que gobierne esta fila: en modo mes a mes el
+               * benchmark no interviene, y sin benchmark guardado no hay nada que
+               * mostrar. Un 0 diría que alguien decidió cero.
+               */
+              bs.mode === 'monthly' || bs.benchmarkSchedule.length === 0
+              ? null
+              : bs.benchmarkAtDisplay;
+      return { bs, s, proyecta, sYear, bench, steps };
     });
 
   /*
@@ -512,19 +630,32 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
             </tr>
           </thead>
           <tbody>
-            {strategyRows.map(({ bs, s, proyecta, sYear, bench }) => {
+            {strategyRows.map(({ bs, s, proyecta, sYear, bench, steps }) => {
               const abierta = open.has('s:' + s);
               const plegable = bs.opensBy !== 'branch';
 
               const conBenchmark = branch.loanOfficers.filter((lo) => (lo.strategyBenchmarks[s] ?? 0) > 0).length;
+              /*
+                ⚠ CORTO, Y EL RESTO EN EL TOOLTIP. Own Production y NPPM no
+                tienen regla propia --deciden por persona y por realtor-- así que
+                su columna es un RESUMEN, no una decisión. La frase entera
+                empujaba la tabla 6px más allá de su caja en el 733 y se cortaba
+                contra el borde sin verse entera.
+              */
               const regla =
                 s === 'Own Production'
-                  ? `${conBenchmark} of ${branch.loanOfficers.length} with a benchmark`
+                  ? `${conBenchmark} of ${branch.loanOfficers.length}`
                   : s === 'NPPM'
-                    ? bs.realtors.length === 0
-                      ? 'no realtors in this branch'
-                      : `${bs.realtors.length} realtor${bs.realtors.length === 1 ? '' : 's'} · default is their 3-month average`
-                    : 'branch level · nowhere to save a budget yet';
+                    ? `${bs.realtors.length} realtor${bs.realtors.length === 1 ? '' : 's'}`
+                    : branchRuleLabel(bs);
+              const reglaTitulo =
+                s === 'Own Production'
+                  ? `${conBenchmark} of the ${branch.loanOfficers.length} loan officers here have a benchmark in Own ` +
+                    `Production. It is read from the Business Plan, one per person.`
+                  : s === 'NPPM'
+                    ? `${bs.realtors.length} realtor${bs.realtors.length === 1 ? '' : 's'} in this branch. Each one's ` +
+                      `benchmark defaults to the average of their closings over the 3 closed months.`
+                    : branchRuleLabel(bs);
 
               return (
                 <Fragment key={'s-' + s}>
@@ -609,8 +740,53 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                     >
                       {fmt(sYear.total)}
                     </td>
-                    <td className="bp-center">{fmt(bench)}</td>
-                    <td className="lbl bp-muted">{regla}</td>
+                    {/*
+                      ⚠ EL LÁPIZ SÓLO DONDE SE PUEDE DECIDIR. Own Production
+                      decide por persona y NPPM por realtor: sus filas de
+                      estrategia son sumas, y un lápiz ahí abriría un editor que
+                      guardaría en un sujeto que no es el que muestra la fila.
+                      Las tres del branch sí se editan acá.
+                    */}
+                    <td className="bp-center" onClick={(e) => e.stopPropagation()}>
+                      {fmt(bench)}
+                      {bs.opensBy === 'branch' && (
+                        <button
+                          type="button"
+                          className="ol-edit"
+                          onClick={() => setEditing({ kind: 'branch', strategy: s })}
+                          aria-label={`Edit ${s}'s benchmark and rule for branch ${branch.branchCode}`}
+                          title={`Set ${s}'s benchmark and growth rule for the whole branch`}
+                        >
+                          ✎
+                        </button>
+                      )}
+                    </td>
+                    <td className="lbl" onClick={(e) => e.stopPropagation()}>
+                      {bs.opensBy === 'branch' ? (
+                        <button
+                          type="button"
+                          className={'ol-pill' + (branchHasBudget(bs) ? '' : ' ol-pill--empty')}
+                          onClick={() => setEditing({ kind: 'branch', strategy: s })}
+                          title={
+                            regla +
+                            (steps.length > 0
+                              ? ` · ${steps.map((st) => `${monthLabel(st.month)} ${fmt(st.value)}`).join(' · ')}`
+                              : '')
+                          }
+                        >
+                          {pillOf({
+                            mode: bs.mode,
+                            rules: bs.rules,
+                            hasBenchmark: bs.benchmarkSchedule.length > 0,
+                            targetRevision: bs.targetRevision,
+                          })}
+                        </button>
+                      ) : (
+                        <span className="bp-muted" title={reglaTitulo}>
+                          {regla}
+                        </span>
+                      )}
+                    </td>
                   </tr>
 
                   {/* ── Own Production: se abre por Loan Officer ───────────── */}
@@ -677,7 +853,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                             <button
                               type="button"
                               className="ol-edit"
-                              onClick={() => setEditing({ employeeKey: lo.employeeKey, strategy: s })}
+                              onClick={() => setEditing({ kind: 'employee', employeeKey: lo.employeeKey, strategy: s })}
                               aria-label={`Edit ${lo.fullName}'s benchmark and rule in ${s}`}
                               title={
                                 isMonthly
@@ -688,17 +864,28 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                               ✎
                             </button>
                           </td>
-                          <td className="lbl ol-rule">
+                          {/*
+                            ⚠ LA PÍLDORA TAMBIÉN ACÁ, y sobre todo acá: son estas
+                            filas las que repetían `25% quarterly from Sep · 1st
+                            raise in Dec` diez veces. La frase entera y la
+                            revisión viven en el tooltip; lo que se compara de un
+                            vistazo es cuánto y cada cuánto.
+                          */}
+                          <td className="lbl">
                             <button
                               type="button"
-                              className="ol-rule__btn"
-                              onClick={() => setEditing({ employeeKey: lo.employeeKey, strategy: s })}
+                              className={
+                                'ol-pill' +
+                                ((lo.rulesByStrategy[s] ?? []).length || isMonthly ? '' : ' ol-pill--empty')
+                              }
+                              onClick={() => setEditing({ kind: 'employee', employeeKey: lo.employeeKey, strategy: s })}
+                              title={
+                                `${ruleLabel(lo, s, remainingMonths)} · revision ` +
+                                `${(isMonthly ? lo.targetRevision[s] : lo.ruleRevision[s]) || 0}`
+                              }
                             >
-                              {ruleLabel(lo, s, remainingMonths)}
+                              {pillOfLo(lo, s)}
                             </button>
-                            <span className="bp-muted ol-tag">
-                              rev {(isMonthly ? lo.targetRevision[s] : lo.ruleRevision[s]) || 0}
-                            </span>
                           </td>
                         </tr>
                       );
@@ -769,8 +956,24 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                               ✎
                             </button>
                           </td>
-                          <td className="lbl bp-muted">
-                            {r.benchmarkIsDefault ? `3-month average: ${r.avg3m.toFixed(2)}` : 'set by hand'}
+                          {/*
+                            El realtor no tiene regla: su columna dice de dónde
+                            sale el número, que es lo único que hay que decidir.
+                          */}
+                          <td className="lbl">
+                            <button
+                              type="button"
+                              className={'ol-pill' + (r.benchmarkIsDefault ? ' ol-pill--empty' : '')}
+                              onClick={() => setEditingNppm({ realtor: r.realtor, ytd: r.ytd })}
+                              title={
+                                r.benchmarkIsDefault
+                                  ? `Nobody has set it, so what applies is the average of their closings over the 3 ` +
+                                    `closed months: ${r.avg3m.toFixed(2)}. One number per realtor, across every branch.`
+                                  : `Set by hand. Their 3-month average is ${r.avg3m.toFixed(2)}.`
+                              }
+                            >
+                              {r.benchmarkIsDefault ? '3-mo avg' : 'by hand'}
+                            </button>
                           </td>
                         </tr>
                       );
@@ -869,12 +1072,11 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
       */}
       {strategyBenchmarksSet === 0 && (
         <div className="bp-notice ol-notice">
-          <b>Only Own Production has a budget.</b> B2B, Recruitment and Affinity are the branch&apos;s, and{' '}
-          <code>outlook.strategy_benchmark</code> hangs off a person — so as of this stage there is nowhere to save
-          their budget, and their columns from {monthLabel(remainingMonths[0] ?? currentMonth)} on are{' '}
-          <b>blank, not zero</b>: nothing has been decided, rather than a decision that nothing is expected. NPPM does
-          have a benchmark per realtor, defaulting to their 3-month average, and it does not project yet either. The
-          SQL to store a budget per branch is in <code>docs/sql</code>, not applied.
+          <b>No budget set for this branch yet.</b> B2B, Recruitment and Affinity belong to the branch and are edited
+          here — the pencil sets the benchmark and the growth rule, or months by hand. Their columns from{' '}
+          {monthLabel(remainingMonths[0] ?? currentMonth)} on are <b>blank, not zero</b>: nothing has been decided,
+          rather than a decision that nothing is expected. NPPM has a benchmark per realtor, defaulting to their
+          3-month average; it does not project yet.
         </div>
       )}
 
@@ -905,11 +1107,53 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
       */}
       {editing &&
         (() => {
-          const lo = branch.loanOfficers.find((l) => l.employeeKey === editing.employeeKey);
-          if (!lo) return null;
+          /*
+           * ⚠ El editable se ARMA en cada render, desde `data` fresca. Guardarlo
+           * en el estado dejaría al editor mostrando la versión anterior a lo que
+           * se acaba de escribir -- el bug que uno no revisa porque el guardado
+           * "funcionó".
+           */
+          let editable: OutlookEditable | null = null;
+          if (editing.kind === 'employee') {
+            const lo = branch.loanOfficers.find((l) => l.employeeKey === editing.employeeKey);
+            if (lo) {
+              editable = {
+                subject: { kind: 'employee', employeeKey: lo.employeeKey },
+                label: lo.fullName,
+                benchmarkSchedules: lo.benchmarkSchedules,
+                rulesByStrategy: lo.rulesByStrategy,
+                targetsByStrategy: lo.targetsByStrategy,
+                modeByStrategy: lo.modeByStrategy,
+                modeSetBy: lo.modeSetBy,
+                ruleRevision: lo.ruleRevision,
+                targetRevision: lo.targetRevision,
+              };
+            }
+          } else {
+            const bs = branch.byStrategy.find((x) => x.strategy === editing.strategy);
+            if (bs) {
+              /*
+               * Un branch decide UNA estrategia por vez, así que los mapas llevan
+               * sólo esa clave. El editor lee siempre `[strategy]`, y darle las
+               * cinco lo obligaría a que el loader las trajera todas para nada.
+               */
+              editable = {
+                subject: { kind: 'branch', branchCode: branch.branchCode },
+                label: `Branch ${branch.branchCode}`,
+                benchmarkSchedules: { [bs.strategy]: bs.benchmarkSchedule },
+                rulesByStrategy: { [bs.strategy]: bs.rules },
+                targetsByStrategy: { [bs.strategy]: bs.targets },
+                modeByStrategy: { [bs.strategy]: bs.mode },
+                modeSetBy: { [bs.strategy]: bs.modeSetBy },
+                ruleRevision: { [bs.strategy]: bs.ruleRevision },
+                targetRevision: { [bs.strategy]: bs.targetRevision },
+              };
+            }
+          }
+          if (!editable) return null;
           return (
             <StrategyEditor
-              lo={lo}
+              lo={editable}
               strategy={editing.strategy}
               data={data}
               onClose={() => setEditing(null)}

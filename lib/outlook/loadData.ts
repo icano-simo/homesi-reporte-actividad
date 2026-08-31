@@ -3,6 +3,7 @@
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { buildAliasIndex, buildExcludedIndex } from '@/lib/business-plan/aliasIndex';
 import { classifyBranch } from '@/lib/domain/classifyBranch';
+import { apportionByWeight } from '@/lib/pipeline/aggregate';
 import { addMonths } from '@/lib/business-plan/impact';
 import { loadBusinessPlanData } from '@/lib/business-plan/loadData';
 import type { BusinessPlanData, LoanOfficerRow } from '@/lib/business-plan/types';
@@ -76,7 +77,8 @@ const PAGE_SIZE = 1000;
  */
 export interface StrategyBenchmarkRow {
   strategy_benchmark_key: number;
-  employee_key: number;
+  employee_key: number | null;
+  branch_code: string | null;
   strategy: string;
   monthly_benchmark: number | string;
   effective_from: string;
@@ -97,7 +99,8 @@ export interface NppmBenchmarkRow {
 
 export interface GrowthRuleRow {
   growth_rule_key: number;
-  employee_key: number;
+  employee_key: number | null;
+  branch_code: string | null;
   strategy: string;
   revision: number;
   segment_order: number;
@@ -131,7 +134,8 @@ export interface RosterRow {
 
 export interface MonthlyTargetRow {
   monthly_target_key: number;
-  employee_key: number;
+  employee_key: number | null;
+  branch_code: string | null;
   strategy: string;
   revision: number;
   target_month: string;
@@ -143,7 +147,8 @@ export interface MonthlyTargetRow {
 
 export interface ProjectionModeRow {
   projection_mode_key: number;
-  employee_key: number;
+  employee_key: number | null;
+  branch_code: string | null;
   strategy: string;
   mode: ProjectionMode;
   set_by: string;
@@ -360,6 +365,24 @@ export interface BranchStrategy {
   /** Sólo en NPPM: los realtors del branch, de mayor a menor. */
   realtors: BranchRealtor[];
   /**
+   * ⚠ LA DECISIÓN DEL BRANCH, para las estrategias que son suyas — etapa OL11.
+   *
+   * Mismos campos que tiene una persona en `OutlookLoanOfficer`, y a propósito:
+   * el editor y el motor de proyección no distinguen quién decide, sólo leen la
+   * decisión. Un branch y una persona son dos SUJETOS de la misma estructura.
+   *
+   * Own Production y NPPM no los usan: la primera decide por persona y la
+   * segunda por realtor.
+   */
+  benchmarkSchedule: BenchmarkPoint[];
+  benchmarkAtDisplay: number;
+  rules: GrowthSegment[];
+  ruleRevision: number;
+  mode: ProjectionMode;
+  modeSetBy: { setBy: string; at: string } | null;
+  targets: Record<string, number>;
+  targetRevision: number;
+  /**
    * Sólo en NPPM: cierres contados al realtor cuyo ORIGINADOR está excluido de la
    * división, así que no están en el total del branch.
    *
@@ -546,6 +569,27 @@ interface ActivityYtdRow {
   closing_month: string | null;
 }
 
+/*
+ * ============================================================================
+ * ⚠ LA CLAVE DE UNA DECISIÓN LLEVA A QUIÉN PERTENECE — etapa OL11
+ * ============================================================================
+ *
+ * Las cuatro tablas de `outlook` guardaban `employee_key`, y la clave del índice
+ * era `employee_key + '|' + strategy`. Desde que una decisión puede ser de un
+ * BRANCH --B2B, Recruitment y Affinity no son de nadie en particular-- esa clave
+ * no alcanza: en una fila de branch `employee_key` es NULL, así que las cinco
+ * estrategias de los dieciséis branches habrían caído todas en `"null|B2B"` y
+ * cada branch habría visto el presupuesto del último que se cargó.
+ *
+ * El prefijo `e`/`b` hace que los dos espacios de claves no puedan tocarse. Es
+ * la misma separación que el CHECK XOR impone en la base: una fila apunta a una
+ * persona o a un branch, nunca a las dos.
+ */
+export const employeeKeyOf = (employeeKey: number, strategy: string) => 'e' + employeeKey + '|' + strategy;
+export const branchKeyOf = (branchCode: string, strategy: string) => 'b' + branchCode + '|' + strategy;
+const rowKeyOf = (r: { employee_key: number | null; branch_code: string | null }, strategy: string) =>
+  r.employee_key !== null ? employeeKeyOf(r.employee_key, strategy) : 'b' + r.branch_code + '|' + strategy;
+
 export async function loadOutlookData(reference: Date = new Date()): Promise<OutlookData> {
   const supabase = getSupabaseClient();
 
@@ -700,7 +744,7 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       history.projectionModes = modes;
       /* Vale la fila de `projection_mode_key` más alto -- ver el SQL de OL4. */
       for (const m of [...modes].sort((a, b) => a.projection_mode_key - b.projection_mode_key)) {
-        const k = m.employee_key + '|' + m.strategy;
+        const k = rowKeyOf(m, m.strategy);
         modeByKey.set(k, m.mode);
         modeSetByKey.set(k, { setBy: m.set_by, at: m.created_at });
       }
@@ -710,12 +754,12 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       /* Sólo la revisión más alta de cada par, entera -- igual que las reglas. */
       const maxTargetRev = new Map<string, number>();
       for (const t of targets) {
-        const k = t.employee_key + '|' + t.strategy;
+        const k = rowKeyOf(t, t.strategy);
         maxTargetRev.set(k, Math.max(maxTargetRev.get(k) ?? 0, t.revision));
       }
       for (const [k, rev] of maxTargetRev) targetRevisionByKey.set(k, rev);
       for (const t of targets) {
-        const k = t.employee_key + '|' + t.strategy;
+        const k = rowKeyOf(t, t.strategy);
         if (t.revision !== maxTargetRev.get(k)) continue;
         const byMonth = targetsByKey.get(k) ?? {};
         byMonth[t.target_month.slice(0, 7)] = Number(t.target);
@@ -752,7 +796,7 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
        */
       const benchByKey = new Map<string, StrategyBenchmarkRow[]>();
       for (const b of benches) {
-        const k = b.employee_key + '|' + b.strategy;
+        const k = rowKeyOf(b, b.strategy);
         benchByKey.set(k, [...(benchByKey.get(k) ?? []), b]);
       }
       for (const [k, rows2] of benchByKey) benchmarkScheduleByKey.set(k, scheduleFrom(rows2));
@@ -763,12 +807,12 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       /* Sólo la revisión más alta de cada (empleado, estrategia) -- ver el SQL. */
       const maxRevision = new Map<string, number>();
       for (const r of rules) {
-        const k = r.employee_key + '|' + r.strategy;
+        const k = rowKeyOf(r, r.strategy);
         maxRevision.set(k, Math.max(maxRevision.get(k) ?? 0, r.revision));
       }
       for (const [k, rev] of maxRevision) revisionByKey.set(k, rev);
       for (const r of [...rules].sort((a, b) => a.segment_order - b.segment_order)) {
-        const k = r.employee_key + '|' + r.strategy;
+        const k = rowKeyOf(r, r.strategy);
         if (r.revision !== maxRevision.get(k)) continue;
         const list = rulesByKey.get(k) ?? [];
         list.push({
@@ -1123,7 +1167,7 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       const schedule: BenchmarkPoint[] =
         s === 'Own Production'
           ? [{ fromMonth: '0000-01', value: lo.monthlyBenchmark ?? 0 }]
-          : (benchmarkScheduleByKey.get(lo.employeeKey + '|' + s) ?? []);
+          : (benchmarkScheduleByKey.get(employeeKeyOf(lo.employeeKey, s)) ?? []);
       benchmarkSchedules[s] = schedule;
       strategyBenchmarks[s] = benchmarkAt(schedule, displayMonth);
     }
@@ -1135,7 +1179,7 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
     const targetsByStrategy: Partial<Record<OutlookStrategy, Record<string, number>>> = {};
     const targetRevision: Partial<Record<OutlookStrategy, number>> = {};
     for (const s of OUTLOOK_STRATEGIES) {
-      const k = lo.employeeKey + '|' + s;
+      const k = employeeKeyOf(lo.employeeKey, s);
       rulesByStrategy[s] = rulesByKey.get(k) ?? [];
       ruleRevision[s] = revisionByKey.get(k) ?? 0;
       /* Sin fila de modo, `growth`: es como se comportaba el módulo antes. */
@@ -1469,10 +1513,20 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
                 };
               })
               .sort((a, b) => b.ytd - a.ytd || a.realtor.localeCompare(b.realtor));
+      const bk = branchKeyOf(branchCode, strategy);
+      const schedule = benchmarkScheduleByKey.get(bk) ?? [];
       return {
         strategy,
         ytd: totalOf(actualByBranchStrategy, key),
         actualByMonth: monthsOf(actualByBranchStrategy, key),
+        benchmarkSchedule: schedule,
+        benchmarkAtDisplay: benchmarkAt(schedule, displayMonth),
+        rules: rulesByKey.get(bk) ?? [],
+        ruleRevision: revisionByKey.get(bk) ?? 0,
+        mode: modeByKey.get(bk) ?? 'growth',
+        modeSetBy: modeSetByKey.get(bk) ?? null,
+        targets: targetsByKey.get(bk) ?? {},
+        targetRevision: targetRevisionByKey.get(bk) ?? 0,
         opensBy:
           strategy === 'Own Production' ? ('loanOfficer' as const) : strategy === 'NPPM' ? ('realtor' as const) : ('branch' as const),
         realtors,
@@ -1628,6 +1682,31 @@ export function projectBranch(branch: OutlookBranch, months: string[]): Record<s
     const { byMonth: loMonths } = projectLoanOfficer(lo, months);
     for (const m of months) byMonth[m] += loMonths[m] ?? 0;
   }
+  /*
+   * ⚠ Y LAS ESTRATEGIAS QUE SON DEL BRANCH — etapa OL11.
+   *
+   * Sin esto, el presupuesto de B2B, Recruitment y Affinity no llegaba al total
+   * del branch ni a la lista: sólo se sumaban las proyecciones de las PERSONAS.
+   * Se descubrió guardando el primer benchmark de branch: el 747 pasó a mostrar
+   * B2B con 3 por mes y su total siguió en 81 -- y la fila de reconciliación se
+   * lo tragó como un residuo de -3 por mes, sin que nada lo dijera.
+   *
+   * Es el riesgo de un residuo puro: hace que la suma cierre SIEMPRE, incluso
+   * cuando lo que falta es un error. Por eso el total tiene que salir bien de las
+   * dos vías, y no cuadrar sólo porque una de ellas se ajusta a la otra.
+   */
+  for (const bs of branch.byStrategy) {
+    if (bs.opensBy !== 'branch') continue;
+    const hay = bs.mode === 'monthly' ? bs.targetRevision > 0 : bs.benchmarkSchedule.length > 0;
+    if (!hay) continue;
+    const steps = projectPlan(months, {
+      mode: bs.mode,
+      benchmarks: bs.benchmarkSchedule,
+      segments: bs.rules,
+      targets: bs.targets,
+    });
+    steps.forEach((st) => (byMonth[st.month] += st.value));
+  }
   return byMonth;
 }
 
@@ -1677,6 +1756,45 @@ export interface YearRow {
   total: number;
   /** Hay algún mes en `null`, así que el total no cubre el año entero. */
   hasUnknown: boolean;
+}
+
+/**
+ * ============================================================================
+ * EL PRONÓSTICO DEL MES, EN ENTEROS — etapa OL11
+ * ============================================================================
+ *
+ * La columna del mes en curso mostraba 7,3 · 9,4 · 5,2: decimales en una tabla
+ * de préstamos, donde medio préstamo no existe. El resto del portal muestra
+ * enteros y Forecast redondea por branch, así que Outlook era el único que no.
+ *
+ * ⚠ NO ES `Math.round` POR FILA. Redondear cada branch por su cuenta hace que
+ * la columna deje de sumar el total: doce branches con .4 hacia abajo pierden
+ * casi cinco préstamos que el total sí cuenta. `apportionByWeight` reparte el
+ * total REDONDEADO entre los branches en proporción a su pronóstico exacto, así
+ * que las partes son enteras Y suman -- es la misma función que usa la barra
+ * apilada del Business Plan para el mismo problema.
+ *
+ * ⚠ Y VIVE EN EL LOADER, no en cada vista. La lista de branches y la tabla de un
+ * branch tienen que mostrar el MISMO número: si cada una redondeara por su
+ * cuenta, volveríamos al descuadre entre pantallas que la fila de reconciliación
+ * acaba de cerrar.
+ */
+export function currentMonthByBranch(data: {
+  branches: OutlookBranch[];
+  currentMonth: string;
+}): Map<string, number> {
+  const exacto = data.branches.map((b) => {
+    /*
+     * Misma regla que ya usaban las dos vistas: si el branch proyecta, manda el
+     * pronóstico --que ya incluye lo cerrado del mes--; si no, lo cerrado, que es
+     * un piso real. Ver el bloque de AFFINITY en la vista 1.
+     */
+    const proyecta = b.loanOfficers.some((l) => l.primaryBranch === b.branchCode);
+    return proyecta ? b.currentMonth : (b.actualByMonth[data.currentMonth] ?? 0);
+  });
+  const total = Math.round(exacto.reduce((a, x) => a + x, 0));
+  const partes = apportionByWeight(total, exacto);
+  return new Map(data.branches.map((b, i) => [b.branchCode, partes[i]]));
 }
 
 export function composeYear(
