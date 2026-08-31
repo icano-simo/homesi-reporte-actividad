@@ -232,6 +232,26 @@ export default function AdminPage() {
               </span>
 
               {/*
+                Cuántas producen, al lado de cuántas son. Es la respuesta a
+                "quién produce en este branch" sin abrir una sola fila, y la
+                diferencia entre los dos números es la que explica por qué un
+                branch de 37 personas proyecta como uno de 2.
+
+                Se cuenta sobre las ACTIVAS: un productor que ya no trabaja no
+                produce, y sumarlo daría un número que no corresponde a nadie.
+              */}
+              <span
+                className={'adm-prod-count' + (b.activeProducers === 0 ? ' is-zero' : '')}
+                title={
+                  b.activeProducers === 0
+                    ? 'Nadie produce en este branch. No es un dato faltante: son personas de soporte, corporativo u otra función.'
+                    : `${b.activeProducers} de las activas de este branch producen. Los demás son soporte, operaciones o corporativo.`
+                }
+              >
+                {b.activeProducers} produce{b.activeProducers === 1 ? '' : 'n'}
+              </span>
+
+              {/*
                 El caso Robert Kravitz. Se dice explícito porque es justo donde
                 alguien concluiría que la persona ya no trabaja, y es falso: la
                 branch cerró, el empleado sigue. Decirlo acá cuesta una línea;
@@ -254,6 +274,7 @@ export default function AdminPage() {
                     <th className="lbl">Área</th>
                     <th className="bp-center">País</th>
                     <th className="bp-center">Estado</th>
+                    <th className="bp-center">Produce</th>
                     <th className="bp-center">Ingreso</th>
                     <th className="bp-center">Primera carga</th>
                     <th className="bp-center">Última carga</th>
@@ -289,6 +310,20 @@ export default function AdminPage() {
                             )}
                           </span>
                         )}
+                        {/*
+                          Realtor NPPM: 7 de 110, así que va como marca y no
+                          como columna. Y no es lo mismo que producir -- un
+                          realtor NPPM trae préstamos sin ser Loan Officer de
+                          la división.
+                        */}
+                        {p.is_nppm_realtor && (
+                          <span
+                            className="adm-tag adm-tag--nppm"
+                            title="Realtor del programa NPPM. No es lo mismo que producir: trae préstamos sin ser Loan Officer de la división."
+                          >
+                            realtor NPPM
+                          </span>
+                        )}
                       </td>
                       <td className="lbl">{p.position ?? <span className="adm-muted">—</span>}</td>
                       <td className="lbl">{p.area ?? <span className="adm-muted">—</span>}</td>
@@ -297,6 +332,42 @@ export default function AdminPage() {
                         <span className={'adm-estado' + (p.is_active ? ' is-on' : '')}>
                           {p.is_active ? 'activo' : 'inactivo'}
                         </span>
+                        {/*
+                          `active_set_by_hand`: el estado lo fijó una persona, no
+                          el archivo. Va como marca sobre el valor y no como
+                          columna, porque es la PROCEDENCIA del dato, no otro
+                          dato -- mismo criterio que `corregida`.
+                        */}
+                        {p.active_set_by_hand && (
+                          <span
+                            className="adm-hand"
+                            title="Este estado lo fijó una persona, no el archivo de RRHH: no se recalcula cuando el archivo cambia."
+                            aria-label="fijado a mano"
+                          >
+                            ✋
+                          </span>
+                        )}
+                      </td>
+                      {/*
+                        ⚠ TRES COSAS DISTINTAS QUE SE CONFUNDEN FÁCIL: esta
+                        columna dice si la persona PRODUCE; la de al lado, si
+                        sigue empleada; y la cabecera del grupo, si el branch
+                        está abierto. Son independientes -- hay productores
+                        inactivos y activos que no producen.
+                      */}
+                      <td className="bp-center">
+                        <span className={'adm-produce' + (p.is_producer ? ' is-on' : '')}>
+                          {p.is_producer ? 'sí' : 'no'}
+                        </span>
+                        {p.producer_set_by_hand && (
+                          <span
+                            className="adm-hand"
+                            title="Lo decidió una persona, no el archivo de RRHH: no se recalcula cuando el archivo cambia. Es lo que evita que alguien 'arregle' una decisión deliberada."
+                            aria-label="fijado a mano"
+                          >
+                            ✋
+                          </span>
+                        )}
                       </td>
                       {/*
                         ⚠ `date_started` es real pero SÓLO en Colombia: el archivo
@@ -420,7 +491,10 @@ export default function AdminPage() {
       <div className="bp-diagnostics adm-diag">
         <div>
           <code>{diagnostics.rosterRows}</code> personas en <code>org.roster_current</code> ·{' '}
-          <code>{diagnostics.changeRows}</code> filas en <code>org.roster_change_log</code> · historia de cargas:{' '}
+          <code>{diagnostics.activeRows}</code> activas · <code>{diagnostics.producerRows}</code> producen (
+          <code>{diagnostics.activeProducerRows}</code> de ellas activas, que es lo que suman las cabeceras) ·{' '}
+          <code>{diagnostics.nppmRealtorRows}</code> realtors NPPM · <code>{diagnostics.changeRows}</code> filas en{' '}
+          <code>org.roster_change_log</code> · historia de cargas:{' '}
           <code>{hayHistoriaDeCargas ? 'sí' : 'no'}</code>
         </div>
       </div>
