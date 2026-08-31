@@ -49,11 +49,130 @@ import PeriodSelector from './PeriodSelector';
 import { useOrgRoster, type OrgRoster } from './useOrgRoster';
 import LoanDetailModal, { type LoanDetailModalColumn, type LoanDetailModalLoan } from './LoanDetailModal';
 import { closedLoanToModalLoan } from './PivotTable';
-import { AlertTriangleIcon, ArrowUpIcon, ArrowDownIcon, MinusIcon } from '@/components/ui/icons';
+import {
+  AlertTriangleIcon,
+  ArrowUpIcon,
+  ArrowDownIcon,
+  MinusIcon,
+  TrendingUpIcon,
+  GridIcon,
+  BuildingIcon,
+  FunnelIcon,
+  type IconProps,
+} from '@/components/ui/icons';
 
 export interface TabAnalyticsProps {
   /** Mismo array que ya reciben PivotTable/AdverseTable -- pipeline_resolved_loans del snapshot activo, sin filtrar por canal ni por fecha todavía. */
   resolvedLoans: ResolvedLoan[];
+}
+
+/**
+ * ============================================================================
+ * NAV DE SECCIÓN — Etapa SECTION-NAV-1
+ * ============================================================================
+ *
+ * 4 secciones reales de esta pestaña, en el mismo orden en que aparecen en
+ * pantalla. `id` coincide EXACTO con el `id` que se le agrega al `<h3>`/`<h4>`
+ * de cada sección más abajo -- es el único acoplamiento entre este array y el
+ * resto del archivo, a propósito (agregar una sección nueva es agregar una
+ * entrada acá + un `id` en su título, nada más).
+ *
+ * Íconos -- los 4 ya existían en components/ui/icons.tsx, ninguno nuevo:
+ *   - TrendingUpIcon: ya usado en el nav global para "Forecast & Pipeline"
+ *     (ServiceHubHeader.tsx) -- se reusa acá para "Trends" porque es el
+ *     ícono correcto para el concepto, no solo el que estaba libre. Un
+ *     ícono reusado en dos partes de la UI que nunca se ven una al lado de
+ *     la otra (el nav global vs. esta barra, adentro de la propia página de
+ *     Analytics) no genera la misma confusión que reusarlo dentro del MISMO
+ *     menú.
+ *   - GridIcon (antes solo para la matriz Branch x Milestone de Forecast):
+ *     "Mix" son 3 rankings + un mapa en grid, layout-grid es un buen ajuste.
+ *   - BuildingIcon ("vista ejecutiva por branch"): Commercial Scorecards es
+ *     Branch/Loan Officer/Business Developer -- desempeño organizacional.
+ *   - FunnelIcon: YA EXISTÍA en el set (no hizo falta crear ninguno nuevo,
+ *     a diferencia de lo que anticipaba el brief) -- ajuste literal para
+ *     "Concentration" (Pareto).
+ *
+ * Deliberadamente NO se reusan PieChartIcon/TargetIcon/UsersIcon/BarChartIcon:
+ * esos 4 ya identifican, en el MISMO nav global (ServiceHubHeader.tsx), a
+ * Analytics/Business Plan/Admin/Commercial Activity respectivamente -- reusar
+ * el ícono de la propia pestaña Analytics (PieChartIcon) PARA UNA SECCIÓN
+ * DENTRO de Analytics sería referirse a sí misma, y los otros 3 pertenecen a
+ * un tab distinto por completo.
+ */
+interface AnalyticsSectionNavItem {
+  id: string;
+  label: string;
+  Icon: (props: IconProps) => ReturnType<typeof TrendingUpIcon>;
+}
+
+const ANALYTICS_SECTIONS: AnalyticsSectionNavItem[] = [
+  { id: 'analytics-section-trends', label: 'Trends', Icon: TrendingUpIcon },
+  { id: 'analytics-section-mix', label: 'Mix', Icon: GridIcon },
+  { id: 'analytics-section-scorecards', label: 'Scorecards', Icon: BuildingIcon },
+  { id: 'analytics-section-concentration', label: 'Concentration', Icon: FunnelIcon },
+];
+
+/**
+ * Scrollspy real -- mismo mecanismo (`IntersectionObserver` nativo, sin
+ * librería) ya usado en esta pestaña para las animaciones de entrada
+ * (`trendsSectionRef`/`trendsVisible`, más abajo en este archivo), aplicado
+ * acá a las 4 secciones en vez de a una sola.
+ *
+ * `rootMargin: '-100px 0px -70% 0px'` crea una banda angosta cerca del
+ * borde superior del viewport (empieza 100px abajo del top -- deja lugar al
+ * header global sticky de 60px + esta misma barra sticky de ~46px -- y
+ * termina al 30% de la altura de pantalla) -- la sección cuyo título cruza
+ * esa banda mientras se hace scroll es la que se marca activa. Es el mismo
+ * truco de "banda de detección" que usan los nav laterales de docs típicos
+ * (Tailwind, MDN), no algo específico de este proyecto.
+ *
+ * Un solo componente, top-level (no una función anidada dentro de
+ * `TabAnalytics`): si viviera adentro, React la trataría como un tipo de
+ * componente nuevo en cada render del padre y la remontaría todo el tiempo,
+ * perdiendo su estado (`activeId`) y reconectando el observer sin necesidad.
+ */
+function AnalyticsSectionNav() {
+  const [activeId, setActiveId] = useState<string>(ANALYTICS_SECTIONS[0].id);
+
+  useEffect(() => {
+    const elements = ANALYTICS_SECTIONS.map((s) => document.getElementById(s.id)).filter(
+      (el): el is HTMLElement => el !== null
+    );
+    if (!elements.length) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) setActiveId(entry.target.id);
+        });
+      },
+      { rootMargin: '-100px 0px -70% 0px', threshold: 0 }
+    );
+    elements.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <nav className="analytics-section-nav" aria-label="Analytics sections">
+      {ANALYTICS_SECTIONS.map(({ id, label, Icon }) => (
+        <button
+          key={id}
+          type="button"
+          className={'analytics-section-nav__item' + (activeId === id ? ' analytics-section-nav__item--active' : '')}
+          // Etapa SECTION-NAV-1: `scrollIntoView` liso alinearía el título justo
+          // contra el borde de arriba del viewport, TAPADO por el header global
+          // sticky + esta misma barra -- se resuelve con `scroll-margin-top` en
+          // el CSS del título (ver forecast-visual.css), no acá: es la forma
+          // moderna de decirle al navegador "dejá este colchón arriba", sin
+          // calcular offsets a mano ni pelear con el timing del scroll suave.
+          onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+        >
+          <Icon size={19} />
+          <span>{label}</span>
+        </button>
+      ))}
+    </nav>
+  );
 }
 
 function fmtInt(n: number): string {
@@ -2382,6 +2501,18 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
 
       {/*
         ==========================================================================
+        NAV DE SECCIÓN -- Etapa SECTION-NAV-1
+        ==========================================================================
+        Barra sticky con las 4 secciones de esta pestaña (table of contents),
+        justo debajo del Hero KPI y arriba de Monthly Trends -- nunca antes
+        del Hero KPI, para no competir con él por atención. Scrollspy real
+        (`AnalyticsSectionNav`, definido arriba en este archivo) contra los 4
+        `id` de sección que se agregan más abajo junto a cada título.
+      */}
+      <AnalyticsSectionNav />
+
+      {/*
+        ==========================================================================
         CAPA 2 — MONTHLY TRENDS (reorganizada, misma lógica/charts de siempre)
         ==========================================================================
         Grid de 2 columnas pedido por Isa: Closings + Amount combinados a la
@@ -2391,7 +2522,9 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
         lo reubicó dentro del grid de Capa 3 (Product Mix & Geography), ver
         el comentario de esa capa más abajo.
       */}
-      <h3 style={{ margin: '24px 0 12px' }}>Monthly Trends — {trendsYear}</h3>
+      <h3 id="analytics-section-trends" style={{ margin: '24px 0 12px' }}>
+        Monthly Trends — {trendsYear}
+      </h3>
       <DiagnosticsNote
         count={1}
         summary={`All 12 months of ${trendsYear} — months with no data yet show 0 explicitly, never omitted. The month(s) matching the period selected above are highlighted in coral.`}
@@ -2494,7 +2627,9 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
         cumple el pedido sin construir un componente de barras nuevo -- ver
         `RankingTable` más arriba.
       */}
-      <h3 style={{ margin: '24px 0 12px' }}>Product Mix &amp; Geography</h3>
+      <h3 id="analytics-section-mix" style={{ margin: '24px 0 12px' }}>
+        Product Mix &amp; Geography
+      </h3>
       {/* count={1}: nota siempre visible (no es un diagnóstico condicional) -- se reusa DiagnosticsNote solo por su mecanismo de resumen breve + detalle en tooltip, mismo patrón que PersonDiagnostics. Mismo texto de siempre -- sólo se movió acá, junto a los rankings que describe (antes vivía arriba de todo, separada de su contenido). */}
       <DiagnosticsNote
         count={1}
@@ -2608,7 +2743,9 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
         mencionarlo también acá arriba era una duplicación confusa (dos
         nombres para la misma sección, uno más específico que el otro).
       */}
-      <h3 style={{ margin: '24px 0 12px' }}>Commercial Scorecards</h3>
+      <h3 id="analytics-section-scorecards" style={{ margin: '24px 0 12px' }}>
+        Commercial Scorecards
+      </h3>
       <DiagnosticsNote
         count={1}
         summary="Branch, Loan Officer, and Business Developer are matched against the company roster, so name variants are combined."
@@ -2716,7 +2853,9 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
         debajo de este, en el mismo bloque, nunca intercalados entre las
         secciones de arriba.
       */}
-      <h4 style={{ margin: '8px 0 12px', fontSize: '15px', color: 'var(--navy)' }}>Productivity &amp; Concentration</h4>
+      <h4 id="analytics-section-concentration" style={{ margin: '8px 0 12px', fontSize: '15px', color: 'var(--navy)' }}>
+        Productivity &amp; Concentration
+      </h4>
       {/*
         Etapa FIX-CARD-HEIGHT: Strategy Mix y Pareto quedaban de altura
         distinta -- el grid de 2 columnas SÍ estira sus 2 celdas a la misma
