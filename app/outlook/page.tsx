@@ -243,7 +243,8 @@ export default function OutlookPage() {
                   <td
                     key={m}
                     className={
-                      'bp-center ol-m ol-m--' + bandOf(m, currentMonth) + (y.byMonth[m] ? '' : ' zero')
+                      /* Sin `.zero`: un cero ya se distingue por ser un 0 y no un numero. */
+                      'bp-center ol-m ol-m--' + bandOf(m, currentMonth)
                     }
                     title={
                       m === currentMonth
@@ -273,7 +274,7 @@ export default function OutlookPage() {
                 </td>
               </tr>
             ))}
-            <tr className="metric" style={{ fontWeight: 700 }}>
+            <tr className="metric ol-total">
               <td className="lbl">Total</td>
               {monthsOfYear.map((m) => (
                 <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
@@ -364,10 +365,11 @@ export default function OutlookPage() {
         */}
         {data.diagnostics.strategyBenchmarkRows === 0 && (
           <div className="bp-diagnostics__warn">
-            <b>0 strategy benchmarks set.</b> Every strategy budget projects zero except Own Production, which reads its
-            benchmark from the Business Plan. The <code>{data.diagnostics.growthRuleRows}</code> growth rules do not
-            change that: a rule multiplies a benchmark, and over zero it gives zero. This is <b>not set yet</b>, not a
-            decision that nothing is expected — set them in <b>Budget by strategy</b>, inside a branch.
+            <b>Only Own Production has a budget.</b> Since this stage B2B, Recruitment and Affinity belong to the{' '}
+            <b>branch</b>, and <code>outlook.strategy_benchmark</code> hangs off a person — so there is nowhere to save
+            their budget yet, and their columns inside a branch are <b>blank, not zero</b>. The{' '}
+            <code>{data.diagnostics.growthRuleRows}</code> growth rules do not fill the gap: a rule multiplies a
+            benchmark, and over zero it gives zero. The SQL is in <code>docs/sql</code>, not applied.
           </div>
         )}
         {data.diagnostics.unresolvedOfficers > 0 && (
