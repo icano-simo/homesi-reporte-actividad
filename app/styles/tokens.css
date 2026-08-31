@@ -112,8 +112,16 @@
    * `--shadow-sm` y `--shadow-lg`. Uso acotado en forecast-visual.css
    * (`.analytics-tab .mcard:hover`), mismo criterio de alcance que
    * `--shadow-sm`.
+   *
+   * FIX-HERO-HOVER-2: subido un escalón más (de 6px/14% a 8px/18% de blur/
+   * opacidad) -- confirmado en pantalla que el valor anterior seguía
+   * perdiendo contra el borde `--sky` sólido de `:hover` (alto contraste,
+   * domina la atención sobre cualquier sombra difusa). Ver el ajuste
+   * complementario del lado del borde en forecast-visual.css -- ninguno de
+   * los dos ajustes solo alcanzaba, hacía falta bajarle el volumen al borde
+   * Y subirle un poco a la sombra.
    */
-  --shadow-md: 0 6px 16px rgba(0, 26, 64, 0.14);
+  --shadow-md: 0 8px 20px rgba(0, 26, 64, 0.18);
   --shadow-lg: 0 20px 45px rgba(0, 26, 64, 0.18);
 
   /* ---- Tipografía --------------------------------------------------------- */
