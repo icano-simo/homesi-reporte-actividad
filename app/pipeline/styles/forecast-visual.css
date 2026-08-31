@@ -1084,3 +1084,103 @@ table.piv tr.strat-break-row td {
 .analytics-tab .mcard:hover {
   border-color: rgba(166, 222, 255, 0.5);
 }
+
+/*
+ * ============================================================================
+ * Etapa SECTION-NAV-1 -- barra sticky de navegación entre las 4 secciones
+ * ============================================================================
+ * Posición elegida: STICKY ARRIBA, pegada bajo el header global (`.hub-header`,
+ * `position: sticky; top: 0`, 60px de alto -- `--header-h`), no lateral.
+ *
+ * Se midió el ancho real disponible antes de decidir: `.hub-container` tiene
+ * `max-width: 1380px` centrado -- recién a partir de ~1600px de viewport
+ * queda margen lateral utilizable de verdad (a 1440px, una resolución de
+ * laptop común, el margen lateral es ~30px por lado, insuficiente para un
+ * ícono + etiqueta sin invadir el contenido). Una barra lateral se hubiera
+ * visto bien en un monitor ancho y HABRÍA DESAPARECIDO por completo (0
+ * espacio, no "se angosta", directamente no entra) en cualquier laptop de
+ * resolución típica -- el peor momento posible para que la navegación de
+ * ayuda desaparezca es justamente en la pantalla más común. Sticky arriba
+ * funciona igual sin importar el ancho de viewport.
+ */
+.analytics-section-nav {
+  position: sticky;
+  top: var(--header-h);
+  z-index: 20;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  background: #fff;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+  padding: 8px;
+  margin-bottom: 20px;
+}
+/*
+ * FIX-SECTION-NAV-SIZE: confirmado en pantalla que se veían chicos
+ * frente a los títulos de sección ("Monthly Trends — 2026") y que
+ * sobraba espacio vacío a la derecha de la barra. Dos ajustes:
+ *
+ *  1. Tamaño: `font-size`/`padding`/ícono suben para sentirse como
+ *     navegación principal -- presencia similar a `.hub-nav__tab` (el
+ *     nav global del header), no texto secundario.
+ *  2. Espacio: `flex: 1` reparte los 4 ítems en TODO el ancho de la
+ *     barra (opción "a" de las 2 evaluadas) en vez de agruparlos a la
+ *     izquierda -- con solo 4 ítems y contenido corto, centrar el
+ *     grupo entero habría dejado la MISMA sensación de aire vacío a
+ *     los costados, solo repartida en 2 lados en vez de 1; que cada
+ *     ítem ocupe su cuarto del ancho aprovecha el espacio de verdad y
+ *     además agranda el área de click. `min-width` evita que se
+ *     aplasten en viewports angostos -- ahí el `overflow-x: auto` del
+ *     contenedor (arriba) toma el control en vez de comprimir el texto.
+ */
+.analytics-section-nav__item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 150px;
+  padding: 13px 20px;
+  border: none;
+  border-radius: var(--radius-full);
+  background: transparent;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--slate-600);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+  white-space: nowrap;
+}
+.analytics-section-nav__item svg {
+  flex-shrink: 0;
+}
+.analytics-section-nav__item:hover {
+  background: var(--slate-50);
+  color: var(--navy);
+}
+/* Coral = activo -- mismo lenguaje ya usado en Monthly Trends (`.trend-chart__col--highlight .trend-chart__bar`, más arriba en este archivo) para marcar "esto es lo que está seleccionado ahora mismo". */
+.analytics-section-nav__item--active,
+.analytics-section-nav__item--active:hover {
+  background: var(--coral);
+  color: #fff;
+}
+.analytics-section-nav__item:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 1px;
+}
+/*
+ * Colchón para que `scrollIntoView` no deje el título tapado detrás del
+ * header global + esta misma barra sticky (juntos, ~106px) -- `scroll-
+ * margin-top` es la forma nativa de decirle al navegador "dejá este aire
+ * arriba al hacer scroll hasta acá", sin calcular offsets a mano ni pelear
+ * con el timing de `behavior: 'smooth'`.
+ */
+#analytics-section-trends,
+#analytics-section-mix,
+#analytics-section-scorecards,
+#analytics-section-concentration {
+  scroll-margin-top: 120px;
+}
