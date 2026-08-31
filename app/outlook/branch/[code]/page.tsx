@@ -489,6 +489,30 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    *                  estrategia. Desaparece el día que lo haga.
    *   otros meses    cierres contados a un realtor y no al branch.
    *
+   * ==========================================================================
+   * ⚠⚠ ESTA FILA PUEDE ESCONDER UN ERROR, Y HAY QUE SABERLO
+   * ==========================================================================
+   *
+   * Al ser un residuo puro, la suma CIERRA SIEMPRE -- también cuando lo que
+   * falta no es "el pronóstico que ninguna estrategia reclama" sino un bug. La
+   * fila que vino a garantizar el invariante es la que puede tapar que el
+   * invariante se rompió.
+   *
+   * Ya pasó una vez, en OL11: se guardó el primer benchmark de branch, B2B pasó
+   * a mostrar 3 por mes, el total del branch NO se movió --`projectBranch` sólo
+   * sumaba las proyecciones de las personas-- y esta fila absorbió -3 por mes sin
+   * que nada lo dijera. La pantalla seguía cuadrando y estaba mal.
+   *
+   * ⚠ REGLA PARA EL QUE VENGA: si el residuo empieza a dar valores GRANDES, o
+   * cambia sin que haya cambiado el mes en curso, NO es una peculiaridad del
+   * mes. Es que algo dejó de sumarse en `projectBranch` o en `strategyRows`.
+   * Las dos vías tienen que dar bien por separado; que cierren no alcanza,
+   * porque una se ajusta a la otra por construcción.
+   *
+   * Hoy sus únicas dos causas legítimas son chicas y conocidas: el pronóstico del
+   * mes en curso, que el pipeline no abre por estrategia, y algún cierre contado
+   * a un realtor y no al branch.
+   *
    * ⚠ PUEDE SER NEGATIVO Y NO SE CLAMPEA. Medido: el 710 da −0,6 -- cerró 2 en
    * agosto y su pronóstico era 1,4, porque sus 2 préstamos abiertos del mes no
    * son healthy. Un `max(0, ...)` rompería justo el invariante que esta fila
