@@ -76,6 +76,18 @@ export const OUTLOOK_CLAIM = 'outlook';
  */
 export const ANALYTICS_CLAIM = 'analytics';
 
+/**
+ * Etapa ADMIN-1: la sección Admin, que muestra el roster de RRHH y los cambios
+ * detectados entre cargas. Hoy la tiene una sola persona.
+ *
+ * ⚠ Este claim NO es "administrador del portal": no da poderes sobre nadie ni
+ * sobre ninguna otra pantalla. Es el permiso para VER datos de personal --
+ * nombres, cargos, supervisores, correos-- que el resto de los módulos no
+ * muestra. Si algún día aparece un permiso de administración de verdad, va a
+ * necesitar otro nombre, porque este ya está tomado por una lectura.
+ */
+export const ADMIN_CLAIM = 'admin';
+
 /** true si el usuario tiene ese claim entre sus `allowed_apps`. */
 export function hasClaim(user: UserLike, claim: string): boolean {
   const allowedApps = user?.app_metadata?.allowed_apps;

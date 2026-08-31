@@ -1,0 +1,65 @@
+-- ===========================================================================
+-- ADMIN — el índice que quedó con el nombre viejo (cosmético)
+-- ===========================================================================
+--
+-- Ejecutar como `postgres` en el SQL Editor de Supabase (proyecto simoOS-prod).
+-- Idempotente.
+--
+-- APLICADO el 2026-08-30. Verificado despues:
+--
+--   select indexrelid::regclass::text from pg_index
+--    where indrelid = 'org.roster_current'::regclass;   -> org.roster_current_pkey
+--
+--   -- y no queda ningun objeto del schema con 'roster_v2' en el nombre
+--   select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace
+--    where n.nspname = 'org' and c.relname like '%roster_v2%';   -> 0
+--
+-- Se conserva como registro de por que el indice se llamaba distinto que su
+-- tabla, no como algo pendiente.
+--
+-- ⚠ ESTO NO ARREGLA NADA QUE ESTÉ ROTO. Es sólo un nombre.
+--
+-- `org.roster_v2` se renombró a `org.roster_current` --"v2" sugería que venía a
+-- reemplazar un "v1", y el candidato obvio era `org.dim_employee`, al que NO
+-- reemplaza--. `alter table ... rename` se lleva la política y el grant consigo,
+-- pero NO renombra los índices, así que la clave primaria de `roster_current`
+-- sigue llamándose `roster_v2_pkey`.
+--
+-- Verificado:
+--
+--   select indexrelid::regclass::text, indrelid::regclass::text
+--     from pg_index where indrelid = 'org.roster_current'::regclass;
+--   -> org.roster_v2_pkey | org.roster_current
+--
+-- El índice funciona perfectamente con ese nombre. Lo único que cuesta es que
+-- dentro de un año alguien busque `roster_v2` para entender qué es, no lo
+-- encuentre en ninguna tabla, y pierda un rato -- que es exactamente el tipo de
+-- confusión que motivó el renombre.
+-- ===========================================================================
+
+alter index if exists org.roster_v2_pkey rename to roster_current_pkey;
+
+
+-- ===========================================================================
+-- VERIFICACIÓN
+-- ===========================================================================
+--
+--   select indexrelid::regclass::text from pg_index
+--    where indrelid = 'org.roster_current'::regclass;
+--   -> org.roster_current_pkey
+--
+--
+-- ---------------------------------------------------------------------------
+-- LO QUE NO HACE FALTA, Y POR QUÉ SE DICE
+-- ---------------------------------------------------------------------------
+-- El GRANT y la política de `org.roster_current` YA ESTÁN. El renombre se los
+-- llevó consigo, así que no hay nada que reaplicar:
+--
+--   org.roster_current     RLS on · 1 política SELECT (claim admin) · SELECT
+--   org.roster_change_log  RLS on · 2 políticas (SELECT, UPDATE)    · SELECT, UPDATE
+--
+-- Lo único que falta para que la sección Admin muestre algo es que la tabla
+-- tenga filas: hoy tiene CERO. Eso no se arregla con SQL acá -- hay que agregar
+-- el roster al sync como octava tabla, leyendo de
+-- `hr_centralizado.roster_for_admin` (108 personas).
+-- ===========================================================================

@@ -4,9 +4,9 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 import BrandLockup from './HomesiLogo';
-import { BarChartIcon, TrendingUpIcon, TargetIcon, CalendarIcon, PieChartIcon } from '@/components/ui/icons';
-import { ANALYTICS_PATH, isAuthRoute, OUTLOOK_PATH } from '@/lib/auth/routes';
-import { ANALYTICS_CLAIM, OUTLOOK_CLAIM } from '@/lib/auth/appAccess';
+import { BarChartIcon, TrendingUpIcon, TargetIcon, CalendarIcon, PieChartIcon, UsersIcon } from '@/components/ui/icons';
+import { ADMIN_PATH, ANALYTICS_PATH, isAuthRoute, OUTLOOK_PATH } from '@/lib/auth/routes';
+import { ADMIN_CLAIM, ANALYTICS_CLAIM, OUTLOOK_CLAIM } from '@/lib/auth/appAccess';
 import UserMenu from './UserMenu';
 
 /*
@@ -63,6 +63,12 @@ const NAV_TABS: NavTab[] = [
    * pestaña con claim propio; hoy la ven cuatro personas.
    */
   { href: OUTLOOK_PATH, label: 'Outlook', icon: <CalendarIcon />, claim: OUTLOOK_CLAIM },
+  /*
+   * Etapa ADMIN-1 — Admin: el roster de RRHH y los cambios entre cargas. Hoy lo
+   * ve una sola persona, y va última a propósito: es la pestaña de menos uso
+   * diario y la única que no habla de producción.
+   */
+  { href: ADMIN_PATH, label: 'Admin', icon: <UsersIcon />, claim: ADMIN_CLAIM },
 ];
 
 /**
