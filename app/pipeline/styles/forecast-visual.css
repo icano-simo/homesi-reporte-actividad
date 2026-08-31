@@ -1373,7 +1373,21 @@ table.piv tr.strat-break-row td {
  */
 .analytics-section-nav {
   position: sticky;
-  top: var(--header-h);
+  /*
+   * FIX-HEADER-SUBPIXEL-GAP: con `--header-h: 103px` (valor medido, no
+   * calculado) seguía viéndose un hueco mínimo a zoom alto (150%) --
+   * descartado que sea un margin/padding de más (base.css resetea
+   * `html, body { margin: 0; padding: 0; }`, sin nada entre el header y
+   * esta barra). Es redondeo de subpíxel: `getBoundingClientRect()`
+   * devuelve un decimal (la altura real de `.hub-header` no cae justo en
+   * un entero), y `103px` es ese decimal truncado -- a zoom alto el
+   * navegador deja de absorber esa fracción de píxel en el redondeo
+   * normal, y el hueco se vuelve visible. `- 1px` corrige sesgando hacia
+   * la superposición en vez del hueco: 1px de esta barra queda tapado
+   * DETRÁS del header (que tiene fondo propio, blur incluido) -- invisible
+   * -- en vez de dejar 1px de fondo asomándose por un hueco, que sí se ve.
+   */
+  top: calc(var(--header-h) - 1px);
   z-index: 20;
   display: flex;
   gap: 6px;
@@ -1440,15 +1454,20 @@ table.piv tr.strat-break-row td {
   outline-offset: 1px;
 }
 /*
- * Colchón para que `scrollIntoView` no deje el título tapado detrás del
- * header global + esta misma barra sticky (juntos, ~106px) -- `scroll-
- * margin-top` es la forma nativa de decirle al navegador "dejá este aire
- * arriba al hacer scroll hasta acá", sin calcular offsets a mano ni pelear
- * con el timing de `behavior: 'smooth'`.
+ * FIX-HEADER-STACK-OFFSET: recalculado -- el header global pasó a 2 filas
+ * (Etapa OL6, shell.css) sin que `--header-h` se actualizara (ver el
+ * comentario largo de ese token en tokens.css). Con `--header-h` ya
+ * corregido a 108px, el colchón real es header (108px) + esta barra sticky
+ * agrandada (~59px con el padding/tamaño de FIX-SECTION-NAV-SIZE) ≈ 167px
+ * -- se redondea a 172px. Antes eran 120px, calculados sobre la altura
+ * VIEJA de 1 fila (~106px combinados) -- con el header ya en 2 filas, ese
+ * número se había quedado corto y el título hubiera seguido apareciendo
+ * parcialmente tapado al hacer clic en un ítem de la barra, aunque la
+ * barra en sí ya se viera bien.
  */
 #analytics-section-trends,
 #analytics-section-mix,
 #analytics-section-scorecards,
 #analytics-section-concentration {
-  scroll-margin-top: 120px;
+  scroll-margin-top: 172px;
 }
