@@ -1,16 +1,15 @@
 'use client';
 
-import { Fragment, use, useCallback, useEffect, useState } from 'react';
+import { Fragment, use, useState } from 'react';
 import Link from 'next/link';
 import {
   composeYear,
-  loadOutlookData,
   projectLoanOfficer,
   projectBranch,
-  type OutlookData,
   type OutlookLoanOfficer,
 } from '@/lib/outlook/loadData';
 import { OUTLOOK_STRATEGIES, cadenceLabel, type OutlookStrategy } from '@/lib/outlook/project';
+import { useOutlookDataContext } from '@/lib/outlook/useOutlookData';
 import StrategyEditor from '@/app/outlook/components/StrategyEditor';
 import NppmEditor from '@/app/outlook/components/NppmEditor';
 
@@ -105,39 +104,24 @@ function ruleLabel(lo: OutlookLoanOfficer, strategy: OutlookStrategy, months: st
 
 export default function OutlookBranchPage({ params }: { params: Promise<{ code: string }> }) {
   const { code } = use(params);
-  const [data, setData] = useState<OutlookData | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  /*
+   * Del contexto del layout, igual que la vista 1 -- una sola carga.
+   *
+   * `reload` sale del mismo contexto: tira el caché de módulo y vuelve a
+   * cargar, así que después de guardar las DOS vistas ven el dato nuevo. Antes
+   * cada pantalla tenía su propio `loadOutlookData`, y guardar en la vista 2
+   * dejaba la vista 1 con la proyección vieja hasta recargar la pestaña.
+   *
+   * Un error de la recarga llega por `error` del contexto: no hace falta un
+   * segundo estado de error acá.
+   */
+  const { data, error, reload } = useOutlookDataContext();
   const [open, setOpen] = useState<Set<number>>(new Set());
 
   /* Qué se está editando: (persona, estrategia) o (realtor). Nunca los dos. */
   const [editing, setEditing] = useState<{ employeeKey: number; strategy: OutlookStrategy } | null>(null);
   const [editingNppm, setEditingNppm] = useState<{ realtor: string; ytd: number } | null>(null);
 
-  /*
-   * Recargar todo después de guardar. No hay `cancelled` acá a propósito: esto
-   * corre por una acción del usuario que ya vio el guardado, no en el montaje.
-   */
-  const reload = useCallback(
-    () =>
-      loadOutlookData()
-        .then(setData)
-        .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e))),
-    []
-  );
-
-  useEffect(() => {
-    let cancelled = false;
-    loadOutlookData()
-      .then((d) => {
-        if (!cancelled) setData(d);
-      })
-      .catch((e: unknown) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   if (error) return <div className="hub-container"><div className="bp-empty">Could not load Outlook: {error}</div></div>;
   if (!data) return <div className="hub-container"><div className="bp-empty">Loading…</div></div>;
@@ -560,33 +544,22 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
         />
       )}
 
-      <div className="foot-note">
-        <b>The hierarchy is the calculation</b>: an NPPM realtor adds to the NPPM strategy, which adds to the Loan
-        Officer, which adds to the branch. A realtor&apos;s production is <b>not counted twice</b> — their row is the detail
-        of the NPPM row, not a separate total.{' '}
-        <b>With one exception, and it is {monthLabel(currentMonth)}</b>: a person&apos;s total is not the sum of their five
-        strategies, and the difference is exactly the month&apos;s forecast. Forecast computes it from the pipeline, which
-        does not carry the strategy; splitting it by YTD weight would invent a number that looks like data. The
-        strategies show <code>—</code> for that month and their total leaves it out. It is recorded as its own stage:{' '}
-        <code>pipeline_loans</code> has kept the five raw columns since F6b and <code>lib/pipeline/strategy.ts</code>{' '}
-        already knows how to classify them, so it is derivable without inventing anything.{' '}
-        <b>A Loan Officer&apos;s benchmark</b> is the sum of their five strategies: calculated, not editable.{' '}
-        <b>Own Production</b>&apos;s is read from <code>org.employee_benchmark</code> and is still edited in the Business
-        Plan profile.{' '}
-        <b>Every budget cell</b> carries its full arithmetic in the tooltip: benchmark, the rule that applied, periods
-        and result.{' '}
-        <b>{monthLabel(currentMonth)} is the only column that may not add up</b>, always for the same reason: the
-        forecast is attributed by <b>roster</b> branch and closings by <b>loan</b> branch. Where there is no forecast
-        —nobody rostered— the cell shows what already closed this month, a real floor; each cell&apos;s tooltip says which
-        of the two readings it is showing.{' '}
-        <b>Each strategy is set one of two ways</b>: by growth rate —a benchmark and a rule, and the months are
-        calculated— or <b>month by month</b>, writing each month&apos;s number. The right-hand column says which one rules.
-        What is saved under the other mode <b>is not deleted and is not applied</b>: switching back reactivates it
-        exactly as it was.{' '}
-        <b>Everything edited is appended, never replaced</b>: a saved benchmark is a new row and an edited rule is a new
-        revision, both signed and dated, with the previous ones intact in the history. And it takes effect{' '}
-        <b>from next month</b> — the current month is already being measured against the previous benchmark.
-      </div>
+      {/*
+        ⚠ ACÁ HABÍA UN PÁRRAFO LARGO, Y SE FUE A PROPÓSITO — etapa OL6.
+      
+        Explicaba la jerarquía, la excepción del mes en curso, cómo se atribuye
+        cada cosa y qué significa cada modo. Ocupaba más alto que la tabla que
+        venía a explicar.
+      
+        Lo que decía no se perdió: vive donde se busca cuando hace falta.
+          · el detalle del cálculo de cada celda, en su tooltip
+          · el motivo de un branch que no proyecta, en `sin LO asignados` y en
+            su tooltip
+          · el porqué de cada regla, en las cabeceras de `lib/outlook/*.ts`
+      
+        Si algo de la tabla necesita un párrafo para entenderse, el problema
+        está en la tabla.
+      */}
     </div>
   );
 }

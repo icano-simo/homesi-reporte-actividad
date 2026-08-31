@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { composeYear, loadOutlookData, projectBranch, type OutlookData } from '@/lib/outlook/loadData';
+import { composeYear, projectBranch, type OutlookData } from '@/lib/outlook/loadData';
+import { useOutlookDataContext } from '@/lib/outlook/useOutlookData';
 
 /**
  * ============================================================================
@@ -56,22 +56,9 @@ function bandOf(month: string, currentMonth: string): 'actual' | 'forecast' | 'b
 
 export default function OutlookPage() {
   const router = useRouter();
-  const [data, setData] = useState<OutlookData | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    loadOutlookData()
-      .then((d) => {
-        if (!cancelled) setData(d);
-      })
-      .catch((e: unknown) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  /* Los datos vienen del contexto del layout: una sola carga para las dos
+     vistas. Ver `lib/outlook/useOutlookData.tsx`. */
+  const { data, error } = useOutlookDataContext();
 
   if (error) {
     return (
@@ -141,7 +128,6 @@ export default function OutlookPage() {
     totalByMonth[m] = rows.reduce((a, r) => a + (r.year.byMonth[m] ?? 0), 0);
   }
   const grandTotal = rows.reduce((a, r) => a + r.year.total, 0);
-  const closedThisMonth = data.branches.reduce((a, b) => a + b.closedToDate, 0);
 
   return (
     <div className="hub-container ol-page">
@@ -305,26 +291,22 @@ export default function OutlookPage() {
         </table>
       </div>
 
-      {/* Lo que un número de esta tabla necesita para poder leerse. */}
-      <div className="foot-note">
-        <b>Three kinds of number in one row.</b>{' '}
-        <b>{actualMonths.length ? 'Jan–' + monthLabel(actualMonths[actualMonths.length - 1]) : 'The actual band'}</b> is
-        what closed, read from activity. <b>{monthLabel(currentMonth)}</b> is the Forecast projection, and it{' '}
-        <b>already includes the {closedThisMonth} that closed</b> this month — which is why there is no separate YTD
-        column: the actual months are the YTD, and adding the current month on top would count it twice.{' '}
-        <b>{remainingMonths.length ? monthLabel(remainingMonths[0]) + '–Dec' : 'The budget'}</b> is benchmark × growth
-        rule, the only part decided in this module. <b>The year total</b> is the sum of the twelve columns, nothing
-        else.{' '}
-        <b>Where there is no forecast</b> —a branch nobody has on their roster— the month column shows what already
-        closed, a real floor rather than a projection: without it, AFFINITY lost the 5 it closed this month. Each cell&apos;s
-        tooltip says which of the two readings it is showing.{' '}
-        <b>The <span className="bp-muted">+N</span> next to a branch</b> is loans closed in that branch by people who
-        are not HomeSí Loan Officers — Commercial Activity counts them, a division budget does not.{' '}
-        <b>Actual and budget are attributed differently</b>: closings go to the LOAN&apos;s branch; the forecast and the
-        budget go to each person&apos;s ROSTER branch, because they are one number per person and cannot be split.{' '}
-        <b>A branch marked <span className="bp-muted">no LOs assigned</span></b> has real closings but does not project:
-        nobody has it on their roster. Who owns that budget is still to be decided.
-      </div>
+      {/*
+        ⚠ ACÁ HABÍA UN PÁRRAFO LARGO, Y SE FUE A PROPÓSITO — etapa OL6.
+      
+        Explicaba la jerarquía, la excepción del mes en curso, cómo se atribuye
+        cada cosa y qué significa cada modo. Ocupaba más alto que la tabla que
+        venía a explicar.
+      
+        Lo que decía no se perdió: vive donde se busca cuando hace falta.
+          · el detalle del cálculo de cada celda, en su tooltip
+          · el motivo de un branch que no proyecta, en `sin LO asignados` y en
+            su tooltip
+          · el porqué de cada regla, en las cabeceras de `lib/outlook/*.ts`
+      
+        Si algo de la tabla necesita un párrafo para entenderse, el problema
+        está en la tabla.
+      */}
 
       <div className="bp-diagnostics">
         <div>
