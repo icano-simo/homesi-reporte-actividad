@@ -642,6 +642,27 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                           by realtor
                         </span>
                       )}
+                      {/*
+                        ⚠ La explicacion de por que NPPM puede sumar mas de lo
+                        que el branch cuenta. El realtor es de la division; el
+                        originador de ese prestamo no, asi que el prestamo cuenta
+                        al realtor y no al branch. Sin este numero la diferencia
+                        no se puede explicar mirando la pantalla.
+                      */}
+                      {bs.outsideDivision > 0 && (
+                        <span
+                          className="bp-muted ol-tag"
+                          title={
+                            `${bs.outsideDivision} of these closings were originated by someone outside the division, ` +
+                            `so they count for the realtor but not in the branch total — the exclusion is about not ` +
+                            `counting that person as a loan officer, not about erasing what the realtor brought in. ` +
+                            `They are also in the unresolved count at the foot of Outlook: no loan officer row, but a ` +
+                            `realtor row.`
+                          }
+                        >
+                          +{bs.outsideDivision} originated outside the division
+                        </span>
+                      )}
                       {bs.opensBy === 'branch' && (
                         <span
                           className="bp-muted ol-tag"

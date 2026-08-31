@@ -296,6 +296,18 @@ export interface OutlookLoanOfficer {
  * benchmark, ese valor único rige en los dos branches. La pantalla lo dice en el
  * tooltip.
  */
+/**
+ * El realtor de un préstamo NPPM al que nadie le cargó el realtor.
+ *
+ * ⚠ SE MUESTRA, no se oculta: sin esta fila el total de NPPM del branch no daría
+ * la suma de sus realtors, y un descuadre sin explicación es peor que una fila
+ * incompleta. Dice `unassigned realtor` y no `(no name)` para que se lea como lo
+ * que es --un dato que falta en el origen-- y no como una categoría de realtor.
+ *
+ * Hoy es uno: un préstamo NPPM de Aimmee Buendía en el 733.
+ */
+export const UNASSIGNED_REALTOR = 'unassigned realtor';
+
 export interface BranchRealtor {
   realtor: string;
   ytd: number;
@@ -347,6 +359,15 @@ export interface BranchStrategy {
   opensBy: 'loanOfficer' | 'realtor' | 'branch';
   /** Sólo en NPPM: los realtors del branch, de mayor a menor. */
   realtors: BranchRealtor[];
+  /**
+   * Sólo en NPPM: cierres contados al realtor cuyo ORIGINADOR está excluido de la
+   * división, así que no están en el total del branch.
+   *
+   * ⚠ Es la explicación de por qué NPPM puede sumar más de lo que el branch
+   * cuenta. Sin este número la diferencia no se puede explicar mirando. Hoy es 1,
+   * en el 733.
+   */
+  outsideDivision: number;
 }
 
 export interface OutlookBranch {
@@ -924,6 +945,8 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
   const actualByBranchStrategy: MonthCounter = new Map();
   const actualByBranchRealtor: MonthCounter = new Map();
   const realtorsByBranch = new Map<string, Set<string>>();
+  /* Cierres NPPM contados al realtor y NO al branch, por originador excluido. */
+  const nppmOutsideDivision = new Map<string, number>();
   let ytdRowsCounted = 0;
   let unresolvedOfficers = 0;
   /*
@@ -942,6 +965,41 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       unresolvedOfficers += 1;
       const b = classifyBranch(row.branch ?? '');
       unattributedByBranch.set(b, (unattributedByBranch.get(b) ?? 0) + 1);
+
+      /*
+       * ==========================================================================
+       * ⚠ NPPM SÍ CUENTA AL REALTOR, aunque el originador esté excluido
+       * ==========================================================================
+       *
+       * La exclusión de `org.source_name_excluded` existe para no contar a esa
+       * persona como Loan Officer de la división. NPPM no mide a la persona: mide
+       * la producción del REALTOR, y el realtor sí es de la división. Descartar
+       * el préstamo por quién firmó mezcla dos cosas distintas.
+       *
+       * Hoy es un préstamo: el de Daniel Rodriguez en el 733, originado por
+       * Anthony DiToma. Sin esto, el 733 mostraba 6 en NPPM y el realtor no
+       * existía en la pantalla.
+       *
+       * ⚠ CONSECUENCIA QUE HAY QUE MIRAR: este préstamo NO está en el total del
+       * branch --que sí excluye a DiToma-- así que la suma de las estrategias
+       * puede pasar al total del branch por esta vía. Se cuenta aparte, en
+       * `nppmOutsideDivision`, y la fila de NPPM lo dice: es la única forma de que
+       * la diferencia se explique en vez de aparecer como un descuadre.
+       *
+       * Y sigue contado en los que no resuelven, al pie: no tiene fila de Loan
+       * Officer, sí tiene fila de realtor. Son dos preguntas distintas.
+       */
+      const estrategiaCruda = row.strategy ?? '';
+      if (estrategiaCruda === 'NPPM') {
+        const mesNppm = row.closing_month.slice(0, 7);
+        const realtorNppm = row.nppm_realtor?.trim() || UNASSIGNED_REALTOR;
+        bump(actualByBranchStrategy, b + '|NPPM', mesNppm);
+        bump(actualByBranchRealtor, b + '|' + realtorNppm, mesNppm);
+        const enBranch = realtorsByBranch.get(b) ?? new Set<string>();
+        enBranch.add(realtorNppm);
+        realtorsByBranch.set(b, enBranch);
+        nppmOutsideDivision.set(b, (nppmOutsideDivision.get(b) ?? 0) + 1);
+      }
       continue;
     }
     ytdRowsCounted += 1;
@@ -967,7 +1025,7 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
     bump(actualByBranchStrategy, branch + '|' + strategy, month);
 
     if (strategy === 'NPPM') {
-      const realtor = row.nppm_realtor?.trim() || '(no name)';
+      const realtor = row.nppm_realtor?.trim() || UNASSIGNED_REALTOR;
       bump(actualByLoStrategyRealtor, sk + '|' + realtor, month);
       const set = realtorsByStrategyKey.get(sk) ?? new Set<string>();
       set.add(realtor);
@@ -1418,6 +1476,7 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
         opensBy:
           strategy === 'Own Production' ? ('loanOfficer' as const) : strategy === 'NPPM' ? ('realtor' as const) : ('branch' as const),
         realtors,
+        outsideDivision: strategy === 'NPPM' ? (nppmOutsideDivision.get(branchCode) ?? 0) : 0,
       };
     });
   }
