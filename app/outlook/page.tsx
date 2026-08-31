@@ -348,6 +348,28 @@ export default function OutlookPage() {
           <code>{data.diagnostics.producersWithoutIdentity}</code> without internal identity ·{' '}
           <code>{data.diagnostics.closedButNotProducing}</code> shown only because they closed
         </div>
+        {/*
+          ⚠ CERO BENCHMARKS DE ESTRATEGIA NO ES UN CONTEO, ES UN AVISO.
+          El numero ya estaba en la linea de arriba, entre otros dos, y ahi se
+          lee como estadistica. Pero con cero cargados TODO el presupuesto por
+          estrategia proyecta cero salvo Own Production --que lee su benchmark de
+          `org.employee_benchmark`, no de `outlook`-- y eso se ve igual que si el
+          negocio no esperara nada de B2B ni de NPPM.
+
+          Las 185 reglas de crecimiento no lo tapan: una regla multiplica un
+          benchmark, y sobre cero da cero. Estan guardadas y no proyectan nada.
+
+          Mismo criterio que el aviso del roster: la pantalla dice lo que no se
+          puede deducir mirandola.
+        */}
+        {data.diagnostics.strategyBenchmarkRows === 0 && (
+          <div className="bp-diagnostics__warn">
+            <b>0 strategy benchmarks set.</b> Every strategy budget projects zero except Own Production, which reads its
+            benchmark from the Business Plan. The <code>{data.diagnostics.growthRuleRows}</code> growth rules do not
+            change that: a rule multiplies a benchmark, and over zero it gives zero. This is <b>not set yet</b>, not a
+            decision that nothing is expected — set them in <b>Budget by strategy</b>, inside a branch.
+          </div>
+        )}
         {data.diagnostics.unresolvedOfficers > 0 && (
           <div className="bp-diagnostics__warn">
             <code>{data.diagnostics.unresolvedOfficers.toLocaleString('en-US')}</code> closed loans whose loan officer

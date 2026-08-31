@@ -198,6 +198,21 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
   /* nombre + doce meses + total + benchmark + regla */
   const colCount = monthsOfYear.length + 4;
 
+  /*
+   * ⚠ Cuantos benchmarks de estrategia hay CARGADOS en este branch.
+   *
+   * Own Production queda afuera a proposito: su benchmark no vive en `outlook`
+   * sino en `org.employee_benchmark`, y lo edita el Business Plan. Contarlo
+   * haria que un branch con Own Production cargado y nada mas parezca tener
+   * presupuesto por estrategia cuando las otras cuatro estan en cero.
+   */
+  const strategyBenchmarksSet = branch.loanOfficers.reduce(
+    (a, lo) =>
+      a +
+      OUTLOOK_STRATEGIES.filter((s) => s !== 'Own Production' && (lo.strategyBenchmarks[s] ?? 0) > 0).length,
+    0
+  );
+
   function toggle(key: string) {
     setOpen((prev) => {
       const next = new Set(prev);
@@ -758,13 +773,34 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
       </div>
 
       {/*
+        El aviso va DEBAJO del bloque 2, pegado a los ceros que explica. En el
+        pie de la pagina lo leeria quien ya se hizo la pregunta; aca lo lee quien
+        esta mirando la columna en cero.
+      */}
+      {strategyBenchmarksSet === 0 && branch.loanOfficers.length > 0 && (
+        <div className="bp-notice ol-notice">
+          <b>No strategy benchmarks set in this branch.</b> That is why every strategy above projects zero from{' '}
+          {monthLabel(remainingMonths[0] ?? currentMonth)} on, except Own Production, whose benchmark comes from the
+          Business Plan. Growth rules do not fill the gap: a rule multiplies a benchmark, and over zero it gives zero.
+          It is <b>not set yet</b>, not a decision that nothing is expected — use <b>edit</b>{' '}
+          on a person&apos;s row.
+        </div>
+      )}
+
+      {/*
         Igual que en la vista 1: se EXPLICA, no se calcula distinto. Una fila con
         cerrados y proyección en cero, sin texto, se reporta como bug.
       */}
       {projectsNothing && branch.ytd > 0 && (
         <div className="bp-notice ol-notice">
-          <b>{branch.branchCode} does not project.</b> Its {branch.ytd} closings this year are real, but no Loan Officer
-          has this branch on their roster — and the projection is charged to each person&apos;s roster branch, because it is
+          {/*
+            ⚠ El espacio va EXPLICITO. Sin `{' '}` el compilador se come el que
+            hay entre la expresion y el texto que sigue, y salia "Its 2closings".
+            Estaba asi desde OL1b y no se noto porque solo lo ven los tres
+            branches que no proyectan.
+          */}
+          <b>{branch.branchCode} does not project.</b> Its {branch.ytd}{' '}
+          closings this year are real, but no Loan Officer has this branch on their roster — and the projection is charged to each person&apos;s roster branch, because it is
           one number per person, not per loan. <b>Who owns this budget is still to be decided.</b>
         </div>
       )}
