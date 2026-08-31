@@ -91,7 +91,7 @@ export default function AdminPage() {
   if (error) return <div className="hub-container"><div className="bp-empty">Could not load Admin: {error}</div></div>;
   if (!data) return <div className="hub-container"><div className="bp-empty">Loading the roster…</div></div>;
 
-  const { hayHistoriaDeCargas, hayEstadoDeSucursales, diagnostics } = data;
+  const { hayHistoriaDeCargas, hayEstadoDeBranches, diagnostics } = data;
 
   /* El filtro se aplica acá y los branches vacíos desaparecen: una sección con
      un título y cero filas se lee como un branch sin gente, no como un filtro. */
@@ -187,15 +187,15 @@ export default function AdminPage() {
 
         {/*
           Estado transitorio, y por eso se dice una vez y no en cada grupo: las
-          columnas de sucursal existen en la tabla desde antes de que el sync
+          columnas de branch existen en la tabla desde antes de que el sync
           las llenara. Desaparece solo con la primera corrida. Sin este aviso,
           16 encabezados sin chip se leerían como que la función no llegó.
         */}
-        {!hayEstadoDeSucursales && diagnostics.rosterRows > 0 && (
+        {!hayEstadoDeBranches && diagnostics.rosterRows > 0 && (
           <p className="adm-hint">
-            <b>El estado de las sucursales todavía no llegó</b>: el roster se sincronizó antes de que
+            <b>El estado de los branches todavía no llegó</b>: el roster se sincronizó antes de que
             el sync trajera esa columna. Aparece en la próxima corrida. Que no haya chip no significa
-            que la sucursal esté cerrada.
+            que el branch esté cerrado.
           </p>
         )}
 
@@ -207,8 +207,8 @@ export default function AdminPage() {
           <div key={b.branchCode} className="adm-branch">
             {/*
               ⚠ ACÁ CONVIVEN DOS ESTADOS QUE NO SON EL MISMO.
-              El chip habla de la SUCURSAL; la columna "Estado" de la tabla, de
-              cada PERSONA. Por eso el chip dice "Sucursal activa" y no sólo
+              El chip habla del BRANCH; la columna "Estado" de la tabla, de
+              cada PERSONA. Por eso el chip dice "Branch activo" y no sólo
               "Activa": sin esa palabra, el encabezado de un grupo con gente
               adentro se lee como si describiera a la gente.
 
@@ -220,10 +220,10 @@ export default function AdminPage() {
               <span className="adm-branch__code">{b.branchCode}</span>
 
               {b.branchIsActive === true && (
-                <span className="adm-branch__state adm-branch__state--on">Sucursal activa</span>
+                <span className="adm-branch__state adm-branch__state--on">Branch activo</span>
               )}
               {b.branchIsActive === false && (
-                <span className="adm-branch__state adm-branch__state--off">Sucursal inactiva</span>
+                <span className="adm-branch__state adm-branch__state--off">Branch inactivo</span>
               )}
               {b.branchNote && <span className="adm-muted">{b.branchNote}</span>}
 
@@ -234,7 +234,7 @@ export default function AdminPage() {
               {/*
                 El caso Robert Kravitz. Se dice explícito porque es justo donde
                 alguien concluiría que la persona ya no trabaja, y es falso: la
-                sucursal cerró, el empleado sigue. Decirlo acá cuesta una línea;
+                branch cerró, el empleado sigue. Decirlo acá cuesta una línea;
                 deducirlo mal cuesta una baja que nadie pidió.
               */}
               {b.activePeopleInInactiveBranch > 0 && (
