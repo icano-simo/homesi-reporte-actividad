@@ -115,8 +115,48 @@ function readable(err: { code?: string; message: string }): Error {
  * la base lo deja fuera en ejecución. Las dos barreras son a propósito: la
  * primera evita el error, la segunda lo hace imposible.
  */
+/**
+ * ============================================================================
+ * ⚠ DE QUIÉN ES UNA DECISIÓN: de una persona o de un branch — etapa OL11
+ * ============================================================================
+ *
+ * Es una unión discriminada y NO un objeto con los dos campos opcionales, para
+ * que el mismo error que la base rechaza sea IMPOSIBLE de escribir acá. Las
+ * cuatro tablas de `outlook` tienen un CHECK
+ * `(employee_key is not null) <> (branch_code is not null)`: exactamente uno.
+ * Con dos opcionales, pasar los dos o ninguno compila y falla en runtime como
+ * un 23514 que hay que traducir; con la unión, no compila.
+ *
+ * Es el mismo criterio que el CHECK que prohíbe 'Own Production' en
+ * `strategy_benchmark`: convertir una convención en una imposibilidad.
+ */
+export type OutlookSubject =
+  | { kind: 'employee'; employeeKey: number }
+  | { kind: 'branch'; branchCode: string };
+
+/** Las columnas del sujeto para un INSERT. Exactamente una, como el CHECK. */
+function subjectColumns(s: OutlookSubject): { employee_key: number } | { branch_code: string } {
+  return s.kind === 'employee' ? { employee_key: s.employeeKey } : { branch_code: s.branchCode };
+}
+
+/**
+ * La columna y el valor por los que se filtra al sujeto.
+ *
+ * ⚠ Devuelve el par y no la query ya filtrada: envolver el builder de Supabase
+ * en un genérico hace explotar su inferencia --`Type instantiation is
+ * excessively deep`, medido-- así que el `.eq()` lo aplica quien arma la
+ * consulta.
+ *
+ * ⚠ Un `.eq('employee_key', k)` no ve las filas de branch --su `employee_key` es
+ * NULL y en SQL NULL no es igual a nada-- así que los dos sujetos no pueden
+ * leerse la revisión el uno al otro ni por accidente.
+ */
+function subjectFilter(s: OutlookSubject): [string, string | number] {
+  return s.kind === 'employee' ? ['employee_key', s.employeeKey] : ['branch_code', s.branchCode];
+}
+
 export async function saveStrategyBenchmark(input: {
-  employeeKey: number;
+  subject: OutlookSubject;
   strategy: EditableStrategy;
   monthlyBenchmark: number;
   /** El primer día del mes siguiente. Lo provee `OutlookData.effectiveFrom`. */
@@ -125,7 +165,7 @@ export async function saveStrategyBenchmark(input: {
 }): Promise<void> {
   const set_by = await authorEmail();
   const { error } = await getSupabaseClient().schema('outlook').from('strategy_benchmark').insert({
-    employee_key: input.employeeKey,
+    ...subjectColumns(input.subject),
     strategy: input.strategy,
     monthly_benchmark: input.monthlyBenchmark,
     effective_from: input.effectiveFrom,
@@ -172,7 +212,7 @@ export async function saveNppmBenchmark(input: {
  * @returns la revisión que quedó escrita.
  */
 export async function saveGrowthRuleRevision(input: {
-  employeeKey: number;
+  subject: OutlookSubject;
   strategy: OutlookStrategy;
   segments: GrowthSegment[];
   note: string | null;
@@ -202,11 +242,12 @@ export async function saveGrowthRuleRevision(input: {
    * lectura evita el choque en el caso normal; la restricción lo hace imposible
    * en el caso raro.
    */
+  const [subjCol, subjVal] = subjectFilter(input.subject);
   const { data: existing, error: readError } = await supabase
     .schema('outlook')
     .from('growth_rule')
     .select('revision')
-    .eq('employee_key', input.employeeKey)
+    .eq(subjCol, subjVal)
     .eq('strategy', input.strategy)
     .order('revision', { ascending: false })
     .limit(1);
@@ -214,7 +255,7 @@ export async function saveGrowthRuleRevision(input: {
   const revision = (existing?.[0]?.revision ?? 0) + 1;
 
   const rows = input.segments.map((seg, i) => ({
-    employee_key: input.employeeKey,
+    ...subjectColumns(input.subject),
     strategy: input.strategy,
     revision,
     segment_order: i + 1,
@@ -267,7 +308,7 @@ export async function saveGrowthRuleRevision(input: {
 
 /** Los meses fijados de una estrategia. Devuelve la revisión escrita. */
 export async function saveMonthlyTargets(input: {
-  employeeKey: number;
+  subject: OutlookSubject;
   strategy: OutlookStrategy;
   /** 'YYYY-MM' → número. Los meses que no vengan quedan sin fijar (0). */
   targets: Record<string, number>;
@@ -282,11 +323,12 @@ export async function saveMonthlyTargets(input: {
   const supabase = getSupabaseClient();
 
   /* La revisión siguiente se lee de la BASE, no de la pantalla -- ver arriba. */
+  const [subjCol, subjVal] = subjectFilter(input.subject);
   const { data: existing, error: readError } = await supabase
     .schema('outlook')
     .from('monthly_target')
     .select('revision')
-    .eq('employee_key', input.employeeKey)
+    .eq(subjCol, subjVal)
     .eq('strategy', input.strategy)
     .order('revision', { ascending: false })
     .limit(1);
@@ -294,7 +336,7 @@ export async function saveMonthlyTargets(input: {
   const revision = (existing?.[0]?.revision ?? 0) + 1;
 
   const rows = months.map((m) => ({
-    employee_key: input.employeeKey,
+    ...subjectColumns(input.subject),
     strategy: input.strategy,
     revision,
     target_month: m + '-01',
@@ -317,14 +359,14 @@ export async function saveMonthlyTargets(input: {
  * probar "¿y si lo fijo a mano?" no cueste perder la regla.
  */
 export async function setProjectionMode(input: {
-  employeeKey: number;
+  subject: OutlookSubject;
   strategy: OutlookStrategy;
   mode: ProjectionMode;
   note: string | null;
 }): Promise<void> {
   const set_by = await authorEmail();
   const { error } = await getSupabaseClient().schema('outlook').from('projection_mode').insert({
-    employee_key: input.employeeKey,
+    ...subjectColumns(input.subject),
     strategy: input.strategy,
     mode: input.mode,
     set_by,

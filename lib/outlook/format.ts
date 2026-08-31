@@ -34,5 +34,25 @@
 export function fmt(n: number | null): string {
   if (n === null) return '';
   if (!n) return '0';
-  return Number.isInteger(n) ? String(n) : n.toFixed(1);
+  if (Number.isInteger(n)) return String(n);
+  /*
+   * ⚠ REDONDEO DETERMINISTA, NO `toFixed`.
+   *
+   * `toFixed(1)` decide el medio punto segun la representacion BINARIA, no
+   * segun el numero, asi que dos valores que valen lo mismo pueden redondear
+   * para lados distintos. Medido en el 716: el pronostico de agosto vale
+   * 9.350000000000001 y sale "9.4"; el total del ano vale exactamente 93.35 y
+   * sale "93.3". Los dos son el mismo .35.
+   *
+   * La consecuencia se veia en la pantalla: la columna del ano mostraba
+   * 74 + 15 + 4,4 = 93,4 y la fila del total decia 93,3. Un total que no da la
+   * suma de sus filas, por 0,1, sin ninguna causa visible -- exactamente el
+   * descuadre sin explicacion que este modulo evita en todos lados.
+   *
+   * El epsilon empuja el medio punto siempre para arriba (en valor absoluto),
+   * asi que .35 redondea a .4 venga como venga del binario.
+   */
+  const escala = 10;
+  const eps = n >= 0 ? 1e-9 : -1e-9;
+  return (Math.round(n * escala + eps) / escala).toFixed(1);
 }

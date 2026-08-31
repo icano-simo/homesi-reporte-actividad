@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { composeYear, projectBranch, type OutlookData } from '@/lib/outlook/loadData';
+import { composeYear, currentMonthByBranch, projectBranch, type OutlookData } from '@/lib/outlook/loadData';
 import { fmt } from '@/lib/outlook/format';
 import { useOutlookDataContext } from '@/lib/outlook/useOutlookData';
 
@@ -108,8 +108,13 @@ export default function OutlookPage() {
    * mes, que es un piso real y no un pronóstico. Y el tooltip dice siempre las dos
    * lecturas, para que una diferencia entre ellas se vea en vez de deducirse.
    */
-  const currentCell = (b: OutlookData['branches'][number]) =>
-    projectsNothing(b.branchCode) ? (b.actualByMonth[currentMonth] ?? 0) : b.currentMonth;
+  /*
+   * Entero, y repartido para que la columna sume el total. Ver
+   * `currentMonthByBranch` en el loader: la misma función la usa la tabla de un
+   * branch, así que las dos pantallas muestran el mismo número.
+   */
+  const currentByBranch = currentMonthByBranch(data);
+  const currentCell = (b: OutlookData['branches'][number]) => currentByBranch.get(b.branchCode) ?? 0;
 
   /* La fila de doce meses de cada branch, armada por la misma función. */
   const rows = data.branches.map((b) => ({
@@ -214,30 +219,30 @@ export default function OutlookPage() {
                 }}
               >
                 {/*
-                  ⚠ El "+N sin atribuir" no es un detalle: es la explicación de
-                  por qué este año no coincide con el de Commercial Activity.
-                  Allá el 747 marca 51 y acá 47, y la diferencia son 4 préstamos
-                  de gente que no pertenece a la división. Sin este número,
-                  alguien que compara las dos pantallas concluye que una está mal.
+                  ⚠ ACÁ HABÍA UN "+N SIN ATRIBUIR" Y SE FUE — etapa OL11.
 
-                  En OL3 se movió al nombre del branch: la columna de YTD, donde
-                  vivía, ya no existe -- los meses reales SON el YTD.
+                  Contaba los préstamos cerrados en el branch por gente que no es
+                  Loan Officer de la división, para explicar por qué este número
+                  no coincide con Commercial Activity. La explicación sigue
+                  haciendo falta, pero no acá: en una lista de dieciséis branches
+                  son dieciséis etiquetas compitiendo con el código, y la pregunta
+                  --"¿por qué el 747 marca 47 y allá 51?"-- se hace mirando UN
+                  branch, no la lista.
+
+                  Vive en el subtítulo de la vista del branch, donde además está
+                  el otro "+N" con el que se confundía: los cerrados por Loan
+                  Officers de OTRO branch.
                 */}
-                <td className="lbl">
+                <td
+                  className="lbl"
+                  title={
+                    b.unattributed > 0
+                      ? `${b.unattributed} more closed in this branch by people who are not division Loan Officers. ` +
+                        `Open the branch to see it broken down.`
+                      : undefined
+                  }
+                >
                   {b.branchCode}
-                  {b.unattributed > 0 && (
-                    <span
-                      className="bp-muted ol-tag"
-                      title={
-                        `${b.unattributed} loan(s) closed in this branch by people who are not division Loan ` +
-                        `Officers (they are in org.source_name_excluded, each with a written reason). Commercial ` +
-                        `Activity counts them because it measures the branch; Outlook does not, because it budgets ` +
-                        `division production. Attributable closings this year: ${b.ytd}.`
-                      }
-                    >
-                      +{b.unattributed}
-                    </span>
-                  )}
                 </td>
                 {monthsOfYear.map((m) => (
                   <td
@@ -365,11 +370,11 @@ export default function OutlookPage() {
         */}
         {data.diagnostics.strategyBenchmarkRows === 0 && (
           <div className="bp-diagnostics__warn">
-            <b>Only Own Production has a budget.</b> Since this stage B2B, Recruitment and Affinity belong to the{' '}
-            <b>branch</b>, and <code>outlook.strategy_benchmark</code> hangs off a person — so there is nowhere to save
-            their budget yet, and their columns inside a branch are <b>blank, not zero</b>. The{' '}
-            <code>{data.diagnostics.growthRuleRows}</code> growth rules do not fill the gap: a rule multiplies a
-            benchmark, and over zero it gives zero. The SQL is in <code>docs/sql</code>, not applied.
+            <b>No strategy budget set anywhere yet.</b> B2B, Recruitment and Affinity belong to the <b>branch</b> and
+            are set inside it; Own Production reads its benchmark from the Business Plan. The{' '}
+            <code>{data.diagnostics.growthRuleRows}</code> growth rules do not fill the gap on their own: a rule
+            multiplies a benchmark, and over zero it gives zero. Until a benchmark is set, those columns are{' '}
+            <b>blank, not zero</b> — nothing decided, rather than a decision that nothing is expected.
           </div>
         )}
         {data.diagnostics.unresolvedOfficers > 0 && (
