@@ -9,6 +9,7 @@ import {
   type OutlookLoanOfficer,
 } from '@/lib/outlook/loadData';
 import { OUTLOOK_STRATEGIES, cadenceLabel, type OutlookStrategy } from '@/lib/outlook/project';
+import { fmt } from '@/lib/outlook/format';
 import { useOutlookDataContext } from '@/lib/outlook/useOutlookData';
 import StrategyEditor from '@/app/outlook/components/StrategyEditor';
 import NppmEditor from '@/app/outlook/components/NppmEditor';
@@ -70,26 +71,6 @@ import NppmEditor from '@/app/outlook/components/NppmEditor';
 
 const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const monthLabel = (ym: string) => MONTH_ABBR[Number(ym.split('-')[1]) - 1];
-
-/**
- * Tres estados, y los tres se ven distinto — `no data` desde OL7.
- *
- * ⚠ `no data` y `–` NO son lo mismo, y por eso no se unificaron:
- *
- *   `no data`  no se puede saber. El mes en curso por estrategia, el
- *              presupuesto de alguien cuyo pronóstico se carga a otro branch,
- *              el benchmark de una estrategia fijada mes a mes. Antes decía
- *              `—`, un guión que había que aprender.
- *   `–`        cero, y el cero es un dato: nadie cerró nada ese mes.
- *
- * Reemplazar los dos por `no data` diría que no sabemos algo que sí sabemos, y
- * es lo que hace que un mes flojo se lea como un dato faltante.
- */
-function fmt(n: number | null): string {
-  if (n === null) return 'no data';
-  if (!n) return '–';
-  return Number.isInteger(n) ? String(n) : n.toFixed(1);
-}
 
 function bandOf(month: string, currentMonth: string): 'actual' | 'forecast' | 'budget' {
   return month < currentMonth ? 'actual' : month === currentMonth ? 'forecast' : 'budget';
@@ -626,7 +607,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                                     `roster branch. What is shown here is what they closed in this branch.`
                                   }
                                 >
-                                  budget in {lo.primaryBranch ?? '—'}
+                                  budget in {lo.primaryBranch ?? 'no branch'}
                                 </span>
                               )}
                             </td>

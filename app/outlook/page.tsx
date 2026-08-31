@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { composeYear, projectBranch, type OutlookData } from '@/lib/outlook/loadData';
+import { fmt } from '@/lib/outlook/format';
 import { useOutlookDataContext } from '@/lib/outlook/useOutlookData';
 
 /**
@@ -43,12 +44,6 @@ function monthLabel(ym: string): string {
  * Entero cuando lo es, un decimal cuando no. Tres estados y no dos:
  *   `—` no se puede saber · `–` cero · el número
  */
-function fmt(n: number | null): string {
-  if (n === null) return '—';
-  if (!n) return '–';
-  return Number.isInteger(n) ? String(n) : n.toFixed(1);
-}
-
 /** La banda a la que pertenece un mes. Es también su clase de color. */
 function bandOf(month: string, currentMonth: string): 'actual' | 'forecast' | 'budget' {
   return month < currentMonth ? 'actual' : month === currentMonth ? 'forecast' : 'budget';
