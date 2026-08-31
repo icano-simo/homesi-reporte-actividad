@@ -87,20 +87,20 @@ export interface RosterPerson {
   left_detected_at: string | null;
   synced_at: string;
   /**
-   * ⚠ ESTADO DE LA SUCURSAL, NO DE LA PERSONA. No confundir con `is_active`,
+   * ⚠ ESTADO DEL BRANCH, NO DE LA PERSONA. No confundir con `is_active`,
    * que está unas líneas más arriba y significa otra cosa.
    *
    * Son independientes, y hoy hay un caso real: Robert Kravitz está activo en
-   * la 709, que no lo está. Ni él deja de ser empleado ni la sucursal reabre.
+   * la 709, que no lo está. Ni él deja de ser empleado ni el branch reabre.
    *
-   * No se deriva de la actividad: es una decisión de la usuaria --15 sucursales
-   * de 27--, así que una cerrada puede tener préstamos en vuelo y una nueva
-   * puede estar activa sin producir todavía.
+   * No se deriva de la actividad: es una decisión de la usuaria --15 branches
+   * de 27--, así que uno cerrado puede tener préstamos en vuelo y uno nuevo
+   * puede estar activo sin producir todavía.
    *
    * `null` NO ES "inactiva": es "todavía no sincronizado". La columna existe en
    * la tabla desde antes de que el sync empezara a llenarla, así que hasta la
    * primera corrida con el mapeo nuevo las 108 filas vienen en null. Tratarlo
-   * como `false` mostraría las 15 sucursales activas como cerradas.
+   * como `false` mostraría los 15 branches activos como cerrados.
    */
   branch_is_active: boolean | null;
   /** Por qué, cuando aplica: 'Corporativo', 'pendiente de confirmar'... */
@@ -126,7 +126,7 @@ export interface RosterBranch {
   branchCode: string;
   people: RosterPerson[];
   /**
-   * Estado de la SUCURSAL. Ver `RosterPerson.branch_is_active` -- `null` es
+   * Estado del BRANCH. Ver `RosterPerson.branch_is_active` -- `null` es
    * "sin sincronizar", no "inactiva".
    *
    * Sale de las filas del grupo porque todas comparten el mismo valor: la vista
@@ -137,11 +137,11 @@ export interface RosterBranch {
   branchIsActive: boolean | null;
   branchNote: string | null;
   /**
-   * Personas activas en una sucursal inactiva -- el caso Robert Kravitz.
+   * Personas activas en un branch inactivo -- el caso Robert Kravitz.
    *
    * Se precalcula acá para que la pantalla pueda decir las dos cosas juntas sin
    * que ninguna se lea como consecuencia de la otra. Es el punto exacto donde
-   * alguien podría concluir "la sucursal está cerrada, entonces esta persona ya
+   * alguien podría concluir "el branch está cerrado, entonces esta persona ya
    * no trabaja acá", que es falso.
    */
   activePeopleInInactiveBranch: number;
@@ -164,7 +164,7 @@ export interface AdminData {
    */
   hayHistoriaDeCargas: boolean;
   /**
-   * ¿Ya llegó el estado de las sucursales?
+   * ¿Ya llegó el estado de los branches?
    *
    * Las columnas `branch_is_active` / `branch_note` existen en la tabla desde
    * antes de que el sync las mapeara, así que hasta la primera corrida con el
@@ -172,7 +172,7 @@ export interface AdminData {
    * lugar de repetir un "sin dato" en cada uno de los 16 grupos -- y en vez de
    * no mostrar nada, que se leería como que la función no llegó.
    */
-  hayEstadoDeSucursales: boolean;
+  hayEstadoDeBranches: boolean;
   diagnostics: {
     rosterRows: number;
     changeRows: number;
@@ -224,9 +224,9 @@ export async function loadAdminData(): Promise<AdminData> {
     .map(([branchCode, list]) => {
       const people = list.sort((a, b) => a.display_name.localeCompare(b.display_name));
       /*
-       * El grupo de los que no traen branch NO es una sucursal, así que no
-       * tiene estado: marcarlo como inactivo diría que existe una sucursal
-       * cerrada que se llama "(sin branch en el roster)".
+       * El grupo de los que no traen branch NO es un branch, así que no tiene
+       * estado: marcarlo como inactivo diría que existe uno cerrado que se
+       * llama "(sin branch en el roster)".
        */
       const isReal = branchCode !== SIN_BRANCH;
       const branchIsActive = isReal ? (people[0]?.branch_is_active ?? null) : null;
@@ -251,7 +251,7 @@ export async function loadAdminData(): Promise<AdminData> {
     /* Basta con que UNA fila tenga la marca para que la historia haya empezado. */
     hayHistoriaDeCargas: people.some((p) => p.first_seen_at !== null || p.last_seen_at !== null),
     /* Basta con que UNA fila lo traiga: el sync escribe todas en la misma corrida. */
-    hayEstadoDeSucursales: people.some((p) => p.branch_is_active !== null),
+    hayEstadoDeBranches: people.some((p) => p.branch_is_active !== null),
     diagnostics: {
       rosterRows: people.length,
       changeRows: changes.length,

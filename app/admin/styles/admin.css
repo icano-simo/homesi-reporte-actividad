@@ -142,11 +142,11 @@ table.piv.adm-tbl th.bp-center {
 }
 
 /*
- * ── Estado de la SUCURSAL, en el encabezado del grupo ───────────────────────
+ * ── Estado del BRANCH, en el encabezado del grupo ───────────────────────────
  *
  * DELIBERADAMENTE DISTINTO de `.adm-estado`, que es el estado de la PERSONA en
  * la columna "Estado" de la tabla. Son dos cosas independientes que conviven en
- * la misma tarjeta --hoy hay una sucursal inactiva con una persona activa
+ * la misma tarjeta --hoy hay un branch inactivo con una persona activa
  * adentro-- y si se vieran iguales, el encabezado se leería como un resumen de
  * las filas de abajo.
  *
@@ -176,8 +176,8 @@ table.piv.adm-tbl th.bp-center {
 }
 
 /*
- * "N personas activas acá", en una sucursal inactiva. NO es una advertencia: no
- * hay nada que arreglar -- la sucursal cerró y la persona sigue empleada. Va en
+ * "N personas activas acá", en un branch inactivo. NO es una advertencia: no
+ * hay nada que arreglar -- el branch cerró y la persona sigue empleada. Va en
  * tono neutro por eso; en ámbar o rojo se leería como un error a corregir, que
  * es exactamente la confusión que este texto viene a evitar.
  */
