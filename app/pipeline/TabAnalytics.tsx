@@ -49,11 +49,132 @@ import PeriodSelector from './PeriodSelector';
 import { useOrgRoster, type OrgRoster } from './useOrgRoster';
 import LoanDetailModal, { type LoanDetailModalColumn, type LoanDetailModalLoan } from './LoanDetailModal';
 import { closedLoanToModalLoan } from './PivotTable';
-import { AlertTriangleIcon, ArrowUpIcon, ArrowDownIcon, MinusIcon } from '@/components/ui/icons';
+import {
+  AlertTriangleIcon,
+  ArrowUpIcon,
+  ArrowDownIcon,
+  MinusIcon,
+  StarIcon,
+  AwardIcon,
+  TrendingUpIcon,
+  GridIcon,
+  BuildingIcon,
+  FunnelIcon,
+  type IconProps,
+} from '@/components/ui/icons';
 
 export interface TabAnalyticsProps {
   /** Mismo array que ya reciben PivotTable/AdverseTable -- pipeline_resolved_loans del snapshot activo, sin filtrar por canal ni por fecha todavía. */
   resolvedLoans: ResolvedLoan[];
+}
+
+/**
+ * ============================================================================
+ * NAV DE SECCIÓN — Etapa SECTION-NAV-1
+ * ============================================================================
+ *
+ * 4 secciones reales de esta pestaña, en el mismo orden en que aparecen en
+ * pantalla. `id` coincide EXACTO con el `id` que se le agrega al `<h3>`/`<h4>`
+ * de cada sección más abajo -- es el único acoplamiento entre este array y el
+ * resto del archivo, a propósito (agregar una sección nueva es agregar una
+ * entrada acá + un `id` en su título, nada más).
+ *
+ * Íconos -- los 4 ya existían en components/ui/icons.tsx, ninguno nuevo:
+ *   - TrendingUpIcon: ya usado en el nav global para "Forecast & Pipeline"
+ *     (ServiceHubHeader.tsx) -- se reusa acá para "Trends" porque es el
+ *     ícono correcto para el concepto, no solo el que estaba libre. Un
+ *     ícono reusado en dos partes de la UI que nunca se ven una al lado de
+ *     la otra (el nav global vs. esta barra, adentro de la propia página de
+ *     Analytics) no genera la misma confusión que reusarlo dentro del MISMO
+ *     menú.
+ *   - GridIcon (antes solo para la matriz Branch x Milestone de Forecast):
+ *     "Mix" son 3 rankings + un mapa en grid, layout-grid es un buen ajuste.
+ *   - BuildingIcon ("vista ejecutiva por branch"): Commercial Scorecards es
+ *     Branch/Loan Officer/Business Developer -- desempeño organizacional.
+ *   - FunnelIcon: YA EXISTÍA en el set (no hizo falta crear ninguno nuevo,
+ *     a diferencia de lo que anticipaba el brief) -- ajuste literal para
+ *     "Concentration" (Pareto).
+ *
+ * Deliberadamente NO se reusan PieChartIcon/TargetIcon/UsersIcon/BarChartIcon:
+ * esos 4 ya identifican, en el MISMO nav global (ServiceHubHeader.tsx), a
+ * Analytics/Business Plan/Admin/Commercial Activity respectivamente -- reusar
+ * el ícono de la propia pestaña Analytics (PieChartIcon) PARA UNA SECCIÓN
+ * DENTRO de Analytics sería referirse a sí misma, y los otros 3 pertenecen a
+ * un tab distinto por completo.
+ */
+interface AnalyticsSectionNavItem {
+  id: string;
+  label: string;
+  Icon: (props: IconProps) => ReturnType<typeof TrendingUpIcon>;
+}
+
+const ANALYTICS_SECTIONS: AnalyticsSectionNavItem[] = [
+  { id: 'analytics-section-trends', label: 'Trends', Icon: TrendingUpIcon },
+  { id: 'analytics-section-mix', label: 'Mix', Icon: GridIcon },
+  { id: 'analytics-section-scorecards', label: 'Scorecards', Icon: BuildingIcon },
+  { id: 'analytics-section-concentration', label: 'Concentration', Icon: FunnelIcon },
+];
+
+/**
+ * Scrollspy real -- mismo mecanismo (`IntersectionObserver` nativo, sin
+ * librería) ya usado en esta pestaña para las animaciones de entrada
+ * (`trendsSectionRef`/`trendsVisible`, más abajo en este archivo), aplicado
+ * acá a las 4 secciones en vez de a una sola.
+ *
+ * `rootMargin: '-100px 0px -70% 0px'` crea una banda angosta cerca del
+ * borde superior del viewport (empieza 100px abajo del top -- deja lugar al
+ * header global sticky de 60px + esta misma barra sticky de ~46px -- y
+ * termina al 30% de la altura de pantalla) -- la sección cuyo título cruza
+ * esa banda mientras se hace scroll es la que se marca activa. Es el mismo
+ * truco de "banda de detección" que usan los nav laterales de docs típicos
+ * (Tailwind, MDN), no algo específico de este proyecto.
+ *
+ * Un solo componente, top-level (no una función anidada dentro de
+ * `TabAnalytics`): si viviera adentro, React la trataría como un tipo de
+ * componente nuevo en cada render del padre y la remontaría todo el tiempo,
+ * perdiendo su estado (`activeId`) y reconectando el observer sin necesidad.
+ */
+function AnalyticsSectionNav() {
+  const [activeId, setActiveId] = useState<string>(ANALYTICS_SECTIONS[0].id);
+
+  useEffect(() => {
+    const elements = ANALYTICS_SECTIONS.map((s) => document.getElementById(s.id)).filter(
+      (el): el is HTMLElement => el !== null
+    );
+    if (!elements.length) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) setActiveId(entry.target.id);
+        });
+      },
+      { rootMargin: '-100px 0px -70% 0px', threshold: 0 }
+    );
+    elements.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <nav className="analytics-section-nav" aria-label="Analytics sections">
+      {ANALYTICS_SECTIONS.map(({ id, label, Icon }) => (
+        <button
+          key={id}
+          type="button"
+          className={'analytics-section-nav__item' + (activeId === id ? ' analytics-section-nav__item--active' : '')}
+          // Etapa SECTION-NAV-1: `scrollIntoView` liso alinearía el título justo
+          // contra el borde de arriba del viewport, TAPADO por el header global
+          // sticky + esta misma barra -- se resuelve con `scroll-margin-top` en
+          // el CSS del título (ver forecast-visual.css), no acá: es la forma
+          // moderna de decirle al navegador "dejá este colchón arriba", sin
+          // calcular offsets a mano ni pelear con el timing del scroll suave.
+          onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+        >
+          <Icon size={19} />
+          <span>{label}</span>
+        </button>
+      ))}
+    </nav>
+  );
 }
 
 function fmtInt(n: number): string {
@@ -354,6 +475,192 @@ function ScorecardTable({
           )}
         </table>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Top 3 de `rows` por `totalAmount`, en una COPIA (nunca reordena `rows` en
+ * su lugar -- ScorecardTable sigue leyendo el mismo array, ordenado por
+ * `closedCount`). No se puede derivar de `rows.slice(0, 3)`: `toRows()`
+ * (lib/pipeline/scorecards.ts) ya ordena por `closedCount`, no por monto --
+ * quién más CERRÓ no es necesariamente el top 3 en MONTO (préstamos
+ * grandes vs. muchos chicos).
+ */
+function top3ByVolume(rows: ScorecardRow[]): ScorecardRow[] {
+  return [...rows].sort((a, b) => b.totalAmount - a.totalAmount).slice(0, 3);
+}
+
+/**
+ * Etapa PODIUM-3 -- el número de cada tarjeta de podio cuenta de 0 a su
+ * valor real, en vez de aparecer de golpe. Dispara UNA vez cuando `start`
+ * pasa a `true` -- lo dispara `ScorecardPodiumPanel` con un único
+ * `IntersectionObserver` para las 6 tarjetas del panel (mismo mecanismo ya
+ * usado para Monthly Trends, `trendsSectionRef`/`trendsVisible` más abajo
+ * en este archivo -- un observer por SECCIÓN, no uno por número).
+ *
+ * `prefers-reduced-motion`: salta directo al valor final, cero frames de
+ * animación -- no "más corta", ausente del todo, mismo criterio que
+ * `us-map-fade-in`/`trend-grow` (CSS) aplicado acá a una animación JS.
+ */
+function CountUpNumber({ target, start, format }: { target: number; start: boolean; format: (n: number) => string }) {
+  const [display, setDisplay] = useState(0);
+  useEffect(() => {
+    if (!start) return;
+    if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setDisplay(target);
+      return;
+    }
+    const durationMs = 700;
+    const startTime = performance.now();
+    let raf = 0;
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - startTime) / durationMs);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setDisplay(Math.round(target * eased));
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [start, target]);
+  return <>{format(display)}</>;
+}
+
+/**
+ * Etapa PODIUM-5 -- una tarjeta clara por métrica (Most Closings / Top by
+ * Volume), con los 3 puestos como filas adentro, cada una en un tono de
+ * `--navy` distinto (100%/60%/22% de opacidad, ver el CSS) -- el degradado
+ * de importancia real vive en las FILAS, no en la tarjeta (la Etapa
+ * PODIUM-4 tenía la tarjeta entera en navy sólido, lo que hacía que un
+ * puesto 1 "también navy sólido" fuera invisible contra su propio fondo).
+ *
+ * El puesto 1 no lleva barra -- ES la referencia del 100%, mostrarle una
+ * barra propia sería redundante. Los puestos 2 y 3 llevan barra en
+ * `--coral`, con el % SIEMPRE relativo al puesto 1 de la MISMA tarjeta
+ * (`value / leaderValue`) -- nunca contra el total general.
+ */
+function MetricPodiumCard({
+  title,
+  entries,
+  getValue,
+  format,
+  start,
+  showStarOnLeader,
+}: {
+  title: string;
+  /** Top 3 ya ordenado -- índice 0 es el puesto 1. */
+  entries: ScorecardRow[];
+  getValue: (row: ScorecardRow) => number;
+  format: (n: number) => string;
+  start: boolean;
+  showStarOnLeader: boolean;
+}) {
+  if (!entries.length) return null;
+  const leaderValue = getValue(entries[0]);
+  /** Tamaño del ícono de medalla por puesto -- mismo ícono (`AwardIcon`, no hay corona/trofeo en el set de íconos del proyecto y no se agregó `lucide-react` como dependencia nueva sin pedirlo explícito), diferenciado por tamaño y color en vez de forma. */
+  const badgeSize: Record<1 | 2 | 3, number> = { 1: 16, 2: 13, 3: 11 };
+
+  return (
+    <div className="podium-card">
+      <div className="podium-card__title">{title}</div>
+      <div className="podium-card__rows">
+        {entries.map((row, i) => {
+          const rank = (i + 1) as 1 | 2 | 3;
+          const value = getValue(row);
+          const percent = leaderValue > 0 ? (value / leaderValue) * 100 : 0;
+          /**
+           * FIX-SCORECARD-TIEBREAK: `toRows()` ya desempata por monto, pero
+           * eso resuelve el ORDEN, no el hecho de que la métrica que este
+           * podio dice medir sigue empatada -- "1° con 5 closed" no dice que
+           * otros 2 branches también tienen 5. Se avisa cuando el valor
+           * coincide con la fila anterior o con el líder (para el puesto 1
+           * no aplica: no hay fila anterior, y compararlo contra sí mismo no
+           * significa nada).
+           */
+          const isTied = i > 0 && (value === getValue(entries[i - 1]) || value === leaderValue);
+          return (
+            <div key={row.key} className={`podium-card__row podium-card__row--rank${rank}`}>
+              <span className="podium-card__badge">
+                <AwardIcon size={badgeSize[rank]} />
+              </span>
+              {isTied && <span className="podium-card__tied">(tied)</span>}
+              <div className="podium-card__row-body">
+                <div className="podium-card__name" title={row.label}>
+                  {row.label}
+                  {rank === 1 && showStarOnLeader && (
+                    <span className="podium-card__star" title="Leads both podiums">
+                      <StarIcon size={19} />
+                    </span>
+                  )}
+                </div>
+                <div className="podium-card__value">
+                  <CountUpNumber target={value} start={start} format={format} />
+                </div>
+                {/* FIX-PODIUM-BAR-RANK1: el puesto 1 también lleva barra -- `percent` para ese puesto ya da 100 (value === leaderValue), así que no hace falta ningún caso especial, solo dejar de ocultarla. Completa la estructura (badge + nombre + valor + barra) igual en las 3 filas. */}
+                <div className="podium-card__bar">
+                  <div className="podium-card__bar-fill" style={{ width: `${percent}%` }} />
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Panel al lado de cada Commercial Scorecard: las 2 `MetricPodiumCard`
+ * (Most Closings / Top by Volume) lado a lado. `null` si `rows` está
+ * vacío -- mismo criterio que el resto de la capa, ningún podio con un
+ * ganador inventado sobre cero datos. El early return va DESPUÉS de los
+ * hooks (Rules of Hooks) -- se llaman siempre, el bail solo afecta qué se
+ * renderiza.
+ */
+function ScorecardPodiumPanel({ rows }: { rows: ScorecardRow[] }) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const el = panelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries, obs) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisible(true);
+          obs.disconnect();
+        }
+      },
+      { threshold: 0.1 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  if (!rows.length) return null;
+
+  const top3Closings = rows.slice(0, 3);
+  const top3Volume = top3ByVolume(rows);
+  /** Mismo `key` en el puesto 1 de las 2 métricas -- comparar 2°/3° entre listas distintas no tiene el mismo significado ("líder de ambos podios" solo aplica al puesto 1 de cada uno). */
+  const sameWinner = top3Closings[0].key === top3Volume[0].key;
+
+  return (
+    <div ref={panelRef} className={'scorecard-podium-panel' + (visible ? ' scorecard-podium-panel--enter' : '')}>
+      <MetricPodiumCard
+        title="Most Closings"
+        entries={top3Closings}
+        getValue={(row) => row.closedCount}
+        format={fmtInt}
+        start={visible}
+        showStarOnLeader={sameWinner}
+      />
+      <MetricPodiumCard
+        title="Top by Volume"
+        entries={top3Volume}
+        getValue={(row) => row.totalAmount}
+        format={(n) => '$' + fmtAmount(n)}
+        start={visible}
+        showStarOnLeader={sameWinner}
+      />
     </div>
   );
 }
@@ -1409,14 +1716,19 @@ function ParetoChart({
 
 /**
  * ============================================================================
- * MAPA DE EE.UU. — Property State, Etapa MAP-PREVIEW-1
+ * MAPA DE EE.UU. — Property State
  * ============================================================================
  *
- * Prueba visual, sección NUEVA -- no reemplaza ni toca la tabla existente
- * "Subject Property State" (RankingTable, más abajo en Product Mix &
- * Geography). Misma fuente de datos (`propertyStateRanking`, ya filtrada por
+ * Etapa MAP-PREVIEW-1: nació como una prueba visual aparte, sin tocar la
+ * tabla "Subject Property State" que existía entonces. Etapa
+ * FIX-REMOVE-PROPERTY-STATE-TABLE: esa tabla se retiró (este componente ya
+ * cubre la misma información -- State/Count/Amount + Total + drill-down),
+ * y este mapa pasó a ser la única pieza de "Geography" de Product Mix &
+ * Geography, dentro de esa sección (ya no al final de la pestaña).
+ *
+ * Misma fuente de datos (`propertyStateRanking`, ya filtrada por
  * período/branch por construcción, igual que toda la pestaña) -- ningún
- * cálculo nuevo, solo una segunda forma de mostrar el mismo ranking.
+ * cálculo nuevo.
  *
  * Geometría real de los 50 estados + DC (`lib/pipeline/usStatesSvgPaths.ts`,
  * adaptado del mapa en blanco de Wikipedia/Wikimedia Commons, dominio
@@ -1463,6 +1775,18 @@ function blendSkyToNavy(count: number, minCount: number, maxCount: number): stri
   return `rgb(${r}, ${g}, ${b})`;
 }
 
+/**
+ * FIX-MAP-LEGEND-TOOLTIP: código -> nombre completo del estado, para el
+ * `title` nativo de la leyenda. Reusa `US_STATE_PATHS` (lib/pipeline/
+ * usStatesSvgPaths.ts, ya importado para dibujar el mapa) -- ese archivo
+ * YA tiene los 51 pares código/nombre reales (confirmado: "CO" ->
+ * "Colorado", etc.), así que no hace falta un diccionario nuevo duplicado.
+ * `Map` construido UNA sola vez a nivel de módulo (no adentro de
+ * `PropertyStateMap`, que se re-renderiza en cada cambio de período/branch)
+ * -- `US_STATE_PATHS` es una constante estática, nunca cambia en runtime.
+ */
+const US_STATE_NAME_BY_CODE = new Map(US_STATE_PATHS.map((s) => [s.code, s.name]));
+
 function PropertyStateMap({
   rows,
   onStateClick,
@@ -1475,7 +1799,7 @@ function PropertyStateMap({
   const counts = [...byCode.values()].map((r) => r.count);
   const minCount = counts.length ? Math.min(...counts) : 0;
   const maxCount = counts.length ? Math.max(...counts) : 0;
-  /** Etapa FIX-MAP-2: mismo orden que la tabla "Subject Property State" de arriba (desc por count) -- la leyenda es un resumen, no una segunda fuente de verdad con su propio criterio de orden. */
+  /** Etapa FIX-MAP-2: orden desc por count (mismo criterio que ya usaba la tabla "Subject Property State" antes de retirarse, Etapa FIX-REMOVE-PROPERTY-STATE-TABLE) -- la leyenda es un resumen, no una fuente de verdad con su propio criterio de orden. */
   const legendRows = [...byCode.values()].sort((a, b) => b.count - a.count);
   /** Etapa FIX-MAP-4: suma de los estados LISTADOS en la leyenda (no de `rows` completo) -- es un total de "lo que se ve acá", no una segunda fuente de verdad con su propio universo. */
   const legendTotalCount = legendRows.reduce((sum, r) => sum + r.count, 0);
@@ -1553,8 +1877,14 @@ function PropertyStateMap({
                   className="us-map-legend__swatch"
                   style={{ background: blendSkyToNavy(row.count, minCount, maxCount) }}
                 />
-                <span className="us-map-legend__label">{row.label}</span>
-                <span className="us-map-legend__count">{fmtInt(row.count)}</span>
+                {/* FIX-MAP-LEGEND-TOOLTIP: `row.label` es el código de 2 letras -- `title` nativo con el nombre completo, mismo mecanismo de tooltip ya usado en otras columnas truncadas de la app (ej. `title={row.label}` en `ScorecardTable`, más arriba en este archivo). `?? row.label` es un respaldo defensivo, nunca debería faltar: los códigos que puede traer `row.label` acá son exactamente los 51 de `US_STATE_PATHS` (es el mismo `state.code` que ya usa el mapa para pintar), nunca uno fuera de esa lista. */}
+                <span className="us-map-legend__label" title={US_STATE_NAME_BY_CODE.get(row.label) ?? row.label}>
+                  {row.label}
+                </span>
+                {/* Etapa FIX-MAP-LEGEND-BAR: misma barra de proporción detrás del label que ya usan Loan Program/Loan Type (rankBarStyle, RankingTable más arriba) -- acá contra `maxCount` (el máximo real entre los estados CON datos, ya calculado arriba para el color del mapa), no contra el total general. */}
+                <span className="us-map-legend__count" style={rankBarStyle(row.count, maxCount)}>
+                  {fmtInt(row.count)}
+                </span>
                 {/* Etapa FIX-MAP-4: monto completo (fmtAmount), no fmtAmountShort -- se pidió el numero real, no una version redondeada a "M"/"K". */}
                 <span className="us-map-legend__amount">${fmtAmount(row.amount)}</span>
               </div>
@@ -2382,6 +2712,18 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
 
       {/*
         ==========================================================================
+        NAV DE SECCIÓN -- Etapa SECTION-NAV-1
+        ==========================================================================
+        Barra sticky con las 4 secciones de esta pestaña (table of contents),
+        justo debajo del Hero KPI y arriba de Monthly Trends -- nunca antes
+        del Hero KPI, para no competir con él por atención. Scrollspy real
+        (`AnalyticsSectionNav`, definido arriba en este archivo) contra los 4
+        `id` de sección que se agregan más abajo junto a cada título.
+      */}
+      <AnalyticsSectionNav />
+
+      {/*
+        ==========================================================================
         CAPA 2 — MONTHLY TRENDS (reorganizada, misma lógica/charts de siempre)
         ==========================================================================
         Grid de 2 columnas pedido por Isa: Closings + Amount combinados a la
@@ -2391,7 +2733,9 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
         lo reubicó dentro del grid de Capa 3 (Product Mix & Geography), ver
         el comentario de esa capa más abajo.
       */}
-      <h3 style={{ margin: '24px 0 12px' }}>Monthly Trends — {trendsYear}</h3>
+      <h3 id="analytics-section-trends" style={{ margin: '24px 0 12px' }}>
+        Monthly Trends — {trendsYear}
+      </h3>
       <DiagnosticsNote
         count={1}
         summary={`All 12 months of ${trendsYear} — months with no data yet show 0 explicitly, never omitted. The month(s) matching the period selected above are highlighted in coral.`}
@@ -2479,22 +2823,34 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
         ==========================================================================
         CAPA 3 — PRODUCT MIX & GEOGRAPHY (reorganizada, mismos rankings de siempre)
         ==========================================================================
-        Etapa AJUSTES-ANALYTICS-1, punto 3: grid de **3 columnas parejas**,
-        una sola fila -- Loan Program, Loan Type y Subject Property State
-        lado a lado (antes: 2 columnas, con Loan Program+Loan Type apilados
-        en la primera). Loan Type Distribution by Month sigue APARTE, a
-        ancho completo (`gridColumn: '1 / -1'`, sigue abarcando las 3
-        columnas del grid nuevo) -- eso no cambia, seguía leyéndose bien a
-        ese ancho desde el fix de BI-REDESIGN-2 (punto sobre el grid de 2
-        columnas, comentario ya reemplazado por este). Subject Property
-        State: se evaluó la barra horizontal en vez de tabla plana (nota
-        del brief), pero con las 793 filas reales de este snapshot ya
-        clasificadas en ~40 estados/territorios, una tabla con barra DETRÁS
-        del label (mismo mecanismo transversal de abajo, `rankBarStyle`)
-        cumple el pedido sin construir un componente de barras nuevo -- ver
-        `RankingTable` más arriba.
+        Etapa FIX-REMOVE-PROPERTY-STATE-TABLE: la tabla "Subject Property
+        State" (RankingTable) se retira -- el mapa (`PropertyStateMap`, con
+        su leyenda State/Count/Amount + fila Total + drill-down por clic)
+        cubre exactamente la misma información, ahora también con la barra
+        de proporción que tenía la tabla (ver el ajuste dentro de
+        `PropertyStateMap`). Mostrar las dos era mantener dos fuentes
+        visuales de un mismo dato -- el riesgo de que se desincronicen a
+        futuro (una se actualiza, la otra no) sin ganar nada a cambio.
+        Confirmado por grep que ninguna otra parte del archivo usa esa
+        instancia específica de RankingTable -- `propertyStateRanking` (el
+        dato) SIGUE existiendo, lo sigue leyendo el mapa más abajo.
+        `propertyStateDataMissing` también sigue existiendo -- lo usa el
+        gate del mapa, que ya tenía su propio mensaje (no dependía del de
+        la tabla).
+        El mapa, que antes vivía solo al final de la pestaña como "preview"
+        aparte (sin tocar la tabla, etapa original), se MUEVE acá adentro
+        -- es la pieza real de "Geography" del nombre de esta capa, tiene
+        sentido que viva en su sección, no después de Commercial Scorecards
+        y Productivity & Concentration.
+        Grid: de 3 columnas parejas (Program/Type/State) a 2 (Program/Type
+        únicamente) -- el mapa necesita mucho más ancho que un tercio de
+        columna para que el mapa+leyenda (68%/32% interno) se lea bien, así
+        que pasa a fila completa (`gridColumn: '1 / -1'`), igual que Loan
+        Type Distribution by Month.
       */}
-      <h3 style={{ margin: '24px 0 12px' }}>Product Mix &amp; Geography</h3>
+      <h3 id="analytics-section-mix" style={{ margin: '24px 0 12px' }}>
+        Product Mix &amp; Geography
+      </h3>
       {/* count={1}: nota siempre visible (no es un diagnóstico condicional) -- se reusa DiagnosticsNote solo por su mecanismo de resumen breve + detalle en tooltip, mismo patrón que PersonDiagnostics. Mismo texto de siempre -- sólo se movió acá, junto a los rankings que describe (antes vivía arriba de todo, separada de su contenido). */}
       <DiagnosticsNote
         count={1}
@@ -2502,7 +2858,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
         detail="This breakdown is independent of the pull-through, Healthy, and Adverse figures shown elsewhere in Forecast -- viewing it doesn't change any of those numbers."
       />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '20px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '20px' }}>
         <RankingTable
           title="Loan Program"
           columnLabel="Program"
@@ -2537,7 +2893,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
         />
 
         {propertyStateDataMissing ? (
-          <div className="tbl-card" style={{ padding: '16px' }}>
+          <div className="tbl-card" style={{ padding: '16px', gridColumn: '1 / -1' }}>
             {/*
               Etapa PROPERTY-STATE-1: mismo criterio que Strategy Mix (F7.23) --
               un ranking 100% "Sin estado" se leería como un resultado real de
@@ -2554,22 +2910,24 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
             </p>
           </div>
         ) : (
-          <RankingTable
-            title="Subject Property State"
-            columnLabel="State"
-            rows={propertyStateRanking}
-            totalCount={fundedInRange.length}
-            onRowClick={(row) =>
-              setDrillDown({
-                metric: 'Subject Property State',
-                context: row.label,
-                loans: fundedInRange
-                  .filter((l) => (l.propertyState.trim() || NO_PROPERTY_STATE_LABEL) === row.label)
-                  .map(closedLoanToModalLoan),
-                hiddenColumns: ['propertyState', 'milestone', 'status'],
-              })
-            }
-          />
+          <div className="tbl-card us-map-fade-in" style={{ padding: '16px', gridColumn: '1 / -1' }}>
+            <div className="tbl-card__head">
+              <span className="tbl-card__title">Subject Property State</span>
+            </div>
+            <PropertyStateMap
+              rows={propertyStateRanking}
+              onStateClick={(row) =>
+                setDrillDown({
+                  metric: 'Subject Property State',
+                  context: row.label,
+                  loans: fundedInRange
+                    .filter((l) => (l.propertyState.trim() || NO_PROPERTY_STATE_LABEL) === row.label)
+                    .map(closedLoanToModalLoan),
+                  hiddenColumns: ['propertyState', 'milestone', 'status'],
+                })
+              }
+            />
+          </div>
         )}
 
         <div className="tbl-card" style={{ padding: '16px', gridColumn: '1 / -1' }}>
@@ -2608,7 +2966,9 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
         mencionarlo también acá arriba era una duplicación confusa (dos
         nombres para la misma sección, uno más específico que el otro).
       */}
-      <h3 style={{ margin: '24px 0 12px' }}>Commercial Scorecards</h3>
+      <h3 id="analytics-section-scorecards" style={{ margin: '24px 0 12px' }}>
+        Commercial Scorecards
+      </h3>
       <DiagnosticsNote
         count={1}
         summary="Branch, Loan Officer, and Business Developer are matched against the company roster, so name variants are combined."
@@ -2619,8 +2979,12 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
       {orgRoster.error && <p className="pill warn" style={{ display: 'inline-flex' }}>Could not load org roster: {orgRoster.error}</p>}
 
       {!orgRoster.loading && !orgRoster.error && (
+        // Etapa PODIUM-2: vuelve al layout apilado original (una sección
+        // debajo de otra, no lado a lado) -- pero CADA sección es ahora su
+        // propio grid de 2 columnas, tabla ancha (~75%) + panel de podios
+        // angosto (~25%) a la derecha, en vez de tabla sola a lo ancho.
         <>
-          <div style={{ marginBottom: '20px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2.1fr) minmax(0, 1fr)', gap: '20px', marginBottom: '20px' }}>
             <ScorecardTable
               title="Branch"
               columnLabel="Branch"
@@ -2642,9 +3006,10 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
                 detail: `Not found in org.dim_branch: ${branchScorecard.unresolvedBranches.join(', ')}`,
               }}
             />
+            <ScorecardPodiumPanel rows={branchScorecard.rows} />
           </div>
 
-          <div style={{ marginBottom: '20px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2.1fr) minmax(0, 1fr)', gap: '20px', marginBottom: '20px' }}>
             <ScorecardTable
               title="Loan Officer"
               columnLabel="Loan Officer"
@@ -2665,9 +3030,10 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
               }
               diagnostic={personDiagnosticsNote(loanOfficerScorecard)}
             />
+            <ScorecardPodiumPanel rows={loanOfficerScorecard.rows} />
           </div>
 
-          <div style={{ marginBottom: '24px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2.1fr) minmax(0, 1fr)', gap: '20px', marginBottom: '24px' }}>
             {bdOwnerDataMissing ? (
               <div className="tbl-card" style={{ padding: '16px' }}>
                 <div className="tbl-card__head">
@@ -2687,22 +3053,25 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
                 </p>
               </div>
             ) : (
-              <ScorecardTable
-                title="Business Developer"
-                columnLabel="Business Developer"
-                rows={businessDeveloperScorecard.rows}
-                // Hotfix loan-officer-null: mismo motivo que en Loan Officer arriba.
-                totalCount={businessDeveloperScorecard.diagnostics.resolvedCount + businessDeveloperScorecard.diagnostics.blankCount}
-                onRowClick={(row) =>
-                  setDrillDown({
-                    metric: 'Business Developer',
-                    context: row.label,
-                    loans: loansForScorecardCut(fundedInRange, 'businessDeveloper', row.key, orgRoster.aliasIndex).map(closedLoanToModalLoan),
-                    hiddenColumns: ['loanOfficer', 'milestone', 'status'],
-                  })
-                }
-                diagnostic={personDiagnosticsNote(businessDeveloperScorecard)}
-              />
+              <>
+                <ScorecardTable
+                  title="Business Developer"
+                  columnLabel="Business Developer"
+                  rows={businessDeveloperScorecard.rows}
+                  // Hotfix loan-officer-null: mismo motivo que en Loan Officer arriba.
+                  totalCount={businessDeveloperScorecard.diagnostics.resolvedCount + businessDeveloperScorecard.diagnostics.blankCount}
+                  onRowClick={(row) =>
+                    setDrillDown({
+                      metric: 'Business Developer',
+                      context: row.label,
+                      loans: loansForScorecardCut(fundedInRange, 'businessDeveloper', row.key, orgRoster.aliasIndex).map(closedLoanToModalLoan),
+                      hiddenColumns: ['loanOfficer', 'milestone', 'status'],
+                    })
+                  }
+                  diagnostic={personDiagnosticsNote(businessDeveloperScorecard)}
+                />
+                <ScorecardPodiumPanel rows={businessDeveloperScorecard.rows} />
+              </>
             )}
           </div>
         </>
@@ -2716,7 +3085,9 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
         debajo de este, en el mismo bloque, nunca intercalados entre las
         secciones de arriba.
       */}
-      <h4 style={{ margin: '8px 0 12px', fontSize: '15px', color: 'var(--navy)' }}>Productivity &amp; Concentration</h4>
+      <h4 id="analytics-section-concentration" style={{ margin: '8px 0 12px', fontSize: '15px', color: 'var(--navy)' }}>
+        Productivity &amp; Concentration
+      </h4>
       {/*
         Etapa FIX-CARD-HEIGHT: Strategy Mix y Pareto quedaban de altura
         distinta -- el grid de 2 columnas SÍ estira sus 2 celdas a la misma
@@ -2842,50 +3213,6 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
           )}
         </div>
       </div>
-
-      {/*
-        ==========================================================================
-        MAPA DE EE.UU. — Property State, Etapa MAP-PREVIEW-1
-        ==========================================================================
-        Sección COMPLETAMENTE NUEVA, al final de la pestaña -- pedido explícito
-        de NO tocar ni reemplazar la tabla "Subject Property State" de más
-        arriba (Product Mix & Geography), que sigue exactamente igual. Es una
-        prueba visual: si se aprueba, se decide en una etapa aparte si
-        reemplaza o complementa esa tabla.
-
-        Mismo gate que la tabla (`propertyStateDataMissing`) -- un snapshot sin
-        `property_state` capturado no debe mostrar un mapa 100% gris sin
-        explicación, mismo criterio que ya usa esa tabla y Strategy Mix.
-      */}
-      <h3 style={{ margin: '24px 0 12px' }}>Funded Loans by State (Map)</h3>
-      <DiagnosticsNote
-        count={1}
-        summary="Same data as the Subject Property State table above, shown as a map -- darker states had more funded loans this period."
-        detail="Preview only, next to the existing table -- nothing here changes if this section is removed or kept."
-      />
-      {propertyStateDataMissing ? (
-        <div className="tbl-card" style={{ padding: '16px' }}>
-          <p className="foot-note" style={{ margin: 0 }}>
-            No property state data in this snapshot — the map has nothing to color.
-          </p>
-        </div>
-      ) : (
-        <div className="tbl-card us-map-fade-in" style={{ padding: '16px' }}>
-          <PropertyStateMap
-            rows={propertyStateRanking}
-            onStateClick={(row) =>
-              setDrillDown({
-                metric: 'Subject Property State',
-                context: row.label,
-                loans: fundedInRange
-                  .filter((l) => (l.propertyState.trim() || NO_PROPERTY_STATE_LABEL) === row.label)
-                  .map(closedLoanToModalLoan),
-                hiddenColumns: ['propertyState', 'milestone', 'status'],
-              })
-            }
-          />
-        </div>
-      )}
 
       {/*
         Etapa F7, Parte 5: mismo modal que ya usa PivotTable -- una lista de

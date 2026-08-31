@@ -138,9 +138,30 @@
   /* ---- Layout ------------------------------------------------------------ */
   /*
    * Etapa UX6: baja de 1440 a 1380 para que la app no toque los bordes de la
-   * pantalla. Lo consumen `.hub-container` y `.hub-header__inner`, así que el
-   * logo del header queda alineado con el contenido de la página.
+   * pantalla. Lo consumen `.hub-container` y las 2 filas del header
+   * (`.hub-header__top`/`.hub-header__bar`, shell.css), así que el logo del
+   * header queda alineado con el contenido de la página.
    */
   --container-max: 1380px;
-  --header-h: 60px;
+  /*
+   * FIX-HEADER-H-STALE: el header pasó de 1 fila (~60px) a 2 filas -- Etapa
+   * OL6 (shell.css, `.hub-header__top` + `.hub-header__bar`), para que la
+   * marca/nav/usuario dejaran de competir por el mismo ancho con 6 pestañas.
+   * Ese cambio nunca actualizó este token -- quedó en 60px, la altura de
+   * ANTES de las 2 filas, mientras el header real ya mide más. Cualquier
+   * `position: sticky; top: var(--header-h)` que se agregue después (ej.
+   * `.analytics-section-nav`, forecast-visual.css) hereda ese desfase y
+   * queda tapado detrás del header real, que ahora es más alto de lo que
+   * este número dice.
+   *
+   * Valor MEDIDO, no calculado -- `document.querySelector('.hub-header')
+   * .getBoundingClientRect().height` en DevTools real: 103px. El primer
+   * intento (108px) salió de sumar padding/border/line-height a mano
+   * (fila 1 ≈ 54px + fila 2 ≈ 48px ≈ 102px, redondeado con margen a 108) --
+   * quedó 5px LARGO, suficiente para dejar un hueco visible entre el header
+   * y `.analytics-section-nav` (que hereda este valor para su propio
+   * `top`). Sin margen de seguridad esta vez: el valor es el medido, tal
+   * cual.
+   */
+  --header-h: 103px;
 }
