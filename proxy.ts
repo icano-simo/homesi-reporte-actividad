@@ -1,11 +1,14 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createMiddlewareClient, withAuthCookies } from '@/lib/supabase/middleware';
-import { hasAppAccess } from '@/lib/auth/appAccess';
+import { ADMIN_CLAIM, ANALYTICS_CLAIM, hasAppAccess, hasClaim, OUTLOOK_CLAIM } from '@/lib/auth/appAccess';
 import {
   LOGIN_PATH,
   NO_ACCESS_PATH,
   CHANGE_PASSWORD_PATH,
+  ADMIN_PATH,
+  ANALYTICS_PATH,
   DEFAULT_LANDING,
+  OUTLOOK_PATH,
   PASSWORD_CHANGE_ROUTES,
   matchesRoute,
 } from '@/lib/auth/routes';
@@ -116,6 +119,69 @@ export async function proxy(request: NextRequest) {
     }
     const url = request.nextUrl.clone();
     url.pathname = NO_ACCESS_PATH;
+    url.search = '';
+    return withAuthCookies(response(), NextResponse.redirect(url));
+  }
+
+  /*
+   * ============================================================================
+   * ⚠ MÓDULOS CON CLAIM PROPIO, ADEMÁS DEL DE LA APP — etapas OL1 y ANALYTICS-GATE
+   * ============================================================================
+   *
+   * El gate de arriba ya comprobó `commercial_activity`. Esto agrega un segundo
+   * requisito para las rutas de los módulos que tienen permiso propio, y para
+   * sus API.
+   *
+   * Va DESPUÉS del gate de la app y ANTES del de contraseña temporal, en ese
+   * orden a propósito: a alguien que no puede ver el módulo no tiene sentido
+   * mandarlo a cambiar la contraseña para después negarle la entrada.
+   *
+   * ---------------------------------------------------------------------------
+   * ⚠ ES UNA LISTA Y NO DOS BLOQUES IGUALES
+   * ---------------------------------------------------------------------------
+   * Cuando Outlook era el único, el gate estaba escrito una vez y no había nada
+   * que decidir. Al llegar el segundo, copiar el bloque habría dejado dos
+   * lugares donde arreglar el mismo bug -- y el bug que importa acá es de
+   * seguridad, no de presentación.
+   *
+   * Agregar un módulo con permiso propio es agregar una fila. Lo único que hay
+   * que recordar es la contraparte: la pestaña en `ServiceHubHeader` y, si el
+   * módulo tiene datos propios, la política de RLS que revisa el mismo nombre
+   * de claim. Esta lista no protege los datos; los protege RLS.
+   *
+   * ---------------------------------------------------------------------------
+   * POR QUÉ REDIRIGE AL LANDING Y NO A /no-access
+   * ---------------------------------------------------------------------------
+   * `/no-access` dice "no tenés acceso a esta aplicación", y a esta aplicación
+   * sí lo tienen: les falta un módulo, no la app. Mandarlos ahí sería mentirles
+   * y, peor, el gate de más abajo los rebotaría de vuelta al landing igual --
+   * un rebote doble por una frase incorrecta.
+   *
+   * Además la pestaña ni se dibuja para ellos (ver ServiceHubHeader), así que
+   * llegar acá significa haber escrito la URL a mano. Devolverlos al landing es
+   * la respuesta que no confirma ni desmiente que el módulo exista.
+   */
+  const CLAIMED_MODULES: { path: string; claim: string; label: string }[] = [
+    { path: OUTLOOK_PATH, claim: OUTLOOK_CLAIM, label: 'Outlook' },
+    { path: ANALYTICS_PATH, claim: ANALYTICS_CLAIM, label: 'Analytics' },
+    { path: ADMIN_PATH, claim: ADMIN_CLAIM, label: 'Admin' },
+  ];
+
+  for (const mod of CLAIMED_MODULES) {
+    const inModule =
+      pathname === mod.path ||
+      pathname.startsWith(mod.path + '/') ||
+      pathname.startsWith('/api' + mod.path);
+    if (!inModule || hasClaim(user, mod.claim)) continue;
+
+    if (isApi) {
+      return withAuthCookies(
+        response(),
+        NextResponse.json({ error: 'No access to ' + mod.label }, { status: 403 })
+      );
+    }
+    const url = request.nextUrl.clone();
+    url.pathname = DEFAULT_LANDING;
     url.search = '';
     return withAuthCookies(response(), NextResponse.redirect(url));
   }

@@ -7448,3 +7448,218 @@ ninguna.
 
 `app/pipeline/TabAnalytics.tsx`, `app/styles/components.css`,
 `lib/pipeline/usStatesSvgPaths.ts` (nuevo).
+
+---
+
+## Etapa FIX-COMBINED-STRATEGY -- Combined Total by Branch no respetaba el filtro de estrategia
+
+Con una píldora de estrategia activa (vista `By strategy` de
+`app/pipeline/PivotTable.tsx`, `pill !== 'All'`), la sección "Combined
+Total by Branch" ignoraba el filtro en tres lugares distintos, mientras
+las tablas Banked - Retail/Brokered sí lo respetaban:
+
+1. **La suma por branch y el Grand Total**: mostraban el total de TODAS
+   las estrategias en vez de solo la elegida (ej. 85 en vez de 18 con
+   B2B filtrado).
+2. **Los 4 drill-downs "Combined"** (Total Pipeline, Healthy Pipeline,
+   Closed, CTC/Closing): el número ya filtrado era correcto, pero el
+   modal traía préstamos de OTRAS estrategias de más -- caso real
+   confirmado: branch 776/NPPM mostraba "1" pero el drill-down traía 2
+   préstamos (el NPPM real + uno de estrategia Own production).
+3. **El punto/indicador de CTC/Closing**: podía aparecer encendido y
+   clickeable con la población real elegible en cero -- caso real
+   confirmado: branch 760, un préstamo Delayed en el bucket "Closing"
+   encendía el punto, pero el drill-down (que exige `healthy === true`,
+   igual que "Projected to Close") no tenía nada que mostrar.
+
+### Causa raíz
+
+Los tres bugs comparten el mismo origen: cálculos independientes
+armados sobre datos SIN filtrar por `pill`/`healthy`, en vez de
+reutilizar la MISMA fuente ya filtrada que el resto del pivot ya usaba
+(`row.strategyRows` filtradas por estrategia, y `ctcRawCount +
+closingRawCount` -- la población healthy-only ya calculada por
+`splitCtcAndClosing` -- para el punto de CTC/Closing). Cada número/lista
+se recalculaba por su cuenta en vez de derivarse de una única fuente
+consistente, así que cada uno podía desincronizarse del resto sin que
+nada lo evitara estructuralmente.
+
+### Cambio de criterio deliberado -- el punto de CTC/Closing
+
+El punto CtcDot tenía un diseño previo, documentado como decisión
+aceptada: era un "indicador de presencia" (`closingCount`, el bucket
+"Closing" completo, sin exigir `healthy`), deliberadamente DISTINTO de
+la población que el drill-down audita (`healthy === true`) -- se
+aceptaba que el punto pudiera estar encendido sin que hubiera
+necesariamente algo real que auditar detrás.
+
+Ese criterio queda reemplazado: confirmado que un punto que promete un
+drill-down y abre un modal vacío no es un indicador útil en ninguna
+vista, con o sin estrategia elegida. El punto ahora se enciende siempre
+por la población elegible (`ctcRawCount + closingRawCount`), en las 4
+variantes donde aparece (`By branch`, fila de estrategia, desglose por
+estrategia, y Combined). El campo `closingCount` (bucketTotal) sigue
+existiendo sin tocar -- sigue siendo la fuente real de pull-through/
+forecast, sólo dejó de decidir si un punto se enciende.
+
+### Archivos
+
+`app/pipeline/PivotTable.tsx` únicamente.
+
+---
+
+## Etapa RETIRE-UPLOAD -- se retira la carga manual de Forecast, y qué queda pendiente
+
+El archivo de Salesforce se sube ahora desde la app de Data Uploads, que lo deja
+en BigQuery, y el job de `simo-sync` (`lib/sync/pipelineSnapshot.ts`, cron de
+Vercel a las 08:00 UTC) construye el snapshot.
+
+### Por qué
+
+Había **dos caminos escribiendo `pipeline_snapshots`** bajo la misma regla de uno
+por día, así que el que corriera segundo pisaba al primero. Producían las mismas
+filas -- que es justamente lo que lo hacía difícil de ver: nada fallaba. Pero es
+duplicación esperando a que alguien cambie una y no la otra, el mismo patrón que
+ya costó tiempo con el `tone` del icono (BP21-BP28) y el filtro del mes (BP33).
+
+### Lo que se fue
+
+`app/pipeline/UploadButton.tsx` entero, su uso en el header, `handleFileSelected`,
+el estado "Processing file…" y el botón del estado vacío que reusaba
+`PIPELINE_FILE_INPUT_ID`. En su lugar la barra de control dice cuándo se refrescó
+el snapshot por última vez.
+
+### ⚠ PENDIENTE -- lo que sigue existiendo sin entrada desde la UI
+
+| Archivo | Estado |
+|---|---|
+| `app/api/pipeline/parse/route.ts` | vivo, sin forma de llamarlo desde la app |
+| `lib/pipeline/sources/salesforce-file.ts` | ídem, es el parser que usa esa ruta |
+
+**Se retiran cuando esto lleve unas semanas estable, no ahora.** La diferencia
+con la etapa V4 --donde el camino muerto se borró el mismo día-- es deliberada y
+vale la pena entenderla:
+
+- En V4 el código muerto **sabía escribir**: `saveUpload` hacía `insert` contra
+  las tablas viejas, así que bastaba con que alguien lo importara por error para
+  que escribiera sin que nada fallara. Dejarlo era el riesgo.
+- Acá el camino que queda es la **red de seguridad**: si el job se porta mal en
+  sus primeros días, hay a qué volver. Y no escribe solo -- necesita que alguien
+  haga un POST con un archivo.
+
+El día que se borren, se van los dos juntos: la ruta no tiene otro consumidor y
+el parser no tiene otro llamador.
+
+### Verificación del job antes de retirar la carga
+
+Escribió el snapshot **93** reemplazando al 92, con 108 en pipeline, 799
+resueltos, 459 funded, un solo `is_active` y los 108 `source_loan_id` bien
+formados.
+
+### Archivos
+
+`app/pipeline/Topbar.tsx`, `app/pipeline/page.tsx`, y `app/pipeline/UploadButton.tsx`
+(borrado).
+
+---
+
+## Hotfix loan-officer-null — `/analytics` rompía con `loan_officer` NULL
+
+Producción caída: `/analytics` tiraba `TypeError: Cannot read properties
+of null (reading 'trim')` para cualquier snapshot que tuviera al menos un
+préstamo sin Loan Officer asignado en Salesforce.
+
+### Causa real
+
+`app/api/pipeline/latest/route.ts` mapeaba `loanOfficer: r.loan_officer`
+sin `?? ''`, a diferencia de todos sus campos vecinos (`loanType`,
+`loanProgram`, `opportunityOwner`, `propertyState`, que sí lo tenían). La
+columna real en `pipeline_loans`/`pipeline_resolved_loans` admite `NULL`
+-- confirmado contra 4 préstamos reales del snapshot activo, los 4 con
+`opportunity_owner = 'sf integrations'` (registros de automatización de
+Salesforce sin loan officer humano asignado). `buildPersonScorecard()`
+(`lib/pipeline/scorecards.ts`) hace `getRawName(loan).trim()` sobre ese
+campo -- un `NULL` real ahí revienta antes de llegar a ningún chequeo de
+negocio.
+
+Confirmado que el problema persiste en el origen (BigQuery/Salesforce):
+el mismo snapshot subido más tarde ese mismo día trajo los mismos 4
+`source_loan_id` con `loan_officer` NULL -- no se corrigió aguas arriba,
+este fix es del lado de la app.
+
+### Decisión de negocio -- visible, no oculto
+
+Antes, un `loanOfficer` vacío incrementaba `blankCount` y el préstamo se
+descartaba de `rows` en silencio -- desaparecía de la tabla y del total
+sin ningún rastro. Se decidió que estos préstamos NO deben desaparecer:
+se agrupan en una fila sintética visible ("Unknown Loan Officer"/"Unknown
+Business Developer" según el scorecard), con su `closedCount`/
+`totalAmount` sumando igual que cualquier fila real, para que el
+problema quede a la vista en pantalla hasta que se corrija en origen, en
+vez de esconderse detrás de un total que sigue "cuadrando".
+
+`blankCount` se sigue acumulando igual que antes -- el ícono de
+advertencia (`personDiagnosticsNote()`) sigue contándolo, porque la fila
+por sí sola no explica *por qué* falta el nombre; el tooltip es lo único
+que aclara que es un problema de datos de origen pendiente de corregir.
+
+### Qué NO era el bug (descartado con evidencia, no por suposición)
+
+- **No es un problema de permisos/acceso** -- se revisó `lib/auth/appAccess.ts`
+  y todo `components/layout/`: cero llamadas a `.trim()` en el código de
+  sesión/autenticación.
+- **No es una fila que "debería aparecer y no aparece"** bajo el período
+  por defecto ("This Month") -- de los 4 préstamos afectados, 3 son
+  `status: 'adverse'` (nunca entran a `fundedLoansInRange`, en ningún
+  período, por diseño preexistente) y el único `funded` disbursó en
+  julio, fuera del mes en curso. Simulado paso a paso contra el snapshot
+  activo real: 0 de los 4 entran al scorecard bajo "This Month" -- la
+  fila no aparece ahí porque matemáticamente no corresponde, no por un
+  bug de cálculo ni de render. Con Year to Date sí debería aparecer,
+  con `count=1, amount=$657.000` (solo el préstamo funded).
+
+### Archivos
+
+`app/api/pipeline/latest/route.ts` (el `?? ''` que corrige el borde de
+entrada, y las interfaces `PipelineLoanRow`/`ResolvedLoanRow` ahora
+declaran `loan_officer: string | null`, honesto con la columna real),
+`lib/pipeline/types.ts` (comentario documentando que la columna admite
+NULL, para que el próximo campo no repita el mismo bug),
+`lib/pipeline/scorecards.ts` (`buildPersonScorecard` agrupa en
+`UNKNOWN_PERSON_KEY` en vez de descartar; `unknownLabel` parametrizado
+por caller), `app/pipeline/TabAnalytics.tsx` (`loanResolvesToEmployeeKey`
+reconoce la fila sintética para que su drill-down abra los préstamos
+correctos; `totalCount` de las 2 tablas ajustado a incluir la fila
+nueva).
+
+---
+
+## Fix Colorado sin hover en el mapa — causa real: orden de pintado, no geometría
+
+Confirmado con evidencia dura (muestreo real de punto-en-polígono, no
+sólo bounding box) que la geometría de Colorado es válida y que ningún
+vecino cubre más del 0.6% de su interior real. La causa era el orden de
+pintado del SVG: `US_STATE_PATHS` (`lib/pipeline/usStatesSvgPaths.ts`)
+se recorre en orden alfabético, y los 6 vecinos reales de Colorado (KS,
+NE, NM, OK, UT, WY) caen TODOS después de "CO" alfabéticamente -- sus
+`<path>` se pintaban encima del de Colorado en la franja de borde
+compartido, suficiente para tapar su área de hover ahí. Fix: Colorado se
+movió al final del array (última en pintarse, encima de todos sus
+vecinos), con un comentario en el archivo explicando por qué esa entrada
+rompe el orden alfabético a propósito.
+
+### Mejora futura (anotada, no implementada)
+
+Este fix resuelve el caso puntual de Colorado, pero el criterio
+("mover al final cuando aparece el síntoma") no escala si otro estado
+tiene el mismo problema. Una mejora real sería reordenar el array
+COMPLETO por un criterio que minimice el solapamiento en general -- por
+ejemplo, de mayor a menor área de bounding box, para que los estados
+grandes se pinten primero y cualquier vecino problemático quede siempre
+encima por construcción, sin tener que detectar y mover casos uno por
+uno cada vez que se reporte el mismo síntoma en un estado distinto.
+
+### Archivos
+
+`lib/pipeline/usStatesSvgPaths.ts` (Colorado movido al final, con
+comentario).

@@ -72,7 +72,17 @@ export interface PersonScorecardDiagnostics {
   totalInput: number;
   /** Resueltos contra `org.employee_alias` -- entran a `rows`. */
   resolvedCount: number;
-  /** `loanOfficer` vacío -- sin nadie a quien atribuir, no es un nombre "sin mapear". */
+  /**
+   * `loanOfficer`/`opportunityOwner` vacío -- sin nadie a quien atribuir, no
+   * es un nombre "sin mapear". Hotfix loan-officer-null: estos loans YA NO
+   * se descartan -- entran a `rows` agrupados bajo una fila sintética
+   * ("Unknown Loan Officer"/"Unknown Business Developer", ver
+   * `unknownLabel` en `buildPersonScorecard`), a propósito, para que el
+   * problema quede visible en la tabla hasta que se corrija en el origen
+   * (Salesforce) en vez de desaparecer en silencio. Este contador se
+   * conserva igual para el ícono de diagnóstico -- ver
+   * `personDiagnosticsNote()`.
+   */
   blankCount: number;
   /** Encontrados en `org.source_name_excluded` -- exclusión conocida (ej. "sf integrations"), no una persona real de la división. */
   excludedCount: number;
@@ -99,13 +109,24 @@ export interface PersonScorecardResult {
  * `lib/pipeline/sources/salesforce-file.ts`); no hay una columna "Opportunity
  * Owner" separada en los datos reales, confirmado contra el snapshot activo.
  */
+/**
+ * Clave sintética para la fila agregada de "sin nombre" -- nunca colisiona
+ * con un `employeeKey` real (`String(number)`). Exportada para que
+ * TabAnalytics.tsx pueda reconocer esta fila específica en el `onRowClick`
+ * del drill-down (el nombre vacío no resuelve por `aliasIndex`, así que el
+ * filtro normal por `employeeKey` no le encuentra ningún loan).
+ */
+export const UNKNOWN_PERSON_KEY = '__unknown__';
+
 function buildPersonScorecard(
   loans: ResolvedLoan[],
   getRawName: (loan: ResolvedLoan) => string,
   source: SourceSystem,
   aliasIndex: AliasIndex,
   excludedIndex: { has(source: SourceSystem, nameRaw: string | null | undefined): boolean },
-  employeeNameByKey: Map<number, string>
+  employeeNameByKey: Map<number, string>,
+  /** Hotfix loan-officer-null: label de la fila agregada de loans sin nombre -- distinto texto según el caller (Loan Officer vs. Business Developer), la función no lo asume. */
+  unknownLabel: string
 ): PersonScorecardResult {
   const byKey = new Map<string, { label: string; count: number; amount: number }>();
   const unmapped = new Map<string, { nameRaw: string; rows: number }>();
@@ -116,7 +137,20 @@ function buildPersonScorecard(
   for (const loan of loans) {
     const nameRaw = getRawName(loan).trim();
     if (!nameRaw) {
+      // Hotfix loan-officer-null: antes esto era `blankCount += 1; continue`,
+      // que descartaba el loan de `rows` -- desaparecía de la tabla y del
+      // total sin ningún rastro visible. Ahora se agrupa bajo una fila
+      // sintética visible, con el mismo tratamiento que cualquier fila real
+      // (cuenta en closedCount/totalAmount/percentOfTotal), para que el
+      // problema de datos (loans sin Loan Officer/Owner en el origen) quede
+      // a la vista hasta que se corrija en Salesforce -- decisión de negocio,
+      // no un efecto colateral del fix de null. `blankCount` se sigue
+      // acumulando igual, para el ícono de diagnóstico.
       blankCount += 1;
+      const cur = byKey.get(UNKNOWN_PERSON_KEY) ?? { label: unknownLabel, count: 0, amount: 0 };
+      cur.count += 1;
+      cur.amount += loan.amount;
+      byKey.set(UNKNOWN_PERSON_KEY, cur);
       continue;
     }
     const { employeeKey } = aliasIndex.lookup(source, nameRaw);
@@ -142,7 +176,11 @@ function buildPersonScorecard(
   const unmappedCount = [...unmapped.values()].reduce((sum, u) => sum + u.rows, 0);
 
   return {
-    rows: toRows(byKey, resolvedCount),
+    // Hotfix loan-officer-null: el denominador de `percentOfTotal` pasa de
+    // `resolvedCount` a `resolvedCount + blankCount` -- `rows` ahora incluye
+    // la fila "Unknown ..." además de las resueltas, y el % debe seguir
+    // sumando 100% entre las filas que de verdad se muestran.
+    rows: toRows(byKey, resolvedCount + blankCount),
     diagnostics: {
       totalInput: loans.length,
       resolvedCount,
@@ -160,7 +198,7 @@ export function buildLoanOfficerScorecard(
   excludedIndex: { has(source: SourceSystem, nameRaw: string | null | undefined): boolean },
   employeeNameByKey: Map<number, string>
 ): PersonScorecardResult {
-  return buildPersonScorecard(loans, (loan) => loan.loanOfficer, 'salesforce', aliasIndex, excludedIndex, employeeNameByKey);
+  return buildPersonScorecard(loans, (loan) => loan.loanOfficer, 'salesforce', aliasIndex, excludedIndex, employeeNameByKey, 'Unknown Loan Officer');
 }
 
 /**
@@ -185,5 +223,5 @@ export function buildBusinessDeveloperScorecard(
   employeeNameByKey: Map<number, string>
 ): PersonScorecardResult {
   const bdLoans = loans.filter((loan) => loan.opportunityOwnerTitle === 'Business Developer');
-  return buildPersonScorecard(bdLoans, (loan) => loan.opportunityOwner, 'salesforce', aliasIndex, excludedIndex, employeeNameByKey);
+  return buildPersonScorecard(bdLoans, (loan) => loan.opportunityOwner, 'salesforce', aliasIndex, excludedIndex, employeeNameByKey, 'Unknown Business Developer');
 }

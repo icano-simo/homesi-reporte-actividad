@@ -9,13 +9,14 @@ import {
   earliestFundedDisbursementDate,
   fundedLoansInRange,
   hasPropertyStateData,
-  NO_PROPERTY_STATE_LABEL,
   type RankingRow,
 } from '@/lib/pipeline/analytics';
+import { NO_PROGRAM_LABEL, NO_PROPERTY_STATE_LABEL, NO_TYPE_LABEL } from '@/lib/pipeline/labels';
 import {
   buildBranchScorecard,
   buildBusinessDeveloperScorecard,
   buildLoanOfficerScorecard,
+  UNKNOWN_PERSON_KEY,
   type PersonScorecardResult,
   type ScorecardRow,
 } from '@/lib/pipeline/scorecards';
@@ -147,7 +148,7 @@ function RankingTable({
   /*
    * Red de seguridad, mismo criterio que splitCtcAndClosing/aggregate.ts: el
    * ranking agrupa TODOS los loans que recibe (el vacío va a "Sin
-   * programa"/"Sin tipo", nunca se descarta uno), así que la suma de sus
+   * programa"/"sin tipo", nunca se descarta uno), así que la suma de sus
    * counts tiene que coincidir siempre con el total de funded del período.
    * Si no coincide, es un préstamo contado dos veces o ninguna -- se avisa en
    * dev, no se esconde.
@@ -466,7 +467,17 @@ function personDiagnosticsNote(result: PersonScorecardResult): { count: number; 
     );
   }
   if (blankCount > 0) {
-    detailParts.push(`${fmtInt(blankCount)} with no Loan Officer/Owner value recorded.`);
+    /*
+     * Hotfix loan-officer-null: estos loans ya no se descartan de la tabla --
+     * se agrupan en su propia fila visible ("Unknown Loan Officer"/"Unknown
+     * Business Developer"). El ícono de advertencia se mantiene igual porque
+     * la fila por sí sola no explica POR QUÉ falta el nombre (un problema de
+     * datos en el origen que hay que corregir en Salesforce), solo que
+     * existe -- el tooltip sigue siendo la única explicación de fondo.
+     */
+    detailParts.push(
+      `${fmtInt(blankCount)} with no Loan Officer/Owner value recorded -- shown as their own row instead of being excluded.`
+    );
   }
   const detail = detailParts.join('\n');
 
@@ -507,7 +518,6 @@ function shortMonth(month: string): string {
  */
 const TYPE_COLORS = ['var(--navy)', 'var(--coral)', 'var(--sky)'];
 const NO_TYPE_COLOR = 'var(--slate-400)';
-const NO_TYPE_LABEL = 'Sin tipo';
 
 /** Texto de la etiqueta dentro de cada segmento -- claro sobre navy/coral (oscuros/saturados), oscuro sobre sky (claro). Mismo orden que TYPE_COLORS. */
 const TYPE_TEXT_COLORS = ['var(--canvas)', 'var(--canvas)', 'var(--navy)'];
@@ -874,22 +884,14 @@ function AvgTicketChart({
   );
 }
 
-/**
- * Placeholders de fila vacía -- MISMO texto que `NO_PROGRAM_LABEL`/
- * `NO_TYPE_LABEL` en `lib/pipeline/analytics.ts` (no exportados ahí, y ese
- * archivo está fuera del alcance de esta etapa). Duplicado a propósito
- * solo para poder re-derivar, en el click, qué loans cayeron en cada fila
- * del ranking -- si el texto del placeholder cambia algún día en
- * `analytics.ts`, este archivo hay que actualizarlo a mano también.
- *
- * Etapa PROPERTY-STATE-1: `NO_PROPERTY_STATE_LABEL` NO se duplica acá --
- * `lib/pipeline/analytics.ts` SÍ está en el alcance de esta etapa (a
- * diferencia de cuando se armaron estas dos), así que se exporta desde ahí
- * y se importa directo, evitando el mismo riesgo de desincronización que
- * este comentario advierte para los otros dos.
+/*
+ * ⚠ Acá vivían dos copias a mano de los placeholders de fila vacía, con un
+ * comentario que declaraba la duplicación y pedía mantenerlas sincronizadas.
+ * Ahora las tres se importan de `lib/pipeline/labels.ts`, que es su única
+ * definición -- ver la cabecera de ese archivo. El drill-down compara POR
+ * TEXTO contra `row.label`, así que dos copias que se separan dejan la fila
+ * visible y el detalle vacío, sin error y sin aviso.
  */
-const DRILLDOWN_NO_PROGRAM_LABEL = 'Sin programa';
-const DRILLDOWN_NO_TYPE_LABEL = 'Sin tipo';
 
 /**
  * ¿Este loan resuelve, vía `org.employee_alias`, al mismo `employeeKey` que
@@ -911,6 +913,12 @@ function loanResolvesToEmployeeKey(
   employeeKeyStr: string
 ): boolean {
   const nameRaw = getRawName(loan).trim();
+  // Hotfix loan-officer-null: la fila "Unknown Loan Officer"/"Unknown
+  // Business Developer" (buildPersonScorecard, lib/pipeline/scorecards.ts)
+  // agrupa justamente los loans con nombre vacío -- son estos los que debe
+  // abrir su drill-down, no los que resuelven contra el alias index (que
+  // nunca incluye un nombre vacío).
+  if (employeeKeyStr === UNKNOWN_PERSON_KEY) return !nameRaw;
   if (!nameRaw) return false;
   const { employeeKey } = aliasIndex.lookup('salesforce', nameRaw);
   return employeeKey !== null && String(employeeKey) === employeeKeyStr;
@@ -928,9 +936,9 @@ function loansForMonth(loans: ResolvedLoan[], month: string): ResolvedLoan[] {
   return loans.filter((l) => l.status === 'funded' && l.disbursementDate.slice(0, 7) === month);
 }
 
-/** Mismo criterio que `loansForMonth`, más el tipo de préstamo -- para el drill-down por segmento de Loan Type Distribution by Month. `DRILLDOWN_NO_TYPE_LABEL` ('Sin tipo') es el mismo placeholder que ya usa `buildMonthlyTypeBreakdown`. */
+/** Mismo criterio que `loansForMonth`, más el tipo de préstamo -- para el drill-down por segmento de Loan Type Distribution by Month. `NO_TYPE_LABEL` (lib/pipeline/labels.ts) es el mismo placeholder que ya usa `buildMonthlyTypeBreakdown` -- tienen que ser el mismo texto o la fila queda visible con el detalle vacío (ver el comentario de labels.ts). */
 function loansForMonthAndType(loans: ResolvedLoan[], month: string, typeLabel: string): ResolvedLoan[] {
-  return loansForMonth(loans, month).filter((l) => (l.loanType.trim() || DRILLDOWN_NO_TYPE_LABEL) === typeLabel);
+  return loansForMonth(loans, month).filter((l) => (l.loanType.trim() || NO_TYPE_LABEL) === typeLabel);
 }
 
 /**
@@ -2505,7 +2513,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
               metric: 'Loan Program',
               context: row.label,
               loans: fundedInRange
-                .filter((l) => (l.loanProgram.trim() || DRILLDOWN_NO_PROGRAM_LABEL) === row.label)
+                .filter((l) => (l.loanProgram.trim() || NO_PROGRAM_LABEL) === row.label)
                 .map(closedLoanToModalLoan),
               hiddenColumns: ['loanProgram', 'milestone', 'status'],
             })
@@ -2521,7 +2529,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
               metric: 'Loan Type',
               context: row.label,
               loans: fundedInRange
-                .filter((l) => (l.loanType.trim() || DRILLDOWN_NO_TYPE_LABEL) === row.label)
+                .filter((l) => (l.loanType.trim() || NO_TYPE_LABEL) === row.label)
                 .map(closedLoanToModalLoan),
               hiddenColumns: ['loanType', 'milestone', 'status'],
             })
@@ -2641,7 +2649,12 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
               title="Loan Officer"
               columnLabel="Loan Officer"
               rows={loanOfficerScorecard.rows}
-              totalCount={loanOfficerScorecard.diagnostics.resolvedCount}
+              // Hotfix loan-officer-null: `rows` ahora incluye la fila "Unknown
+              // Loan Officer" además de las resueltas -- el total de
+              // reconciliación tiene que crecer con ella o el chequeo de
+              // ScorecardTable (rowsTotalCount !== totalCount) avisaría un
+              // falso descuadre en dev.
+              totalCount={loanOfficerScorecard.diagnostics.resolvedCount + loanOfficerScorecard.diagnostics.blankCount}
               onRowClick={(row) =>
                 setDrillDown({
                   metric: 'Loan Officer',
@@ -2678,7 +2691,8 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
                 title="Business Developer"
                 columnLabel="Business Developer"
                 rows={businessDeveloperScorecard.rows}
-                totalCount={businessDeveloperScorecard.diagnostics.resolvedCount}
+                // Hotfix loan-officer-null: mismo motivo que en Loan Officer arriba.
+                totalCount={businessDeveloperScorecard.diagnostics.resolvedCount + businessDeveloperScorecard.diagnostics.blankCount}
                 onRowClick={(row) =>
                   setDrillDown({
                     metric: 'Business Developer',

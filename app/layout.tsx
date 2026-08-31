@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Inter, Barlow } from 'next/font/google';
 import './globals.css';
 import ServiceHubHeader from '@/components/layout/ServiceHubHeader';
+import { getServerClient } from '@/lib/supabase/server';
 
 /*
  * Etapa UX1 (overhaul Service Hub):
@@ -35,12 +36,38 @@ export const metadata: Metadata = {
   description: 'Commercial Activity and Forecast & Pipeline reporting.',
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+/*
+ * ⚠ Etapa OL1: el layout pasa a ser `async` para leer los claims de la sesión
+ * en el SERVIDOR y pasárselos al header, que decide qué pestañas dibujar.
+ *
+ * Se lee acá y no en el header porque el cliente de navegador devuelve el
+ * usuario sin `app_metadata.allowed_apps` -- verificado. Y porque así la
+ * pestaña sale de la misma fuente que el gate de `proxy.ts`: si divergieran,
+ * habría una pestaña que rebota o un módulo alcanzable sin pestaña.
+ *
+ * Un fallo leyendo la sesión no debe dejar la app sin header: se resuelve como
+ * "ningún claim", que dibuja las tres pestañas públicas del portal y esconde
+ * las que exigen permiso.
+ */
+async function readAllowedApps(): Promise<string[]> {
+  try {
+    const supabase = await getServerClient();
+    if (!supabase) return [];
+    const { data } = await supabase.auth.getUser();
+    const claims = data.user?.app_metadata?.allowed_apps;
+    return Array.isArray(claims) ? claims : [];
+  } catch {
+    return [];
+  }
+}
+
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const allowedApps = await readAllowedApps();
   return (
     <html lang="en" className={`${inter.variable} ${barlow.variable}`}>
       <body>
         <div className="app">
-          <ServiceHubHeader />
+          <ServiceHubHeader allowedApps={allowedApps} />
           <main className="hub-canvas">{children}</main>
         </div>
       </body>
