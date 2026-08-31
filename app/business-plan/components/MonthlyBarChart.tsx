@@ -104,9 +104,18 @@ export default function MonthlyBarChart({
    * con su altura real; el valor exacto sigue en el `title`.
    */
   const stacked = segTotal > 0;
+  /*
+   * ⚠ EL SEGMENTO DEL MEDIO ES EL APORTE, NO EL CONTEO.
+   *
+   * Usaba `inCtc + inClosing`, y funcionaba porque cada préstamo en CTC/Closing
+   * aportaba exactamente 1,0 -- conteo y aporte eran el mismo número. Al pasar
+   * Closing a su tasa (0,95) los tres segmentos habrían dejado de sumar la
+   * proyección, por 0,05 por préstamo, sin ningún error que lo dijera. Los
+   * conteos siguen mostrándose en el tooltip del badge, que es donde sirven.
+   */
   const seg = apportionByWeight(segTotal, [
     projection.closedToDate,
-    projection.inCtc + projection.inClosing,
+    projection.ctcClosingProjected,
     projection.projectedFromHealthy,
   ]);
 

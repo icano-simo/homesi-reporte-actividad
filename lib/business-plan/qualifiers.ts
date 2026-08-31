@@ -186,15 +186,51 @@ export function projectCurrentMonth(
     if (!loan.healthy) continue;
     bankedLoans += 1;
     if (loan.milestone === 'Closing') {
+      /*
+       * ==========================================================================
+       * ⚠ CLOSING USA SU TASA, COMO TODOS LOS DEMÁS
+       * ==========================================================================
+       *
+       * Hasta este cambio aportaba 1,0 y la tasa `pt_milestone_closing` --0,95--
+       * no se leía nunca. No era un criterio distinto: era una tasa muerta.
+       *
+       * La prueba de que era un bug y no una decisión: esa tasa EXISTE en
+       * `business_plan.settings`, es editable en /business-plan/settings con el
+       * rótulo "Milestone Closing", y está marcada en `SHARED_KEYS` como
+       * compartida con Forecast. Alguien podía cambiarla de 95% a 50%, guardar, y
+       * no pasaba nada.
+       *
+       * El motivo escrito cuando se introdujo (commit BP5) era que aplicarla "los
+       * contaría con descuento además de contarlos DOS VECES". La segunda mitad
+       * se midió y no ocurre: los 9 préstamos en Closing del mes y los 32
+       * cerrados son conjuntos DISJUNTOS --poblaciones distintas, `pipeline_loans`
+       * abiertos contra `pipeline_resolved_loans` fondeados-- así que no hay nada
+       * que se cuente dos veces.
+       *
+       * Y Forecast ya usaba 0,95 para este bucket, validado contra el Excel. Un
+       * préstamo en Closing tiene la misma probabilidad de cerrar mire quien lo
+       * mire.
+       *
+       * ⚠ CTC NO LLEVA TASA PROPIA. `milestone` sólo tiene cuatro valores en la
+       * base --Started, Processing, Underwriting, Closing-- y lo que la app llama
+       * CTC sale de `rawMilestone`, no del milestone. Darle una tasa sería
+       * configurar un estado que la base no distingue. El día que CTC sea un
+       * milestone propio, ahí se decide.
+       */
       if (loan.rawMilestone === RAW_CLEAR_TO_CLOSE) ctc += 1;
       else closing += 1;
-      bankedProjected += 1;
       continue;
     }
     bankedProjected += rates.milestone[loan.milestone];
   }
 
   const brokeredProjected = brokeredLoans * rates.brokeredFlat;
+  /*
+   * Lo que CTC/Closing aportan, en UN solo lugar. Los tres consumidores --el
+   * total, el segmento de la barra y `projectedFromHealthy`-- lo leen de acá en
+   * vez de multiplicar cada uno por su cuenta.
+   */
+  const ctcClosingProjected = (ctc + closing) * rates.milestone.Closing;
 
   return {
     closedToDate,
@@ -202,9 +238,18 @@ export function projectCurrentMonth(
     healthyPipeline: healthy,
     inCtc: ctc,
     inClosing: closing,
-    /* Lo que aporta el pipeline, sin contar lo ya cerrado. */
-    projectedFromHealthy: bankedProjected - ctc - closing + brokeredProjected,
-    projectedTotal: closedToDate + bankedProjected + brokeredProjected,
+    ctcClosingProjected,
+    /*
+     * Lo que aporta el pipeline SIN CTC/Closing y sin lo ya cerrado.
+     *
+     * ⚠ Ya no hace falta restar nada: los de CTC/Closing salen del bucle con
+     * `continue` antes de sumar a `bankedProjected`, así que su aporte no está
+     * acá. Antes se restaba `- ctc - closing` --los conteos-- porque cada uno
+     * había sumado 1,0; con la tasa aplicada esa resta habría quedado mal por
+     * 0,05 cada préstamo y nada lo habría delatado.
+     */
+    projectedFromHealthy: bankedProjected + brokeredProjected,
+    projectedTotal: closedToDate + bankedProjected + ctcClosingProjected + brokeredProjected,
     byMilestone,
     banked: { loans: bankedLoans, projected: bankedProjected },
     brokered: { loans: brokeredLoans, projected: brokeredProjected },
