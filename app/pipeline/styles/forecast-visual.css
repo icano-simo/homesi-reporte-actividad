@@ -1084,3 +1084,271 @@ table.piv tr.strat-break-row td {
 .analytics-tab .mcard:hover {
   border-color: rgba(166, 222, 255, 0.5);
 }
+
+/*
+ * Etapa PODIUM-5 -- jerarquía de fondo real por fila, alto dinámico,
+ * íconos visibles, animación gateada por viewport. Reemplaza la Etapa
+ * PODIUM-4 (tarjeta navy sólida pareja, sin degradado real entre filas).
+ *
+ * ⚠ La TARJETA (`.podium-card`) deja de ser navy sólido -- pasa a fondo
+ * claro (blanco + borde slate-200, mismo lenguaje que `.tbl-card`/`.mcard`
+ * en el resto de la app). Es un cambio respecto al mockup de PODIUM-4:
+ * si la tarjeta YA es navy sólido, un puesto 1 "también navy sólido" es
+ * invisible contra su propio fondo -- exactamente lo opuesto a "degradado
+ * de importancia" que pide este fix. Con la tarjeta clara, el degradado
+ * (navy 100% -> ~60% -> ~22%, los 3 en la fila, nunca en la tarjeta) se
+ * ve de verdad, y de paso la tarjeta vuelve a leerse como el resto de las
+ * tarjetas de la app en vez de ser la única oscura.
+ */
+.scorecard-podium-panel {
+  display: flex;
+  gap: 10px;
+  height: 100%;
+}
+.podium-card {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #fff;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  padding: 12px;
+}
+/* Mismo tratamiento que `.tbl-card__title` (components.css) -- color navy sólido, no un tono "eyebrow" apagado (`--slate-500` a 9px se leía casi transparente contra el fondo blanco de la tarjeta). Es un título de sección real, no una etiqueta secundaria. */
+.podium-card__title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--navy);
+  margin-bottom: 8px;
+}
+/* Contenedor de las 3 filas -- `flex: 1` para tomar TODO el alto sobrante de la tarjeta (que a su vez llena el alto de la fila del grid, igualado a la tabla vecina por `align-items: stretch`, default de CSS Grid). Si la tabla es más alta que 3 filas compactas, el espacio de más se reparte ACÁ, no queda aire debajo de la tarjeta. */
+.podium-card__rows {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.podium-card__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: var(--radius-sm);
+  padding: 0 10px;
+  /* Puesto 1 más grande, 2 mediano, 3 más chico -- mismo peso relativo que antes, ahora expresado como proporción del alto disponible (no un padding fijo), para que la tarjeta entera crezca sin dejar huecos. */
+}
+.podium-card__row--rank1 {
+  flex: 1.4;
+}
+.podium-card__row--rank2 {
+  flex: 1;
+}
+.podium-card__row--rank3 {
+  flex: 0.8;
+}
+/*
+ * Jerarquía de fondo -- 3 puntos del MISMO `--navy` a distinta opacidad
+ * (nunca un color nuevo): 100% (puesto 1, el más intenso) -> ~60% (puesto
+ * 2, intermedio) -> ~22% (puesto 3, el más claro) -- un degradado real y
+ * perceptible sobre la tarjeta blanca, en vez de 3 tonos casi iguales.
+ */
+.podium-card__row--rank1 {
+  background: var(--navy);
+}
+.podium-card__row--rank2 {
+  background: rgba(0, 26, 64, 0.6);
+}
+.podium-card__row--rank3 {
+  background: rgba(0, 26, 64, 0.22);
+}
+.podium-card__badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-full);
+}
+/* Puestos 1/2 -- fondo de fila oscuro (navy 100%/60%), badge claro con ícono navy -- el círculo pop contra la fila oscura. */
+.podium-card__row--rank1 .podium-card__badge,
+.podium-card__row--rank2 .podium-card__badge {
+  background: #fff;
+  color: var(--navy);
+}
+/* Puesto 3 -- fondo de fila claro (navy solo al 22%), badge navy sólido con ícono blanco -- misma lógica de contraste, invertida. */
+.podium-card__row--rank3 .podium-card__badge {
+  background: var(--navy);
+  color: #fff;
+}
+/*
+ * FIX-SCORECARD-TIEBREAK: aviso sutil junto al badge cuando esta fila
+ * empata en la métrica que el podio muestra (con la fila anterior o con
+ * el líder) -- el desempate de `toRows()` (lib/pipeline/scorecards.ts)
+ * resuelve el ORDEN, pero no cambia que la métrica sigue empatada; esto
+ * lo hace visible sin gritarlo (mismo tamaño/peso que el resto del texto
+ * secundario de la fila, no un badge de alerta).
+ */
+.podium-card__tied {
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 600;
+  font-style: italic;
+  white-space: nowrap;
+}
+.podium-card__row--rank1 .podium-card__tied,
+.podium-card__row--rank2 .podium-card__tied {
+  color: rgba(255, 255, 255, 0.65);
+}
+.podium-card__row--rank3 .podium-card__tied {
+  color: var(--slate-500);
+}
+.podium-card__row-body {
+  flex: 1;
+  min-width: 0;
+}
+.podium-card__name {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Puestos 1/2 -- fondo de fila oscuro, texto `--canvas` (blanco) -- pedido explícito de la tarea ("texto en navy usa --canvas ya que el fondo es oscuro"). */
+.podium-card__row--rank1 .podium-card__name {
+  font-size: 13.5px;
+  color: var(--canvas);
+}
+.podium-card__row--rank2 .podium-card__name {
+  font-size: 12px;
+  color: var(--canvas);
+}
+/* Puesto 3 -- fondo de fila claro, texto navy (oscuro) para contraste -- acá SÍ se invierte, blanco sobre ese fondo casi blanco sería ilegible. */
+.podium-card__row--rank3 .podium-card__name {
+  font-size: 11.5px;
+  color: var(--navy);
+}
+/*
+ * Ícono de "líder de ambos podios" -- tamaño subido de 10 a 13px (el
+ * anterior era difícil de notar) y `--amber-500` se mantiene: es el único
+ * tono "dorado vibrante" de la escala, con buen contraste tanto sobre
+ * navy sólido (puesto 1) como sobre el fondo casi blanco del puesto 3 --
+ * confirmado que no hay ningún puesto donde este ícono quede invisible.
+ */
+.podium-card__star {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--amber-500);
+}
+.podium-card__value {
+  margin-top: 1px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.podium-card__row--rank1 .podium-card__value {
+  font-size: 18px;
+  color: var(--canvas);
+}
+.podium-card__row--rank2 .podium-card__value {
+  font-size: 13px;
+  color: var(--canvas);
+  margin-top: 2px;
+}
+.podium-card__row--rank3 .podium-card__value {
+  font-size: 12px;
+  color: var(--navy);
+  margin-top: 2px;
+}
+/*
+ * Barra de puestos 2/3, relativa al puesto 1 (líder = 100%) -- NUNCA al
+ * total general. En coral: el único color de marca que no sea navy/sky,
+ * para distinguirse de la fila navy que la contiene en vez de perderse
+ * contra ella.
+ */
+.podium-card__bar {
+  height: 4px;
+  border-radius: var(--radius-full);
+  margin-top: 4px;
+  overflow: hidden;
+}
+/*
+ * FIX-PODIUM-BAR-RANK1: track del puesto 1 -- mismo tono que el del
+ * puesto 2 (`rgba(255,255,255,0.25)`), ambos sobre fondo oscuro (navy
+ * 100%/60%). El RELLENO sigue siendo `--coral` sin cambios (regla
+ * compartida `.podium-card__bar-fill` de abajo) -- confirmado que coral
+ * sobre navy sólido ya es una combinación de alto contraste probada en
+ * el resto de la app (`.btn.cta`, components.css), no hace falta un tono
+ * de relleno distinto para el puesto 1.
+ */
+.podium-card__row--rank1 .podium-card__bar {
+  background: rgba(255, 255, 255, 0.25);
+}
+.podium-card__row--rank2 .podium-card__bar {
+  background: rgba(255, 255, 255, 0.25);
+}
+.podium-card__row--rank3 .podium-card__bar {
+  background: rgba(0, 26, 64, 0.15);
+}
+.podium-card__bar-fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: var(--coral);
+  /*
+   * FIX-PODIUM-BAR-STATIC: el fix anterior (scaleX(0) + crecer solo al
+   * hover) fue un error de diseño -- la barra es información real
+   * (cuánto le falta a ese puesto para alcanzar al líder), no un adorno
+   * que deba "descubrirse" pasando el mouse. Vuelve a verse siempre en
+   * su ancho real (`width: X%` inline, sin transform), visible sin
+   * ninguna interacción. El hover sigue existiendo, pero solo como
+   * resaltado de la fila (`.podium-card__row:hover` de abajo) -- ya no
+   * controla si la barra se ve o no.
+   */
+}
+/*
+ * Hover por fila: leve scale + fondo un poco más claro, mismo criterio
+ * que `.us-map-state--clickable:hover` (mapa de estados) -- transición
+ * CSS disparada por `:hover`, sin gate de `prefers-reduced-motion`
+ * (mismo precedente: un hover es un gesto del usuario, no contenido que
+ * se autoreproduce, así que no aplica la misma regla que las animaciones
+ * de entrada).
+ */
+.podium-card__row {
+  transition: transform 0.15s ease, filter 0.15s ease;
+}
+.podium-card__row:hover {
+  transform: scale(1.03);
+  filter: brightness(1.08);
+}
+/*
+ * Entrada sutil de la TARJETA completa (no fila por fila) al entrar en
+ * viewport -- gateada por el mismo `IntersectionObserver` de
+ * `ScorecardPodiumPanel` (`.scorecard-podium-panel--enter`), mismo
+ * mecanismo que `.trend-charts--enter` (Monthly Trends). Antes de eso, la
+ * tarjeta se ve en su estado final, estática -- nunca invisible por
+ * defecto.
+ */
+.scorecard-podium-panel--enter .podium-card {
+  animation: podium-card-in 0.25s ease-out both;
+}
+@keyframes podium-card-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Mismo selector compuesto que `.trend-charts--enter` (más arriba en este archivo), para igualar su especificidad y ganar siempre. La entrada de la tarjeta se apaga -- el hover por fila NO, sigue el mismo criterio que el resto de los hovers de la app (ver comentario de `.podium-card__row` arriba). */
+  .podium-card,
+  .scorecard-podium-panel--enter .podium-card {
+    animation: none;
+  }
+}

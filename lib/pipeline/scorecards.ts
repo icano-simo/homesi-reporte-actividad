@@ -30,6 +30,24 @@ export interface ScorecardRow {
   percentOfTotal: number;
 }
 
+/**
+ * FIX-SCORECARD-TIEBREAK -- diagnóstico confirmado: sin desempate, dos
+ * filas con el mismo `closedCount` quedaban en el orden en que `byKey`
+ * las insertó, que a su vez depende del orden en que Supabase devuelve
+ * las filas -- SIN ningún `.order()` en la query (`app/api/pipeline/
+ * latest/route.ts`), así que ese orden no es un criterio de negocio, es
+ * incidental. Caso real confirmado: 3 branches empatados en 5 closed
+ * (agosto 2026) aparecían en un orden que no correspondía ni al monto
+ * ni a nada reconocible.
+ *
+ * Desempate: a igualdad de `closedCount`, gana quien facturó más
+ * (`totalAmount` desc) -- determinístico y reproducible, ya no depende
+ * de qué orden devolvió la base esta vez. Afecta a las 3 tablas
+ * (Branch/Loan Officer/Business Developer) y al podio que las resume
+ * (ambos consumen este mismo `toRows()`) -- NO afecta "Combined Total by
+ * Branch" ni ninguna otra vista de Forecast (`PivotTable.tsx`), que usa
+ * su propia agregación, sin pasar por `scorecards.ts`.
+ */
 function toRows(byKey: Map<string, { label: string; count: number; amount: number }>, totalCount: number): ScorecardRow[] {
   return [...byKey.entries()]
     .map(([key, v]) => ({
@@ -40,7 +58,7 @@ function toRows(byKey: Map<string, { label: string; count: number; amount: numbe
       avgAmount: v.count > 0 ? v.amount / v.count : 0,
       percentOfTotal: totalCount > 0 ? (v.count / totalCount) * 100 : 0,
     }))
-    .sort((a, b) => b.closedCount - a.closedCount);
+    .sort((a, b) => b.closedCount - a.closedCount || b.totalAmount - a.totalAmount);
 }
 
 /**

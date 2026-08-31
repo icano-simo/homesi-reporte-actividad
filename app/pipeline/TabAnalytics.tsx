@@ -49,7 +49,7 @@ import PeriodSelector from './PeriodSelector';
 import { useOrgRoster, type OrgRoster } from './useOrgRoster';
 import LoanDetailModal, { type LoanDetailModalColumn, type LoanDetailModalLoan } from './LoanDetailModal';
 import { closedLoanToModalLoan } from './PivotTable';
-import { AlertTriangleIcon, ArrowUpIcon, ArrowDownIcon, MinusIcon } from '@/components/ui/icons';
+import { AlertTriangleIcon, ArrowUpIcon, ArrowDownIcon, MinusIcon, StarIcon, AwardIcon } from '@/components/ui/icons';
 
 export interface TabAnalyticsProps {
   /** Mismo array que ya reciben PivotTable/AdverseTable -- pipeline_resolved_loans del snapshot activo, sin filtrar por canal ni por fecha todavía. */
@@ -354,6 +354,192 @@ function ScorecardTable({
           )}
         </table>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Top 3 de `rows` por `totalAmount`, en una COPIA (nunca reordena `rows` en
+ * su lugar -- ScorecardTable sigue leyendo el mismo array, ordenado por
+ * `closedCount`). No se puede derivar de `rows.slice(0, 3)`: `toRows()`
+ * (lib/pipeline/scorecards.ts) ya ordena por `closedCount`, no por monto --
+ * quién más CERRÓ no es necesariamente el top 3 en MONTO (préstamos
+ * grandes vs. muchos chicos).
+ */
+function top3ByVolume(rows: ScorecardRow[]): ScorecardRow[] {
+  return [...rows].sort((a, b) => b.totalAmount - a.totalAmount).slice(0, 3);
+}
+
+/**
+ * Etapa PODIUM-3 -- el número de cada tarjeta de podio cuenta de 0 a su
+ * valor real, en vez de aparecer de golpe. Dispara UNA vez cuando `start`
+ * pasa a `true` -- lo dispara `ScorecardPodiumPanel` con un único
+ * `IntersectionObserver` para las 6 tarjetas del panel (mismo mecanismo ya
+ * usado para Monthly Trends, `trendsSectionRef`/`trendsVisible` más abajo
+ * en este archivo -- un observer por SECCIÓN, no uno por número).
+ *
+ * `prefers-reduced-motion`: salta directo al valor final, cero frames de
+ * animación -- no "más corta", ausente del todo, mismo criterio que
+ * `us-map-fade-in`/`trend-grow` (CSS) aplicado acá a una animación JS.
+ */
+function CountUpNumber({ target, start, format }: { target: number; start: boolean; format: (n: number) => string }) {
+  const [display, setDisplay] = useState(0);
+  useEffect(() => {
+    if (!start) return;
+    if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setDisplay(target);
+      return;
+    }
+    const durationMs = 700;
+    const startTime = performance.now();
+    let raf = 0;
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - startTime) / durationMs);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setDisplay(Math.round(target * eased));
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [start, target]);
+  return <>{format(display)}</>;
+}
+
+/**
+ * Etapa PODIUM-5 -- una tarjeta clara por métrica (Most Closings / Top by
+ * Volume), con los 3 puestos como filas adentro, cada una en un tono de
+ * `--navy` distinto (100%/60%/22% de opacidad, ver el CSS) -- el degradado
+ * de importancia real vive en las FILAS, no en la tarjeta (la Etapa
+ * PODIUM-4 tenía la tarjeta entera en navy sólido, lo que hacía que un
+ * puesto 1 "también navy sólido" fuera invisible contra su propio fondo).
+ *
+ * El puesto 1 no lleva barra -- ES la referencia del 100%, mostrarle una
+ * barra propia sería redundante. Los puestos 2 y 3 llevan barra en
+ * `--coral`, con el % SIEMPRE relativo al puesto 1 de la MISMA tarjeta
+ * (`value / leaderValue`) -- nunca contra el total general.
+ */
+function MetricPodiumCard({
+  title,
+  entries,
+  getValue,
+  format,
+  start,
+  showStarOnLeader,
+}: {
+  title: string;
+  /** Top 3 ya ordenado -- índice 0 es el puesto 1. */
+  entries: ScorecardRow[];
+  getValue: (row: ScorecardRow) => number;
+  format: (n: number) => string;
+  start: boolean;
+  showStarOnLeader: boolean;
+}) {
+  if (!entries.length) return null;
+  const leaderValue = getValue(entries[0]);
+  /** Tamaño del ícono de medalla por puesto -- mismo ícono (`AwardIcon`, no hay corona/trofeo en el set de íconos del proyecto y no se agregó `lucide-react` como dependencia nueva sin pedirlo explícito), diferenciado por tamaño y color en vez de forma. */
+  const badgeSize: Record<1 | 2 | 3, number> = { 1: 16, 2: 13, 3: 11 };
+
+  return (
+    <div className="podium-card">
+      <div className="podium-card__title">{title}</div>
+      <div className="podium-card__rows">
+        {entries.map((row, i) => {
+          const rank = (i + 1) as 1 | 2 | 3;
+          const value = getValue(row);
+          const percent = leaderValue > 0 ? (value / leaderValue) * 100 : 0;
+          /**
+           * FIX-SCORECARD-TIEBREAK: `toRows()` ya desempata por monto, pero
+           * eso resuelve el ORDEN, no el hecho de que la métrica que este
+           * podio dice medir sigue empatada -- "1° con 5 closed" no dice que
+           * otros 2 branches también tienen 5. Se avisa cuando el valor
+           * coincide con la fila anterior o con el líder (para el puesto 1
+           * no aplica: no hay fila anterior, y compararlo contra sí mismo no
+           * significa nada).
+           */
+          const isTied = i > 0 && (value === getValue(entries[i - 1]) || value === leaderValue);
+          return (
+            <div key={row.key} className={`podium-card__row podium-card__row--rank${rank}`}>
+              <span className="podium-card__badge">
+                <AwardIcon size={badgeSize[rank]} />
+              </span>
+              {isTied && <span className="podium-card__tied">(tied)</span>}
+              <div className="podium-card__row-body">
+                <div className="podium-card__name" title={row.label}>
+                  {row.label}
+                  {rank === 1 && showStarOnLeader && (
+                    <span className="podium-card__star" title="Leads both podiums">
+                      <StarIcon size={19} />
+                    </span>
+                  )}
+                </div>
+                <div className="podium-card__value">
+                  <CountUpNumber target={value} start={start} format={format} />
+                </div>
+                {/* FIX-PODIUM-BAR-RANK1: el puesto 1 también lleva barra -- `percent` para ese puesto ya da 100 (value === leaderValue), así que no hace falta ningún caso especial, solo dejar de ocultarla. Completa la estructura (badge + nombre + valor + barra) igual en las 3 filas. */}
+                <div className="podium-card__bar">
+                  <div className="podium-card__bar-fill" style={{ width: `${percent}%` }} />
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Panel al lado de cada Commercial Scorecard: las 2 `MetricPodiumCard`
+ * (Most Closings / Top by Volume) lado a lado. `null` si `rows` está
+ * vacío -- mismo criterio que el resto de la capa, ningún podio con un
+ * ganador inventado sobre cero datos. El early return va DESPUÉS de los
+ * hooks (Rules of Hooks) -- se llaman siempre, el bail solo afecta qué se
+ * renderiza.
+ */
+function ScorecardPodiumPanel({ rows }: { rows: ScorecardRow[] }) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const el = panelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries, obs) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisible(true);
+          obs.disconnect();
+        }
+      },
+      { threshold: 0.1 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  if (!rows.length) return null;
+
+  const top3Closings = rows.slice(0, 3);
+  const top3Volume = top3ByVolume(rows);
+  /** Mismo `key` en el puesto 1 de las 2 métricas -- comparar 2°/3° entre listas distintas no tiene el mismo significado ("líder de ambos podios" solo aplica al puesto 1 de cada uno). */
+  const sameWinner = top3Closings[0].key === top3Volume[0].key;
+
+  return (
+    <div ref={panelRef} className={'scorecard-podium-panel' + (visible ? ' scorecard-podium-panel--enter' : '')}>
+      <MetricPodiumCard
+        title="Most Closings"
+        entries={top3Closings}
+        getValue={(row) => row.closedCount}
+        format={fmtInt}
+        start={visible}
+        showStarOnLeader={sameWinner}
+      />
+      <MetricPodiumCard
+        title="Top by Volume"
+        entries={top3Volume}
+        getValue={(row) => row.totalAmount}
+        format={(n) => '$' + fmtAmount(n)}
+        start={visible}
+        showStarOnLeader={sameWinner}
+      />
     </div>
   );
 }
@@ -2619,8 +2805,12 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
       {orgRoster.error && <p className="pill warn" style={{ display: 'inline-flex' }}>Could not load org roster: {orgRoster.error}</p>}
 
       {!orgRoster.loading && !orgRoster.error && (
+        // Etapa PODIUM-2: vuelve al layout apilado original (una sección
+        // debajo de otra, no lado a lado) -- pero CADA sección es ahora su
+        // propio grid de 2 columnas, tabla ancha (~75%) + panel de podios
+        // angosto (~25%) a la derecha, en vez de tabla sola a lo ancho.
         <>
-          <div style={{ marginBottom: '20px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2.1fr) minmax(0, 1fr)', gap: '20px', marginBottom: '20px' }}>
             <ScorecardTable
               title="Branch"
               columnLabel="Branch"
@@ -2642,9 +2832,10 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
                 detail: `Not found in org.dim_branch: ${branchScorecard.unresolvedBranches.join(', ')}`,
               }}
             />
+            <ScorecardPodiumPanel rows={branchScorecard.rows} />
           </div>
 
-          <div style={{ marginBottom: '20px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2.1fr) minmax(0, 1fr)', gap: '20px', marginBottom: '20px' }}>
             <ScorecardTable
               title="Loan Officer"
               columnLabel="Loan Officer"
@@ -2665,9 +2856,10 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
               }
               diagnostic={personDiagnosticsNote(loanOfficerScorecard)}
             />
+            <ScorecardPodiumPanel rows={loanOfficerScorecard.rows} />
           </div>
 
-          <div style={{ marginBottom: '24px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2.1fr) minmax(0, 1fr)', gap: '20px', marginBottom: '24px' }}>
             {bdOwnerDataMissing ? (
               <div className="tbl-card" style={{ padding: '16px' }}>
                 <div className="tbl-card__head">
@@ -2687,22 +2879,25 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
                 </p>
               </div>
             ) : (
-              <ScorecardTable
-                title="Business Developer"
-                columnLabel="Business Developer"
-                rows={businessDeveloperScorecard.rows}
-                // Hotfix loan-officer-null: mismo motivo que en Loan Officer arriba.
-                totalCount={businessDeveloperScorecard.diagnostics.resolvedCount + businessDeveloperScorecard.diagnostics.blankCount}
-                onRowClick={(row) =>
-                  setDrillDown({
-                    metric: 'Business Developer',
-                    context: row.label,
-                    loans: loansForScorecardCut(fundedInRange, 'businessDeveloper', row.key, orgRoster.aliasIndex).map(closedLoanToModalLoan),
-                    hiddenColumns: ['loanOfficer', 'milestone', 'status'],
-                  })
-                }
-                diagnostic={personDiagnosticsNote(businessDeveloperScorecard)}
-              />
+              <>
+                <ScorecardTable
+                  title="Business Developer"
+                  columnLabel="Business Developer"
+                  rows={businessDeveloperScorecard.rows}
+                  // Hotfix loan-officer-null: mismo motivo que en Loan Officer arriba.
+                  totalCount={businessDeveloperScorecard.diagnostics.resolvedCount + businessDeveloperScorecard.diagnostics.blankCount}
+                  onRowClick={(row) =>
+                    setDrillDown({
+                      metric: 'Business Developer',
+                      context: row.label,
+                      loans: loansForScorecardCut(fundedInRange, 'businessDeveloper', row.key, orgRoster.aliasIndex).map(closedLoanToModalLoan),
+                      hiddenColumns: ['loanOfficer', 'milestone', 'status'],
+                    })
+                  }
+                  diagnostic={personDiagnosticsNote(businessDeveloperScorecard)}
+                />
+                <ScorecardPodiumPanel rows={businessDeveloperScorecard.rows} />
+              </>
             )}
           </div>
         </>
