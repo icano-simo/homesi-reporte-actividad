@@ -109,6 +109,26 @@ export interface GrowthRuleRow {
   created_at: string;
 }
 
+/**
+ * Una fila de `org.roster_current`, con lo que Outlook necesita — etapa OL7.
+ *
+ * ⚠ EL ROSTER DECIDE QUIÉN Y DE QUÉ BRANCH. `org.dim_employee` sigue siendo la
+ * identidad interna a la que se atan benchmarks, planes y URLs, pero ya no
+ * decide la lista: el roster tiene el branch correcto --Johann en el 710 y no en
+ * el 716-- y `is_producer` es una decisión registrada, con autor cuando se fijó
+ * a mano.
+ *
+ * El puente entre los dos es el alias `person_code`, y hoy cubre a los 38
+ * productores: 38 de 38 resuelven a `employee_key`.
+ */
+export interface RosterRow {
+  person_code: string;
+  display_name: string;
+  branch_code: string | null;
+  is_producer: boolean;
+  is_active: boolean;
+}
+
 export interface MonthlyTargetRow {
   monthly_target_key: number;
   employee_key: number;
@@ -154,6 +174,26 @@ export interface StrategyYtd {
     benchmark: number | null;
   }[];
 }
+
+/**
+ * En qué estado está una persona SEGÚN EL ROSTER, y por qué son cuatro y no dos.
+ *
+ * ⚠ El rótulo tiene que decir el estado REAL, no "ya no produce", porque el día
+ * que aparezca alguien que sigue en la empresa y dejó de originar van a ser dos
+ * casos distintos y hay que poder distinguirlos:
+ *
+ *   'producer'   produce y está activa. Es la lista de arriba.
+ *   'left'       ya no está en la empresa (`is_active = false`). Su producción
+ *                de enero a julio es real y ya ocurrió; lo que cambió es que no
+ *                va a producir de septiembre en adelante. Hoy: Isabel Wagner y
+ *                Ludwig Aguillon, bajas que RRHH registró, con 3 cierres de
+ *                división en el 716 entre las dos este año (Isabel 2, mayo y
+ *                junio; Ludwig 1, febrero).
+ *   'not_producing'  sigue en la empresa y no origina. Hoy nadie con cierres,
+ *                pero es el caso que obliga a que 'left' no diga "no produce".
+ *   'unknown'    cerró en el branch y no aparece en el roster.
+ */
+export type RosterState = 'producer' | 'left' | 'not_producing' | 'unknown';
 
 export interface OutlookLoanOfficer {
   employeeKey: number;
@@ -212,6 +252,32 @@ export interface OutlookLoanOfficer {
   targetsByStrategy: Partial<Record<OutlookStrategy, Record<string, number>>>;
   /** La revisión vigente de los meses fijados, o 0 si no hay ninguna. */
   targetRevision: Partial<Record<OutlookStrategy, number>>;
+
+  /** Estado según el roster. Ver `RosterState`. */
+  rosterState: RosterState;
+  /**
+   * ¿Tiene identidad interna (`employee_key`)?
+   *
+   * ⚠ `false` significa que el roster dice que produce pero no hay alias
+   * `person_code` que la ate a `org.dim_employee`, así que NO puede tener
+   * benchmark ni plan --los dos cuelgan de `employee_key`--. Se muestra igual,
+   * con su nombre y su branch y sin presupuesto, porque ocultarla dejaría el
+   * total del branch sin cuadrar con la suma de sus filas: un descuadre sin
+   * explicación es peor que una fila incompleta. Y el pie la cuenta, para que el
+   * día que ese número deje de ser cero alguien cree la fila.
+   *
+   * Hoy son 0 de 38.
+   */
+  hasIdentity: boolean;
+  /**
+   * Dirige el branch además de producir. Sale de `dim_employee.is_branch_manager`,
+   * que `LoanOfficerRow` ya traía.
+   *
+   * Son 10 de los 34, y en `org.employee_branch` tienen DOS filas --una 'LO' y
+   * una 'BM'-- que es lo que hacía que un conteo ingenuo diera 44 personas en
+   * vez de 34.
+   */
+  isBranchManager: boolean;
 }
 
 export interface OutlookBranch {
@@ -279,6 +345,22 @@ export interface OutlookData {
     currentMonthClosedRecords: number;
     /** Cerrados del mes en curso según Forecast, que es lo que va en el pronóstico. */
     currentMonthClosedForecast: number;
+    /** Productores del roster que no resuelven a `employee_key`. Hoy 0 de 38. */
+    producersWithoutIdentity: number;
+    /** Filas que aparecen sólo porque cerraron y ya no producen. Hoy 2. */
+    closedButNotProducing: number;
+    /** Productores activos del roster, la lista de arriba. Hoy 35. */
+    activeProducers: number;
+    /**
+     * ¿Se pudo leer `org.roster_current`?
+     *
+     * ⚠ `false` significa que la pantalla está mostrando la lista ANTERIOR, la
+     * de `org.employee_branch`, y que nadie lo va a notar mirando: sale llena y
+     * con números plausibles. La tabla devuelve cero filas **sin error** cuando
+     * la policy no aplica --la RLS no rechaza, filtra--, así que este booleano
+     * es la única señal.
+     */
+    rosterAvailable: boolean;
     /**
      * ¿Están las tablas de OL4? — `outlook.monthly_target` y
      * `outlook.projection_mode`.
@@ -419,6 +501,20 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
   const orgPromise = Promise.all([
     supabase.schema('org').from('employee_alias').select('*'),
     supabase.schema('org').from('source_name_excluded').select('source_system, name_raw'),
+    /*
+     * El roster, que desde OL7 decide QUIEN aparece y en QUE branch. Va en el
+     * mismo lote paralelo: no depende de nada de lo demas.
+     */
+    supabase
+      .schema('org')
+      .from('roster_current')
+      .select('person_code, display_name, branch_code, is_producer, is_active'),
+    /*
+     * `dim_employee` sólo por el NOMBRE y el rol de quien cerró en un branch y
+     * no está en la lista del Business Plan. El roster no siempre la tiene: las
+     * personas que cerraron y no figuran en el roster no tienen `display_name`.
+     */
+    supabase.schema('org').from('dim_employee').select('employee_key, full_name, is_branch_manager'),
   ]);
 
   const [bp, rows, outlookTables, orgTables] = await Promise.all([
@@ -617,23 +713,73 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
    * `buildExcludedIndex`, que son las piezas que de verdad importan.
    */
   /* Ya pedidas arriba, en paralelo con el resto -- ver el bloque de OL6. */
-  const [aliasRes, excludedRes] = orgTables;
+  const [aliasRes, excludedRes, rosterRes, employeeRes] = orgTables;
   if (aliasRes.error) throw new Error('org.employee_alias: ' + aliasRes.error.message);
   const aliasIndex = buildAliasIndex((aliasRes.data ?? []) as never[]);
   const excludedIndex = buildExcludedIndex((excludedRes.data ?? []) as never[]);
   const loByKey = new Map<number, LoanOfficerRow>();
   for (const lo of bp.loanOfficers) loByKey.set(lo.employeeKey, lo);
 
-  function resolveOfficer(row: ActivityYtdRow): LoanOfficerRow | null {
+  /*
+   * ==========================================================================
+   * EL ROSTER, INDEXADO — etapa OL7
+   * ==========================================================================
+   *
+   * ⚠ Si `org.roster_current` no se puede leer, el modulo NO se queda sin
+   * lista: cae al comportamiento anterior (los Loan Officers de
+   * `dim_employee`). Mismo criterio que las tablas de `outlook` -- una fuente
+   * ausente no debe vaciar la pantalla, y queda dicho en el diagnostico.
+   */
+  const rosterRows = rosterRes.error ? [] : ((rosterRes.data ?? []) as RosterRow[]);
+  const rosterAvailable = !rosterRes.error && rosterRows.length > 0;
+
+  const rosterByKey = new Map<number, RosterRow>();
+  /* Productores que el roster afirma y que no tienen identidad interna. */
+  const producersWithoutIdentity: RosterRow[] = [];
+  for (const r of rosterRows) {
+    const key = aliasIndex.lookup('person_code', r.person_code).employeeKey;
+    if (key === null) {
+      if (r.is_producer && r.is_active) producersWithoutIdentity.push(r);
+      continue;
+    }
+    rosterByKey.set(key, r);
+  }
+
+  /** El estado de una persona segun el roster. Ver `RosterState`. */
+  function rosterStateOf(employeeKey: number): RosterState {
+    const r = rosterByKey.get(employeeKey);
+    if (!r) return 'unknown';
+    if (!r.is_active) return 'left';
+    return r.is_producer ? 'producer' : 'not_producing';
+  }
+
+  /**
+   * A quién pertenece un préstamo. Devuelve la IDENTIDAD, no la fila del
+   * Business Plan.
+   *
+   * ⚠ HASTA OL7 DEVOLVÍA `loByKey.get(...) ?? null`, y eso mezclaba dos
+   * preguntas distintas: "¿de quién es este préstamo?" y "¿está esa persona en
+   * la lista del Business Plan?". Un `null` por la segunda razón se contaba como
+   * préstamo SIN RESOLVER, indistinguible de un nombre desconocido.
+   *
+   * Lo que eso tapaba, medido: los 3 cierres de Isabel Wagner y Ludwig Aguillon
+   * en el 716 resolvían perfecto por `person_code` --alias 21 y 27-- y se
+   * descartaban porque las dos son bajas y el Business Plan filtra por
+   * `is_active`. Con sus filas afuera el branch 716 no existía en el módulo.
+   *
+   * Las exclusiones deliberadas siguen intactas: `org.source_name_excluded` se
+   * consulta ANTES que cualquier alias, así que la gente de fuera de la división
+   * sigue sin resolver y sigue contada en el pie.
+   */
+  function resolveOfficerKey(row: ActivityYtdRow): number | null {
     const nameRaw = row.loan_officer?.trim() ? row.loan_officer : '(blank)';
     if (nameRaw !== '(blank)' && excludedIndex.has('slquery', nameRaw)) return null;
     const code = row.loan_officer_person_code?.trim();
     if (code) {
       const byCode = aliasIndex.lookup('person_code', code).employeeKey;
-      if (byCode !== null) return loByKey.get(byCode) ?? null;
+      if (byCode !== null) return byCode;
     }
-    const byName = aliasIndex.lookup('slquery', nameRaw).employeeKey;
-    return byName === null ? null : (loByKey.get(byName) ?? null);
+    return aliasIndex.lookup('slquery', nameRaw).employeeKey;
   }
 
   /*
@@ -696,8 +842,8 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
 
   for (const row of rows) {
     if (!row.closing_month || !row.closing_month.startsWith(yearPrefix)) continue;
-    const lo = resolveOfficer(row);
-    if (!lo) {
+    const officerKey = resolveOfficerKey(row);
+    if (officerKey === null) {
       unresolvedOfficers += 1;
       const b = classifyBranch(row.branch ?? '');
       unattributedByBranch.set(b, (unattributedByBranch.get(b) ?? 0) + 1);
@@ -708,8 +854,8 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
     if (month > currentMonth) actualsAfterCurrentMonth += 1;
     const branch = classifyBranch(row.branch ?? '');
     bump(actualByBranch, branch, month);
-    bump(actualByBranchLo, branch + '|' + lo.employeeKey, month);
-    bump(actualByLo, String(lo.employeeKey), month);
+    bump(actualByBranchLo, branch + '|' + officerKey, month);
+    bump(actualByLo, String(officerKey), month);
 
     const strategy = (OUTLOOK_STRATEGIES as readonly string[]).includes(row.strategy ?? '')
       ? (row.strategy as OutlookStrategy)
@@ -721,7 +867,7 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
      * Medido: Aimmee Buendía cerraba 30 en el 733 y sus estrategias sumaban 31,
      * porque una fila de Own Production de otro branch se colaba.
      */
-    const sk = branch + '|' + lo.employeeKey + '|' + strategy;
+    const sk = branch + '|' + officerKey + '|' + strategy;
     bump(actualByLoStrategy, sk, month);
 
     if (strategy === 'NPPM') {
@@ -745,9 +891,13 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
   const branchMap = new Map<string, OutlookLoanOfficer[]>();
 
   /* El desglose de UNA persona EN UN branch. La clave lleva los tres. */
-  function strategiesOf(lo: LoanOfficerRow, branchCode: string): StrategyYtd[] {
+  /*
+   * Toma la CLAVE y no la fila del Business Plan --etapa OL7-- porque ahora hay
+   * filas que no tienen fila del Business Plan. Sólo usaba `lo.employeeKey`.
+   */
+  function strategiesOf(employeeKey: number, branchCode: string): StrategyYtd[] {
     return OUTLOOK_STRATEGIES.map((s) => {
-      const sk = branchCode + '|' + lo.employeeKey + '|' + s;
+      const sk = branchCode + '|' + employeeKey + '|' + s;
       const byRealtor =
         s === 'NPPM'
           ? [...(realtorsByStrategyKey.get(sk) ?? [])]
@@ -846,7 +996,20 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       ),
       ownProductionBenchmark: lo.monthlyBenchmark,
       activePlan: lo.activePlan,
-      primaryBranch: lo.branchCodes[0] ?? null,
+      /*
+       * ⚠ El branch al que se le carga el pronostico y el presupuesto sale del
+       * ROSTER cuando el roster conoce a la persona — etapa OL7.
+       *
+       * Antes salia de `lo.branchCodes[0]`, de `org.employee_branch`. El roster
+       * tiene el branch correcto: Johann Otiniano figura en el 716 por
+       * `employee_branch` y en el 710 por el roster, que es la licencia
+       * prestada. Y da UN branch por persona, asi que nadie puede aparecer en
+       * dos listas.
+       */
+      primaryBranch: rosterByKey.get(lo.employeeKey)?.branch_code ?? lo.branchCodes[0] ?? null,
+      rosterState: rosterStateOf(lo.employeeKey),
+      hasIdentity: true,
+      isBranchManager: lo.isBranchManager,
       /* Placeholder: se reemplaza por branch al armar el mapa, abajo. */
       strategies: [],
       rulesByStrategy,
@@ -866,7 +1029,52 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
     const branchesWithProduction = [...actualByBranchLo.keys()]
       .filter((k) => k.endsWith('|' + lo.employeeKey))
       .map((k) => k.slice(0, k.length - ('|' + lo.employeeKey).length));
-    const codes = branchesWithProduction.length > 0 ? branchesWithProduction : lo.branchCodes;
+
+    /*
+     * ==========================================================================
+     * ⚠ EN QUE BRANCHES APARECE — la regla cambio en OL7
+     * ==========================================================================
+     *
+     * Aparece en:
+     *   - el branch que le da el ROSTER, si el roster dice que produce y esta
+     *     activa. Asi un productor nuevo se ve en su branch desde el primer dia,
+     *     sin haber cerrado nada todavia.
+     *   - los branches donde CERRO este anio, cualquiera sea su estado.
+     *
+     * Lo segundo es lo que hace que el total del branch cuadre con la suma de
+     * sus filas. Isabel Wagner y Ludwig Aguillon son bajas de RRHH con 3
+     * cierres de division entre las dos en el 716 este anio: su produccion es
+     * real y ya ocurrio. Sin su fila, el YTD del branch tendria 3 prestamos sin
+     * dueno visible -- un descuadre sin explicacion, peor que una fila
+     * incompleta.
+     *
+     * ⚠ Rene Perez (733) es el TERCER productor inactivo del roster y NO
+     * aparece: no cerro nada este anio, asi que no hay produccion huerfana que
+     * explicar. Que la regla lo deje afuera solo es la prueba de que la fila la
+     * trae la produccion y no el estado.
+     *
+     * El fallback a `lo.branchCodes` es para cuando el roster no se puede leer:
+     * ver el bloque del roster indexado, mas arriba.
+     */
+    const rosterEntry = rosterByKey.get(lo.employeeKey);
+    const belongsByRoster =
+      rosterEntry && rosterEntry.is_producer && rosterEntry.is_active && rosterEntry.branch_code
+        ? [rosterEntry.branch_code]
+        : [];
+    /*
+     * ⚠ SIN ROSTER, LA REGLA ANTERIOR EXACTA -- no la union.
+     *
+     * Esto no es cosmetico: `branchesWithProduction` y `lo.branchCodes` eran
+     * alternativos ("donde cerro, y si no cerro, donde figura"), y unirlos
+     * duplica filas. Medido con el roster ilegible: Gian Laino aparecia en 710
+     * (por `employee_branch`), 760 y AFFINITY (por produccion) -- tres filas
+     * para una persona, y el total de la division contandola tres veces.
+     */
+    const codes = rosterAvailable
+      ? [...new Set([...belongsByRoster, ...branchesWithProduction])]
+      : branchesWithProduction.length > 0
+        ? branchesWithProduction
+        : lo.branchCodes;
 
     for (const code of codes) {
       const list = branchMap.get(code) ?? [];
@@ -875,11 +1083,171 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
         ...row,
         ytd: totalOf(actualByBranchLo, code + '|' + lo.employeeKey),
         actualByMonth: monthsOf(actualByBranchLo, code + '|' + lo.employeeKey),
-        strategies: strategiesOf(lo, code),
+        strategies: strategiesOf(lo.employeeKey, code),
       });
       branchMap.set(code, list);
     }
   }
+
+  /*
+   * ==========================================================================
+   * ⚠ LAS PERSONAS QUE EL BUSINESS PLAN NO TRAE — etapa OL7
+   * ==========================================================================
+   *
+   * `bp.loanOfficers` NO es la lista de Outlook, y confundirlas fue el error que
+   * hizo falta medir para ver. Esa lista está filtrada dos veces:
+   *
+   *   - `org.employee_branch.role_in_branch = 'LO'`, que deja afuera a quien
+   *     sólo tiene fila 'BM'  →  Abel Berrocal (728), productor activo. Es
+   *     literalmente "el BM que se pierde".
+   *   - `org.dim_employee.is_active`, que deja afuera a las bajas  →  Isabel
+   *     Wagner y Ludwig Aguillon (716), con 3 cierres reales entre las dos. Con
+   *     ellas afuera el branch 716 desaparecía ENTERO del módulo.
+   *
+   * Y quien no tiene ninguna fila en `employee_branch` tampoco entra: Lucio
+   * Romero (703), productor activo del roster.
+   *
+   * Estas filas NO PROYECTAN, y es deliberado: el benchmark de Own Production y
+   * el pronóstico del mes en curso los resuelve el loader del Business Plan
+   * --una regla, un solo lugar-- y copiar esa resolución acá crearía una segunda
+   * versión que se desincroniza sin que nadie lo note. Muestran lo que sí es
+   * verdad: los meses REALES, el nombre, el branch y el rol.
+   *
+   * ⚠ LÍMITE CONOCIDO, medido y hoy sin costo: si alguna de estas personas
+   * tuviera benchmark en `org.employee_benchmark`, no se mostraría. Hoy Abel y
+   * Lucio tienen 0 benchmarks y 0 reglas, así que no se pierde nada; Isabel y
+   * Ludwig tienen 1 benchmark y 5 reglas cada una, pero son bajas y proyectar su
+   * producción futura sería inventarla. El arreglo de fondo es ensanchar el
+   * filtro del Business Plan, que cambia SU pantalla y no entra acá.
+   */
+  const employeeRows = employeeRes.error
+    ? []
+    : ((employeeRes.data ?? []) as { employee_key: number; full_name: string; is_branch_manager: boolean }[]);
+  const employeeByKey = new Map(employeeRows.map((e) => [e.employee_key, e]));
+
+  const bpKeys = new Set(bp.loanOfficers.map((lo) => lo.employeeKey));
+
+  /* Quien cerró este año, y en qué branches. */
+  const productionByKey = new Map<number, Set<string>>();
+  for (const k of actualByBranchLo.keys()) {
+    const sep = k.lastIndexOf('|');
+    const code = k.slice(0, sep);
+    const key = Number(k.slice(sep + 1));
+    if (!Number.isFinite(key)) continue;
+    const set = productionByKey.get(key) ?? new Set<string>();
+    set.add(code);
+    productionByKey.set(key, set);
+  }
+
+  /*
+   * Las claves que faltan: quien cerró, más los productores activos del roster,
+   * menos quien ya vino del Business Plan.
+   *
+   * ⚠ LOS DOS ORÍGENES SE TRATAN DISTINTO CUANDO EL ROSTER NO SE PUEDE LEER, y
+   * la diferencia no es teórica:
+   *
+   *   - Quien CERRÓ entra SIEMPRE. Su préstamo ya está sumado en el total del
+   *     branch, así que sin su fila el branch muestra un total que no es la suma
+   *     de sus filas. Medido en el fallback: los 3 cierres de Isabel y Ludwig se
+   *     contaban en el 716 y no había ninguna fila que los explicara.
+   *   - Los productores SIN producción entran sólo si el roster se pudo leer,
+   *     porque es el roster el que dice que producen. Sin él no hay nada que
+   *     afirmarlo, y la lista se queda con el comportamiento anterior.
+   */
+  const missingKeys = new Set<number>();
+  for (const key of productionByKey.keys()) if (!bpKeys.has(key)) missingKeys.add(key);
+  if (rosterAvailable) {
+    for (const [key, r] of rosterByKey) {
+      if (r.is_producer && r.is_active && !bpKeys.has(key)) missingKeys.add(key);
+    }
+  }
+
+  for (const key of missingKeys) {
+    const r = rosterByKey.get(key);
+    const name = r?.display_name ?? employeeByKey.get(key)?.full_name ?? null;
+    /* Sin nombre no hay fila que mostrar: sería un renglón anónimo. */
+    if (!name) continue;
+
+    const belongsByRoster = r && r.is_producer && r.is_active && r.branch_code ? [r.branch_code] : [];
+    const codes = [...new Set([...belongsByRoster, ...(productionByKey.get(key) ?? [])])];
+
+    for (const code of codes) {
+      const list = branchMap.get(code) ?? [];
+      const months = monthsOf(actualByBranchLo, code + '|' + key);
+      list.push({
+        employeeKey: key,
+        fullName: name,
+        branchCodes: codes,
+        ytd: totalOf(actualByBranchLo, code + '|' + key),
+        actualByMonth: months,
+        /*
+         * El mes en curso es lo REAL cerrado, no un pronóstico: el pronóstico lo
+         * calcula el Business Plan y esta persona no está en su lista. Mismo
+         * criterio que AFFINITY -- pronóstico si proyecta, y si no, lo cerrado.
+         */
+        currentMonth: months[currentMonth] ?? 0,
+        closedToDate: months[currentMonth] ?? 0,
+        benchmarkTotal: 0,
+        ownProductionBenchmark: null,
+        activePlan: null,
+        primaryBranch: r?.branch_code ?? codes[0] ?? null,
+        strategies: strategiesOf(key, code),
+        rulesByStrategy: {},
+        ruleRevision: {},
+        strategyBenchmarks: {},
+        benchmarkSchedules: {},
+        modeByStrategy: {},
+        modeSetBy: {},
+        targetsByStrategy: {},
+        targetRevision: {},
+        rosterState: rosterStateOf(key),
+        hasIdentity: true,
+        isBranchManager: employeeByKey.get(key)?.is_branch_manager ?? false,
+      });
+      branchMap.set(code, list);
+    }
+  }
+
+  /*
+   * Los productores que el roster afirma y que no tienen `employee_key`.
+   *
+   * Se muestran con su nombre y su branch, sin benchmark, sin plan y sin
+   * proyeccion: los tres cuelgan de `employee_key`. Hoy son 0 de 38, y ese cero
+   * esta en el diagnostico justamente para que se note el dia que cambie.
+   *
+   * ⚠ `employeeKey` va en negativo para no colisionar con ninguno real: es una
+   * clave de render, no una identidad. Nada la persiste ni la busca en la base.
+   */
+  producersWithoutIdentity.forEach((r, i) => {
+    if (!r.branch_code) return;
+    const list = branchMap.get(r.branch_code) ?? [];
+    list.push({
+      employeeKey: -(i + 1),
+      fullName: r.display_name,
+      branchCodes: [r.branch_code],
+      ytd: 0,
+      actualByMonth: {},
+      currentMonth: 0,
+      closedToDate: 0,
+      benchmarkTotal: 0,
+      ownProductionBenchmark: null,
+      activePlan: null,
+      primaryBranch: r.branch_code,
+      strategies: OUTLOOK_STRATEGIES.map((st) => ({ strategy: st, ytd: 0, actualByMonth: {}, byRealtor: [] })),
+      rulesByStrategy: {},
+      ruleRevision: {},
+      strategyBenchmarks: {},
+      benchmarkSchedules: {},
+      modeByStrategy: {},
+      modeSetBy: {},
+      targetsByStrategy: {},
+      targetRevision: {},
+      rosterState: 'producer',
+      hasIdentity: false,
+      isBranchManager: false,
+    });
+    branchMap.set(r.branch_code, list);
+  });
 
   const branches: OutlookBranch[] = [...branchMap.entries()]
     .map(([branchCode, los]) => ({
@@ -936,6 +1304,21 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
        */
       currentMonthClosedRecords: branches.reduce((a, b) => a + (b.actualByMonth[currentMonth] ?? 0), 0),
       currentMonthClosedForecast: branches.reduce((a, b) => a + b.closedToDate, 0),
+      producersWithoutIdentity: producersWithoutIdentity.length,
+      closedButNotProducing: branches.reduce(
+        (a, b) =>
+          a + b.loanOfficers.filter((l) => l.rosterState === 'left' || l.rosterState === 'not_producing').length,
+        0
+      ),
+      activeProducers: rosterRows.filter((r) => r.is_producer && r.is_active).length,
+      /*
+       * ⚠ Va a la pantalla porque un roster ilegible NO se nota mirando: la
+       * lista sigue llena, con la gente de `employee_branch`, y los numeros son
+       * plausibles. Asi se descubrio -- la pantalla parecia bien y estaba dando
+       * la lista vieja. Ademas `org.roster_current` devuelve cero filas SIN
+       * error cuando la policy no aplica: la RLS no rechaza, filtra.
+       */
+      rosterAvailable,
       monthlyModeAvailable,
     },
   };

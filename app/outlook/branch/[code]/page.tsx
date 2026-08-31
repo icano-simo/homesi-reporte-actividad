@@ -263,6 +263,73 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                         ›
                       </span>
                       {lo.fullName}
+                      {/*
+                        ⚠ EL ROTULO DICE EL ESTADO REAL, no "ya no produce".
+                        `left` es alguien que dejo la empresa; `not producing`
+                        alguien que sigue empleada y dejo de originar. Hoy los
+                        dos casos existen por separado en el roster --Isabel
+                        Wagner y Ludwig Aguillon son bajas-- y el dia que
+                        aparezca el segundo caso el rotulo tiene que poder
+                        distinguirlo. Un solo rotulo para los dos obligaria a
+                        preguntarle a RRHH cual es cual.
+                      */}
+                      {lo.rosterState === 'left' && (
+                        <span
+                          className="bp-muted ol-tag"
+                          title={
+                            'No longer with the company, per the roster. Their closings are real and already ' +
+                            'happened, which is why the row is here and why the branch total adds up. What changed ' +
+                            'is that they will not produce from now on, so there is no forecast and no budget.'
+                          }
+                        >
+                          left
+                        </span>
+                      )}
+                      {lo.rosterState === 'not_producing' && (
+                        <span
+                          className="bp-muted ol-tag"
+                          title={
+                            'Still with the company and no longer originating, per the roster. Not the same as ' +
+                            'having left: this row is here because of closings that already happened.'
+                          }
+                        >
+                          not producing
+                        </span>
+                      )}
+                      {lo.rosterState === 'unknown' && (
+                        <span
+                          className="bp-muted ol-tag"
+                          title={
+                            'Closed in this branch and does not appear in the roster, so there is no way to say ' +
+                            'whether they still produce. The row is here because the closings are real.'
+                          }
+                        >
+                          not in roster
+                        </span>
+                      )}
+                      {!lo.hasIdentity && (
+                        <span
+                          className="bp-muted ol-tag"
+                          title={
+                            'The roster says they produce, but there is no person_code alias tying them to an ' +
+                            'internal identity, and benchmark and plan both hang off it. Shown with name and branch ' +
+                            'so the branch total keeps adding up. Someone has to create the alias.'
+                          }
+                        >
+                          no internal identity
+                        </span>
+                      )}
+                      {/*
+                        El rol, que la tabla ya tiene y no cuesta nada mostrar.
+                        Son 10 de los productores, y en `org.employee_branch`
+                        tienen DOS filas --una 'LO' y una 'BM'--, que es lo que
+                        hacia que un conteo ingenuo diera 44 personas en vez de 34.
+                      */}
+                      {lo.isBranchManager && (
+                        <span className="bp-muted ol-tag" title="Manages the branch as well as producing.">
+                          BM
+                        </span>
+                      )}
                     </td>
                     {monthsOfYear.map((m) => (
                       <td

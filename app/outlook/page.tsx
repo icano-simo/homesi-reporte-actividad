@@ -337,6 +337,34 @@ export default function OutlookPage() {
             </>
           )}
         </div>
+        {/*
+          De donde sale la LISTA de gente, que desde OL7 la decide el roster y no
+          `org.employee_branch`. Los tres numeros son cotejables contra la base y
+          explican por que la lista cambio de 34 personas a 37.
+        */}
+        <div>
+          <code>{data.diagnostics.activeProducers}</code> active producers in the roster ·{' '}
+          <code>{data.diagnostics.producersWithoutIdentity}</code> without internal identity ·{' '}
+          <code>{data.diagnostics.closedButNotProducing}</code> shown only because they closed
+        </div>
+        {/*
+          ⚠ ESTE AVISO ES EL MAS IMPORTANTE DEL PIE.
+          Un roster ilegible no se nota mirando: la pantalla sale llena, con la
+          lista anterior --la de `org.employee_branch`-- y numeros plausibles.
+          Asi se descubrio en el desarrollo de OL7: parecia bien y mostraba a
+          alguien que ya no produce, y le faltaban dos productores activos.
+          `org.roster_current` devuelve cero filas SIN error cuando la policy no
+          aplica: la RLS no rechaza, filtra.
+        */}
+        {!data.diagnostics.rosterAvailable && (
+          <div className="bp-diagnostics__warn">
+            <b>org.roster_current could not be read</b> — this list is the previous one, built from{' '}
+            <code>org.employee_branch</code>. It looks complete but it is not: it can include people who no longer
+            produce and miss active producers. The table returns zero rows without an error when no policy applies, so
+            this line is the only signal. Needs the <code>outlook</code> read policy —{' '}
+            <code>docs/sql/2026-08-outlook-roster-read.sql</code>.
+          </div>
+        )}
         {data.diagnostics.unresolvedOfficers > 0 && (
           <div className="bp-diagnostics__warn">
             <code>{data.diagnostics.unresolvedOfficers.toLocaleString('en-US')}</code> closed loans whose loan officer
