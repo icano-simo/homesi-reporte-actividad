@@ -352,16 +352,6 @@ export interface OutlookData {
     /** Productores activos del roster, la lista de arriba. Hoy 35. */
     activeProducers: number;
     /**
-     * ¿Se pudo leer `org.roster_current`?
-     *
-     * ⚠ `false` significa que la pantalla está mostrando la lista ANTERIOR, la
-     * de `org.employee_branch`, y que nadie lo va a notar mirando: sale llena y
-     * con números plausibles. La tabla devuelve cero filas **sin error** cuando
-     * la policy no aplica --la RLS no rechaza, filtra--, así que este booleano
-     * es la única señal.
-     */
-    rosterAvailable: boolean;
-    /**
      * ¿Están las tablas de OL4? — `outlook.monthly_target` y
      * `outlook.projection_mode`.
      *
@@ -725,13 +715,23 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
    * EL ROSTER, INDEXADO — etapa OL7
    * ==========================================================================
    *
-   * ⚠ Si `org.roster_current` no se puede leer, el modulo NO se queda sin
-   * lista: cae al comportamiento anterior (los Loan Officers de
-   * `dim_employee`). Mismo criterio que las tablas de `outlook` -- una fuente
-   * ausente no debe vaciar la pantalla, y queda dicho en el diagnostico.
+   * `org.roster_current` decide quién aparece y en qué branch. El puente con la
+   * identidad interna es el alias `person_code`, y hoy cubre a los 38
+   * productores: 38 de 38 resuelven a `employee_key`.
+   *
+   * ⚠ SI ESTA TABLA VUELVE VACÍA, LA PANTALLA QUEDA CASI VACÍA, y es a
+   * propósito. Hubo un fallback a `org.employee_branch` y se quitó cuando se
+   * aplicaron las policies, porque hacía daño: la lista anterior salía llena de
+   * nombres reales con números plausibles y nada delataba que era la vieja.
+   * Preferimos que se note.
+   *
+   * Y si vuelve vacía, mirar el CLAIM de su policy antes que el código: la RLS
+   * no rechaza, filtra --devuelve cero filas y `error: null`--, así que una
+   * policy que no aplica es indistinguible de una tabla vacía. Hoy hay tres
+   * policies de SELECT: `admin`, `outlook` y `commercial_activity`. Ninguna de
+   * escritura: la tabla la escribe el sync, no la app.
    */
   const rosterRows = rosterRes.error ? [] : ((rosterRes.data ?? []) as RosterRow[]);
-  const rosterAvailable = !rosterRes.error && rosterRows.length > 0;
 
   const rosterByKey = new Map<number, RosterRow>();
   /* Productores que el roster afirma y que no tienen identidad interna. */
@@ -965,62 +965,6 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       targetRevision[s] = targetRevisionByKey.get(k) ?? 0;
     }
 
-    const row: OutlookLoanOfficer = {
-      employeeKey: lo.employeeKey,
-      fullName: lo.fullName,
-      branchCodes: lo.branchCodes,
-      ytd: totalOf(actualByLo, String(lo.employeeKey)),
-      actualByMonth: monthsOf(actualByLo, String(lo.employeeKey)),
-      currentMonth: lo.projection.projectedTotal,
-      /*
-       * ⚠ Lo que YA CERRÓ del mes en curso, y que va DENTRO de `currentMonth`.
-       *
-       * `projectedTotal = closedToDate + CTC + Closing + tasa` (ver
-       * `projectCurrentMonth` en el Business Plan). O sea que el pronóstico del
-       * mes ya incluye lo cerrado del mes: por eso la columna del mes en curso
-       * no se puede sumar con lo real del mes, y por eso este número está acá --
-       * para poder decirlo en el tooltip en vez de que alguien lo deduzca.
-       */
-      closedToDate: lo.projection.closedToDate,
-      /*
-       * ⚠ Sólo las estrategias en modo `growth` — etapa OL4.
-       *
-       * El benchmark es la BASE de un cálculo. Una estrategia fijada mes a mes
-       * no tiene base: sus meses son el resultado directo. Sumar su benchmark
-       * guardado --que sigue ahí, sin aplicarse-- daría un total que no es la
-       * base de nada y que no explica ninguna celda de la fila.
-       */
-      benchmarkTotal: OUTLOOK_STRATEGIES.reduce(
-        (a, s) => a + (modeByStrategy[s] === 'monthly' ? 0 : (strategyBenchmarks[s] ?? 0)),
-        0
-      ),
-      ownProductionBenchmark: lo.monthlyBenchmark,
-      activePlan: lo.activePlan,
-      /*
-       * ⚠ El branch al que se le carga el pronostico y el presupuesto sale del
-       * ROSTER cuando el roster conoce a la persona — etapa OL7.
-       *
-       * Antes salia de `lo.branchCodes[0]`, de `org.employee_branch`. El roster
-       * tiene el branch correcto: Johann Otiniano figura en el 716 por
-       * `employee_branch` y en el 710 por el roster, que es la licencia
-       * prestada. Y da UN branch por persona, asi que nadie puede aparecer en
-       * dos listas.
-       */
-      primaryBranch: rosterByKey.get(lo.employeeKey)?.branch_code ?? lo.branchCodes[0] ?? null,
-      rosterState: rosterStateOf(lo.employeeKey),
-      hasIdentity: true,
-      isBranchManager: lo.isBranchManager,
-      /* Placeholder: se reemplaza por branch al armar el mapa, abajo. */
-      strategies: [],
-      rulesByStrategy,
-      ruleRevision,
-      strategyBenchmarks,
-      benchmarkSchedules,
-      modeByStrategy,
-      modeSetBy,
-      targetsByStrategy,
-      targetRevision,
-    };
     /*
      * En qué branches aparece: donde CERRÓ algo este año, más los del roster si
      * no cerró en ninguno (para que alguien sin producción todavía se vea en su
@@ -1052,9 +996,6 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
      * aparece: no cerro nada este anio, asi que no hay produccion huerfana que
      * explicar. Que la regla lo deje afuera solo es la prueba de que la fila la
      * trae la produccion y no el estado.
-     *
-     * El fallback a `lo.branchCodes` es para cuando el roster no se puede leer:
-     * ver el bloque del roster indexado, mas arriba.
      */
     const rosterEntry = rosterByKey.get(lo.employeeKey);
     const belongsByRoster =
@@ -1062,19 +1003,73 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
         ? [rosterEntry.branch_code]
         : [];
     /*
-     * ⚠ SIN ROSTER, LA REGLA ANTERIOR EXACTA -- no la union.
-     *
-     * Esto no es cosmetico: `branchesWithProduction` y `lo.branchCodes` eran
-     * alternativos ("donde cerro, y si no cerro, donde figura"), y unirlos
-     * duplica filas. Medido con el roster ilegible: Gian Laino aparecia en 710
-     * (por `employee_branch`), 760 y AFFINITY (por produccion) -- tres filas
-     * para una persona, y el total de la division contandola tres veces.
+     * ⚠ `lo.branchCodes` --de `org.employee_branch`-- YA NO PARTICIPA. Es la
+     * fuente que esta etapa reemplazó: tiene el branch viejo de Johann, dos
+     * filas para cada BM, y ninguna para Lucio Romero.
      */
-    const codes = rosterAvailable
-      ? [...new Set([...belongsByRoster, ...branchesWithProduction])]
-      : branchesWithProduction.length > 0
-        ? branchesWithProduction
-        : lo.branchCodes;
+    const codes = [...new Set([...belongsByRoster, ...branchesWithProduction])];
+
+    const row: OutlookLoanOfficer = {
+      employeeKey: lo.employeeKey,
+      fullName: lo.fullName,
+      /* Los branches en los que APARECE, no los de `org.employee_branch`. */
+      branchCodes: codes,
+      ytd: totalOf(actualByLo, String(lo.employeeKey)),
+      actualByMonth: monthsOf(actualByLo, String(lo.employeeKey)),
+      currentMonth: lo.projection.projectedTotal,
+      /*
+       * ⚠ Lo que YA CERRÓ del mes en curso, y que va DENTRO de `currentMonth`.
+       *
+       * `projectedTotal = closedToDate + CTC + Closing + tasa` (ver
+       * `projectCurrentMonth` en el Business Plan). O sea que el pronóstico del
+       * mes ya incluye lo cerrado del mes: por eso la columna del mes en curso
+       * no se puede sumar con lo real del mes, y por eso este número está acá --
+       * para poder decirlo en el tooltip en vez de que alguien lo deduzca.
+       */
+      closedToDate: lo.projection.closedToDate,
+      /*
+       * ⚠ Sólo las estrategias en modo `growth` — etapa OL4.
+       *
+       * El benchmark es la BASE de un cálculo. Una estrategia fijada mes a mes
+       * no tiene base: sus meses son el resultado directo. Sumar su benchmark
+       * guardado --que sigue ahí, sin aplicarse-- daría un total que no es la
+       * base de nada y que no explica ninguna celda de la fila.
+       */
+      benchmarkTotal: OUTLOOK_STRATEGIES.reduce(
+        (a, s) => a + (modeByStrategy[s] === 'monthly' ? 0 : (strategyBenchmarks[s] ?? 0)),
+        0
+      ),
+      ownProductionBenchmark: lo.monthlyBenchmark,
+      activePlan: lo.activePlan,
+      /*
+       * ⚠ EL BRANCH AL QUE SE LE CARGA EL PRONOSTICO Y EL PRESUPUESTO.
+       *
+       * Sale del ROSTER, que da UN branch por persona -- asi que un presupuesto
+       * no puede contarse dos veces. Antes salia de `lo.branchCodes[0]`, de
+       * `org.employee_branch`, que tiene el branch viejo: Johann Otiniano figura
+       * ahi en el 716 y en el roster en el 710, que es donde trabaja.
+       *
+       * Si el roster no la conoce, cae al branch donde CERRO y no a
+       * `employee_branch`: entre un dato viejo y un dato real del anio en curso,
+       * el real. Hoy no dispara -- los 34 del Business Plan estan todos en el
+       * roster, medido -- y esta para que el dia que alguien salga del roster su
+       * pronostico no se vuelva invisible, que es lo que le pasaba al 777.
+       */
+      primaryBranch: rosterByKey.get(lo.employeeKey)?.branch_code ?? codes[0] ?? null,
+      rosterState: rosterStateOf(lo.employeeKey),
+      hasIdentity: true,
+      isBranchManager: lo.isBranchManager,
+      /* Placeholder: se reemplaza por branch al armar el mapa, abajo. */
+      strategies: [],
+      rulesByStrategy,
+      ruleRevision,
+      strategyBenchmarks,
+      benchmarkSchedules,
+      modeByStrategy,
+      modeSetBy,
+      targetsByStrategy,
+      targetRevision,
+    };
 
     for (const code of codes) {
       const list = branchMap.get(code) ?? [];
@@ -1140,26 +1135,18 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
   }
 
   /*
-   * Las claves que faltan: quien cerró, más los productores activos del roster,
+   * Las claves que faltan: quien CERRÓ, más los productores activos del roster,
    * menos quien ya vino del Business Plan.
    *
-   * ⚠ LOS DOS ORÍGENES SE TRATAN DISTINTO CUANDO EL ROSTER NO SE PUEDE LEER, y
-   * la diferencia no es teórica:
-   *
-   *   - Quien CERRÓ entra SIEMPRE. Su préstamo ya está sumado en el total del
-   *     branch, así que sin su fila el branch muestra un total que no es la suma
-   *     de sus filas. Medido en el fallback: los 3 cierres de Isabel y Ludwig se
-   *     contaban en el 716 y no había ninguna fila que los explicara.
-   *   - Los productores SIN producción entran sólo si el roster se pudo leer,
-   *     porque es el roster el que dice que producen. Sin él no hay nada que
-   *     afirmarlo, y la lista se queda con el comportamiento anterior.
+   * ⚠ Quien cerró entra aunque no sea productor ni figure en el roster. Su
+   * préstamo ya está sumado en el total del branch, así que sin su fila el
+   * branch muestra un total que no es la suma de sus filas -- un descuadre sin
+   * explicación, que es peor que una fila incompleta.
    */
   const missingKeys = new Set<number>();
   for (const key of productionByKey.keys()) if (!bpKeys.has(key)) missingKeys.add(key);
-  if (rosterAvailable) {
-    for (const [key, r] of rosterByKey) {
-      if (r.is_producer && r.is_active && !bpKeys.has(key)) missingKeys.add(key);
-    }
+  for (const [key, r] of rosterByKey) {
+    if (r.is_producer && r.is_active && !bpKeys.has(key)) missingKeys.add(key);
   }
 
   for (const key of missingKeys) {
@@ -1311,14 +1298,6 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
         0
       ),
       activeProducers: rosterRows.filter((r) => r.is_producer && r.is_active).length,
-      /*
-       * ⚠ Va a la pantalla porque un roster ilegible NO se nota mirando: la
-       * lista sigue llena, con la gente de `employee_branch`, y los numeros son
-       * plausibles. Asi se descubrio -- la pantalla parecia bien y estaba dando
-       * la lista vieja. Ademas `org.roster_current` devuelve cero filas SIN
-       * error cuando la policy no aplica: la RLS no rechaza, filtra.
-       */
-      rosterAvailable,
       monthlyModeAvailable,
     },
   };
