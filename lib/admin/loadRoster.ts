@@ -105,6 +105,37 @@ export interface RosterPerson {
   branch_is_active: boolean | null;
   /** Por qué, cuando aplica: 'Corporativo', 'pendiente de confirmar'... */
   branch_note: string | null;
+
+  /**
+   * ⚠ ¿ESTA PERSONA PRODUCE? — la columna que le da sentido a esta pantalla.
+   *
+   * Es lo que separa a un Loan Officer de las otras 70 personas del roster, y
+   * hasta ahora no se veía: las filas llegaban con `select('*')` y la pantalla
+   * no las mostraba, así que "quién produce en este branch" no se podía
+   * contestar desde acá.
+   *
+   * No confundir con `is_active`, que dice si sigue empleada, ni con
+   * `branch_is_active`, que habla del branch. Son tres cosas independientes y
+   * las tres viven en esta interfaz.
+   */
+  is_producer: boolean;
+  /**
+   * `true` = alguien lo decidió a mano, no salió del archivo de RRHH.
+   *
+   * ⚠ Y por eso NO se recalcula: un archivo que mañana venga distinto no lo
+   * cambia. Es la diferencia entre "el archivo dice esto" y "una persona
+   * confirmó esto", y es justo el dato que evita que alguien "arregle" una
+   * decisión deliberada -- la misma idea que `has_override`.
+   */
+  producer_set_by_hand: boolean;
+  /** Ídem para `is_active`. */
+  active_set_by_hand: boolean;
+  /**
+   * Realtor del programa NPPM. Hoy son 7 de 110, así que se muestra como marca
+   * al lado del nombre y no como columna: una columna vacía en 103 filas ocupa
+   * ancho para no decir nada.
+   */
+  is_nppm_realtor: boolean;
 }
 
 export interface RosterChange {
@@ -145,6 +176,15 @@ export interface RosterBranch {
    * no trabaja acá", que es falso.
    */
   activePeopleInInactiveBranch: number;
+  /**
+   * Cuántas personas ACTIVAS de este branch producen.
+   *
+   * Va en la cabecera del grupo para que "quién produce acá" se conteste
+   * barriendo la página, sin abrir cada fila. Se cuenta sobre las activas: un
+   * productor que ya no trabaja no produce, y sumarlo daría un número que no
+   * corresponde a nadie.
+   */
+  activeProducers: number;
 }
 
 export interface AdminData {
@@ -175,6 +215,10 @@ export interface AdminData {
   hayEstadoDeBranches: boolean;
   diagnostics: {
     rosterRows: number;
+    activeRows: number;
+    producerRows: number;
+    activeProducerRows: number;
+    nppmRealtorRows: number;
     changeRows: number;
     /** El error de lectura, si lo hubo. Ver el bloque de abajo. */
     rosterError: string | null;
@@ -237,6 +281,7 @@ export async function loadAdminData(): Promise<AdminData> {
         branchNote: isReal ? (people[0]?.branch_note ?? null) : null,
         activePeopleInInactiveBranch:
           branchIsActive === false ? people.filter((p) => p.is_active).length : 0,
+        activeProducers: people.filter((p) => p.is_active && p.is_producer).length,
       };
     })
     .sort((a, b) => {
@@ -254,6 +299,23 @@ export async function loadAdminData(): Promise<AdminData> {
     hayEstadoDeBranches: people.some((p) => p.branch_is_active !== null),
     diagnostics: {
       rosterRows: people.length,
+    /*
+     * Los tres totales que se pueden cotejar contra un `select count(*)`. Están
+     * en el pie de diagnóstico por eso: son la forma de saber, sin abrir la
+     * base, si la pantalla está viendo lo mismo que el sync escribió.
+     */
+    activeRows: people.filter((p) => p.is_active).length,
+    producerRows: people.filter((p) => p.is_producer).length,
+    /*
+     * ⚠ Los productores ACTIVOS, aparte del total.
+     *
+     * Sin este segundo número el pie decía "38 producen" y las cabeceras de los
+     * branches sumaban 35, porque ellas cuentan sólo activos. Dos números
+     * correctos que se leen como una inconsistencia. La diferencia son los
+     * productores que ya no trabajan.
+     */
+    activeProducerRows: people.filter((p) => p.is_producer && p.is_active).length,
+    nppmRealtorRows: people.filter((p) => p.is_nppm_realtor).length,
       changeRows: changes.length,
       rosterError: rosterRes.error?.message ?? null,
       changeError: changeRes.error?.message ?? null,

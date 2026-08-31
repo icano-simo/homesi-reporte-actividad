@@ -263,3 +263,69 @@ table.piv.adm-tbl th.bp-center {
   gap: 12px;
   margin-top: 8px;
 }
+
+/*
+ * ── Quién produce — etapa ADMIN-4 ────────────────────────────────────────
+ *
+ * `is_producer` es lo que separa a un Loan Officer de las otras 70 personas del
+ * roster. Llegaba con `select('*')` desde que el sync la escribe y la pantalla
+ * no la mostraba: se veía el roster completo y no se podía contestar quién
+ * produce en cada branch.
+ */
+
+/* El "N producen" de la cabecera del grupo, al lado de "N personas". */
+.adm-prod-count {
+  padding: 1px 8px;
+  border-radius: var(--radius-full);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  color: var(--navy);
+  font-weight: 700;
+  white-space: nowrap;
+}
+/* Cero productores no es un dato faltante: es un branch de soporte. Se apaga
+   en vez de resaltarse, para que no se lea como un problema. */
+.adm-prod-count.is-zero {
+  background: var(--slate-100);
+  border-color: var(--slate-200);
+  color: var(--slate-400);
+  font-weight: 400;
+}
+
+/*
+ * La columna. Mismo tratamiento que `.adm-estado` --píldora, verde cuando sí--
+ * porque son la misma clase de dato: un booleano sobre la persona. Que se vean
+ * parecidos es correcto; lo que no puede pasar es que se confundan, y de eso se
+ * encargan el encabezado de cada columna y el comentario del TSX.
+ */
+.adm-produce {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: var(--radius-full);
+  background: var(--slate-100);
+  color: var(--slate-400);
+  font-weight: 600;
+}
+.adm-produce.is-on {
+  background: var(--emerald-50);
+  color: var(--emerald-700);
+}
+
+/*
+ * La manito de "lo fijó una persona". Es procedencia, no valor: va pegada al
+ * dato que califica, en tamaño chico y sin color propio, para que nunca compita
+ * con el sí/no que está al lado.
+ */
+.adm-hand {
+  margin-left: 5px;
+  font-size: 10px;
+  opacity: 0.75;
+  cursor: help;
+}
+
+/* El realtor NPPM: 7 de 110. Marca, no columna. */
+.adm-tag--nppm {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--navy);
+}
