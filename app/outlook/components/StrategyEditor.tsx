@@ -588,7 +588,7 @@ export default function StrategyEditor({
                         <td className="lbl">{modeLabel(r.mode)}</td>
                         <td className="bp-left">{r.set_by}</td>
                         <td className="bp-left">{stamp(r.created_at)}</td>
-                        <td className="bp-left bp-history__note">{r.note ?? '—'}</td>
+                        <td className="bp-left bp-history__note">{r.note ?? 'no note'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -608,7 +608,7 @@ export default function StrategyEditor({
                         </td>
                         <td className="bp-left">{r.set_by}</td>
                         <td className="bp-left">{stamp(r.created_at)}</td>
-                        <td className="bp-left bp-history__note">{r.note ?? '—'}</td>
+                        <td className="bp-left bp-history__note">{r.note ?? 'no note'}</td>
                       </tr>
                     ))}
                   </tbody>

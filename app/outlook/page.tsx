@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { composeYear, projectBranch, type OutlookData } from '@/lib/outlook/loadData';
+import { fmt } from '@/lib/outlook/format';
 import { useOutlookDataContext } from '@/lib/outlook/useOutlookData';
 
 /**
@@ -43,12 +44,6 @@ function monthLabel(ym: string): string {
  * Entero cuando lo es, un decimal cuando no. Tres estados y no dos:
  *   `—` no se puede saber · `–` cero · el número
  */
-function fmt(n: number | null): string {
-  if (n === null) return '—';
-  if (!n) return '–';
-  return Number.isInteger(n) ? String(n) : n.toFixed(1);
-}
-
 /** La banda a la que pertenece un mes. Es también su clase de color. */
 function bandOf(month: string, currentMonth: string): 'actual' | 'forecast' | 'budget' {
   return month < currentMonth ? 'actual' : month === currentMonth ? 'forecast' : 'budget';
@@ -337,6 +332,44 @@ export default function OutlookPage() {
             </>
           )}
         </div>
+        {/*
+          De donde sale la LISTA de gente, que desde OL7 la decide el roster y no
+          `org.employee_branch`. Los tres numeros son cotejables contra la base y
+          explican por que la lista cambio de 34 personas a 37.
+
+          ⚠ Y son la senal de que el roster se esta leyendo. Habia un aviso
+          dedicado para eso, que se quito al aplicarse las policies; si algun dia
+          la tabla vuelve a devolver vacio, "0 active producers" es lo que lo
+          dice. Vale mirar el claim de su policy antes que el codigo: la RLS no
+          rechaza, filtra.
+        */}
+        <div>
+          <code>{data.diagnostics.activeProducers}</code> active producers in the roster ·{' '}
+          <code>{data.diagnostics.producersWithoutIdentity}</code> without internal identity ·{' '}
+          <code>{data.diagnostics.closedButNotProducing}</code> shown only because they closed
+        </div>
+        {/*
+          ⚠ CERO BENCHMARKS DE ESTRATEGIA NO ES UN CONTEO, ES UN AVISO.
+          El numero ya estaba en la linea de arriba, entre otros dos, y ahi se
+          lee como estadistica. Pero con cero cargados TODO el presupuesto por
+          estrategia proyecta cero salvo Own Production --que lee su benchmark de
+          `org.employee_benchmark`, no de `outlook`-- y eso se ve igual que si el
+          negocio no esperara nada de B2B ni de NPPM.
+
+          Las 185 reglas de crecimiento no lo tapan: una regla multiplica un
+          benchmark, y sobre cero da cero. Estan guardadas y no proyectan nada.
+
+          Mismo criterio que el aviso del roster: la pantalla dice lo que no se
+          puede deducir mirandola.
+        */}
+        {data.diagnostics.strategyBenchmarkRows === 0 && (
+          <div className="bp-diagnostics__warn">
+            <b>0 strategy benchmarks set.</b> Every strategy budget projects zero except Own Production, which reads its
+            benchmark from the Business Plan. The <code>{data.diagnostics.growthRuleRows}</code> growth rules do not
+            change that: a rule multiplies a benchmark, and over zero it gives zero. This is <b>not set yet</b>, not a
+            decision that nothing is expected — set them in <b>Budget by strategy</b>, inside a branch.
+          </div>
+        )}
         {data.diagnostics.unresolvedOfficers > 0 && (
           <div className="bp-diagnostics__warn">
             <code>{data.diagnostics.unresolvedOfficers.toLocaleString('en-US')}</code> closed loans whose loan officer
