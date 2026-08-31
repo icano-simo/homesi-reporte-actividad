@@ -206,12 +206,9 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * haria que un branch con Own Production cargado y nada mas parezca tener
    * presupuesto por estrategia cuando las otras cuatro estan en cero.
    */
-  const strategyBenchmarksSet = branch.loanOfficers.reduce(
-    (a, lo) =>
-      a +
-      OUTLOOK_STRATEGIES.filter((s) => s !== 'Own Production' && (lo.strategyBenchmarks[s] ?? 0) > 0).length,
-    0
-  );
+  const strategyBenchmarksSet = branch.byStrategy.filter(
+    (bs) => bs.strategy !== 'Own Production' && bs.realtors.some((r) => !r.benchmarkIsDefault)
+  ).length;
 
   function toggle(key: string) {
     setOpen((prev) => {
@@ -222,7 +219,19 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
     });
   }
 
-  /* Si esta persona aporta pronóstico y presupuesto ACÁ, o sólo cerrados. */
+  /*
+   * ⚠ SIEMPRE TRUE DESDE OL8, y se deja escrito en vez de borrado.
+   *
+   * El roster da UN branch por persona, y una fila sólo aparece en ese branch,
+   * así que `primaryBranch` y el branch de la fila son el mismo. Hasta OL7 esto
+   * podía ser falso --una persona aparecía en cada branch donde había cerrado y
+   * su presupuesto se cargaba a uno solo-- y de ahí venía la etiqueta "budget in
+   * X", que ya no puede ocurrir.
+   *
+   * Queda como una sola expresión para que el día que la regla vuelva a admitir
+   * varias filas por persona haya UN lugar donde mirarlo, en vez de un supuesto
+   * repartido por la pantalla.
+   */
   const isHere = (lo: OutlookLoanOfficer) => lo.primaryBranch === branch.branchCode;
 
   /**
@@ -246,7 +255,14 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
     return {
       here,
       steps,
-      year: composeYear(monthsOfYear, currentMonth, st?.actualByMonth ?? {}, null, proj),
+      /* El mes en curso: lo real cerrado. Ver la nota de `sYear`, misma razón. */
+      year: composeYear(
+        monthsOfYear,
+        currentMonth,
+        st?.actualByMonth ?? {},
+        st?.actualByMonth[currentMonth] ?? 0,
+        proj
+      ),
       realtors: st?.byRealtor ?? [],
     };
   }
@@ -286,10 +302,32 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
             <Link href="/outlook">Outlook</Link> <span>›</span> <span>{branch.branchCode}</span>
           </div>
           <h1 className="page-head__title">Branch {branch.branchCode}</h1>
+          {/*
+            ⚠ LOS DOS "+N" SON EL PRECIO DE DOS REGLAS, y van acá porque sin
+            ellos el total del branch no da la suma de sus filas y nadie sabe por
+            qué. Son cosas distintas:
+
+              unattributed       el originador no pertenece a la división
+                                 (`org.source_name_excluded`).
+              closedByOutsiders  el originador SÍ es de la división, pero de otro
+                                 branch: el roster lo pone en otro lado, así que
+                                 su fila está allá. Nuevo en OL8.
+          */}
           <p className="page-head__subtitle">
             {branch.loanOfficers.length} loan officer{branch.loanOfficers.length === 1 ? '' : 's'} · closed {branch.ytd}
-            {branch.unattributed > 0 ? ` (+${branch.unattributed} unattributed)` : ''} · {year} total{' '}
-            {fmt(branchYear.total)}
+            {branch.closedByOutsiders > 0 ? (
+              <span title="Closed in this branch by loan officers whose roster branch is another one. Their production counts here, because the loan closed here; their row lives in their own branch.">
+                {' '}
+                (+{branch.closedByOutsiders} by loan officers from other branches)
+              </span>
+            ) : null}
+            {branch.unattributed > 0 ? (
+              <span title="Closed in this branch by someone who is not a loan officer of the division — listed in org.source_name_excluded with a written reason. Not counted in any branch total.">
+                {' '}
+                (+{branch.unattributed} outside the division)
+              </span>
+            ) : null}{' '}
+            · {year} total {fmt(branchYear.total)}
           </p>
         </div>
       </div>
@@ -385,18 +423,12 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                   {monthsOfYear.map((m) => (
                     <td
                       key={m}
-                      className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth) + (loYear.byMonth[m] ? '' : ' zero')}
+                      className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}
                       title={
-                        m === currentMonth && here
+                        m === currentMonth
                           ? `Month forecast: ${lo.closedToDate} already closed and the rest is pipeline with its ` +
                             `rate. Closings are INSIDE this number.`
-                          : m === currentMonth && !here
-                            ? `Their forecast is charged to branch ${lo.primaryBranch ?? '(not in roster)'}, their ` +
-                              `roster branch. What is shown here is what they already closed in this branch this month.`
-                            : m > currentMonth && !here
-                              ? `Their forecast and budget are charged to branch ${lo.primaryBranch ?? '(not in roster)'}, ` +
-                                `their roster branch. Their closings do count here, because those belong to the loan.`
-                              : undefined
+                          : undefined
                       }
                     >
                       {fmt(loYear.byMonth[m] ?? null)}
@@ -440,7 +472,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               );
             })}
 
-            <tr className="metric" style={{ fontWeight: 700 }}>
+            <tr className="metric ol-total">
               <td className="lbl">Branch {branch.branchCode}</td>
               {monthsOfYear.map((m) => (
                 <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
@@ -448,7 +480,8 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                 </td>
               ))}
               <td className="bp-center totcol">{fmt(branchYear.total)}</td>
-              <td className="bp-center zero">–</td>
+              {/* El branch no tiene benchmark propio: la celda queda vacia. */}
+              <td className="bp-center"></td>
               <td className="lbl"></td>
             </tr>
             {!branch.loanOfficers.length && (
@@ -464,9 +497,14 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
 
       {/*
         ══════════════════════════ BLOQUE 2 ══════════════════════════════════
-        El presupuesto, por estrategia. Cada una se abre a las personas que la
-        aportan, y el editor está en la fila de la persona: la decisión se toma
-        donde está el número que cambia.
+        El presupuesto por estrategia. Cada estrategia se abre por lo que
+        corresponde a SU unidad de decision -- ver `BranchStrategy` en el loader:
+
+          Own Production  por LOAN OFFICER
+          NPPM            por REALTOR
+          B2B             no se abre: es del branch
+          Recruitment     no se abre: es del branch
+          Affinity        no se abre: es del branch
       */}
       <h2 className="ol-block__title">Budget by strategy</h2>
 
@@ -474,7 +512,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
         <table className="piv bp-table--los ol-year">
           <thead>
             <tr className="mo-row">
-              <th className="lbl">Strategy / loan officer</th>
+              <th className="lbl">Strategy</th>
               {monthsOfYear.map((m) => (
                 <th key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
                   {monthLabel(m)}
@@ -486,288 +524,314 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
             </tr>
           </thead>
           <tbody>
-            {OUTLOOK_STRATEGIES.map((s) => {
-              const people = branch.loanOfficers.filter((lo) => contributes(lo, s));
-              /* Los que no aportan: detras de un pliegue, para poder editarlos. */
-              const rest = branch.loanOfficers.filter((lo) => !contributes(lo, s));
-              const isOpen = open.has('s:' + s);
-              const restOpen = open.has('rest:' + s);
-              const cells = people.map((lo) => ({ lo, cell: cellOf(lo, s) }));
-              const restCells = restOpen ? rest.map((lo) => ({ lo, cell: cellOf(lo, s) })) : [];
+            {branch.byStrategy
+              /*
+                ⚠ NPPM NO SE MUESTRA DONDE NO HAY REALTORS.
+                Se abre por realtor, así que sin realtors es una fila que no se
+                puede abrir y que no tiene nada que decir. El 747 no tiene
+                ninguno: mostrarla ahí sería una estrategia vacía compitiendo con
+                las cuatro que sí existen.
+
+                Las tres de branch --B2B, Recruitment, Affinity-- SÍ se quedan
+                aunque estén en cero: son el lugar donde se les fija el
+                presupuesto, y una estrategia sin presupuesto todavía es
+                justamente la que hay que ver.
+              */
+              .filter((bs) => bs.strategy !== 'NPPM' || bs.realtors.length > 0)
+              .map((bs) => {
+              const s = bs.strategy;
+              const abierta = open.has('s:' + s);
+              const plegable = bs.opensBy !== 'branch';
 
               /*
-               * La fila de la estrategia es la SUMA de las de abajo, mes por
-               * mes. El mes en curso queda en `null` porque ninguna de las de
-               * abajo lo sabe -- sumar `no data` no da un número.
-               */
-              const byMonth: Record<string, number | null> = {};
-              for (const m of monthsOfYear) {
-                if (m === currentMonth) {
-                  byMonth[m] = null;
-                  continue;
-                }
-                byMonth[m] = cells.reduce((a, { cell }) => a + (cell.year.byMonth[m] ?? 0), 0);
-              }
-              const total = cells.reduce((a, { cell }) => a + cell.year.total, 0);
+                ⚠ EL PRESUPUESTO SOLO SE PROYECTA DONDE HAY DE DONDE.
 
-              /* El benchmark de la estrategia: sólo las que proyectan por tasa. */
-              const benchSum = cells.reduce(
-                (a, { lo }) => a + ((lo.modeByStrategy[s] ?? 'growth') === 'monthly' ? 0 : (lo.strategyBenchmarks[s] ?? 0)),
-                0
+                Own Production proyecta: su benchmark vive en
+                `org.employee_benchmark`, por persona, y el motor ya lo resuelve.
+
+                Las otras cuatro no proyectan, y no es lo mismo que proyectar
+                cero: `outlook.strategy_benchmark` cuelga de `employee_key`, asi
+                que una estrategia que ahora es DEL BRANCH no tiene donde guardar
+                su presupuesto. Los meses van en `null` --celda vacia-- porque no
+                hay ningun numero fijado, y un 0 afirmaria que se decidio que no
+                cierre nada. El SQL para guardarlo esta entregado sin ejecutar en
+                docs/sql; hasta entonces la fila lo dice en su columna de regla.
+              */
+              const proyecta = s === 'Own Production';
+              const proj: Record<string, number | null> = {};
+              if (proyecta) {
+                for (const lo of branch.loanOfficers) {
+                  const steps = projectLoanOfficer(lo, remainingMonths).stepsByStrategy[s] ?? [];
+                  remainingMonths.forEach((m, i) => {
+                    proj[m] = (proj[m] ?? 0) + (steps[i]?.value ?? 0);
+                  });
+                }
+              }
+              /*
+                ⚠ EL MES EN CURSO DE ESTE BLOQUE ES LO REAL CERRADO, no el
+                pronóstico y no un hueco.
+                Ninguna fila de acá tiene pronóstico: Forecast lo calcula sobre
+                el pipeline, que no lleva la estrategia consigo. La regla del
+                módulo para ese caso ya existe y es la de AFFINITY -- pronóstico
+                si proyecta, y si no, lo que cerró.
+                Lo que se ganó al aplicarla, medido: Laura Delgado tiene 5
+                cierres en el 776 y la fila mostraba 2, porque 3 son de agosto y
+                la celda de agosto estaba vacía. Tres cierres reales que no se
+                veían en ninguna parte de la pantalla.
+              */
+              const sYear = composeYear(
+                monthsOfYear,
+                currentMonth,
+                bs.actualByMonth,
+                bs.actualByMonth[currentMonth] ?? 0,
+                proj
               );
-              const withBench = cells.filter(({ lo }) => (lo.strategyBenchmarks[s] ?? 0) > 0).length;
-              const monthly = cells.filter(({ lo }) => (lo.modeByStrategy[s] ?? 'growth') === 'monthly').length;
+
+              /*
+                El benchmark de la estrategia. Own Production suma los de sus
+                personas; NPPM suma los de sus realtors --con el promedio de 3
+                meses como default--; las otras tres no tienen benchmark posible
+                todavia y van vacias.
+              */
+              const bench =
+                s === 'Own Production'
+                  ? branch.loanOfficers.reduce((a, lo) => a + (lo.strategyBenchmarks[s] ?? 0), 0)
+                  : s === 'NPPM'
+                    ? bs.realtors.reduce((a, r) => a + r.benchmark, 0)
+                    : null;
+
+              const conBenchmark = branch.loanOfficers.filter((lo) => (lo.strategyBenchmarks[s] ?? 0) > 0).length;
+              const regla =
+                s === 'Own Production'
+                  ? `${conBenchmark} of ${branch.loanOfficers.length} with a benchmark`
+                  : s === 'NPPM'
+                    ? bs.realtors.length === 0
+                      ? 'no realtors in this branch'
+                      : `${bs.realtors.length} realtor${bs.realtors.length === 1 ? '' : 's'} · default is their 3-month average`
+                    : 'branch level · nowhere to save a budget yet';
 
               return (
                 <Fragment key={'s-' + s}>
-                  <tr className="grp togg d1" onClick={() => toggle('s:' + s)}>
+                  <tr
+                    className={'grp d1' + (plegable ? ' togg' : '')}
+                    onClick={plegable ? () => toggle('s:' + s) : undefined}
+                  >
                     <td className="lbl">
-                      <span className={'chev' + (isOpen ? ' open' : '')} aria-hidden="true">
-                        ›
-                      </span>
+                      {plegable ? (
+                        <span className={'chev' + (abierta ? ' open' : '')} aria-hidden="true">
+                          ›
+                        </span>
+                      ) : (
+                        /* Sin chevron, con la misma sangria: la fila no se abre. */
+                        <span className="chev chev--none" aria-hidden="true" />
+                      )}
                       {s}
-                      {/*
-                        ⚠ "N de M", no "N personas": el branch tiene M personas y
-                        sólo N tienen algo en esta estrategia. Decir sólo N haría
-                        pensar que el branch tiene N, y decir M --que es lo que
-                        decía la primera version-- daba 9 en las cinco
-                        estrategias, incluidas las que no tienen ni un cierre.
-                      */}
-                      <span
-                        className="bp-muted ol-tag"
-                        title={
-                          `${people.length} of the ${branch.loanOfficers.length} people in this branch have ` +
-                          `production, a benchmark or months set by hand in ${s}. The rest are behind the link at ` +
-                          `the end, so a budget can be set for them.`
-                        }
-                      >
-                        {people.length} of {branch.loanOfficers.length}
-                      </span>
-                      {s === 'Own Production' && (
+                      {bs.opensBy === 'loanOfficer' && (
                         <span
                           className="bp-muted ol-tag"
-                          title="Its benchmark is read from org.employee_benchmark and edited in the Business Plan profile, not here. What is edited here is its growth rule."
+                          title="Own production: the question is how much each loan officer does, so it opens by person. Its benchmark lives in the Business Plan."
                         >
-                          BP
+                          by loan officer
+                        </span>
+                      )}
+                      {bs.opensBy === 'realtor' && (
+                        <span
+                          className="bp-muted ol-tag"
+                          title="The loan is brought in by the realtor, so it opens by realtor. Which loan officer processed it is not the unit of decision here."
+                        >
+                          by realtor
+                        </span>
+                      )}
+                      {/*
+                        ⚠ La explicacion de por que NPPM puede sumar mas de lo
+                        que el branch cuenta. El realtor es de la division; el
+                        originador de ese prestamo no, asi que el prestamo cuenta
+                        al realtor y no al branch. Sin este numero la diferencia
+                        no se puede explicar mirando la pantalla.
+                      */}
+                      {bs.outsideDivision > 0 && (
+                        <span
+                          className="bp-muted ol-tag"
+                          title={
+                            `${bs.outsideDivision} of these closings were originated by someone outside the division, ` +
+                            `so they count for the realtor but not in the branch total — the exclusion is about not ` +
+                            `counting that person as a loan officer, not about erasing what the realtor brought in. ` +
+                            `They are also in the unresolved count at the foot of Outlook: no loan officer row, but a ` +
+                            `realtor row.`
+                          }
+                        >
+                          +{bs.outsideDivision} originated outside the division
+                        </span>
+                      )}
+                      {bs.opensBy === 'branch' && (
+                        <span
+                          className="bp-muted ol-tag"
+                          title="This is the branch's, not a person's. The question is how many loans it brought in and how much it projects, not how much each person did — so there is nothing to open."
+                        >
+                          branch level
                         </span>
                       )}
                     </td>
                     {monthsOfYear.map((m) => (
                       <td
                         key={m}
-                        className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth) + (byMonth[m] ? '' : ' zero')}
+                        className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}
                         title={
                           m === currentMonth
-                            ? 'Forecast projects the month from the pipeline, which does not carry the strategy. Splitting the total by strategy would be inventing it.'
-                            : undefined
+                            ? 'What actually closed this month. There is no forecast by strategy: Forecast projects the month from the pipeline, which does not carry the strategy — so this column shows the real closings, not a projection.'
+                            : m > currentMonth && !proyecta
+                              ? 'Nothing is set for this strategy yet, so there is no budget to show. Not the same as a budget of zero.'
+                              : undefined
                         }
                       >
-                        {fmt(byMonth[m])}
+                        {fmt(sYear.byMonth[m] ?? null)}
                       </td>
                     ))}
                     <td
                       className="bp-center totcol"
-                      title={`Without ${monthLabel(currentMonth)}: the current month cannot be broken down by strategy.`}
+                      title={`${monthLabel(currentMonth)} is what actually closed, not the forecast — so this total is below the one in the block above, by the part of the forecast that has not closed yet.`}
                     >
-                      {fmt(total)}
+                      {fmt(sYear.total)}
                     </td>
-                    <td className={'bp-center' + (benchSum ? '' : ' zero')}>{fmt(benchSum)}</td>
-                    <td className="lbl bp-muted">
-                      {people.length === 0
-                        ? 'no budget set here'
-                        : [
-                            `${withBench} with a benchmark`,
-                            monthly > 0 ? `${monthly} month by month` : null,
-                          ]
-                            .filter(Boolean)
-                            .join(' · ')}
-                    </td>
+                    <td className="bp-center">{fmt(bench)}</td>
+                    <td className="lbl bp-muted">{regla}</td>
                   </tr>
 
-                  {isOpen && people.length === 0 && (
-                    <tr className="metric">
-                      <td className="lbl bp-empty-cell" colSpan={colCount} style={{ paddingLeft: '30px' }}>
-                        Nobody in this branch has production or a budget in {s} yet.
-                      </td>
-                    </tr>
-                  )}
-
-                  {isOpen &&
-                    [...cells, ...restCells].map(({ lo, cell }) => {
+                  {/* ── Own Production: se abre por Loan Officer ───────────── */}
+                  {abierta &&
+                    bs.opensBy === 'loanOfficer' &&
+                    branch.loanOfficers.map((lo) => {
+                      const cell = cellOf(lo, s);
                       const isMonthly = (lo.modeByStrategy[s] ?? 'growth') === 'monthly';
-                      const bench = lo.strategyBenchmarks[s] ?? 0;
-                      /* Los realtors sólo existen bajo NPPM, y con su propio pliegue. */
-                      const hasRealtors = s === 'NPPM' && cell.realtors.length > 0;
-                      const realtorKey = 'r:' + s + ':' + lo.employeeKey;
-                      const realtorsOpen = open.has(realtorKey);
-
+                      const b = lo.strategyBenchmarks[s] ?? 0;
                       return (
-                        <Fragment key={'s-' + s + '-' + lo.employeeKey}>
-                          <tr
-                            className={'metric mrow' + (hasRealtors ? ' togg' : '')}
-                            onClick={hasRealtors ? () => toggle(realtorKey) : undefined}
-                          >
-                            <td className="lbl" style={{ paddingLeft: '30px' }}>
-                              {hasRealtors && (
-                                <span className={'chev' + (realtorsOpen ? ' open' : '')} aria-hidden="true">
-                                  ›
-                                </span>
-                              )}
-                              {lo.fullName}
-                              {!cell.here && (
-                                <span
-                                  className="bp-muted ol-tag"
-                                  title={
-                                    `Their budget is charged to branch ${lo.primaryBranch ?? '(not in roster)'}, their ` +
-                                    `roster branch. What is shown here is what they closed in this branch.`
-                                  }
-                                >
-                                  budget in {lo.primaryBranch ?? 'no branch'}
-                                </span>
-                              )}
-                            </td>
-                            {monthsOfYear.map((m) => (
-                              <td
-                                key={m}
-                                className={
-                                  'bp-center ol-m ol-m--' +
-                                  bandOf(m, currentMonth) +
-                                  (cell.year.byMonth[m] ? '' : ' zero')
-                                }
-                                title={
-                                  m === currentMonth
-                                    ? 'Forecast projects the month from the pipeline, which does not carry the strategy. Splitting the total by strategy would be inventing it.'
-                                    : m > currentMonth
-                                      ? cell.steps[remainingMonths.indexOf(m)]?.explain
-                                      : undefined
-                                }
-                              >
-                                {fmt(cell.year.byMonth[m] ?? null)}
-                              </td>
-                            ))}
+                        <tr key={'s-' + s + '-' + lo.employeeKey} className="metric mrow">
+                          <td className="lbl" style={{ paddingLeft: '30px' }}>
+                            {lo.fullName}
+                          </td>
+                          {monthsOfYear.map((m) => (
                             <td
-                              className="bp-center totcol"
-                              title={`Without ${monthLabel(currentMonth)}: the current month cannot be broken down by strategy.`}
+                              key={m}
+                              className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}
+                              title={
+                                m === currentMonth
+                                  ? 'What actually closed this month, not a forecast: the pipeline does not carry the strategy.'
+                                  : m > currentMonth
+                                    ? cell.steps[remainingMonths.indexOf(m)]?.explain
+                                    : undefined
+                              }
                             >
-                              {fmt(cell.year.total)}
+                              {fmt(cell.year.byMonth[m] ?? null)}
                             </td>
-                            {/*
-                              El benchmark se edita desde su celda y la regla
-                              desde la celda de la regla. Las dos abren el mismo
-                              editor: son una sola decisión --cuánto es la base y
-                              cuánto crece-- y verlas juntas es lo que evita
-                              guardar una sin mirar la otra.
-
-                              El benchmark sólo significa algo en modo `growth`:
-                              es la BASE de un cálculo. En modo mes a mes los
-                              meses son el resultado directo, así que la celda
-                              dice `no data` en vez de mostrar un número guardado
-                              que no está interviniendo en ninguna celda.
-                            */}
-                            <td
-                              className={'bp-center' + (isMonthly || !bench ? ' zero' : '')}
-                              onClick={(e) => e.stopPropagation()}
+                          ))}
+                          <td className="bp-center totcol">{fmt(cell.year.total)}</td>
+                          <td className="bp-center">
+                            {isMonthly ? fmt(null) : fmt(b)}
+                            <button
+                              type="button"
+                              className="ol-edit"
+                              onClick={() => setEditing({ employeeKey: lo.employeeKey, strategy: s })}
+                              aria-label={`Edit ${lo.fullName}'s benchmark and rule in ${s}`}
+                              title={
+                                isMonthly
+                                  ? 'Set month by month: the benchmark does not take part. It stays saved in case this goes back to growth rate.'
+                                  : `Its benchmark is edited in the Business Plan. What is edited here is ${lo.fullName}'s growth rule.`
+                              }
                             >
-                              {isMonthly ? 'no data' : fmt(bench)}
-                              <button
-                                type="button"
-                                className="ol-edit"
-                                onClick={() => setEditing({ employeeKey: lo.employeeKey, strategy: s })}
-                                title={
-                                  isMonthly
-                                    ? 'Set month by month: the benchmark does not take part. It stays saved in case this goes back to growth rate.'
-                                    : s === 'Own Production'
-                                      ? 'Its benchmark is edited in the Business Plan. What is edited here is its growth rule.'
-                                      : `Set ${lo.fullName}'s benchmark in ${s} and its growth rule`
-                                }
-                              >
-                                edit
-                              </button>
-                            </td>
-                            <td className="lbl ol-rule" onClick={(e) => e.stopPropagation()}>
-                              <button
-                                type="button"
-                                className="bp-linkish ol-rule__btn"
-                                onClick={() => setEditing({ employeeKey: lo.employeeKey, strategy: s })}
-                              >
-                                {ruleLabel(lo, s, remainingMonths)}
-                              </button>
-                              <span className="bp-muted ol-tag">
-                                rev {(isMonthly ? lo.targetRevision[s] : lo.ruleRevision[s]) || '–'}
-                              </span>
-                            </td>
-                          </tr>
-
-                          {/* Los realtors NPPM, por nombre, con su propio benchmark. */}
-                          {hasRealtors &&
-                            realtorsOpen &&
-                            cell.realtors.map((r) => {
-                              /*
-                                Un realtor tiene meses reales y nada más: su
-                                benchmark no proyecta (ver `NppmEditor`), así que
-                                del mes en curso en adelante va `no data` y no 0.
-                              */
-                              const rYear = composeYear(monthsOfYear, currentMonth, r.actualByMonth, null, {});
-                              return (
-                                <tr key={'s-' + s + '-' + lo.employeeKey + '-' + r.realtor} className="metric drow">
-                                  <td className="lbl" style={{ paddingLeft: '52px' }}>
-                                    {r.realtor}
-                                  </td>
-                                  {monthsOfYear.map((m) => (
-                                    <td
-                                      key={m}
-                                      className={
-                                        'bp-center ol-m ol-m--' +
-                                        bandOf(m, currentMonth) +
-                                        (rYear.byMonth[m] ? '' : ' zero')
-                                      }
-                                    >
-                                      {fmt(rYear.byMonth[m] ?? null)}
-                                    </td>
-                                  ))}
-                                  <td className="bp-center totcol">{fmt(rYear.total)}</td>
-                                  <td
-                                    className={'bp-center' + (r.benchmark ? '' : ' zero')}
-                                    title="The realtor's benchmark, not the realtor–loan officer pair's: the same realtor works with several people and branches."
-                                  >
-                                    {fmt(r.benchmark)}
-                                    <button
-                                      type="button"
-                                      className="ol-edit"
-                                      onClick={() => setEditingNppm({ realtor: r.realtor, ytd: r.ytd })}
-                                      title={`Set ${r.realtor}'s benchmark`}
-                                    >
-                                      edit
-                                    </button>
-                                  </td>
-                                  <td className="lbl bp-muted ol-rule">
-                                    their production is already counted in NPPM
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                        </Fragment>
+                              ✎
+                            </button>
+                          </td>
+                          <td className="lbl ol-rule">
+                            <button
+                              type="button"
+                              className="ol-rule__btn"
+                              onClick={() => setEditing({ employeeKey: lo.employeeKey, strategy: s })}
+                            >
+                              {ruleLabel(lo, s, remainingMonths)}
+                            </button>
+                            <span className="bp-muted ol-tag">
+                              rev {(isMonthly ? lo.targetRevision[s] : lo.ruleRevision[s]) || 0}
+                            </span>
+                          </td>
+                        </tr>
                       );
                     })}
-                  {/*
-                    Los que no tienen nada en esta estrategia. Estan detras de un
-                    pliegue y no escondidos: hay que poder fijarles un presupuesto,
-                    y es la unica pantalla desde donde se hace.
-                  */}
-                  {isOpen && rest.length > 0 && (
-                    <tr className="metric togg" onClick={() => toggle('rest:' + s)}>
-                      <td className="lbl" colSpan={colCount} style={{ paddingLeft: '30px' }}>
-                        <button type="button" className="bp-linkish">
-                          {restOpen
-                            ? `hide the ${rest.length} with no budget in ${s}`
-                            : `show the ${rest.length} with no budget in ${s}`}
-                        </button>
-                      </td>
-                    </tr>
-                  )}
+
+                  {/* ── NPPM: se abre por realtor ──────────────────────────── */}
+                  {abierta &&
+                    bs.opensBy === 'realtor' &&
+                    bs.realtors.map((r) => {
+                      /*
+                        Un realtor tiene meses REALES y nada mas: su benchmark no
+                        proyecta (ver `NppmEditor`), asi que del mes en curso en
+                        adelante la fila va vacia.
+                      */
+                      const rYear = composeYear(
+                        monthsOfYear,
+                        currentMonth,
+                        r.actualByMonth,
+                        r.actualByMonth[currentMonth] ?? 0,
+                        {}
+                      );
+                      return (
+                        <tr key={'s-' + s + '-r-' + r.realtor} className="metric mrow">
+                          <td className="lbl" style={{ paddingLeft: '30px' }}>
+                            {r.realtor}
+                          </td>
+                          {monthsOfYear.map((m) => (
+                            <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
+                              {fmt(rYear.byMonth[m] ?? null)}
+                            </td>
+                          ))}
+                          <td className="bp-center totcol">{fmt(rYear.total)}</td>
+                          {/*
+                            ⚠ EL DEFAULT ES EL PROMEDIO DE SUS 3 MESES CERRADOS, y
+                            si nadie lo toca ESE es el valor -- no un cero ni un
+                            hueco. Se marca `default` para que se distinga de un
+                            numero que alguien decidio.
+                          */}
+                          {/*
+                            ⚠ DOS decimales, no uno. El benchmark de un realtor
+                            es el promedio de 3 meses y casi siempre fraccionario:
+                            0,33 · 0,67 · 1,33. Con un decimal salen 0,3 · 0,7 ·
+                            1,3 y se pierde de dónde viene el número -- son
+                            tercios. El resto de la tabla sigue con un decimal,
+                            que es lo que un pronóstico de pipeline necesita.
+                          */}
+                          <td className="bp-center">
+                            {Number.isInteger(r.benchmark) ? r.benchmark : r.benchmark.toFixed(2)}
+                            {r.benchmarkIsDefault && (
+                              <span
+                                className="bp-muted ol-tag"
+                                title={
+                                  `Nobody has set it, so what applies is the average of their closings over the ` +
+                                  `3 closed months: ${r.avg3m.toFixed(2)}. Editing it saves one number for the ` +
+                                  `realtor across every branch — their production is per branch, their benchmark is not.`
+                                }
+                              >
+                                default
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              className="ol-edit"
+                              onClick={() => setEditingNppm({ realtor: r.realtor, ytd: r.ytd })}
+                              aria-label={`Edit ${r.realtor}'s benchmark`}
+                              title={`Set ${r.realtor}'s benchmark. One number per realtor, across every branch.`}
+                            >
+                              ✎
+                            </button>
+                          </td>
+                          <td className="lbl bp-muted">
+                            {r.benchmarkIsDefault ? `3-month average: ${r.avg3m.toFixed(2)}` : 'set by hand'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+
                 </Fragment>
               );
-            })}
+              })}
           </tbody>
         </table>
       </div>
@@ -777,13 +841,14 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
         pie de la pagina lo leeria quien ya se hizo la pregunta; aca lo lee quien
         esta mirando la columna en cero.
       */}
-      {strategyBenchmarksSet === 0 && branch.loanOfficers.length > 0 && (
+      {strategyBenchmarksSet === 0 && (
         <div className="bp-notice ol-notice">
-          <b>No strategy benchmarks set in this branch.</b> That is why every strategy above projects zero from{' '}
-          {monthLabel(remainingMonths[0] ?? currentMonth)} on, except Own Production, whose benchmark comes from the
-          Business Plan. Growth rules do not fill the gap: a rule multiplies a benchmark, and over zero it gives zero.
-          It is <b>not set yet</b>, not a decision that nothing is expected — use <b>edit</b>{' '}
-          on a person&apos;s row.
+          <b>Only Own Production has a budget.</b> B2B, Recruitment and Affinity are the branch&apos;s, and{' '}
+          <code>outlook.strategy_benchmark</code> hangs off a person — so as of this stage there is nowhere to save
+          their budget, and their columns from {monthLabel(remainingMonths[0] ?? currentMonth)} on are{' '}
+          <b>blank, not zero</b>: nothing has been decided, rather than a decision that nothing is expected. NPPM does
+          have a benchmark per realtor, defaulting to their 3-month average, and it does not project yet either. The
+          SQL to store a budget per branch is in <code>docs/sql</code>, not applied.
         </div>
       )}
 

@@ -280,6 +280,96 @@ export interface OutlookLoanOfficer {
   isBranchManager: boolean;
 }
 
+/**
+ * Un realtor NPPM en UN branch — etapa OL8.
+ *
+ * ⚠ LA PRODUCCIÓN ES POR BRANCH Y EL BENCHMARK ES GLOBAL, y la asimetría es
+ * real, no un descuido. `outlook.nppm_benchmark` tiene una fila por realtor, sin
+ * branch: el mismo realtor trabaja con varias personas y en varios branches, y
+ * el negocio decidió un número por realtor. Pero su producción sí es de un
+ * branch, así que el DEFAULT --el promedio de sus 3 meses cerrados-- se calcula
+ * por branch.
+ *
+ * Consecuencia medida, que hay que saber antes de editar: Laura Delgado tiene 4
+ * cierres en el 733 (promedio 1,33) y 5 en el 776 (promedio 0,67, porque sólo 2
+ * caen en la ventana). Sus defaults difieren; el día que alguien le fije un
+ * benchmark, ese valor único rige en los dos branches. La pantalla lo dice en el
+ * tooltip.
+ */
+/**
+ * El realtor de un préstamo NPPM al que nadie le cargó el realtor.
+ *
+ * ⚠ SE MUESTRA, no se oculta: sin esta fila el total de NPPM del branch no daría
+ * la suma de sus realtors, y un descuadre sin explicación es peor que una fila
+ * incompleta. Dice `unassigned realtor` y no `(no name)` para que se lea como lo
+ * que es --un dato que falta en el origen-- y no como una categoría de realtor.
+ *
+ * Hoy es uno: un préstamo NPPM de Aimmee Buendía en el 733.
+ */
+export const UNASSIGNED_REALTOR = 'unassigned realtor';
+
+export interface BranchRealtor {
+  realtor: string;
+  ytd: number;
+  actualByMonth: Record<string, number>;
+  /**
+   * El promedio de cierres de los 3 meses CERRADOS -- mayo, junio y julio hoy.
+   * Es el benchmark por defecto y sale del dato, no de una decisión.
+   */
+  avg3m: number;
+  /** El benchmark vigente: el guardado si hay, y si no `avg3m`. */
+  benchmark: number;
+  /** `true` si nadie lo fijó y el que rige es `avg3m`. */
+  benchmarkIsDefault: boolean;
+}
+
+/**
+ * Una estrategia EN UN BRANCH, y por quién se abre — etapa OL8.
+ *
+ * ==========================================================================
+ * ⚠ LA ESTRATEGIA DEJÓ DE COLGAR DEL LOAN OFFICER
+ * ==========================================================================
+ *
+ * Hasta OL7 las cinco estrategias se abrían por persona. Tres de ellas no
+ * tienen nada que ver con la persona:
+ *
+ *   Own Production   se abre por LOAN OFFICER. Es producción propia: la
+ *                    pregunta es cuánto hace cada uno.
+ *   NPPM             se abre por REALTOR. El préstamo lo trae el realtor; qué
+ *                    Loan Officer lo procesó no es la unidad de decisión.
+ *   B2B              NO SE ABRE. Es del branch.
+ *   Recruitment      NO SE ABRE. Es del branch.
+ *   Affinity         NO SE ABRE. Es del branch.
+ *
+ * La pregunta de negocio en esas tres es "cuántos préstamos trajo B2B y cuánto
+ * proyecta", no "cuánto B2B hizo cada persona". Abrirlas por persona repartía un
+ * número del branch entre gente que no lo decide, y obligaba a sumar a mano
+ * nueve filas para contestar la única pregunta que importaba.
+ *
+ * ⚠ `actualByMonth` cuenta TODOS los cierres del branch en esa estrategia,
+ * incluidos los de gente que no tiene fila en el bloque de Loan Officers. Por
+ * eso el total del branch cuadra con la suma de sus estrategias aunque no cuadre
+ * con la suma de sus personas.
+ */
+export interface BranchStrategy {
+  strategy: OutlookStrategy;
+  ytd: number;
+  actualByMonth: Record<string, number>;
+  /** Cómo se abre esta estrategia. Ver la nota de arriba. */
+  opensBy: 'loanOfficer' | 'realtor' | 'branch';
+  /** Sólo en NPPM: los realtors del branch, de mayor a menor. */
+  realtors: BranchRealtor[];
+  /**
+   * Sólo en NPPM: cierres contados al realtor cuyo ORIGINADOR está excluido de la
+   * división, así que no están en el total del branch.
+   *
+   * ⚠ Es la explicación de por qué NPPM puede sumar más de lo que el branch
+   * cuenta. Sin este número la diferencia no se puede explicar mirando. Hoy es 1,
+   * en el 733.
+   */
+  outsideDivision: number;
+}
+
 export interface OutlookBranch {
   branchCode: string;
   ytd: number;
@@ -302,7 +392,23 @@ export interface OutlookBranch {
    * pantalla y no preguntando: 47 (+4 sin atribuir) contra los 51 de allá.
    */
   unattributed: number;
+  /**
+   * Cerrados de ESTE branch cuyo originador no tiene fila acá — etapa OL8.
+   *
+   * ⚠ ES EL PRECIO DE LA REGLA NUEVA, Y VA A LA PANTALLA POR ESO. El bloque de
+   * Loan Officers muestra sólo a los del branch según el roster; quien cerró acá
+   * pero pertenece a otro branch ya no tiene fila. Su producción sigue contando
+   * --el préstamo se cerró en este branch-- así que el total del branch deja de
+   * ser la suma de sus filas.
+   *
+   * Un descuadre sin explicación es peor que una fila incompleta, así que el
+   * subtítulo lo dice: "closed 47 (+3 by loan officers from other branches)".
+   * Es el mismo criterio que `unattributed`.
+   */
+  closedByOutsiders: number;
   loanOfficers: OutlookLoanOfficer[];
+  /** Las cinco estrategias del branch — etapa OL8. */
+  byStrategy: BranchStrategy[];
 }
 
 export interface OutlookData {
@@ -829,6 +935,18 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
    * cómo esté escrito el nombre.
    */
   const realtorsByStrategyKey = new Map<string, Set<string>>();
+  /*
+   * A NIVEL BRANCH, sin la persona en la clave — etapa OL8.
+   *
+   * ⚠ No se derivan sumando los de persona: incluyen los cierres de gente que no
+   * tiene fila en el branch. Derivarlos daría un número más chico y la suma de
+   * las estrategias no daría el total del branch.
+   */
+  const actualByBranchStrategy: MonthCounter = new Map();
+  const actualByBranchRealtor: MonthCounter = new Map();
+  const realtorsByBranch = new Map<string, Set<string>>();
+  /* Cierres NPPM contados al realtor y NO al branch, por originador excluido. */
+  const nppmOutsideDivision = new Map<string, number>();
   let ytdRowsCounted = 0;
   let unresolvedOfficers = 0;
   /*
@@ -847,6 +965,41 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       unresolvedOfficers += 1;
       const b = classifyBranch(row.branch ?? '');
       unattributedByBranch.set(b, (unattributedByBranch.get(b) ?? 0) + 1);
+
+      /*
+       * ==========================================================================
+       * ⚠ NPPM SÍ CUENTA AL REALTOR, aunque el originador esté excluido
+       * ==========================================================================
+       *
+       * La exclusión de `org.source_name_excluded` existe para no contar a esa
+       * persona como Loan Officer de la división. NPPM no mide a la persona: mide
+       * la producción del REALTOR, y el realtor sí es de la división. Descartar
+       * el préstamo por quién firmó mezcla dos cosas distintas.
+       *
+       * Hoy es un préstamo: el de Daniel Rodriguez en el 733, originado por
+       * Anthony DiToma. Sin esto, el 733 mostraba 6 en NPPM y el realtor no
+       * existía en la pantalla.
+       *
+       * ⚠ CONSECUENCIA QUE HAY QUE MIRAR: este préstamo NO está en el total del
+       * branch --que sí excluye a DiToma-- así que la suma de las estrategias
+       * puede pasar al total del branch por esta vía. Se cuenta aparte, en
+       * `nppmOutsideDivision`, y la fila de NPPM lo dice: es la única forma de que
+       * la diferencia se explique en vez de aparecer como un descuadre.
+       *
+       * Y sigue contado en los que no resuelven, al pie: no tiene fila de Loan
+       * Officer, sí tiene fila de realtor. Son dos preguntas distintas.
+       */
+      const estrategiaCruda = row.strategy ?? '';
+      if (estrategiaCruda === 'NPPM') {
+        const mesNppm = row.closing_month.slice(0, 7);
+        const realtorNppm = row.nppm_realtor?.trim() || UNASSIGNED_REALTOR;
+        bump(actualByBranchStrategy, b + '|NPPM', mesNppm);
+        bump(actualByBranchRealtor, b + '|' + realtorNppm, mesNppm);
+        const enBranch = realtorsByBranch.get(b) ?? new Set<string>();
+        enBranch.add(realtorNppm);
+        realtorsByBranch.set(b, enBranch);
+        nppmOutsideDivision.set(b, (nppmOutsideDivision.get(b) ?? 0) + 1);
+      }
       continue;
     }
     ytdRowsCounted += 1;
@@ -869,13 +1022,19 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
      */
     const sk = branch + '|' + officerKey + '|' + strategy;
     bump(actualByLoStrategy, sk, month);
+    bump(actualByBranchStrategy, branch + '|' + strategy, month);
 
     if (strategy === 'NPPM') {
-      const realtor = row.nppm_realtor?.trim() || '(no name)';
+      const realtor = row.nppm_realtor?.trim() || UNASSIGNED_REALTOR;
       bump(actualByLoStrategyRealtor, sk + '|' + realtor, month);
       const set = realtorsByStrategyKey.get(sk) ?? new Set<string>();
       set.add(realtor);
       realtorsByStrategyKey.set(sk, set);
+
+      bump(actualByBranchRealtor, branch + '|' + realtor, month);
+      const porBranch = realtorsByBranch.get(branch) ?? new Set<string>();
+      porBranch.add(realtor);
+      realtorsByBranch.set(branch, porBranch);
     }
   }
 
@@ -889,6 +1048,27 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
    * total. Antes aparecía en los dos con el total completo.
    */
   const branchMap = new Map<string, OutlookLoanOfficer[]>();
+
+  /*
+   * ⚠ EL MAPA SE SIEMBRA CON LOS BRANCHES, NO SE DERIVA DE LAS FILAS.
+   *
+   * Un branch existe si tuvo producción o si el roster pone gente en él. Antes
+   * se derivaba de las filas de personas y eso alcanzaba, porque una fila
+   * aparecía en cada branch donde había cerrado. Con la regla de OL8 --una
+   * persona, un branch-- un branch entero puede quedarse sin filas.
+   *
+   * Medido cuando faltaba esta siembra: AFFINITY desapareció del módulo con sus
+   * 31 cierres, porque nadie lo tiene como branch de roster --sólo existe a
+   * nivel de préstamo-- y el pronóstico de agosto de la división cayó de 31 a 26
+   * sin que nada lo dijera. Un branch con producción y sin fila tiene que
+   * mostrarse igual: su producción es real.
+   */
+  for (const k of actualByBranch.keys()) if (!branchMap.has(k)) branchMap.set(k, []);
+  for (const r of rosterByKey.values()) {
+    if (r.is_producer && r.is_active && r.branch_code && !branchMap.has(r.branch_code)) {
+      branchMap.set(r.branch_code, []);
+    }
+  }
 
   /* El desglose de UNA persona EN UN branch. La clave lleva los tres. */
   /*
@@ -976,38 +1156,40 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
 
     /*
      * ==========================================================================
-     * ⚠ EN QUE BRANCHES APARECE — la regla cambio en OL7
+     * ⚠ EN QUÉ BRANCH APARECE — UNO, el del roster (etapa OL8)
      * ==========================================================================
      *
-     * Aparece en:
-     *   - el branch que le da el ROSTER, si el roster dice que produce y esta
-     *     activa. Asi un productor nuevo se ve en su branch desde el primer dia,
-     *     sin haber cerrado nada todavia.
-     *   - los branches donde CERRO este anio, cualquiera sea su estado.
+     * Aparece en el branch que le da el ROSTER, y en ninguno más. Dos
+     * condiciones, y hace falta una de las dos:
      *
-     * Lo segundo es lo que hace que el total del branch cuadre con la suma de
-     * sus filas. Isabel Wagner y Ludwig Aguillon son bajas de RRHH con 3
-     * cierres de division entre las dos en el 716 este anio: su produccion es
-     * real y ya ocurrio. Sin su fila, el YTD del branch tendria 3 prestamos sin
-     * dueno visible -- un descuadre sin explicacion, peor que una fila
-     * incompleta.
+     *   - es productor y está activo  → se ve desde el primer día, sin haber
+     *     cerrado nada todavía.
+     *   - cerró algo en ESE branch    → así las bajas se quedan donde
+     *     pertenecen. Isabel Wagner y Ludwig Aguillon tienen branch 716 en el
+     *     roster y cerraron ahí: siguen, marcadas por su estado.
      *
-     * ⚠ Rene Perez (733) es el TERCER productor inactivo del roster y NO
-     * aparece: no cerro nada este anio, asi que no hay produccion huerfana que
-     * explicar. Que la regla lo deje afuera solo es la prueba de que la fila la
-     * trae la produccion y no el estado.
+     * ⚠ QUIÉN DEJÓ DE APARECER, que es el cambio de OL8. Hasta OL7 una persona
+     * aparecía en TODOS los branches donde había cerrado. El 747 mostraba a
+     * Nathan Martinez, Cristhian Ramirez y Jose Zamora --marcados "budget in
+     * 716 / budget in 760"-- cuando el 747 tiene dos Loan Officers: Galo Rizzo y
+     * Gian Laino. Una fila que aclara que su presupuesto está en otro branch no
+     * es información del branch que se está mirando: es ruido con la forma de
+     * una fila.
+     *
+     * Sus cierres SIGUEN sumando al total del branch, sin fila. Por eso el total
+     * dejó de ser la suma de las filas, y por eso existe `closedByOutsiders`:
+     * el subtítulo lo dice, igual que hace con los que no resuelven.
+     *
+     * Y una consecuencia buscada: como el roster da UN branch por persona,
+     * nadie puede aparecer dos veces. `primaryBranch` y el branch de su fila son
+     * siempre el mismo, así que la etiqueta "budget in X" del bloque de
+     * personas ya no puede existir.
      */
     const rosterEntry = rosterByKey.get(lo.employeeKey);
-    const belongsByRoster =
-      rosterEntry && rosterEntry.is_producer && rosterEntry.is_active && rosterEntry.branch_code
-        ? [rosterEntry.branch_code]
-        : [];
-    /*
-     * ⚠ `lo.branchCodes` --de `org.employee_branch`-- YA NO PARTICIPA. Es la
-     * fuente que esta etapa reemplazó: tiene el branch viejo de Johann, dos
-     * filas para cada BM, y ninguna para Lucio Romero.
-     */
-    const codes = [...new Set([...belongsByRoster, ...branchesWithProduction])];
+    const rosterBranch = rosterEntry?.branch_code ?? null;
+    const esProductorActivo = !!rosterEntry && rosterEntry.is_producer && rosterEntry.is_active;
+    const cerroEnSuBranch = rosterBranch !== null && branchesWithProduction.includes(rosterBranch);
+    const codes = rosterBranch !== null && (esProductorActivo || cerroEnSuBranch) ? [rosterBranch] : [];
 
     const row: OutlookLoanOfficer = {
       employeeKey: lo.employeeKey,
@@ -1155,8 +1337,11 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
     /* Sin nombre no hay fila que mostrar: sería un renglón anónimo. */
     if (!name) continue;
 
-    const belongsByRoster = r && r.is_producer && r.is_active && r.branch_code ? [r.branch_code] : [];
-    const codes = [...new Set([...belongsByRoster, ...(productionByKey.get(key) ?? [])])];
+    /* Misma regla que arriba: el branch del roster, y una de las dos condiciones. */
+    const rosterBranch = r?.branch_code ?? null;
+    const esProductorActivo = !!r && r.is_producer && r.is_active;
+    const cerroEnSuBranch = rosterBranch !== null && (productionByKey.get(key) ?? new Set<string>()).has(rosterBranch);
+    const codes = rosterBranch !== null && (esProductorActivo || cerroEnSuBranch) ? [rosterBranch] : [];
 
     for (const code of codes) {
       const list = branchMap.get(code) ?? [];
@@ -1236,6 +1421,66 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
     branchMap.set(r.branch_code, list);
   });
 
+  /*
+   * Los 3 meses CERRADOS, que son la ventana del promedio de un realtor NPPM.
+   *
+   * Se derivan de los meses reales --los anteriores al mes en curso-- y no se
+   * vuelven a calcular con el reloj: `currentMonth` ya viene de la fecha de
+   * referencia, y una segunda lectura del reloj podría caer en otro mes.
+   * Mismo largo que `WINDOW_MONTHS` del Business Plan, que es de dónde sale que
+   * la ventana sea de tres.
+   */
+  const mesesReales = monthsOfYear.filter((m) => m < currentMonth);
+  const NPPM_WINDOW = 3;
+  const ventanaCerrada = mesesReales.slice(-NPPM_WINDOW);
+
+  /** Las cinco estrategias de un branch, con quién las abre. Ver `BranchStrategy`. */
+  function strategiesOfBranch(branchCode: string): BranchStrategy[] {
+    return OUTLOOK_STRATEGIES.map((strategy) => {
+      const key = branchCode + '|' + strategy;
+      const realtors: BranchRealtor[] =
+        strategy !== 'NPPM'
+          ? []
+          : [...(realtorsByBranch.get(branchCode) ?? [])]
+              .map((realtor) => {
+                const rk = branchCode + '|' + realtor;
+                const meses = monthsOf(actualByBranchRealtor, rk);
+                /*
+                 * ⚠ EL BENCHMARK POR DEFECTO ES EL PROMEDIO DE SUS 3 MESES
+                 * CERRADOS, y sale del dato: si nadie lo toca, ese es el valor
+                 * que rige, no un cero ni un hueco.
+                 *
+                 * Se divide siempre por 3, no por los meses con cierres: un mes
+                 * sin cerrar nada es un cero real y promediar sólo los meses
+                 * activos inflaría el número. Medido: Laura Delgado tiene 5
+                 * cierres en el 776 y promedio 0,67, porque sólo 2 caen en la
+                 * ventana.
+                 */
+                const avg3m = ventanaCerrada.reduce((a, m) => a + (meses[m] ?? 0), 0) / NPPM_WINDOW;
+                const guardado = benchmarkAt(nppmScheduleByRealtor.get(normName(realtor)) ?? [], displayMonth);
+                const hayGuardado = (nppmScheduleByRealtor.get(normName(realtor)) ?? []).length > 0;
+                return {
+                  realtor,
+                  ytd: totalOf(actualByBranchRealtor, rk),
+                  actualByMonth: meses,
+                  avg3m,
+                  benchmark: hayGuardado ? guardado : avg3m,
+                  benchmarkIsDefault: !hayGuardado,
+                };
+              })
+              .sort((a, b) => b.ytd - a.ytd || a.realtor.localeCompare(b.realtor));
+      return {
+        strategy,
+        ytd: totalOf(actualByBranchStrategy, key),
+        actualByMonth: monthsOf(actualByBranchStrategy, key),
+        opensBy:
+          strategy === 'Own Production' ? ('loanOfficer' as const) : strategy === 'NPPM' ? ('realtor' as const) : ('branch' as const),
+        realtors,
+        outsideDivision: strategy === 'NPPM' ? (nppmOutsideDivision.get(branchCode) ?? 0) : 0,
+      };
+    });
+  }
+
   const branches: OutlookBranch[] = [...branchMap.entries()]
     .map(([branchCode, los]) => ({
       branchCode,
@@ -1257,7 +1502,16 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
         .filter((l) => l.primaryBranch === branchCode)
         .reduce((a, l) => a + l.closedToDate, 0),
       unattributed: unattributedByBranch.get(branchCode) ?? 0,
+      /*
+       * Por RESTA, y a propósito: lo que el branch tiene menos lo que explican
+       * sus filas. Contarlo aparte sería una segunda fórmula para el mismo
+       * número, y podría no dar la diferencia que se ve en la pantalla -- que es
+       * justo lo que este número viene a explicar.
+       */
+      closedByOutsiders:
+        totalOf(actualByBranch, branchCode) - los.reduce((a, l) => a + l.ytd, 0),
       loanOfficers: los.sort((a, b) => b.ytd - a.ytd || a.fullName.localeCompare(b.fullName)),
+      byStrategy: strategiesOfBranch(branchCode),
     }))
     .sort((a, b) => b.ytd - a.ytd || a.branchCode.localeCompare(b.branchCode));
 

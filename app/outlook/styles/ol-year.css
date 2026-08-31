@@ -54,44 +54,90 @@ table.piv.ol-year th.lbl {
 
 /* ── Las tres bandas ─────────────────────────────────────────────────────── */
 
-/* Real: lo cerrado. Neutro -- es el suelo contra el que se lee todo lo demás. */
-.ol-m--actual {
-  background: #f8fafc;
+/*
+ * ============================================================================
+ * ⚠ LAS BANDAS SE MARCAN EN LA CABECERA, NO EN LAS 12 COLUMNAS — etapa OL8
+ * ============================================================================
+ *
+ * Hasta OL7 cada celda de mes llevaba el fondo de su banda: tres tintes ×
+ * doce columnas × todas las filas. La idea era buena --se ve de un golpe dónde
+ * termina lo real y empieza lo decidido-- pero el resultado se leía como una
+ * planilla de cálculo y no como el resto del portal: el color competía con los
+ * números, que son lo único que hay que leer.
+ *
+ * Ahora la banda se dice DOS VECES y ninguna sobre el dato:
+ *   1. el rótulo de la banda, con el token de fondo que le corresponde
+ *   2. una línea vertical donde la banda EMPIEZA, que es la información que
+ *      realmente se usa -- separar lo cerrado del pronóstico y del presupuesto
+ *
+ * Los tres tintes que quedan son tokens del portal --`--slate-100`,
+ * `--accent-soft`, `--emerald-50`-- y no hexadecimales con alfa inventados para
+ * este módulo. La densidad, el hover y la zebra son los de `table.piv`, que es
+ * lo que hace que Outlook y Business Plan se lean como el mismo producto.
+ */
+
+/*
+ * La línea donde arranca cada banda. Es `box-shadow` y no `border-left`: un
+ * borde correría el contenido de la celda un pixel y desalinearía la columna
+ * respecto de la cabecera.
+ */
+table.piv.ol-year td.ol-m--forecast,
+table.piv.ol-year th.ol-m--forecast {
+  box-shadow: inset 1px 0 0 var(--slate-300);
 }
-/* Pronóstico: un mes en curso, mitad hecho y mitad pipeline. */
-.ol-m--forecast {
-  background: #a6deff26;
-}
-/* Presupuesto: lo que este módulo decide. */
-.ol-m--budget {
-  background: #ecfdf54d;
+table.piv.ol-year td.ol-m--budget:first-of-type,
+table.piv.ol-year th.ol-m--budget:first-of-type {
+  box-shadow: inset 1px 0 0 var(--slate-300);
 }
 
 /*
- * ⚠ Especificidad: `tr.metric:nth-child(odd) td` y `tr.grp td` pintan fondo con
- * (0,2,1) y (0,1,1). Una clase sola --(0,1,0)-- pierde y la banda no se vería en
- * las filas impares ni en las de grupo. Por eso van calificadas con la tabla y
- * la fila, igual que ya está anotado en `bp-visual.css` para el centrado.
+ * El mes EN CURSO sí lleva un tinte, y es el único: es la columna que mezcla
+ * cerrado con pipeline, la que se mira primero y la que más se explica en las
+ * reuniones. Un solo acento en toda la tabla no compite con nada.
  */
-table.piv.ol-year tr.metric td.ol-m--actual,
-table.piv.ol-year tr.metric:nth-child(odd) td.ol-m--actual,
-table.piv.ol-year tr.grp td.ol-m--actual {
-  background: #f1f5f9;
+table.piv.ol-year td.ol-m--forecast {
+  background: var(--accent-soft);
 }
-table.piv.ol-year tr.metric td.ol-m--forecast,
 table.piv.ol-year tr.metric:nth-child(odd) td.ol-m--forecast,
 table.piv.ol-year tr.grp td.ol-m--forecast {
-  background: #a6deff33;
+  background: var(--accent-soft);
 }
-table.piv.ol-year tr.metric td.ol-m--budget,
-table.piv.ol-year tr.metric:nth-child(odd) td.ol-m--budget,
-table.piv.ol-year tr.grp td.ol-m--budget {
-  background: #d1fae566;
-}
-/* El hover sigue ganando: es la ayuda para leer una fila larga de doce meses. */
+
+/*
+ * El hover sigue ganando sobre la banda: es la ayuda para leer una fila de doce
+ * meses. Es EXACTAMENTE el de `tr.metric:hover` del sistema compartido --Light
+ * Sky al 20%-- y no el token puro: con `--sky` sólido la fila entera quedaba más
+ * saturada que cualquier dato de la tabla y el resaltado tapaba lo que venía a
+ * ayudar a leer. Repetir el mismo rgba es lo que hace que Outlook y Business
+ * Plan se sientan la misma tabla.
+ */
 table.piv.ol-year tr.metric:hover td.ol-m,
 table.piv.ol-year tr.grp.togg:hover td.ol-m {
-  background: #a6deff47;
+  background: rgba(166, 222, 255, 0.2);
+}
+
+/*
+ * ⚠ NEGRITA SOLO DONDE JERARQUIZA — etapa OL8.
+ *
+ * `table.piv td.totcol` viene en negrita del sistema compartido, así que la
+ * columna del año salía en negrita en TODAS las filas: negrita en una celda de
+ * dato, que no dice nada porque no distingue nada. Queda para las filas que sí
+ * jerarquizan -- el total del branch y el nombre de la estrategia, que son
+ * `tr.grp` y `.ol-total`.
+ */
+.ol-page table.piv.ol-year tr.metric td.totcol {
+  font-weight: 400;
+}
+.ol-page table.piv.ol-year tr.grp td.totcol,
+.ol-page table.piv.ol-year tr.ol-total td {
+  font-weight: 700;
+}
+
+/* La fila del total del branch: cierra el bloque, así que se separa. */
+.ol-page table.piv.ol-year tr.ol-total td {
+  border-top: 2px solid var(--slate-300);
+  background: var(--slate-50);
+  color: var(--navy);
 }
 
 /* ── Los rótulos de banda ────────────────────────────────────────────────── */
@@ -173,4 +219,83 @@ table.piv.ol-year thead .yr-row th.ol-band {
  */
 .ol-page .ol-year th.lbl {
   width: 260px;
+}
+
+/*
+ * ============================================================================
+ * LA REGLA Y EL LÁPIZ — etapa OL8
+ * ============================================================================
+ *
+ * ⚠ La regla ya NO va subrayada. Usaba `.bp-linkish`, que subraya, y en una
+ * celda de tabla un texto subrayado que no navega a ninguna parte se lee como un
+ * enlace roto. Sigue siendo un botón y sigue abriendo el editor: lo dice el
+ * cursor y el color al pasar por encima, que es lo que un control dentro de una
+ * tabla necesita.
+ */
+.ol-page .ol-rule__btn {
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  color: var(--slate-600);
+  text-align: left;
+  cursor: pointer;
+  text-decoration: none;
+}
+.ol-page .ol-rule__btn:hover {
+  color: var(--navy);
+  text-decoration: none;
+}
+
+/*
+ * El lápiz en vez de la palabra `edit`. La palabra ocupaba cuatro caracteres al
+ * lado de cada benchmark --hasta 45 veces en la pantalla-- y competía con el
+ * número, que es el dato. El ícono queda atenuado y se enciende al pasar por
+ * encima; el texto que la palabra daba vive en `aria-label` y en el `title`, así
+ * que no se pierde para quien no ve el ícono.
+ */
+.ol-page .ol-edit {
+  border: 0;
+  padding: 0 0 0 6px;
+  background: none;
+  font-size: var(--ol-text);
+  line-height: 1;
+  color: var(--slate-300);
+  cursor: pointer;
+}
+.ol-page .ol-edit:hover,
+.ol-page tr:hover .ol-edit {
+  color: var(--navy);
+}
+
+/*
+ * El hueco del chevron en una fila que NO se abre --B2B, Recruitment,
+ * Affinity--. Ocupa el mismo ancho para que los cinco nombres de estrategia
+ * arranquen en la misma columna: sin esto, las tres que no se abren quedaban
+ * corridas y parecía otro nivel de la jerarquía.
+ */
+.ol-page .chev--none {
+  display: inline-block;
+  width: 1em;
+}
+
+/*
+ * ⚠ La negrita de `tr.grp` es para el NOMBRE de la estrategia, no para su
+ * columna de regla. "branch level · nowhere to save a budget yet" en negrita en
+ * tres filas seguidas pesa más que los números, y es una aclaración, no una
+ * jerarquía. Misma idea que la columna del año: la negrita distingue niveles, y
+ * si aparece en todo no distingue nada.
+ */
+.ol-page table.piv.ol-year tr.grp td.lbl.bp-muted,
+.ol-page table.piv.ol-year tr.grp td.bp-muted {
+  font-weight: 400;
+}
+
+/*
+ * El lápiz un tono más presente. En `--slate-300` sobre el fondo claro de la
+ * celda casi no se veía --se leía como una mota-- y un control que no se
+ * encuentra no es un control. Sigue por debajo del número, que es el dato.
+ */
+.ol-page .ol-edit {
+  color: var(--slate-400);
 }
