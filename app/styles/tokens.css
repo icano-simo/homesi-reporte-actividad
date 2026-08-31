@@ -99,6 +99,21 @@
    * apenas perceptible). Ver el uso acotado en forecast-visual.css.
    */
   --shadow-sm: 0 2px 6px rgba(0, 26, 64, 0.1);
+  /*
+   * FIX-HERO-HOVER: causa real confirmada -- `.mcard:hover` (components.css)
+   * SOLO cambia `border-color` a `--sky`, nunca toca `box-shadow`. En reposo,
+   * la tarjeta ya usa `--shadow-sm` (Etapa PULIDO-1, acotado a
+   * `.analytics-tab`), y al pasar el mouse ese mismo valor sigue igual --
+   * "hover más flotante" nunca podía notarse porque la sombra de reposo y la
+   * de hover eran, literalmente, el mismo número. `--shadow-lg` (pensado para
+   * `.modal-box`, 20px/45px/18%) es demasiado para una tarjeta chica -- se
+   * vería como si "saltara" de la página, no como una elevación sutil. Mismo
+   * formato/color que el resto de la familia, un escalón real entre
+   * `--shadow-sm` y `--shadow-lg`. Uso acotado en forecast-visual.css
+   * (`.analytics-tab .mcard:hover`), mismo criterio de alcance que
+   * `--shadow-sm`.
+   */
+  --shadow-md: 0 6px 16px rgba(0, 26, 64, 0.14);
   --shadow-lg: 0 20px 45px rgba(0, 26, 64, 0.18);
 
   /* ---- Tipografía --------------------------------------------------------- */

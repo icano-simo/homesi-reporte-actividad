@@ -1051,3 +1051,17 @@ table.piv tr.strat-break-row td {
 .analytics-tab .mcard {
   box-shadow: var(--shadow-sm);
 }
+
+/*
+ * FIX-HERO-HOVER: `.mcard:hover` (components.css) solo cambia `border-color`
+ * -- nunca redefine `box-shadow`, así que el hover se veía IDÉNTICO al
+ * reposo (mismo `--shadow-sm` de la regla de arriba, sin ningún cambio).
+ * `--shadow-md` (tokens.css) es el escalón siguiente, pensado para esto --
+ * mismo alcance acotado a `.analytics-tab` que la regla de reposo, no un
+ * cambio global de `.mcard:hover` que afectaría también a Business Plan y
+ * Commercial Activity, fuera del alcance de este fix.
+ */
+.analytics-tab .tbl-card:hover,
+.analytics-tab .mcard:hover {
+  box-shadow: var(--shadow-md);
+}
