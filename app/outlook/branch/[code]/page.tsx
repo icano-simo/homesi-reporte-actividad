@@ -1580,6 +1580,29 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
       */}
 
       {/*
+        ⚠ LOS CIERRES AJENOS, CON NOMBRE — etapa OL16.
+
+        El total del branch no da la suma de sus filas: cuenta lo que cerró ACÁ,
+        incluidos préstamos de gente de otro branch. `closedByOutsiders` ya decía
+        cuánto faltaba; esto dice de quién.
+
+        Una línea y nada más. Sin párrafo: con los nombres al lado del número, el
+        descuadre se explica solo -- que es el criterio que reemplazó a los
+        párrafos en OL6 y OL12.
+      */}
+      {branch.outsiders.length > 0 && (
+        <p className="ol-outsiders">
+          <span className="ol-outsiders__lbl">Closed here by loan officers from other branches:</span>{' '}
+          {branch.outsiders.map((o, i) => (
+            <span key={o.name}>
+              {i > 0 ? ' · ' : ''}
+              {o.name} <b>{o.closings}</b>
+            </span>
+          ))}
+        </p>
+      )}
+
+      {/*
         Los editores. Se busca la persona en `branch.loanOfficers` en cada render
         y no se guarda el objeto en el estado: después de un guardado, `reload`
         reemplaza `data` entera, y un objeto guardado apuntaría a la versión

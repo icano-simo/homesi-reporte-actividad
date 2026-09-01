@@ -4,7 +4,7 @@ import { lastCompleteMonths, currentWindowMonths, currentYearMonth } from './mon
 /* BP36: `addMonths` ya existía para la línea base de impacto; se reusa para
    derivar el mes siguiente en vez de escribir una segunda aritmética de mes. */
 import { addMonths } from './impact';
-import { closesInMonth, combineVerdict, evaluateQualifier1, evaluateQualifier2, projectCurrentMonth } from './qualifiers';
+import { closesInMonth, closesInMonthOrOverdue, combineVerdict, evaluateQualifier1, evaluateQualifier2, projectCurrentMonth } from './qualifiers';
 import { DEFAULT_RATES, toRateSettings, type RateKey, type RateSettings } from './rates';
 import { branchStatus } from './intervention';
 import type {
@@ -662,7 +662,13 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
       m.nextMonthOpenLoans += 1;
     }
 
-    if (!closesInMonth({ estClosingDate: row.est_closing_date }, thisMonth)) continue;
+    /*
+     * ⚠ `OrOverdue`: el mes en curso se lleva también lo que venció y sigue
+     * abierto -- ver la nota en `closesInMonthOrOverdue`. Sin eso, el día que
+     * rueda el mes el pipeline del mes anterior queda sin columna: su mes ya
+     * cuenta cierres y el nuevo lo excluye por fecha.
+     */
+    if (!closesInMonthOrOverdue({ estClosingDate: row.est_closing_date }, thisMonth)) continue;
 
     const list = openLoansByEmployee.get(key) ?? [];
     list.push({

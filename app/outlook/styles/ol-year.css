@@ -526,3 +526,25 @@ table.piv.ol-year thead .yr-row th.ol-band {
   padding: 0;
   justify-self: center;
 }
+
+/*
+ * Los cierres ajenos, al pie de la tabla — etapa OL16.
+ *
+ * Una línea, con el tamaño y el color de una nota al pie: los nombres son la
+ * explicación del descuadre, no un dato que compita con la tabla. Va sin
+ * párrafo alrededor a propósito -- si hiciera falta explicarla, el problema
+ * estaría en la tabla.
+ */
+.ol-page .ol-outsiders {
+  margin: 10px 0 0;
+  font-size: var(--ol-text);
+  color: var(--slate-500);
+  line-height: 1.6;
+}
+.ol-page .ol-outsiders__lbl {
+  color: var(--slate-400);
+}
+.ol-page .ol-outsiders b {
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+}
