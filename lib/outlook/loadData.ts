@@ -338,32 +338,55 @@ export interface BranchRealtor {
 }
 
 /**
- * Una estrategia EN UN BRANCH, y por quién se abre — etapa OL8.
+ * Una estrategia EN UN BRANCH, y por quién se abre.
  *
  * ==========================================================================
- * ⚠ LA ESTRATEGIA DEJÓ DE COLGAR DEL LOAN OFFICER
+ * POR QUÉ SE ABRE CADA UNA — el estado actual
  * ==========================================================================
  *
- * Hasta OL7 las cinco estrategias se abrían por persona. Tres de ellas no
- * tienen nada que ver con la persona:
+ *   Own Production   por LOAN OFFICER. Es producción propia: la pregunta es
+ *                    cuánto hace cada uno.
+ *   Recruitment      por LOAN OFFICER, desde OL12. En el 710 la producción ES
+ *                    Recruitment --27 de sus cierres del año-- y ahí la
+ *                    pregunta vuelve a ser quién trae cuánto.
+ *   NPPM             por REALTOR. El préstamo lo trae el realtor; qué Loan
+ *                    Officer lo procesó no es la unidad de decisión.
+ *   Affinity         por DUEÑO DE LA OPORTUNIDAD, que acá es un Account
+ *                    Executive (OL13, presupuesto propio en OL14).
+ *   B2B              por DUEÑO DE LA OPORTUNIDAD, que acá es un Business
+ *                    Developer (OL15). Es la misma `opportunity_owner` que
+ *                    Affinity y comparten mecanismo: `opensBy: 'owner'`.
  *
- *   Own Production   se abre por LOAN OFFICER. Es producción propia: la
- *                    pregunta es cuánto hace cada uno.
- *   NPPM             se abre por REALTOR. El préstamo lo trae el realtor; qué
- *                    Loan Officer lo procesó no es la unidad de decisión.
- *   B2B              NO SE ABRE. Es del branch.
- *   Recruitment      NO SE ABRE. Es del branch.
- *   Affinity         NO SE ABRE. Es del branch.
+ * ⚠ NINGUNA ES YA `'branch'`. La variante existe en el tipo y hoy no la usa
+ * ninguna estrategia -- ver `esDelBranch` en la vista. Se conserva porque
+ * quedan dos presupuestos guardados con `branch_code` que no se pueden
+ * reasignar (ver docs/sql/2026-09-outlook-retire-branch-code.sql).
  *
- * La pregunta de negocio en esas tres es "cuántos préstamos trajo B2B y cuánto
- * proyecta", no "cuánto B2B hizo cada persona". Abrirlas por persona repartía un
- * número del branch entre gente que no lo decide, y obligaba a sumar a mano
- * nueve filas para contestar la única pregunta que importaba.
+ * ---------------------------------------------------------------------------
+ * ⚠ ESTE BLOQUE DECÍA LO CONTRARIO Y SE CORRIGIÓ
+ * ---------------------------------------------------------------------------
+ * Hasta esta corrección afirmaba que B2B, Recruitment y Affinity "NO SE ABREN,
+ * son del branch". Era cierto en OL8 y dejó de serlo en OL12, OL13 y OL15, una
+ * por una, sin que nadie volviera acá. Tres de cinco líneas mentían, y el
+ * comentario que las contradecía estaba a mil trescientas líneas de distancia.
+ *
+ * ---------------------------------------------------------------------------
+ * ⚠ QUIÉNES APARECEN AL ABRIR, Y QUÉ NO SE FILTRA TODAVÍA
+ * ---------------------------------------------------------------------------
+ * Una estrategia que se abre por Loan Officer muestra a TODOS los del branch,
+ * tengan o no producción en ella. Medido en el 710: Recruitment abre las 7
+ * filas y dos --Johann Otiniano y Jose Arango-- están enteras en cero.
+ *
+ * No está filtrado a propósito: el filtro correcto necesita saber QUIÉN
+ * participa del programa de reclutamiento, y ese dato llega con el pipeline de
+ * RC1. Filtrar hoy por "tiene producción" escondería a alguien que participa y
+ * todavía no cerró, que es justo a quien hay que fijarle un presupuesto.
  *
  * ⚠ `actualByMonth` cuenta TODOS los cierres del branch en esa estrategia,
- * incluidos los de gente que no tiene fila en el bloque de Loan Officers. Por
- * eso el total del branch cuadra con la suma de sus estrategias aunque no cuadre
- * con la suma de sus personas.
+ * incluidos los de gente que no tiene fila. Por eso el total del branch cuadra
+ * con la suma de sus estrategias aunque una estrategia no cuadre con la suma de
+ * sus filas: en el 710, los 3 cierres de Recruitment de Jonathan Valenzuela
+ * están en la estrategia y él no tiene fila --su branch de roster es el 777--.
  */
 /**
  * ============================================================================
