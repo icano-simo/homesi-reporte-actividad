@@ -461,11 +461,14 @@ export interface BranchStrategy {
   ytd: number;
   actualByMonth: Record<string, number>;
   /** Cómo se abre esta estrategia. Ver la nota de arriba. */
-  /** Cómo se abre esta estrategia. Ver la nota de arriba. */
   opensBy: 'loanOfficer' | 'realtor' | 'owner' | 'branch';
   /** Sólo en NPPM: los realtors del branch, de mayor a menor. */
   realtors: BranchRealtor[];
-  /** Sólo en Affinity: los Account Executives, de mayor a menor. */
+  /**
+   * Los dueños de la oportunidad, de mayor a menor. En Affinity son Account
+   * Executives y en B2B Business Developers --desde OL15 son las dos, no sólo
+   * Affinity--. Vacío en las otras tres.
+   */
   owners: BranchOwner[];
   /**
    * ⚠ LA DECISIÓN DEL BRANCH, para las estrategias que son suyas — etapa OL11.
