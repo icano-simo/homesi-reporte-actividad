@@ -489,3 +489,40 @@ table.piv.ol-year thead .yr-row th.ol-band {
   font-size: var(--ol-text);
   padding: 4px 8px;
 }
+
+/*
+ * ============================================================================
+ * EL BENCHMARK NO SE MUEVE — etapa OL13
+ * ============================================================================
+ *
+ * ⚠ El ancho fijo de la columna (OL11) no alcanzaba: dentro de la celda el
+ * NÚMERO se corría según lo que viniera después. Una fila con sólo el número lo
+ * centraba; una con lápiz lo empujaba a la izquierda; una con `default` y lápiz
+ * lo empujaba más. Comparar dos benchmarks obligaba a buscar cada uno.
+ *
+ * Ahora la celda es una grilla de tres huecos de ancho fijo --número, etiqueta,
+ * ícono-- así que el número cae siempre en la misma columna de píxeles, con o sin
+ * lo que lo acompañe. Los huecos existen aunque estén vacíos: eso es lo que
+ * reserva el espacio.
+ */
+.ol-page table.piv.ol-year td.ol-bench {
+  display: grid;
+  grid-template-columns: 44px 1fr 18px;
+  align-items: center;
+  gap: 4px;
+}
+.ol-page table.piv.ol-year td.ol-bench .ol-bench__n {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+/* La etiqueta `default` va en el hueco del medio y no empuja al número. */
+.ol-page table.piv.ol-year td.ol-bench .ol-tag {
+  margin: 0;
+  justify-self: start;
+}
+/* El lápiz en su propio hueco, a la derecha, con o sin etiqueta al lado. */
+.ol-page table.piv.ol-year td.ol-bench .ol-edit {
+  grid-column: 3;
+  padding: 0;
+  justify-self: center;
+}

@@ -319,6 +319,9 @@ export interface OutlookLoanOfficer {
  */
 export const UNASSIGNED_REALTOR = 'unassigned realtor';
 
+/** Ídem para el dueño de una oportunidad Affinity que no es una persona. */
+export const UNASSIGNED_OWNER = 'unassigned owner';
+
 export interface BranchRealtor {
   realtor: string;
   ytd: number;
@@ -362,14 +365,46 @@ export interface BranchRealtor {
  * eso el total del branch cuadra con la suma de sus estrategias aunque no cuadre
  * con la suma de sus personas.
  */
+/**
+ * El Account Executive de una estrategia Affinity, en un branch — etapa OL13.
+ *
+ * ⚠ AFFINITY NO SE ABRE POR LOAN OFFICER. Sus 37 cierres los trae un ACCOUNT
+ * EXECUTIVE: `opportunity_owner` de `loan_records_v2`. Quién procesó el préstamo
+ * --el Loan Officer-- no es la unidad de decisión de esa estrategia, igual que en
+ * NPPM no lo es.
+ *
+ * Hoy son tres: Shirley Camargo y David Alvarez, que son personas y resuelven a
+ * `employee_key` por su alias de Salesforce, y `sf integrations`, que es el
+ * usuario de sistema de Salesforce -- no resuelve a nadie y está en
+ * `org.source_name_excluded`.
+ */
+export interface BranchOwner {
+  /** El nombre tal como viene, o el rótulo del usuario de sistema. */
+  owner: string;
+  ytd: number;
+  actualByMonth: Record<string, number>;
+  /**
+   * ⚠ `false` = no es una persona: es un usuario de sistema.
+   *
+   * Sus cierres son REALES y se muestran --sin fila, el total de la estrategia no
+   * daría la suma de sus filas-- pero no se le puede pedir un presupuesto ni
+   * atribuirle desempeño. Se rotula `unassigned owner` para que se lea como un
+   * dato que falta en el origen y no como una persona con un nombre raro.
+   */
+  isPerson: boolean;
+}
+
 export interface BranchStrategy {
   strategy: OutlookStrategy;
   ytd: number;
   actualByMonth: Record<string, number>;
   /** Cómo se abre esta estrategia. Ver la nota de arriba. */
-  opensBy: 'loanOfficer' | 'realtor' | 'branch';
+  /** Cómo se abre esta estrategia. Ver la nota de arriba. */
+  opensBy: 'loanOfficer' | 'realtor' | 'accountExecutive' | 'branch';
   /** Sólo en NPPM: los realtors del branch, de mayor a menor. */
   realtors: BranchRealtor[];
+  /** Sólo en Affinity: los Account Executives, de mayor a menor. */
+  owners: BranchOwner[];
   /**
    * ⚠ LA DECISIÓN DEL BRANCH, para las estrategias que son suyas — etapa OL11.
    *
@@ -404,15 +439,6 @@ export interface BranchStrategy {
   modeSetBy: { setBy: string; at: string } | null;
   targets: Record<string, number>;
   targetRevision: number;
-  /**
-   * Sólo en NPPM: cierres contados al realtor cuyo ORIGINADOR está excluido de la
-   * división, así que no están en el total del branch.
-   *
-   * ⚠ Es la explicación de por qué NPPM puede sumar más de lo que el branch
-   * cuenta. Sin este número la diferencia no se puede explicar mirando. Hoy es 1,
-   * en el 733.
-   */
-  outsideDivision: number;
 }
 
 export interface OutlookBranch {
@@ -588,6 +614,13 @@ interface ActivityYtdRow {
   branch: string | null;
   strategy: string | null;
   nppm_realtor: string | null;
+  /* El respaldo del realtor NPPM cuando `nppm_realtor` viene vacío -- OL13. */
+  referred_by_realtor: string | null;
+  /*
+   * ⚠ EL DUEÑO DE LA OPORTUNIDAD, que en Affinity es un ACCOUNT EXECUTIVE y no
+   * el Loan Officer. Es la unidad de decisión de esa estrategia -- etapa OL13.
+   */
+  opportunity_owner: string | null;
   closing_month: string | null;
 }
 
@@ -642,7 +675,9 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
   const activityPromise = readAll<ActivityYtdRow>((from, to) =>
     supabase
       .from('loan_records_v2')
-      .select('loan_officer, loan_officer_person_code, branch, strategy, nppm_realtor, closing_month')
+      .select(
+        'loan_officer, loan_officer_person_code, branch, strategy, nppm_realtor, referred_by_realtor, opportunity_owner, closing_month'
+      )
       .eq('counts_for_division', true)
       .not('closing_month', 'is', null)
       .order('loan_number', { ascending: true })
@@ -1011,8 +1046,9 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
   const actualByBranchStrategy: MonthCounter = new Map();
   const actualByBranchRealtor: MonthCounter = new Map();
   const realtorsByBranch = new Map<string, Set<string>>();
-  /* Cierres NPPM contados al realtor y NO al branch, por originador excluido. */
-  const nppmOutsideDivision = new Map<string, number>();
+  /* Los Account Executives de Affinity, por branch -- etapa OL13. */
+  const actualByBranchOwner: MonthCounter = new Map();
+  const ownersByBranch = new Map<string, Set<string>>();
   let ytdRowsCounted = 0;
   let unresolvedOfficers = 0;
   /*
@@ -1033,39 +1069,18 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       unattributedByBranch.set(b, (unattributedByBranch.get(b) ?? 0) + 1);
 
       /*
-       * ==========================================================================
-       * ⚠ NPPM SÍ CUENTA AL REALTOR, aunque el originador esté excluido
-       * ==========================================================================
+       * ⚠ ACÁ SE CONTABA EL PRÉSTAMO DEL LADO DEL REALTOR, Y SE REVIRTIÓ.
        *
-       * La exclusión de `org.source_name_excluded` existe para no contar a esa
-       * persona como Loan Officer de la división. NPPM no mide a la persona: mide
-       * la producción del REALTOR, y el realtor sí es de la división. Descartar
-       * el préstamo por quién firmó mezcla dos cosas distintas.
+       * En OL8 se decidió que NPPM contara al realtor aunque el originador
+       * estuviera excluido: el realtor sí es de la división y el argumento era
+       * que excluirlo mezclaba dos cosas. El negocio lo revirtió en OL13, y la
+       * regla queda más simple: si el originador está excluido, el préstamo NO
+       * cuenta en ninguna parte -- ni para el branch ni para el realtor.
        *
-       * Hoy es un préstamo: el de Daniel Rodriguez en el 733, originado por
-       * Anthony DiToma. Sin esto, el 733 mostraba 6 en NPPM y el realtor no
-       * existía en la pantalla.
-       *
-       * ⚠ CONSECUENCIA QUE HAY QUE MIRAR: este préstamo NO está en el total del
-       * branch --que sí excluye a DiToma-- así que la suma de las estrategias
-       * puede pasar al total del branch por esta vía. Se cuenta aparte, en
-       * `nppmOutsideDivision`, y la fila de NPPM lo dice: es la única forma de que
-       * la diferencia se explique en vez de aparecer como un descuadre.
-       *
-       * Y sigue contado en los que no resuelven, al pie: no tiene fila de Loan
-       * Officer, sí tiene fila de realtor. Son dos preguntas distintas.
+       * Lo que se gana además de la simpleza: la fila de reconciliación queda en
+       * cero en los dieciséis branches. El -1 de mayo del 733 era exactamente
+       * este préstamo, contado para el realtor y no para el branch.
        */
-      const estrategiaCruda = row.strategy ?? '';
-      if (estrategiaCruda === 'NPPM') {
-        const mesNppm = row.closing_month.slice(0, 7);
-        const realtorNppm = row.nppm_realtor?.trim() || UNASSIGNED_REALTOR;
-        bump(actualByBranchStrategy, b + '|NPPM', mesNppm);
-        bump(actualByBranchRealtor, b + '|' + realtorNppm, mesNppm);
-        const enBranch = realtorsByBranch.get(b) ?? new Set<string>();
-        enBranch.add(realtorNppm);
-        realtorsByBranch.set(b, enBranch);
-        nppmOutsideDivision.set(b, (nppmOutsideDivision.get(b) ?? 0) + 1);
-      }
       continue;
     }
     ytdRowsCounted += 1;
@@ -1090,8 +1105,34 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
     bump(actualByLoStrategy, sk, month);
     bump(actualByBranchStrategy, branch + '|' + strategy, month);
 
+    if (strategy === 'Affinity') {
+      /*
+       * ⚠ El dueño puede no ser una persona. `sf integrations` es el usuario de
+       * sistema de Salesforce: se cuenta --sus cierres son reales-- y se rotula
+       * aparte. Sin nombre no hay a quién contarle, y ahí sí es el mismo rótulo.
+       */
+      const owner = row.opportunity_owner?.trim() || UNASSIGNED_OWNER;
+      bump(actualByBranchOwner, branch + '|' + owner, month);
+      const set = ownersByBranch.get(branch) ?? new Set<string>();
+      set.add(owner);
+      ownersByBranch.set(branch, set);
+    }
+
     if (strategy === 'NPPM') {
-      const realtor = row.nppm_realtor?.trim() || UNASSIGNED_REALTOR;
+      /*
+       * ⚠ EL REALTOR PUEDE VENIR EN DOS CAMPOS — etapa OL13.
+       *
+       * `nppm_realtor` es el principal y `referred_by_realtor` el respaldo: es la
+       * misma regla que Forecast ya usa en `nppmRealtors`. Medido: un préstamo del
+       * 733 tenía `nppm_realtor` vacío y `referred_by_realtor` con 'Santiago
+       * Jaraba Chacon', así que se mostraba como `unassigned realtor` teniendo
+       * nombre.
+       *
+       * ⚠ Y NO LOS RESUELVE A TODOS: queda un préstamo del 776 --agosto-- con los
+       * DOS campos vacíos. Ese sigue como `unassigned realtor`, que es la verdad:
+       * su realtor no está en el dato de origen.
+       */
+      const realtor = row.nppm_realtor?.trim() || row.referred_by_realtor?.trim() || UNASSIGNED_REALTOR;
       bump(actualByLoStrategyRealtor, sk + '|' + realtor, month);
       const set = realtorsByStrategyKey.get(sk) ?? new Set<string>();
       set.add(realtor);
@@ -1550,6 +1591,28 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       }
       const bk = branchKeyOf(branchCode, strategy);
       const schedule = benchmarkScheduleByKey.get(bk) ?? [];
+      const owners: BranchOwner[] =
+        strategy !== 'Affinity'
+          ? []
+          : [...(ownersByBranch.get(branchCode) ?? [])]
+              .map((owner) => {
+                /*
+                 * ⚠ ES UNA PERSONA si resuelve a `employee_key` por su alias de
+                 * SALESFORCE, que es de donde viene `opportunity_owner`. Los dos
+                 * Account Executives resuelven; el usuario de sistema no, y por eso
+                 * la regla es "resuelve o no" y no una lista de nombres a mano.
+                 */
+                const esPersona =
+                  owner !== UNASSIGNED_OWNER && aliasIndex.lookup('salesforce', owner).employeeKey !== null;
+                return {
+                  owner: esPersona ? owner : UNASSIGNED_OWNER,
+                  ytd: totalOf(actualByBranchOwner, branchCode + '|' + owner),
+                  actualByMonth: monthsOf(actualByBranchOwner, branchCode + '|' + owner),
+                  isPerson: esPersona,
+                };
+              })
+              .sort((a, b) => b.ytd - a.ytd || a.owner.localeCompare(b.owner));
+
       return {
         strategy,
         ytd: totalOf(actualByBranchStrategy, key),
@@ -1580,9 +1643,11 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
             ? ('loanOfficer' as const)
             : strategy === 'NPPM'
               ? ('realtor' as const)
-              : ('branch' as const),
+              : strategy === 'Affinity'
+                ? ('accountExecutive' as const)
+                : ('branch' as const),
         realtors,
-        outsideDivision: strategy === 'NPPM' ? (nppmOutsideDivision.get(branchCode) ?? 0) : 0,
+        owners,
       };
     });
   }
@@ -1808,6 +1873,16 @@ export function projectBranch(branch: OutlookBranch, months: string[]): Record<s
     });
     steps.forEach((st) => (byMonth[st.month] += st.value));
   }
+  /*
+   * ⚠ ENTERO POR MES — etapa OL13. Medio préstamo no existe, y el presupuesto se
+   * muestra igual que el resto: sin decimales.
+   *
+   * Se redondea ACÁ y no en cada vista para que la lista de branches y la tabla
+   * del branch usen el mismo número. La tabla reparte este entero entre sus
+   * estrategias con `apportionByWeight`, así que sus filas suman exactamente
+   * esto: el redondeo ocurre una vez, arriba, y las partes se derivan de él.
+   */
+  for (const m of months) byMonth[m] = Math.round(byMonth[m]);
   return byMonth;
 }
 
