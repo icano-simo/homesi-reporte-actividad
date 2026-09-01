@@ -523,6 +523,67 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * de agosto de AFFINITY fueron producción propia. En ese caso los pesos son
    * los cierres REALES del mes por estrategia, que es lo que efectivamente pasó.
    */
+  /**
+   * ¿Tiene esta persona un presupuesto PROPIO en esta estrategia?
+   *
+   * ⚠ UN BENCHMARK O UN MES FIJADO, NUNCA UNA REGLA. Es la trampa de OL8, que ya
+   * costó dos veces: la siembra dejó 185 reglas --las 37 personas × 5
+   * estrategias-- así que "tiene regla" es verdad para todo el mundo. Una regla
+   * sobre un benchmark en cero no proyecta nada: es una intención guardada, no un
+   * presupuesto.
+   *
+   * Estaba escrito dos veces --acá y en el filtro de estrategias-- y ahora hay un
+   * tercer lugar que lo necesita, así que vive en uno solo.
+   */
+  const tienePresupuestoPropio = (lo: OutlookLoanOfficer, s: OutlookStrategy) =>
+    (lo.strategyBenchmarks[s] ?? 0) > 0 || Object.keys(lo.targetsByStrategy[s] ?? {}).length > 0;
+
+  /*
+   * ==========================================================================
+   * ⚠ QUIÉNES ABREN UNA ESTRATEGIA QUE SE ABRE POR PERSONA — etapa OL19
+   * ==========================================================================
+   *
+   * No son siempre todos, y hasta acá lo eran. `opensBy: 'loanOfficer'` abría
+   * `branch.loanOfficers` entero, que es correcto para Own Production y falso
+   * para Recruitment. La diferencia no es de grado, es de qué significa cada una:
+   *
+   *   Own Production  es la PERTENENCIA POR DEFECTO. Todo Loan Officer del branch
+   *                   está en ella por definición, haya cerrado o no; su fila en
+   *                   cero es la información --dice que no produjo--.
+   *   Recruitment     es un PROGRAMA EN EL QUE SE PARTICIPA. Quien no participa
+   *                   no tiene una fila en cero: no tiene fila.
+   *
+   * Medido en el 710 --el único branch con cierres de Recruitment-- abría 7 filas
+   * para 5 participantes. Johann Otiniano y José Arango no cerraron ni uno.
+   *
+   * ⚠ EL PRESUPUESTO CUENTA, NO SÓLO LOS CIERRES, y no es una licencia sobre el
+   * pedido: es la misma excepción que ya tiene el filtro de estrategias de OL12,
+   * por la misma razón. A quien se le fijó un número TIENE que vérsele, o el
+   * número no se puede revisar ni corregir, y su presupuesto seguiría entrando en
+   * la proyección de la estrategia sin una fila que lo explique. Ese es
+   * exactamente el caso que llega con RC1 --alguien entra al programa antes de
+   * cerrar su primer préstamo-- y la cláusula está para no tener que acordarse
+   * ese día.
+   *
+   * Hoy no cambia nada: medido, `outlook.strategy_benchmark` no tiene UNA SOLA
+   * fila de Recruitment y `outlook.monthly_target` tampoco, así que el filtro es
+   * literalmente "tiene cierres".
+   */
+  const participa = (lo: OutlookLoanOfficer, s: OutlookStrategy) =>
+    s !== 'Recruitment' ||
+    (lo.strategies.find((x) => x.strategy === s)?.ytd ?? 0) > 0 ||
+    tienePresupuestoPropio(lo, s);
+
+  /**
+   * Las personas que abren esta estrategia. UN SOLO LUGAR, y hace falta que lo
+   * sea: el mismo conjunto lo leen el presupuesto exacto, el benchmark sumado, el
+   * "N of M" de la regla y las filas hijas. Filtrar en cuatro lugares es dejar
+   * cuatro conjuntos que pueden diferir, y el que difiera rompe la suma sin que
+   * nada avise.
+   */
+  const personasDe = (bs: BranchStrategy) =>
+    bs.opensBy !== 'loanOfficer' ? [] : branch.loanOfficers.filter((lo) => participa(lo, bs.strategy));
+
   /*
    * ==========================================================================
    * ⚠ QUÉ ESTRATEGIAS MUESTRA ESTE BRANCH — etapa OL12
@@ -551,20 +612,11 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
     bs.targetRevision > 0 ||
     bs.realtors.length > 0 ||
     /*
-     * Por persona: su presupuesto vive en la gente, no en el branch.
-     *
-     * ⚠ UN BENCHMARK, NO UNA REGLA. Es la misma trampa de OL8 y volví a caer en
-     * ella: la siembra dejó 185 reglas --las 37 personas × 5 estrategias-- así
-     * que "tiene regla" es verdad para todos, y Recruitment aparecía en catorce
-     * branches que no tienen ni un cierre. Una regla sobre un benchmark en cero
-     * no proyecta nada: es una intención guardada, no un presupuesto.
+     * Por persona: su presupuesto vive en la gente, no en el branch. Ver
+     * `tienePresupuestoPropio`, que es donde quedó escrita la trampa de OL8.
      */
     (bs.opensBy === 'loanOfficer' &&
-      branch.loanOfficers.some(
-        (lo) =>
-          (lo.strategyBenchmarks[bs.strategy] ?? 0) > 0 ||
-          Object.keys(lo.targetsByStrategy[bs.strategy] ?? {}).length > 0
-      ));
+      branch.loanOfficers.some((lo) => tienePresupuestoPropio(lo, bs.strategy)));
 
   const filasBase = branch.byStrategy.filter(tieneAlgo);
   const proyectaAlgo = filasBase.some((bs) => bs.currentMonthRaw > 0);
@@ -602,7 +654,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
   const exactoDe = (bs: BranchStrategy): Record<string, number> => {
     const out: Record<string, number> = {};
     if (bs.opensBy === 'loanOfficer') {
-      for (const lo of branch.loanOfficers) {
+      for (const lo of personasDe(bs)) {
         const st = projectLoanOfficer(lo, remainingMonths).stepsByStrategy[bs.strategy] ?? [];
         remainingMonths.forEach((m, i) => (out[m] = (out[m] ?? 0) + (st[i]?.value ?? 0)));
       }
@@ -761,7 +813,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
       );
       const bench =
         bs.opensBy === 'loanOfficer'
-          ? branch.loanOfficers.reduce((a, lo) => a + (lo.strategyBenchmarks[s] ?? 0), 0)
+          ? personasDe(bs).reduce((a, lo) => a + (lo.strategyBenchmarks[s] ?? 0), 0)
           : bs.opensBy === 'owner'
             ? /* La suma de los dueños, más el de branch que quedó sin dueño. */
               bs.owners.reduce((a, o) => a + (o.isPerson && o.mode !== 'monthly' ? o.benchmarkAtDisplay : 0), 0) +
@@ -1058,9 +1110,17 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
           <tbody>
             {strategyRows.map(({ bs, s, proyecta, sYear, bench, steps, porDueno, huerfanoPorMes }) => {
               const abierta = open.has('s:' + s);
-              const plegable = bs.opensBy !== 'branch';
+              /*
+               * ⚠ SIN HIJAS NO SE PLIEGA — etapa OL19. Desde que Recruitment
+               * filtra por participación, una estrategia que se abre por persona
+               * puede no tener a nadie: el 747 y el 777 tienen pipeline de
+               * Recruitment este mes y ni un cierre de alguien con fila acá. El
+               * chevron prometía algo que al abrirse no mostraba nada.
+               */
+              const personas = personasDe(bs);
+              const plegable = bs.opensBy === 'loanOfficer' ? personas.length > 0 : bs.opensBy !== 'branch';
 
-              const conBenchmark = branch.loanOfficers.filter((lo) => (lo.strategyBenchmarks[s] ?? 0) > 0).length;
+              const conBenchmark = personas.filter((lo) => (lo.strategyBenchmarks[s] ?? 0) > 0).length;
               /*
                 ⚠ CORTO, Y EL RESTO EN EL TOOLTIP. Own Production y NPPM no
                 tienen regla propia --deciden por persona y por realtor-- así que
@@ -1071,7 +1131,14 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               const conAE = bs.owners.filter((o) => o.isPerson && o.benchmarkSchedule.length > 0).length;
               const regla =
                 bs.opensBy === 'loanOfficer'
-                  ? `${conBenchmark} of ${branch.loanOfficers.length}`
+                  ? /*
+                     * "0 of 0" no dice nada. Sin nadie, lo que hay que decir es
+                     * que la estrategia tiene pipeline este mes y todavía nadie
+                     * a quien atribuírselo acá -- ver el título.
+                     */
+                    personas.length === 0
+                    ? 'nobody yet'
+                    : `${conBenchmark} of ${personas.length}`
                   : bs.opensBy === 'owner'
                     ? `${conAE} of ${bs.owners.filter((o) => o.isPerson).length}`
                     : s === 'NPPM'
@@ -1079,7 +1146,17 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                     : branchRuleLabel(bs);
               const reglaTitulo =
                 bs.opensBy === 'loanOfficer'
-                  ? `${conBenchmark} of the ${branch.loanOfficers.length} loan officers here have a benchmark in ${s}.`
+                  ? personas.length === 0
+                    ? `Nobody in this branch has closings in ${s} or a budget for it, so there is no row to open. ` +
+                      `The month's figure is pipeline that is classified as ${s}: the loans are real and they are ` +
+                      `counted, they just have no owner here yet.`
+                    : `${conBenchmark} of the ${personas.length} loan officers shown here have a benchmark in ${s}.` +
+                      (s === 'Recruitment'
+                        ? ` Recruitment only opens for those who took part in it: ${
+                            branch.loanOfficers.length - personas.length
+                          } of the branch's ${branch.loanOfficers.length} loan officers have no closings in it and ` +
+                          `no budget, so they have no row.`
+                        : '')
                   : bs.opensBy === 'owner'
                     ? `${conAE} of the ${bs.owners.filter((o) => o.isPerson).length} owners have a ` +
                       `benchmark. The system user cannot have one.`
@@ -1212,13 +1289,13 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                        * en proporción a su presupuesto exacto. Así las filas suman
                        * la fila de arriba y ninguna muestra decimales.
                        */
-                      const exactos = branch.loanOfficers.map((lo) => {
+                      const exactos = personas.map((lo) => {
                         const st = projectLoanOfficer(lo, remainingMonths).stepsByStrategy[s] ?? [];
                         const out: Record<string, number> = {};
                         remainingMonths.forEach((m, i) => (out[m] = st[i]?.value ?? 0));
                         return out;
                       });
-                      const enteros: Record<string, number>[] = branch.loanOfficers.map(() => ({}));
+                      const enteros: Record<string, number>[] = personas.map(() => ({}));
                       for (const m of remainingMonths) {
                         const partes = apportionByWeight(
                           presupuestoDe.get(s)?.[m] ?? 0,
@@ -1226,7 +1303,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                         );
                         partes.forEach((v, i) => (enteros[i][m] = v));
                       }
-                      return branch.loanOfficers.map((lo, idx) => {
+                      return personas.map((lo, idx) => {
                       const cell = cellOf(lo, s, enteros[idx]);
                       const isMonthly = (lo.modeByStrategy[s] ?? 'growth') === 'monthly';
                       const b = lo.strategyBenchmarks[s] ?? 0;
