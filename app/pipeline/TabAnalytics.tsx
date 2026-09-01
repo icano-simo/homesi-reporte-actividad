@@ -23,7 +23,6 @@ import {
 import {
   businessToday,
   getDefaultPeriodSelection,
-  getDefaultYtdSelection,
   periodDateRange,
   periodLabel,
   periodMonths,
@@ -42,7 +41,6 @@ import {
 } from '@/lib/pipeline/trends';
 import { buildStrategyMix, type StrategyMixRow } from '@/lib/pipeline/strategyMix';
 import { classifyStrategy, hasStrategyData, type Strategy } from '@/lib/pipeline/strategy';
-import { buildParetoRows, type ParetoRow } from '@/lib/pipeline/paretoMix';
 import { US_MAP_VIEWBOX, US_STATE_PATHS } from '@/lib/pipeline/usStatesSvgPaths';
 import { getForecastDb, isSupabaseConfigured } from '@/lib/supabase/client';
 import PeriodSelector from './PeriodSelector';
@@ -59,7 +57,6 @@ import {
   TrendingUpIcon,
   GridIcon,
   BuildingIcon,
-  FunnelIcon,
   type IconProps,
 } from '@/components/ui/icons';
 
@@ -73,13 +70,20 @@ export interface TabAnalyticsProps {
  * NAV DE SECCIÓN — Etapa SECTION-NAV-1
  * ============================================================================
  *
- * 4 secciones reales de esta pestaña, en el mismo orden en que aparecen en
- * pantalla. `id` coincide EXACTO con el `id` que se le agrega al `<h3>`/`<h4>`
+ * 3 secciones reales de esta pestaña, en el mismo orden en que aparecen en
+ * pantalla. `id` coincide EXACTO con el `id` que se le agrega al `<h3>`
  * de cada sección más abajo -- es el único acoplamiento entre este array y el
  * resto del archivo, a propósito (agregar una sección nueva es agregar una
  * entrada acá + un `id` en su título, nada más).
  *
- * Íconos -- los 4 ya existían en components/ui/icons.tsx, ninguno nuevo:
+ * Etapa FIX-REMOVE-PARETO-2: la 4ta sección ("Concentration", FunnelIcon)
+ * se saca completa -- vivía solo del chart de Pareto (Etapa FIX-REMOVE-PARETO,
+ * tarea anterior, ya retirado), y el Strategy Mix standalone que quedó ahí
+ * tras sacar Pareto era una duplicación real: el mismo donut ya vive en la
+ * tarjeta "Strategy Mix" del Hero KPI.
+ *
+ * Íconos -- los 3 que quedan ya existían en components/ui/icons.tsx, ninguno
+ * nuevo:
  *   - TrendingUpIcon: ya usado en el nav global para "Forecast & Pipeline"
  *     (ServiceHubHeader.tsx) -- se reusa acá para "Trends" porque es el
  *     ícono correcto para el concepto, no solo el que estaba libre. Un
@@ -91,9 +95,6 @@ export interface TabAnalyticsProps {
  *     "Mix" son 3 rankings + un mapa en grid, layout-grid es un buen ajuste.
  *   - BuildingIcon ("vista ejecutiva por branch"): Commercial Scorecards es
  *     Branch/Loan Officer/Business Developer -- desempeño organizacional.
- *   - FunnelIcon: YA EXISTÍA en el set (no hizo falta crear ninguno nuevo,
- *     a diferencia de lo que anticipaba el brief) -- ajuste literal para
- *     "Concentration" (Pareto).
  *
  * Deliberadamente NO se reusan PieChartIcon/TargetIcon/UsersIcon/BarChartIcon:
  * esos 4 ya identifican, en el MISMO nav global (ServiceHubHeader.tsx), a
@@ -112,7 +113,6 @@ const ANALYTICS_SECTIONS: AnalyticsSectionNavItem[] = [
   { id: 'analytics-section-trends', label: 'Trends', Icon: TrendingUpIcon },
   { id: 'analytics-section-mix', label: 'Mix', Icon: GridIcon },
   { id: 'analytics-section-scorecards', label: 'Scorecards', Icon: BuildingIcon },
-  { id: 'analytics-section-concentration', label: 'Concentration', Icon: FunnelIcon },
 ];
 
 /**
@@ -1480,278 +1480,6 @@ function StrategyDonutChart({
 }
 
 /**
- * Etapa FIX-PARETO-LABELS -- reemplaza el corte de AJUSTES-ANALYTICS-1
- * punto 7: ese fix ya había notado que ocultar etiquetas por completo más
- * allá de un número fijo (8, o incluso "sólo si el total pasa de 15")
- * seguía dejando categorías reales sin nombre visible en ningún lado del
- * eje (YTD con 37+ Loan Officers, caso reportado). Se quita el ocultamiento
- * por completo: TODAS las barras llevan nombre y número, siempre.
- *
- * Lo que evitaba el ocultamiento -- que dos etiquetas rotadas se
- * superpongan -- pasa a resolverse por RECORTE (`truncateParetoLabel`,
- * abajo) en vez de por omisión: con la rotación -45° ya existente,
- * `barWidth + gap` (36px) es la distancia FIJA entre anclas de texto
- * consecutivas, sin importar cuántas categorías haya (`plotWidth` crece
- * con el total, el espacio POR barra no se achica) -- así que el largo
- * máximo seguro de una etiqueta es una constante, no algo que dependa de
- * `total`.
- */
-const PARETO_LABEL_MAX_CHARS = 10;
-
-/**
- * Recorte estimado por caracteres, no por medición real de texto -- no hay
- * `getBBox`/`canvas.measureText` disponible en este render (ningún otro
- * chart de la app mide texto tampoco). A 9px de fuente sans-serif, ~5.5px
- * por caracter; rotado -45°, la proyección horizontal es ×cos(45°) ≈ 3.9px
- * por caracter. Con 36px de presupuesto por barra y margen de seguridad,
- * ~10 caracteres es el techo antes de arriesgar que la etiqueta de una
- * barra invada el espacio de la anterior. El nombre completo sigue
- * disponible en el tooltip (`<title>`) de la barra, el punto, y la propia
- * etiqueta -- el recorte es solo del texto visible en el eje.
- */
-function truncateParetoLabel(label: string): string {
-  if (label.length <= PARETO_LABEL_MAX_CHARS) return label;
-  return label.slice(0, PARETO_LABEL_MAX_CHARS - 1) + '…';
-}
-
-/**
- * Tooltip enriquecido -- no existe ningún componente de hover-card/popover
- * en el resto de la app (revisado: `title` nativo con `\n` es el único
- * patrón real, ej. `formatCtcClosingTooltip` en PivotTable.tsx, o el
- * `detail` de `DiagnosticsNote`) -- se sigue ese mismo criterio acá, con
- * más contenido: nombre completo, conteo + % individual, % acumulado, y
- * posición en el ranking.
- */
-function paretoTooltip(r: ParetoRow, rank: number, totalCategories: number): string {
-  return [
-    r.label,
-    `${fmtInt(r.count)} loans (${fmtPercent(r.percent)} of total)`,
-    `${fmtPercent(r.cumulativePercent)} cumulative`,
-    `#${rank} of ${totalCategories}`,
-  ].join('\n');
-}
-
-/**
- * Pareto por Branch/Loan Officer -- Etapa F7, Parte 11. Primera vez en el
- * proyecto combinando dos tipos de marca en un mismo SVG a mano: barras
- * (conteo, eje izquierdo/altura) + línea de % acumulado (eje 0-100%,
- * superpuesto a la misma altura del plot -- mismo criterio que un combo
- * chart estándar, sin librería). Toggle de modo (período seleccionado /
- * YTD) y de corte (Branch / Loan Officer) son estado LOCAL de este
- * componente -- `data` ya trae las 4 combinaciones precomputadas por el
- * padre, así que cambiar cualquiera de los dos toggles es una re-render
- * puramente local, sin recalcular nada ni tocar el resto de la pestaña.
- *
- * Con muchas categorías (Loan Officer en YTD puede traer 30+ nombres
- * reales), TODAS llevan número sobre la barra y nombre en el eje (Etapa
- * FIX-PARETO-LABELS) -- los nombres largos se recortan con "…"
- * (`truncateParetoLabel`) para que la rotación -45° no las haga
- * solaparse entre sí, en vez de ocultar categorías enteras. Ninguna
- * categoría se omite del chart -- todas tienen su barra, su número, su
- * nombre (recortado o no) y su punto, con el nombre completo siempre
- * disponible por tooltip.
- */
-/** Etapa BI-REDESIGN-2, punto 3: se agrega Business Developer como 3er corte -- mismas 2 dimensiones (period/ytd) que ya tenían branch/loanOfficer, sin cálculo nuevo (ver `buildParetoRows` en TabAnalytics, llamado con `businessDeveloperScorecard.rows`). */
-interface ParetoDataByCut {
-  branch: ParetoRow[];
-  loanOfficer: ParetoRow[];
-  businessDeveloper: ParetoRow[];
-}
-
-function ParetoChart({
-  data,
-  onBarClick,
-}: {
-  data: { period: ParetoDataByCut; ytd: ParetoDataByCut };
-  /**
-   * Etapa AJUSTES-ANALYTICS-1, punto 6a: drill-down de las barras -- antes
-   * este chart no tenía ninguno, a diferencia de los rankings/scorecards
-   * de arriba. `cut`/`mode` van en la firma porque son estado LOCAL de
-   * este componente (ver `useState` abajo) -- el padre no los conoce, así
-   * que no puede decidir qué filtro aplicar sin que se los pasemos junto
-   * con la fila clickeada.
-   */
-  onBarClick?: (row: ParetoRow, cut: 'branch' | 'loanOfficer' | 'businessDeveloper', mode: 'period' | 'ytd') => void;
-}) {
-  const [mode, setMode] = useState<'period' | 'ytd'>('period');
-  const [cut, setCut] = useState<'branch' | 'loanOfficer' | 'businessDeveloper'>('branch');
-  const rows = data[mode][cut];
-
-  const plotHeight = 160;
-  const topReserve = 16;
-  const barWidth = 26;
-  const gap = 10;
-  /*
-   * FIX (captura real): con `leftPad` chico, la etiqueta rotada -45° de
-   * la PRIMERA barra (`textAnchor="end"`, ancla en `xCenter(0)`) se
-   * extiende hacia la izquierda del ancla y termina cortada contra el
-   * borde del `<svg>` (x=0) -- nombres largos ("Nathan Martinez", "Jose
-   * L Moreyra Barco") empeoran el corte. 75px deja margen real (~17px de
-   * sobra contra el nombre más largo esperado, "Jose L Moreyra Barco",
-   * ~71px de extensión horizontal rotado) sin recortarse.
-   */
-  const leftPad = 75;
-  const labelSpace = 70;
-  const plotWidth = Math.max(rows.length * (barWidth + gap) + leftPad, 200);
-  const maxCount = Math.max(1, ...rows.map((r) => r.count));
-
-  function xCenter(i: number): number {
-    return leftPad + i * (barWidth + gap) + barWidth / 2;
-  }
-  function yForCount(count: number): number {
-    return plotHeight - (count / maxCount) * plotHeight;
-  }
-  function yForPercent(pct: number): number {
-    return plotHeight - (pct / 100) * plotHeight;
-  }
-
-  const linePoints = rows.map((r, i) => `${xCenter(i)},${yForPercent(r.cumulativePercent)}`).join(' ');
-  const eightyY = yForPercent(80);
-  /** Primera categoría cuyo % acumulado ya llega a 80% -- el "cruce" real, no un punto adivinado visualmente. */
-  const crossIndex = rows.findIndex((r) => r.cumulativePercent >= 80);
-  const cutNoun = cut === 'branch' ? 'branch' : cut === 'loanOfficer' ? 'loan officer' : 'business developer';
-
-  return (
-    <div>
-      <div style={{ display: 'flex', gap: '10px', marginBottom: '12px', flexWrap: 'wrap' }}>
-        <div className="seg">
-          <button type="button" className={mode === 'period' ? 'on' : ''} onClick={() => setMode('period')}>
-            Selected period
-          </button>
-          <button type="button" className={mode === 'ytd' ? 'on' : ''} onClick={() => setMode('ytd')}>
-            Year to date
-          </button>
-        </div>
-        <div className="seg">
-          <button type="button" className={cut === 'branch' ? 'on' : ''} onClick={() => setCut('branch')}>
-            Branch
-          </button>
-          <button type="button" className={cut === 'loanOfficer' ? 'on' : ''} onClick={() => setCut('loanOfficer')}>
-            Loan Officer
-          </button>
-          <button type="button" className={cut === 'businessDeveloper' ? 'on' : ''} onClick={() => setCut('businessDeveloper')}>
-            Business Developer
-          </button>
-        </div>
-      </div>
-      {rows.length === 0 ? (
-        <p className="foot-note">No funded loans in this range.</p>
-      ) : (
-        <div style={{ overflowX: 'auto' }}>
-          <svg
-            width={plotWidth}
-            height={topReserve + plotHeight + labelSpace + 12}
-            viewBox={`0 0 ${plotWidth} ${topReserve + plotHeight + labelSpace + 12}`}
-          >
-            <g transform={`translate(0 ${topReserve})`}>
-              <line x1={0} y1={eightyY} x2={plotWidth} y2={eightyY} stroke="var(--slate-300)" strokeDasharray="4 3" strokeWidth={1} />
-              <text x={plotWidth} y={eightyY - 4} textAnchor="end" fontSize="10" fill="var(--slate-500)">
-                80%
-              </text>
-              {rows.map((r, i) => (
-                <rect
-                  key={r.label}
-                  className="pareto-bar"
-                  x={xCenter(i) - barWidth / 2}
-                  y={yForCount(r.count)}
-                  width={barWidth}
-                  height={plotHeight - yForCount(r.count)}
-                  fill="var(--navy)"
-                  style={onBarClick ? { cursor: 'pointer' } : undefined}
-                  onClick={onBarClick ? () => onBarClick(r, cut, mode) : undefined}
-                >
-                  <title>{paretoTooltip(r, i + 1, rows.length)}</title>
-                </rect>
-              ))}
-              {/* Número sobre la barra -- mismo patrón que Closings by Month -- ahora en TODAS las barras (Etapa FIX-PARETO-LABELS). */}
-              {rows.map((r, i) => (
-                <text
-                  key={r.label + '-val'}
-                  x={xCenter(i)}
-                  y={yForCount(r.count) - 4}
-                  textAnchor="middle"
-                  fontSize="9"
-                  fill="var(--slate-500)"
-                >
-                  {fmtInt(r.count)}
-                </text>
-              ))}
-              {/* Nombre rotado -45° -- TODAS las barras (Etapa FIX-PARETO-LABELS), recortado si es largo (truncateParetoLabel) para que no se solape con la etiqueta vecina; <title> propio para el nombre completo si el mouse pasa justo sobre el texto y no sobre la barra/punto. */}
-              {rows.map((r, i) => (
-                <text
-                  key={r.label + '-lbl'}
-                  x={xCenter(i)}
-                  y={plotHeight + 14}
-                  textAnchor="end"
-                  fontSize="9"
-                  fill="var(--slate-500)"
-                  transform={`rotate(-45 ${xCenter(i)} ${plotHeight + 14})`}
-                >
-                  {truncateParetoLabel(r.label)}
-                  <title>{r.label}</title>
-                </text>
-              ))}
-              {/*
-                Curva acumulada: `--sky` (no `--rose-700`/rojo -- ese
-                color ya significa "atención/advertencia" en el resto de
-                la app, ej. AlertTriangleIcon de los scorecards). `--sky`
-                distingue la línea de las barras (`--navy`) sin salir de
-                la paleta azul de marca. Línea de referencia del 80% ya
-                estaba en `--slate-300` (neutro) -- sin cambios ahí.
-              */}
-              <polyline points={linePoints} fill="none" stroke="var(--sky)" strokeWidth={2} />
-              {rows.map((r, i) => (
-                <circle
-                  key={r.label + '-pt'}
-                  className="pareto-dot"
-                  cx={xCenter(i)}
-                  cy={yForPercent(r.cumulativePercent)}
-                  r={3}
-                  fill="var(--sky)"
-                >
-                  <title>{paretoTooltip(r, i + 1, rows.length)}</title>
-                </circle>
-              ))}
-              {/*
-                Marca del cruce real de 80%: `--navy` (mismo tono que las
-                barras, más oscuro que `--sky` de la línea -- un tono
-                distinto DENTRO de la misma paleta azul, no un color
-                nuevo) con contorno claro para que resalte sobre los
-                puntos normales, más etiqueta corta.
-              */}
-              {crossIndex >= 0 && (
-                <g>
-                  <circle
-                    cx={xCenter(crossIndex)}
-                    cy={yForPercent(rows[crossIndex].cumulativePercent)}
-                    r={5.5}
-                    fill="var(--navy)"
-                    stroke="var(--canvas)"
-                    strokeWidth={2}
-                  >
-                    <title>{paretoTooltip(rows[crossIndex], crossIndex + 1, rows.length)}</title>
-                  </circle>
-                  <text
-                    x={xCenter(crossIndex)}
-                    y={yForPercent(rows[crossIndex].cumulativePercent) - 10}
-                    textAnchor="middle"
-                    fontSize="9"
-                    fontWeight={700}
-                    fill="var(--navy)"
-                  >
-                    {`${crossIndex + 1} ${cutNoun}${crossIndex + 1 === 1 ? '' : 's'} → 80%`}
-                  </text>
-                </g>
-              )}
-            </g>
-          </svg>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
  * ============================================================================
  * MAPA DE EE.UU. — Property State
  * ============================================================================
@@ -2600,56 +2328,6 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
       ? strategyMix.reduce((max, row) => (row.count > max.count ? row : max), strategyMix[0])
       : null;
 
-  /**
-   * Etapa F7, Parte 11: Pareto por Branch/Loan Officer -- el toggle interno
-   * del chart (Selected period / Year to date) es LOCAL a `ParetoChart`
-   * (useState propio, ver más abajo), así que las combinaciones
-   * (branch/LO/BD × período/YTD) se precomputan ACÁ, una sola vez por render
-   * de `TabAnalytics`, y el toggle solo elige cuál mostrar -- cambiarlo
-   * nunca dispara un nuevo fetch de `org` ni afecta al selector de período
-   * principal ni a ningún otro de los 8 gráficos de la pestaña.
-   *
-   * YTD se calcula aparte de `fundedInRange`/`period` -- mismo patrón que
-   * ya usa `period.ts` para el modo YTD del selector principal
-   * (`getDefaultYtdSelection` + `periodDateRange`), pero SIN tocar el
-   * estado `period` (el selector de arriba no cambia). `buildBranchScorecard`/
-   * `buildLoanOfficerScorecard`/`buildBusinessDeveloperScorecard` son las
-   * mismas funciones ya usadas para Scorecards -- ninguna agrupación nueva,
-   * solo se llaman con `ytdFunded` en vez de `fundedInRange`.
-   *
-   * Etapa BI-REDESIGN-2, punto 3: `businessDeveloper` se agrega al mismo
-   * patrón exacto de `branch`/`loanOfficer` -- `buildParetoRows()`
-   * (lib/pipeline/paretoMix.ts) es genérica sobre `ScorecardRow[]`, no
-   * necesitó ningún cambio para aceptar `businessDeveloperScorecard.rows`.
-   */
-  const ytdRange = periodDateRange(getDefaultYtdSelection());
-  const ytdFunded = fundedLoansInRange(branchFilteredLoans, ytdRange);
-  const ytdBranchScorecard = buildBranchScorecard(filterToForecastBranches(ytdFunded), orgRoster.knownBranchCodes);
-  const ytdLoanOfficerScorecard = buildLoanOfficerScorecard(
-    ytdFunded,
-    orgRoster.aliasIndex,
-    orgRoster.excludedIndex,
-    orgRoster.employeeNameByKey
-  );
-  const ytdBusinessDeveloperScorecard = buildBusinessDeveloperScorecard(
-    ytdFunded,
-    orgRoster.aliasIndex,
-    orgRoster.excludedIndex,
-    orgRoster.employeeNameByKey
-  );
-  const paretoData = {
-    period: {
-      branch: buildParetoRows(branchScorecard.rows),
-      loanOfficer: buildParetoRows(loanOfficerScorecard.rows),
-      businessDeveloper: buildParetoRows(businessDeveloperScorecard.rows),
-    },
-    ytd: {
-      branch: buildParetoRows(ytdBranchScorecard.rows),
-      loanOfficer: buildParetoRows(ytdLoanOfficerScorecard.rows),
-      businessDeveloper: buildParetoRows(ytdBusinessDeveloperScorecard.rows),
-    },
-  };
-
   /*
    * Etapa F7, Parte 3: las tendencias son SIEMPRE del año en curso (UTC),
    * independiente del año que tenga seleccionado el período de arriba --
@@ -3133,143 +2811,6 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
           </div>
         </>
       )}
-
-      {/*
-        A partir de acá: gráficos adicionales que NO pedía el brief F7
-        original (Rankings/Scorecards/Monthly Trends/drill-down al modal
-        arriba sí lo pedían, en ese orden) -- Strategy Mix (Parte 10) es el
-        primero; los que se agreguen después (Parte 11, 12...) van
-        debajo de este, en el mismo bloque, nunca intercalados entre las
-        secciones de arriba.
-      */}
-      <h4 id="analytics-section-concentration" style={{ margin: '8px 0 12px', fontSize: '15px', color: 'var(--navy)' }}>
-        Productivity &amp; Concentration
-      </h4>
-      {/*
-        Etapa FIX-CARD-HEIGHT: Strategy Mix y Pareto quedaban de altura
-        distinta -- el grid de 2 columnas SÍ estira sus 2 celdas a la misma
-        altura (`align-items: stretch` es el default de CSS Grid, ya vigente
-        acá sin declararlo), pero eso solo estira los `<div>` de columna en
-        sí, no a `.tbl-card` (components.css) adentro de cada uno -- esa
-        clase no tiene ninguna regla de altura, así que cada tarjeta seguía
-        creciendo solo hasta el alto de SU PROPIO contenido (Pareto, con
-        toggle + SVG de eje rotado, es intrínsecamente más alto que el
-        donut+leyenda compacto de Strategy Mix), dejando espacio vacío sin
-        usar debajo de la más corta en vez de que la tarjeta lo ocupara.
-
-        Fix: cada columna pasa a ser un flex container en columna
-        (`display: flex, flexDirection: column`) -- el `DiagnosticsNote` de
-        arriba mide su alto natural, y la tarjeta de abajo lleva `flex: 1`
-        para consumir el resto exacto del alto ya estirado por el grid. NO
-        se usa `height: 100%` en la tarjeta: eso mediría contra el 100% del
-        contenedor ENTERO (incluido el espacio que ya ocupa el
-        DiagnosticsNote arriba), desbordando por abajo -- `flex: 1` reparte
-        solo el sobrante real, sin importar qué tan alto sea ese texto de
-        arriba en cada columna.
-      */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '20px' }}>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          {/*
-            Etapa FIX-NOTE-ALIGN: el resumen de Strategy Mix ("Every funded
-            loan...") entra en 1 línea; el de Pareto ("Cumulative
-            concentration...", bien más largo) envuelve a 2 -- sin este
-            wrapper, la tarjeta de abajo arrancaba más arriba en la columna
-            de Strategy Mix que en la de Pareto, porque cada `DiagnosticsNote`
-            solo reserva el alto de SU PROPIO texto. `minHeight` fijo
-            (~2 líneas de `.foot-note`, 11.5px/line-height 1.55, + su margen)
-            reserva el mismo espacio en las dos columnas sin importar cuántas
-            líneas use el resumen real -- valor aproximado, no medido pixel a
-            pixel; si algún resumen cambia de largo, puede necesitar ajuste.
-          */}
-          <div style={{ minHeight: '62px' }}>
-            <DiagnosticsNote
-              count={1}
-              summary="Every funded loan in the selected period, split by commercial strategy."
-              detail="Uses the same strategy classification already shown in Forecast's Projected Forecast breakdown -- no dependency on branch or employee name matching."
-            />
-          </div>
-          {strategyDataMissing ? (
-            <div className="tbl-card" style={{ padding: '16px', flex: 1 }}>
-              {/*
-                Etapa F7.23: mismo criterio que Business Developer (F7.20) --
-                un donut 100% "Own production" se leería como un resultado real
-                de negocio, y acá es un default silencioso por falta de datos.
-              */}
-              <p className="foot-note" style={{ margin: 0 }}>
-                No strategy data in this snapshot — re-upload required to populate this view.
-              </p>
-            </div>
-          ) : (
-            <div className="tbl-card" style={{ padding: '16px', flex: 1, display: 'flex', flexDirection: 'column' }}>
-              <div className="tbl-card__head">
-                <span className="tbl-card__title">Strategy Mix</span>
-              </div>
-              {/*
-                Etapa FIX-CARD-HEIGHT (parte 2): tras darle flex: 1 a la
-                tarjeta, el donut+leyenda (más bajo que Pareto) quedaba
-                pegado arriba, con el sobrante de altura como espacio vacío
-                debajo. Este wrapper toma ese sobrante (`flex: 1`, dentro de
-                la tarjeta ya en columna) y centra su contenido en el eje
-                vertical (`alignItems: center` -- el wrapper es fila, no
-                columna, así que el eje cruzado ES el vertical) -- mismo
-                ancho de siempre, solo cambia dónde queda dentro de la
-                tarjeta.
-              */}
-              <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
-                <StrategyDonutChart
-                  rows={strategyMix}
-                  onSegmentClick={(row) =>
-                    setDrillDown({
-                      metric: 'Strategy Mix',
-                      context: row.strategy,
-                      loans: fundedInRange.filter((l) => classifyStrategy(l) === row.strategy).map(closedLoanToModalLoan),
-                      hiddenColumns: ['milestone', 'status'],
-                    })
-                  }
-                />
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          {/* Etapa FIX-NOTE-ALIGN: mismo `minHeight` que la columna de Strategy Mix -- ver el comentario ahí. */}
-          <div style={{ minHeight: '62px' }}>
-            <DiagnosticsNote
-              count={1}
-              summary="Cumulative concentration of funded loans by branch or loan officer -- bars from the same scorecards above, line shows running % of total."
-              detail="Year to date totals cover January 1 through today, independent of the period selector above."
-            />
-          </div>
-          {orgRoster.loading && <p className="foot-note">Loading org roster…</p>}
-          {orgRoster.error && (
-            <p className="pill warn" style={{ display: 'inline-flex' }}>
-              Could not load org roster: {orgRoster.error}
-            </p>
-          )}
-          {!orgRoster.loading && !orgRoster.error && (
-            <div className="tbl-card" style={{ padding: '16px', flex: 1 }}>
-              <div className="tbl-card__head">
-                <span className="tbl-card__title">Pareto — Branch / Loan Officer</span>
-              </div>
-              <ParetoChart
-                data={paretoData}
-                onBarClick={(row, cut, mode) => {
-                  const cutLabel = cut === 'branch' ? 'Branch' : cut === 'loanOfficer' ? 'Loan Officer' : 'Business Developer';
-                  const modeLabel = mode === 'period' ? periodLabel(period) : 'Year to date';
-                  const sourceLoans = mode === 'period' ? fundedInRange : ytdFunded;
-                  setDrillDown({
-                    metric: `Pareto — ${cutLabel} (${modeLabel})`,
-                    context: row.label,
-                    loans: loansForScorecardCut(sourceLoans, cut, row.key, orgRoster.aliasIndex).map(closedLoanToModalLoan),
-                    hiddenColumns: cut === 'branch' ? ['milestone', 'status'] : ['loanOfficer', 'milestone', 'status'],
-                  });
-                }}
-              />
-            </div>
-          )}
-        </div>
-      </div>
 
       {/*
         Etapa F7, Parte 5: mismo modal que ya usa PivotTable -- una lista de
