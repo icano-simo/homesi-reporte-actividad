@@ -1142,7 +1142,14 @@ export default function PipelinePage() {
       <div className="page-head">
         <div>
           <h1 className="page-head__title">Forecast &amp; Pipeline</h1>
-          <p className="fc-month">{forecastMonthLabel}</p>
+          <input
+            type="month"
+            className="fc-month"
+            value={forecastMonth}
+            onChange={(e) => setForecastMonth(e.target.value)}
+            aria-label="Forecast Month"
+            title="Cambiar el mes de forecast"
+          />
         </div>
         <div className="fc-actions">
           {/*
@@ -1180,8 +1187,6 @@ export default function PipelinePage() {
       <Topbar
         pipelineDateRange={pipelineDateRange}
         onPipelineDateRangeChange={setPipelineDateRange}
-        forecastMonth={forecastMonth}
-        onForecastMonthChange={setForecastMonth}
         availableBranches={[...new Set(branchRows.map((r) => r.branch))].sort()}
         selectedBranch={selectedBranch}
         onSelectBranch={setSelectedBranch}
