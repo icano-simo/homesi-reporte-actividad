@@ -632,6 +632,19 @@ table.piv.piv--combined td.totcol {
   justify-content: center;
 }
 
+/*
+ * Etapa ACTUAL-CLOSINGS: con una sola tarjeta (Closed) el grid de 4
+ * columnas la deja angosta y pegada a la izquierda. Modificador propio
+ * de Forecast -- no toca la regla base .hero-banner (compartida con
+ * Analytics/Commercial Activity). Sin @media a propósito: por orden en
+ * el archivo, esta regla gana igual dentro del @media (max-width:900px)
+ * existente (misma especificidad, un solo selector de clase cada uno).
+ */
+.hero-banner--closings {
+  grid-template-columns: minmax(0, 320px);
+  justify-content: center;
+}
+
 /* ---------------------------------------------------------------------------
  * Chip informativo de préstamo transferido de branch
  * ------------------------------------------------------------------------ */

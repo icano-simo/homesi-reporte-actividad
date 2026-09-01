@@ -65,6 +65,26 @@ export function utcToday(): { year: number; month: number; day: number } {
   return { year: now.getUTCFullYear(), month: now.getUTCMonth() + 1, day: now.getUTCDate() };
 }
 
+/**
+ * Etapa ACTUAL-CLOSINGS -- portado desde `feat/analytics-podium-fixes`
+ * (todavía sin mergear a `main`), donde ya se diagnosticó y corrigió: usar
+ * `utcToday()` para "qué día es hoy" (a diferencia de PARSEAR una fecha ya
+ * guardada, donde UTC sí es correcto) cruza al mes siguiente 5 horas antes
+ * de que el día de negocio en Colombia termine (desde las 7pm hora
+ * Bogotá). Esta etapa necesita "hoy" para decidir si el Forecast Month
+ * elegido ya quedó en el pasado -- mismo caso de uso, mismo bug si se
+ * usara `utcToday()` acá. Se porta la función tal cual (sin duplicar la
+ * lógica con variaciones) hasta que esa rama se mergee a `main` y esto se
+ * pueda importar de un solo lugar.
+ */
+const BUSINESS_UTC_OFFSET_HOURS = -5;
+
+/** 'hoy' en hora de negocio (Bogotá, UTC-5 fijo) -- para defaults y comparaciones "en curso"/"ya pasó", nunca para parsear fechas guardadas (ahí sigue siendo utcToday()). */
+export function businessToday(): { year: number; month: number; day: number } {
+  const now = new Date(Date.now() + BUSINESS_UTC_OFFSET_HOURS * 60 * 60 * 1000);
+  return { year: now.getUTCFullYear(), month: now.getUTCMonth() + 1, day: now.getUTCDate() };
+}
+
 /** 1-12 -> 1-4. */
 export function quarterOfMonth(month: number): 1 | 2 | 3 | 4 {
   return (Math.floor((month - 1) / 3) + 1) as 1 | 2 | 3 | 4;
