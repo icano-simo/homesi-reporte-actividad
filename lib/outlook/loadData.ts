@@ -516,6 +516,14 @@ export interface OutlookBranch {
    * Es el mismo criterio que `unattributed`.
    */
   closedByOutsiders: number;
+  /**
+   * QUIÉNES son, con cuánto cerraron acá — etapa OL16.
+   *
+   * El total del branch no da la suma de sus filas, y `closedByOutsiders` dice
+   * cuánto falta pero no de quién. Con los nombres el descuadre se entiende sin
+   * un párrafo: son Loan Officers de otro branch que cerraron en este.
+   */
+  outsiders: { name: string; closings: number }[];
   loanOfficers: OutlookLoanOfficer[];
   /** Las cinco estrategias del branch — etapa OL8. */
   byStrategy: BranchStrategy[];
@@ -1738,6 +1746,20 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
        */
       closedByOutsiders:
         totalOf(actualByBranch, branchCode) - los.reduce((a, l) => a + l.ytd, 0),
+      /*
+       * Los mismos cierres que cuenta `closedByOutsiders`, con nombre. Se sacan
+       * de `actualByBranchLo` --que tiene la producción de CADA persona en CADA
+       * branch-- descartando a quienes sí tienen fila acá.
+       */
+      outsiders: [...actualByBranchLo.keys()]
+        .filter((k) => k.startsWith(branchCode + '|'))
+        .map((k) => ({ key: Number(k.slice(branchCode.length + 1)), closings: totalOf(actualByBranchLo, k) }))
+        .filter(({ key, closings }) => closings > 0 && !los.some((l) => l.employeeKey === key))
+        .map(({ key, closings }) => ({
+          name: employeeByKey.get(key)?.full_name ?? 'employee_key ' + key,
+          closings,
+        }))
+        .sort((a, b) => b.closings - a.closings || a.name.localeCompare(b.name)),
       loanOfficers: los.sort((a, b) => b.ytd - a.ytd || a.fullName.localeCompare(b.fullName)),
       byStrategy: strategiesOfBranch(branchCode),
     }))
