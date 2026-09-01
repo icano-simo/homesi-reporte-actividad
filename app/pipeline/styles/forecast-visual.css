@@ -632,6 +632,68 @@ table.piv.piv--combined td.totcol {
   justify-content: center;
 }
 
+/*
+ * Etapa HERO-STRATEGY-DONUT-WIDE -- la tarjeta "Strategy Mix" (donut +
+ * leyenda lado a lado) necesita más ancho que las otras 3 del hero-banner
+ * para no apilarse. Con las 4 columnas iguales de `.hero-banner`
+ * (components.css), el grid usaba `align-items: stretch` por default y
+ * la tarjeta más alta (Strategy Mix, apretada en su columna angosta)
+ * forzaba a las otras 3 a estirarse de más.
+ *
+ * `.hero-banner` es una clase COMPARTIDA (confirmado por grep:
+ * `app/pipeline/SummaryCards.tsx` de Forecast también la usa, línea 121)
+ * -- el override de `grid-template-columns` se acota a
+ * `.analytics-tab .hero-banner` (mismo criterio que el resto de este
+ * archivo para clases compartidas) en vez de tocar `.hero-banner` en
+ * components.css, que hubiera cambiado también el layout del banner de
+ * Forecast sin que nadie lo pidiera.
+ *
+ * 3 columnas iguales + una 4ta ~60% más ancha (la de Strategy Mix, último
+ * hijo del grid) -- mismo ancho total de fila que ya existía, solo se
+ * reparte distinto entre las 4.
+ *
+ * ⚠ DESVÍO respecto de la instrucción original: acá SÍ hace falta envolver
+ * la regla en `@media (min-width: 901px)` -- sin eso, `.analytics-tab
+ * .hero-banner` (2 clases) le gana en especificidad CSS a la regla mobile
+ * de components.css (`.hero-banner` dentro de `@media max-width: 900px`,
+ * 1 sola clase) SIN IMPORTAR el ancho de pantalla: un media query no suma
+ * especificidad, solo decide si el bloque se evalúa. Sin este ajuste, las
+ * 4 columnas desparejas de acá seguirían ganando incluso por debajo de
+ * 900px, pisando el fallback a 2 columnas iguales que ese breakpoint
+ * necesita (justo el comportamiento que el punto 4 de la tarea pide
+ * confirmar sin cambios). Con el `min-width: 901px` acá, las 2 reglas ya
+ * no compiten nunca en el mismo ancho.
+ */
+@media (min-width: 901px) {
+  .analytics-tab .hero-banner {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 1.6fr);
+  }
+}
+
+/*
+ * Etapa HERO-STRATEGY-DONUT-CENTER -- el contenido de las 4 tarjetas
+ * (título+valor+badge en las primeras 3, donut+leyenda en Strategy Mix)
+ * quedaba pegado arriba de la tarjeta, con hueco vacío abajo cuando el
+ * grid las estira parejo (`align-items: stretch` por default). Regla
+ * scoped nueva, no dentro del `@media (min-width: 901px)` de arriba --
+ * el centrado no tiene el problema de especificidad de esa regla (no
+ * compite con nada de components.css en ningún ancho) y "tarjetas más
+ * bajas, contenido centrado" aplica también en mobile/2 columnas, no
+ * solo desktop.
+ *
+ * `.hero-banner .mcard` a secas (components.css:625) ya centra el TEXTO
+ * (`text-align: center`) -- esta regla scoped agrega el centrado de
+ * LAYOUT (flex column + justify/align center), acotado a
+ * `.analytics-tab .hero-banner .mcard` para no tocar el banner
+ * compartido de Forecast (`app/pipeline/SummaryCards.tsx`).
+ */
+.analytics-tab .hero-banner .mcard {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
 /* ---------------------------------------------------------------------------
  * Chip informativo de préstamo transferido de branch
  * ------------------------------------------------------------------------ */

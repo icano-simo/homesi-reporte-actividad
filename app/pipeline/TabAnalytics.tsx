@@ -1359,13 +1359,17 @@ function colorForStrategy(strategy: Strategy): string {
 function StrategyDonutChart({
   rows,
   onSegmentClick,
+  size = 160,
+  strokeWidth = 22,
 }: {
   rows: StrategyMixRow[];
   onSegmentClick?: (row: StrategyMixRow) => void;
+  /** Etapa HERO-STRATEGY-DONUT-CENTER: default = valor de siempre -- Productivity & Concentration no pasa este prop, sigue exactamente igual. */
+  size?: number;
+  /** Mismo criterio que `size` -- default = valor de siempre. */
+  strokeWidth?: number;
 }) {
   const total = rows.reduce((sum, r) => sum + r.count, 0);
-  const size = 160;
-  const strokeWidth = 22;
   const radius = (size - strokeWidth) / 2;
   const cx = size / 2;
   const cy = size / 2;
@@ -1422,10 +1426,11 @@ function StrategyDonutChart({
             );
           })
         )}
-        <text x={cx} y={cy - 4} textAnchor="middle" fontSize="28" fontWeight={700} fill="var(--navy)">
+        {/* Etapa HERO-STRATEGY-DONUT-CENTER: fontSize proporcional a `size` (28/11 sobre 160 = las mismas proporciones de siempre) -- para que el texto central se achique junto con el donut en vez de quedar desproporcionado a tamaños chicos (ej. `size={110}` del Hero KPI). */}
+        <text x={cx} y={cy - 4} textAnchor="middle" fontSize={Math.round(size * 0.175)} fontWeight={700} fill="var(--navy)">
           {fmtInt(total)}
         </text>
-        <text x={cx} y={cy + 16} textAnchor="middle" fontSize="11" fill="var(--slate-500)">
+        <text x={cx} y={cy + 16} textAnchor="middle" fontSize={Math.round(size * 0.07)} fill="var(--slate-500)">
           {total === 1 ? 'loan' : 'loans'}
         </text>
       </svg>
@@ -2225,6 +2230,8 @@ function HeroKpiCards({
   previousFullHasData,
   previousFullLabel,
   topStrategy,
+  strategyMix,
+  onStrategySegmentClick,
 }: {
   currentVolume: number;
   currentCount: number;
@@ -2238,8 +2245,11 @@ function HeroKpiCards({
   previousFullCount: number;
   previousFullHasData: boolean;
   previousFullLabel: string;
-  /** `null` = sin dato de estrategia confiable en el período (snapshot sin los crudos, o 0 funded) -- ver el gate en TabAnalytics. */
+  /** `null` = sin dato de estrategia confiable en el período (snapshot sin los crudos, o 0 funded) -- ver el gate en TabAnalytics. Sigue siendo el gate de "hay datos válidos" para la tarjeta -- `strategyMix` no se vuelve a filtrar acá. */
   topStrategy: StrategyMixRow | null;
+  /** Etapa HERO-STRATEGY-DONUT: mismo array que ya arma `buildStrategyMix` para la instancia de Productivity & Concentration -- ninguna agregación nueva. */
+  strategyMix: StrategyMixRow[];
+  onStrategySegmentClick?: (row: StrategyMixRow) => void;
 }) {
   const previousHasData = previousCount > 0;
   const volumeDelta = computeDelta(currentVolume, previousVolume, previousHasData);
@@ -2308,14 +2318,9 @@ function HeroKpiCards({
       </div>
 
       <div className="mcard">
-        <div className="m-name">Top Strategy</div>
+        <div className="m-name">Strategy Mix</div>
         {topStrategy ? (
-          <>
-            <div className="kpi-hero__value kpi-hero__value--lg" style={{ fontSize: '22px' }}>
-              {topStrategy.strategy}
-            </div>
-            <div className="kpi-hero__sub">{fmtPercent(topStrategy.percent)} of closed loans this period</div>
-          </>
+          <StrategyDonutChart rows={strategyMix} onSegmentClick={onStrategySegmentClick} size={110} strokeWidth={16} />
         ) : (
           <div className="kpi-hero__sub">No strategy data for this period</div>
         )}
@@ -2758,6 +2763,15 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
         previousFullHasData={previousFullHasData}
         previousFullLabel={previousFullLabel}
         topStrategy={topStrategy}
+        strategyMix={strategyMix}
+        onStrategySegmentClick={(row) =>
+          setDrillDown({
+            metric: 'Strategy Mix',
+            context: row.strategy,
+            loans: fundedInRange.filter((l) => classifyStrategy(l) === row.strategy).map(closedLoanToModalLoan),
+            hiddenColumns: ['milestone', 'status'],
+          })
+        }
       />
 
       {/*
