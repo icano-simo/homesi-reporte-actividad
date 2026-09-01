@@ -21,13 +21,13 @@ import {
   type ScorecardRow,
 } from '@/lib/pipeline/scorecards';
 import {
+  businessToday,
   getDefaultPeriodSelection,
   getDefaultYtdSelection,
   periodDateRange,
   periodLabel,
   periodMonths,
   quarterOfMonth,
-  utcToday,
   type PeriodSelection,
 } from '@/lib/pipeline/period';
 import type { DateRange } from '@/lib/pipeline/aggregate';
@@ -505,12 +505,22 @@ function top3ByVolume(rows: ScorecardRow[]): ScorecardRow[] {
  */
 function CountUpNumber({ target, start, format }: { target: number; start: boolean; format: (n: number) => string }) {
   const [display, setDisplay] = useState(0);
+  /**
+   * FIX-LINT (react-hooks/set-state-in-effect): el caso reduced-motion no
+   * necesita pasar por el estado `display` -- salta la animación entera,
+   * así que su valor se DERIVA en el render (`prefersReducedMotion ?
+   * (start ? target : 0) : format(display)`) en vez de escribirlo con un
+   * `setState` síncrono al entrar al effect (mismo criterio ya usado en
+   * `NoteCell`, LoanDetailModal.tsx, para este mismo lint: evitar
+   * setState síncrono en un effect cuando el valor se puede calcular
+   * directo). El effect ahora solo corre la animación real (rAF), que
+   * sigue llamando `setDisplay` dentro del callback de `tick` -- eso no
+   * dispara el lint, solo el `setState` de primera línea del cuerpo del
+   * effect lo hacía.
+   */
+  const prefersReducedMotion = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   useEffect(() => {
-    if (!start) return;
-    if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      setDisplay(target);
-      return;
-    }
+    if (!start || prefersReducedMotion) return;
     const durationMs = 700;
     const startTime = performance.now();
     let raf = 0;
@@ -522,7 +532,8 @@ function CountUpNumber({ target, start, format }: { target: number; start: boole
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [start, target]);
+  }, [start, target, prefersReducedMotion]);
+  if (prefersReducedMotion) return <>{format(start ? target : 0)}</>;
   return <>{format(display)}</>;
 }
 
@@ -620,9 +631,23 @@ function MetricPodiumCard({
 function ScorecardPodiumPanel({ rows }: { rows: ScorecardRow[] }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
+  /**
+   * FIX-PODIUM-OBSERVER-RECONNECT -- si `rows` está vacío en el primer
+   * render (ej. período/branch sin datos en ese instante), `return null`
+   * de más abajo evita que el `<div ref={panelRef}>` llegue a montarse, así
+   * que este efecto encuentra `panelRef.current === null` y sale sin crear
+   * el observer. Con `[]` como deps eso pasaba una sola vez y para
+   * siempre -- cuando `rows` después sí traía datos (ej. cambiar el
+   * período a un mes con actividad), el observer nunca se creaba y
+   * `visible` quedaba en `false` para siempre, dejando cada
+   * `CountUpNumber` clavado en 0. `rows.length` en las deps hace que el
+   * efecto reintente cada vez que pasa de "sin filas" a "con filas" (o
+   * viceversa); `visible` en la guarda evita recrear el observer sin
+   * necesidad una vez que ya se disparó.
+   */
   useEffect(() => {
     const el = panelRef.current;
-    if (!el) return;
+    if (!el || visible) return;
     const observer = new IntersectionObserver(
       (entries, obs) => {
         if (entries.some((entry) => entry.isIntersecting)) {
@@ -634,7 +659,7 @@ function ScorecardPodiumPanel({ rows }: { rows: ScorecardRow[] }) {
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [rows.length, visible]);
 
   if (!rows.length) return null;
 
@@ -2031,7 +2056,7 @@ function previousPeriodComparison(selection: PeriodSelection, progress: PeriodPr
     return buildComparison(periodDateRange(prevSelection), periodLabel(prevSelection), progress);
   }
   // YTD -- ya día-a-día por construcción desde BI-REDESIGN-1, sin cambios.
-  const today = utcToday();
+  const today = businessToday();
   const prevYear = selection.year - 1;
   const cappedRange: DateRange = { startDate: `${prevYear}-01-01`, endDate: `${prevYear}-${pad2(today.month)}-${pad2(today.day)}` };
   const monthName = periodLabel({ mode: 'month', year: prevYear, month: today.month }).split(' ')[0];
@@ -2532,7 +2557,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
    * proyección de ritmo -- reusa `fundedLoansInRange()`, la misma función
    * ya usada arriba para `fundedInRange`, sin cálculo de agrupación nuevo.
    */
-  const today = utcToday();
+  const today = businessToday();
   const progress = currentPeriodProgress(period, today);
   const {
     cappedRange: previousRange,
