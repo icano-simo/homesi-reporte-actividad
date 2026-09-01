@@ -27,8 +27,11 @@ export interface TopbarProps {
 }
 
 /**
- * Barra de control de Forecast: compone DateRangeInput y MonthSelector, sin
- * tocar su lógica, más el selector de Branch global.
+ * Barra de control de Forecast: compone DateRangeInput, sin tocar su
+ * lógica, más el selector de Branch global. Forecast Month vivía aquí
+ * también hasta Etapa FORECAST-MONTH-VISIBLE -- ahora es un filtro visible
+ * debajo del título "Forecast & Pipeline" (page.tsx, clase `.fc-month`),
+ * fuera de este panel.
  *
  * Antes también componía UploadButton. Ese componente se eliminó junto con la
  * carga desde esta pantalla; en su lugar la barra muestra cuándo se actualizó
@@ -51,8 +54,10 @@ export interface TopbarProps {
  * Ahora:
  *   Upload    se fue arriba, junto a Download Excel (ver page.tsx).
  *   Branch    queda a la vista: es el único que se cambia seguido.
- *   Range y   detrás de "Settings", plegados. Se muestra un resumen de en qué
- *   Month     están, para que estar plegados no signifique estar ocultos.
+ *   Range     detrás de "Settings", plegado. Se muestra un resumen de en qué
+ *             está, para que estar plegado no signifique estar oculto.
+ *   Month     salió de aquí (Etapa FORECAST-MONTH-VISIBLE) -- ahora es
+ *             visible debajo del título, ver page.tsx.
  */
 export default function Topbar({
   pipelineDateRange,
