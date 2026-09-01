@@ -366,17 +366,29 @@ export interface BranchRealtor {
  * con la suma de sus personas.
  */
 /**
- * El Account Executive de una estrategia Affinity, en un branch — etapa OL13.
+ * ============================================================================
+ * EL DUEÑO DE LA OPORTUNIDAD — un mecanismo, dos estrategias (etapa OL15)
+ * ============================================================================
  *
- * ⚠ AFFINITY NO SE ABRE POR LOAN OFFICER. Sus 37 cierres los trae un ACCOUNT
- * EXECUTIVE: `opportunity_owner` de `loan_records_v2`. Quién procesó el préstamo
- * --el Loan Officer-- no es la unidad de decisión de esa estrategia, igual que en
- * NPPM no lo es.
+ * `opportunity_owner` de `loan_records_v2`. Quién procesó el préstamo --el Loan
+ * Officer-- no es la unidad de decisión de estas estrategias:
  *
- * Hoy son tres: Shirley Camargo y David Alvarez, que son personas y resuelven a
- * `employee_key` por su alias de Salesforce, y `sf integrations`, que es el
- * usuario de sistema de Salesforce -- no resuelve a nadie y está en
- * `org.source_name_excluded`.
+ *   Affinity   el dueño es un ACCOUNT EXECUTIVE. Hoy Shirley Camargo y David
+ *              Alvarez, más el usuario de sistema.
+ *   B2B        el dueño es un BUSINESS DEVELOPER, que es exactamente cómo
+ *              `classifyStrategy` de Forecast define B2B: `Opportunity Owner:
+ *              Title = 'Business Developer'`. Hoy son siete con cierres, y los
+ *              siete resuelven a `employee_key`.
+ *
+ * ⚠ ESTO ES LA SIMPLIFICACIÓN, no un caso más. Antes B2B era la única estrategia
+ * cuyo presupuesto colgaba de un BRANCH y no de una persona, así que el modelo
+ * tenía DOS formas de pertenencia y cada consulta tenía que preguntarse cuál
+ * aplicaba. Ahora las cinco cuelgan de personas: Loan Officers, realtors o
+ * dueños de oportunidad. La única diferencia entre ellas es el cargo.
+ *
+ * ⚠ Los dueños trabajan CRUZANDO BRANCHES --Annie Garrido cierra en el 716 y en
+ * el 747, Josue Toro en el 150 y el 733-- así que su fila es por (branch, dueño)
+ * y no por dueño: la tabla mide un branch.
  */
 export interface BranchOwner {
   /** El nombre tal como viene, o el rótulo del usuario de sistema. */
@@ -427,7 +439,7 @@ export interface BranchStrategy {
   actualByMonth: Record<string, number>;
   /** Cómo se abre esta estrategia. Ver la nota de arriba. */
   /** Cómo se abre esta estrategia. Ver la nota de arriba. */
-  opensBy: 'loanOfficer' | 'realtor' | 'accountExecutive' | 'branch';
+  opensBy: 'loanOfficer' | 'realtor' | 'owner' | 'branch';
   /** Sólo en NPPM: los realtors del branch, de mayor a menor. */
   realtors: BranchRealtor[];
   /** Sólo en Affinity: los Account Executives, de mayor a menor. */
@@ -1132,17 +1144,18 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
     bump(actualByLoStrategy, sk, month);
     bump(actualByBranchStrategy, branch + '|' + strategy, month);
 
-    if (strategy === 'Affinity') {
+    if (strategy === 'Affinity' || strategy === 'B2B') {
       /*
        * ⚠ El dueño puede no ser una persona. `sf integrations` es el usuario de
        * sistema de Salesforce: se cuenta --sus cierres son reales-- y se rotula
        * aparte. Sin nombre no hay a quién contarle, y ahí sí es el mismo rótulo.
        */
       const owner = row.opportunity_owner?.trim() || UNASSIGNED_OWNER;
-      bump(actualByBranchOwner, branch + '|' + owner, month);
-      const set = ownersByBranch.get(branch) ?? new Set<string>();
+      /* La clave lleva la ESTRATEGIA: un mismo dueño puede tener las dos. */
+      bump(actualByBranchOwner, branch + '|' + strategy + '|' + owner, month);
+      const set = ownersByBranch.get(branch + '|' + strategy) ?? new Set<string>();
       set.add(owner);
-      ownersByBranch.set(branch, set);
+      ownersByBranch.set(branch + '|' + strategy, set);
     }
 
     if (strategy === 'NPPM') {
@@ -1619,9 +1632,9 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       const bk = branchKeyOf(branchCode, strategy);
       const schedule = benchmarkScheduleByKey.get(bk) ?? [];
       const owners: BranchOwner[] =
-        strategy !== 'Affinity'
+        strategy !== 'Affinity' && strategy !== 'B2B'
           ? []
-          : [...(ownersByBranch.get(branchCode) ?? [])]
+          : [...(ownersByBranch.get(branchCode + '|' + strategy) ?? [])]
               .map((owner) => {
                 /*
                  * ⚠ ES UNA PERSONA si resuelve a `employee_key` por su alias de
@@ -1642,8 +1655,8 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
                 return {
                   owner: esPersona ? owner : UNASSIGNED_OWNER,
                   employeeKey,
-                  ytd: totalOf(actualByBranchOwner, branchCode + '|' + owner),
-                  actualByMonth: monthsOf(actualByBranchOwner, branchCode + '|' + owner),
+                  ytd: totalOf(actualByBranchOwner, branchCode + '|' + strategy + '|' + owner),
+                  actualByMonth: monthsOf(actualByBranchOwner, branchCode + '|' + strategy + '|' + owner),
                   benchmarkSchedule: schedule,
                   benchmarkAtDisplay: benchmarkAt(schedule, displayMonth),
                   rules: esPersona ? (rulesByKey.get(ek) ?? []) : [],
@@ -1687,8 +1700,8 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
             ? ('loanOfficer' as const)
             : strategy === 'NPPM'
               ? ('realtor' as const)
-              : strategy === 'Affinity'
-                ? ('accountExecutive' as const)
+              : strategy === 'Affinity' || strategy === 'B2B'
+                ? ('owner' as const)
                 : ('branch' as const),
         realtors,
         owners,
@@ -1889,7 +1902,14 @@ export function projectBranch(branch: OutlookBranch, months: string[]): Record<s
    * dos vías, y no cuadrar sólo porque una de ellas se ajusta a la otra.
    */
   /*
-   * ⚠ Y AFFINITY, que proyecta desde sus ACCOUNT EXECUTIVES — etapa OL14.
+   * ⚠ Y LAS QUE PROYECTAN DESDE SUS DUEÑOS DE OPORTUNIDAD — Affinity (OL14) y
+   * B2B (OL15).
+   *
+   * Es la advertencia de la fila de reconciliación aplicada: cada vez que se
+   * agrega una fuente de presupuesto hay que verificar a mano que esto la sume,
+   * porque el residuo no lo va a avisar. Con `opensBy: 'owner'` las dos entran
+   * por el mismo camino, así que la próxima estrategia que se abra por dueño no
+   * necesita acordarse de nada.
    *
    * Es la TERCERA fuente de presupuesto que se agrega, y la advertencia de la
    * fila de reconciliación dice exactamente qué hacer: verificar a mano que
@@ -1899,7 +1919,7 @@ export function projectBranch(branch: OutlookBranch, months: string[]): Record<s
    * mirar la pantalla.
    */
   for (const bs of branch.byStrategy) {
-    if (bs.opensBy !== 'accountExecutive') continue;
+    if (bs.opensBy !== 'owner') continue;
     for (const o of bs.owners) {
       if (!o.isPerson) continue;
       const steps = projectPlan(months, {
@@ -1929,8 +1949,18 @@ export function projectBranch(branch: OutlookBranch, months: string[]): Record<s
     const suma = bs.realtors.reduce((a, r) => a + r.benchmark, 0);
     for (const m of months) byMonth[m] += suma;
   }
+  /*
+   * ⚠ Y EL PRESUPUESTO DE BRANCH QUE TODAVÍA EXISTE, que ya no es de ninguna
+   * estrategia en particular.
+   *
+   * Ninguna estrategia se presupuesta a nivel branch desde OL15, pero hay DOS
+   * filas guardadas que sí --las de B2B en el 747 y el 716, cargadas antes del
+   * cambio-- y no se pueden reasignar: cada una cubre a dos o tres Business
+   * Developers y repartirlas es una decisión de negocio. Se siguen sumando para
+   * no borrar un presupuesto real, y la pantalla las muestra como una fila propia
+   * en vez de mezclarlas con las personas.
+   */
   for (const bs of branch.byStrategy) {
-    if (bs.opensBy !== 'branch') continue;
     const hay = bs.mode === 'monthly' ? bs.targetRevision > 0 : bs.benchmarkSchedule.length > 0;
     if (!hay) continue;
     const steps = projectPlan(months, {
