@@ -384,6 +384,33 @@ export interface BranchOwner {
   ytd: number;
   actualByMonth: Record<string, number>;
   /**
+   * ⚠ Su identidad interna, o `null` si no es una persona.
+   *
+   * Los dos Account Executives ya estaban en `org.dim_employee` con sus alias
+   * --Shirley Camargo 109, David Alvarez 82-- así que las cuatro tablas de
+   * `outlook` los soportan sin ningún cambio: cuelgan de `employee_key` y el
+   * CHECK XOR ya admite persona o branch. No hizo falta SQL.
+   */
+  employeeKey: number | null;
+  /**
+   * ⚠ SU PRESUPUESTO, igual que el de un Loan Officer — etapa OL14.
+   *
+   * Affinity dejó de presupuestarse a nivel branch: cada AE tiene su benchmark,
+   * su regla de crecimiento y su modo mes a mes. Son los mismos siete campos que
+   * `OutlookLoanOfficer`, así que el editor los toma sin distinguir de qué sujeto
+   * vienen.
+   *
+   * Vacíos en el usuario de sistema: no hay a quién pedirle un presupuesto.
+   */
+  benchmarkSchedule: BenchmarkPoint[];
+  benchmarkAtDisplay: number;
+  rules: GrowthSegment[];
+  ruleRevision: number;
+  mode: ProjectionMode;
+  modeSetBy: { setBy: string; at: string } | null;
+  targets: Record<string, number>;
+  targetRevision: number;
+  /**
    * ⚠ `false` = no es una persona: es un usuario de sistema.
    *
    * Sus cierres son REALES y se muestran --sin fila, el total de la estrategia no
@@ -1602,12 +1629,29 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
                  * Account Executives resuelven; el usuario de sistema no, y por eso
                  * la regla es "resuelve o no" y no una lista de nombres a mano.
                  */
-                const esPersona =
-                  owner !== UNASSIGNED_OWNER && aliasIndex.lookup('salesforce', owner).employeeKey !== null;
+                const employeeKey =
+                  owner === UNASSIGNED_OWNER ? null : aliasIndex.lookup('salesforce', owner).employeeKey;
+                const esPersona = employeeKey !== null;
+                /*
+                 * Su decisión sale de la MISMA clave que la de un Loan Officer:
+                 * `e<employee_key>|Affinity`. Por eso las tablas de `outlook` no
+                 * necesitaron nada nuevo.
+                 */
+                const ek = esPersona ? employeeKeyOf(employeeKey, strategy) : '';
+                const schedule = esPersona ? (benchmarkScheduleByKey.get(ek) ?? []) : [];
                 return {
                   owner: esPersona ? owner : UNASSIGNED_OWNER,
+                  employeeKey,
                   ytd: totalOf(actualByBranchOwner, branchCode + '|' + owner),
                   actualByMonth: monthsOf(actualByBranchOwner, branchCode + '|' + owner),
+                  benchmarkSchedule: schedule,
+                  benchmarkAtDisplay: benchmarkAt(schedule, displayMonth),
+                  rules: esPersona ? (rulesByKey.get(ek) ?? []) : [],
+                  ruleRevision: esPersona ? (revisionByKey.get(ek) ?? 0) : 0,
+                  mode: esPersona ? (modeByKey.get(ek) ?? 'growth') : ('growth' as const),
+                  modeSetBy: esPersona ? (modeSetByKey.get(ek) ?? null) : null,
+                  targets: esPersona ? (targetsByKey.get(ek) ?? {}) : {},
+                  targetRevision: esPersona ? (targetRevisionByKey.get(ek) ?? 0) : 0,
                   isPerson: esPersona,
                 };
               })
@@ -1844,6 +1888,30 @@ export function projectBranch(branch: OutlookBranch, months: string[]): Record<s
    * cuando lo que falta es un error. Por eso el total tiene que salir bien de las
    * dos vías, y no cuadrar sólo porque una de ellas se ajusta a la otra.
    */
+  /*
+   * ⚠ Y AFFINITY, que proyecta desde sus ACCOUNT EXECUTIVES — etapa OL14.
+   *
+   * Es la TERCERA fuente de presupuesto que se agrega, y la advertencia de la
+   * fila de reconciliación dice exactamente qué hacer: verificar a mano que
+   * `projectBranch` la sume, porque el residuo no lo va a avisar. Las dos
+   * anteriores --el presupuesto de branch en OL11 y NPPM en OL12-- se
+   * descubrieron después de que la fila las tapara; ésta se sumó antes de
+   * mirar la pantalla.
+   */
+  for (const bs of branch.byStrategy) {
+    if (bs.opensBy !== 'accountExecutive') continue;
+    for (const o of bs.owners) {
+      if (!o.isPerson) continue;
+      const steps = projectPlan(months, {
+        mode: o.mode,
+        benchmarks: o.benchmarkSchedule,
+        segments: o.rules,
+        targets: o.targets,
+      });
+      steps.forEach((st) => (byMonth[st.month] += st.value));
+    }
+  }
+
   /*
    * ⚠ Y NPPM, que proyecta desde sus REALTORS — etapa OL12.
    *

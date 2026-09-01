@@ -128,15 +128,17 @@ function ruleLabel(lo: OutlookLoanOfficer, strategy: OutlookStrategy, months: st
  * regla vieja guardada no proyecta por la regla.
  */
 /**
- * ⚠ ¿SU PRESUPUESTO ES DEL BRANCH? — etapa OL13.
+ * ⚠ ¿SU PRESUPUESTO ES DEL BRANCH?
  *
- * Affinity se ABRE por Account Executive pero su presupuesto sigue siendo del
- * branch: no hay tabla de benchmark por AE, y el negocio no pidió una. Son dos
- * preguntas distintas --por quién se abre y de quién es el presupuesto-- y hasta
- * OL12 `opensBy` respondía las dos a la vez.
+ * Sólo B2B y Recruitment-a-nivel-branch. En OL13 Affinity entraba acá --se abría
+ * por AE y se presupuestaba a nivel branch-- y en OL14 dejó de hacerlo: cada
+ * Account Executive tiene el suyo, como un Loan Officer.
+ *
+ * La distinción sigue haciendo falta: por quién se ABRE y de quién es el
+ * PRESUPUESTO son dos preguntas, y `opensBy` sólo responde la primera.
  */
 function esDelBranch(bs: BranchStrategy): boolean {
-  return bs.opensBy === 'branch' || bs.opensBy === 'accountExecutive';
+  return bs.opensBy === 'branch';
 }
 
 function branchHasBudget(bs: BranchStrategy): boolean {
@@ -522,6 +524,22 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
         targets: bs.targets,
       });
       remainingMonths.forEach((m, i) => (out[m] = steps[i]?.value ?? 0));
+    } else if (bs.opensBy === 'accountExecutive') {
+      /*
+       * La suma de sus Account Executives, cada uno por la MISMA puerta que una
+       * persona -- `projectPlan`. El usuario de sistema no aporta: no tiene
+       * presupuesto que proyectar.
+       */
+      for (const o of bs.owners) {
+        if (!o.isPerson) continue;
+        const steps = projectPlan(remainingMonths, {
+          mode: o.mode,
+          benchmarks: o.benchmarkSchedule,
+          segments: o.rules,
+          targets: o.targets,
+        });
+        remainingMonths.forEach((m, i) => (out[m] = (out[m] ?? 0) + (steps[i]?.value ?? 0)));
+      }
     } else if (bs.opensBy === 'realtor' && bs.realtors.length > 0) {
       const suma = bs.realtors.reduce((a, r) => a + r.benchmark, 0);
       remainingMonths.forEach((m) => (out[m] = suma));
@@ -577,6 +595,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
       const proyecta =
         bs.opensBy === 'loanOfficer' ||
         (esDelBranch(bs) && branchHasBudget(bs)) ||
+        bs.opensBy === 'accountExecutive' ||
         (bs.opensBy === 'realtor' && bs.realtors.length > 0);
       /*
         El mes en curso sale del REPARTO -- ver `agostoDe` arriba. Hasta OL12 era
@@ -592,7 +611,10 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
       const bench =
         bs.opensBy === 'loanOfficer'
           ? branch.loanOfficers.reduce((a, lo) => a + (lo.strategyBenchmarks[s] ?? 0), 0)
-          : s === 'NPPM'
+          : bs.opensBy === 'accountExecutive'
+            ? /* La suma de los AE. El usuario de sistema no aporta benchmark. */
+              bs.owners.reduce((a, o) => a + (o.isPerson && o.mode !== 'monthly' ? o.benchmarkAtDisplay : 0), 0)
+            : s === 'NPPM'
             ? bs.realtors.reduce((a, r) => a + r.benchmark, 0)
             : /*
                * Del branch. Vacío en dos casos, y los dos significan lo mismo --
@@ -879,16 +901,22 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                 empujaba la tabla 6px más allá de su caja en el 733 y se cortaba
                 contra el borde sin verse entera.
               */
+              const conAE = bs.owners.filter((o) => o.isPerson && o.benchmarkSchedule.length > 0).length;
               const regla =
                 bs.opensBy === 'loanOfficer'
                   ? `${conBenchmark} of ${branch.loanOfficers.length}`
-                  : s === 'NPPM'
+                  : bs.opensBy === 'accountExecutive'
+                    ? `${conAE} of ${bs.owners.filter((o) => o.isPerson).length}`
+                    : s === 'NPPM'
                     ? `${bs.realtors.length} realtor${bs.realtors.length === 1 ? '' : 's'}`
                     : branchRuleLabel(bs);
               const reglaTitulo =
                 bs.opensBy === 'loanOfficer'
                   ? `${conBenchmark} of the ${branch.loanOfficers.length} loan officers here have a benchmark in ${s}.`
-                  : s === 'NPPM'
+                  : bs.opensBy === 'accountExecutive'
+                    ? `${conAE} of the ${bs.owners.filter((o) => o.isPerson).length} account executives have a ` +
+                      `benchmark. The system user cannot have one.`
+                    : s === 'NPPM'
                     ? `${bs.realtors.length} realtor${bs.realtors.length === 1 ? '' : 's'} in this branch. Each one's ` +
                       `benchmark defaults to the average of their closings over the 3 closed months.`
                     : branchRuleLabel(bs);
@@ -1138,17 +1166,47 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                   {/* ── Affinity: se abre por Account Executive ─────────────── */}
                   {abierta &&
                     bs.opensBy === 'accountExecutive' &&
-                    bs.owners.map((o) => {
+                    (() => {
                       /*
-                        Un AE tiene meses reales y nada mas: el presupuesto de
-                        Affinity es del branch, no de el.
+                       * El entero de la estrategia, repartido entre los AE en
+                       * proporción a su presupuesto exacto -- misma cascada que
+                       * las filas de persona. El usuario de sistema pesa 0, así
+                       * que nunca le toca presupuesto.
+                       */
+                      const exactos = bs.owners.map((o) => {
+                        const out: Record<string, number> = {};
+                        if (o.isPerson) {
+                          const steps = projectPlan(remainingMonths, {
+                            mode: o.mode,
+                            benchmarks: o.benchmarkSchedule,
+                            segments: o.rules,
+                            targets: o.targets,
+                          });
+                          remainingMonths.forEach((m, i) => (out[m] = steps[i]?.value ?? 0));
+                        }
+                        return out;
+                      });
+                      const enteros: Record<string, number>[] = bs.owners.map(() => ({}));
+                      for (const m of remainingMonths) {
+                        const partes = apportionByWeight(
+                          presupuestoDe.get(s)?.[m] ?? 0,
+                          exactos.map((e) => e[m] ?? 0)
+                        );
+                        partes.forEach((v, i) => (enteros[i][m] = v));
+                      }
+                      return bs.owners.map((o, idx) => {
+                      /*
+                        ⚠ El usuario de sistema muestra sus cierres reales y su
+                        presupuesto queda VACÍO, no en cero: no hay a quién
+                        pedírselo. Es la misma distinción de siempre -- cero es una
+                        decisión, vacío es que no hay ninguna.
                       */
                       const oYear = composeYear(
                         monthsOfYear,
                         currentMonth,
                         o.actualByMonth,
                         o.actualByMonth[currentMonth] ?? 0,
-                        {}
+                        o.isPerson ? enteros[idx] : {}
                       );
                       return (
                         <tr key={'s-' + s + '-ae-' + o.owner} className="metric mrow">
@@ -1175,11 +1233,54 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                           <td className="bp-center totcol">
                             {fmt(sumOfShown(monthsOfYear.map((m) => oYear.byMonth[m] ?? null)))}
                           </td>
-                          <td className="bp-center ol-bench"></td>
-                          <td className="lbl"></td>
+                          {/* Su presupuesto, editable como el de una persona. */}
+                          <td className="bp-center ol-bench">
+                            {o.isPerson && (
+                              <>
+                                <span className="ol-bench__n">
+                                  {o.mode === 'monthly' ? fmt(null) : fmt(o.benchmarkSchedule.length ? o.benchmarkAtDisplay : null)}
+                                </span>
+                                <button
+                                  type="button"
+                                  className="ol-edit"
+                                  onClick={() =>
+                                    setEditing({ kind: 'employee', employeeKey: o.employeeKey as number, strategy: s })
+                                  }
+                                  aria-label={`Edit ${o.owner}'s benchmark and rule in ${s}`}
+                                  title={`Set ${o.owner}'s benchmark and growth rule in ${s}`}
+                                >
+                                  ✎
+                                </button>
+                              </>
+                            )}
+                          </td>
+                          <td className="lbl">
+                            {o.isPerson ? (
+                              <button
+                                type="button"
+                                className={
+                                  'ol-pill' + (o.rules.length || o.mode === 'monthly' ? '' : ' ol-pill--empty')
+                                }
+                                onClick={() =>
+                                  setEditing({ kind: 'employee', employeeKey: o.employeeKey as number, strategy: s })
+                                }
+                                title={`Revision ${(o.mode === 'monthly' ? o.targetRevision : o.ruleRevision) || 0}`}
+                              >
+                                {pillOf({
+                                  mode: o.mode,
+                                  rules: o.rules,
+                                  hasBenchmark: o.benchmarkSchedule.length > 0,
+                                  targetRevision: o.targetRevision,
+                                })}
+                              </button>
+                            ) : (
+                              <span className="bp-muted">no budget</span>
+                            )}
+                          </td>
                         </tr>
                       );
-                    })}
+                      });
+                    })()}
 
                   {/* ── NPPM: se abre por realtor ──────────────────────────── */}
                   {abierta &&
@@ -1406,7 +1507,32 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
            */
           let editable: OutlookEditable | null = null;
           if (editing.kind === 'employee') {
-            const lo = branch.loanOfficers.find((l) => l.employeeKey === editing.employeeKey);
+            /*
+             * ⚠ NO TODA PERSONA ES UN LOAN OFFICER DEL BRANCH — etapa OL14.
+             *
+             * Los Account Executives de Affinity son personas con `employee_key`
+             * y con presupuesto propio, pero NO están en `branch.loanOfficers`:
+             * su branch de roster es otro. Buscarlos sólo ahí dejaba el editor
+             * sin abrir --se hacía clic en el lápiz y no pasaba nada, sin error--
+             * que es la clase de falla que sólo se ve usando la pantalla.
+             */
+            const ae = branch.byStrategy
+              .flatMap((bs) => (bs.opensBy === 'accountExecutive' ? bs.owners.map((o) => ({ bs, o })) : []))
+              .find(({ o }) => o.isPerson && o.employeeKey === editing.employeeKey);
+            if (ae) {
+              editable = {
+                subject: { kind: 'employee', employeeKey: editing.employeeKey },
+                label: ae.o.owner,
+                benchmarkSchedules: { [ae.bs.strategy]: ae.o.benchmarkSchedule },
+                rulesByStrategy: { [ae.bs.strategy]: ae.o.rules },
+                targetsByStrategy: { [ae.bs.strategy]: ae.o.targets },
+                modeByStrategy: { [ae.bs.strategy]: ae.o.mode },
+                modeSetBy: { [ae.bs.strategy]: ae.o.modeSetBy },
+                ruleRevision: { [ae.bs.strategy]: ae.o.ruleRevision },
+                targetRevision: { [ae.bs.strategy]: ae.o.targetRevision },
+              };
+            }
+            const lo = !editable ? branch.loanOfficers.find((l) => l.employeeKey === editing.employeeKey) : null;
             if (lo) {
               editable = {
                 subject: { kind: 'employee', employeeKey: lo.employeeKey },
