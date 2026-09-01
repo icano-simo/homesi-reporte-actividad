@@ -350,68 +350,6 @@ interface Meta {
   activeDate: string;
 }
 
-/*
- * Las letras de columna de la hoja `Pipeline`. Las fórmulas del resumen apuntan
- * acá, así que el orden del `DETAIL_COLUMNS` de abajo y estas constantes tienen
- * que moverse juntos -- de ahí que estén declaradas al lado y no sueltas en las
- * fórmulas.
- */
-const COL = {
-  orgId: 'A',
-  channel: 'B',
-  loanOfficer: 'E',
-  startOfMonth: 'O',
-  endOfMonth: 'P',
-  lien: 'T',
-} as const;
-
-/**
- * ============================================================================
- * LOS COLORES — etapa RPT2
- * ============================================================================
- *
- * ⚠ SALEN DE `app/styles/tokens.css`, no se inventan acá. Son los cuatro de
- * HomeSí más la escala neutra que ya usa toda la app, en ARGB porque es lo que
- * pide ExcelJS. Si alguno cambia en la marca, cambia ahí y acá.
- *
- * Los tres tonos derivados --`NAVY_SOFT`, `CORAL_SOFT`, `SKY_SOFT`-- son mezclas
- * del color de marca sobre blanco, porque un relleno de Excel es OPACO: no hay
- * opacidad, así que el tono claro hay que calcularlo. El porcentaje va anotado
- * en cada uno para que se pueda rehacer.
- */
-const C = {
-  navy: 'FF001A40',
-  coral: 'FFFF4040',
-  sky: 'FFA6DEFF',
-  canvas: 'FFFCFCFA',
-  white: 'FFFFFFFF',
-  slate100: 'FFF1F5F9',
-  slate200: 'FFE2E8F0',
-  slate300: 'FFCBD5E1',
-  slate500: 'FF64748B',
-  /** coral al 28% sobre blanco: la fila de división. Al 12% no se leia. */
-  coralSoft: 'FFFFCCCC',
-  /** navy al 16% sobre blanco: las filas de branch. */
-  navySoft: 'FFD8DCE4',
-  /** sky al 45% sobre blanco: la banda de periodo. Al 25% se leia como blanco. */
-  skySoft: 'FFD3EEFF',
-  /**
-   * La banda cebra de las filas de persona. Es  y no :
-   * medido contra la captura, al 50 no se distinguia del blanco y la cebra no
-   * cumplia su unica funcion, que es seguir una fila a lo ancho de 22 columnas.
-   */
-  zebra: 'FFF1F5F9',
-} as const;
-
-/** Arial: la app usa Inter, que Excel no tiene. Ver la nota del brief. */
-const FONT = 'Arial';
-
-type Fill = { type: 'pattern'; pattern: 'solid'; fgColor: { argb: string } };
-const fill = (argb: string): Fill => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } });
-
-const THIN = { style: 'thin' as const, color: { argb: C.slate300 } };
-const MEDIUM = { style: 'medium' as const, color: { argb: C.navy } };
-
 function buildWorkbook(model: ReturnType<typeof buildMonthlyReport>, meta: Meta): Workbook {
   const wb = new Workbook();
   const nRows = model.rows.length;
@@ -475,10 +413,19 @@ function buildSummary(
       'disbursed on the 28th and 31st were only marked Closed Won after the 31st export was taken: reading the month-end ' +
       'snapshot gives 32 Banked, reading the active one gives 36, which is what the Forecast screen shows.',
   ]);
+  /*
+   * ⚠ QUÉ POBLACIÓN ALIMENTA CADA COLUMNA, DICHO EN LA HOJA. No se deduce
+   * mirando, y es lo primero que hace falta saber para comparar este archivo
+   * contra cualquier otro -- sobre todo contra los que se armaban a mano.
+   */
   const nota = sh.addRow([
-    'Loan counts are COUNTIFS over the Pipeline sheet, so they can be audited by filtering it. The three columns printed ' +
-      'in grey cannot be: Closed and Potential describe the cut-off snapshot, which the detail sheet does not carry (it ' +
-      'carries the current state of each loan), and Forecast is a pull-through cascade, not a row count.',
+    'Every number on this sheet is a formula over the Pipeline sheet, so it can be audited by filtering it. ' +
+      'As-of columns cover the loans that were open at the cut-off AND whose estimated closing date falls inside the ' +
+      'month; a loan open at the cut-off but closing in December is not August potential, and it shows as ' +
+      '"Out of month" in the detail. Potential = Pipeline + Closed, everything that was available to close. ' +
+      'Forecast is rounded PER BRANCH and the division total is the sum of those rounded figures, exactly as the ' +
+      'Forecast Executive Summary does it; rounding at the end instead would give a different number from the screen. ' +
+      'Forecast has no value on loan officer rows because the pull-through cascade is defined per branch and channel.',
   ]);
   /*
    * ⚠ LAS NOTAS VAN COMBINADAS A TODO EL ANCHO, y hay que verlo para saber por
@@ -597,11 +544,16 @@ function buildSummary(
    * la columna B para saber en qué nivel se estaba.
    */
   let zebra = false;
+  /* Para cerrar la fila de division: en que fila quedo, y en cuales los branches. */
+  let filaDivision = 0;
+  const filasDeBranch: number[] = [];
   for (const r of model.summary) {
     const row = sh.addRow([]);
     const n = row.number;
     if (r.kind === 'officer') zebra = !zebra;
     else zebra = false;
+    if (r.kind === 'division') filaDivision = n;
+    if (r.kind === 'branch') filasDeBranch.push(n);
 
     const bg = r.kind === 'division' ? C.coralSoft : r.kind === 'branch' ? C.navySoft : zebra ? C.zebra : C.white;
     const bold = r.kind !== 'officer';
@@ -630,34 +582,69 @@ function buildSummary(
       const put = (i: number, formula: string, result: number) => {
         row.getCell(at(channelAt, i)).value = { formula, result };
       };
-      put(0, `${base},${rng(COL.startOfMonth)},"Pipeline")`, cells.pipelineAtCutoff);
+      const L = (i: number) => sh.getColumn(at(channelAt, i)).letter;
+
       /*
-       * ⚠ LOS TRES QUE NO SE DERIVAN DEL DETALLE van en GRIS, no sombreados.
-       * Un relleno propio por celda partiría en tres la banda de la fila y se
-       * comería la jerarquía que este formato viene a construir; el color de
-       * fuente la respeta y distingue igual. La nota de arriba lo dice.
+       * ⚠ TODO NÚMERO DE ESTA HOJA SE PUEDE RECONSTRUIR FILTRANDO EL DETALLE
+       * — etapa RPT3. Antes `Closed`, `Potential` y `Forecast` iban escritos a
+       * mano porque el detalle no llevaba con qué derivarlos; ahora lleva dos
+       * columnas más --`Status at cut-off` y `PT weight`-- y no queda ninguno.
        */
-      row.getCell(at(channelAt, 1)).value = cells.closedAtCutoff;
-      row.getCell(at(channelAt, 2)).value = cells.potentialAtCutoff;
-      row.getCell(at(channelAt, 3)).value = cells.forecastAtCutoff;
-      for (const i of [1, 2, 3]) {
-        row.getCell(at(channelAt, i)).font = { name: FONT, size: 10, bold, italic: true, color: { argb: C.slate500 } };
+      put(0, `${base},${rng(COL.statusAtCutoff)},"Pipeline")`, cells.pipelineAtCutoff);
+      put(1, `${base},${rng(COL.statusAtCutoff)},"Closed")`, cells.closedAtCutoff);
+      /* Potential = Pipeline + Closed: todo lo que había disponible para cerrar. */
+      put(2, `${L(0)}${n}+${L(1)}${n}`, cells.potentialAtCutoff);
+
+      /*
+       * ⚠ EL FORECAST SÓLO EXISTE A NIVEL BRANCH.
+       *
+       *   persona    vacío. La cascada está definida por (branch, canal); una
+       *              cifra por Loan Officer sería inventada. Y sin forecast
+       *              tampoco hay `% vs Forecast` que calcular.
+       *   branch     `ROUND(SUMIFS(PT weight), 0)`. El `ROUND` va acá, por
+       *              branch, porque es donde lo hace la app.
+       *   división   la SUMA de las celdas de branch, no un SUMIFS propio.
+       *              Se completa después del bucle, cuando ya se sabe en qué
+       *              filas quedaron.
+       *
+       * ⚠ Por qué la división suma celdas en vez de repetir el SUMIFS: el total
+       * de la app es la suma de los redondeos POR BRANCH, no el redondeo de la
+       * suma. Medido en agosto de 2026: por branch da 33 Banked y 5 Brokered; al
+       * final, 32 y 6. Un `ROUND(SUMIFS(...))` sin criterio de branch daría lo
+       * segundo y el Excel dejaría de coincidir con la pantalla.
+       */
+      if (r.kind === 'branch') {
+        row.getCell(at(channelAt, 3)).value = {
+          formula: `ROUND(SUMIFS(${rng(COL.ptWeight)},${crit(r, n)}${rng(COL.channel)},"${ch}"),0)`,
+          result: cells.forecastAtCutoff ?? 0,
+        };
+      } else if (r.kind === 'division') {
+        /* Marcador: lo llena `cerrarDivision`, más abajo. */
+        row.getCell(at(channelAt, 3)).value = cells.forecastAtCutoff ?? 0;
       }
+
       put(4, `${base},${rng(COL.endOfMonth)},"Closed",${rng(COL.lien)},1)`, cells.closedFirstLien);
       put(5, `${base},${rng(COL.endOfMonth)},"Closed",${rng(COL.lien)},2)`, cells.closedSecondLien);
       put(6, `${base},${rng(COL.endOfMonth)},"Adversed")`, cells.adversed);
       put(7, `${base},${rng(COL.endOfMonth)},"Still Open")`, cells.stillOpen);
 
       const cnt = cells.closedFirstLien + cells.closedSecondLien;
-      const L = (i: number) => sh.getColumn(at(channelAt, i)).letter;
       put(8, `${L(4)}${n}+${L(5)}${n}`, cnt);
-      /* Sin forecast no hay porcentaje: 0/0 en Excel es #DIV/0!. */
-      const pct = row.getCell(at(channelAt, 9));
-      pct.value = {
-        formula: `IF(${L(3)}${n}=0,"",${L(8)}${n}/${L(3)}${n})`,
-        result: cells.forecastAtCutoff === 0 ? '' : cnt / cells.forecastAtCutoff,
-      };
-      pct.numFmt = '0%';
+
+      /*
+       * El porcentaje existe sólo donde existe el forecast. En una fila de
+       * persona la celda queda vacía --no 0%--: no se puede comparar contra un
+       * número que a ese nivel no existe.
+       */
+      if (r.kind !== 'officer') {
+        const fc = cells.forecastAtCutoff ?? 0;
+        const pct = row.getCell(at(channelAt, 9));
+        pct.value = {
+          formula: `IF(${L(3)}${n}=0,"",${L(8)}${n}/${L(3)}${n})`,
+          result: fc === 0 ? '' : cnt / fc,
+        };
+        pct.numFmt = '0%';
+      }
 
       /* Números a la derecha: la app usa tabular-nums y acá el equivalente es esto. */
       for (let k = 0; k < 10; k++) {
@@ -669,6 +656,30 @@ function buildSummary(
     }
     row.getCell(1).alignment = { horizontal: 'left' };
     row.getCell(2).alignment = { horizontal: 'left', indent: r.kind === 'officer' ? 1 : 0 };
+  }
+
+  /*
+   * ⚠ EL FORECAST DE LA DIVISIÓN ES LA SUMA DE LAS CELDAS DE BRANCH, célula por
+   * célula, no un SUMIFS sobre todo el detalle.
+   *
+   * El total de la app es la suma de los redondeos POR BRANCH, no el redondeo de
+   * la suma. Medido sobre el snapshot 19: por branch da 33 Banked y 5 Brokered;
+   * redondeando al final, 32 y 6. Un SUMIFS sin criterio de branch daría lo
+   * segundo, y el Excel dejaría de coincidir con el Executive Summary de la
+   * pantalla -- que es peor que la diferencia.
+   *
+   * Es la misma forma que usa el archivo de julio para sus totales: .
+   */
+  if (filaDivision > 0 && filasDeBranch.length > 0) {
+    for (const channelAt of [BANKED_AT, BROKERED_AT]) {
+      const col = sh.getColumn(at(channelAt, 3)).letter;
+      const celda = sh.getRow(filaDivision).getCell(at(channelAt, 3));
+      const previo = typeof celda.value === 'number' ? celda.value : 0;
+      celda.value = {
+        formula: filasDeBranch.map((f) => col + f).join('+'),
+        result: previo,
+      };
+    }
   }
 
   /* Encabezados congelados: después de la fila de sub-encabezado y de Loan Officer. */
@@ -814,7 +825,97 @@ const DETAIL_COLUMNS: { header: string; key: keyof MonthlyReportRow | 'blank'; w
   { header: 'Lien', key: 'lien', width: 8 },
   { header: 'Est closing - start', key: 'estClosingStart', width: 17 },
   { header: 'Est closing - end', key: 'estClosingEnd', width: 17 },
+  /*
+   * ⚠ LAS DOS COLUMNAS QUE NO ESTÁN EN EL ARCHIVO DE JULIO, y están a propósito
+   * — etapa RPT3. Van al final para no tocar el orden del original.
+   *
+   * Existen para que NINGÚN número del resumen quede escrito a mano. Sin
+   * `Status at cut-off` no hay forma de contar los que ya estaban cerrados el
+   * día del corte --la hoja lleva el estado ACTUAL de cada préstamo, no el de
+   * ese día-- y sin `PT weight` el forecast no puede salir de un SUMIFS. Una
+   * columna más es preferible a un número que nadie puede reconstruir
+   * filtrando.
+   */
+  { header: 'Status at cut-off', key: 'statusAtCutoff', width: 15 },
+  { header: 'PT weight', key: 'ptWeight', width: 11 },
 ];
+
+/*
+ * Las letras de columna de la hoja `Pipeline`. Las fórmulas del resumen apuntan
+ * acá, así que el orden del `DETAIL_COLUMNS` de abajo y estas constantes tienen
+ * que moverse juntos -- de ahí que estén declaradas al lado y no sueltas en las
+ * fórmulas.
+ */
+/*
+ * Las letras de columna de la hoja `Pipeline`, a las que apuntan todas las
+ * fórmulas del resumen. Se derivan del orden de `DETAIL_COLUMNS` en vez de
+ * escribirse a mano: agregar una columna al detalle y olvidarse de correr una
+ * letra acá daría un COUNTIFS que cuenta la columna equivocada sin fallar.
+ */
+const colOf = (header: string): string => {
+  const i = DETAIL_COLUMNS.findIndex((c) => c.header === header);
+  if (i < 0) throw new Error(`The Pipeline sheet has no "${header}" column.`);
+  /* 26 columnas alcanzan de sobra; si algún día no, hay que hacer AA. */
+  return String.fromCharCode(65 + i);
+};
+
+/**
+ * ============================================================================
+ * LOS COLORES — etapa RPT2
+ * ============================================================================
+ *
+ * ⚠ SALEN DE `app/styles/tokens.css`, no se inventan acá. Son los cuatro de
+ * HomeSí más la escala neutra que ya usa toda la app, en ARGB porque es lo que
+ * pide ExcelJS. Si alguno cambia en la marca, cambia ahí y acá.
+ *
+ * Los tres tonos derivados --`NAVY_SOFT`, `CORAL_SOFT`, `SKY_SOFT`-- son mezclas
+ * del color de marca sobre blanco, porque un relleno de Excel es OPACO: no hay
+ * opacidad, así que el tono claro hay que calcularlo. El porcentaje va anotado
+ * en cada uno para que se pueda rehacer.
+ */
+const C = {
+  navy: 'FF001A40',
+  coral: 'FFFF4040',
+  sky: 'FFA6DEFF',
+  canvas: 'FFFCFCFA',
+  white: 'FFFFFFFF',
+  slate100: 'FFF1F5F9',
+  slate200: 'FFE2E8F0',
+  slate300: 'FFCBD5E1',
+  slate500: 'FF64748B',
+  /** coral al 28% sobre blanco: la fila de división. Al 12% no se leia. */
+  coralSoft: 'FFFFCCCC',
+  /** navy al 16% sobre blanco: las filas de branch. */
+  navySoft: 'FFD8DCE4',
+  /** sky al 45% sobre blanco: la banda de periodo. Al 25% se leia como blanco. */
+  skySoft: 'FFD3EEFF',
+  /**
+   * La banda cebra de las filas de persona. Es  y no :
+   * medido contra la captura, al 50 no se distinguia del blanco y la cebra no
+   * cumplia su unica funcion, que es seguir una fila a lo ancho de 22 columnas.
+   */
+  zebra: 'FFF1F5F9',
+} as const;
+
+/** Arial: la app usa Inter, que Excel no tiene. Ver la nota del brief. */
+const FONT = 'Arial';
+
+type Fill = { type: 'pattern'; pattern: 'solid'; fgColor: { argb: string } };
+const fill = (argb: string): Fill => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } });
+
+const THIN = { style: 'thin' as const, color: { argb: C.slate300 } };
+const MEDIUM = { style: 'medium' as const, color: { argb: C.navy } };
+
+const COL = {
+  orgId: colOf('OrgID'),
+  channel: colOf('Loan Info Channel'),
+  loanOfficer: colOf('Loan Officer'),
+  startOfMonth: colOf('Start of month'),
+  endOfMonth: colOf('End of month'),
+  lien: colOf('Lien'),
+  statusAtCutoff: colOf('Status at cut-off'),
+  ptWeight: colOf('PT weight'),
+} as const;
 
 function buildDetail(wb: Workbook, model: ReturnType<typeof buildMonthlyReport>, meta: Meta): void {
   const sh = wb.addWorksheet('Pipeline');
@@ -885,6 +986,19 @@ function buildDetail(wb: Workbook, model: ReturnType<typeof buildMonthlyReport>,
    * ese día ni entre los que aparecieron después. Sin ellos el reporte no
    * cuadraría con la pantalla.
    */
+  if (model.counts.transferred > 0) {
+    /*
+     * Los transferidos, dichos en la hoja. Son pocos --tres en agosto de 2026--
+     * y sin la nota la unica forma de descubrirlo es no cuadrar contra Forecast
+     * por branch y no saber por que.
+     */
+    const nt = sh.addRow([
+      `${model.counts.transferred} loan(s) moved to a different branch after the cut-off. Each row keeps the branch it ` +
+        'was in at the cut-off, so both halves of the row describe the same branch. The Forecast screen shows them ' +
+        'under their current branch instead.',
+    ]);
+    nt.getCell(1).font = { italic: true };
+  }
   const n4 = sh.addRow([
     'Loans that closed before the cut-off have no "Start of month" mark: they were no longer in the pipeline that day. ' +
       'They are included because they closed inside the month, which is what makes the totals match the Forecast screen.',

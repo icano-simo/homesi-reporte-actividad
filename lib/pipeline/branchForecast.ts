@@ -78,6 +78,44 @@ export interface BranchForecastRow {
 }
 
 /**
+ * ============================================================================
+ * CUÁNTO APORTA UN SOLO PRÉSTAMO AL FORECAST — etapa RPT3
+ * ============================================================================
+ *
+ * ⚠ NO ES UNA SEGUNDA FÓRMULA: es la MISMA cascada, mirada préstamo por
+ * préstamo en vez de por bucket. La suma de esto sobre un (branch, canal) da
+ * exactamente el `forecastExact` de ese grupo, y hay una prueba que lo comprueba
+ * -- si algún día dejaran de coincidir, una de las dos está mal.
+ *
+ * Existe para que el reporte mensual pueda poner el peso en una columna del
+ * detalle y calcular el forecast con un `SUMIFS`. La alternativa era escribir el
+ * número a mano en el resumen, y un número que nadie puede reconstruir filtrando
+ * la hoja es exactamente lo que este reporte viene a eliminar.
+ *
+ * ⚠ LA CASCADA ES ACUMULATIVA. Un préstamo en `Started` no vale su tasa: vale el
+ * PRODUCTO de las cuatro etapas que le faltan por pasar. Uno en `Closing` ya está
+ * en la meta y vale sólo la suya. Por eso esto no es "la tasa de su bucket".
+ *
+ * ⚠ Y LOS DOS CANALES NO COMPARTEN NI LA TASA NI LA POBLACIÓN. Banked pesa sólo
+ * si está HEALTHY; Brokered pesa 40% esté sano o no, porque su regla es plana
+ * sobre el total de abiertos.
+ */
+export function pullThroughWeight(loan: PipelineLoan, rates: PullThroughRates = PULL_THROUGH_RATES): number {
+  if (loan.channel === 'Brokered') return BROKERED_FLAT_PULL_THROUGH_RATE;
+  if (loan.healthy !== true) return 0;
+  switch (loan.milestone) {
+    case 'Started':
+      return rates.Started * rates.Processing * rates.Underwriting * rates.Closing;
+    case 'Processing':
+      return rates.Processing * rates.Underwriting * rates.Closing;
+    case 'Underwriting':
+      return rates.Underwriting * rates.Closing;
+    case 'Closing':
+      return rates.Closing;
+  }
+}
+
+/**
  * Una fila por (branch, canal) presente en `openLoans`, con su forecast ya
  * redondeado.
  *
