@@ -96,36 +96,33 @@ function getDefaultForecastMonth(): string {
   return now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
 }
 
-function formatDateLocal(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return y + '-' + m + '-' + day;
-}
-
 /**
- * Etapa F4c: default = día 1 del mes actual hasta el último día del mes
- * actual (usa la fecha real del sistema, no un valor fijo). Ej. hoy=29
- * julio 2026 -> 1 julio 2026 a 31 julio 2026.
+ * Etapa PIPELINE-RANGE-AUTO: Pipeline Range deja de ser un estado
+ * independiente que el usuario ajusta (era el rango de 2 meses de
+ * Etapa F5j, [1er día del mes anterior, último día del mes actual],
+ * pero fijado a "hoy" y editable a mano detrás de la tuerquita de
+ * Settings). Ahora se deriva SIEMPRE del Forecast Month elegido, con
+ * la misma forma de rango de 2 meses: [1er día del mes ANTERIOR al
+ * Forecast Month, último día del Forecast Month].
  *
- * Etapa F5a: antes arrancaba en el mes ANTERIOR (2 meses de rango) -- se
- * acota a solo el mes actual.
+ * OJO -- no es un revert de Etapa F5c (que hacía lo inverso: Forecast
+ * Month se derivaba de Pipeline Range, y se revirtió en F5e). Esta es
+ * la dirección contraria, a propósito: ahora Pipeline Range sigue a
+ * Forecast Month, nunca al revés.
  *
- * Etapa F5e: este rango ahora es SOLO para Total/Healthy Pipeline --
- * Cerrados/Forecast usan forecastMonth (independiente, ver abajo), ya no
- * derivan nada de este rango. Etapa F5j: Adverse tampoco usa más este
- * rango (pasó a forecastMonth también, ver adverseInRange).
- *
- * Etapa F5j: vuelve a ser un rango de 2 meses -- [1er día del mes
- * ANTERIOR, último día del mes actual], confirmado explícito en el brief
- * de esta etapa (no es un revert accidental de F5a). Ej. hoy=5 agosto
- * 2026 -> 1 julio 2026 a 31 agosto 2026.
+ * Reusa targetMonthRange() (aggregate.ts, sin tocar) dos veces -- una
+ * para el mes anterior, una para el Forecast Month -- en vez de
+ * reimplementar aritmética de mes-anterior con Date local. Con esto,
+ * getDefaultPipelineDateRange()/formatDateLocal() (que sí usaban
+ * `new Date()` en hora local del navegador, no UTC) dejan de hacer
+ * falta -- se eliminan, no quedan como código muerto.
  */
-function getDefaultPipelineDateRange(): DateRange {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-  return { startDate: formatDateLocal(start), endDate: formatDateLocal(end) };
+function pipelineRangeFromForecastMonth(target: TargetMonth): DateRange {
+  const previousMonth = target.month === 1 ? 12 : target.month - 1;
+  const previousYear = target.month === 1 ? target.year - 1 : target.year;
+  const previousMonthRange = targetMonthRange({ year: previousYear, month: previousMonth });
+  const currentMonthRange = targetMonthRange(target);
+  return { startDate: previousMonthRange.startDate, endDate: currentMonthRange.endDate };
 }
 
 function sumBuckets(a: BucketCounts, b: BucketCounts): BucketCounts {
@@ -196,11 +193,10 @@ export default function PipelinePage() {
    * misma precaución que toma app/page.tsx con `lastSync`.
    */
   const [lastUploadedAt, setLastUploadedAt] = useState<string | null>(null);
-  // Etapa F5e: dos controles independientes en vez de uno -- ver Decisiones
-  // en la respuesta de esta etapa. pipelineDateRange sigue siendo el mismo
-  // DateRange de siempre (Total/Healthy Pipeline + Adverse); forecastMonth
-  // es nuevo, un solo mes, solo para Cerrados/Forecast.
-  const [pipelineDateRange, setPipelineDateRange] = useState<DateRange>(getDefaultPipelineDateRange);
+  // Etapa PIPELINE-RANGE-AUTO: pipelineDateRange ya no vive acá -- dejó de
+  // ser un estado independiente (ver pipelineRangeFromForecastMonth más
+  // arriba). forecastMonth sigue siendo el único control que el usuario
+  // ajusta directamente.
   const [forecastMonth, setForecastMonth] = useState<string>(getDefaultForecastMonth);
   const [branchManagers, setBranchManagers] = useState<Map<string, string>>(new Map());
   const [knownBranches, setKnownBranches] = useState<Set<string>>(new Set());
@@ -444,14 +440,18 @@ export default function PipelinePage() {
    * hora de mirar la pantalla, no la del dato.
    */
 
-  // Etapa F5e: forecastMonth ('YYYY-MM' del MonthSelector nuevo) es
-  // completamente independiente de pipelineDateRange -- ya no se deriva de
-  // él (eso era F5c, revertido). targetMonthRange() se reutiliza tal cual
-  // (aggregate.ts, sin tocar) para convertir el mes elegido en {startDate,
-  // endDate}.
+  // Etapa F5e: forecastMonth ('YYYY-MM' del MonthSelector nuevo) sigue
+  // sin derivarse de nada -- es el único estado que el usuario controla
+  // directamente. targetMonthRange() se reutiliza tal cual (aggregate.ts,
+  // sin tocar) para convertir el mes elegido en {startDate, endDate}.
   const forecastMonthParsed = parseMonthInputValue(forecastMonth);
   const forecastRange = targetMonthRange(forecastMonthParsed);
   const forecastMonthLabel = formatForecastMonthLabel(forecastMonthParsed);
+
+  // Etapa PIPELINE-RANGE-AUTO: ver pipelineRangeFromForecastMonth()
+  // más arriba -- pipelineDateRange ahora sigue a forecastMonthParsed,
+  // nunca al revés.
+  const pipelineDateRange = pipelineRangeFromForecastMonth(forecastMonthParsed);
 
   // Cálculo derivado -- igual que en F3, pero sobre data.openLoans (real) en
   // vez de DEMO_LOANS. aggregate.ts (F2) no se modificó: se llaman sus
@@ -1448,8 +1448,6 @@ export default function PipelinePage() {
           del contenido -- ahora es la tarjeta de control (spec §3B) dentro del
           mismo contenedor de 1440px que el resto de la vista. */}
       <Topbar
-        pipelineDateRange={pipelineDateRange}
-        onPipelineDateRangeChange={setPipelineDateRange}
         availableBranches={[...new Set(branchRows.map((r) => r.branch))].sort()}
         selectedBranch={selectedBranch}
         onSelectBranch={setSelectedBranch}

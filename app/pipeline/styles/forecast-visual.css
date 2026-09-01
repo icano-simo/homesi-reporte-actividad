@@ -760,58 +760,6 @@ table.piv.piv--combined td.totcol {
   flex-wrap: wrap;
 }
 
-/*
- * El resumen va EN el botón: plegado no es oculto. Sin él habría que abrir el
- * panel sólo para saber en qué rango está el reporte.
- */
-.fc-params__toggle {
-  /* Etapa gear icon: display:flex + gap agregados -- antes el botón sólo
-     tenía texto ("▾ Settings · ..."), ahora antepone el engranaje de marca
-     (SettingsGearIcon) al resumen de rango/mes; sin flex el SVG y el texto
-     quedaban en su baseline por defecto, ligeramente desalineados. */
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  /* Ajuste de seguimiento: con el divisor + chip "Forecast" agregados, el
-     resumen tiene más piezas -- nowrap asegura que siga en una sola fila
-     (antes ya cabía de sobra siendo un solo string corrido). */
-  white-space: nowrap;
-  font-family: inherit;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--slate-500);
-  background: none;
-  border: 1px solid var(--slate-200);
-  border-radius: var(--radius-md);
-  padding: 6px 12px;
-  cursor: pointer;
-  font-variant-numeric: tabular-nums;
-}
-.fc-params__toggle:hover {
-  color: var(--navy);
-  border-color: var(--slate-300);
-}
-/* Ajuste de seguimiento: separa visualmente Pipeline Range de Forecast Month
-   dentro del resumen colapsado -- mismo lenguaje visual que
-   .kpi-hero__split-divider (SummaryCards.tsx) entre dos valores agrupados,
-   como clase propia porque el contexto (alto de línea, tamaño) es distinto. */
-.fc-params__toggle-divider {
-  width: 1px;
-  align-self: stretch;
-  background: var(--slate-200);
-  flex-shrink: 0;
-}
-.fc-params {
-  flex-basis: 100%;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-top: 8px;
-  padding-top: 10px;
-  border-top: 1px solid var(--slate-100);
-}
-
 /* ===========================================================================
  * Etapa F6 — corte por estrategia comercial en Projected Forecast
  * ===========================================================================
