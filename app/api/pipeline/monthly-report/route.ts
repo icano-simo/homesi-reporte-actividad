@@ -365,6 +365,53 @@ const COL = {
   lien: 'T',
 } as const;
 
+/**
+ * ============================================================================
+ * LOS COLORES — etapa RPT2
+ * ============================================================================
+ *
+ * ⚠ SALEN DE `app/styles/tokens.css`, no se inventan acá. Son los cuatro de
+ * HomeSí más la escala neutra que ya usa toda la app, en ARGB porque es lo que
+ * pide ExcelJS. Si alguno cambia en la marca, cambia ahí y acá.
+ *
+ * Los tres tonos derivados --`NAVY_SOFT`, `CORAL_SOFT`, `SKY_SOFT`-- son mezclas
+ * del color de marca sobre blanco, porque un relleno de Excel es OPACO: no hay
+ * opacidad, así que el tono claro hay que calcularlo. El porcentaje va anotado
+ * en cada uno para que se pueda rehacer.
+ */
+const C = {
+  navy: 'FF001A40',
+  coral: 'FFFF4040',
+  sky: 'FFA6DEFF',
+  canvas: 'FFFCFCFA',
+  white: 'FFFFFFFF',
+  slate100: 'FFF1F5F9',
+  slate200: 'FFE2E8F0',
+  slate300: 'FFCBD5E1',
+  slate500: 'FF64748B',
+  /** coral al 28% sobre blanco: la fila de división. Al 12% no se leia. */
+  coralSoft: 'FFFFCCCC',
+  /** navy al 16% sobre blanco: las filas de branch. */
+  navySoft: 'FFD8DCE4',
+  /** sky al 45% sobre blanco: la banda de periodo. Al 25% se leia como blanco. */
+  skySoft: 'FFD3EEFF',
+  /**
+   * La banda cebra de las filas de persona. Es  y no :
+   * medido contra la captura, al 50 no se distinguia del blanco y la cebra no
+   * cumplia su unica funcion, que es seguir una fila a lo ancho de 22 columnas.
+   */
+  zebra: 'FFF1F5F9',
+} as const;
+
+/** Arial: la app usa Inter, que Excel no tiene. Ver la nota del brief. */
+const FONT = 'Arial';
+
+type Fill = { type: 'pattern'; pattern: 'solid'; fgColor: { argb: string } };
+const fill = (argb: string): Fill => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } });
+
+const THIN = { style: 'thin' as const, color: { argb: C.slate300 } };
+const MEDIUM = { style: 'medium' as const, color: { argb: C.navy } };
+
 function buildWorkbook(model: ReturnType<typeof buildMonthlyReport>, meta: Meta): Workbook {
   const wb = new Workbook();
   const nRows = model.rows.length;
@@ -378,38 +425,34 @@ function buildWorkbook(model: ReturnType<typeof buildMonthlyReport>, meta: Meta)
   return wb;
 }
 
-/**
+/*
  * ============================================================================
- * LA HOJA DE RESUMEN — los dos canales a lo ancho
+ * LA GEOMETRÍA DE LA HOJA DE RESUMEN
  * ============================================================================
  *
- * ⚠ LA ESTRUCTURA ES EL PUNTO, no la decoración. Cada fila es un Branch o un
- * Loan Officer, y sus diez columnas se repiten bajo dos bandas de canal:
+ *   A  Branch
+ *   B  Loan Officer
+ *   C  aire
+ *   D..O   BANKED - RETAIL    (10 columnas de dato + 2 separadoras internas)
+ *   P  separadora de CANAL
+ *   Q..AB  BROKERED           (idem)
  *
- *   [Branch] [Loan Officer] │ BANKED (10) │ BROKERED (10)
+ * ⚠ LAS SEPARADORAS SON COLUMNAS DE VERDAD, angostas y vacías, no un borde. Es
+ * lo que hace el archivo original --D, H, J, O, R, de ancho 1,7 a 3,7-- y con
+ * veintidós columnas de números seguidas el aire entre bloques es lo que
+ * permite leer una fila sin perder de vista en qué grupo se está.
  *
- * Así los dos canales de una persona se leen en la misma línea. La primera
- * versión de esta hoja ponía el canal como una columna más, y eso parte a cada
- * persona en dos filas que hay que ir a buscar -- que es exactamente lo que la
- * hoja viene a evitar.
- *
- * El orden: la división primero, y cada branch antes de su gente. El total
- * arriba y no al final porque es lo que se mira antes de bajar a buscar a quién,
- * y con trece branches el final queda lejos.
- *
- * ---------------------------------------------------------------------------
- * ⚠ CADA FÓRMULA VA CON SU VALOR YA CALCULADO
- * ---------------------------------------------------------------------------
- * ExcelJS escribe la fórmula pero NO su resultado, y un .xlsx sin valor en
- * caché sale en blanco en todo lo que no recalcule al abrir. Verificado con
- * `openpyxl` en `data_only=True`: las seis columnas de conteo y las dos de
- * porcentaje daban `None` en las 36 filas y en el total. En Excel de escritorio
- * se veían bien, que es lo que lo hace fácil de no notar.
- *
- * Por eso todas van como `{ formula, result }`. El `result` sale del modelo, y
- * la fórmula cuenta las mismas filas del detalle: son el mismo número por dos
- * caminos, y el de la fórmula existe para que se pueda auditar filtrando.
+ * `OFFSETS` traduce el índice de columna de dato (0..9) a su desplazamiento
+ * real dentro del canal, salteando las separadoras. Todo el resto del código
+ * habla en índices 0..9 y nunca en columnas absolutas.
  */
+const OFFSETS = [0, 1, 2, 3, 5, 6, 7, 8, 10, 11] as const;
+const CHANNEL_SPAN = 12;
+const BANKED_AT = 4;
+const SEP_COL = BANKED_AT + CHANNEL_SPAN;
+const BROKERED_AT = SEP_COL + 1;
+const LAST_COL = BROKERED_AT + CHANNEL_SPAN - 1;
+
 function buildSummary(
   wb: Workbook,
   model: ReturnType<typeof buildMonthlyReport>,
@@ -417,135 +460,188 @@ function buildSummary(
   rng: (c: string) => string
 ): void {
   const sh = wb.addWorksheet('Summary');
+  const at = (channelAt: number, i: number) => channelAt + OFFSETS[i];
 
-  sh.addRow([`Pipeline monthly report — ${meta.month}`]).font = { bold: true, size: 14 };
-  sh.addRow([`Cut-off ${meta.cutoffDate} · snapshot ${meta.anchorId} of ${meta.anchorDate}`]);
-  sh.addRow([`Status, closing date and milestone read from the active snapshot ${meta.activeId} of ${meta.activeDate}`]);
+  const titulo = sh.addRow([`Pipeline monthly report — ${meta.month}`]);
+  titulo.font = { name: FONT, bold: true, size: 16, color: { argb: C.navy } };
+  const sub1 = sh.addRow([`Cut-off ${meta.cutoffDate} · snapshot ${meta.anchorId} of ${meta.anchorDate}`]);
+  const sub2 = sh.addRow([
+    `Status, closing date and milestone read from the active snapshot ${meta.activeId} of ${meta.activeDate}`,
+  ]);
+  for (const r of [sub1, sub2]) r.font = { name: FONT, size: 10, color: { argb: C.slate500 } };
+
   const why = sh.addRow([
     'A loan counts in the month its disbursement date falls in, whichever snapshot recorded it. Four August 2026 loans ' +
       'disbursed on the 28th and 31st were only marked Closed Won after the 31st export was taken: reading the month-end ' +
       'snapshot gives 32 Banked, reading the active one gives 36, which is what the Forecast screen shows.',
   ]);
-  why.getCell(1).alignment = { wrapText: true };
-  why.getCell(1).font = { italic: true };
   const nota = sh.addRow([
-    'Loan counts are COUNTIFS over the Pipeline sheet, so they can be audited by filtering it. ' +
-      'The three shaded columns in each channel cannot be: Closed and Potential describe the cut-off snapshot, which the ' +
-      'detail sheet does not carry (it carries the current state of each loan), and Forecast is a pull-through cascade, ' +
-      'not a row count.',
+    'Loan counts are COUNTIFS over the Pipeline sheet, so they can be audited by filtering it. The three columns printed ' +
+      'in grey cannot be: Closed and Potential describe the cut-off snapshot, which the detail sheet does not carry (it ' +
+      'carries the current state of each loan), and Forecast is a pull-through cascade, not a row count.',
   ]);
-  nota.getCell(1).alignment = { wrapText: true };
-  nota.getCell(1).font = { italic: true };
+  /*
+   * ⚠ LAS NOTAS VAN COMBINADAS A TODO EL ANCHO, y hay que verlo para saber por
+   * qué. Con `wrapText` sobre una celda suelta, el texto se envuelve dentro del
+   * ancho de la columna A --once caracteres-- y Excel estira la fila hasta unos
+   * novecientos píxeles: la tabla quedaba empujada fuera de la primera pantalla
+   * detrás de dos columnas de texto en hilera. Combinadas, el mismo texto entra
+   * en dos renglones.
+   */
+  for (const r of [why, nota]) {
+    sh.mergeCells(r.number, 1, r.number, LAST_COL);
+    r.getCell(1).alignment = { wrapText: true, vertical: 'top' };
+    r.getCell(1).font = { name: FONT, italic: true, size: 9, color: { argb: C.slate500 } };
+    sh.getRow(r.number).height = 26;
+  }
+  for (const r of [titulo, sub1, sub2]) sh.mergeCells(r.number, 1, r.number, LAST_COL);
   sh.addRow([]);
 
-  /* Las diez de cada canal, en orden. Banked arranca en C, Brokered en M. */
-  const BANKED_AT = 3;
-  const BROKERED_AT = 13;
   const HEADERS = ['Pipeline', 'Closed', 'Potential', 'Forecast', 'Closed', 'Closed', 'Adversed', 'Still Open', 'Loan Count', '%'];
-
   /*
-   * ==========================================================================
-   * ⚠ CUATRO FILAS DE ENCABEZADO, Y LA DEL MEDIO ES LA QUE IMPORTA
-   * ==========================================================================
+   * ⚠ CUATRO FILAS DE ENCABEZADO, CON JERARQUÍA DE COLOR — etapas RPT1c y RPT2.
    *
-   *   canal    BANKED - RETAIL                            BROKERED
-   *   grupo    As of <corte> │ End of Month │ % vs Forec.  (idem)
-   *   columna  Pipeline Closed Potential Forecast │ Closed Closed Adversed Still Open │ Loan Count %
-   *   sub                                        │ First lien  Second Lien
+   *   canal    navy sólido, texto blanco   la separación más fuerte de la hoja
+   *   grupo    sky suave                   dónde termina el corte y empieza el cierre
+   *   columna  slate tenue                 el nombre, que no tiene que competir
+   *   sub                                  First lien / Second Lien
    *
-   * Sin la fila de GRUPO, las diez columnas de cada canal corren seguidas y no
-   * se ve dónde termina el corte y dónde empieza el cierre -- que es la
-   * comparación entera de este reporte. Es la que faltaba en la primera versión.
-   *
-   * Las dos columnas de `Closed` del cierre se llaman igual a propósito: lo que
-   * las distingue va en la fila de abajo, como en el archivo original. Repetir
-   * "Closed 1st lien" / "Closed 2nd lien" en la fila de columna las hace anchas
-   * y desalinea la banda de arriba.
+   * La del medio es la que faltaba y la que más importa: sin ella las diez
+   * columnas de cada canal corren seguidas y no se ve dónde termina el corte y
+   * dónde empieza el cierre, que es la comparación entera del reporte.
    */
   const GROUPS: { label: string; span: number }[] = [
     { label: `As of ${meta.cutoffDate}`, span: 4 },
     { label: 'End of Month', span: 4 },
     { label: '% vs Forecast', span: 2 },
   ];
-  const BAND_FILL = { banked: 'FFDDE8F5', brokered: 'FFE8E2F0' } as const;
 
   const rowCanal = sh.addRow([]);
   const rowGrupo = sh.addRow([]);
   const rowCol = sh.addRow([]);
   const rowSub = sh.addRow([]);
 
-  for (const [at, fill] of [
-    [BANKED_AT, BAND_FILL.banked],
-    [BROKERED_AT, BAND_FILL.brokered],
-  ] as const) {
-    const c = rowCanal.getCell(at);
-    c.value = at === BANKED_AT ? 'BANKED - RETAIL' : 'BROKERED';
-    c.alignment = { horizontal: 'center' };
-    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } };
-    sh.mergeCells(rowCanal.number, at, rowCanal.number, at + 9);
+  for (const channelAt of [BANKED_AT, BROKERED_AT]) {
+    const c = rowCanal.getCell(channelAt);
+    c.value = channelAt === BANKED_AT ? 'BANKED - RETAIL' : 'BROKERED';
+    c.alignment = { horizontal: 'center', vertical: 'middle' };
+    c.font = { name: FONT, bold: true, size: 11, color: { argb: C.white } };
+    c.fill = fill(C.navy);
+    sh.mergeCells(rowCanal.number, channelAt, rowCanal.number, channelAt + CHANNEL_SPAN - 1);
 
-    let off = 0;
+    let i = 0;
     for (const g of GROUPS) {
-      const gc = rowGrupo.getCell(at + off);
+      const desde = at(channelAt, i);
+      const hasta = at(channelAt, i + g.span - 1);
+      const gc = rowGrupo.getCell(desde);
       gc.value = g.label;
       gc.alignment = { horizontal: 'center' };
-      gc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } };
-      if (g.span > 1) sh.mergeCells(rowGrupo.number, at + off, rowGrupo.number, at + off + g.span - 1);
-      off += g.span;
+      gc.font = { name: FONT, bold: true, size: 10, color: { argb: C.navy } };
+      gc.fill = fill(C.skySoft);
+      gc.border = { top: THIN, bottom: THIN, left: MEDIUM, right: MEDIUM };
+      if (hasta > desde) sh.mergeCells(rowGrupo.number, desde, rowGrupo.number, hasta);
+      i += g.span;
     }
 
-    HEADERS.forEach((h, i) => {
-      const cc = rowCol.getCell(at + i);
+    HEADERS.forEach((h, idx) => {
+      const cc = rowCol.getCell(at(channelAt, idx));
       cc.value = h;
-      cc.alignment = { horizontal: 'center', wrapText: true };
+      cc.alignment = { horizontal: 'center', vertical: 'bottom', wrapText: true };
+      cc.font = { name: FONT, bold: true, size: 9, color: { argb: C.navy } };
+      cc.fill = fill(C.slate100);
     });
     /* Debajo de los dos `Closed` del cierre de mes, y sólo ahí. */
-    rowSub.getCell(at + 4).value = 'First lien';
-    rowSub.getCell(at + 5).value = 'Second Lien';
-    for (const i of [4, 5]) rowSub.getCell(at + i).alignment = { horizontal: 'center', wrapText: true };
+    for (const [idx, txt] of [
+      [4, 'First lien'],
+      [5, 'Second Lien'],
+    ] as const) {
+      const cc = rowSub.getCell(at(channelAt, idx));
+      cc.value = txt;
+      cc.alignment = { horizontal: 'center', wrapText: true };
+      cc.font = { name: FONT, bold: true, size: 8, color: { argb: C.slate500 } };
+    }
+    for (let k = 0; k < 10; k++) {
+      rowSub.getCell(at(channelAt, k)).fill = fill(C.slate100);
+      rowSub.getCell(at(channelAt, k)).border = { bottom: MEDIUM };
+    }
   }
 
-  for (const r of [rowCanal, rowGrupo, rowCol, rowSub]) r.font = { bold: true };
-
-  /* Branch y Loan Officer ocupan las cuatro filas de encabezado, no la última. */
   sh.getCell(rowCanal.number, 1).value = 'Branch';
   sh.getCell(rowCanal.number, 2).value = 'Loan Officer';
   sh.mergeCells(rowCanal.number, 1, rowSub.number, 1);
   sh.mergeCells(rowCanal.number, 2, rowSub.number, 2);
-  for (const c of [1, 2]) sh.getCell(rowCanal.number, c).alignment = { vertical: 'bottom' };
+  for (const col of [1, 2]) {
+    const cc = sh.getCell(rowCanal.number, col);
+    cc.alignment = { vertical: 'bottom' };
+    cc.font = { name: FONT, bold: true, size: 10, color: { argb: C.white } };
+    cc.fill = fill(C.navy);
+  }
 
   const HEAD_ROW = rowSub.number;
-  const SHADED = 'FFF2E8DA';
 
-  /* Etiqueta de la fila: qué criterios lleva su COUNTIFS. */
+  /* Qué criterios lleva el COUNTIFS de cada fila, según su nivel. */
   const crit = (r: MonthlyReportSummaryRow, n: number): string => {
     if (r.kind === 'division') return '';
     if (r.kind === 'branch') return `${rng(COL.orgId)},$A${n},`;
     return `${rng(COL.orgId)},$A${n},${rng(COL.loanOfficer)},$B${n},`;
   };
 
+  /*
+   * ⚠ TRES NIVELES DE FILA, TRES TRATAMIENTOS — etapa RPT2.
+   *
+   *   DIVISION   coral suave, negrita, borde grueso arriba y abajo
+   *   branch     navy suave, negrita
+   *   persona    limpio, con cebra tenue para seguir la línea a lo ancho
+   *
+   * Antes los tres compartían relleno y la jerarquía no se veía: había que leer
+   * la columna B para saber en qué nivel se estaba.
+   */
+  let zebra = false;
   for (const r of model.summary) {
     const row = sh.addRow([]);
     const n = row.number;
+    if (r.kind === 'officer') zebra = !zebra;
+    else zebra = false;
+
+    const bg = r.kind === 'division' ? C.coralSoft : r.kind === 'branch' ? C.navySoft : zebra ? C.zebra : C.white;
+    const bold = r.kind !== 'officer';
+
     row.getCell(1).value = r.kind === 'division' ? 'DIVISION' : r.branch;
     row.getCell(2).value = r.kind === 'officer' ? r.loanOfficer : r.kind === 'branch' ? 'All loan officers' : '';
-    if (r.kind !== 'officer') row.font = { bold: true };
 
-    for (const [at, ch, cells] of [
+    for (let col = 1; col <= LAST_COL; col++) {
+      const cc = row.getCell(col);
+      cc.fill = fill(bg);
+      cc.font = { name: FONT, size: 10, bold, color: { argb: C.navy } };
+      if (r.kind === 'division') cc.border = { top: MEDIUM, bottom: MEDIUM };
+      else if (r.kind === 'branch') cc.border = { top: THIN, bottom: THIN };
+      else cc.border = { bottom: THIN };
+    }
+    /* Las separadoras no llevan borde: son aire, no una celda vacía de la tabla. */
+    for (const col of [3, SEP_COL, BANKED_AT + 4, BANKED_AT + 9, BROKERED_AT + 4, BROKERED_AT + 9]) {
+      row.getCell(col).border = {};
+    }
+
+    for (const [channelAt, ch, cells] of [
       [BANKED_AT, 'Banked - Retail', r.banked],
       [BROKERED_AT, 'Brokered', r.brokered],
     ] as const) {
       const base = `COUNTIFS(${crit(r, n)}${rng(COL.channel)},"${ch}"`;
       const put = (i: number, formula: string, result: number) => {
-        row.getCell(at + i).value = { formula, result };
+        row.getCell(at(channelAt, i)).value = { formula, result };
       };
       put(0, `${base},${rng(COL.startOfMonth)},"Pipeline")`, cells.pipelineAtCutoff);
-      /* Los tres que no se derivan del detalle -- ver la nota de arriba. */
-      row.getCell(at + 1).value = cells.closedAtCutoff;
-      row.getCell(at + 2).value = cells.potentialAtCutoff;
-      row.getCell(at + 3).value = cells.forecastAtCutoff;
+      /*
+       * ⚠ LOS TRES QUE NO SE DERIVAN DEL DETALLE van en GRIS, no sombreados.
+       * Un relleno propio por celda partiría en tres la banda de la fila y se
+       * comería la jerarquía que este formato viene a construir; el color de
+       * fuente la respeta y distingue igual. La nota de arriba lo dice.
+       */
+      row.getCell(at(channelAt, 1)).value = cells.closedAtCutoff;
+      row.getCell(at(channelAt, 2)).value = cells.potentialAtCutoff;
+      row.getCell(at(channelAt, 3)).value = cells.forecastAtCutoff;
       for (const i of [1, 2, 3]) {
-        row.getCell(at + i).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SHADED } };
+        row.getCell(at(channelAt, i)).font = { name: FONT, size: 10, bold, italic: true, color: { argb: C.slate500 } };
       }
       put(4, `${base},${rng(COL.endOfMonth)},"Closed",${rng(COL.lien)},1)`, cells.closedFirstLien);
       put(5, `${base},${rng(COL.endOfMonth)},"Closed",${rng(COL.lien)},2)`, cells.closedSecondLien);
@@ -553,29 +649,65 @@ function buildSummary(
       put(7, `${base},${rng(COL.endOfMonth)},"Still Open")`, cells.stillOpen);
 
       const cnt = cells.closedFirstLien + cells.closedSecondLien;
-      const L = (i: number) => sh.getColumn(at + i).letter;
+      const L = (i: number) => sh.getColumn(at(channelAt, i)).letter;
       put(8, `${L(4)}${n}+${L(5)}${n}`, cnt);
       /* Sin forecast no hay porcentaje: 0/0 en Excel es #DIV/0!. */
-      row.getCell(at + 9).value = {
+      const pct = row.getCell(at(channelAt, 9));
+      pct.value = {
         formula: `IF(${L(3)}${n}=0,"",${L(8)}${n}/${L(3)}${n})`,
         result: cells.forecastAtCutoff === 0 ? '' : cnt / cells.forecastAtCutoff,
       };
-      row.getCell(at + 9).numFmt = '0%';
+      pct.numFmt = '0%';
+
+      /* Números a la derecha: la app usa tabular-nums y acá el equivalente es esto. */
+      for (let k = 0; k < 10; k++) {
+        row.getCell(at(channelAt, k)).alignment = { horizontal: 'right' };
+      }
+      /* El borde grueso que delimita cada grupo, fila por fila. */
+      for (const i of [0, 4, 8]) row.getCell(at(channelAt, i)).border = { ...row.getCell(at(channelAt, i)).border, left: MEDIUM };
+      row.getCell(at(channelAt, 9)).border = { ...row.getCell(at(channelAt, 9)).border, right: MEDIUM };
     }
+    row.getCell(1).alignment = { horizontal: 'left' };
+    row.getCell(2).alignment = { horizontal: 'left', indent: r.kind === 'officer' ? 1 : 0 };
   }
 
+  /* Encabezados congelados: después de la fila de sub-encabezado y de Loan Officer. */
   sh.views = [{ state: 'frozen', xSplit: 2, ySplit: HEAD_ROW }];
-  sh.getColumn(1).width = 12;
-  sh.getColumn(2).width = 26;
-  for (const at of [BANKED_AT, BROKERED_AT]) {
-    HEADERS.forEach((_, i) => (sh.getColumn(at + i).width = i === 9 ? 9 : 14));
+  sh.getColumn(1).width = 11;
+  sh.getColumn(2).width = 30;
+  sh.getColumn(3).width = 2;
+  sh.getColumn(SEP_COL).width = 3;
+  for (const channelAt of [BANKED_AT, BROKERED_AT]) {
+    for (let k = 0; k < 10; k++) sh.getColumn(at(channelAt, k)).width = k === 9 ? 8 : 11;
+    sh.getColumn(channelAt + 4).width = 2;
+    sh.getColumn(channelAt + 9).width = 2;
   }
+  sh.getRow(rowCanal.number).height = 20;
+  sh.getRow(rowCol.number).height = 24;
 }
+
+const BY_BRANCH_COLUMNS = [
+  { header: 'Loan Officer', width: 26 },
+  { header: 'Loan Number', width: 16 },
+  { header: 'Borrower Name', width: 32 },
+  { header: 'Channel', width: 16 },
+  { header: 'Loan Amount', width: 14 },
+  { header: 'Start of month', width: 14 },
+  { header: 'End of month', width: 14 },
+  { header: 'Funding date', width: 13 },
+  { header: 'Last Finished Milestone', width: 22 },
+  { header: 'Strategy', width: 16 },
+  { header: 'Lien', width: 7 },
+];
 
 function buildByBranch(wb: Workbook, model: ReturnType<typeof buildMonthlyReport>): void {
   const sh = wb.addWorksheet('By Branch');
-  sh.addRow(['One block per branch. Every loan carries its own Loan Officer, so the sheet survives sorting and filtering.']).font =
-    { italic: true };
+  const N = BY_BRANCH_COLUMNS.length;
+
+  const intro = sh.addRow([
+    'One block per branch. Every loan carries its own Loan Officer, so the sheet survives sorting and filtering.',
+  ]);
+  intro.getCell(1).font = { name: FONT, italic: true, size: 9, color: { argb: C.slate500 } };
   sh.addRow([]);
 
   const byBranch = new Map<string, MonthlyReportRow[]>();
@@ -587,30 +719,29 @@ function buildByBranch(wb: Workbook, model: ReturnType<typeof buildMonthlyReport
 
   for (const branch of [...byBranch.keys()].sort((a, b) => a.localeCompare(b))) {
     const list = byBranch.get(branch)!;
-    const title = sh.addRow([`Branch ${branch}`]);
-    title.font = { bold: true, size: 12 };
-    const head = sh.addRow([
-      'Loan Officer',
-      'Loan Number',
-      'Borrower Name',
-      'Channel',
-      'Loan Amount',
-      'Start of month',
-      'End of month',
-      'Funding date',
-      'Last Finished Milestone',
-      'Strategy',
-      'Lien',
-    ]);
-    head.font = { bold: true };
+
+    /* El título del bloque, en navy a todo el ancho: es lo que separa un branch del anterior. */
+    const title = sh.addRow([`BRANCH ${branch}`]);
+    sh.mergeCells(title.number, 1, title.number, N);
+    const tc = title.getCell(1);
+    tc.font = { name: FONT, bold: true, size: 12, color: { argb: C.white } };
+    tc.fill = fill(C.navy);
+    tc.alignment = { vertical: 'middle', indent: 1 };
+    sh.getRow(title.number).height = 20;
+
+    const head = sh.addRow(BY_BRANCH_COLUMNS.map((c) => c.header));
+    for (let i = 1; i <= N; i++) {
+      const cc = head.getCell(i);
+      cc.font = { name: FONT, bold: true, size: 9, color: { argb: C.navy } };
+      cc.fill = fill(C.slate100);
+      cc.border = { bottom: MEDIUM };
+      cc.alignment = { horizontal: i === 5 || i === 11 ? 'right' : 'left', wrapText: true };
+    }
+
+    let zebra = false;
     for (const r of list) {
-      /*
-       * ⚠ EL LOAN OFFICER VA EN CADA FILA, no sólo en la primera del grupo.
-       * Escribirlo una vez y dejar el resto en blanco se ve más limpio y deja
-       * las filas sin dueño en cuanto alguien ordena o filtra la hoja -- que es
-       * lo primero que se hace con un bloque de 30 préstamos.
-       */
-      sh.addRow([
+      zebra = !zebra;
+      const row = sh.addRow([
         r.loanOfficer,
         r.loanNumber,
         r.borrowerName,
@@ -623,23 +754,41 @@ function buildByBranch(wb: Workbook, model: ReturnType<typeof buildMonthlyReport
         r.strategy,
         r.lien,
       ]);
+      for (let i = 1; i <= N; i++) {
+        const cc = row.getCell(i);
+        cc.font = { name: FONT, size: 10, color: { argb: C.navy } };
+        cc.fill = fill(zebra ? C.zebra : C.white);
+        cc.border = { bottom: THIN };
+        if (i === 5 || i === 11) cc.alignment = { horizontal: 'right' };
+      }
+      row.getCell(5).numFmt = '#,##0';
     }
+
+    /* La franja de total del bloque -- misma lectura que la fila de branch del Summary. */
     const sub = sh.addRow([
-      `${branch} — ${list.length} loans`,
+      `${list.length} loans`,
       '',
       '',
       '',
-      null,
+      list.reduce((a, r) => a + (r.loanAmount ?? 0), 0),
       '',
       `${list.filter((r) => r.endOfMonth === 'Closed').length} closed · ` +
         `${list.filter((r) => r.endOfMonth === 'Adversed').length} adversed · ` +
         `${list.filter((r) => r.endOfMonth === 'Still Open').length} still open`,
     ]);
-    sub.font = { bold: true };
+    sh.mergeCells(sub.number, 7, sub.number, N);
+    for (let i = 1; i <= N; i++) {
+      const cc = sub.getCell(i);
+      cc.font = { name: FONT, bold: true, size: 10, color: { argb: C.navy } };
+      cc.fill = fill(C.navySoft);
+      cc.border = { top: MEDIUM, bottom: MEDIUM };
+      if (i === 5) cc.alignment = { horizontal: 'right' };
+    }
+    sub.getCell(5).numFmt = '#,##0';
     sh.addRow([]);
   }
 
-  sh.columns.forEach((c, i) => (c.width = i === 0 ? 26 : i === 2 ? 28 : 18));
+  BY_BRANCH_COLUMNS.forEach((c, i) => (sh.getColumn(i + 1).width = c.width));
 }
 
 const DETAIL_COLUMNS: { header: string; key: keyof MonthlyReportRow | 'blank'; width: number }[] = [
@@ -669,16 +818,42 @@ const DETAIL_COLUMNS: { header: string; key: keyof MonthlyReportRow | 'blank'; w
 
 function buildDetail(wb: Workbook, model: ReturnType<typeof buildMonthlyReport>, meta: Meta): void {
   const sh = wb.addWorksheet('Pipeline');
+  const N = DETAIL_COLUMNS.length;
+  /* Las tres que no tienen fuente: se marcan tenues para que se vean vacías a propósito. */
+  const HUECAS = new Set(DETAIL_COLUMNS.map((c, i) => (c.key === 'blank' ? i + 1 : 0)).filter(Boolean));
+  /* Y las que llevan número, alineadas a la derecha. */
+  const NUM = new Set(
+    DETAIL_COLUMNS.map((c, i) => (c.key === 'loanAmount' || c.key === 'lien' ? i + 1 : 0)).filter(Boolean)
+  );
+
   const head = sh.addRow(DETAIL_COLUMNS.map((c) => c.header));
-  head.font = { bold: true };
+  for (let i = 1; i <= N; i++) {
+    const cc = head.getCell(i);
+    cc.font = { name: FONT, bold: true, size: 9, color: { argb: C.white } };
+    cc.fill = fill(C.navy);
+    cc.alignment = { horizontal: NUM.has(i) ? 'right' : 'left', vertical: 'middle', wrapText: true };
+    cc.border = { bottom: MEDIUM };
+  }
+  sh.getRow(head.number).height = 28;
   DETAIL_COLUMNS.forEach((c, i) => (sh.getColumn(i + 1).width = c.width));
 
+  let zebra = false;
   for (const r of model.rows) {
-    sh.addRow(DETAIL_COLUMNS.map((c) => (c.key === 'blank' ? '' : (r[c.key] ?? ''))));
+    zebra = !zebra;
+    const row = sh.addRow(DETAIL_COLUMNS.map((c) => (c.key === 'blank' ? '' : (r[c.key] ?? ''))));
+    for (let i = 1; i <= N; i++) {
+      const cc = row.getCell(i);
+      cc.font = { name: FONT, size: 10, color: { argb: HUECAS.has(i) ? C.slate300 : C.navy } };
+      cc.fill = fill(zebra ? C.zebra : C.white);
+      cc.border = { bottom: THIN };
+      if (NUM.has(i)) cc.alignment = { horizontal: 'right' };
+    }
+    row.getCell(DETAIL_COLUMNS.findIndex((c) => c.key === 'loanAmount') + 1).numFmt = '#,##0';
   }
 
-  sh.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: DETAIL_COLUMNS.length } };
-  sh.views = [{ state: 'frozen', ySplit: 1 }];
+  sh.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: N } };
+  /* Congelado el encabezado y las tres primeras columnas, que son las que identifican la fila. */
+  sh.views = [{ state: 'frozen', xSplit: 3, ySplit: 1 }];
 
   /*
    * ⚠ LAS TRES COLUMNAS VACÍAS SE EXPLICAN EN LA HOJA, no se dejan en blanco a
