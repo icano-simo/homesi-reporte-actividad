@@ -236,6 +236,75 @@ const STATE_TAG: Record<string, { text: string; title: string }> = {
   },
 };
 
+/**
+ * ============================================================================
+ * EL BENCHMARK, JUNTO AL NOMBRE — etapa OL18
+ * ============================================================================
+ *
+ * Era una columna propia, y eso es lo que hacía que la tabla se leyera como una
+ * planilla: un número que compite por ancho horizontal con los doce meses,
+ * teniendo un peso completamente distinto. El benchmark no es un mes; es la BASE
+ * de la que salen los meses proyectados.
+ *
+ * Ahora va al lado del nombre de su fila, en tono tenue, como dato secundario. El
+ * lápiz se mantiene: sólo cambia dónde vive.
+ *
+ * ⚠ CALCULADO vs EDITABLE, sin explicarlo. Un benchmark calculado --el de una
+ * fila de estrategia, que es la SUMA de sus hijas-- no se puede editar: no hay
+ * un número guardado detrás, hay una suma. Se distingue por no tener lápiz y por
+ * llevar el signo `Σ`, que dice "esto es una suma" sin una palabra. Editar la
+ * suma no tendría dónde escribirse; hay que editar las partes.
+ */
+function BenchTag({
+  value,
+  text,
+  onEdit,
+  editLabel,
+  editTitle,
+}: {
+  value: number | null;
+  /**
+   * El número ya formateado, cuando `fmt` no alcanza.
+   *
+   * ⚠ Lo usa el realtor: su benchmark es el promedio de 3 meses y casi siempre
+   * fraccionario --0,33 · 0,67 · 1,33--. Con un decimal se pierde de dónde sale
+   * el número, que son tercios. El resto de la tabla sigue con `fmt`.
+   */
+  text?: string;
+  /** Ausente = calculado, no editable. */
+  onEdit?: () => void;
+  editLabel?: string;
+  editTitle?: string;
+}) {
+  if (value === null && !onEdit) return null;
+  /*
+   * ⚠ El separador va SOLO si hay número. Sin esto, una fila sin benchmark
+   * mostraba `Josue Toro · ✎` -- un punto suelto que se lee como un glitch, no
+   * como "acá no hay número todavía". El lápiz solo ya dice que se puede fijar.
+   */
+  const numero = text ?? fmt(value);
+  return (
+    <span className={'ol-bench-in' + (onEdit ? '' : ' ol-bench-in--calc')} onClick={(e) => e.stopPropagation()}>
+      {numero !== '' && (
+        <span className="ol-bench-in__sep" aria-hidden="true">
+          ·
+        </span>
+      )}
+      {!onEdit && (
+        <span className="ol-bench-in__sum" title="Calculated: the sum of the rows below. Edit the parts, not the sum.">
+          Σ
+        </span>
+      )}
+      <span className="ol-bench-in__n">{numero}</span>
+      {onEdit && (
+        <button type="button" className="ol-edit" onClick={onEdit} aria-label={editLabel} title={editTitle}>
+          ✎
+        </button>
+      )}
+    </span>
+  );
+}
+
 export default function OutlookBranchPage({ params }: { params: Promise<{ code: string }> }) {
   const { code } = use(params);
   /*
@@ -307,6 +376,17 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * alguien mira un año más.
    */
   const horizonteHastaDic = data.remainingMonths.length;
+  /*
+   * Los diciembres de los años siguientes, DERIVADOS del mes en curso: en enero
+   * `horizonteHastaDic` da 11 y estas opciones se corren solas. Nada de años
+   * escritos a mano, que es lo que obliga a volver cada 1 de enero.
+   */
+  const finesDeAnio = [1, 2].map((suma) => {
+    const anio = Number(year) + suma;
+    /* Meses desde el mes en curso hasta diciembre de ese año. */
+    const meses = (anio - Number(year)) * 12 + (12 - Number(currentMonth.slice(5, 7)));
+    return { anio, meses };
+  });
   const meses = horizonte ?? horizonteHastaDic;
   /*
    * ⚠ Sin `useMemo`, y no por descuido: esto vive DESPUÉS de los early returns
@@ -907,6 +987,16 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
             title="How many months forward the budget columns go. The growth rules already know how to reach any future month; this only decides how many are drawn."
           >
             <option value={horizonteHastaDic}>Dec {year}</option>
+            {/*
+              ⚠ DOS FORMAS DE PENSAR EL MISMO HORIZONTE, y las dos sirven: "seis
+              meses más" es una pregunta de planificación y "hasta diciembre del
+              año que viene" es una de presupuesto anual. Ninguna reemplaza a la
+              otra, así que están las dos.
+
+              La etiqueta dice SIEMPRE hasta dónde llega -- `12 months (Sep 2027)`
+              y `Dec 2027 (16 months)` -- para que las dos listas se puedan
+              comparar entre sí sin contar meses a mano.
+            */}
             {[6, 12, 18, 24]
               .filter((n) => n !== horizonteHastaDic)
               .map((n) => (
@@ -914,6 +1004,11 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                   {n} months ({monthLabel(addMonths(currentMonth, n))} {addMonths(currentMonth, n).slice(0, 4)})
                 </option>
               ))}
+            {finesDeAnio.map(({ anio, meses }) => (
+              <option key={'y' + anio} value={meses}>
+                Dec {anio} ({meses} months)
+              </option>
+            ))}
           </select>
         </label>
       </div>
@@ -943,7 +1038,8 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                 </th>
               )}
               <th className="bp-center"></th>
-              <th className="bp-center ol-band ol-band--decide" colSpan={2}>
+              {/* Una sola columna de decisión: el benchmark se fue al nombre. */}
+              <th className="bp-center ol-band ol-band--decide" colSpan={1}>
                 Decision
               </th>
             </tr>
@@ -955,8 +1051,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                 </th>
               ))}
               <th className="bp-center totcol">{totalLabel}</th>
-              <th className="bp-center ol-bench">Benchmark</th>
-              <th className="lbl">Rule</th>
+              <th className="ol-rulecol">Rule</th>
               {/* Sin columna de funnel: es informacion de Business Plan. */}
             </tr>
           </thead>
@@ -1041,6 +1136,16 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                           by owner
                         </span>
                       )}
+                      {/*
+                        Su benchmark. Editable sólo en las de branch --las otras
+                        son la SUMA de sus hijas y no hay nada que guardar--.
+                      */}
+                      <BenchTag
+                        value={bench}
+                        onEdit={esDelBranch(bs) ? () => setEditing({ kind: 'branch', strategy: s }) : undefined}
+                        editLabel={`Edit ${s}'s benchmark and rule for branch ${branch.branchCode}`}
+                        editTitle={`Set ${s}'s benchmark and growth rule for the whole branch`}
+                      />
                     </td>
                     {monthsOfYear.map((m) => (
                       <td
@@ -1070,22 +1175,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                       guardaría en un sujeto que no es el que muestra la fila.
                       Las tres del branch sí se editan acá.
                     */}
-                    <td className="bp-center ol-bench" onClick={(e) => e.stopPropagation()}>
-                      <span className="ol-bench__n">{fmt(bench)}</span>
-                      {/* Sin lapiz en las que se abren por persona: su fila es una suma. */}
-                      {esDelBranch(bs) && (
-                        <button
-                          type="button"
-                          className="ol-edit"
-                          onClick={() => setEditing({ kind: 'branch', strategy: s })}
-                          aria-label={`Edit ${s}'s benchmark and rule for branch ${branch.branchCode}`}
-                          title={`Set ${s}'s benchmark and growth rule for the whole branch`}
-                        >
-                          ✎
-                        </button>
-                      )}
-                    </td>
-                    <td className="lbl" onClick={(e) => e.stopPropagation()}>
+                    <td className="ol-rulecol" onClick={(e) => e.stopPropagation()}>
                       {esDelBranch(bs) ? (
                         <button
                           type="button"
@@ -1175,6 +1265,16 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                                 BM
                               </span>
                             )}
+                            <BenchTag
+                              value={isMonthly ? null : b}
+                              onEdit={() => setEditing({ kind: 'employee', employeeKey: lo.employeeKey, strategy: s })}
+                              editLabel={`Edit ${lo.fullName}'s benchmark and rule in ${s}`}
+                              editTitle={
+                                isMonthly
+                                  ? 'Set month by month: the benchmark does not take part. It stays saved in case this goes back to growth rate.'
+                                  : `Its benchmark is edited in the Business Plan. What is edited here is ${lo.fullName}'s growth rule.`
+                              }
+                            />
                           </td>
                           {monthsOfYear.map((m) => (
                             <td
@@ -1192,22 +1292,6 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                             </td>
                           ))}
                           <td className="bp-center totcol">{fmt(sumOfShown(monthsOfYear.map((m) => cell.year.byMonth[m] ?? null)))}</td>
-                          <td className="bp-center ol-bench">
-                            <span className="ol-bench__n">{isMonthly ? fmt(null) : fmt(b)}</span>
-                            <button
-                              type="button"
-                              className="ol-edit"
-                              onClick={() => setEditing({ kind: 'employee', employeeKey: lo.employeeKey, strategy: s })}
-                              aria-label={`Edit ${lo.fullName}'s benchmark and rule in ${s}`}
-                              title={
-                                isMonthly
-                                  ? 'Set month by month: the benchmark does not take part. It stays saved in case this goes back to growth rate.'
-                                  : `Its benchmark is edited in the Business Plan. What is edited here is ${lo.fullName}'s growth rule.`
-                              }
-                            >
-                              ✎
-                            </button>
-                          </td>
                           {/*
                             ⚠ LA PÍLDORA TAMBIÉN ACÁ, y sobre todo acá: son estas
                             filas las que repetían `25% quarterly from Sep · 1st
@@ -1215,7 +1299,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                             revisión viven en el tooltip; lo que se compara de un
                             vistazo es cuánto y cada cuánto.
                           */}
-                          <td className="lbl">
+                          <td className="ol-rulecol">
                             <button
                               type="button"
                               className={
@@ -1269,6 +1353,16 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                                 system user
                               </span>
                             )}
+                            {o.isPerson && (
+                              <BenchTag
+                                value={o.mode === 'monthly' ? null : o.benchmarkSchedule.length ? o.benchmarkAtDisplay : null}
+                                onEdit={() =>
+                                  setEditing({ kind: 'employee', employeeKey: o.employeeKey as number, strategy: s })
+                                }
+                                editLabel={`Edit ${o.owner}'s benchmark and rule in ${s}`}
+                                editTitle={`Set ${o.owner}'s benchmark and growth rule in ${s}`}
+                              />
+                            )}
                           </td>
                           {monthsOfYear.map((m) => (
                             <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
@@ -1279,27 +1373,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                             {fmt(sumOfShown(monthsOfYear.map((m) => oYear.byMonth[m] ?? null)))}
                           </td>
                           {/* Su presupuesto, editable como el de una persona. */}
-                          <td className="bp-center ol-bench">
-                            {o.isPerson && (
-                              <>
-                                <span className="ol-bench__n">
-                                  {o.mode === 'monthly' ? fmt(null) : fmt(o.benchmarkSchedule.length ? o.benchmarkAtDisplay : null)}
-                                </span>
-                                <button
-                                  type="button"
-                                  className="ol-edit"
-                                  onClick={() =>
-                                    setEditing({ kind: 'employee', employeeKey: o.employeeKey as number, strategy: s })
-                                  }
-                                  aria-label={`Edit ${o.owner}'s benchmark and rule in ${s}`}
-                                  title={`Set ${o.owner}'s benchmark and growth rule in ${s}`}
-                                >
-                                  ✎
-                                </button>
-                              </>
-                            )}
-                          </td>
-                          <td className="lbl">
+                          <td className="ol-rulecol">
                             {o.isPerson ? (
                               <button
                                 type="button"
@@ -1346,6 +1420,12 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                         >
                           to be split
                         </span>
+                        <BenchTag
+                          value={bs.benchmarkAtDisplay}
+                          onEdit={() => setEditing({ kind: 'branch', strategy: s })}
+                          editLabel={`Edit the branch-level budget left in ${s}`}
+                          editTitle="Edit or zero out the branch-level budget that has no owner yet"
+                        />
                       </td>
                       {monthsOfYear.map((m) => (
                         <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
@@ -1355,19 +1435,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                       <td className="bp-center totcol">
                         {fmt(sumOfShown(remainingMonths.map((m) => huerfanoPorMes[m] ?? 0)))}
                       </td>
-                      <td className="bp-center ol-bench">
-                        <span className="ol-bench__n">{fmt(bs.benchmarkAtDisplay)}</span>
-                        <button
-                          type="button"
-                          className="ol-edit"
-                          onClick={() => setEditing({ kind: 'branch', strategy: s })}
-                          aria-label={`Edit the branch-level budget left in ${s}`}
-                          title="Edit or zero out the branch-level budget that has no owner yet"
-                        >
-                          ✎
-                        </button>
-                      </td>
-                      <td className="lbl bp-muted">not assigned</td>
+                      <td className="ol-rulecol bp-muted">not assigned</td>
                     </tr>
                   )}
 
@@ -1391,6 +1459,24 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                         <tr key={'s-' + s + '-r-' + r.realtor} className="metric mrow">
                           <td className="lbl" style={{ paddingLeft: '30px' }}>
                             {r.realtor}
+                            {/*
+                              ⚠ Dos decimales: el promedio de 3 meses de un realtor
+                              es casi siempre fraccionario --0,33 · 0,67 · 1,33-- y
+                              con uno se pierde de dónde sale el número. Por eso el
+                              valor va formateado acá y no por `fmt`.
+                            */}
+                            <BenchTag
+                              value={r.benchmark}
+                              onEdit={() => setEditingNppm({ realtor: r.realtor, ytd: r.ytd })}
+                              editLabel={`Edit ${r.realtor}'s benchmark`}
+                              editTitle={
+                                r.benchmarkIsDefault
+                                  ? `Nobody has set it, so what applies is the average of their closings over the 3 ` +
+                                    `closed months: ${r.avg3m.toFixed(2)}. One number per realtor, across every branch.`
+                                  : `Set by hand. Their 3-month average is ${r.avg3m.toFixed(2)}.`
+                              }
+                              text={Number.isInteger(r.benchmark) ? String(r.benchmark) : r.benchmark.toFixed(2)}
+                            />
                           </td>
                           {monthsOfYear.map((m) => (
                             <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
@@ -1412,33 +1498,11 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                             tercios. El resto de la tabla sigue con un decimal,
                             que es lo que un pronóstico de pipeline necesita.
                           */}
-                          <td className="bp-center ol-bench">
-                            <span className="ol-bench__n">
-                              {Number.isInteger(r.benchmark) ? r.benchmark : r.benchmark.toFixed(2)}
-                            </span>
-                            {/*
-                              ⚠ ACÁ HABÍA UNA ETIQUETA `default` Y SE FUE.
-                              Decía lo mismo que la píldora de la columna de regla
-                              --`3-mo avg`-- y su ancho hacía que la celda no
-                              entrara: 129px de contenido en 118 de columna, tres
-                              celdas recortadas. El número exacto del promedio
-                              sigue en el tooltip de la píldora.
-                            */}
-                            <button
-                              type="button"
-                              className="ol-edit"
-                              onClick={() => setEditingNppm({ realtor: r.realtor, ytd: r.ytd })}
-                              aria-label={`Edit ${r.realtor}'s benchmark`}
-                              title={`Set ${r.realtor}'s benchmark. One number per realtor, across every branch.`}
-                            >
-                              ✎
-                            </button>
-                          </td>
                           {/*
                             El realtor no tiene regla: su columna dice de dónde
                             sale el número, que es lo único que hay que decidir.
                           */}
-                          <td className="lbl">
+                          <td className="ol-rulecol">
                             <button
                               type="button"
                               className={'ol-pill' + (r.benchmarkIsDefault ? ' ol-pill--empty' : '')}
@@ -1522,7 +1586,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                 ))}
                 <td className="bp-center totcol">{fmt(sumOfShown(monthsOfYear.map((m) => (Math.abs(residual[m]) <= 0.001 ? null : residual[m]))))}</td>
                 <td className="bp-center"></td>
-                <td className="lbl"></td>
+                <td className="ol-rulecol"></td>
               </tr>
             )}
 
@@ -1551,7 +1615,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                 {fmt(sumOfShown(monthsOfYear.map((m) => totalByMonth[m])))}
               </td>
               <td className="bp-center"></td>
-              <td className="lbl"></td>
+              <td className="ol-rulecol"></td>
             </tr>
           </tbody>
         </table>
