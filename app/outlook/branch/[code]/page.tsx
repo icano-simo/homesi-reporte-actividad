@@ -128,14 +128,24 @@ function ruleLabel(lo: OutlookLoanOfficer, strategy: OutlookStrategy, months: st
  * regla vieja guardada no proyecta por la regla.
  */
 /**
- * ⚠ ¿SU PRESUPUESTO ES DEL BRANCH?
+ * ⚠ ¿SU PRESUPUESTO ES DEL BRANCH? HOY NINGUNO — etapa OL15.
  *
- * Sólo B2B y Recruitment-a-nivel-branch. En OL13 Affinity entraba acá --se abría
- * por AE y se presupuestaba a nivel branch-- y en OL14 dejó de hacerlo: cada
- * Account Executive tiene el suyo, como un Loan Officer.
+ * Devuelve `false` para las cinco estrategias, y eso es el punto de esta etapa:
+ * el modelo dejó de tener DOS formas de pertenencia. Toda decisión cuelga de una
+ * persona --Loan Officer, realtor o dueño de oportunidad-- y la única diferencia
+ * entre las estrategias es el cargo de quien decide.
  *
- * La distinción sigue haciendo falta: por quién se ABRE y de quién es el
- * PRESUPUESTO son dos preguntas, y `opensBy` sólo responde la primera.
+ * Se conserva por dos razones, no por inercia:
+ *
+ *   1. Quedan DOS filas guardadas con `branch_code` --B2B en el 747 y el 716--
+ *      que no se pueden reasignar: cada una cubre a dos o tres Business
+ *      Developers y repartirlas es una decisión de negocio. Se muestran en su
+ *      propia fila, `Branch level, no owner`, y `branchHasBudget` las encuentra.
+ *   2. El día que aparezca una estrategia que genuinamente no tenga persona
+ *      detrás, el camino existe y está probado.
+ *
+ * La distinción entre por quién se ABRE y de quién es el PRESUPUESTO sigue
+ * haciendo falta: son dos preguntas, y `opensBy` sólo responde la primera.
  */
 function esDelBranch(bs: BranchStrategy): boolean {
   return bs.opensBy === 'branch';
@@ -524,11 +534,10 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
         targets: bs.targets,
       });
       remainingMonths.forEach((m, i) => (out[m] = steps[i]?.value ?? 0));
-    } else if (bs.opensBy === 'accountExecutive') {
+    } else if (bs.opensBy === 'owner') {
       /*
-       * La suma de sus Account Executives, cada uno por la MISMA puerta que una
-       * persona -- `projectPlan`. El usuario de sistema no aporta: no tiene
-       * presupuesto que proyectar.
+       * La suma de sus DUEÑOS, cada uno por la MISMA puerta que una persona --
+       * `projectPlan`. El usuario de sistema no aporta: no tiene presupuesto.
        */
       for (const o of bs.owners) {
         if (!o.isPerson) continue;
@@ -537,6 +546,28 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
           benchmarks: o.benchmarkSchedule,
           segments: o.rules,
           targets: o.targets,
+        });
+        remainingMonths.forEach((m, i) => (out[m] = (out[m] ?? 0) + (steps[i]?.value ?? 0)));
+      }
+      /*
+       * ⚠ MÁS EL PRESUPUESTO DE BRANCH QUE QUEDÓ SIN DUEÑO.
+       *
+       * Ninguna estrategia se presupuesta a nivel branch desde OL15, pero hay dos
+       * filas guardadas antes del cambio --B2B en el 747 y en el 716-- que no se
+       * pueden reasignar: cada una cubre a dos o tres Business Developers y
+       * repartirlas es una decisión de negocio.
+       *
+       * Se siguen sumando para no borrar un presupuesto real, y la tabla las
+       * muestra como una FILA PROPIA en vez de mezclarlas con las personas. Así la
+       * ambigüedad es una línea visible con nombre y no un modo escondido -- misma
+       * lección que la fila de reconciliación.
+       */
+      if (branchHasBudget(bs)) {
+        const steps = projectPlan(remainingMonths, {
+          mode: bs.mode,
+          benchmarks: bs.benchmarkSchedule,
+          segments: bs.rules,
+          targets: bs.targets,
         });
         remainingMonths.forEach((m, i) => (out[m] = (out[m] ?? 0) + (steps[i]?.value ?? 0)));
       }
@@ -578,12 +609,30 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
       const proj: Record<string, number | null> = { ...(presupuestoDe.get(s) ?? {}) };
       let steps: ReturnType<typeof projectPlan> = [];
       /*
+       * Lo que le toca al presupuesto de branch sin dueño. Lo llena el bloque de
+       * las filas de dueño, que es donde se hace el reparto, y lo lee su propia
+       * fila más abajo.
+       */
+      /*
+       * El reparto entre los DUEÑOS y el presupuesto de branch sin dueño, que
+       * compite como un peso más. Se calcula acá --no en el render-- porque las
+       * dos filas lo necesitan y calcularlo dos veces serían dos repartos que
+       * pueden diferir.
+       *
+       * ⚠ Sin incluirlo como peso, los pesos de los dueños son todos cero
+       * --ninguno tiene benchmark todavía-- y `apportionByWeight` vuelca el entero
+       * completo en el PRIMERO: Annie Garrido aparecía con 2, 2, 3 sin tener
+       * ninguno, y ese número era en realidad el de branch.
+       */
+      const huerfanoPorMes: Record<string, number> = {};
+      const porDueno: Record<string, number>[] = bs.owners.map(() => ({}));
+      /*
        * `steps` sólo alimenta el tooltip de la celda --el porqué de cada mes-- y
        * NO el número que se muestra: ése sale del reparto en enteros. Se calcula
        * únicamente para el presupuesto del branch, que es el que tiene una regla
        * que explicar.
        */
-      if (esDelBranch(bs) && branchHasBudget(bs)) {
+      if (branchHasBudget(bs)) {
         steps = projectPlan(remainingMonths, {
           mode: bs.mode,
           benchmarks: bs.benchmarkSchedule,
@@ -591,11 +640,33 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
           targets: bs.targets,
         });
       }
+      if (bs.opensBy === 'owner') {
+        const exactosDueno = bs.owners.map((o) => {
+          const out: Record<string, number> = {};
+          if (o.isPerson) {
+            const st = projectPlan(remainingMonths, {
+              mode: o.mode,
+              benchmarks: o.benchmarkSchedule,
+              segments: o.rules,
+              targets: o.targets,
+            });
+            remainingMonths.forEach((m, i) => (out[m] = st[i]?.value ?? 0));
+          }
+          return out;
+        });
+        for (const m of remainingMonths) {
+          const pesos = [...exactosDueno.map((e) => e[m] ?? 0), branchHasBudget(bs) ? (steps[remainingMonths.indexOf(m)]?.value ?? 0) : 0];
+          const partes = apportionByWeight(presupuestoDe.get(s)?.[m] ?? 0, pesos);
+          bs.owners.forEach((_, i) => (porDueno[i][m] = partes[i]));
+          huerfanoPorMes[m] = partes[partes.length - 1];
+        }
+      }
+
       /* Proyecta si el reparto le dio algo, o si tiene con qué proyectar. */
       const proyecta =
         bs.opensBy === 'loanOfficer' ||
         (esDelBranch(bs) && branchHasBudget(bs)) ||
-        bs.opensBy === 'accountExecutive' ||
+        bs.opensBy === 'owner' ||
         (bs.opensBy === 'realtor' && bs.realtors.length > 0);
       /*
         El mes en curso sale del REPARTO -- ver `agostoDe` arriba. Hasta OL12 era
@@ -611,9 +682,10 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
       const bench =
         bs.opensBy === 'loanOfficer'
           ? branch.loanOfficers.reduce((a, lo) => a + (lo.strategyBenchmarks[s] ?? 0), 0)
-          : bs.opensBy === 'accountExecutive'
-            ? /* La suma de los AE. El usuario de sistema no aporta benchmark. */
-              bs.owners.reduce((a, o) => a + (o.isPerson && o.mode !== 'monthly' ? o.benchmarkAtDisplay : 0), 0)
+          : bs.opensBy === 'owner'
+            ? /* La suma de los dueños, más el de branch que quedó sin dueño. */
+              bs.owners.reduce((a, o) => a + (o.isPerson && o.mode !== 'monthly' ? o.benchmarkAtDisplay : 0), 0) +
+              (branchHasBudget(bs) && bs.mode !== 'monthly' ? bs.benchmarkAtDisplay : 0)
             : s === 'NPPM'
             ? bs.realtors.reduce((a, r) => a + r.benchmark, 0)
             : /*
@@ -625,7 +697,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               bs.mode === 'monthly' || bs.benchmarkSchedule.length === 0
               ? null
               : bs.benchmarkAtDisplay;
-      return { bs, s, proyecta, sYear, bench, steps };
+      return { bs, s, proyecta, sYear, bench, steps, porDueno, huerfanoPorMes };
     });
 
   /*
@@ -889,7 +961,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
             </tr>
           </thead>
           <tbody>
-            {strategyRows.map(({ bs, s, proyecta, sYear, bench, steps }) => {
+            {strategyRows.map(({ bs, s, proyecta, sYear, bench, steps, porDueno, huerfanoPorMes }) => {
               const abierta = open.has('s:' + s);
               const plegable = bs.opensBy !== 'branch';
 
@@ -905,7 +977,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               const regla =
                 bs.opensBy === 'loanOfficer'
                   ? `${conBenchmark} of ${branch.loanOfficers.length}`
-                  : bs.opensBy === 'accountExecutive'
+                  : bs.opensBy === 'owner'
                     ? `${conAE} of ${bs.owners.filter((o) => o.isPerson).length}`
                     : s === 'NPPM'
                     ? `${bs.realtors.length} realtor${bs.realtors.length === 1 ? '' : 's'}`
@@ -913,8 +985,8 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               const reglaTitulo =
                 bs.opensBy === 'loanOfficer'
                   ? `${conBenchmark} of the ${branch.loanOfficers.length} loan officers here have a benchmark in ${s}.`
-                  : bs.opensBy === 'accountExecutive'
-                    ? `${conAE} of the ${bs.owners.filter((o) => o.isPerson).length} account executives have a ` +
+                  : bs.opensBy === 'owner'
+                    ? `${conAE} of the ${bs.owners.filter((o) => o.isPerson).length} owners have a ` +
                       `benchmark. The system user cannot have one.`
                     : s === 'NPPM'
                     ? `${bs.realtors.length} realtor${bs.realtors.length === 1 ? '' : 's'} in this branch. Each one's ` +
@@ -961,12 +1033,12 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                           branch level
                         </span>
                       )}
-                      {bs.opensBy === 'accountExecutive' && (
+                      {bs.opensBy === 'owner' && (
                         <span
                           className="bp-muted ol-tag"
-                          title="Affinity's loans are brought in by an Account Executive, so it opens by owner. Its budget is still the branch's: there is no benchmark per AE."
+                          title="These loans are brought in by the opportunity owner — an Account Executive in Affinity, a Business Developer in B2B — so the strategy opens by owner and each one has their own budget."
                         >
-                          by account executive
+                          by owner
                         </span>
                       )}
                     </td>
@@ -1000,6 +1072,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                     */}
                     <td className="bp-center ol-bench" onClick={(e) => e.stopPropagation()}>
                       <span className="ol-bench__n">{fmt(bench)}</span>
+                      {/* Sin lapiz en las que se abren por persona: su fila es una suma. */}
                       {esDelBranch(bs) && (
                         <button
                           type="button"
@@ -1165,36 +1238,8 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
 
                   {/* ── Affinity: se abre por Account Executive ─────────────── */}
                   {abierta &&
-                    bs.opensBy === 'accountExecutive' &&
-                    (() => {
-                      /*
-                       * El entero de la estrategia, repartido entre los AE en
-                       * proporción a su presupuesto exacto -- misma cascada que
-                       * las filas de persona. El usuario de sistema pesa 0, así
-                       * que nunca le toca presupuesto.
-                       */
-                      const exactos = bs.owners.map((o) => {
-                        const out: Record<string, number> = {};
-                        if (o.isPerson) {
-                          const steps = projectPlan(remainingMonths, {
-                            mode: o.mode,
-                            benchmarks: o.benchmarkSchedule,
-                            segments: o.rules,
-                            targets: o.targets,
-                          });
-                          remainingMonths.forEach((m, i) => (out[m] = steps[i]?.value ?? 0));
-                        }
-                        return out;
-                      });
-                      const enteros: Record<string, number>[] = bs.owners.map(() => ({}));
-                      for (const m of remainingMonths) {
-                        const partes = apportionByWeight(
-                          presupuestoDe.get(s)?.[m] ?? 0,
-                          exactos.map((e) => e[m] ?? 0)
-                        );
-                        partes.forEach((v, i) => (enteros[i][m] = v));
-                      }
-                      return bs.owners.map((o, idx) => {
+                    bs.opensBy === 'owner' &&
+                    bs.owners.map((o, idx) => {
                       /*
                         ⚠ El usuario de sistema muestra sus cierres reales y su
                         presupuesto queda VACÍO, no en cero: no hay a quién
@@ -1206,7 +1251,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                         currentMonth,
                         o.actualByMonth,
                         o.actualByMonth[currentMonth] ?? 0,
-                        o.isPerson ? enteros[idx] : {}
+                        o.isPerson ? porDueno[idx] : {}
                       );
                       return (
                         <tr key={'s-' + s + '-ae-' + o.owner} className="metric mrow">
@@ -1279,8 +1324,52 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                           </td>
                         </tr>
                       );
-                      });
-                    })()}
+                    })}
+
+                  {/*
+                    ⚠ EL PRESUPUESTO DE BRANCH QUE QUEDO SIN DUEÑO. Ver `exactoDe`:
+                    son las dos filas cargadas antes de OL15, que no se pueden
+                    reasignar a una persona. Editable, para poder corregirlas o
+                    ponerlas en cero cuando se decida como repartirlas.
+                  */}
+                  {abierta && bs.opensBy === 'owner' && branchHasBudget(bs) && (
+                    <tr className="metric mrow ol-residual">
+                      <td className="lbl" style={{ paddingLeft: '30px' }}>
+                        Branch level, no owner
+                        <span
+                          className="bp-muted ol-tag"
+                          title={
+                            `A budget saved for the whole branch, before this strategy started budgeting per owner. ` +
+                            `It cannot be reassigned automatically: it covers ${bs.owners.filter((o) => o.isPerson).length} ` +
+                            `owners and splitting it is a business decision. It is still counted so no real budget is lost.`
+                          }
+                        >
+                          to be split
+                        </span>
+                      </td>
+                      {monthsOfYear.map((m) => (
+                        <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
+                          {m > currentMonth ? fmt(huerfanoPorMes[m] ?? 0) : ''}
+                        </td>
+                      ))}
+                      <td className="bp-center totcol">
+                        {fmt(sumOfShown(remainingMonths.map((m) => huerfanoPorMes[m] ?? 0)))}
+                      </td>
+                      <td className="bp-center ol-bench">
+                        <span className="ol-bench__n">{fmt(bs.benchmarkAtDisplay)}</span>
+                        <button
+                          type="button"
+                          className="ol-edit"
+                          onClick={() => setEditing({ kind: 'branch', strategy: s })}
+                          aria-label={`Edit the branch-level budget left in ${s}`}
+                          title="Edit or zero out the branch-level budget that has no owner yet"
+                        >
+                          ✎
+                        </button>
+                      </td>
+                      <td className="lbl bp-muted">not assigned</td>
+                    </tr>
+                  )}
 
                   {/* ── NPPM: se abre por realtor ──────────────────────────── */}
                   {abierta &&
@@ -1517,7 +1606,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
              * que es la clase de falla que sólo se ve usando la pantalla.
              */
             const ae = branch.byStrategy
-              .flatMap((bs) => (bs.opensBy === 'accountExecutive' ? bs.owners.map((o) => ({ bs, o })) : []))
+              .flatMap((bs) => (bs.opensBy === 'owner' ? bs.owners.map((o) => ({ bs, o })) : []))
               .find(({ o }) => o.isPerson && o.employeeKey === editing.employeeKey);
             if (ae) {
               editable = {

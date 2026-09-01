@@ -1,0 +1,101 @@
+-- ============================================================================
+-- Retirar `branch_code` de outlook — BLOQUEADO, NO APLICAR TODAVÍA
+-- ============================================================================
+--
+-- ⚠ ESTE SQL NO SE PUEDE APLICAR HOY. Está escrito para que esté listo cuando se
+-- desbloquee, y el bloqueo está abajo con lo que hace falta para levantarlo.
+--
+-- POR QUÉ SE RETIRARÍA
+-- --------------------
+-- Desde la etapa OL15 ninguna estrategia se presupuesta a nivel branch: las
+-- cinco cuelgan de personas --Loan Officers, realtors, o dueños de oportunidad
+-- (Account Executive en Affinity, Business Developer en B2B)--. El valor no es
+-- borrar una columna: es que el modelo deje de tener DOS formas de pertenencia.
+-- Con dos, cada consulta tiene que preguntarse cuál aplica, y ahí aparecen los
+-- bugs.
+--
+-- Uso actual de la columna, medido:
+--
+--   outlook.growth_rule         2 de 187 filas
+--   outlook.strategy_benchmark  2 de 2 filas
+--   outlook.monthly_target      0
+--   outlook.projection_mode     0
+--
+-- Las cuatro son de UNA estrategia (B2B) en DOS branches (747 y 716).
+--
+-- ============================================================================
+-- ⚠ EL BLOQUEO: LAS CUATRO FILAS NO TIENEN UN DUEÑO ÚNICO
+-- ============================================================================
+--
+-- Para retirar la columna hay que reasignar esas cuatro filas a una persona. No
+-- se puede: ninguno de los dos branches tiene UN Business Developer.
+--
+--   747   Annie Garrido 10 cierres · Angie Cassiani 9
+--   716   Belkys Armesto 9 · Shirlis Naranjo 5 · Annie Garrido 2
+--
+-- El benchmark de 2/mes que hay guardado en cada branch cubre el trabajo de dos
+-- o tres personas. Repartirlo NO es una migración: es decidir cuánto le toca a
+-- cada una, y eso lo decide el negocio. Forzarlo --por ejemplo dándoselo al de
+-- más cierres-- inventaría un presupuesto que nadie fijó, y quedaría firmado con
+-- el nombre de quien corrió el SQL.
+--
+-- Los siete Business Developers con cierres este año resuelven a `employee_key`
+-- por su alias de Salesforce, así que una vez decidido el reparto no hace falta
+-- nada más: las cuatro tablas ya aceptan `employee_key`.
+--
+-- QUÉ HACE FALTA PARA DESBLOQUEARLO
+-- ---------------------------------
+-- 1. Que el negocio reparta los dos presupuestos entre sus Business Developers.
+-- 2. Cargarlos desde la pantalla, en la fila de cada persona (el lápiz ya está).
+-- 3. Poner en cero el presupuesto de branch que quedó, desde su propia fila
+--    --`Branch level, no owner`--, que existe justamente para eso.
+-- 4. Verificar que no quede ninguna fila con `branch_code`:
+--
+--      select 'growth_rule' as t, count(*) from outlook.growth_rule where branch_code is not null
+--      union all select 'strategy_benchmark', count(*) from outlook.strategy_benchmark where branch_code is not null
+--      union all select 'monthly_target', count(*) from outlook.monthly_target where branch_code is not null
+--      union all select 'projection_mode', count(*) from outlook.projection_mode where branch_code is not null;
+--
+--    Los cuatro en 0. Si alguno no está en 0, este SQL falla en el paso 2 y no
+--    hace nada -- el CHECK vuelve a exigir `employee_key`.
+--
+-- ============================================================================
+-- EL SQL, PARA CUANDO LOS CUATRO CONTEOS DEN 0
+-- ============================================================================
+--
+-- ⚠ Es una operación que PIERDE la posibilidad de guardar un presupuesto sin
+-- persona. Si mañana aparece una estrategia que genuinamente no tenga persona
+-- detrás, hay que volver a agregar la columna. Por eso el paso 1 es el que
+-- importa: la decisión de que toda decisión pertenece a alguien.
+--
+-- begin;
+--
+-- -- 1. Los índices parciales del lado del branch dejan de tener sentido.
+-- drop index if exists outlook.strategy_benchmark_branch_uk;
+-- drop index if exists outlook.growth_rule_branch_uk;
+-- drop index if exists outlook.monthly_target_branch_uk;
+--
+-- -- 2. El CHECK vuelve a exigir la persona, y de paso PRUEBA que no queda
+-- --    ninguna fila de branch: si queda una, esto falla y la transacción se
+-- --    revierte entera. Es la guarda redundante a propósito.
+-- alter table outlook.strategy_benchmark drop constraint strategy_benchmark_subject_check;
+-- alter table outlook.strategy_benchmark alter column employee_key set not null;
+-- alter table outlook.growth_rule drop constraint growth_rule_subject_check;
+-- alter table outlook.growth_rule alter column employee_key set not null;
+-- alter table outlook.monthly_target drop constraint monthly_target_subject_check;
+-- alter table outlook.monthly_target alter column employee_key set not null;
+-- alter table outlook.projection_mode drop constraint projection_mode_subject_check;
+-- alter table outlook.projection_mode alter column employee_key set not null;
+--
+-- -- 3. Y recién ahí la columna.
+-- alter table outlook.strategy_benchmark drop column branch_code;
+-- alter table outlook.growth_rule drop column branch_code;
+-- alter table outlook.monthly_target drop column branch_code;
+-- alter table outlook.projection_mode drop column branch_code;
+--
+-- commit;
+--
+-- Después, en la app: `OutlookSubject` deja de ser una unión y vuelve a ser
+-- `employeeKey`, y `subjectColumns`/`subjectFilter` desaparecen. La unión existe
+-- para que el error que el CHECK rechaza no se pueda escribir; sin el CHECK
+-- bimodal no hay error que prevenir.
