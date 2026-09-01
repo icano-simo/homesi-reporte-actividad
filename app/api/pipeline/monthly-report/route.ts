@@ -6,6 +6,7 @@ import {
   buildMonthlyReport,
   firstThursdayOf,
   type MonthlyReportRow,
+  type MonthlyReportSummaryRow,
 } from '@/lib/pipeline/monthlyReport';
 import type { PipelineLoan, ResolvedLoan } from '@/lib/pipeline/types';
 
@@ -377,6 +378,38 @@ function buildWorkbook(model: ReturnType<typeof buildMonthlyReport>, meta: Meta)
   return wb;
 }
 
+/**
+ * ============================================================================
+ * LA HOJA DE RESUMEN — los dos canales a lo ancho
+ * ============================================================================
+ *
+ * ⚠ LA ESTRUCTURA ES EL PUNTO, no la decoración. Cada fila es un Branch o un
+ * Loan Officer, y sus diez columnas se repiten bajo dos bandas de canal:
+ *
+ *   [Branch] [Loan Officer] │ BANKED (10) │ BROKERED (10)
+ *
+ * Así los dos canales de una persona se leen en la misma línea. La primera
+ * versión de esta hoja ponía el canal como una columna más, y eso parte a cada
+ * persona en dos filas que hay que ir a buscar -- que es exactamente lo que la
+ * hoja viene a evitar.
+ *
+ * El orden: la división primero, y cada branch antes de su gente. El total
+ * arriba y no al final porque es lo que se mira antes de bajar a buscar a quién,
+ * y con trece branches el final queda lejos.
+ *
+ * ---------------------------------------------------------------------------
+ * ⚠ CADA FÓRMULA VA CON SU VALOR YA CALCULADO
+ * ---------------------------------------------------------------------------
+ * ExcelJS escribe la fórmula pero NO su resultado, y un .xlsx sin valor en
+ * caché sale en blanco en todo lo que no recalcule al abrir. Verificado con
+ * `openpyxl` en `data_only=True`: las seis columnas de conteo y las dos de
+ * porcentaje daban `None` en las 36 filas y en el total. En Excel de escritorio
+ * se veían bien, que es lo que lo hace fácil de no notar.
+ *
+ * Por eso todas van como `{ formula, result }`. El `result` sale del modelo, y
+ * la fórmula cuenta las mismas filas del detalle: son el mismo número por dos
+ * caminos, y el de la fórmula existe para que se pueda auditar filtrando.
+ */
 function buildSummary(
   wb: Workbook,
   model: ReturnType<typeof buildMonthlyReport>,
@@ -388,11 +421,6 @@ function buildSummary(
   sh.addRow([`Pipeline monthly report — ${meta.month}`]).font = { bold: true, size: 14 };
   sh.addRow([`Cut-off ${meta.cutoffDate} · snapshot ${meta.anchorId} of ${meta.anchorDate}`]);
   sh.addRow([`Status, closing date and milestone read from the active snapshot ${meta.activeId} of ${meta.activeDate}`]);
-  /*
-   * La nota más importante del archivo. Es la que explica por qué este reporte
-   * no coincide con uno armado sobre el snapshot de fin de mes, y sin ella la
-   * diferencia se reporta como un error.
-   */
   const why = sh.addRow([
     'A loan counts in the month its disbursement date falls in, whichever snapshot recorded it. Four August 2026 loans ' +
       'disbursed on the 28th and 31st were only marked Closed Won after the 31st export was taken: reading the month-end ' +
@@ -400,46 +428,20 @@ function buildSummary(
   ]);
   why.getCell(1).alignment = { wrapText: true };
   why.getCell(1).font = { italic: true };
-  sh.addRow([]);
-
-  /*
-   * ⚠ QUÉ ES FÓRMULA Y QUÉ ES VALOR, dicho en la hoja y no sólo acá.
-   *
-   * Todo lo que se puede contar sobre el detalle es COUNTIFS, para que se pueda
-   * auditar filtrando. Tres columnas no se pueden: `Closed` y `Potential` al
-   * corte describen el snapshot del corte, que no está en la hoja de detalle
-   * --el detalle lleva el estado ACTUAL de cada préstamo, no el del corte-- y
-   * `Forecast` es una cascada de pull-through, no un conteo de filas.
-   */
   const nota = sh.addRow([
     'Loan counts are COUNTIFS over the Pipeline sheet, so they can be audited by filtering it. ' +
-      'The three shaded columns cannot be: Closed and Potential describe the cut-off snapshot, which the detail sheet ' +
-      'does not carry (it carries the current state of each loan), and Forecast is a pull-through cascade, not a row count.',
+      'The three shaded columns in each channel cannot be: Closed and Potential describe the cut-off snapshot, which the ' +
+      'detail sheet does not carry (it carries the current state of each loan), and Forecast is a pull-through cascade, ' +
+      'not a row count.',
   ]);
   nota.getCell(1).alignment = { wrapText: true };
   nota.getCell(1).font = { italic: true };
   sh.addRow([]);
 
-  const head1 = sh.addRow([
-    '',
-    '',
-    '',
-    `As of ${meta.cutoffDate}`,
-    '',
-    '',
-    '',
-    'End of month',
-    '',
-    '',
-    '',
-    '% vs Forecast',
-    '',
-  ]);
-  head1.font = { bold: true };
-  const head2 = sh.addRow([
-    'Branch',
-    'Loan Officer',
-    'Channel',
+  /* Las diez de cada canal, en orden. Banked arranca en C, Brokered en M. */
+  const BANKED_AT = 3;
+  const BROKERED_AT = 13;
+  const HEADERS = [
     'Pipeline',
     'Closed',
     'Potential',
@@ -450,66 +452,87 @@ function buildSummary(
     'Still Open',
     'Loan Count',
     '%',
-  ]);
-  head2.font = { bold: true };
+  ];
 
+  const band = sh.addRow([]);
+  band.getCell(BANKED_AT).value = 'BANKED - RETAIL';
+  band.getCell(BROKERED_AT).value = 'BROKERED';
+  band.font = { bold: true };
+  sh.mergeCells(band.number, BANKED_AT, band.number, BANKED_AT + 9);
+  sh.mergeCells(band.number, BROKERED_AT, band.number, BROKERED_AT + 9);
+  for (const at of [BANKED_AT, BROKERED_AT]) {
+    const c = band.getCell(at);
+    c.alignment = { horizontal: 'center' };
+    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: at === BANKED_AT ? 'FFDDE8F5' : 'FFE8E2F0' } };
+  }
+
+  const sub = sh.addRow([]);
+  sub.getCell(1).value = 'Branch';
+  sub.getCell(2).value = 'Loan Officer';
+  /* La sub-banda que separa el corte del cierre, dentro de cada canal. */
+  const groupRow = sh.getRow(sub.number - 0);
+  for (const at of [BANKED_AT, BROKERED_AT]) {
+    HEADERS.forEach((h, i) => (groupRow.getCell(at + i).value = h));
+  }
+  sub.font = { bold: true };
+  sub.alignment = { wrapText: true, vertical: 'bottom' };
+
+  const HEAD_ROW = sub.number;
   const SHADED = 'FFF2E8DA';
+
+  /* Etiqueta de la fila: qué criterios lleva su COUNTIFS. */
+  const crit = (r: MonthlyReportSummaryRow, n: number): string => {
+    if (r.kind === 'division') return '';
+    if (r.kind === 'branch') return `${rng(COL.orgId)},$A${n},`;
+    return `${rng(COL.orgId)},$A${n},${rng(COL.loanOfficer)},$B${n},`;
+  };
+
   for (const r of model.summary) {
-    const q = (col: string, v: string) => `COUNTIFS(${rng(COL.orgId)},$A${'{R}'},${rng(COL.loanOfficer)},$B${'{R}'},${rng(COL.channel)},$C${'{R}'},${rng(col)},"${v}")`;
-    const row = sh.addRow([
-      r.branch,
-      r.loanOfficer,
-      r.channel,
-      null,
-      r.closedAtCutoff,
-      r.potentialAtCutoff,
-      r.forecastAtCutoff,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-    ]);
+    const row = sh.addRow([]);
     const n = row.number;
-    const at = (t: string) => t.replace(/\{R\}/g, String(n));
-    row.getCell(4).value = { formula: at(q(COL.startOfMonth, 'Pipeline')) };
-    row.getCell(8).value = {
-      formula: at(
-        `COUNTIFS(${rng(COL.orgId)},$A{R},${rng(COL.loanOfficer)},$B{R},${rng(COL.channel)},$C{R},${rng(COL.endOfMonth)},"Closed",${rng(COL.lien)},1)`
-      ),
-    };
-    row.getCell(9).value = {
-      formula: at(
-        `COUNTIFS(${rng(COL.orgId)},$A{R},${rng(COL.loanOfficer)},$B{R},${rng(COL.channel)},$C{R},${rng(COL.endOfMonth)},"Closed",${rng(COL.lien)},2)`
-      ),
-    };
-    row.getCell(10).value = { formula: at(q(COL.endOfMonth, 'Adversed')) };
-    row.getCell(11).value = { formula: at(q(COL.endOfMonth, 'Still Open')) };
-    row.getCell(12).value = { formula: `H${n}+I${n}` };
-    /* Sin forecast no hay porcentaje que calcular, y 0/0 en Excel es #DIV/0!. */
-    row.getCell(13).value = { formula: `IF(G${n}=0,"",L${n}/G${n})` };
-    row.getCell(13).numFmt = '0%';
-    for (const c of [5, 6, 7]) {
-      row.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SHADED } };
+    row.getCell(1).value = r.kind === 'division' ? 'DIVISION' : r.branch;
+    row.getCell(2).value = r.kind === 'officer' ? r.loanOfficer : r.kind === 'branch' ? 'All loan officers' : '';
+    if (r.kind !== 'officer') row.font = { bold: true };
+
+    for (const [at, ch, cells] of [
+      [BANKED_AT, 'Banked - Retail', r.banked],
+      [BROKERED_AT, 'Brokered', r.brokered],
+    ] as const) {
+      const base = `COUNTIFS(${crit(r, n)}${rng(COL.channel)},"${ch}"`;
+      const put = (i: number, formula: string, result: number) => {
+        row.getCell(at + i).value = { formula, result };
+      };
+      put(0, `${base},${rng(COL.startOfMonth)},"Pipeline")`, cells.pipelineAtCutoff);
+      /* Los tres que no se derivan del detalle -- ver la nota de arriba. */
+      row.getCell(at + 1).value = cells.closedAtCutoff;
+      row.getCell(at + 2).value = cells.potentialAtCutoff;
+      row.getCell(at + 3).value = cells.forecastAtCutoff;
+      for (const i of [1, 2, 3]) {
+        row.getCell(at + i).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SHADED } };
+      }
+      put(4, `${base},${rng(COL.endOfMonth)},"Closed",${rng(COL.lien)},1)`, cells.closedFirstLien);
+      put(5, `${base},${rng(COL.endOfMonth)},"Closed",${rng(COL.lien)},2)`, cells.closedSecondLien);
+      put(6, `${base},${rng(COL.endOfMonth)},"Adversed")`, cells.adversed);
+      put(7, `${base},${rng(COL.endOfMonth)},"Still Open")`, cells.stillOpen);
+
+      const cnt = cells.closedFirstLien + cells.closedSecondLien;
+      const L = (i: number) => sh.getColumn(at + i).letter;
+      put(8, `${L(4)}${n}+${L(5)}${n}`, cnt);
+      /* Sin forecast no hay porcentaje: 0/0 en Excel es #DIV/0!. */
+      row.getCell(at + 9).value = {
+        formula: `IF(${L(3)}${n}=0,"",${L(8)}${n}/${L(3)}${n})`,
+        result: cells.forecastAtCutoff === 0 ? '' : cnt / cells.forecastAtCutoff,
+      };
+      row.getCell(at + 9).numFmt = '0%';
     }
   }
 
-  const first = 9;
-  const last = first + model.summary.length - 1;
-  if (model.summary.length > 0) {
-    const t = sh.addRow(['Total', '', '', null, null, null, null, null, null, null, null, null, null]);
-    t.font = { bold: true };
-    for (let c = 4; c <= 12; c++) {
-      const L = String.fromCharCode(64 + c);
-      t.getCell(c).value = { formula: `SUM(${L}${first}:${L}${last})` };
-    }
-    t.getCell(13).value = { formula: `IF(G${t.number}=0,"",L${t.number}/G${t.number})` };
-    t.getCell(13).numFmt = '0%';
-  }
-
-  sh.columns.forEach((c, i) => (c.width = i === 0 ? 12 : i === 1 ? 26 : i === 2 ? 16 : 15));
+  sh.views = [{ state: 'frozen', xSplit: 2, ySplit: HEAD_ROW }];
   sh.getColumn(1).width = 12;
+  sh.getColumn(2).width = 26;
+  for (const at of [BANKED_AT, BROKERED_AT]) {
+    HEADERS.forEach((_, i) => (sh.getColumn(at + i).width = i === 9 ? 9 : 14));
+  }
 }
 
 function buildByBranch(wb: Workbook, model: ReturnType<typeof buildMonthlyReport>): void {

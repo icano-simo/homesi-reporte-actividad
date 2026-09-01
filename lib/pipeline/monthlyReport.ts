@@ -80,16 +80,42 @@ export interface MonthlyReportRow {
   lien: number | null;
 }
 
-/** Una celda del resumen: un (branch, Loan Officer, canal). */
-export interface MonthlyReportSummaryRow {
-  branch: string;
-  loanOfficer: string;
-  channel: PipelineLoan['channel'];
-  /** Al corte. */
+/**
+ * Las diez columnas de UN canal en el resumen. Son diez y no ocho porque las
+ * dos últimas --Loan Count y %-- salen de las anteriores, pero se piden como
+ * columnas propias.
+ */
+export interface MonthlyReportChannelCells {
+  /* Al corte. */
   pipelineAtCutoff: number;
   closedAtCutoff: number;
   potentialAtCutoff: number;
   forecastAtCutoff: number;
+  /* Al cierre del mes. */
+  closedFirstLien: number;
+  closedSecondLien: number;
+  adversed: number;
+  stillOpen: number;
+}
+
+/**
+ * Una fila del resumen. Los dos canales van a lo ANCHO, no como una columna
+ * más, y eso es la estructura del archivo original: cada fila es un Branch o un
+ * Loan Officer, y sus diez columnas se repiten bajo dos bandas. Así los dos
+ * canales de una persona se comparan en la misma línea, que es de lo que sirve
+ * la hoja.
+ *
+ * Poner el canal como columna --que es lo que hacía la primera versión-- parte a
+ * cada persona en dos filas que hay que ir a buscar.
+ */
+export interface MonthlyReportSummaryRow {
+  kind: 'division' | 'branch' | 'officer';
+  /** Vacío en la fila de división. */
+  branch: string;
+  /** Vacío en la fila de división y en las de branch. */
+  loanOfficer: string;
+  banked: MonthlyReportChannelCells;
+  brokered: MonthlyReportChannelCells;
 }
 
 export interface MonthlyReportInput {
@@ -309,40 +335,138 @@ export function buildMonthlyReport(input: MonthlyReportInput): MonthlyReportMode
    * una daría un total distinto del de Forecast, que es justo el descuadre que
    * este reporte viene a eliminar.
    */
-  const summary: MonthlyReportSummaryRow[] = [];
   const cutoffRange: DateRange = { startDate: monthRange.startDate, endDate: monthRange.endDate };
   const branchChannelRows = buildBranchForecastRows(anchorOpen, cutoffRange);
 
+  /*
+   * ⚠ EL FORECAST POR PERSONA, PRIMERO Y APARTE. Se reparte por (branch, canal)
+   * con `apportionByWeight`, así que hay que resolverlo antes de armar las filas
+   * -- una fila necesita su parte, y la parte sólo existe mirando a todo el
+   * grupo.
+   */
+  const forecastPorLo = new Map<string, number>();
+  const forecastPorBranchCanal = new Map<string, number>();
   for (const br of branchChannelRows) {
+    forecastPorBranchCanal.set(br.branch + '|' + br.channel, br.forecastTotal);
     const suyos = anchorOpen.filter((l) => l.branch === br.branch && l.channel === br.channel);
     const officers = [...new Set(suyos.map((l) => l.loanOfficer))].sort((a, b) => a.localeCompare(b));
-
-    const pesos = officers.map((who) => {
-      const delLo = suyos.filter((l) => l.loanOfficer === who);
-      /* La MISMA función, sobre los préstamos de una sola persona. */
-      return buildBranchForecastRows(delLo, cutoffRange).reduce((a, r) => a + r.forecastExact, 0);
-    });
+    /* La MISMA función, sobre los préstamos de una sola persona, sin redondear. */
+    const pesos = officers.map((who) =>
+      buildBranchForecastRows(
+        suyos.filter((l) => l.loanOfficer === who),
+        cutoffRange
+      ).reduce((a, r) => a + r.forecastExact, 0)
+    );
     const partes = apportionByWeight(br.forecastTotal, pesos);
-
-    officers.forEach((who, i) => {
-      const delLo = suyos.filter((l) => l.loanOfficer === who);
-      const cerradosAlCorte = anchorResolved.filter(
-        (r) => r.branch === br.branch && r.channel === br.channel && r.loanOfficer === who && isClosedInMonth(r, monthRange)
-      ).length;
-      summary.push({
-        branch: br.branch,
-        loanOfficer: who,
-        channel: br.channel,
-        pipelineAtCutoff: delLo.length,
-        closedAtCutoff: cerradosAlCorte,
-        potentialAtCutoff: delLo.filter((l) => l.healthy === true).length,
-        forecastAtCutoff: partes[i],
-      });
-    });
+    officers.forEach((who, i) => forecastPorLo.set(br.branch + '|' + br.channel + '|' + who, partes[i]));
   }
-  summary.sort(
-    (a, b) => a.branch.localeCompare(b.branch) || a.loanOfficer.localeCompare(b.loanOfficer) || a.channel.localeCompare(b.channel)
-  );
+
+  /*
+   * ⚠ QUIÉNES TIENEN FILA: la UNIÓN de los que tenían pipeline al corte y los
+   * que aparecen en el detalle.
+   *
+   * No alcanza con los del corte. Un Loan Officer cuyo único préstamo del mes
+   * cerró antes del corte --pasa: son cinco en agosto-- no tiene pipeline ese
+   * día y sí tiene un cierre que contar. Si su fila no existe, el Total de la
+   * hoja no da los 40 cierres y la diferencia no se ve en ningún lado.
+   */
+  const claves = new Map<string, { branch: string; loanOfficer: string }>();
+  for (const l of anchorOpen) claves.set(l.branch + '|' + l.loanOfficer, { branch: l.branch, loanOfficer: l.loanOfficer });
+  for (const r of rows) claves.set(r.branch + '|' + r.loanOfficer, { branch: r.branch, loanOfficer: r.loanOfficer });
+
+  const celdasDe = (branch: string, loanOfficer: string | null, channel: PipelineLoan['channel']): MonthlyReportChannelCells => {
+    const abiertos = anchorOpen.filter(
+      (l) => l.branch === branch && l.channel === channel && (loanOfficer === null || l.loanOfficer === loanOfficer)
+    );
+    const delDetalle = rows.filter(
+      (r) => r.branch === branch && r.channel === channel && (loanOfficer === null || r.loanOfficer === loanOfficer)
+    );
+    return {
+      pipelineAtCutoff: abiertos.length,
+      closedAtCutoff: anchorResolved.filter(
+        (r) =>
+          r.branch === branch &&
+          r.channel === channel &&
+          (loanOfficer === null || r.loanOfficer === loanOfficer) &&
+          isClosedInMonth(r, monthRange)
+      ).length,
+      potentialAtCutoff: abiertos.filter((l) => l.healthy === true).length,
+      forecastAtCutoff:
+        loanOfficer === null
+          ? (forecastPorBranchCanal.get(branch + '|' + channel) ?? 0)
+          : (forecastPorLo.get(branch + '|' + channel + '|' + loanOfficer) ?? 0),
+      closedFirstLien: delDetalle.filter((r) => r.endOfMonth === 'Closed' && r.lien === 1).length,
+      closedSecondLien: delDetalle.filter((r) => r.endOfMonth === 'Closed' && r.lien === 2).length,
+      adversed: delDetalle.filter((r) => r.endOfMonth === 'Adversed').length,
+      stillOpen: delDetalle.filter((r) => r.endOfMonth === 'Still Open').length,
+    };
+  };
+
+  const sumar = (xs: MonthlyReportChannelCells[]): MonthlyReportChannelCells =>
+    xs.reduce(
+      (a, c) => ({
+        pipelineAtCutoff: a.pipelineAtCutoff + c.pipelineAtCutoff,
+        closedAtCutoff: a.closedAtCutoff + c.closedAtCutoff,
+        potentialAtCutoff: a.potentialAtCutoff + c.potentialAtCutoff,
+        forecastAtCutoff: a.forecastAtCutoff + c.forecastAtCutoff,
+        closedFirstLien: a.closedFirstLien + c.closedFirstLien,
+        closedSecondLien: a.closedSecondLien + c.closedSecondLien,
+        adversed: a.adversed + c.adversed,
+        stillOpen: a.stillOpen + c.stillOpen,
+      }),
+      {
+        pipelineAtCutoff: 0,
+        closedAtCutoff: 0,
+        potentialAtCutoff: 0,
+        forecastAtCutoff: 0,
+        closedFirstLien: 0,
+        closedSecondLien: 0,
+        adversed: 0,
+        stillOpen: 0,
+      }
+    );
+
+  /*
+   * El orden de la hoja: la división arriba, y cada branch antes de su gente.
+   * El total va PRIMERO y no al final a propósito -- es lo que se mira antes de
+   * bajar a buscar a quién, y con 13 branches el final queda lejos.
+   */
+  const branches = [...new Set([...claves.values()].map((k) => k.branch))].sort((a, b) => a.localeCompare(b));
+  const filasBranch: MonthlyReportSummaryRow[] = [];
+  for (const branch of branches) {
+    filasBranch.push({
+      kind: 'branch',
+      branch,
+      loanOfficer: '',
+      banked: celdasDe(branch, null, 'Banked - Retail'),
+      brokered: celdasDe(branch, null, 'Brokered'),
+    });
+    const officers = [...claves.values()]
+      .filter((k) => k.branch === branch)
+      .map((k) => k.loanOfficer)
+      .sort((a, b) => a.localeCompare(b));
+    for (const who of officers) {
+      filasBranch.push({
+        kind: 'officer',
+        branch,
+        loanOfficer: who,
+        banked: celdasDe(branch, who, 'Banked - Retail'),
+        brokered: celdasDe(branch, who, 'Brokered'),
+      });
+    }
+  }
+
+  const soloBranches = filasBranch.filter((f) => f.kind === 'branch');
+  const summary: MonthlyReportSummaryRow[] = [
+    {
+      kind: 'division',
+      branch: '',
+      loanOfficer: '',
+      banked: sumar(soloBranches.map((f) => f.banked)),
+      brokered: sumar(soloBranches.map((f) => f.brokered)),
+    },
+    ...filasBranch,
+  ];
 
   const closedByChannel: Record<string, number> = {};
   for (const r of rows) {
