@@ -2,6 +2,8 @@
 
 import { Fragment, use, useState } from 'react';
 import Link from 'next/link';
+import { addMonths } from '@/lib/business-plan/impact';
+import { apportionByWeight } from '@/lib/pipeline/aggregate';
 import {
   composeYear,
   currentMonthByBranch,
@@ -17,7 +19,7 @@ import {
   type OutlookStrategy,
   type ProjectionMode,
 } from '@/lib/outlook/project';
-import { fmt } from '@/lib/outlook/format';
+import { fmt, sumOfShown } from '@/lib/outlook/format';
 import { useOutlookDataContext } from '@/lib/outlook/useOutlookData';
 import StrategyEditor, { type OutlookEditable } from '@/app/outlook/components/StrategyEditor';
 import NppmEditor from '@/app/outlook/components/NppmEditor';
@@ -237,6 +239,11 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * el editor seguiría mostrando el benchmark anterior al que se acaba de
    * escribir. Se vuelve a buscar en cada render -- ver el bloque de los editores.
    */
+  /*
+   * Cuántos meses hacia adelante. Arranca en "hasta diciembre", que es lo que
+   * había, así que quien no lo toca ve exactamente lo de antes.
+   */
+  const [horizonte, setHorizonte] = useState<number | null>(null);
   const [editing, setEditing] = useState<
     { kind: 'employee'; employeeKey: number; strategy: OutlookStrategy } | { kind: 'branch'; strategy: OutlookStrategy } | null
   >(null);
@@ -256,8 +263,45 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
     );
   }
 
-  const { monthsOfYear, actualMonths, currentMonth, remainingMonths } = data;
+  const { actualMonths, currentMonth } = data;
   const year = currentMonth.split('-')[0];
+
+  /*
+   * ==========================================================================
+   * HASTA DÓNDE SE PROYECTA — etapa OL12
+   * ==========================================================================
+   *
+   * Era fijo hasta diciembre del año en curso. No hacía falta cambiar el motor:
+   * `projectPlan` ya evalúa cualquier mes futuro --una regla es `from_month` +
+   * cadencia + porcentaje, y eso no sabe de años-- y `composeYear` arma la fila
+   * con la lista de meses que le pasen. Lo único que faltaba era que la tabla
+   * dibujara esas columnas.
+   *
+   * ⚠ El horizonte es del USUARIO y no del dato: vive en el estado de la
+   * pantalla, no en `OutlookData`. Meterlo en el loader habría obligado a
+   * recargar todo --y a esperar los siete segundos de las lecturas-- cada vez que
+   * alguien mira un año más.
+   */
+  const horizonteHastaDic = data.remainingMonths.length;
+  const meses = horizonte ?? horizonteHastaDic;
+  /*
+   * ⚠ Sin `useMemo`, y no por descuido: esto vive DESPUÉS de los early returns
+   * --`if (!data)`, `if (!branch)`-- así que un hook acá se saltearía en los
+   * renders que salen antes y React rompe la pantalla entera. Medido: la tabla
+   * no llegaba a dibujarse.
+   *
+   * Y no hace falta: son 24 sumas de meses por render, contra las lecturas de
+   * varios segundos que ya hace el módulo.
+   */
+  const remainingMonths: string[] = [];
+  for (let i = 1; i <= meses; i++) remainingMonths.push(addMonths(currentMonth, i));
+  const monthsOfYear = [...actualMonths, currentMonth, ...remainingMonths];
+  /* El rótulo de la columna del total: deja de ser un año cuando pasa de uno. */
+  const totalLabel = (() => {
+    const ultimo = monthsOfYear[monthsOfYear.length - 1] ?? currentMonth;
+    const anioFin = ultimo.split('-')[0];
+    return anioFin === year ? year : `${year}–${anioFin}`;
+  })();
   /* Nadie con este branch en su roster: tiene cerrados y no proyecta. Ver vista 1. */
   const projectsNothing = !branch.loanOfficers.some((l) => l.primaryBranch === branch.branchCode);
   /*
@@ -284,17 +328,6 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
     projectBranch(branch, remainingMonths)
   );
 
-  /*
-   * ⚠ Cuantos benchmarks de estrategia hay CARGADOS en este branch.
-   *
-   * Own Production queda afuera a proposito: su benchmark no vive en `outlook`
-   * sino en `org.employee_benchmark`, y lo edita el Business Plan. Contarlo
-   * haria que un branch con Own Production cargado y nada mas parezca tener
-   * presupuesto por estrategia cuando las otras cuatro estan en cero.
-   */
-  const strategyBenchmarksSet = branch.byStrategy.filter(
-    (bs) => bs.strategy !== 'Own Production' && bs.realtors.some((r) => !r.benchmarkIsDefault)
-  ).length;
 
   function toggle(key: string) {
     setOpen((prev) => {
@@ -365,15 +398,78 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * suma de las de arriba -- que es exactamente lo que este total viene a
    * garantizar.
    */
-  const strategyRows = branch.byStrategy
+  /*
+   * ==========================================================================
+   * EL PRONÓSTICO DEL MES, REPARTIDO ENTRE LAS CINCO — etapa OL12
+   * ==========================================================================
+   *
+   * Antes el mes en curso de cada estrategia era lo REAL cerrado, y la
+   * diferencia contra el pronóstico del branch se iba a la fila de
+   * reconciliación. Ahora se reparte: cada estrategia tiene su agosto.
+   *
+   * ⚠ El reparto es sobre el ENTERO del branch --el mismo que muestra la lista--
+   * así que las cinco suman exactamente eso, y el residuo de agosto pasa a ser
+   * cero por construcción. No se esconde: deja de existir.
+   *
+   * ⚠ Y LOS PESOS TIENEN DOS FUENTES, por la misma razón de siempre. Un branch
+   * donde nadie está rosterizado no tiene pronóstico --AFFINITY, 741, 771-- y
+   * sus pesos serían todos cero; `apportionByWeight` volcaría el total entero en
+   * la primera estrategia, que es Own Production, inventando que los 5 cierres
+   * de agosto de AFFINITY fueron producción propia. En ese caso los pesos son
+   * los cierres REALES del mes por estrategia, que es lo que efectivamente pasó.
+   */
+  /*
+   * ==========================================================================
+   * ⚠ QUÉ ESTRATEGIAS MUESTRA ESTE BRANCH — etapa OL12
+   * ==========================================================================
+   *
+   * Sólo las que tienen ALGO: producción en cualquier mes, pronóstico del mes en
+   * curso, o un presupuesto guardado. Nada de filas en cero permanente.
+   *
+   * Medido, y por eso hace falta: Affinity existe SÓLO en el branch Affinity --37
+   * cierres, todos ahí-- y Recruitment sólo en el 710. En los otros catorce
+   * branches eran dos filas de ceros ocupando lugar y compitiendo con las que sí
+   * tienen algo que decir.
+   *
+   * ⚠ El presupuesto cuenta aunque no haya producción: una estrategia a la que
+   * recién se le fijó un número TIENE que verse, o el número no se podría revisar
+   * ni corregir. Ese es el caso de B2B en el 747 hoy.
+   *
+   * NPPM sale por la misma regla: sin realtors no tiene nada, y no hace falta la
+   * excepción que tenía escrita aparte.
+   */
+  const tieneAlgo = (bs: BranchStrategy) =>
+    bs.ytd > 0 ||
+    bs.currentMonthRaw > 0 ||
+    (bs.actualByMonth[currentMonth] ?? 0) > 0 ||
+    bs.benchmarkSchedule.length > 0 ||
+    bs.targetRevision > 0 ||
+    bs.realtors.length > 0 ||
     /*
-      ⚠ NPPM NO SE MUESTRA DONDE NO HAY REALTORS. Se abre por realtor, así que
-      sin realtors es una fila que no se puede abrir y no tiene nada que decir;
-      el 747 no tiene ninguno. Las tres de branch SÍ se quedan aunque estén en
-      cero: son el lugar donde se les fija el presupuesto.
-    */
-    .filter((bs) => bs.strategy !== 'NPPM' || bs.realtors.length > 0)
-    .map((bs) => {
+     * Por persona: su presupuesto vive en la gente, no en el branch.
+     *
+     * ⚠ UN BENCHMARK, NO UNA REGLA. Es la misma trampa de OL8 y volví a caer en
+     * ella: la siembra dejó 185 reglas --las 37 personas × 5 estrategias-- así
+     * que "tiene regla" es verdad para todos, y Recruitment aparecía en catorce
+     * branches que no tienen ni un cierre. Una regla sobre un benchmark en cero
+     * no proyecta nada: es una intención guardada, no un presupuesto.
+     */
+    (bs.opensBy === 'loanOfficer' &&
+      branch.loanOfficers.some(
+        (lo) =>
+          (lo.strategyBenchmarks[bs.strategy] ?? 0) > 0 ||
+          Object.keys(lo.targetsByStrategy[bs.strategy] ?? {}).length > 0
+      ));
+
+  const filasBase = branch.byStrategy.filter(tieneAlgo);
+  const proyectaAlgo = filasBase.some((bs) => bs.currentMonthRaw > 0);
+  const pesosAgosto = filasBase.map((bs) =>
+    proyectaAlgo ? bs.currentMonthRaw : (bs.actualByMonth[currentMonth] ?? 0)
+  );
+  const agostoPorEstrategia = apportionByWeight(branchCurrent, pesosAgosto);
+  const agostoDe = new Map(filasBase.map((bs, i) => [bs.strategy, agostoPorEstrategia[i]]));
+
+  const strategyRows = filasBase.map((bs) => {
       const s = bs.strategy;
       /*
         ⚠ EL PRESUPUESTO SOLO SE PROYECTA DONDE HAY DE DONDE.
@@ -385,8 +481,8 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
       */
       const proj: Record<string, number | null> = {};
       let steps: ReturnType<typeof projectPlan> = [];
-      if (s === 'Own Production') {
-        /* Suma de las personas: su benchmark vive en `org.employee_benchmark`. */
+      if (bs.opensBy === 'loanOfficer') {
+        /* Suma de las personas. Own Production y Recruitment se deciden asi. */
         for (const lo of branch.loanOfficers) {
           const st = projectLoanOfficer(lo, remainingMonths).stepsByStrategy[s] ?? [];
           remainingMonths.forEach((m, i) => {
@@ -409,26 +505,39 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
           targets: bs.targets,
         });
         remainingMonths.forEach((m, i) => (proj[m] = steps[i]?.value ?? 0));
+      } else if (bs.opensBy === 'realtor' && bs.realtors.length > 0) {
+        /*
+         * ⚠ NPPM PROYECTA DESDE SUS REALTORS — etapa OL12.
+         *
+         * Su presupuesto es la suma de los benchmarks de sus realtors, PLANO: no
+         * hay regla de crecimiento porque `outlook.growth_rule` cuelga de una
+         * persona o de un branch, y un realtor no es ninguna de las dos cosas.
+         *
+         * Y entra el valor por DEFECTO --el promedio de sus 3 meses cerrados--
+         * porque esa fue la decisión: si nadie lo toca, ese es el valor. Hasta
+         * acá NPPM mostraba un benchmark y proyectaba cero, y un benchmark que no
+         * gobierna ninguna celda es decoración.
+         */
+        const suma = bs.realtors.reduce((a, r) => a + r.benchmark, 0);
+        remainingMonths.forEach((m) => (proj[m] = suma));
       }
+      const proyecta =
+        bs.opensBy === 'loanOfficer' ||
+        (bs.opensBy === 'branch' && branchHasBudget(bs)) ||
+        (bs.opensBy === 'realtor' && bs.realtors.length > 0);
       /*
-       * NPPM sigue sin proyectar: su benchmark es del realtor y todavía no hay
-       * regla que diga cómo crece. Sus meses de presupuesto quedan vacíos.
-       */
-      const proyecta = s === 'Own Production' || (bs.opensBy === 'branch' && branchHasBudget(bs));
-      /*
-        El mes en curso es lo REAL cerrado, no el pronóstico y no un hueco:
-        ninguna fila de acá tiene pronóstico --el pipeline no lleva la estrategia
-        consigo-- y la regla del módulo para ese caso es la de AFFINITY.
+        El mes en curso sale del REPARTO -- ver `agostoDe` arriba. Hasta OL12 era
+        lo real cerrado, porque el pronóstico del mes no se abría por estrategia.
       */
       const sYear = composeYear(
         monthsOfYear,
         currentMonth,
         bs.actualByMonth,
-        bs.actualByMonth[currentMonth] ?? 0,
+        agostoDe.get(s) ?? 0,
         proj
       );
       const bench =
-        s === 'Own Production'
+        bs.opensBy === 'loanOfficer'
           ? branch.loanOfficers.reduce((a, lo) => a + (lo.strategyBenchmarks[s] ?? 0), 0)
           : s === 'NPPM'
             ? bs.realtors.reduce((a, r) => a + r.benchmark, 0)
@@ -498,16 +607,26 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * fila que vino a garantizar el invariante es la que puede tapar que el
    * invariante se rompió.
    *
-   * Ya pasó una vez, en OL11: se guardó el primer benchmark de branch, B2B pasó
-   * a mostrar 3 por mes, el total del branch NO se movió --`projectBranch` sólo
-   * sumaba las proyecciones de las personas-- y esta fila absorbió -3 por mes sin
-   * que nada lo dijera. La pantalla seguía cuadrando y estaba mal.
+   * ⚠⚠ YA PASÓ DOS VECES, EN DOS ETAPAS SEGUIDAS. No es una advertencia
+   * teórica: es un patrón, y las dos veces fue la MISMA causa.
    *
-   * ⚠ REGLA PARA EL QUE VENGA: si el residuo empieza a dar valores GRANDES, o
-   * cambia sin que haya cambiado el mes en curso, NO es una peculiaridad del
-   * mes. Es que algo dejó de sumarse en `projectBranch` o en `strategyRows`.
-   * Las dos vías tienen que dar bien por separado; que cierren no alcanza,
-   * porque una se ajusta a la otra por construcción.
+   *   OL11  se guardó el primer benchmark de branch. B2B pasó a mostrar 3 por
+   *         mes, el total del branch NO se movió --`projectBranch` sólo sumaba
+   *         las proyecciones de las personas-- y esta fila absorbió -3 por mes.
+   *
+   *   OL12  se hizo proyectar a NPPM desde sus realtors. Mismo síntoma, misma
+   *         causa: `projectBranch` tampoco lo sumaba.
+   *
+   * ⚠ LA REGLA, ENTONCES: cada vez que se agrega una FUENTE DE PRESUPUESTO
+   * --una estrategia nueva, un sujeto nuevo, otra tabla-- hay que verificar a
+   * mano que `projectBranch` la sume. El residuo NO lo va a avisar: está
+   * definido para cerrar siempre, así que una fuente olvidada se ve como un
+   * residuo que creció y no como un error.
+   *
+   * Y si el residuo empieza a dar valores GRANDES, o cambia sin que haya
+   * cambiado el mes en curso, es eso: algo dejó de sumarse. Las dos vías tienen
+   * que dar bien POR SEPARADO; que cierren no alcanza, porque una se ajusta a la
+   * otra por construcción.
    *
    * Hoy sus únicas dos causas legítimas son chicas y conocidas: el pronóstico del
    * mes en curso, que el pipeline no abre por estrategia, y algún cierre contado
@@ -524,7 +643,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
   for (const m of monthsOfYear) {
     residual[m] = (branchYear.byMonth[m] ?? 0) - (strategiesByMonth[m] ?? 0);
   }
-  const residualTotal = monthsOfYear.reduce((a, m) => a + residual[m], 0);
+  /* Su total del año también se suma al mostrarlo -- ver `sumOfShown`. */
   /* Sólo se muestra si hay algo que reconciliar: 11 de 16 no la necesitan. */
   const showResidual = monthsOfYear.some((m) => Math.abs(residual[m]) > 0.001);
   const currentAboveForecast = residual[currentMonth] < -0.001;
@@ -532,15 +651,17 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
   /*
    * El total: la suma de las filas que la tabla MUESTRA, incluida la de
    * reconciliación. Da el mismo número que la lista de branches, por
-   * construcción -- y así el invariante "el total es la suma de las filas"
-   * sigue siendo literal en vez de casi.
+   * construcción -- y así el invariante "el total es la suma de las filas" sigue
+   * siendo literal en vez de casi.
+   *
+   * El total del AÑO no está acá: se calcula al mostrarlo, sumando lo que se ve
+   * -- ver `sumOfShown` en `format.ts`.
    */
   const totalByMonth: Record<string, number | null> = {};
   for (const m of monthsOfYear) {
     const base = strategiesByMonth[m];
     totalByMonth[m] = base === null && !showResidual ? null : (base ?? 0) + residual[m];
   }
-  const totalFromStrategies = strategyRows.reduce((a, r) => a + r.sYear.total, 0) + residualTotal;
 
   return (
     <div className="hub-container ol-page">
@@ -549,7 +670,26 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
           <div className="bp-breadcrumbs">
             <Link href="/outlook">Outlook</Link> <span>›</span> <span>{branch.branchCode}</span>
           </div>
-          <h1 className="page-head__title">Branch {branch.branchCode}</h1>
+          <h1 className="page-head__title">
+            Branch {branch.branchCode}
+            {/*
+              Era un párrafo al pie y ahora es una marca al lado del título: dice
+              lo mismo en dos palabras, y está donde se mira primero en vez de
+              debajo de la tabla que viene a explicar.
+            */}
+            {projectsNothing && branch.ytd > 0 && (
+              <span
+                className="bp-muted ol-tag"
+                title={
+                  `Its ${branch.ytd} closings this year are real, but no loan officer has this branch on their ` +
+                  `roster — the projection is charged to each person's roster branch, because it is one number per ` +
+                  `person, not per loan. Who owns this budget is still to be decided.`
+                }
+              >
+                does not project
+              </span>
+            )}
+          </h1>
           {/*
             ⚠ LOS DOS "+N" SON EL PRECIO DE DOS REGLAS, y van acá porque sin
             ellos el total del branch no da la suma de sus filas y nadie sabe por
@@ -580,7 +720,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               de reconciliacion lleva la diferencia. Antes aca habia dos numeros
               y una explicacion de por que no coincidian.
             */}
-            · {year} total {fmt(totalFromStrategies)}
+            · {year} total {fmt(sumOfShown(monthsOfYear.map((m) => totalByMonth[m])))}
           </p>
         </div>
       </div>
@@ -609,7 +749,27 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
         esta bien; pero "cuanto hace Galo Rizzo en total" pasa a ser una
         pregunta de Business Plan y ya no se contesta aca.
       */}
-      <h2 className="ol-block__title">Budget by strategy</h2>
+      <div className="ol-block__head">
+        <h2 className="ol-block__title">Budget by strategy</h2>
+        <label className="ol-horizon">
+          <span>Project through</span>
+          <select
+            className="field"
+            value={meses}
+            onChange={(e) => setHorizonte(Number(e.target.value))}
+            title="How many months forward the budget columns go. The growth rules already know how to reach any future month; this only decides how many are drawn."
+          >
+            <option value={horizonteHastaDic}>Dec {year}</option>
+            {[6, 12, 18, 24]
+              .filter((n) => n !== horizonteHastaDic)
+              .map((n) => (
+                <option key={n} value={n}>
+                  {n} months ({monthLabel(addMonths(currentMonth, n))} {addMonths(currentMonth, n).slice(0, 4)})
+                </option>
+              ))}
+          </select>
+        </label>
+      </div>
 
       <div className="tbl-scroll">
         <table className="piv bp-table--los ol-year">
@@ -647,8 +807,8 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                   {monthLabel(m)}
                 </th>
               ))}
-              <th className="bp-center totcol">{year}</th>
-              <th className="bp-center">Benchmark</th>
+              <th className="bp-center totcol">{totalLabel}</th>
+              <th className="bp-center ol-bench">Benchmark</th>
               <th className="lbl">Rule</th>
               {/* Sin columna de funnel: es informacion de Business Plan. */}
             </tr>
@@ -667,15 +827,14 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                 contra el borde sin verse entera.
               */
               const regla =
-                s === 'Own Production'
+                bs.opensBy === 'loanOfficer'
                   ? `${conBenchmark} of ${branch.loanOfficers.length}`
                   : s === 'NPPM'
                     ? `${bs.realtors.length} realtor${bs.realtors.length === 1 ? '' : 's'}`
                     : branchRuleLabel(bs);
               const reglaTitulo =
-                s === 'Own Production'
-                  ? `${conBenchmark} of the ${branch.loanOfficers.length} loan officers here have a benchmark in Own ` +
-                    `Production. It is read from the Business Plan, one per person.`
+                bs.opensBy === 'loanOfficer'
+                  ? `${conBenchmark} of the ${branch.loanOfficers.length} loan officers here have a benchmark in ${s}.`
                   : s === 'NPPM'
                     ? `${bs.realtors.length} realtor${bs.realtors.length === 1 ? '' : 's'} in this branch. Each one's ` +
                       `benchmark defaults to the average of their closings over the 3 closed months.`
@@ -700,7 +859,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                       {bs.opensBy === 'loanOfficer' && (
                         <span
                           className="bp-muted ol-tag"
-                          title="Own production: the question is how much each loan officer does, so it opens by person. Its benchmark lives in the Business Plan."
+                          title="The question here is how much each loan officer does, so it opens by person."
                         >
                           by loan officer
                         </span>
@@ -762,7 +921,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                       className="bp-center totcol"
                       title={`${monthLabel(currentMonth)} is what actually closed, not the forecast — so this total is below the one in the block above, by the part of the forecast that has not closed yet.`}
                     >
-                      {fmt(sYear.total)}
+                      {fmt(sumOfShown(monthsOfYear.map((m) => sYear.byMonth[m] ?? null)))}
                     </td>
                     {/*
                       ⚠ EL LÁPIZ SÓLO DONDE SE PUEDE DECIDIR. Own Production
@@ -771,7 +930,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                       guardaría en un sujeto que no es el que muestra la fila.
                       Las tres del branch sí se editan acá.
                     */}
-                    <td className="bp-center" onClick={(e) => e.stopPropagation()}>
+                    <td className="bp-center ol-bench" onClick={(e) => e.stopPropagation()}>
                       {fmt(bench)}
                       {bs.opensBy === 'branch' && (
                         <button
@@ -871,8 +1030,8 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                               {fmt(cell.year.byMonth[m] ?? null)}
                             </td>
                           ))}
-                          <td className="bp-center totcol">{fmt(cell.year.total)}</td>
-                          <td className="bp-center">
+                          <td className="bp-center totcol">{fmt(sumOfShown(monthsOfYear.map((m) => cell.year.byMonth[m] ?? null)))}</td>
+                          <td className="bp-center ol-bench">
                             {isMonthly ? fmt(null) : fmt(b)}
                             <button
                               type="button"
@@ -941,7 +1100,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                               {fmt(rYear.byMonth[m] ?? null)}
                             </td>
                           ))}
-                          <td className="bp-center totcol">{fmt(rYear.total)}</td>
+                          <td className="bp-center totcol">{fmt(sumOfShown(monthsOfYear.map((m) => rYear.byMonth[m] ?? null)))}</td>
                           {/*
                             ⚠ EL DEFAULT ES EL PROMEDIO DE SUS 3 MESES CERRADOS, y
                             si nadie lo toca ESE es el valor -- no un cero ni un
@@ -956,7 +1115,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                             tercios. El resto de la tabla sigue con un decimal,
                             que es lo que un pronóstico de pipeline necesita.
                           */}
-                          <td className="bp-center">
+                          <td className="bp-center ol-bench">
                             {Number.isInteger(r.benchmark) ? r.benchmark : r.benchmark.toFixed(2)}
                             {r.benchmarkIsDefault && (
                               <span
@@ -1015,13 +1174,27 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
             {showResidual && (
               <tr className="metric ol-residual">
                 <td className="lbl">
-                  {currentAboveForecast
-                    ? `${monthLabel(currentMonth)} already above forecast`
-                    : `${monthLabel(currentMonth)} pipeline, no strategy yet`}
+                  {/*
+                    ⚠ EL RÓTULO SALE DE DÓNDE ESTÁ EL RESIDUO, no de una
+                    suposición. Decía "Aug pipeline, no strategy yet" fijo, y
+                    desde que el mes en curso se reparte por estrategia (OL12) su
+                    residuo es cero: la fila quedaba anunciando agosto con su
+                    único valor en mayo. Un rótulo que no describe su propia fila
+                    es peor que ninguno.
+                  */}
+                  {Math.abs(residual[currentMonth]) > 0.001
+                    ? currentAboveForecast
+                      ? `${monthLabel(currentMonth)} already above forecast`
+                      : `${monthLabel(currentMonth)} pipeline, no strategy yet`
+                    : 'Counted for a realtor, not for the branch'}
                   <span
                     className="bp-muted ol-tag"
                     title={
-                      currentAboveForecast
+                      Math.abs(residual[currentMonth]) <= 0.001
+                        ? `Closings counted for an NPPM realtor but not for the branch, because the loan officer who ` +
+                          `originated them is outside the division. The row carries the difference so the total ` +
+                          `matches the branch list.`
+                        : currentAboveForecast
                         ? `This branch has already closed more this month than its forecast expected: ` +
                           `${fmt(strategiesByMonth[currentMonth])} closed against a forecast of ` +
                           `${fmt(branchYear.byMonth[currentMonth])}. The row carries the difference so the total ` +
@@ -1052,7 +1225,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                     {Math.abs(residual[m]) <= 0.001 ? '' : fmt(residual[m])}
                   </td>
                 ))}
-                <td className="bp-center totcol">{fmt(residualTotal)}</td>
+                <td className="bp-center totcol">{fmt(sumOfShown(monthsOfYear.map((m) => (Math.abs(residual[m]) <= 0.001 ? null : residual[m]))))}</td>
                 <td className="bp-center"></td>
                 <td className="lbl"></td>
               </tr>
@@ -1080,7 +1253,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                 </td>
               ))}
               <td className="bp-center totcol" title="The sum of the five strategies, column by column.">
-                {fmt(totalFromStrategies)}
+                {fmt(sumOfShown(monthsOfYear.map((m) => totalByMonth[m])))}
               </td>
               <td className="bp-center"></td>
               <td className="lbl"></td>
@@ -1094,33 +1267,22 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
         pie de la pagina lo leeria quien ya se hizo la pregunta; aca lo lee quien
         esta mirando la columna en cero.
       */}
-      {strategyBenchmarksSet === 0 && (
-        <div className="bp-notice ol-notice">
-          <b>No budget set for this branch yet.</b> B2B, Recruitment and Affinity belong to the branch and are edited
-          here — the pencil sets the benchmark and the growth rule, or months by hand. Their columns from{' '}
-          {monthLabel(remainingMonths[0] ?? currentMonth)} on are <b>blank, not zero</b>: nothing has been decided,
-          rather than a decision that nothing is expected. NPPM has a benchmark per realtor, defaulting to their
-          3-month average; it does not project yet.
-        </div>
-      )}
+      {/*
+        ⚠ ACÁ HABÍA UN PÁRRAFO Y SE FUE — etapa OL12.
+
+        Explicaba qué se puede editar y qué significa una celda en blanco. Cinco
+        líneas de texto debajo de una tabla de doce columnas, que sólo se leen la
+        primera vez: quien ya sabe lo saltea, y quien no sabe lo descubre antes
+        haciendo clic en el lápiz.
+
+        Lo que decía vive donde se busca: el lápiz se ve en la fila que se puede
+        editar, y por qué una celda está vacía lo dice su tooltip.
+      */}
 
       {/*
         Igual que en la vista 1: se EXPLICA, no se calcula distinto. Una fila con
         cerrados y proyección en cero, sin texto, se reporta como bug.
       */}
-      {projectsNothing && branch.ytd > 0 && (
-        <div className="bp-notice ol-notice">
-          {/*
-            ⚠ El espacio va EXPLICITO. Sin `{' '}` el compilador se come el que
-            hay entre la expresion y el texto que sigue, y salia "Its 2closings".
-            Estaba asi desde OL1b y no se noto porque solo lo ven los tres
-            branches que no proyectan.
-          */}
-          <b>{branch.branchCode} does not project.</b> Its {branch.ytd}{' '}
-          closings this year are real, but no Loan Officer has this branch on their roster — and the projection is charged to each person&apos;s roster branch, because it is
-          one number per person, not per loan. <b>Who owns this budget is still to be decided.</b>
-        </div>
-      )}
 
       {/*
         Los editores. Se busca la persona en `branch.loanOfficers` en cada render

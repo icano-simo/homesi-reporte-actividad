@@ -118,6 +118,9 @@ interface PipelineLoanRow {
   amount: number | null;
   milestone_date: string | null;
   branch: string | null;
+  /* Los dos que necesita `classifyStrategy` de Forecast -- ver `OpenLoan`. */
+  strategy_raw: string | null;
+  opportunity_owner_title: string | null;
 }
 
 function emptyActivity(): ActivityMetrics {
@@ -398,7 +401,7 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
         pf
           .from('pipeline_loans')
           .select(
-            'loan_officer, source_loan_id, borrower_name, milestone, raw_milestone, healthy, channel, close_month, est_closing_date, amount, milestone_date, branch'
+            'loan_officer, source_loan_id, borrower_name, milestone, raw_milestone, healthy, channel, close_month, est_closing_date, amount, milestone_date, branch, strategy_raw, opportunity_owner_title'
           )
           .eq('snapshot_id', snapshotId)
           .range(from, to)
@@ -413,12 +416,16 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
     amount: number | string | null;
     raw_loan_folder: string | null;
     est_closing_date: string | null;
+    /* Los tres que necesita `classifyStrategy` -- ver `ResolvedLoan`. */
+    branch: string | null;
+    strategy_raw: string | null;
+    opportunity_owner_title: string | null;
   }[] =
     snapshotId
       ? await readAll((from, to) =>
           pf
             .from('pipeline_resolved_loans')
-            .select('loan_officer, status, disbursement_date, source_loan_id, borrower_name, amount, raw_loan_folder, est_closing_date')
+            .select('loan_officer, status, disbursement_date, source_loan_id, borrower_name, amount, raw_loan_folder, est_closing_date, branch, strategy_raw, opportunity_owner_title')
             .eq('snapshot_id', snapshotId)
             .range(from, to)
         )
@@ -670,6 +677,9 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
       amount: row.amount === null ? null : Number(row.amount),
       milestoneDate: row.milestone_date,
       branch: row.branch,
+      /* Para `classifyStrategy` -- ver `OpenLoan` en types.ts. */
+      strategyRaw: row.strategy_raw,
+      opportunityOwnerTitle: row.opportunity_owner_title,
     });
     openLoansByEmployee.set(key, list);
   }
@@ -716,6 +726,10 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
           loanFolder: row.raw_loan_folder,
           disbursementDate: row.disbursement_date,
           estClosingDate: row.est_closing_date,
+          /* Para clasificar la parte YA CERRADA del mes -- ver `ResolvedLoan`. */
+          branch: row.branch,
+          strategyRaw: row.strategy_raw,
+          opportunityOwnerTitle: row.opportunity_owner_title,
         },
       ]);
     }

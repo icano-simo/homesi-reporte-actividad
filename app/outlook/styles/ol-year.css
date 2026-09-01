@@ -422,3 +422,70 @@ table.piv.ol-year thead .yr-row th.ol-band {
   background: var(--accent-soft);
   color: var(--navy);
 }
+
+/*
+ * EL BREADCRUMB, DISCRETO — etapa OL12.
+ *
+ * `.bp-breadcrumbs` no tenía CSS en ninguna parte: era un `<a>` crudo, con el
+ * azul y el subrayado del navegador, gritando más que el título que tiene
+ * debajo. Toma los mismos valores que `.bp-crumbs a` del Business Plan --slate,
+ * sin subrayado, peso 600-- para que las dos pestañas vuelvan atrás igual.
+ */
+.ol-page .bp-breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--ol-text);
+  color: var(--slate-400);
+  margin-bottom: 2px;
+}
+.ol-page .bp-breadcrumbs a {
+  color: var(--slate-500);
+  text-decoration: none;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+}
+.ol-page .bp-breadcrumbs a:hover {
+  color: var(--navy);
+  text-decoration: none;
+}
+
+/*
+ * LA COLUMNA DE BENCHMARK NO SE MUEVE — etapa OL12.
+ *
+ * ⚠ Su ancho lo daba el contenido, y el contenido cambia de fila en fila: un
+ * número solo, un número con lápiz, o un número con la etiqueta `default` y el
+ * lápiz. Resultado: el número saltaba de lugar entre una fila y la siguiente, y
+ * comparar dos benchmarks obligaba a buscarlos.
+ *
+ * Con un ancho fijo el número queda siempre en el mismo sitio. Es `width` sobre
+ * `table-layout: auto`, así que sigue siendo una sugerencia: si algún día no
+ * entra, la celda crece antes que recortar.
+ */
+.ol-page table.piv.ol-year th.ol-bench,
+.ol-page table.piv.ol-year td.ol-bench {
+  width: 118px;
+}
+
+/* El título del bloque y el selector de horizonte, en la misma línea. */
+.ol-page .ol-block__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 22px 0 8px;
+}
+.ol-page .ol-block__head .ol-block__title {
+  margin: 0;
+}
+.ol-page .ol-horizon {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--ol-text);
+  color: var(--slate-500);
+}
+.ol-page .ol-horizon select {
+  font-size: var(--ol-text);
+  padding: 4px 8px;
+}

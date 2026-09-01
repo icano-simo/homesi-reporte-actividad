@@ -62,6 +62,8 @@ import type { RateSettings } from './rates';
 const RAW_CLEAR_TO_CLOSE = 'Clear To Close';
 
 /** Valor de `pipeline_loans.channel` para Brokered. El resto es Banked. */
+import { classifyStrategy } from '@/lib/pipeline/strategy';
+
 const CHANNEL_BROKERED = 'Brokered';
 
 /**
@@ -149,6 +151,19 @@ export function projectCurrentMonth(
   rates: RateSettings
 ): CurrentMonthProjection {
   const byMilestone: Record<MilestoneBucket, number> = { Started: 0, Processing: 0, Underwriting: 0, Closing: 0 };
+  /*
+   * El reparto por estrategia, en el MISMO bucle que el total. Ver
+   * `pipelineByStrategy` en `types.ts`: no es un segundo cálculo del mes.
+   */
+  const pipelineByStrategy: Record<string, number> = {};
+  const anotar = (loan: OpenLoan, valor: number) => {
+    const s = classifyStrategy({
+      branch: loan.branch ?? '',
+      strategyRaw: loan.strategyRaw ?? '',
+      opportunityOwnerTitle: loan.opportunityOwnerTitle ?? '',
+    });
+    pipelineByStrategy[s] = (pipelineByStrategy[s] ?? 0) + valor;
+  };
   let total = 0;
   let healthy = 0;
   let ctc = 0;
@@ -179,6 +194,7 @@ export function projectCurrentMonth(
     if (loan.channel === CHANNEL_BROKERED) {
       // Tasa plana sobre el total: no se filtra por healthy (ver arriba).
       brokeredLoans += 1;
+      anotar(loan, rates.brokeredFlat);
       continue;
     }
 
@@ -219,9 +235,11 @@ export function projectCurrentMonth(
        */
       if (loan.rawMilestone === RAW_CLEAR_TO_CLOSE) ctc += 1;
       else closing += 1;
+      anotar(loan, rates.milestone.Closing);
       continue;
     }
     bankedProjected += rates.milestone[loan.milestone];
+    anotar(loan, rates.milestone[loan.milestone]);
   }
 
   const brokeredProjected = brokeredLoans * rates.brokeredFlat;
@@ -239,6 +257,7 @@ export function projectCurrentMonth(
     inCtc: ctc,
     inClosing: closing,
     ctcClosingProjected,
+    pipelineByStrategy,
     /*
      * Lo que aporta el pipeline SIN CTC/Closing y sin lo ya cerrado.
      *

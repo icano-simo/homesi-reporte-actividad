@@ -3,6 +3,7 @@
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { buildAliasIndex, buildExcludedIndex } from '@/lib/business-plan/aliasIndex';
 import { classifyBranch } from '@/lib/domain/classifyBranch';
+import { classifyStrategy } from '@/lib/pipeline/strategy';
 import { apportionByWeight } from '@/lib/pipeline/aggregate';
 import { addMonths } from '@/lib/business-plan/impact';
 import { loadBusinessPlanData } from '@/lib/business-plan/loadData';
@@ -258,6 +259,11 @@ export interface OutlookLoanOfficer {
   /** La revisión vigente de los meses fijados, o 0 si no hay ninguna. */
   targetRevision: Partial<Record<OutlookStrategy, number>>;
 
+  /**
+   * El pronóstico del mes de esta persona, repartido por estrategia — OL12.
+   * Suma exactamente `currentMonth`. Ver `currentMonthRaw` en `BranchStrategy`.
+   */
+  currentMonthByStrategy: Partial<Record<OutlookStrategy, number>>;
   /** Estado según el roster. Ver `RosterState`. */
   rosterState: RosterState;
   /**
@@ -374,6 +380,22 @@ export interface BranchStrategy {
    * Own Production y NPPM no los usan: la primera decide por persona y la
    * segunda por realtor.
    */
+  /**
+   * ⚠ EL PRONÓSTICO DEL MES EN CURSO, DE ESTA ESTRATEGIA — etapa OL12.
+   *
+   * Sin redondear: la vista lo reparte contra el entero del branch para que las
+   * cinco sumen exactamente lo que muestra la lista. Sale de dos mitades que ya
+   * existen y no se recalculan acá:
+   *
+   *   lo ya cerrado   los préstamos fondeados del mes, clasificados uno por uno
+   *   el pipeline     `projection.pipelineByStrategy`, que sale del MISMO bucle
+   *                   que el total del mes en `projectCurrentMonth`
+   *
+   * Por eso la suma de las cinco es el pronóstico del branch, y no una segunda
+   * cuenta que podría no darlo. Antes esto no existía y el mes en curso quedaba
+   * sin repartir: de ahí venía la fila `Aug pipeline, no strategy yet`.
+   */
+  currentMonthRaw: number;
   benchmarkSchedule: BenchmarkPoint[];
   benchmarkAtDisplay: number;
   rules: GrowthSegment[];
@@ -1253,6 +1275,7 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
        * para poder decirlo en el tooltip en vez de que alguien lo deduzca.
        */
       closedToDate: lo.projection.closedToDate,
+      currentMonthByStrategy: splitCurrentMonth(lo),
       /*
        * ⚠ Sólo las estrategias en modo `growth` — etapa OL4.
        *
@@ -1403,6 +1426,8 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
          */
         currentMonth: months[currentMonth] ?? 0,
         closedToDate: months[currentMonth] ?? 0,
+        /* No está en el Business Plan: no tiene pronóstico que repartir. */
+        currentMonthByStrategy: {},
         benchmarkTotal: 0,
         ownProductionBenchmark: null,
         activePlan: null,
@@ -1445,6 +1470,7 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       actualByMonth: {},
       currentMonth: 0,
       closedToDate: 0,
+      currentMonthByStrategy: {},
       benchmarkTotal: 0,
       ownProductionBenchmark: null,
       activePlan: null,
@@ -1513,12 +1539,22 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
                 };
               })
               .sort((a, b) => b.ytd - a.ytd || a.realtor.localeCompare(b.realtor));
+      /*
+       * Las dos mitades del mes en curso, sólo de quienes tienen ESTE branch como
+       * primario -- mismo filtro que el total del branch, para que la suma cierre.
+       */
+      let currentMonthRaw = 0;
+      for (const lo of branchMap.get(branchCode) ?? []) {
+        if (lo.primaryBranch !== branchCode) continue;
+        currentMonthRaw += lo.currentMonthByStrategy[strategy] ?? 0;
+      }
       const bk = branchKeyOf(branchCode, strategy);
       const schedule = benchmarkScheduleByKey.get(bk) ?? [];
       return {
         strategy,
         ytd: totalOf(actualByBranchStrategy, key),
         actualByMonth: monthsOf(actualByBranchStrategy, key),
+        currentMonthRaw,
         benchmarkSchedule: schedule,
         benchmarkAtDisplay: benchmarkAt(schedule, displayMonth),
         rules: rulesByKey.get(bk) ?? [],
@@ -1527,8 +1563,24 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
         modeSetBy: modeSetByKey.get(bk) ?? null,
         targets: targetsByKey.get(bk) ?? {},
         targetRevision: targetRevisionByKey.get(bk) ?? 0,
+        /*
+         * ⚠ RECRUITMENT SE ABRE POR PERSONA — cambio de OL12.
+         *
+         * Estaba como estrategia del branch, con las otras dos. Pero en el 710
+         * la producción ES Recruitment --18 de sus cierres del año-- y ahí la
+         * pregunta útil vuelve a ser quién trae cuánto. B2B sigue sin abrirse:
+         * es del branch y no de una persona.
+         *
+         * Consecuencia: su presupuesto pasa a decidirse por persona, como Own
+         * Production. Hoy no se pierde nada porque no hay ni un benchmark de
+         * Recruitment guardado, ni por branch ni por persona.
+         */
         opensBy:
-          strategy === 'Own Production' ? ('loanOfficer' as const) : strategy === 'NPPM' ? ('realtor' as const) : ('branch' as const),
+          strategy === 'Own Production' || strategy === 'Recruitment'
+            ? ('loanOfficer' as const)
+            : strategy === 'NPPM'
+              ? ('realtor' as const)
+              : ('branch' as const),
         realtors,
         outsideDivision: strategy === 'NPPM' ? (nppmOutsideDivision.get(branchCode) ?? 0) : 0,
       };
@@ -1647,6 +1699,38 @@ export function planOf(lo: OutlookLoanOfficer, strategy: OutlookStrategy): Strat
 }
 
 /** La proyección de un Loan Officer: la suma de sus cinco estrategias. */
+/**
+ * El pronóstico del mes de una persona, repartido por estrategia — etapa OL12.
+ *
+ * ⚠ NO RECALCULA NADA. Las dos mitades ya están hechas:
+ *   - el pipeline, en `projection.pipelineByStrategy`, anotado préstamo por
+ *     préstamo dentro del mismo bucle que produce `projectedTotal`
+ *   - lo ya cerrado, clasificando los préstamos fondeados del mes con la misma
+ *     `classifyStrategy` de Forecast
+ *
+ * Por construcción la suma de las cinco es `projection.projectedTotal`.
+ */
+function splitCurrentMonth(lo: LoanOfficerRow): Partial<Record<OutlookStrategy, number>> {
+  const out: Partial<Record<OutlookStrategy, number>> = {};
+  const sumar = (nombre: string, valor: number) => {
+    const s = FORECAST_A_OUTLOOK[nombre];
+    if (!s) return;
+    out[s] = (out[s] ?? 0) + valor;
+  };
+  for (const r of lo.resolvedLoanDetail) {
+    sumar(
+      classifyStrategy({
+        branch: r.branch ?? '',
+        strategyRaw: r.strategyRaw ?? '',
+        opportunityOwnerTitle: r.opportunityOwnerTitle ?? '',
+      }),
+      1
+    );
+  }
+  for (const [nombre, valor] of Object.entries(lo.projection.pipelineByStrategy)) sumar(nombre, valor);
+  return out;
+}
+
 export function projectLoanOfficer(
   lo: OutlookLoanOfficer,
   months: string[]
@@ -1695,6 +1779,23 @@ export function projectBranch(branch: OutlookBranch, months: string[]): Record<s
    * cuando lo que falta es un error. Por eso el total tiene que salir bien de las
    * dos vías, y no cuadrar sólo porque una de ellas se ajusta a la otra.
    */
+  /*
+   * ⚠ Y NPPM, que proyecta desde sus REALTORS — etapa OL12.
+   *
+   * Plano, sin regla: `growth_rule` cuelga de una persona o de un branch, y un
+   * realtor no es ninguna de las dos. Suma los benchmarks vigentes, incluido el
+   * valor por defecto.
+   *
+   * Se agregó porque al hacer proyectar a NPPM el total del branch NO se movió y
+   * la fila de reconciliación absorbió la diferencia en silencio -- la SEGUNDA
+   * vez que pasa, después del presupuesto de branch en OL11. Es la advertencia
+   * que quedó escrita en esa fila, cumpliéndose.
+   */
+  for (const bs of branch.byStrategy) {
+    if (bs.opensBy !== 'realtor' || bs.realtors.length === 0) continue;
+    const suma = bs.realtors.reduce((a, r) => a + r.benchmark, 0);
+    for (const m of months) byMonth[m] += suma;
+  }
   for (const bs of branch.byStrategy) {
     if (bs.opensBy !== 'branch') continue;
     const hay = bs.mode === 'monthly' ? bs.targetRevision > 0 : bs.benchmarkSchedule.length > 0;
@@ -1779,6 +1880,39 @@ export interface YearRow {
  * cuenta, volveríamos al descuadre entre pantallas que la fila de reconciliación
  * acaba de cerrar.
  */
+/**
+ * ============================================================================
+ * ⚠ LOS DOS VOCABULARIOS DE ESTRATEGIA, Y POR QUÉ NO SE UNIFICAN ACÁ
+ * ============================================================================
+ *
+ * Forecast dice `Own production`; Outlook dice `Own Production`. Es la misma
+ * cosa con otra mayúscula, y este mapa es el único lugar donde se cruzan.
+ *
+ * ⚠ MÁS IMPORTANTE: son dos CLASIFICACIONES distintas, no sólo dos nombres.
+ *
+ *   los meses reales   `activity_report.loan_records_v2.strategy`, que viene
+ *                      clasificada desde BigQuery.
+ *   el mes en curso    `classifyStrategy` de Forecast, que decide en la app y
+ *                      con reglas de BRANCH -- Recruitment es 710, 711 y 777;
+ *                      Affinity es el branch 'Affinity'.
+ *
+ * Hoy no se contradicen en lo que Outlook muestra: este año Affinity sólo cerró
+ * en el branch Affinity y Recruitment sólo en el 710, que las dos reglas
+ * clasifican igual. El único choque conocido es un cierre de Recruitment en el
+ * 716 del año pasado, fuera de la ventana.
+ *
+ * Se deja anotado porque el día que se contradigan, un branch va a mostrar una
+ * estrategia en los meses reales y no en el pronóstico, o al revés, y la causa
+ * no va a estar a la vista.
+ */
+const FORECAST_A_OUTLOOK: Record<string, OutlookStrategy> = {
+  'Own production': 'Own Production',
+  B2B: 'B2B',
+  NPPM: 'NPPM',
+  Recruitment: 'Recruitment',
+  Affinity: 'Affinity',
+};
+
 export function currentMonthByBranch(data: {
   branches: OutlookBranch[];
   currentMonth: string;
