@@ -441,43 +441,80 @@ function buildSummary(
   /* Las diez de cada canal, en orden. Banked arranca en C, Brokered en M. */
   const BANKED_AT = 3;
   const BROKERED_AT = 13;
-  const HEADERS = [
-    'Pipeline',
-    'Closed',
-    'Potential',
-    'Forecast',
-    'Closed 1st lien',
-    'Closed 2nd lien',
-    'Adversed',
-    'Still Open',
-    'Loan Count',
-    '%',
+  const HEADERS = ['Pipeline', 'Closed', 'Potential', 'Forecast', 'Closed', 'Closed', 'Adversed', 'Still Open', 'Loan Count', '%'];
+
+  /*
+   * ==========================================================================
+   * ⚠ CUATRO FILAS DE ENCABEZADO, Y LA DEL MEDIO ES LA QUE IMPORTA
+   * ==========================================================================
+   *
+   *   canal    BANKED - RETAIL                            BROKERED
+   *   grupo    As of <corte> │ End of Month │ % vs Forec.  (idem)
+   *   columna  Pipeline Closed Potential Forecast │ Closed Closed Adversed Still Open │ Loan Count %
+   *   sub                                        │ First lien  Second Lien
+   *
+   * Sin la fila de GRUPO, las diez columnas de cada canal corren seguidas y no
+   * se ve dónde termina el corte y dónde empieza el cierre -- que es la
+   * comparación entera de este reporte. Es la que faltaba en la primera versión.
+   *
+   * Las dos columnas de `Closed` del cierre se llaman igual a propósito: lo que
+   * las distingue va en la fila de abajo, como en el archivo original. Repetir
+   * "Closed 1st lien" / "Closed 2nd lien" en la fila de columna las hace anchas
+   * y desalinea la banda de arriba.
+   */
+  const GROUPS: { label: string; span: number }[] = [
+    { label: `As of ${meta.cutoffDate}`, span: 4 },
+    { label: 'End of Month', span: 4 },
+    { label: '% vs Forecast', span: 2 },
   ];
+  const BAND_FILL = { banked: 'FFDDE8F5', brokered: 'FFE8E2F0' } as const;
 
-  const band = sh.addRow([]);
-  band.getCell(BANKED_AT).value = 'BANKED - RETAIL';
-  band.getCell(BROKERED_AT).value = 'BROKERED';
-  band.font = { bold: true };
-  sh.mergeCells(band.number, BANKED_AT, band.number, BANKED_AT + 9);
-  sh.mergeCells(band.number, BROKERED_AT, band.number, BROKERED_AT + 9);
-  for (const at of [BANKED_AT, BROKERED_AT]) {
-    const c = band.getCell(at);
+  const rowCanal = sh.addRow([]);
+  const rowGrupo = sh.addRow([]);
+  const rowCol = sh.addRow([]);
+  const rowSub = sh.addRow([]);
+
+  for (const [at, fill] of [
+    [BANKED_AT, BAND_FILL.banked],
+    [BROKERED_AT, BAND_FILL.brokered],
+  ] as const) {
+    const c = rowCanal.getCell(at);
+    c.value = at === BANKED_AT ? 'BANKED - RETAIL' : 'BROKERED';
     c.alignment = { horizontal: 'center' };
-    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: at === BANKED_AT ? 'FFDDE8F5' : 'FFE8E2F0' } };
+    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } };
+    sh.mergeCells(rowCanal.number, at, rowCanal.number, at + 9);
+
+    let off = 0;
+    for (const g of GROUPS) {
+      const gc = rowGrupo.getCell(at + off);
+      gc.value = g.label;
+      gc.alignment = { horizontal: 'center' };
+      gc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } };
+      if (g.span > 1) sh.mergeCells(rowGrupo.number, at + off, rowGrupo.number, at + off + g.span - 1);
+      off += g.span;
+    }
+
+    HEADERS.forEach((h, i) => {
+      const cc = rowCol.getCell(at + i);
+      cc.value = h;
+      cc.alignment = { horizontal: 'center', wrapText: true };
+    });
+    /* Debajo de los dos `Closed` del cierre de mes, y sólo ahí. */
+    rowSub.getCell(at + 4).value = 'First lien';
+    rowSub.getCell(at + 5).value = 'Second Lien';
+    for (const i of [4, 5]) rowSub.getCell(at + i).alignment = { horizontal: 'center', wrapText: true };
   }
 
-  const sub = sh.addRow([]);
-  sub.getCell(1).value = 'Branch';
-  sub.getCell(2).value = 'Loan Officer';
-  /* La sub-banda que separa el corte del cierre, dentro de cada canal. */
-  const groupRow = sh.getRow(sub.number - 0);
-  for (const at of [BANKED_AT, BROKERED_AT]) {
-    HEADERS.forEach((h, i) => (groupRow.getCell(at + i).value = h));
-  }
-  sub.font = { bold: true };
-  sub.alignment = { wrapText: true, vertical: 'bottom' };
+  for (const r of [rowCanal, rowGrupo, rowCol, rowSub]) r.font = { bold: true };
 
-  const HEAD_ROW = sub.number;
+  /* Branch y Loan Officer ocupan las cuatro filas de encabezado, no la última. */
+  sh.getCell(rowCanal.number, 1).value = 'Branch';
+  sh.getCell(rowCanal.number, 2).value = 'Loan Officer';
+  sh.mergeCells(rowCanal.number, 1, rowSub.number, 1);
+  sh.mergeCells(rowCanal.number, 2, rowSub.number, 2);
+  for (const c of [1, 2]) sh.getCell(rowCanal.number, c).alignment = { vertical: 'bottom' };
+
+  const HEAD_ROW = rowSub.number;
   const SHADED = 'FFF2E8DA';
 
   /* Etiqueta de la fila: qué criterios lleva su COUNTIFS. */
