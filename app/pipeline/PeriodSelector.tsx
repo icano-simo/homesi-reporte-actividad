@@ -1,10 +1,10 @@
 'use client';
 
 import {
+  businessToday,
   getDefaultQuarterSelection,
   getDefaultYtdSelection,
   periodLabel,
-  utcToday,
   type PeriodSelection,
 } from '@/lib/pipeline/period';
 
@@ -33,7 +33,7 @@ export default function PeriodSelector({ value, onChange }: PeriodSelectorProps)
   function setMode(mode: PeriodSelection['mode']) {
     if (mode === value.mode) return;
     if (mode === 'month') {
-      const today = utcToday();
+      const today = businessToday();
       onChange({ mode: 'month', year: today.year, month: today.month });
       return;
     }
