@@ -278,17 +278,42 @@ export function targetMonthRange(target: TargetMonth): DateRange {
  * exactamente con un Excel armado a mano, que suele tener ajustes manuales
  * que esta regla no puede replicar -- no es un bug si difiere.
  */
+/**
+ * ============================================================================
+ * ⚠ LA ÚNICA DEFINICIÓN DE "CERRADO EN ESTE MES" — etapa RPT1
+ * ============================================================================
+ *
+ * Estaba escrita inline dentro de `calculateTotalForecastWithClosed` y de
+ * `buildOrphanBranchRows` (PivotTable), y el reporte mensual necesitaba una
+ * tercera. Tres copias de un predicado de tres líneas es exactamente cómo se
+ * llega a que la pantalla diga un número y el Excel otro.
+ *
+ * Fundeado, y con la FECHA DE DESEMBOLSO dentro del mes. Dos cosas que hay que
+ * tener presentes al leer esto:
+ *
+ *   1. Vale igual para los dos canales. Que Brokered cierre por Milestone
+ *      Completion es una regla de su CASCADA DE PULL-THROUGH, no del conteo de
+ *      cerrados -- ver `BROKERED_FLAT_PULL_THROUGH_RATE`.
+ *   2. El mes lo decide el desembolso, no cuándo se enteró Salesforce. Medido
+ *      en agosto de 2026: cuatro préstamos desembolsaron el 28 y el 31 y
+ *      quedaron marcados Closed Won después del export del 31, así que el
+ *      snapshot de fin de mes decía 32 y el actual dice 36. Por eso el estado
+ *      se lee SIEMPRE del snapshot activo, nunca del de cierre de mes.
+ */
+export function isClosedInMonth(loan: ResolvedLoan, monthRange: DateRange): boolean {
+  return (
+    loan.status === 'funded' &&
+    loan.disbursementDate >= monthRange.startDate &&
+    loan.disbursementDate <= monthRange.endDate
+  );
+}
+
 export function calculateTotalForecastWithClosed(
   resolvedLoans: ResolvedLoan[],
   forecastTotal: number,
   forecastMonthRange: DateRange
 ): TotalForecastWithClosed {
-  const closedCount = resolvedLoans.filter(
-    (loan) =>
-      loan.status === 'funded' &&
-      loan.disbursementDate >= forecastMonthRange.startDate &&
-      loan.disbursementDate <= forecastMonthRange.endDate
-  ).length;
+  const closedCount = resolvedLoans.filter((loan) => isClosedInMonth(loan, forecastMonthRange)).length;
   return {
     closedCount,
     pullThroughForecast: forecastTotal,

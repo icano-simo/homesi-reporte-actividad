@@ -3,9 +3,6 @@
 import './styles/forecast-visual.css';
 import { useEffect, useState } from 'react';
 import {
-  splitHealthyTotal,
-  countByMilestoneBucket,
-  calculateForecast,
   calculateTotalForecastWithClosed,
   targetMonthRange,
   countByBrokeredMilestoneBucket,
@@ -13,7 +10,6 @@ import {
   apportionByWeight,
   splitCtcAndClosing,
   type BucketCounts,
-  type PullThroughRates,
   type BrokeredPullThroughRates,
   type BrokeredForecastByBucket,
   type DateRange,
@@ -23,7 +19,12 @@ import type { PipelineLoan, ResolvedLoan } from '@/lib/pipeline/types';
 import { classifyStrategy, hasStrategyData, STRATEGY_ORDER, type Strategy } from '@/lib/pipeline/strategy';
 import SummaryCards, { type SummaryBlock } from './SummaryCards';
 import type { MilestoneCascadeRow } from './MilestoneCascade';
-import PivotTable, { buildBranchRows, type BranchForecastRow, type BranchRow, type StrategyRow } from './PivotTable';
+import PivotTable, { buildBranchRows, type BranchRow, type StrategyRow } from './PivotTable';
+import {
+  PULL_THROUGH_RATES,
+  buildBranchForecastRows,
+  type BranchForecastRow,
+} from '@/lib/pipeline/branchForecast';
 import AdverseTable, { type ChannelFilter } from './AdverseTable';
 import Topbar from './Topbar';
 import TabNavigation, { type TabType } from './TabNavigation';
@@ -53,19 +54,11 @@ function formatLastUpload(iso: string): string {
   return `Updated on ${fecha} at ${hora}`;
 }
 
-/**
- * Etapa F4: mismos valores que DEMO_RATES (F3). El input editable en la UI
- * para estos 4 micro-% es una etapa futura, no aprobada todavía -- se
- * duplican acá en vez de importar fixtures/pipeline-demo.ts porque esta
- * página ya no depende del módulo de fixture (ver Decisiones en la
- * respuesta de F4).
+/*
+ * Etapa RPT1: `PULL_THROUGH_RATES` se mudó a `lib/pipeline/branchForecast.ts`,
+ * junto a la cascada que las aplica. Se re-importa acá porque el panel de
+ * Pull-Through Cascade las muestra tasa por tasa.
  */
-const PULL_THROUGH_RATES: PullThroughRates = {
-  Started: 0.8923,
-  Processing: 0.93,
-  Underwriting: 0.8459,
-  Closing: 0.95,
-};
 
 const EMPTY_BUCKETS: BucketCounts = { Started: 0, Processing: 0, Underwriting: 0, Closing: 0 };
 
@@ -277,6 +270,8 @@ export default function PipelinePage() {
   // y le da feedback visual al botón. Es el único estado de "trabajando" que
   // queda en la pantalla: el de la carga se fue con ella.
   const [isExporting, setIsExporting] = useState(false);
+  /* Etapa RPT1: estado propio, no compartido con `isExporting` -- son dos descargas distintas. */
+  const [isBuildingMonthly, setIsBuildingMonthly] = useState(false);
 
   // Etapa F5a: si nadie subió un archivo en esta sesión (data===null),
   // restaura el último snapshot activo desde Supabase -- para no perder el
@@ -458,60 +453,14 @@ export default function PipelinePage() {
   // Cálculo derivado -- igual que en F3, pero sobre data.openLoans (real) en
   // vez de DEMO_LOANS. aggregate.ts (F2) no se modificó: se llaman sus
   // mismas funciones exportadas.
-  const branchRows: BranchForecastRow[] = [];
-  if (data) {
-    const groups = new Map<string, { branch: string; channel: PipelineLoan['channel'] }>();
-    for (const loan of data.openLoans) {
-      groups.set(loan.branch + '::' + loan.channel, { branch: loan.branch, channel: loan.channel });
-    }
-    for (const { branch, channel } of groups.values()) {
-      const { total, healthy } = splitHealthyTotal(data.openLoans, branch, channel, pipelineDateRange);
-      const bucketTotal = countByMilestoneBucket(total);
-      const bucketHealthy = countByMilestoneBucket(healthy);
-      const { forecastByBucket, forecastTotal: bankedFormulaForecastTotal } = calculateForecast(bucketHealthy, PULL_THROUGH_RATES);
-      // Etapa F5j: Brokered ya no usa Healthy ni una cascada por etapa --
-      // pull-through PLANO del 40% (BROKERED_FLAT_PULL_THROUGH_RATE,
-      // aggregate.ts) sobre el TOTAL de préstamos abiertos de esa branch
-      // (no sobre Healthy: cambio de población, no solo de tasa). Banked
-      // sigue exactamente igual: bankedFormulaForecastTotal es la cascada de
-      // siempre (calculateForecast + PULL_THROUGH_RATES) sobre Healthy, sin
-      // tocar. bucketTotal/bucketHealthy/forecastByBucket de arriba quedan
-      // calculados con la fórmula de Banked solo por compatibilidad de tipos
-      // con BranchForecastRow (PivotTable.tsx) -- nadie los lee para una
-      // fila Brokered; el desglose real de Brokered para su propia cascada
-      // se recalcula aparte más abajo, a partir de `loans`.
-      //
-      // Redondeo (Cambio 4 del brief F5j): se redondea ACÁ, por fila de
-      // branch, para los 2 canales -- no al mostrar. `forecastTotal` de acá
-      // en más solo se usa para sumar/mostrar (grandForecastTotal,
-      // summarizeChannel, y el `forecastTotal` que recibe PivotTable.tsx por
-      // fila) -- nunca para otra decisión de negocio -- así que adelantar el
-      // redondeo acá hace que todo lo que sume esto herede "sumar filas ya
-      // enteras" sin tocar esos archivos. Como closedCount siempre es entero,
-      // round(closedCount + x) === closedCount + round(x) para cualquier x:
-      // el valor que ve cada fila individual (PivotTable) quedó IDÉNTICO a
-      // antes; lo único que cambia es que el subtotal/total ya no arrastra
-      // decimales antes de redondear una sola vez al final. El valor
-      // CALCULADO de Banked (bankedFormulaForecastTotal, con decimales) no
-      // se toca en absoluto -- Math.round() acá es solo el punto de display,
-      // no una nueva fórmula.
-      const forecastTotal =
-        channel === 'Brokered'
-          ? Math.round(total.length * BROKERED_FLAT_PULL_THROUGH_RATE)
-          : Math.round(bankedFormulaForecastTotal);
-      branchRows.push({
-        branch,
-        channel,
-        totalCount: total.length,
-        healthyCount: healthy.length,
-        bucketTotal,
-        bucketHealthy,
-        forecastByBucket,
-        forecastTotal,
-        loans: total,
-      });
-    }
-  }
+  /*
+   * Etapa RPT1: este bucle --con sus tasas, su población por canal y su
+   * redondeo por fila-- se mudó tal cual a `lib/pipeline/branchForecast.ts`.
+   * No cambió nada del cálculo; cambió dónde vive, porque el reporte mensual
+   * necesita la misma cascada sobre el snapshot del corte y copiarla habría
+   * dejado dos definiciones del forecast. Ver la nota de ese archivo.
+   */
+  const branchRows: BranchForecastRow[] = data ? buildBranchForecastRows(data.openLoans, pipelineDateRange) : [];
 
   // Etapa F6h, extendido en ajuste posterior: filtro de branch para TODA la
   // página (banner, Executive, Matrix, Adverse) -- no solo Executive como se
@@ -1081,6 +1030,40 @@ export default function PipelinePage() {
     })),
   ];
 
+  /*
+   * Etapa RPT1. Manda sólo el mes: la ruta resuelve sola la fecha de corte --el
+   * primer jueves-- y qué snapshot le corresponde. Deliberadamente NO le pasa
+   * los filtros de la pantalla: el reporte mensual describe el mes entero, y
+   * mandarlo filtrado por branch daría un archivo que dice "agosto" y muestra
+   * un pedazo de agosto.
+   */
+  async function handleMonthlyReport() {
+    setIsBuildingMonthly(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/pipeline/monthly-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ month: forecastMonth }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(typeof body?.error === 'string' ? body.error : 'Could not build the monthly report.');
+      }
+      const blob = await res.blob();
+      const match = (res.headers.get('Content-Disposition') ?? '').match(/filename="([^"]+)"/);
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = match ? match[1] : `Pipeline_Monthly_Report_${forecastMonth}.xlsx`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setIsBuildingMonthly(false);
+    }
+  }
+
   async function handleExport() {
     setIsExporting(true);
     setError(null);
@@ -1176,6 +1159,26 @@ export default function PipelinePage() {
             >
               <DownloadIcon />
               {isExporting ? 'Generating…' : isAdverseHistoryLoading ? 'Preparing…' : 'Download Excel'}
+            </button>
+          )}
+          {/*
+            Etapa RPT1 — el reporte mensual, al lado de la descarga de siempre.
+            Son dos cosas distintas y por eso son dos botones: "Download Excel"
+            baja lo que hay en pantalla AHORA, con los filtros puestos; esto baja
+            la comparación de un MES CERRADO contra su fecha de corte, y no
+            depende de ningún filtro de la pantalla. Usa el mes del selector de
+            Forecast, que es el único mes que la usuaria ya eligió.
+          */}
+          {data && (
+            <button
+              type="button"
+              className="btn"
+              onClick={handleMonthlyReport}
+              disabled={isBuildingMonthly}
+              title={`Compare the pipeline at the cut-off against how ${forecastMonthLabel} actually closed`}
+            >
+              <FileSheetIcon />
+              {isBuildingMonthly ? 'Building…' : `Monthly report (${forecastMonthLabel})`}
             </button>
           )}
         </div>
