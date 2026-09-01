@@ -1438,14 +1438,16 @@ table.piv tr.strat-break-row td {
  *
  * `--control-bar-h`: valor MEDIDO, no calculado --
  * `document.querySelector('.control-bar').getBoundingClientRect().height`
- * en DevTools real, YA con Period+Branch y las pestañas fusionados en una
- * sola tarjeta (Etapa STICKY-CONTROL-NAV-2): 129px. Reemplaza al 195px de
- * la etapa anterior, que medía solo la fila de Period+Branch sola -- ese
- * número quedó obsoleto apenas las pestañas pasaron a ser la 2da fila de
- * la MISMA tarjeta en vez de una tarjeta aparte.
+ * en DevTools real, YA con las pestañas achicadas (Etapa
+ * SECTION-NAV-DOWNSIZE): 111px. Reemplaza al 129px de la etapa anterior,
+ * medido con las pestañas en su tamaño VIEJO (más grande). `scroll-margin-top`
+ * (más abajo en este archivo) lee esta variable vía `calc()`, así que se
+ * actualiza sola (232px -> 214px) -- el único lugar que además hay que
+ * tocar a mano es el `rootMargin` del scrollspy en TabAnalytics.tsx (no
+ * admite `var()`).
  */
 .analytics-tab {
-  --control-bar-h: 129px;
+  --control-bar-h: 111px;
 }
 .analytics-tab .control-bar {
   position: sticky;
@@ -1509,19 +1511,25 @@ table.piv tr.strat-break-row td {
  *     aplasten en viewports angostos -- ahí el `overflow-x: auto` del
  *     contenedor (arriba) toma el control en vez de comprimir el texto.
  */
+/*
+ * Etapa SECTION-NAV-DOWNSIZE: mismo tamaño real que ya usa la fila de
+ * filtros (Period/Branch) -- `.seg button`/`.field` en components.css
+ * (padding 6px 14px, font-size 12px) -- para que se lea como parte de la
+ * misma tarjeta, no como navegación principal aparte.
+ */
 .analytics-section-nav__item {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
   flex: 1;
-  min-width: 150px;
-  padding: 13px 20px;
+  min-width: 110px;
+  padding: 6px 14px;
   border: none;
   border-radius: var(--radius-full);
   background: transparent;
   font-family: inherit;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--slate-600);
   cursor: pointer;

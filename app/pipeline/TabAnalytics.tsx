@@ -148,9 +148,9 @@ function AnalyticsSectionNav() {
           if (entry.isIntersecting) setActiveId(entry.target.id);
         });
       },
-      // 232 = header-h(103) + control-bar-h(129), debe quedar en sync a mano
+      // 214 = header-h(103) + control-bar-h(111), debe quedar en sync a mano
       // si control-bar-h cambia -- rootMargin no admite var() de CSS.
-      { rootMargin: '-232px 0px -70% 0px', threshold: 0 }
+      { rootMargin: '-214px 0px -70% 0px', threshold: 0 }
     );
     elements.forEach((el) => observer.observe(el));
     return () => observer.disconnect();
@@ -171,7 +171,7 @@ function AnalyticsSectionNav() {
           // calcular offsets a mano ni pelear con el timing del scroll suave.
           onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
         >
-          <Icon size={19} />
+          <Icon size={14} />
           <span>{label}</span>
         </button>
       ))}
