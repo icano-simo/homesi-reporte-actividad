@@ -4,13 +4,10 @@ import { useState } from 'react';
 import type { DateRange } from '@/lib/pipeline/aggregate';
 import { SettingsGearIcon } from '@/components/ui/icons';
 import DateRangeInput from './DateRangeInput';
-import MonthSelector from './MonthSelector';
 
 export interface TopbarProps {
   pipelineDateRange: DateRange;
   onPipelineDateRangeChange: (range: DateRange) => void;
-  forecastMonth: string;
-  onForecastMonthChange: (month: string) => void;
   availableBranches: string[];
   /** 'ALL' o un branch code. */
   selectedBranch: string;
@@ -60,8 +57,6 @@ export interface TopbarProps {
 export default function Topbar({
   pipelineDateRange,
   onPipelineDateRangeChange,
-  forecastMonth,
-  onForecastMonthChange,
   availableBranches,
   selectedBranch,
   onSelectBranch,
@@ -86,28 +81,15 @@ export default function Topbar({
 
       <div className="control-group">
         {/*
-          Plegado no es oculto: el botón dice en qué quedaron los dos
-          parámetros, para que nadie tenga que abrirlo sólo para saberlo. El
-          engranaje (ícono de marca, ver components/ui/icons.tsx) reemplaza el
-          texto "Settings" + el chevron -- el resumen de rango/mes se
-          conserva igual, es lo que hace que "plegado" no sea "oculto"; solo
-          el afordance de "esto es Settings, clickeable" cambió de texto a
-          ícono. aria-label/title cubren la accesibilidad que el texto daba
-          gratis.
-
-          Ajuste de seguimiento: el resumen ("· ") no distinguía Pipeline
-          Range de Forecast Month -- dos controles independientes (ver
-          DateRangeInput.tsx/MonthSelector.tsx, cada uno filtra cosas
-          distintas). Se separan con el mismo divisor vertical que ya usa
-          SummaryCards.tsx (.kpi-hero__split-divider) entre dos valores
-          agrupados, y "Forecast" se rotula con `.label-chip` -- la misma
-          clase que ya usa MonthSelector.tsx para su propio input ("Forecast
-          Month"), reutilizada acá en vez de un estilo nuevo. El rango de
-          fechas no lleva chip: un rango de fechas ya se lee como tal por su
-          propia forma (el "–" entre las dos fechas), y MonthSelector.tsx
-          también rotula solo "Forecast Month", no "Pipeline Range" repetido
-          dos veces en la misma fila. `white-space: nowrap` en el botón
-          (forecast-visual.css) evita que el resumen se quiebre en dos líneas.
+          Plegado no es oculto: el botón dice en qué quedó el único parámetro
+          que sigue detrás de Settings (Pipeline Range) -- Forecast Month
+          salió de aquí, ver Etapa FORECAST-MONTH-VISIBLE: ahora vive como
+          filtro visible debajo del título "Forecast & Pipeline" (page.tsx,
+          clase `.fc-month`), no plegado. El engranaje (ícono de marca, ver
+          components/ui/icons.tsx) reemplaza el texto "Settings" + el
+          chevron; aria-label/title cubren la accesibilidad que el texto
+          daba gratis. `white-space: nowrap` en el botón (forecast-visual.css)
+          evita que el resumen se quiebre en dos líneas.
         */}
         <button
           type="button"
@@ -121,16 +103,12 @@ export default function Topbar({
           <span>
             {pipelineDateRange.startDate} – {pipelineDateRange.endDate}
           </span>
-          <span className="fc-params__toggle-divider" aria-hidden="true" />
-          <span className="label-chip">Forecast</span>
-          <span>{forecastMonth}</span>
         </button>
       </div>
 
       {showParams && (
         <div className="fc-params">
           <DateRangeInput value={pipelineDateRange} onChange={onPipelineDateRangeChange} />
-          <MonthSelector value={forecastMonth} onChange={onForecastMonthChange} />
           {/*
             Acá estaba el pill "File: <nombre>". Se va con la carga: el snapshot
             ya no viene de un archivo que alguien eligió en esta pantalla, y

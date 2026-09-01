@@ -721,13 +721,35 @@ table.piv.piv--combined td.totcol {
  * quedaron detrás de un desplegable.
  */
 
-/* El mes del forecast, en lugar de la descripción de las tres pestañas. */
+/*
+ * El mes del forecast, debajo del título -- Etapa FORECAST-MONTH-VISIBLE.
+ * Antes era un <p> de solo lectura; ahora es el mismo <input type="month">
+ * nativo que ya usa MonthSelector.tsx, pero sin su chip de etiqueta y
+ * estilizado para leerse como subtítulo, no como campo de formulario. El
+ * afordance de "esto se puede clickear" es el cursor + el hover, no un
+ * borde visible en reposo.
+ */
 .fc-month {
   font-family: var(--font-display);
   font-size: 15px;
   font-weight: 700;
   color: var(--slate-500);
   margin: 2px 0 0;
+  border: none;
+  background: transparent;
+  padding: 2px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.fc-month:hover {
+  background: var(--slate-100);
+  color: var(--navy);
+}
+.fc-month:focus-visible {
+  outline: 2px solid var(--navy);
+  outline-offset: 1px;
 }
 
 /* Subir y descargar juntos: son el par de acciones de archivo. */
