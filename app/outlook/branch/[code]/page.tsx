@@ -19,7 +19,7 @@ import {
   type OutlookStrategy,
   type ProjectionMode,
 } from '@/lib/outlook/project';
-import { fmt } from '@/lib/outlook/format';
+import { fmt, sumOfShown } from '@/lib/outlook/format';
 import { useOutlookDataContext } from '@/lib/outlook/useOutlookData';
 import StrategyEditor, { type OutlookEditable } from '@/app/outlook/components/StrategyEditor';
 import NppmEditor from '@/app/outlook/components/NppmEditor';
@@ -607,16 +607,26 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * fila que vino a garantizar el invariante es la que puede tapar que el
    * invariante se rompió.
    *
-   * Ya pasó una vez, en OL11: se guardó el primer benchmark de branch, B2B pasó
-   * a mostrar 3 por mes, el total del branch NO se movió --`projectBranch` sólo
-   * sumaba las proyecciones de las personas-- y esta fila absorbió -3 por mes sin
-   * que nada lo dijera. La pantalla seguía cuadrando y estaba mal.
+   * ⚠⚠ YA PASÓ DOS VECES, EN DOS ETAPAS SEGUIDAS. No es una advertencia
+   * teórica: es un patrón, y las dos veces fue la MISMA causa.
    *
-   * ⚠ REGLA PARA EL QUE VENGA: si el residuo empieza a dar valores GRANDES, o
-   * cambia sin que haya cambiado el mes en curso, NO es una peculiaridad del
-   * mes. Es que algo dejó de sumarse en `projectBranch` o en `strategyRows`.
-   * Las dos vías tienen que dar bien por separado; que cierren no alcanza,
-   * porque una se ajusta a la otra por construcción.
+   *   OL11  se guardó el primer benchmark de branch. B2B pasó a mostrar 3 por
+   *         mes, el total del branch NO se movió --`projectBranch` sólo sumaba
+   *         las proyecciones de las personas-- y esta fila absorbió -3 por mes.
+   *
+   *   OL12  se hizo proyectar a NPPM desde sus realtors. Mismo síntoma, misma
+   *         causa: `projectBranch` tampoco lo sumaba.
+   *
+   * ⚠ LA REGLA, ENTONCES: cada vez que se agrega una FUENTE DE PRESUPUESTO
+   * --una estrategia nueva, un sujeto nuevo, otra tabla-- hay que verificar a
+   * mano que `projectBranch` la sume. El residuo NO lo va a avisar: está
+   * definido para cerrar siempre, así que una fuente olvidada se ve como un
+   * residuo que creció y no como un error.
+   *
+   * Y si el residuo empieza a dar valores GRANDES, o cambia sin que haya
+   * cambiado el mes en curso, es eso: algo dejó de sumarse. Las dos vías tienen
+   * que dar bien POR SEPARADO; que cierren no alcanza, porque una se ajusta a la
+   * otra por construcción.
    *
    * Hoy sus únicas dos causas legítimas son chicas y conocidas: el pronóstico del
    * mes en curso, que el pipeline no abre por estrategia, y algún cierre contado
@@ -633,7 +643,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
   for (const m of monthsOfYear) {
     residual[m] = (branchYear.byMonth[m] ?? 0) - (strategiesByMonth[m] ?? 0);
   }
-  const residualTotal = monthsOfYear.reduce((a, m) => a + residual[m], 0);
+  /* Su total del año también se suma al mostrarlo -- ver `sumOfShown`. */
   /* Sólo se muestra si hay algo que reconciliar: 11 de 16 no la necesitan. */
   const showResidual = monthsOfYear.some((m) => Math.abs(residual[m]) > 0.001);
   const currentAboveForecast = residual[currentMonth] < -0.001;
@@ -641,15 +651,17 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
   /*
    * El total: la suma de las filas que la tabla MUESTRA, incluida la de
    * reconciliación. Da el mismo número que la lista de branches, por
-   * construcción -- y así el invariante "el total es la suma de las filas"
-   * sigue siendo literal en vez de casi.
+   * construcción -- y así el invariante "el total es la suma de las filas" sigue
+   * siendo literal en vez de casi.
+   *
+   * El total del AÑO no está acá: se calcula al mostrarlo, sumando lo que se ve
+   * -- ver `sumOfShown` en `format.ts`.
    */
   const totalByMonth: Record<string, number | null> = {};
   for (const m of monthsOfYear) {
     const base = strategiesByMonth[m];
     totalByMonth[m] = base === null && !showResidual ? null : (base ?? 0) + residual[m];
   }
-  const totalFromStrategies = strategyRows.reduce((a, r) => a + r.sYear.total, 0) + residualTotal;
 
   return (
     <div className="hub-container ol-page">
@@ -708,7 +720,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               de reconciliacion lleva la diferencia. Antes aca habia dos numeros
               y una explicacion de por que no coincidian.
             */}
-            · {year} total {fmt(totalFromStrategies)}
+            · {year} total {fmt(sumOfShown(monthsOfYear.map((m) => totalByMonth[m])))}
           </p>
         </div>
       </div>
@@ -909,7 +921,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                       className="bp-center totcol"
                       title={`${monthLabel(currentMonth)} is what actually closed, not the forecast — so this total is below the one in the block above, by the part of the forecast that has not closed yet.`}
                     >
-                      {fmt(sYear.total)}
+                      {fmt(sumOfShown(monthsOfYear.map((m) => sYear.byMonth[m] ?? null)))}
                     </td>
                     {/*
                       ⚠ EL LÁPIZ SÓLO DONDE SE PUEDE DECIDIR. Own Production
@@ -1018,7 +1030,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                               {fmt(cell.year.byMonth[m] ?? null)}
                             </td>
                           ))}
-                          <td className="bp-center totcol">{fmt(cell.year.total)}</td>
+                          <td className="bp-center totcol">{fmt(sumOfShown(monthsOfYear.map((m) => cell.year.byMonth[m] ?? null)))}</td>
                           <td className="bp-center ol-bench">
                             {isMonthly ? fmt(null) : fmt(b)}
                             <button
@@ -1088,7 +1100,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                               {fmt(rYear.byMonth[m] ?? null)}
                             </td>
                           ))}
-                          <td className="bp-center totcol">{fmt(rYear.total)}</td>
+                          <td className="bp-center totcol">{fmt(sumOfShown(monthsOfYear.map((m) => rYear.byMonth[m] ?? null)))}</td>
                           {/*
                             ⚠ EL DEFAULT ES EL PROMEDIO DE SUS 3 MESES CERRADOS, y
                             si nadie lo toca ESE es el valor -- no un cero ni un
@@ -1213,7 +1225,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                     {Math.abs(residual[m]) <= 0.001 ? '' : fmt(residual[m])}
                   </td>
                 ))}
-                <td className="bp-center totcol">{fmt(residualTotal)}</td>
+                <td className="bp-center totcol">{fmt(sumOfShown(monthsOfYear.map((m) => (Math.abs(residual[m]) <= 0.001 ? null : residual[m]))))}</td>
                 <td className="bp-center"></td>
                 <td className="lbl"></td>
               </tr>
@@ -1241,7 +1253,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                 </td>
               ))}
               <td className="bp-center totcol" title="The sum of the five strategies, column by column.">
-                {fmt(totalFromStrategies)}
+                {fmt(sumOfShown(monthsOfYear.map((m) => totalByMonth[m])))}
               </td>
               <td className="bp-center"></td>
               <td className="lbl"></td>

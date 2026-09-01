@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { composeYear, currentMonthByBranch, projectBranch, type OutlookData } from '@/lib/outlook/loadData';
-import { fmt } from '@/lib/outlook/format';
+import { fmt, sumOfShown } from '@/lib/outlook/format';
 import { useOutlookDataContext } from '@/lib/outlook/useOutlookData';
 
 /**
@@ -122,12 +122,14 @@ export default function OutlookPage() {
     year: composeYear(monthsOfYear, currentMonth, b.actualByMonth, currentCell(b), projectBranch(b, remainingMonths)),
   }));
 
-  /* Los totales de la fila final son la suma de las filas, sin recalcular. */
+  /*
+   * Los totales de la fila final son la suma de las filas, sin recalcular. El
+   * del AÑO se calcula al mostrarlo, sumando lo que se ve -- ver `sumOfShown`.
+   */
   const totalByMonth: Record<string, number | null> = {};
   for (const m of monthsOfYear) {
     totalByMonth[m] = rows.reduce((a, r) => a + (r.year.byMonth[m] ?? 0), 0);
   }
-  const grandTotal = rows.reduce((a, r) => a + r.year.total, 0);
 
   return (
     <div className="hub-container ol-page">
@@ -272,7 +274,8 @@ export default function OutlookPage() {
                   </td>
                 ))}
                 <td className="bp-center totcol">
-                  {fmt(y.total)}
+                  {/* La suma de lo MOSTRADO -- ver `sumOfShown`. */}
+                  {fmt(sumOfShown(monthsOfYear.map((m) => y.byMonth[m] ?? null)))}
                   {b.ytd > 0 && projectsNothing(b.branchCode) && (
                     <span className="bp-muted ol-tag">no LOs assigned</span>
                   )}
@@ -286,7 +289,7 @@ export default function OutlookPage() {
                   {fmt(totalByMonth[m] ?? null)}
                 </td>
               ))}
-              <td className="bp-center totcol">{fmt(grandTotal)}</td>
+              <td className="bp-center totcol">{fmt(sumOfShown(monthsOfYear.map((m) => totalByMonth[m])))}</td>
             </tr>
           </tbody>
         </table>
