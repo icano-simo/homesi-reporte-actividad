@@ -471,6 +471,35 @@ export function calculateBrokeredForecast(
  * `total` no es 0 sin ningún peso -- no debería pasar en la práctica, pero
  * ante ese dato inconsistente se lo lleva completo la primera categoría en
  * vez de perderlo en silencio (la suma tiene que seguir dando `total`).
+ *
+ * ============================================================================
+ * ⚠⚠ UN PESO QUE FALTA NO FALLA: EL RESTO SE LLEVA SU PARTE
+ * ============================================================================
+ *
+ * Esta función garantiza que las partes sumen `total`, y ESO ES TODO lo que
+ * garantiza. Si una categoría que sí aporta al total queda FUERA de `weights`,
+ * su parte se reparte entre las demás y la suma sigue dando `total`: no hay
+ * error, no hay `NaN`, no hay nada que lo delate. El número aparece en la
+ * categoría equivocada y el invariante se cumple igual.
+ *
+ * Pasó dos veces en Outlook, las dos con el mismo síntoma:
+ *
+ *   OL12  el mes en curso de un branch que no proyecta. Los pesos eran los
+ *         pronósticos por estrategia, todos 0, y el total entero se fue entero a
+ *         Own Production: los 5 cierres de agosto de AFFINITY salían como
+ *         producción propia.
+ *   OL15  el presupuesto de branch sin dueño quedó fuera de los pesos de los
+ *         dueños de B2B. Annie Garrido apareció con 2, 2, 3 de presupuesto sin
+ *         tener ninguno -- era el del branch.
+ *
+ * ⚠ REGLA PARA EL QUE VENGA: antes de llamar a esto, verificar que `weights`
+ * incluya a TODAS las fuentes que arman `total`. Si una puede tener peso 0
+ * legítimamente, igual tiene que estar en el arreglo -- estar con peso 0 y no
+ * estar dan resultados distintos, y sólo el primero es el correcto.
+ *
+ * Es la misma familia que la fila de reconciliación de Outlook: una construcción
+ * que hace cerrar la cuenta siempre no puede avisar cuando lo que falta es un
+ * error.
  */
 export function apportionByWeight(total: number, weights: number[]): number[] {
   const weightSum = weights.reduce((a, b) => a + b, 0);
