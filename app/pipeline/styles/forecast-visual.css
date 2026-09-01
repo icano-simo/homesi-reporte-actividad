@@ -1235,15 +1235,26 @@ table.piv tr.strat-break-row td {
   height: 24px;
   border-radius: var(--radius-full);
 }
-/* Puestos 1/2 -- fondo de fila oscuro (navy 100%/60%), badge claro con ícono navy -- el círculo pop contra la fila oscura. */
-.podium-card__row--rank1 .podium-card__badge,
-.podium-card__row--rank2 .podium-card__badge {
-  background: #fff;
-  color: var(--navy);
+/*
+ * Etapa PODIUM-MEDALS: antes los 3 badges usaban navy/blanco (mismo color
+ * real para rank1 y rank2, solo el TAMAÑO del badge los distinguía) --
+ * ahora oro/plata/bronce reales, con tokens YA existentes (`tokens.css`),
+ * cero hex nuevo: `--amber-500` (oro), `--slate-400` (plata), `--amber-700`
+ * (bronce -- ya es un tono cobre/marrón apagado en la paleta, el mismo que
+ * usa `STRATEGY_COLORS.NPPM` en TabAnalytics.tsx). El ícono (`AwardIcon`)
+ * no cambia -- hereda `currentColor`, así que solo el fondo/color de acá
+ * lo diferencia.
+ */
+.podium-card__row--rank1 .podium-card__badge {
+  background: var(--amber-500);
+  color: #fff;
 }
-/* Puesto 3 -- fondo de fila claro (navy solo al 22%), badge navy sólido con ícono blanco -- misma lógica de contraste, invertida. */
+.podium-card__row--rank2 .podium-card__badge {
+  background: var(--slate-400);
+  color: #fff;
+}
 .podium-card__row--rank3 .podium-card__badge {
-  background: var(--navy);
+  background: var(--amber-700);
   color: #fff;
 }
 /*
@@ -1325,6 +1336,20 @@ table.piv tr.strat-break-row td {
   font-size: 12px;
   color: var(--navy);
   margin-top: 2px;
+}
+/*
+ * Etapa PODIUM-MEDALS: "Most Closings" mostraba solo el número
+ * (`fmtInt`), sin ningún signo propio como el "$" de "Top by Volume" --
+ * se perdía contra el nombre de la fila. Mismo criterio que
+ * `.podium-card__tied` (texto secundario chico dentro de la misma fila):
+ * claramente MÁS chico/tenue que el número, no compite con él.
+ */
+.podium-card__value-suffix {
+  font-size: 10px;
+  font-weight: 600;
+  opacity: 0.7;
+  text-transform: lowercase;
+  margin-left: 3px;
 }
 /*
  * Barra de puestos 2/3, relativa al puesto 1 (líder = 100%) -- NUNCA al

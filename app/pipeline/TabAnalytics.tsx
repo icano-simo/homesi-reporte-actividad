@@ -559,6 +559,7 @@ function MetricPodiumCard({
   format,
   start,
   showStarOnLeader,
+  valueSuffix,
 }: {
   title: string;
   /** Top 3 ya ordenado -- índice 0 es el puesto 1. */
@@ -567,10 +568,12 @@ function MetricPodiumCard({
   format: (n: number) => string;
   start: boolean;
   showStarOnLeader: boolean;
+  /** Etapa PODIUM-MEDALS: texto chico/tenue después del número (ej. "closed") -- solo para separar visualmente el valor del nombre en tarjetas donde el número no lleva ningún signo propio ("$"/"%"). Opcional -- "Top by Volume" no lo usa, ya se distingue con el "$" del `format`. */
+  valueSuffix?: string;
 }) {
   if (!entries.length) return null;
   const leaderValue = getValue(entries[0]);
-  /** Tamaño del ícono de medalla por puesto -- mismo ícono (`AwardIcon`, no hay corona/trofeo en el set de íconos del proyecto y no se agregó `lucide-react` como dependencia nueva sin pedirlo explícito), diferenciado por tamaño y color en vez de forma. */
+  /** Tamaño del ícono de medalla por puesto -- mismo ícono (`AwardIcon`, no hay corona/trofeo en el set de íconos del proyecto y no se agregó `lucide-react` como dependencia nueva sin pedirlo explícito), diferenciado por tamaño Y COLOR (oro/plata/bronce reales, ver `.podium-card__badge` por rank en forecast-visual.css -- antes rank1/rank2 compartían el mismo navy, solo el tamaño los distinguía). */
   const badgeSize: Record<1 | 2 | 3, number> = { 1: 16, 2: 13, 3: 11 };
 
   return (
@@ -608,6 +611,7 @@ function MetricPodiumCard({
                 </div>
                 <div className="podium-card__value">
                   <CountUpNumber target={value} start={start} format={format} />
+                  {valueSuffix && <span className="podium-card__value-suffix"> {valueSuffix}</span>}
                 </div>
                 {/* FIX-PODIUM-BAR-RANK1: el puesto 1 también lleva barra -- `percent` para ese puesto ya da 100 (value === leaderValue), así que no hace falta ningún caso especial, solo dejar de ocultarla. Completa la estructura (badge + nombre + valor + barra) igual en las 3 filas. */}
                 <div className="podium-card__bar">
@@ -679,6 +683,7 @@ function ScorecardPodiumPanel({ rows }: { rows: ScorecardRow[] }) {
         format={fmtInt}
         start={visible}
         showStarOnLeader={sameWinner}
+        valueSuffix="closed"
       />
       <MetricPodiumCard
         title="Top by Volume"
