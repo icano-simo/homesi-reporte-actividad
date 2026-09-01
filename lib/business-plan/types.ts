@@ -183,6 +183,10 @@ export interface ResolvedLoan {
   loanFolder: string | null;
   disbursementDate: string | null;
   estClosingDate: string | null;
+  /** Ídem `OpenLoan`: para clasificar la parte YA CERRADA del mes. */
+  branch: string | null;
+  strategyRaw: string | null;
+  opportunityOwnerTitle: string | null;
 }
 
 /** Un préstamo abierto del snapshot activo, ya atribuido a una persona. */
@@ -199,6 +203,16 @@ export interface OpenLoan {
   amount: number | null;
   milestoneDate: string | null;
   branch: string | null;
+  /**
+   * ⚠ Los dos campos que necesita `classifyStrategy` de Forecast, y nada más.
+   *
+   * Business Plan no clasifica por estrategia: los trae para que Outlook pueda
+   * repartir el pronóstico del mes sin volver a leer `pipeline_loans`. Dos
+   * lecturas del mismo snapshot son dos poblaciones que pueden divergir --por un
+   * snapshot nuevo entre una y otra-- y el reparto dejaría de sumar el total.
+   */
+  strategyRaw: string | null;
+  opportunityOwnerTitle: string | null;
 }
 
 /**
@@ -300,6 +314,18 @@ export interface CurrentMonthProjection {
    * recalcularla.
    */
   ctcClosingProjected: number;
+  /**
+   * ⚠ EL APORTE DEL PIPELINE, REPARTIDO POR ESTRATEGIA — etapa OL12.
+   *
+   * Sale del MISMO bucle que `projectedTotal`, préstamo por préstamo, así que la
+   * suma de las cinco es exactamente `projectedTotal - closedToDate`. No es un
+   * segundo cálculo del mes: es el mismo, anotando a qué estrategia fue cada
+   * pedazo.
+   *
+   * La clasificación es la de Forecast (`classifyStrategy`), que es la que ya
+   * usa esa pantalla para su corte por estrategia. NO se inventó una acá.
+   */
+  pipelineByStrategy: Record<string, number>;
   /** Aporte de los healthy que NO están en CTC/Closing, ya con su tasa. */
   projectedFromHealthy: number;
   /** cerrados + CTC/Closing con tasa + aporte con tasa. Un pronóstico, no un conteo. */

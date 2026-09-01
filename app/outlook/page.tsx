@@ -368,15 +368,11 @@ export default function OutlookPage() {
           Mismo criterio que el aviso del roster: la pantalla dice lo que no se
           puede deducir mirandola.
         */}
-        {data.diagnostics.strategyBenchmarkRows === 0 && (
-          <div className="bp-diagnostics__warn">
-            <b>No strategy budget set anywhere yet.</b> B2B, Recruitment and Affinity belong to the <b>branch</b> and
-            are set inside it; Own Production reads its benchmark from the Business Plan. The{' '}
-            <code>{data.diagnostics.growthRuleRows}</code> growth rules do not fill the gap on their own: a rule
-            multiplies a benchmark, and over zero it gives zero. Until a benchmark is set, those columns are{' '}
-            <b>blank, not zero</b> — nothing decided, rather than a decision that nothing is expected.
-          </div>
-        )}
+        {/*
+          El aviso sobre el presupuesto de estrategias se fue en OL12: ahora se
+          edita en la tabla del branch, y el lápiz es más claro que un párrafo.
+          Los conteos de arriba siguen siendo la señal de si hay algo cargado.
+        */}
         {data.diagnostics.unresolvedOfficers > 0 && (
           <div className="bp-diagnostics__warn">
             <code>{data.diagnostics.unresolvedOfficers.toLocaleString('en-US')}</code> closed loans whose loan officer
