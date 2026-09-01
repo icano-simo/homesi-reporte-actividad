@@ -148,7 +148,9 @@ function AnalyticsSectionNav() {
           if (entry.isIntersecting) setActiveId(entry.target.id);
         });
       },
-      { rootMargin: '-100px 0px -70% 0px', threshold: 0 }
+      // 232 = header-h(103) + control-bar-h(129), debe quedar en sync a mano
+      // si control-bar-h cambia -- rootMargin no admite var() de CSS.
+      { rootMargin: '-232px 0px -70% 0px', threshold: 0 }
     );
     elements.forEach((el) => observer.observe(el));
     return () => observer.disconnect();
@@ -2679,28 +2681,51 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
     // ya tenían los hijos directos de acá, no se agrega ningún estilo propio
     // al div en sí.
     <div className="analytics-tab">
-      <div className="control-bar" style={{ marginBottom: '16px' }}>
-        <PeriodSelector value={period} onChange={setPeriod} />
-        {/*
-          Etapa AJUSTES-ANALYTICS-1, punto 5 -- mismo criterio visual que el
-          selector de Branch de Forecast (Topbar.tsx: label-chip "Branch" +
-          <select className="field">), pero con estado LOCAL a esta pestaña
-          (ver `selectedBranch` arriba) -- Analytics no comparte estado con
-          /pipeline, cada ruta de nivel superior de esta app ya es
-          independiente (mismo criterio ya documentado en
-          app/analytics/page.tsx).
-        */}
-        <div className="control-group">
-          <span className="label-chip">Branch</span>
-          <select className="field" value={selectedBranch} onChange={(e) => setSelectedBranch(e.target.value)}>
-            <option value="ALL">All branches</option>
-            {availableBranches.map((b) => (
-              <option key={b} value={b}>
-                Branch {b}
-              </option>
-            ))}
-          </select>
+      {/*
+        Etapa STICKY-CONTROL-NAV-2: `.control-bar` pasa a ser UNA sola
+        tarjeta con 2 filas -- `.control-bar__row` (Period + Branch, misma
+        clase ya usada para esto en Topbar.tsx) y, debajo, `<AnalyticsSectionNav
+        />` como segundo hijo directo (ya no hermano suelto después del
+        cierre de `.control-bar`, ver Etapa STICKY-CONTROL-NAV-1 anterior).
+        Un solo `position: sticky` en `.control-bar` (forecast-visual.css)
+        cubre las 2 filas juntas -- `.analytics-section-nav` ya no tiene su
+        propio sticky, hereda el del padre.
+      */}
+      <div className="control-bar">
+        <div className="control-bar__row">
+          <PeriodSelector value={period} onChange={setPeriod} />
+          {/*
+            Etapa AJUSTES-ANALYTICS-1, punto 5 -- mismo criterio visual que el
+            selector de Branch de Forecast (Topbar.tsx: label-chip "Branch" +
+            <select className="field">), pero con estado LOCAL a esta pestaña
+            (ver `selectedBranch` arriba) -- Analytics no comparte estado con
+            /pipeline, cada ruta de nivel superior de esta app ya es
+            independiente (mismo criterio ya documentado en
+            app/analytics/page.tsx).
+          */}
+          <div className="control-group">
+            <span className="label-chip">Branch</span>
+            <select className="field" value={selectedBranch} onChange={(e) => setSelectedBranch(e.target.value)}>
+              <option value="ALL">All branches</option>
+              {availableBranches.map((b) => (
+                <option key={b} value={b}>
+                  Branch {b}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
+
+        {/*
+          ==========================================================================
+          NAV DE SECCIÓN -- Etapa SECTION-NAV-1, integrada en STICKY-CONTROL-NAV-2
+          ==========================================================================
+          Pedido de Isabella: las pestañas de sección quedan fijas JUNTO al
+          selector de Period, dentro del MISMO cuerpo visual (una sola
+          tarjeta, no dos) -- segunda fila de `.control-bar`, separada por
+          una línea sutil (`.analytics-section-nav`, ver forecast-visual.css).
+        */}
+        <AnalyticsSectionNav />
       </div>
 
       {exceedsHistory && (
@@ -2734,18 +2759,6 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
         previousFullLabel={previousFullLabel}
         topStrategy={topStrategy}
       />
-
-      {/*
-        ==========================================================================
-        NAV DE SECCIÓN -- Etapa SECTION-NAV-1
-        ==========================================================================
-        Barra sticky con las 4 secciones de esta pestaña (table of contents),
-        justo debajo del Hero KPI y arriba de Monthly Trends -- nunca antes
-        del Hero KPI, para no competir con él por atención. Scrollspy real
-        (`AnalyticsSectionNav`, definido arriba en este archivo) contra los 4
-        `id` de sección que se agregan más abajo junto a cada título.
-      */}
-      <AnalyticsSectionNav />
 
       {/*
         ==========================================================================

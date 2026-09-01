@@ -1355,49 +1355,79 @@ table.piv tr.strat-break-row td {
 
 /*
  * ============================================================================
- * Etapa SECTION-NAV-1 -- barra sticky de navegación entre las 4 secciones
+ * Etapa STICKY-CONTROL-NAV-2 -- `.control-bar` (Period+Branch + pestañas de
+ * sección) es AHORA UNA sola tarjeta sticky, 2 filas
  * ============================================================================
- * Posición elegida: STICKY ARRIBA, pegada bajo el header global (`.hub-header`,
- * `position: sticky; top: 0`, 60px de alto -- `--header-h`), no lateral.
+ * Pedido de Isabella: Period + Branch en una sola línea, y las pestañas de
+ * sección integradas dentro del MISMO cuerpo visual que esa línea -- una
+ * sola tarjeta, no dos. `.analytics-section-nav` pasó de ser un elemento
+ * sticky propio (Etapa STICKY-CONTROL-NAV-1) a ser el SEGUNDO HIJO de
+ * `.control-bar` (ver TabAnalytics.tsx) -- ya no necesita su propia
+ * posición ni fondo/borde/sombra, los hereda del padre. Un solo
+ * `position: sticky` cubre las 2 filas juntas.
  *
- * Se midió el ancho real disponible antes de decidir: `.hub-container` tiene
- * `max-width: 1380px` centrado -- recién a partir de ~1600px de viewport
- * queda margen lateral utilizable de verdad (a 1440px, una resolución de
- * laptop común, el margen lateral es ~30px por lado, insuficiente para un
- * ícono + etiqueta sin invadir el contenido). Una barra lateral se hubiera
- * visto bien en un monitor ancho y HABRÍA DESAPARECIDO por completo (0
- * espacio, no "se angosta", directamente no entra) en cualquier laptop de
- * resolución típica -- el peor momento posible para que la navegación de
- * ayuda desaparezca es justamente en la pantalla más común. Sticky arriba
- * funciona igual sin importar el ancho de viewport.
+ * `.control-bar` es una clase COMPARTIDA (app/styles/components.css, usada
+ * también en Forecast/Business Plan/Commercial Activity) -- la regla sticky
+ * se acota con `.analytics-tab .control-bar` (mismo criterio ya usado por
+ * Etapa PULIDO-1 FIX un poco más abajo en este archivo, para
+ * `.tbl-card`/`.mcard`) en vez de tocar `.control-bar` en components.css:
+ * hacerlo ahí habría vuelto sticky el selector de Period/filtros de CADA
+ * pestaña que usa esa clase, no solo Analytics.
+ *
+ * `--control-bar-h`: valor MEDIDO, no calculado --
+ * `document.querySelector('.control-bar').getBoundingClientRect().height`
+ * en DevTools real, YA con Period+Branch y las pestañas fusionados en una
+ * sola tarjeta (Etapa STICKY-CONTROL-NAV-2): 129px. Reemplaza al 195px de
+ * la etapa anterior, que medía solo la fila de Period+Branch sola -- ese
+ * número quedó obsoleto apenas las pestañas pasaron a ser la 2da fila de
+ * la MISMA tarjeta en vez de una tarjeta aparte.
  */
-.analytics-section-nav {
+.analytics-tab {
+  --control-bar-h: 129px;
+}
+.analytics-tab .control-bar {
   position: sticky;
   /*
-   * FIX-HEADER-SUBPIXEL-GAP: con `--header-h: 103px` (valor medido, no
-   * calculado) seguía viéndose un hueco mínimo a zoom alto (150%) --
-   * descartado que sea un margin/padding de más (base.css resetea
-   * `html, body { margin: 0; padding: 0; }`, sin nada entre el header y
-   * esta barra). Es redondeo de subpíxel: `getBoundingClientRect()`
-   * devuelve un decimal (la altura real de `.hub-header` no cae justo en
-   * un entero), y `103px` es ese decimal truncado -- a zoom alto el
-   * navegador deja de absorber esa fracción de píxel en el redondeo
-   * normal, y el hueco se vuelve visible. `- 1px` corrige sesgando hacia
-   * la superposición en vez del hueco: 1px de esta barra queda tapado
-   * DETRÁS del header (que tiene fondo propio, blur incluido) -- invisible
-   * -- en vez de dejar 1px de fondo asomándose por un hueco, que sí se ve.
+   * FIX-HEADER-SUBPIXEL-GAP (heredado de Etapa SECTION-NAV-1/
+   * STICKY-CONTROL-NAV-1): con `--header-h: 103px` (valor medido) seguía
+   * viéndose un hueco mínimo a zoom alto (150%) -- redondeo de subpíxel de
+   * `getBoundingClientRect()`. `- 1px` sesga hacia la superposición
+   * (invisible, tapado detrás del header) en vez del hueco (visible).
    */
   top: calc(var(--header-h) - 1px);
   z-index: 20;
+  /*
+   * Etapa STICKY-CONTROL-NAV-2: el `margin-bottom: 0` de la Etapa 1 ya no
+   * aplica -- ahí existía para cerrar el hueco entre `.control-bar` y
+   * `.analytics-section-nav` cuando eran 2 HERMANOS separados. Ahora
+   * `.analytics-section-nav` es hijo de `.control-bar`, así que se deja el
+   * `margin-bottom: 20px` base de la clase compartida (components.css) sin
+   * pisar, para separar esta tarjeta combinada del contenido que sigue
+   * (`exceedsHistory`/`<HeroKpiCards>`).
+   */
+}
+
+/*
+ * ============================================================================
+ * Etapa SECTION-NAV-1 -- pestañas de navegación entre las 4 secciones
+ * ============================================================================
+ * Posición elegida (STICKY-CONTROL-NAV-1): pegada bajo el header global, no
+ * lateral -- ancho real de `.hub-container` (max-width 1380px) insuficiente
+ * para una barra lateral en laptops comunes (~30px de margen a 1440px).
+ *
+ * Etapa STICKY-CONTROL-NAV-2: ya NO es sticky por sí sola -- es la segunda
+ * fila de `.control-bar` (su padre directo, ver la regla de arriba), que es
+ * quien ahora tiene el ÚNICO `position: sticky` que cubre ambas filas. Se
+ * lee como "segunda fila de la misma tarjeta" (línea divisoria sutil, mismo
+ * patrón que `.control-bar__row--filters`, línea ~298 de components.css),
+ * no como una tarjeta sticky aparte.
+ */
+.analytics-section-nav {
+  padding-top: 10px;
+  border-top: 1px solid var(--slate-100);
   display: flex;
   gap: 6px;
   overflow-x: auto;
-  background: #fff;
-  border: 1px solid var(--slate-200);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-xs);
-  padding: 8px;
-  margin-bottom: 20px;
 }
 /*
  * FIX-SECTION-NAV-SIZE: confirmado en pantalla que se veían chicos
@@ -1454,20 +1484,21 @@ table.piv tr.strat-break-row td {
   outline-offset: 1px;
 }
 /*
- * FIX-HEADER-STACK-OFFSET: recalculado -- el header global pasó a 2 filas
- * (Etapa OL6, shell.css) sin que `--header-h` se actualizara (ver el
- * comentario largo de ese token en tokens.css). Con `--header-h` ya
- * corregido a 108px, el colchón real es header (108px) + esta barra sticky
- * agrandada (~59px con el padding/tamaño de FIX-SECTION-NAV-SIZE) ≈ 167px
- * -- se redondea a 172px. Antes eran 120px, calculados sobre la altura
- * VIEJA de 1 fila (~106px combinados) -- con el header ya en 2 filas, ese
- * número se había quedado corto y el título hubiera seguido apareciendo
- * parcialmente tapado al hacer clic en un ítem de la barra, aunque la
- * barra en sí ya se viera bien.
+ * FIX-HEADER-STACK-OFFSET: recalculado varias veces a medida que el bloque
+ * sticky de arriba fue cambiando de forma (header global a 2 filas, luego
+ * `.control-bar` intercalado como barra propia, ahora `.control-bar` +
+ * pestañas fusionados en una sola tarjeta -- Etapa STICKY-CONTROL-NAV-2).
+ *
+ * `calc(var(--header-h) + var(--control-bar-h))` en vez de un número
+ * hardcodeado -- 103 (header, medido) + 129 (control-bar YA fusionado con
+ * Period+Branch+pestañas, medido, ver `--control-bar-h` más arriba en este
+ * archivo) = 232px. Con `var()` acá adentro, si `--control-bar-h` vuelve a
+ * cambiar (otro ajuste visual de la tarjeta) este valor se actualiza solo
+ * -- ya no hace falta recalcular a mano en 2 lugares distintos.
  */
 #analytics-section-trends,
 #analytics-section-mix,
 #analytics-section-scorecards,
 #analytics-section-concentration {
-  scroll-margin-top: 172px;
+  scroll-margin-top: calc(var(--header-h) + var(--control-bar-h));
 }
