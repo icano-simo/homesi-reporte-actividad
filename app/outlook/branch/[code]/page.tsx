@@ -127,6 +127,18 @@ function ruleLabel(lo: OutlookLoanOfficer, strategy: OutlookStrategy, months: st
  * Se mira el MODO vigente, no los dos: una estrategia en modo mes a mes con una
  * regla vieja guardada no proyecta por la regla.
  */
+/**
+ * ⚠ ¿SU PRESUPUESTO ES DEL BRANCH? — etapa OL13.
+ *
+ * Affinity se ABRE por Account Executive pero su presupuesto sigue siendo del
+ * branch: no hay tabla de benchmark por AE, y el negocio no pidió una. Son dos
+ * preguntas distintas --por quién se abre y de quién es el presupuesto-- y hasta
+ * OL12 `opensBy` respondía las dos a la vez.
+ */
+function esDelBranch(bs: BranchStrategy): boolean {
+  return bs.opensBy === 'branch' || bs.opensBy === 'accountExecutive';
+}
+
 function branchHasBudget(bs: BranchStrategy): boolean {
   return bs.mode === 'monthly' ? bs.targetRevision > 0 : bs.benchmarkSchedule.length > 0;
 }
@@ -365,12 +377,13 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * El mes en curso va en `null` --y sale como `no data`-- porque Forecast
    * proyecta el mes desde el pipeline, que no lleva la estrategia consigo.
    */
-  function cellOf(lo: OutlookLoanOfficer, s: OutlookStrategy) {
+  function cellOf(lo: OutlookLoanOfficer, s: OutlookStrategy, presupuesto?: Record<string, number>) {
     const here = isHere(lo);
     const st = lo.strategies.find((x) => x.strategy === s);
     const steps = projectLoanOfficer(lo, remainingMonths).stepsByStrategy[s] ?? [];
+    /* Si viene el reparto en enteros, manda ése -- ver la cascada. */
     const proj: Record<string, number | null> = {};
-    remainingMonths.forEach((m, i) => (proj[m] = here ? (steps[i]?.value ?? 0) : 0));
+    remainingMonths.forEach((m, i) => (proj[m] = presupuesto ? (presupuesto[m] ?? 0) : here ? (steps[i]?.value ?? 0) : 0));
     return {
       here,
       steps,
@@ -469,6 +482,70 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
   const agostoPorEstrategia = apportionByWeight(branchCurrent, pesosAgosto);
   const agostoDe = new Map(filasBase.map((bs, i) => [bs.strategy, agostoPorEstrategia[i]]));
 
+  /*
+   * ==========================================================================
+   * ⚠ SIN DECIMALES, Y EN CASCADA — etapa OL13
+   * ==========================================================================
+   *
+   * Medio préstamo no existe, así que ninguna celda muestra decimales. Pero
+   * redondear cada celda por su cuenta rompe las dos sumas que la tabla
+   * garantiza: la de la columna (las estrategias dan el total del branch) y la de
+   * la fila (los meses dan el total del año).
+   *
+   * Por eso el reparto es en CASCADA, con `apportionByWeight` en cada nivel:
+   *
+   *   1. el presupuesto del BRANCH del mes se redondea a entero
+   *   2. ese entero se reparte entre las estrategias, en proporción a su
+   *      presupuesto exacto
+   *   3. el entero de cada estrategia se reparte entre sus filas hijas
+   *
+   * Cada nivel suma exactamente el de arriba porque `apportionByWeight` reparte un
+   * total entero sin perder ni inventar unidades -- es la misma función que usa el
+   * mes en curso y la barra apilada del Business Plan.
+   *
+   * ⚠ El benchmark SÍ puede tener decimales: el promedio de 3 meses de un realtor
+   * es 2,33 y ese es el dato. Lo que va en entero son las PROYECCIONES que salen
+   * de él, que son préstamos.
+   */
+  const exactoDe = (bs: BranchStrategy): Record<string, number> => {
+    const out: Record<string, number> = {};
+    if (bs.opensBy === 'loanOfficer') {
+      for (const lo of branch.loanOfficers) {
+        const st = projectLoanOfficer(lo, remainingMonths).stepsByStrategy[bs.strategy] ?? [];
+        remainingMonths.forEach((m, i) => (out[m] = (out[m] ?? 0) + (st[i]?.value ?? 0)));
+      }
+    } else if (esDelBranch(bs) && branchHasBudget(bs)) {
+      const steps = projectPlan(remainingMonths, {
+        mode: bs.mode,
+        benchmarks: bs.benchmarkSchedule,
+        segments: bs.rules,
+        targets: bs.targets,
+      });
+      remainingMonths.forEach((m, i) => (out[m] = steps[i]?.value ?? 0));
+    } else if (bs.opensBy === 'realtor' && bs.realtors.length > 0) {
+      const suma = bs.realtors.reduce((a, r) => a + r.benchmark, 0);
+      remainingMonths.forEach((m) => (out[m] = suma));
+    }
+    return out;
+  };
+  const exactoPorEstrategia = filasBase.map(exactoDe);
+  /* El entero del branch por mes, y su reparto entre las estrategias. */
+  const presupuestoPorEstrategia: Record<string, number>[] = filasBase.map(() => ({}));
+  for (const m of remainingMonths) {
+    const pesos = exactoPorEstrategia.map((e) => e[m] ?? 0);
+    /*
+     * ⚠ El total a repartir sale de `branchYear`, que ya viene entero del loader
+     * --ver `projectBranch`--. Redondear acá la suma de los pesos daría el mismo
+     * número hoy, pero serían DOS redondeos del mismo valor: el día que difieran
+     * por un caso de medio punto, las filas dejarían de sumar el total y nada lo
+     * diría.
+     */
+    const totalMes = branchYear.byMonth[m] ?? 0;
+    const partes = apportionByWeight(totalMes, pesos);
+    partes.forEach((v, i) => (presupuestoPorEstrategia[i][m] = v));
+  }
+  const presupuestoDe = new Map(filasBase.map((bs, i) => [bs.strategy, presupuestoPorEstrategia[i]]));
+
   const strategyRows = filasBase.map((bs) => {
       const s = bs.strategy;
       /*
@@ -479,51 +556,27 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
         dónde guardar su presupuesto todavía. Van en `null` --celda vacía-- y no
         en 0, que afirmaría que se decidió que no cierre nada.
       */
-      const proj: Record<string, number | null> = {};
+      /* El entero que le tocó -- ver la cascada arriba. */
+      const proj: Record<string, number | null> = { ...(presupuestoDe.get(s) ?? {}) };
       let steps: ReturnType<typeof projectPlan> = [];
-      if (bs.opensBy === 'loanOfficer') {
-        /* Suma de las personas. Own Production y Recruitment se deciden asi. */
-        for (const lo of branch.loanOfficers) {
-          const st = projectLoanOfficer(lo, remainingMonths).stepsByStrategy[s] ?? [];
-          remainingMonths.forEach((m, i) => {
-            proj[m] = (proj[m] ?? 0) + (st[i]?.value ?? 0);
-          });
-        }
-      } else if (bs.opensBy === 'branch' && branchHasBudget(bs)) {
-        /*
-         * ⚠ LA MISMA PUERTA QUE UNA PERSONA — etapa OL11.
-         *
-         * `projectPlan` decide si los meses se calculan (modo `growth`) o se leen
-         * del número fijado (modo `monthly`). Es la función que ya usan las
-         * personas y la vista previa del editor, así que un presupuesto de branch
-         * no puede proyectar distinto de como el editor lo mostró.
-         */
+      /*
+       * `steps` sólo alimenta el tooltip de la celda --el porqué de cada mes-- y
+       * NO el número que se muestra: ése sale del reparto en enteros. Se calcula
+       * únicamente para el presupuesto del branch, que es el que tiene una regla
+       * que explicar.
+       */
+      if (esDelBranch(bs) && branchHasBudget(bs)) {
         steps = projectPlan(remainingMonths, {
           mode: bs.mode,
           benchmarks: bs.benchmarkSchedule,
           segments: bs.rules,
           targets: bs.targets,
         });
-        remainingMonths.forEach((m, i) => (proj[m] = steps[i]?.value ?? 0));
-      } else if (bs.opensBy === 'realtor' && bs.realtors.length > 0) {
-        /*
-         * ⚠ NPPM PROYECTA DESDE SUS REALTORS — etapa OL12.
-         *
-         * Su presupuesto es la suma de los benchmarks de sus realtors, PLANO: no
-         * hay regla de crecimiento porque `outlook.growth_rule` cuelga de una
-         * persona o de un branch, y un realtor no es ninguna de las dos cosas.
-         *
-         * Y entra el valor por DEFECTO --el promedio de sus 3 meses cerrados--
-         * porque esa fue la decisión: si nadie lo toca, ese es el valor. Hasta
-         * acá NPPM mostraba un benchmark y proyectaba cero, y un benchmark que no
-         * gobierna ninguna celda es decoración.
-         */
-        const suma = bs.realtors.reduce((a, r) => a + r.benchmark, 0);
-        remainingMonths.forEach((m) => (proj[m] = suma));
       }
+      /* Proyecta si el reparto le dio algo, o si tiene con qué proyectar. */
       const proyecta =
         bs.opensBy === 'loanOfficer' ||
-        (bs.opensBy === 'branch' && branchHasBudget(bs)) ||
+        (esDelBranch(bs) && branchHasBudget(bs)) ||
         (bs.opensBy === 'realtor' && bs.realtors.length > 0);
       /*
         El mes en curso sale del REPARTO -- ver `agostoDe` arriba. Hasta OL12 era
@@ -872,33 +925,20 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                           by realtor
                         </span>
                       )}
-                      {/*
-                        ⚠ La explicacion de por que NPPM puede sumar mas de lo
-                        que el branch cuenta. El realtor es de la division; el
-                        originador de ese prestamo no, asi que el prestamo cuenta
-                        al realtor y no al branch. Sin este numero la diferencia
-                        no se puede explicar mirando la pantalla.
-                      */}
-                      {bs.outsideDivision > 0 && (
-                        <span
-                          className="bp-muted ol-tag"
-                          title={
-                            `${bs.outsideDivision} of these closings were originated by someone outside the division, ` +
-                            `so they count for the realtor but not in the branch total — the exclusion is about not ` +
-                            `counting that person as a loan officer, not about erasing what the realtor brought in. ` +
-                            `They are also in the unresolved count at the foot of Outlook: no loan officer row, but a ` +
-                            `realtor row.`
-                          }
-                        >
-                          +{bs.outsideDivision} originated outside the division
-                        </span>
-                      )}
                       {bs.opensBy === 'branch' && (
                         <span
                           className="bp-muted ol-tag"
                           title="This is the branch's, not a person's. The question is how many loans it brought in and how much it projects, not how much each person did — so there is nothing to open."
                         >
                           branch level
+                        </span>
+                      )}
+                      {bs.opensBy === 'accountExecutive' && (
+                        <span
+                          className="bp-muted ol-tag"
+                          title="Affinity's loans are brought in by an Account Executive, so it opens by owner. Its budget is still the branch's: there is no benchmark per AE."
+                        >
+                          by account executive
                         </span>
                       )}
                     </td>
@@ -931,8 +971,8 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                       Las tres del branch sí se editan acá.
                     */}
                     <td className="bp-center ol-bench" onClick={(e) => e.stopPropagation()}>
-                      {fmt(bench)}
-                      {bs.opensBy === 'branch' && (
+                      <span className="ol-bench__n">{fmt(bench)}</span>
+                      {esDelBranch(bs) && (
                         <button
                           type="button"
                           className="ol-edit"
@@ -945,7 +985,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                       )}
                     </td>
                     <td className="lbl" onClick={(e) => e.stopPropagation()}>
-                      {bs.opensBy === 'branch' ? (
+                      {esDelBranch(bs) ? (
                         <button
                           type="button"
                           className={'ol-pill' + (branchHasBudget(bs) ? '' : ' ol-pill--empty')}
@@ -975,8 +1015,28 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                   {/* ── Own Production: se abre por Loan Officer ───────────── */}
                   {abierta &&
                     bs.opensBy === 'loanOfficer' &&
-                    branch.loanOfficers.map((lo) => {
-                      const cell = cellOf(lo, s);
+                    (() => {
+                      /*
+                       * El entero de la estrategia, repartido entre las personas
+                       * en proporción a su presupuesto exacto. Así las filas suman
+                       * la fila de arriba y ninguna muestra decimales.
+                       */
+                      const exactos = branch.loanOfficers.map((lo) => {
+                        const st = projectLoanOfficer(lo, remainingMonths).stepsByStrategy[s] ?? [];
+                        const out: Record<string, number> = {};
+                        remainingMonths.forEach((m, i) => (out[m] = st[i]?.value ?? 0));
+                        return out;
+                      });
+                      const enteros: Record<string, number>[] = branch.loanOfficers.map(() => ({}));
+                      for (const m of remainingMonths) {
+                        const partes = apportionByWeight(
+                          presupuestoDe.get(s)?.[m] ?? 0,
+                          exactos.map((e) => e[m] ?? 0)
+                        );
+                        partes.forEach((v, i) => (enteros[i][m] = v));
+                      }
+                      return branch.loanOfficers.map((lo, idx) => {
+                      const cell = cellOf(lo, s, enteros[idx]);
                       const isMonthly = (lo.modeByStrategy[s] ?? 'growth') === 'monthly';
                       const b = lo.strategyBenchmarks[s] ?? 0;
                       return (
@@ -1032,7 +1092,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                           ))}
                           <td className="bp-center totcol">{fmt(sumOfShown(monthsOfYear.map((m) => cell.year.byMonth[m] ?? null)))}</td>
                           <td className="bp-center ol-bench">
-                            {isMonthly ? fmt(null) : fmt(b)}
+                            <span className="ol-bench__n">{isMonthly ? fmt(null) : fmt(b)}</span>
                             <button
                               type="button"
                               className="ol-edit"
@@ -1070,6 +1130,53 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                               {pillOfLo(lo, s)}
                             </button>
                           </td>
+                        </tr>
+                      );
+                      });
+                    })()}
+
+                  {/* ── Affinity: se abre por Account Executive ─────────────── */}
+                  {abierta &&
+                    bs.opensBy === 'accountExecutive' &&
+                    bs.owners.map((o) => {
+                      /*
+                        Un AE tiene meses reales y nada mas: el presupuesto de
+                        Affinity es del branch, no de el.
+                      */
+                      const oYear = composeYear(
+                        monthsOfYear,
+                        currentMonth,
+                        o.actualByMonth,
+                        o.actualByMonth[currentMonth] ?? 0,
+                        {}
+                      );
+                      return (
+                        <tr key={'s-' + s + '-ae-' + o.owner} className="metric mrow">
+                          <td className="lbl" style={{ paddingLeft: '30px' }}>
+                            {o.owner}
+                            {!o.isPerson && (
+                              <span
+                                className="bp-muted ol-tag"
+                                title={
+                                  `Not a person: it is the Salesforce system user, listed in ` +
+                                  `org.source_name_excluded. Its closings are real and counted, so the row is here ` +
+                                  `and the strategy total adds up — but there is nobody to give a budget to.`
+                                }
+                              >
+                                system user
+                              </span>
+                            )}
+                          </td>
+                          {monthsOfYear.map((m) => (
+                            <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
+                              {fmt(oYear.byMonth[m] ?? null)}
+                            </td>
+                          ))}
+                          <td className="bp-center totcol">
+                            {fmt(sumOfShown(monthsOfYear.map((m) => oYear.byMonth[m] ?? null)))}
+                          </td>
+                          <td className="bp-center ol-bench"></td>
+                          <td className="lbl"></td>
                         </tr>
                       );
                     })}
@@ -1116,19 +1223,17 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                             que es lo que un pronóstico de pipeline necesita.
                           */}
                           <td className="bp-center ol-bench">
-                            {Number.isInteger(r.benchmark) ? r.benchmark : r.benchmark.toFixed(2)}
-                            {r.benchmarkIsDefault && (
-                              <span
-                                className="bp-muted ol-tag"
-                                title={
-                                  `Nobody has set it, so what applies is the average of their closings over the ` +
-                                  `3 closed months: ${r.avg3m.toFixed(2)}. Editing it saves one number for the ` +
-                                  `realtor across every branch — their production is per branch, their benchmark is not.`
-                                }
-                              >
-                                default
-                              </span>
-                            )}
+                            <span className="ol-bench__n">
+                              {Number.isInteger(r.benchmark) ? r.benchmark : r.benchmark.toFixed(2)}
+                            </span>
+                            {/*
+                              ⚠ ACÁ HABÍA UNA ETIQUETA `default` Y SE FUE.
+                              Decía lo mismo que la píldora de la columna de regla
+                              --`3-mo avg`-- y su ancho hacía que la celda no
+                              entrara: 129px de contenido en 118 de columna, tres
+                              celdas recortadas. El número exacto del promedio
+                              sigue en el tooltip de la píldora.
+                            */}
                             <button
                               type="button"
                               className="ol-edit"
