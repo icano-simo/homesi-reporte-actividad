@@ -443,14 +443,20 @@ export default function PipelinePage() {
     vanished: string[];
     closedNeverInPipeline: { loanNumber: string; channel: string; branch: string; closingMonth: string }[];
     previousSnapshotDate: string | null;
-    closedSince: string;
+    month: string;
     activeWarnings: string[] | null;
   } | null>(null);
 
   useEffect(() => {
     if (!data) return;
     let cancelled = false;
-    fetch('/api/pipeline/integrity')
+    /*
+     * ⚠ DEPENDE DEL MES, no sólo de `data`. El chequeo de cerrados sin haber
+     * estado mira el mes que la pantalla muestra; si el efecto no se
+     * re-disparara al cambiar el selector, el aviso quedaría hablando del mes
+     * anterior -- que es exactamente el defecto que esto corrige.
+     */
+    fetch('/api/pipeline/integrity?month=' + encodeURIComponent(forecastMonth))
       .then((res) => (res.ok ? res.json() : null))
       .then((body) => {
         if (cancelled || !body || body.error) return;
@@ -461,7 +467,7 @@ export default function PipelinePage() {
     return () => {
       cancelled = true;
     };
-  }, [data]);
+  }, [data, forecastMonth]);
 
   /*
    * Acá vivía `handleFileSelected`, que subía el archivo a /api/pipeline/parse.
@@ -1333,7 +1339,18 @@ export default function PipelinePage() {
         permanente que dice "todo bien" se vuelve invisible en una semana y deja
         de avisar el día que importa.
       */}
+      {/*
+        ⚠ SE EXIGE QUE EL REPORTE SEA DEL MES QUE SE MUESTRA. Mientras el fetch
+        del mes nuevo está en vuelo, el estado todavía tiene el del anterior; sin
+        esta comparación el aviso parpadearía con el mes viejo, que es una versión
+        más corta del mismo defecto que esta corrección arregla.
+
+        Se filtra acá y no limpiando el estado en el efecto: un `setState`
+        sincrónico dentro de un efecto dispara renders en cascada y el linter lo
+        marca con razón.
+      */}
       {integrity &&
+        integrity.month === forecastMonth &&
         (integrity.vanished.length > 0 ||
           integrity.closedNeverInPipeline.length > 0 ||
           (integrity.activeWarnings?.length ?? 0) > 0) && (
@@ -1348,9 +1365,17 @@ export default function PipelinePage() {
                     integrity.vanished.length > 40 ? ` and ${integrity.vanished.length - 40} more` : ''
                   }`}
                 >
+                  {/*
+                    ⚠ Este habla de la ÚLTIMA CARGA y no del mes seleccionado, y
+                    el texto tiene que decirlo: compara el snapshot anterior
+                    contra el activo, sin ninguna fecha de por medio. Sin la
+                    aclaración se lee como si fuera del mes que muestra la
+                    pantalla, igual que pasaba con el otro chequeo.
+                  */}
                   <strong>{integrity.vanished.length}</strong> loan
                   {integrity.vanished.length === 1 ? '' : 's'} open in the {integrity.previousSnapshotDate} snapshot
-                  {integrity.vanished.length === 1 ? ' is' : ' are'} in this one neither as open nor as resolved.
+                  {integrity.vanished.length === 1 ? ' is' : ' are'} in the latest load neither as open nor as resolved
+                  (latest load, not {forecastMonthLabel}).
                 </p>
               )}
               {integrity.closedNeverInPipeline.length > 0 && (
@@ -1361,8 +1386,8 @@ export default function PipelinePage() {
                     .join('\n')}
                 >
                   <strong>{integrity.closedNeverInPipeline.length}</strong> loan
-                  {integrity.closedNeverInPipeline.length === 1 ? '' : 's'} closed since {integrity.closedSince} without
-                  ever appearing in any snapshot — the forecast never saw{' '}
+                  {integrity.closedNeverInPipeline.length === 1 ? '' : 's'} closed in {forecastMonthLabel} without ever
+                  appearing in any snapshot — the forecast never saw{' '}
                   {integrity.closedNeverInPipeline.length === 1 ? 'it' : 'them'}.
                 </p>
               )}
