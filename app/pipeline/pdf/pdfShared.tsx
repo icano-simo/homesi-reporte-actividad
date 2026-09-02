@@ -25,6 +25,23 @@ export interface BranchRowLite {
   totalForecast: number;
 }
 
+/**
+ * Etapa PDF-BRAND: los mismos colores de marca que ya usa el reporte
+ * mensual Excel (`const C` en app/api/pipeline/monthly-report/route.ts,
+ * etapa RPT2) -- salen de app/styles/tokens.css allá, se citan acá tal
+ * cual (hex de 6 dígitos, no ARGB -- react-pdf no necesita el canal alfa
+ * que sí pide ExcelJS). No se inventa ningún color nuevo.
+ */
+export const BRAND = {
+  navy: '#001A40',
+  coral: '#FF4040',
+  sky: '#A6DEFF',
+  navySoft: '#D8DCE4',
+  coralSoft: '#FFCCCC',
+  skySoft: '#D3EEFF',
+  slate100: '#F1F5F9',
+} as const;
+
 export const styles = StyleSheet.create({
   page: {
     backgroundColor: '#ffffff',
@@ -60,11 +77,21 @@ export const styles = StyleSheet.create({
     fontSize: 9,
     fontFamily: 'Helvetica-Bold',
   },
+  /* Etapa PDF-BRAND: el margen que antes tenía `sectionTitle` a secas vive ahora en `sectionTitleRow` (el contenedor con la barrita de acento) -- `sectionTitle` queda solo con la tipografía. */
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 18,
+    marginBottom: 6,
+  },
+  sectionAccent: {
+    width: 4,
+    height: 12,
+    marginRight: 6,
+  },
   sectionTitle: {
     fontSize: 12,
     fontFamily: 'Helvetica-Bold',
-    marginTop: 18,
-    marginBottom: 6,
   },
   kpiRow: {
     flexDirection: 'row',
@@ -87,6 +114,7 @@ export const styles = StyleSheet.create({
     fontFamily: 'Helvetica-Bold',
     marginTop: 2,
   },
+  /* channelLabel: título de tabla SIN acento (Resumen, Banked - Retail/Brokered a secas). channelLabelText/tableTitleRow: la misma tipografía, para cuando SÍ lleva barrita (BranchTable con accentColor) -- el margen vive en tableTitleRow, no en el texto, para no duplicarlo. */
   channelLabel: {
     fontSize: 10,
     fontFamily: 'Helvetica-Bold',
@@ -94,13 +122,30 @@ export const styles = StyleSheet.create({
     marginBottom: 4,
     color: '#374151',
   },
+  channelLabelText: {
+    fontSize: 10,
+    fontFamily: 'Helvetica-Bold',
+    color: '#374151',
+  },
+  tableTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  tableTitleAccent: {
+    width: 4,
+    height: 10,
+    marginRight: 6,
+  },
   table: {
     borderWidth: 1,
     borderColor: '#e5e7eb',
   },
+  /* Etapa PDF-BRAND: fondo skySoft (#D3EEFF, era slate100 #F1F5F9), texto negrita navy (#001A40, en cellHeader) -- mismos colores que la jerarquía del Excel mensual (RPT2). */
   headerRow: {
     flexDirection: 'row',
-    backgroundColor: '#f3f4f6',
+    backgroundColor: BRAND.skySoft,
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
   },
@@ -117,6 +162,7 @@ export const styles = StyleSheet.create({
     padding: 4,
     fontFamily: 'Helvetica-Bold',
     fontSize: 8,
+    color: BRAND.navy,
   },
   cell: {
     padding: 4,
@@ -162,12 +208,35 @@ export function sumLite<T extends { totalCount: number; healthyCount: number; cl
   );
 }
 
-/** Tabla "Por Branch" -- usada por la página de Resumen (canal a secas como título) y por cada página de estrategia (título "Por branch — {Strategy} ({Canal})"). */
-export function BranchTable({ title, rows }: { title: string; rows: BranchRowLite[] }) {
+/** Título de sección con la barrita de acento pegada al margen izquierdo (etapa PDF-BRAND) -- "By Branch"/"By Loan Officer"/"Strategy Summary" del Resumen, cada una con su color de marca. */
+export function SectionTitle({ text, accentColor }: { text: string; accentColor: string }) {
+  return (
+    <View style={styles.sectionTitleRow}>
+      <View style={[styles.sectionAccent, { backgroundColor: accentColor }]} />
+      <Text style={styles.sectionTitle}>{text}</Text>
+    </View>
+  );
+}
+
+/**
+ * Tabla "By Branch" -- usada por la página de Resumen (canal a secas como
+ * título, sin `accentColor`) y por cada página de estrategia (título "By
+ * Branch — {Strategy} ({Channel})", con `accentColor` -- ahí el título de
+ * la tabla ES el título de la página, por eso lleva la misma barrita de
+ * acento que los títulos de sección del Resumen).
+ */
+export function BranchTable({ title, rows, accentColor }: { title: string; rows: BranchRowLite[]; accentColor?: string }) {
   const subtotal = sumLite(rows);
   return (
     <View>
-      <Text style={styles.channelLabel}>{title}</Text>
+      {accentColor ? (
+        <View style={styles.tableTitleRow}>
+          <View style={[styles.tableTitleAccent, { backgroundColor: accentColor }]} />
+          <Text style={styles.channelLabelText}>{title}</Text>
+        </View>
+      ) : (
+        <Text style={styles.channelLabel}>{title}</Text>
+      )}
       <View style={styles.table}>
         <View style={styles.headerRow}>
           <Text style={[styles.cellHeader, styles.colLabel]}>Branch</Text>

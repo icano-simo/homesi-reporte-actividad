@@ -1,5 +1,5 @@
 import { Document, Page, View, Text } from '@react-pdf/renderer';
-import { styles, sumLite, BranchTable, type BranchRowLite } from './pdfShared';
+import { styles, sumLite, BranchTable, SectionTitle, BRAND, type BranchRowLite } from './pdfShared';
 import PipelineStrategyPagePdf from './PipelineStrategyPagePdf';
 
 /**
@@ -153,8 +153,7 @@ export default function PipelineSummaryPdf({ kpis, meta, branchRows, loanOfficer
   return (
     <Document>
       <Page size="A4" style={styles.page}>
-        <Text style={styles.title}>Forecast &amp; Pipeline</Text>
-        <Text style={styles.subtitle}>Resumen — {meta.forecastMonthLabel}</Text>
+        <Text style={styles.title}>Forecast &amp; Pipeline Summary — {meta.forecastMonthLabel}</Text>
         <View style={styles.metaRow}>
           <View style={styles.metaItem}>
             <Text style={styles.metaLabel}>Pipeline Range</Text>
@@ -165,7 +164,7 @@ export default function PipelineSummaryPdf({ kpis, meta, branchRows, loanOfficer
             <Text style={styles.metaValue}>{meta.branchLabel}</Text>
           </View>
           <View style={styles.metaItem}>
-            <Text style={styles.metaLabel}>Generado</Text>
+            <Text style={styles.metaLabel}>Generated</Text>
             <Text style={styles.metaValue}>{meta.generatedAtLabel}</Text>
           </View>
         </View>
@@ -189,17 +188,23 @@ export default function PipelineSummaryPdf({ kpis, meta, branchRows, loanOfficer
           </View>
         </View>
 
-        <Text style={styles.sectionTitle}>Por Branch</Text>
+        <SectionTitle text="By Branch" accentColor={BRAND.navy} />
         <BranchTable title="Banked - Retail" rows={branchRows.banked} />
         <BranchTable title="Brokered" rows={branchRows.brokered} />
 
-        <Text style={styles.sectionTitle}>Por Loan Officer</Text>
-        <LoanOfficerTable title="Banked - Retail" rows={loanOfficerRows.banked} />
-        <LoanOfficerTable title="Brokered" rows={loanOfficerRows.brokered} />
+        {/* Etapa PDF-BRAND: salto de página antes de "By Loan Officer" -- prop `break` de react-pdf en el contenedor que arranca la sección. */}
+        <View break>
+          <SectionTitle text="By Loan Officer" accentColor={BRAND.sky} />
+          <LoanOfficerTable title="Banked - Retail" rows={loanOfficerRows.banked} />
+          <LoanOfficerTable title="Brokered" rows={loanOfficerRows.brokered} />
+        </View>
 
-        <Text style={styles.sectionTitle}>Strategy Summary</Text>
-        <StrategyTable title="Banked - Retail" rows={strategyRows.banked} />
-        <StrategyTable title="Brokered" rows={strategyRows.brokered} />
+        {/* Etapa PDF-BRAND: mismo salto de página que "By Loan Officer" -- prop `break` en el contenedor que arranca la sección. */}
+        <View break>
+          <SectionTitle text="Strategy Summary" accentColor={BRAND.coral} />
+          <StrategyTable title="Banked - Retail" rows={strategyRows.banked} />
+          <StrategyTable title="Brokered" rows={strategyRows.brokered} />
+        </View>
       </Page>
 
       {strategyPages.map((sp) => (
