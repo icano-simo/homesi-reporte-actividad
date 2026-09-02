@@ -966,27 +966,20 @@ export default function PipelinePage() {
 
   /**
    * Etapa PDF-INVESTIGACIÓN (sin UI todavía) -- mismo forecast por Loan
-   * Officer, para saber si alcanza con `buildBranchForecastRows()` +
-   * `buildBranchRows()` ya existentes, sin recalcular nada de cero.
-   * Se pasan los 2 rangos de fecha por separado, igual que la pantalla:
-   * `pipelineDateRange` para la población (mismo rango que ya usa
-   * `filteredBranchRows` más arriba) y `forecastRange` para la ventana de
-   * cierre (misma variable que ya recibe la llamada a `buildBranchRows()`
-   * de arriba, `branchRowsForSummary`) -- un diagnóstico anterior había
-   * usado un solo rango (`forecastRange`) para ambos fines, lo cual
-   * dejaba fuera de la población por-persona préstamos que sí cuentan en
-   * pantalla cuando el Pipeline Range incluye un mes fuera del Forecast
-   * Month.
+   * Officer, ahora APORCIONADO en vez de recalculado -- ver el comentario
+   * de cabecera de `buildLoanOfficerForecastRows()` (lib/pipeline/
+   * loanOfficerForecast.ts). Recibe `branchRowsForSummary` (ya calculado
+   * más arriba para el resumen por estrategia -- mismo dato, no uno
+   * nuevo), `filteredResolvedLoans` (para reconstruir los cerrados por
+   * branch+channel, igual que hace `buildBranchRows()` internamente) y
+   * `forecastRange` (la MISMA variable que ya recibe la llamada a
+   * `buildBranchRows()` de arriba -- ya no hace falta `pipelineDateRange`
+   * acá: la población de abiertos viene de
+   * `branchRow.branchForecastRow.loans`, que `branchRowsForSummary` ya
+   * armó con ese rango).
    */
   const loanOfficerForecastRows = data
-    ? buildLoanOfficerForecastRows(
-        data.openLoans,
-        filteredResolvedLoans,
-        pipelineDateRange,
-        forecastRange,
-        knownBranches,
-        PULL_THROUGH_RATES
-      )
+    ? buildLoanOfficerForecastRows(branchRowsForSummary, filteredResolvedLoans, forecastRange, PULL_THROUGH_RATES)
     : [];
 
   /**

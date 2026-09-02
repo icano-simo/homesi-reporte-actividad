@@ -1,48 +1,63 @@
-import { buildBranchForecastRows } from './branchForecast';
-import { buildBranchRows } from '@/app/pipeline/PivotTable';
-import type { DateRange, PullThroughRates } from './aggregate';
-import type { PipelineLoan, ResolvedLoan } from './types';
+import type { BranchRow } from '@/app/pipeline/PivotTable';
+import {
+  BROKERED_FLAT_PULL_THROUGH_RATE,
+  apportionByWeight,
+  calculateForecast,
+  calculateTotalForecastWithClosed,
+  countByMilestoneBucket,
+  type DateRange,
+  type PullThroughRates,
+} from './aggregate';
+import type { ResolvedLoan } from './types';
 
 /**
  * ============================================================================
  * FORECAST POR LOAN OFFICER — investigación PDF, sin UI todavía
  * ============================================================================
  *
- * ⚠ ARCHIVO NUEVO SIN LÓGICA NUEVA -- mismo criterio que
- * `lib/pipeline/branchForecast.ts` (etapa RPT1): esto no inventa ningún
- * cálculo, solo llama a `buildBranchForecastRows()` + `buildBranchRows()`
- * -- las MISMAS funciones que ya arman las filas de pantalla -- una vez
- * por cada Loan Officer distinto, filtrando `openLoans`/`resolvedLoans` a
- * sus propios préstamos antes de llamarlas. El resultado de cada llamada
- * es un `BranchRow` normal; acá solo se toman los 5 campos que hacen falta
- * para esta tabla (sin `strategyRows`, sin `branchForecastRow`).
+ * ⚠ SE APORCIONA, NO SE RECALCULA -- mismo criterio y mismo motivo que
+ * `buildStrategyRows()` (PivotTable.tsx): `branchRow.projectedToClose` ya
+ * es un entero REDONDEADO (Math.round, page.tsx). Redondear-y-sumar no es
+ * asociativo -- si cada Loan Officer calculara su propio forecast y lo
+ * redondeara por separado, la suma de las partes NO daría el entero del
+ * branch (era exactamente el bug de la versión anterior de este archivo:
+ * `buildBranchForecastRows()` con su propio `Math.round()` interno, una vez
+ * por persona). Ahora se reparte el entero YA FIJADO del branch+channel
+ * (`branchRow.projectedToClose`, el MISMO que ya reparte `buildStrategyRows()`
+ * hacia las 5 estrategias) entre los Loan Officers de ese branch+channel,
+ * con `apportionByWeight()` -- los pesos son los forecasts EXACTOS por
+ * persona, sin redondear, con la MISMA fórmula por canal que usa
+ * `buildStrategyRows()` (cascada de milestone para Banked, 40% plano para
+ * Brokered). La suma de las partes cierra por construcción, no por
+ * casualidad de los datos.
  *
- * ⚠ DOS RANGOS DE FECHA DISTINTOS, NO UNO -- réplica exacta de cómo
- * page.tsx ya arma la pantalla: primero construye `filteredBranchRows`
- * con `pipelineDateRange` (la población -- qué préstamos abiertos entran,
- * vía el filtro de `estClosingDate` dentro de `buildBranchForecastRows()`),
- * y por separado llama a `buildBranchRows()` con `forecastRange` (la
- * ventana de cierre -- qué préstamos resueltos cuentan como cerrados EN
- * el mes de forecast, dentro de `calculateTotalForecastWithClosed()`).
- * Son dos preguntas distintas (quién compone el pipeline vs. qué mes se
- * está pronosticando) y usar un solo rango para ambas es lo que producía
- * la inconsistencia señalada en la investigación anterior.
+ * ⚠ NO recalcula la población -- reusa `branchRow.branchForecastRow.loans`
+ * (los mismos abiertos que ya arma la tabla "Por Branch", ya filtrados por
+ * Pipeline Range) y vuelve a filtrar `resolvedLoans` por ese branch+channel
+ * exacto para los cerrados -- el mismo filtro que hace `buildBranchRows()`
+ * internamente para armar `closedLoansForBranch`, que no queda expuesto en
+ * `BranchRow` (solo su `closedCount` ya sumado) y por eso hace falta
+ * rehacerlo acá, no porque se esté recalculando ningún forecast.
  *
- * ⚠ DEPENDENCIA A SEÑALAR: `buildBranchRows()` vive en
- * `app/pipeline/PivotTable.tsx`, un componente `'use client'` -- este
- * módulo de `lib/` termina dependiendo de un componente, exactamente lo
- * que `branchForecast.ts` documenta como la razón por la que
- * `BranchForecastRow`/`buildBranchForecastRows` se mudaron FUERA de
- * `PivotTable.tsx`. Funciona hoy porque todo lo que llama a esto corre en
- * el cliente (page.tsx) -- pero si más adelante hiciera falta este mismo
- * cálculo desde una API route (server-side, como el reporte mensual), este
- * archivo no se podría importar tal cual sin antes mover `buildBranchRows()`
- * a `lib/` también, con el mismo criterio.
+ * ⚠ UN PESO QUE FALTA NO FALLA (ver la advertencia en `apportionByWeight`,
+ * casos reales OL12/OL15): el array de pesos que se le pasa SIEMPRE incluye
+ * a TODOS los Loan Officers con al menos un loan (abierto o cerrado) en ese
+ * branch+channel, incluso los que dan `exactForecast = 0` -- nunca se
+ * filtra la lista antes de aporcionar.
+ *
+ * ⚠ YA NO DEPENDE DE UN COMPONENTE EN TIEMPO DE EJECUCIÓN -- a diferencia
+ * de la versión anterior (que importaba `buildBranchRows` en runtime desde
+ * `app/pipeline/PivotTable.tsx`, un componente `'use client'`), acá
+ * `BranchRow` se importa con `import type` -- se borra por completo en la
+ * compilación, no genera ningún `import` real en el JS emitido. Este
+ * módulo ya no depende de PivotTable.tsx en runtime, solo de su tipo -- la
+ * misma tensión que documentaba la versión anterior (bloqueaba el reuso
+ * server-side, ej. una ruta de PDF) queda resuelta con este cambio.
  */
 
 export interface LoanOfficerForecastRow {
   branch: string;
-  channel: PipelineLoan['channel'];
+  channel: BranchRow['channel'];
   loanOfficer: string;
   totalCount: number;
   healthyCount: number;
@@ -52,40 +67,88 @@ export interface LoanOfficerForecastRow {
 }
 
 export function buildLoanOfficerForecastRows(
-  openLoans: PipelineLoan[],
+  branchRows: BranchRow[],
   resolvedLoans: ResolvedLoan[],
-  pipelineDateRange: DateRange,
-  forecastRange: DateRange,
-  knownBranches: Set<string>,
+  dateRange: DateRange,
   rates: PullThroughRates
 ): LoanOfficerForecastRow[] {
-  const loanOfficers = new Set<string>();
-  for (const l of openLoans) if (l.loanOfficer) loanOfficers.add(l.loanOfficer);
-  for (const l of resolvedLoans) if (l.loanOfficer) loanOfficers.add(l.loanOfficer);
-
   const result: LoanOfficerForecastRow[] = [];
-  for (const loanOfficer of loanOfficers) {
-    const openForThisLo = openLoans.filter((l) => l.loanOfficer === loanOfficer);
-    const resolvedForThisLo = resolvedLoans.filter((l) => l.loanOfficer === loanOfficer);
 
-    /* Misma cascada, mismo reparto -- ver el comentario de cabecera:
-       pipelineDateRange para la población, forecastRange para el cierre. */
-    const branchForecastRows = buildBranchForecastRows(openForThisLo, pipelineDateRange, rates);
-    const branchRows = buildBranchRows(branchForecastRows, resolvedForThisLo, forecastRange, knownBranches, rates);
+  for (const branchRow of branchRows) {
+    const isBanked = branchRow.channel === 'Banked - Retail';
+    const openLoansForBranch = branchRow.branchForecastRow.loans;
+    /* Mismo filtro que hace buildBranchRows() para armar closedLoansForBranch
+       -- no queda expuesto en BranchRow (solo closedCount, ya sumado). */
+    const closedLoansForBranch = resolvedLoans.filter(
+      (loan) => loan.branch === branchRow.branch && loan.channel === branchRow.channel
+    );
 
-    for (const row of branchRows) {
-      if (row.totalCount === 0 && row.healthyCount === 0 && row.closedCount === 0) continue;
-      result.push({
-        branch: row.branch,
-        channel: row.channel,
-        loanOfficer,
-        totalCount: row.totalCount,
-        healthyCount: row.healthyCount,
-        closedCount: row.closedCount,
-        projectedToClose: row.projectedToClose,
-        totalForecast: row.totalForecast,
-      });
+    const loanOfficers = new Set<string>();
+    for (const l of openLoansForBranch) if (l.loanOfficer) loanOfficers.add(l.loanOfficer);
+    for (const l of closedLoansForBranch) if (l.loanOfficer) loanOfficers.add(l.loanOfficer);
+    if (loanOfficers.size === 0) continue;
+
+    const perOfficer = [...loanOfficers].map((loanOfficer) => {
+      const loans = openLoansForBranch.filter((l) => l.loanOfficer === loanOfficer);
+      const healthy = loans.filter((l) => l.healthy === true);
+      const closedLoans = closedLoansForBranch.filter((l) => l.loanOfficer === loanOfficer);
+
+      /* Mismo criterio de fecha y de status que la fila del branch. */
+      const { closedCount } = calculateTotalForecastWithClosed(closedLoans, 0, dateRange);
+
+      /* El peso: el forecast EXACTO, con la fórmula del canal. Sin redondear.
+         MISMA fórmula que buildStrategyRows() usa por estrategia. */
+      const exactForecast = isBanked
+        ? calculateForecast(countByMilestoneBucket(healthy), rates).forecastTotal
+        : loans.length * BROKERED_FLAT_PULL_THROUGH_RATE;
+
+      return { loanOfficer, totalCount: loans.length, healthyCount: healthy.length, closedCount, exactForecast };
+    });
+
+    /* El entero del branch+channel, repartido. La suma de las partes ES el entero. */
+    const parts = apportionByWeight(
+      branchRow.projectedToClose,
+      perOfficer.map((r) => r.exactForecast)
+    );
+
+    const rows: LoanOfficerForecastRow[] = perOfficer.map((r, i) => ({
+      branch: branchRow.branch,
+      channel: branchRow.channel,
+      loanOfficer: r.loanOfficer,
+      totalCount: r.totalCount,
+      healthyCount: r.healthyCount,
+      closedCount: r.closedCount,
+      projectedToClose: parts[i],
+      totalForecast: r.closedCount + parts[i],
+    }));
+
+    /*
+     * Red de seguridad en desarrollo, mismo estilo que buildStrategyRows():
+     * si un subtotal por Loan Officer no da la fila del branch+channel, hay
+     * un préstamo contado dos veces, ninguna, o sin loanOfficer.
+     */
+    if (process.env.NODE_ENV !== 'production') {
+      const suma = (pick: (r: LoanOfficerForecastRow) => number) => rows.reduce((a, r) => a + pick(r), 0);
+      const checks: [string, number, number][] = [
+        ['totalCount', suma((r) => r.totalCount), branchRow.totalCount],
+        ['healthyCount', suma((r) => r.healthyCount), branchRow.healthyCount],
+        ['closedCount', suma((r) => r.closedCount), branchRow.closedCount],
+        ['projectedToClose', suma((r) => r.projectedToClose), branchRow.projectedToClose],
+      ];
+      for (const [name, got, want] of checks) {
+        if (got !== want) {
+          console.warn('PDF-INVESTIGACIÓN: el desglose por Loan Officer no cuadra', {
+            branch: branchRow.branch,
+            channel: branchRow.channel,
+            field: name,
+            loanOfficersSum: got,
+            branchValue: want,
+          });
+        }
+      }
     }
+
+    result.push(...rows);
   }
 
   return result.sort((a, b) => a.branch.localeCompare(b.branch) || a.loanOfficer.localeCompare(b.loanOfficer));
