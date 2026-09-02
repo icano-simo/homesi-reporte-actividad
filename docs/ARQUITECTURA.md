@@ -7663,3 +7663,47 @@ uno cada vez que se reporte el mismo síntoma en un estado distinto.
 
 `lib/pipeline/usStatesSvgPaths.ts` (Colorado movido al final, con
 comentario).
+
+---
+
+## PDF export — por qué @react-pdf/renderer (y qué se descartó)
+
+El export a PDF del Forecast (`app/api/pipeline/pdf/route.tsx`) reusa el
+mismo patrón que ya usa el export a Excel (`app/api/pipeline/export/
+route.ts`): el cliente calcula todo (KPIs, filas por branch/loan officer/
+estrategia, ya separadas por canal) y lo manda armado en el body; el
+servidor no vuelve a consultar Supabase ni a recalcular nada, solo dibuja.
+Mismo reparto de responsabilidades, con `@react-pdf/renderer` en el lugar
+de ExcelJS.
+
+Se eligió `@react-pdf/renderer` en particular porque tiene motor de
+layout propio (flexbox — ver `app/pipeline/pdf/pdfShared.tsx`): las
+tablas se arman con `flexDirection`/`width` sobre `View`/`Text`, igual
+que CSS, en vez de tener que posicionar cada celda a mano en coordenadas
+x/y.
+
+### Alternativas descartadas
+
+- **Puppeteer/Playwright** (renderizar HTML a PDF vía navegador headless)
+  -- un navegador entero para generar un PDF es desproporcionado en este
+  contexto: cold starts largos y un bundle pesado para lo que hace falta.
+- **pdf-lib** -- sin motor de layout: cada celda se posiciona a mano en
+  coordenadas x/y.
+- **jsPDF** -- mismo problema que pdf-lib, sin motor de layout propio.
+
+### No medido
+
+Ni el bundle size ni el cold-start reales de `@react-pdf/renderer` en
+esta ruta se midieron -- la elección fue por ajuste de patrón (mismo
+cliente-calcula/servidor-dibuja que el Excel) y por tener motor de
+layout, no por un benchmark. Si el cold-start real resulta un problema
+en producción, ese dato todavía falta.
+
+### Archivos
+
+`app/api/pipeline/pdf/route.tsx` (el POST, `runtime = 'nodejs'`, mismo
+comentario duplicado en el código junto al import de
+`@react-pdf/renderer`), `app/pipeline/pdf/pdfShared.tsx` (estilos y
+piezas compartidas entre páginas), `app/pipeline/pdf/
+PipelineSummaryPdf.tsx` y `app/pipeline/pdf/PipelineStrategyPagePdf.tsx`
+(las páginas del documento).
