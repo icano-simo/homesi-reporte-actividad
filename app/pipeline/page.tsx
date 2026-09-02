@@ -407,6 +407,35 @@ export default function PipelinePage() {
     // esto el botón quedaría habilitado con el `firstSeenAsAdverse` del
     // snapshot ANTERIOR mientras el del nuevo snapshot todavía está en
     // vuelo, misma ventana de carrera que este fix busca cerrar.
+    /*
+     * ======================================================================
+     * ⚠ ESTE `setState` ES EL ERROR DE LINT DE ESTA PANTALLA, Y ACÁ ESTÁ LA
+     * FORMA CORRECTA — para que el próximo no repita el intento.
+     * ======================================================================
+     *
+     * `react-hooks/set-state-in-effect` lo marca con razón: un `setState`
+     * sincrónico dentro de un efecto dispara un render en cascada. No es un
+     * descuido de quien lo escribió: el camino natural lleva acá. Escribiendo
+     * el aviso de integridad (RPT5) intenté exactamente lo mismo --limpiar el
+     * estado al arrancar el fetch-- y el linter lo marcó igual.
+     *
+     * LA FORMA CORRECTA es no tener un booleano que haya que dar vuelta, sino
+     * guardar A QUÉ SNAPSHOT PERTENECE la respuesta y DERIVAR el booleano:
+     *
+     *   const [adverseFor, setAdverseFor] = useState<number | null>(null);
+     *   // en el .then():  setAdverseFor(snapshotId)
+     *   const isAdverseHistoryLoading = adverseFor !== data?.snapshotId;
+     *
+     * Con eso el estado "todavía no llegó" no se declara: se deduce de que la
+     * respuesta que hay es de otro snapshot. Cierra la misma ventana de carrera
+     * que el `true` adelantado y sin `setState` en el efecto.
+     *
+     * ⚠ NO SE APLICA ACÁ porque `data` no expone hoy un id de snapshot y
+     * agregarlo toca `/api/pipeline/latest` y su mapeo -- fuera del alcance de
+     * las etapas que pasaron por este archivo. El mismo problema se resolvió de
+     * la forma correcta en el aviso de integridad, comparando `integrity.month`
+     * contra `forecastMonth` en el render en vez de limpiar el estado.
+     */
     setIsAdverseHistoryLoading(true);
     fetch('/api/pipeline/adverse-history')
       .then((res) => res.json())
