@@ -92,10 +92,41 @@ export interface MonthlyReportRow {
   endOfMonth: EndOfMonthState;
   strategy: Strategy | '';
   loanType: string;
-  /** Su Est. Closing Date en el snapshot del corte. Vacío si no estaba. */
+  /**
+   * ⚠ LA FECHA CON LA QUE ENTRÓ AL PIPELINE, no la del corte — etapa RPT7.
+   *
+   * Para los que estaban abiertos al corte es su fecha de ese día; para los que
+   * llegaron después, la del PRIMER snapshot donde se los ve abiertos. Antes
+   * sólo se llenaba en los del corte y quedaba vacía en todos los demás, que es
+   * la mitad de la columna.
+   *
+   * `null` sólo cuando el préstamo nunca apareció abierto en ningún snapshot
+   * --los que cerraron antes del corte y los que el pipeline nunca vio--. NO se
+   * inventa: `firstSeenOpen` lleva `never open` para que se distinga de un dato
+   * que falta.
+   */
   estClosingStart: string | null;
-  /** Dónde quedó. */
+  /**
+   * ⚠ LA FECHA AL CIERRE DEL MES, llena en TODAS las filas — etapa RPT7.
+   *
+   * Del snapshot del último día del mes: de `pipeline_loans` si seguía abierto,
+   * de `pipeline_resolved_loans` si ya se había resuelto. Si terminó con la
+   * misma fecha con la que entró, va la misma; no se deja vacía.
+   *
+   * ⚠ ES LA ÚNICA COLUMNA QUE MIRA EL SNAPSHOT DE CIERRE Y NO EL ACTIVO, y es
+   * deliberado: la columna dice "al cierre del mes", así que su fuente es ese
+   * día. El resto de la fila --estado, fecha de cierre, milestone-- sigue
+   * saliendo del activo por el retraso de carga.
+   */
   estClosingEnd: string | null;
+  /**
+   * La fecha del primer snapshot donde se lo vio ABIERTO, o `never open`.
+   *
+   * ⚠ ES LA MARCA QUE HACE HONESTA A `estClosingStart`. Sin ella, una celda
+   * vacía en la fecha de entrada se lee como un dato que se perdió; con ella se
+   * lee como lo que es: ese préstamo nunca estuvo abierto en un snapshot.
+   */
+  firstSeenOpen: string | 'never open';
   /** `'Yes'` sólo si las dos existen y difieren -- "no sé" no es "no se movió". */
   estClosingMoved: '' | 'Yes';
   /** 1 o 2, de `loan_records_v2.lien_position`. */
@@ -157,6 +188,21 @@ export interface MonthlyReportInput {
    * préstamo seguía en el pipeline al cierre -- ver `endOfMonth`.
    */
   openAtMonthEnd: Set<string>;
+  /**
+   * La Est. Closing Date en el snapshot del ÚLTIMO DÍA del mes, abierto o
+   * resuelto. Es la fuente de `estClosingEnd` -- etapa RPT7.
+   */
+  estAtMonthEnd: Map<string, string | null>;
+  /**
+   * Por préstamo: la primera vez que se lo vio ABIERTO del corte en adelante, y
+   * la primera Est. Closing Date que tuvo -- etapa RPT7.
+   *
+   * ⚠ Los dos campos pueden ser de días distintos: un préstamo puede aparecer
+   * sin fecha estimada y recibirla después. `snapshotDate` alimenta
+   * `firstSeenOpen` y `estClosingDate` alimenta `estClosingStart`; ver la nota
+   * de la ruta, que es donde se arman.
+   */
+  firstSeen: Map<string, { snapshotDate: string; estClosingDate: string | null }>;
   /** El estado de HOY. */
   activeOpen: PipelineLoan[];
   activeResolved: ResolvedLoan[];
@@ -203,6 +249,8 @@ export function buildMonthlyReport(input: MonthlyReportInput): MonthlyReportMode
     anchorResolved,
     existedByMonthEnd,
     openAtMonthEnd,
+    estAtMonthEnd,
+    firstSeen,
     activeOpen,
     activeResolved,
     lastMilestone,
@@ -329,8 +377,21 @@ export function buildMonthlyReport(input: MonthlyReportInput): MonthlyReportMode
       date: null,
     };
 
-    const estStart = atCutoff?.estClosingDate ?? null;
-    const estEnd = openNow?.estClosingDate ?? resolvedNow?.estClosingDate ?? null;
+    /*
+     * ⚠ LAS DOS FECHAS, CADA UNA DE SU MOMENTO. `atCutoff` ya no manda en la de
+     * entrada: manda la primera vez que se lo vio abierto, que para los del
+     * corte ES el corte y para los que llegaron después es su primer snapshot.
+     */
+    const primera = firstSeen.get(id);
+    const estStart = primera?.estClosingDate ?? null;
+    /*
+     * Y si el snapshot de cierre no lo tiene --no puede pasar hoy, los 178
+     * están-- se cae al activo antes que dejarla vacía: la columna promete estar
+     * llena y una fecha de un día después es mejor que ninguna.
+     */
+    const estEnd = estAtMonthEnd.has(id)
+      ? (estAtMonthEnd.get(id) ?? null)
+      : (openNow?.estClosingDate ?? resolvedNow?.estClosingDate ?? null);
 
     rows.push({
       /*
@@ -379,6 +440,7 @@ export function buildMonthlyReport(input: MonthlyReportInput): MonthlyReportMode
       loanType: base.loanType ?? '',
       estClosingStart: estStart,
       estClosingEnd: estEnd,
+      firstSeenOpen: primera?.snapshotDate ?? 'never open',
       /* Sin las dos fechas no se puede afirmar que se movió, así que no se afirma. */
       estClosingMoved: estStart && estEnd && estStart !== estEnd ? 'Yes' : '',
       lien: extra?.lien ?? null,
