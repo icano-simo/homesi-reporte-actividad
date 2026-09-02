@@ -62,6 +62,11 @@ export async function POST(request: Request) {
     }
 
     const buffer = await renderToBuffer(
+      // @react-pdf/renderer server-side, no react-dom: renderToBuffer() ejecuta el render real
+      // dentro de este await, así que cualquier error de render de PipelineSummaryPdf
+      // (Document/Page/Text/View) SÍ cae en el catch de abajo -- a diferencia de react-dom,
+      // donde escribir JSX solo describe el elemento y el render ocurre después, fuera de este try/catch.
+      // eslint-disable-next-line react-hooks/error-boundaries
       <PipelineSummaryPdf
         kpis={body.kpis}
         meta={body.meta}
