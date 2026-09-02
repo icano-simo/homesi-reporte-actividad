@@ -338,32 +338,55 @@ export interface BranchRealtor {
 }
 
 /**
- * Una estrategia EN UN BRANCH, y por quién se abre — etapa OL8.
+ * Una estrategia EN UN BRANCH, y por quién se abre.
  *
  * ==========================================================================
- * ⚠ LA ESTRATEGIA DEJÓ DE COLGAR DEL LOAN OFFICER
+ * POR QUÉ SE ABRE CADA UNA — el estado actual
  * ==========================================================================
  *
- * Hasta OL7 las cinco estrategias se abrían por persona. Tres de ellas no
- * tienen nada que ver con la persona:
+ *   Own Production   por LOAN OFFICER. Es producción propia: la pregunta es
+ *                    cuánto hace cada uno.
+ *   Recruitment      por LOAN OFFICER, desde OL12. En el 710 la producción ES
+ *                    Recruitment --27 de sus cierres del año-- y ahí la
+ *                    pregunta vuelve a ser quién trae cuánto.
+ *   NPPM             por REALTOR. El préstamo lo trae el realtor; qué Loan
+ *                    Officer lo procesó no es la unidad de decisión.
+ *   Affinity         por DUEÑO DE LA OPORTUNIDAD, que acá es un Account
+ *                    Executive (OL13, presupuesto propio en OL14).
+ *   B2B              por DUEÑO DE LA OPORTUNIDAD, que acá es un Business
+ *                    Developer (OL15). Es la misma `opportunity_owner` que
+ *                    Affinity y comparten mecanismo: `opensBy: 'owner'`.
  *
- *   Own Production   se abre por LOAN OFFICER. Es producción propia: la
- *                    pregunta es cuánto hace cada uno.
- *   NPPM             se abre por REALTOR. El préstamo lo trae el realtor; qué
- *                    Loan Officer lo procesó no es la unidad de decisión.
- *   B2B              NO SE ABRE. Es del branch.
- *   Recruitment      NO SE ABRE. Es del branch.
- *   Affinity         NO SE ABRE. Es del branch.
+ * ⚠ NINGUNA ES YA `'branch'`. La variante existe en el tipo y hoy no la usa
+ * ninguna estrategia -- ver `esDelBranch` en la vista. Se conserva porque
+ * quedan dos presupuestos guardados con `branch_code` que no se pueden
+ * reasignar (ver docs/sql/2026-09-outlook-retire-branch-code.sql).
  *
- * La pregunta de negocio en esas tres es "cuántos préstamos trajo B2B y cuánto
- * proyecta", no "cuánto B2B hizo cada persona". Abrirlas por persona repartía un
- * número del branch entre gente que no lo decide, y obligaba a sumar a mano
- * nueve filas para contestar la única pregunta que importaba.
+ * ---------------------------------------------------------------------------
+ * ⚠ ESTE BLOQUE DECÍA LO CONTRARIO Y SE CORRIGIÓ
+ * ---------------------------------------------------------------------------
+ * Hasta esta corrección afirmaba que B2B, Recruitment y Affinity "NO SE ABREN,
+ * son del branch". Era cierto en OL8 y dejó de serlo en OL12, OL13 y OL15, una
+ * por una, sin que nadie volviera acá. Tres de cinco líneas mentían, y el
+ * comentario que las contradecía estaba a mil trescientas líneas de distancia.
+ *
+ * ---------------------------------------------------------------------------
+ * ⚠ QUIÉNES APARECEN AL ABRIR, Y QUÉ NO SE FILTRA TODAVÍA
+ * ---------------------------------------------------------------------------
+ * Una estrategia que se abre por Loan Officer muestra a TODOS los del branch,
+ * tengan o no producción en ella. Medido en el 710: Recruitment abre las 7
+ * filas y dos --Johann Otiniano y Jose Arango-- están enteras en cero.
+ *
+ * No está filtrado a propósito: el filtro correcto necesita saber QUIÉN
+ * participa del programa de reclutamiento, y ese dato llega con el pipeline de
+ * RC1. Filtrar hoy por "tiene producción" escondería a alguien que participa y
+ * todavía no cerró, que es justo a quien hay que fijarle un presupuesto.
  *
  * ⚠ `actualByMonth` cuenta TODOS los cierres del branch en esa estrategia,
- * incluidos los de gente que no tiene fila en el bloque de Loan Officers. Por
- * eso el total del branch cuadra con la suma de sus estrategias aunque no cuadre
- * con la suma de sus personas.
+ * incluidos los de gente que no tiene fila. Por eso el total del branch cuadra
+ * con la suma de sus estrategias aunque una estrategia no cuadre con la suma de
+ * sus filas: en el 710, los 3 cierres de Recruitment de Jonathan Valenzuela
+ * están en la estrategia y él no tiene fila --su branch de roster es el 777--.
  */
 /**
  * ============================================================================
@@ -438,11 +461,14 @@ export interface BranchStrategy {
   ytd: number;
   actualByMonth: Record<string, number>;
   /** Cómo se abre esta estrategia. Ver la nota de arriba. */
-  /** Cómo se abre esta estrategia. Ver la nota de arriba. */
   opensBy: 'loanOfficer' | 'realtor' | 'owner' | 'branch';
   /** Sólo en NPPM: los realtors del branch, de mayor a menor. */
   realtors: BranchRealtor[];
-  /** Sólo en Affinity: los Account Executives, de mayor a menor. */
+  /**
+   * Los dueños de la oportunidad, de mayor a menor. En Affinity son Account
+   * Executives y en B2B Business Developers --desde OL15 son las dos, no sólo
+   * Affinity--. Vacío en las otras tres.
+   */
   owners: BranchOwner[];
   /**
    * ⚠ LA DECISIÓN DEL BRANCH, para las estrategias que son suyas — etapa OL11.
@@ -516,6 +542,14 @@ export interface OutlookBranch {
    * Es el mismo criterio que `unattributed`.
    */
   closedByOutsiders: number;
+  /**
+   * QUIÉNES son, con cuánto cerraron acá — etapa OL16.
+   *
+   * El total del branch no da la suma de sus filas, y `closedByOutsiders` dice
+   * cuánto falta pero no de quién. Con los nombres el descuadre se entiende sin
+   * un párrafo: son Loan Officers de otro branch que cerraron en este.
+   */
+  outsiders: { name: string; closings: number }[];
   loanOfficers: OutlookLoanOfficer[];
   /** Las cinco estrategias del branch — etapa OL8. */
   byStrategy: BranchStrategy[];
@@ -1738,6 +1772,20 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
        */
       closedByOutsiders:
         totalOf(actualByBranch, branchCode) - los.reduce((a, l) => a + l.ytd, 0),
+      /*
+       * Los mismos cierres que cuenta `closedByOutsiders`, con nombre. Se sacan
+       * de `actualByBranchLo` --que tiene la producción de CADA persona en CADA
+       * branch-- descartando a quienes sí tienen fila acá.
+       */
+      outsiders: [...actualByBranchLo.keys()]
+        .filter((k) => k.startsWith(branchCode + '|'))
+        .map((k) => ({ key: Number(k.slice(branchCode.length + 1)), closings: totalOf(actualByBranchLo, k) }))
+        .filter(({ key, closings }) => closings > 0 && !los.some((l) => l.employeeKey === key))
+        .map(({ key, closings }) => ({
+          name: employeeByKey.get(key)?.full_name ?? 'employee_key ' + key,
+          closings,
+        }))
+        .sort((a, b) => b.closings - a.closings || a.name.localeCompare(b.name)),
       loanOfficers: los.sort((a, b) => b.ytd - a.ytd || a.fullName.localeCompare(b.fullName)),
       byStrategy: strategiesOfBranch(branchCode),
     }))

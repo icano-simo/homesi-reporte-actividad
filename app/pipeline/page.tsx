@@ -3,9 +3,6 @@
 import './styles/forecast-visual.css';
 import { useEffect, useState } from 'react';
 import {
-  splitHealthyTotal,
-  countByMilestoneBucket,
-  calculateForecast,
   calculateTotalForecastWithClosed,
   targetMonthRange,
   countByBrokeredMilestoneBucket,
@@ -13,7 +10,6 @@ import {
   apportionByWeight,
   splitCtcAndClosing,
   type BucketCounts,
-  type PullThroughRates,
   type BrokeredPullThroughRates,
   type BrokeredForecastByBucket,
   type DateRange,
@@ -21,10 +17,16 @@ import {
 } from '@/lib/pipeline/aggregate';
 import type { PipelineLoan, ResolvedLoan } from '@/lib/pipeline/types';
 import { classifyStrategy, hasStrategyData, STRATEGY_ORDER, type Strategy } from '@/lib/pipeline/strategy';
+import { buildDayReport, exportKindForMonth } from '@/lib/pipeline/dayReport';
 import { businessToday } from '@/lib/pipeline/period';
 import SummaryCards, { type SummaryBlock } from './SummaryCards';
 import type { MilestoneCascadeRow } from './MilestoneCascade';
-import PivotTable, { buildBranchRows, type BranchForecastRow, type BranchRow, type StrategyRow } from './PivotTable';
+import PivotTable, { buildBranchRows, type BranchRow, type StrategyRow } from './PivotTable';
+import {
+  PULL_THROUGH_RATES,
+  buildBranchForecastRows,
+  type BranchForecastRow,
+} from '@/lib/pipeline/branchForecast';
 import AdverseTable, { type ChannelFilter } from './AdverseTable';
 import Topbar from './Topbar';
 import TabNavigation, { type TabType } from './TabNavigation';
@@ -54,19 +56,11 @@ function formatLastUpload(iso: string): string {
   return `Updated on ${fecha} at ${hora}`;
 }
 
-/**
- * Etapa F4: mismos valores que DEMO_RATES (F3). El input editable en la UI
- * para estos 4 micro-% es una etapa futura, no aprobada todavía -- se
- * duplican acá en vez de importar fixtures/pipeline-demo.ts porque esta
- * página ya no depende del módulo de fixture (ver Decisiones en la
- * respuesta de F4).
+/*
+ * Etapa RPT1: `PULL_THROUGH_RATES` se mudó a `lib/pipeline/branchForecast.ts`,
+ * junto a la cascada que las aplica. Se re-importa acá porque el panel de
+ * Pull-Through Cascade las muestra tasa por tasa.
  */
-const PULL_THROUGH_RATES: PullThroughRates = {
-  Started: 0.8923,
-  Processing: 0.93,
-  Underwriting: 0.8459,
-  Closing: 0.95,
-};
 
 const EMPTY_BUCKETS: BucketCounts = { Started: 0, Processing: 0, Underwriting: 0, Closing: 0 };
 
@@ -278,6 +272,9 @@ export default function PipelinePage() {
   // y le da feedback visual al botón. Es el único estado de "trabajando" que
   // queda en la pantalla: el de la carga se fue con ella.
   const [isExporting, setIsExporting] = useState(false);
+  /* Etapa RPT1: estado propio, no compartido con `isExporting` -- son dos descargas distintas. */
+  const [isBuildingMonthly, setIsBuildingMonthly] = useState(false);
+  const [isBuildingDay, setIsBuildingDay] = useState(false);
 
   // Etapa F5a: si nadie subió un archivo en esta sesión (data===null),
   // restaura el último snapshot activo desde Supabase -- para no perder el
@@ -410,6 +407,35 @@ export default function PipelinePage() {
     // esto el botón quedaría habilitado con el `firstSeenAsAdverse` del
     // snapshot ANTERIOR mientras el del nuevo snapshot todavía está en
     // vuelo, misma ventana de carrera que este fix busca cerrar.
+    /*
+     * ======================================================================
+     * ⚠ ESTE `setState` ES EL ERROR DE LINT DE ESTA PANTALLA, Y ACÁ ESTÁ LA
+     * FORMA CORRECTA — para que el próximo no repita el intento.
+     * ======================================================================
+     *
+     * `react-hooks/set-state-in-effect` lo marca con razón: un `setState`
+     * sincrónico dentro de un efecto dispara un render en cascada. No es un
+     * descuido de quien lo escribió: el camino natural lleva acá. Escribiendo
+     * el aviso de integridad (RPT5) intenté exactamente lo mismo --limpiar el
+     * estado al arrancar el fetch-- y el linter lo marcó igual.
+     *
+     * LA FORMA CORRECTA es no tener un booleano que haya que dar vuelta, sino
+     * guardar A QUÉ SNAPSHOT PERTENECE la respuesta y DERIVAR el booleano:
+     *
+     *   const [adverseFor, setAdverseFor] = useState<number | null>(null);
+     *   // en el .then():  setAdverseFor(snapshotId)
+     *   const isAdverseHistoryLoading = adverseFor !== data?.snapshotId;
+     *
+     * Con eso el estado "todavía no llegó" no se declara: se deduce de que la
+     * respuesta que hay es de otro snapshot. Cierra la misma ventana de carrera
+     * que el `true` adelantado y sin `setState` en el efecto.
+     *
+     * ⚠ NO SE APLICA ACÁ porque `data` no expone hoy un id de snapshot y
+     * agregarlo toca `/api/pipeline/latest` y su mapeo -- fuera del alcance de
+     * las etapas que pasaron por este archivo. El mismo problema se resolvió de
+     * la forma correcta en el aviso de integridad, comparando `integrity.month`
+     * contra `forecastMonth` en el render en vez de limpiar el estado.
+     */
     setIsAdverseHistoryLoading(true);
     fetch('/api/pipeline/adverse-history')
       .then((res) => res.json())
@@ -429,6 +455,48 @@ export default function PipelinePage() {
       cancelled = true;
     };
   }, [data]);
+
+  /*
+   * ==========================================================================
+   * ¿LLEGÓ TODO? — el aviso de integridad de la carga (etapa RPT5)
+   * ==========================================================================
+   *
+   * Va EN PANTALLA y no sólo en consola, mismo criterio que el ⚠ de branches
+   * sin resolver: un chequeo que avisa donde nadie mira no avisa.
+   *
+   * Los dos numeros y por que son esos dos --y no una comparacion de totales
+   * contra Commercial Activity, que daria mil falsos positivos-- estan
+   * explicados en `/api/pipeline/integrity`.
+   */
+  const [integrity, setIntegrity] = useState<{
+    vanished: string[];
+    closedNeverInPipeline: { loanNumber: string; channel: string; branch: string; closingMonth: string }[];
+    previousSnapshotDate: string | null;
+    month: string;
+    activeWarnings: string[] | null;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!data) return;
+    let cancelled = false;
+    /*
+     * ⚠ DEPENDE DEL MES, no sólo de `data`. El chequeo de cerrados sin haber
+     * estado mira el mes que la pantalla muestra; si el efecto no se
+     * re-disparara al cambiar el selector, el aviso quedaría hablando del mes
+     * anterior -- que es exactamente el defecto que esto corrige.
+     */
+    fetch('/api/pipeline/integrity?month=' + encodeURIComponent(forecastMonth))
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (cancelled || !body || body.error) return;
+        setIntegrity(body);
+      })
+      /* Un chequeo que no pudo correr no debe romper la pantalla que revisa. */
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [data, forecastMonth]);
 
   /*
    * Acá vivía `handleFileSelected`, que subía el archivo a /api/pipeline/parse.
@@ -465,64 +533,20 @@ export default function PipelinePage() {
   const pageTitle = isPastForecastMonth ? 'Actual Closings' : 'Forecast & Pipeline';
   const forecastRange = targetMonthRange(forecastMonthParsed);
   const forecastMonthLabel = formatForecastMonthLabel(forecastMonthParsed);
+  /* Qué export ofrece el mes elegido. Ver `exportKindForMonth`. */
+  const exportKind = exportKindForMonth(forecastMonth, businessToday());
 
   // Cálculo derivado -- igual que en F3, pero sobre data.openLoans (real) en
   // vez de DEMO_LOANS. aggregate.ts (F2) no se modificó: se llaman sus
   // mismas funciones exportadas.
-  const branchRows: BranchForecastRow[] = [];
-  if (data) {
-    const groups = new Map<string, { branch: string; channel: PipelineLoan['channel'] }>();
-    for (const loan of data.openLoans) {
-      groups.set(loan.branch + '::' + loan.channel, { branch: loan.branch, channel: loan.channel });
-    }
-    for (const { branch, channel } of groups.values()) {
-      const { total, healthy } = splitHealthyTotal(data.openLoans, branch, channel, pipelineDateRange);
-      const bucketTotal = countByMilestoneBucket(total);
-      const bucketHealthy = countByMilestoneBucket(healthy);
-      const { forecastByBucket, forecastTotal: bankedFormulaForecastTotal } = calculateForecast(bucketHealthy, PULL_THROUGH_RATES);
-      // Etapa F5j: Brokered ya no usa Healthy ni una cascada por etapa --
-      // pull-through PLANO del 40% (BROKERED_FLAT_PULL_THROUGH_RATE,
-      // aggregate.ts) sobre el TOTAL de préstamos abiertos de esa branch
-      // (no sobre Healthy: cambio de población, no solo de tasa). Banked
-      // sigue exactamente igual: bankedFormulaForecastTotal es la cascada de
-      // siempre (calculateForecast + PULL_THROUGH_RATES) sobre Healthy, sin
-      // tocar. bucketTotal/bucketHealthy/forecastByBucket de arriba quedan
-      // calculados con la fórmula de Banked solo por compatibilidad de tipos
-      // con BranchForecastRow (PivotTable.tsx) -- nadie los lee para una
-      // fila Brokered; el desglose real de Brokered para su propia cascada
-      // se recalcula aparte más abajo, a partir de `loans`.
-      //
-      // Redondeo (Cambio 4 del brief F5j): se redondea ACÁ, por fila de
-      // branch, para los 2 canales -- no al mostrar. `forecastTotal` de acá
-      // en más solo se usa para sumar/mostrar (grandForecastTotal,
-      // summarizeChannel, y el `forecastTotal` que recibe PivotTable.tsx por
-      // fila) -- nunca para otra decisión de negocio -- así que adelantar el
-      // redondeo acá hace que todo lo que sume esto herede "sumar filas ya
-      // enteras" sin tocar esos archivos. Como closedCount siempre es entero,
-      // round(closedCount + x) === closedCount + round(x) para cualquier x:
-      // el valor que ve cada fila individual (PivotTable) quedó IDÉNTICO a
-      // antes; lo único que cambia es que el subtotal/total ya no arrastra
-      // decimales antes de redondear una sola vez al final. El valor
-      // CALCULADO de Banked (bankedFormulaForecastTotal, con decimales) no
-      // se toca en absoluto -- Math.round() acá es solo el punto de display,
-      // no una nueva fórmula.
-      const forecastTotal =
-        channel === 'Brokered'
-          ? Math.round(total.length * BROKERED_FLAT_PULL_THROUGH_RATE)
-          : Math.round(bankedFormulaForecastTotal);
-      branchRows.push({
-        branch,
-        channel,
-        totalCount: total.length,
-        healthyCount: healthy.length,
-        bucketTotal,
-        bucketHealthy,
-        forecastByBucket,
-        forecastTotal,
-        loans: total,
-      });
-    }
-  }
+  /*
+   * Etapa RPT1: este bucle --con sus tasas, su población por canal y su
+   * redondeo por fila-- se mudó tal cual a `lib/pipeline/branchForecast.ts`.
+   * No cambió nada del cálculo; cambió dónde vive, porque el reporte mensual
+   * necesita la misma cascada sobre el snapshot del corte y copiarla habría
+   * dejado dos definiciones del forecast. Ver la nota de ese archivo.
+   */
+  const branchRows: BranchForecastRow[] = data ? buildBranchForecastRows(data.openLoans, pipelineDateRange) : [];
 
   // Etapa F6h, extendido en ajuste posterior: filtro de branch para TODA la
   // página (banner, Executive, Matrix, Adverse) -- no solo Executive como se
@@ -1092,6 +1116,100 @@ export default function PipelinePage() {
     })),
   ];
 
+  /*
+   * Etapa RPT1. Manda sólo el mes: la ruta resuelve sola la fecha de corte --el
+   * primer jueves-- y qué snapshot le corresponde. Deliberadamente NO le pasa
+   * los filtros de la pantalla: el reporte mensual describe el mes entero, y
+   * mandarlo filtrado por branch daría un archivo que dice "agosto" y muestra
+   * un pedazo de agosto.
+   */
+  /*
+   * ==========================================================================
+   * EL FORECAST DE HOY — etapa RPT6
+   * ==========================================================================
+   *
+   * ⚠ EL MODELO SE ARMA ACÁ, EN EL CLIENTE, sobre `filteredBranchRows` y
+   * `filteredResolvedLoans` -- los mismos objetos que alimentan las tarjetas del
+   * Executive Summary. La ruta sólo dibuja.
+   *
+   * Es lo que hace que "los números son exactamente los de la pantalla" sea una
+   * propiedad por construcción y no algo que haya que verificar: no hay una
+   * segunda consulta ni un segundo cálculo del que puedan diferir.
+   *
+   * Y se pasan los DOS rangos porque la pantalla usa dos independientes:
+   * `pipelineDateRange` acota Total/Healthy Pipeline y `forecastRange` acota los
+   * cerrados. Ver la nota de `dayReport.ts`.
+   */
+  async function handleDayReport() {
+    setIsBuildingDay(true);
+    setError(null);
+    try {
+      const model = buildDayReport({
+        branchRows: filteredBranchRows,
+        resolvedLoans: filteredResolvedLoans,
+        pipelineRange: pipelineDateRange,
+        forecastRange,
+      });
+      const hoy = businessToday();
+      const today = `${hoy.year}-${String(hoy.month).padStart(2, '0')}-${String(hoy.day).padStart(2, '0')}`;
+      const res = await fetch('/api/pipeline/day-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          meta: {
+            today,
+            pipelineRange: pipelineDateRange,
+            forecastMonthLabel,
+            branchFilter: selectedBranch === 'ALL' ? 'All branches' : `Branch ${selectedBranch}`,
+          },
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(typeof body?.error === 'string' ? body.error : 'Could not build the forecast export.');
+      }
+      const blob = await res.blob();
+      const match = (res.headers.get('Content-Disposition') ?? '').match(/filename="([^"]+)"/);
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = match ? match[1] : `Forecast_Today_${today}.xlsx`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setIsBuildingDay(false);
+    }
+  }
+
+  async function handleMonthlyReport() {
+    setIsBuildingMonthly(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/pipeline/monthly-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ month: forecastMonth }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(typeof body?.error === 'string' ? body.error : 'Could not build the monthly report.');
+      }
+      const blob = await res.blob();
+      const match = (res.headers.get('Content-Disposition') ?? '').match(/filename="([^"]+)"/);
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = match ? match[1] : `Pipeline_Monthly_Report_${forecastMonth}.xlsx`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setIsBuildingMonthly(false);
+    }
+  }
+
   async function handleExport() {
     setIsExporting(true);
     setError(null);
@@ -1189,6 +1307,48 @@ export default function PipelinePage() {
               {isExporting ? 'Generating…' : isAdverseHistoryLoading ? 'Preparing…' : 'Download Excel'}
             </button>
           )}
+          {/*
+            Etapa RPT1 — el reporte mensual, al lado de la descarga de siempre.
+            Son dos cosas distintas y por eso son dos botones: "Download Excel"
+            baja lo que hay en pantalla AHORA, con los filtros puestos; esto baja
+            la comparación de un MES CERRADO contra su fecha de corte, y no
+            depende de ningún filtro de la pantalla. Usa el mes del selector de
+            Forecast, que es el único mes que la usuaria ya eligió.
+          */}
+          {/*
+            ⚠ LOS DOS BOTONES NO CONVIVEN — etapa RPT6. El mes elegido decide
+            cuál aparece, y para un mes futuro no aparece ninguno.
+
+            El motivo: un reporte de cierre generado a mitad de mes muestra un
+            cierre que todavía no ocurrió, y quien lo abra lo va a leer como
+            definitivo. Que la opción NO EXISTA es mejor que advertir que no se
+            use. La regla se deriva de la fecha del sistema en hora de negocio
+            -- ver `exportKindForMonth`.
+          */}
+          {data && exportKind === 'monthly' && (
+            <button
+              type="button"
+              className="btn"
+              onClick={handleMonthlyReport}
+              disabled={isBuildingMonthly}
+              title={`Compare the pipeline at the cut-off against how ${forecastMonthLabel} actually closed`}
+            >
+              <FileSheetIcon />
+              {isBuildingMonthly ? 'Building…' : `Monthly report (${forecastMonthLabel})`}
+            </button>
+          )}
+          {data && exportKind === 'day' && (
+            <button
+              type="button"
+              className="btn"
+              onClick={handleDayReport}
+              disabled={isBuildingDay}
+              title="Export the forecast exactly as it stands on screen today"
+            >
+              <FileSheetIcon />
+              {isBuildingDay ? 'Building…' : 'Export today’s forecast'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -1212,6 +1372,73 @@ export default function PipelinePage() {
          */
         lastUpdatedLabel={lastUploadedAt ? formatLastUpload(lastUploadedAt) : null}
       />
+
+      {/*
+        El aviso de la carga. Sólo aparece si hay algo que decir -- una franja
+        permanente que dice "todo bien" se vuelve invisible en una semana y deja
+        de avisar el día que importa.
+      */}
+      {/*
+        ⚠ SE EXIGE QUE EL REPORTE SEA DEL MES QUE SE MUESTRA. Mientras el fetch
+        del mes nuevo está en vuelo, el estado todavía tiene el del anterior; sin
+        esta comparación el aviso parpadearía con el mes viejo, que es una versión
+        más corta del mismo defecto que esta corrección arregla.
+
+        Se filtra acá y no limpiando el estado en el efecto: un `setState`
+        sincrónico dentro de un efecto dispara renders en cascada y el linter lo
+        marca con razón.
+      */}
+      {integrity &&
+        integrity.month === forecastMonth &&
+        (integrity.vanished.length > 0 ||
+          integrity.closedNeverInPipeline.length > 0 ||
+          (integrity.activeWarnings?.length ?? 0) > 0) && (
+          <div className="fc-integrity">
+            <span className="fc-integrity__ic" aria-hidden="true">
+              ⚠
+            </span>
+            <div>
+              {integrity.vanished.length > 0 && (
+                <p
+                  title={`Loan numbers: ${integrity.vanished.slice(0, 40).join(', ')}${
+                    integrity.vanished.length > 40 ? ` and ${integrity.vanished.length - 40} more` : ''
+                  }`}
+                >
+                  {/*
+                    ⚠ Este habla de la ÚLTIMA CARGA y no del mes seleccionado, y
+                    el texto tiene que decirlo: compara el snapshot anterior
+                    contra el activo, sin ninguna fecha de por medio. Sin la
+                    aclaración se lee como si fuera del mes que muestra la
+                    pantalla, igual que pasaba con el otro chequeo.
+                  */}
+                  <strong>{integrity.vanished.length}</strong> loan
+                  {integrity.vanished.length === 1 ? '' : 's'} open in the {integrity.previousSnapshotDate} snapshot
+                  {integrity.vanished.length === 1 ? ' is' : ' are'} in the latest load neither as open nor as resolved
+                  (latest load, not {forecastMonthLabel}).
+                </p>
+              )}
+              {integrity.closedNeverInPipeline.length > 0 && (
+                <p
+                  title={integrity.closedNeverInPipeline
+                    .slice(0, 40)
+                    .map((l) => `${l.loanNumber} · ${l.branch} · ${l.channel} · closed ${l.closingMonth}`)
+                    .join('\n')}
+                >
+                  <strong>{integrity.closedNeverInPipeline.length}</strong> loan
+                  {integrity.closedNeverInPipeline.length === 1 ? '' : 's'} closed in {forecastMonthLabel} without ever
+                  appearing in any snapshot — the forecast never saw{' '}
+                  {integrity.closedNeverInPipeline.length === 1 ? 'it' : 'them'}.
+                </p>
+              )}
+              {(integrity.activeWarnings?.length ?? 0) > 0 && (
+                <p title={(integrity.activeWarnings ?? []).slice(0, 40).join('\n')}>
+                  <strong>{integrity.activeWarnings?.length}</strong> notice
+                  {integrity.activeWarnings?.length === 1 ? '' : 's'} recorded when this snapshot was loaded.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
 
       {!data && isLoadingInitial && (
         <div className="empty">

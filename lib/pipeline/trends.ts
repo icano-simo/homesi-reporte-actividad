@@ -1,5 +1,5 @@
 import type { ResolvedLoan } from './types';
-import { utcToday } from './period';
+import { businessToday } from './period';
 import { NO_TYPE_LABEL } from './labels';
 
 /**
@@ -15,10 +15,12 @@ import { NO_TYPE_LABEL } from './labels';
  * leer componentes locales/UTC de una fecha. Esto es justo lo que evita el
  * bug que la regla "siempre UTC" previene (desplazar un cierre de fin de mes
  * al mes siguiente por husos horarios): no hay conversión de zona horaria
- * posible cuando nunca se pasa por un objeto Date. `utcToday()` (de
- * `lib/pipeline/period.ts`, mismo criterio ya establecido en la Parte 1) es
- * lo único que sí necesita UTC explícito -- para saber cuál es el "año en
- * curso" a partir del reloj del sistema.
+ * posible cuando nunca se pasa por un objeto Date. `businessToday()` (de
+ * `lib/pipeline/period.ts`, FIX-BUSINESS-TODAY) es lo único que sí necesita
+ * calcular "hoy" a partir del reloj del sistema -- para saber cuál es el
+ * "año en curso" en hora de negocio (Bogotá, UTC-5 fijo), no en UTC puro:
+ * `utcToday()` cruzaría al año/mes siguiente 5 horas antes de que el día de
+ * negocio en Colombia termine.
  */
 
 export interface MonthlyTotal {
@@ -39,9 +41,9 @@ export function monthsOfYear(year: number): string[] {
   return Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, '0')}`);
 }
 
-/** Año en curso (UTC) -- el que usa la serie por defecto. */
+/** Año en curso (hora de negocio, Bogotá) -- el que usa la serie por defecto. */
 export function currentYear(): number {
-  return utcToday().year;
+  return businessToday().year;
 }
 
 /**

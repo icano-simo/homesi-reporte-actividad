@@ -136,6 +136,39 @@ export function closesInMonth(loan: { estClosingDate: string | null }, yearMonth
   return loan.estClosingDate !== null && loan.estClosingDate.slice(0, 7) === yearMonth;
 }
 
+/**
+ * ============================================================================
+ * ⚠ EL PIPELINE DEL MES EN CURSO INCLUYE LO VENCIDO — etapa OL16
+ * ============================================================================
+ *
+ * "Cierra este mes O YA DEBERÍA HABER CERRADO." Un préstamo con fecha estimada
+ * vencida que sigue abierto no cerró y no va a cerrar en el mes que ya pasó: si
+ * cierra, cierra ahora.
+ *
+ * ⚠ ANTES DESAPARECÍAN. Con el filtro de igualdad estricta, el 1 de septiembre
+ * los préstamos con fecha de agosto quedaban fuera del mes en curso, y agosto
+ * ya era un mes de CIERRES --su columna cuenta lo que cerró, no lo que se
+ * proyecta--. O sea que no estaban en ninguna parte. Medido en el snapshot 119:
+ * 19 de 101 abiertos, el 19% del pipeline, invisibles el día que rodó el mes.
+ *
+ * Y no eran préstamos viejos: el más antiguo venció el 21 de agosto, once días.
+ * Son fechas que se corrieron, no préstamos abandonados -- 15 de los 19 están
+ * healthy y 5 ya están en Closing.
+ *
+ * ⚠ POR QUÉ NO SE QUEDAN EN AGOSTO. Sumar pipeline a una columna rotulada
+ * `Actual — closed` mezclaría un hecho con un pronóstico, y el total de agosto
+ * dejaría de ser comparable con Commercial Activity, que cuenta cierres. El mes
+ * en curso es la única columna que puede sostener algo que todavía no ocurrió.
+ *
+ * La comparación es de STRINGS 'YYYY-MM', que ordenan igual que las fechas.
+ */
+export function closesInMonthOrOverdue(
+  loan: { estClosingDate: string | null },
+  yearMonth: string
+): boolean {
+  return loan.estClosingDate !== null && loan.estClosingDate.slice(0, 7) <= yearMonth;
+}
+
 export function projectCurrentMonth(
   closedToDate: number,
   /**

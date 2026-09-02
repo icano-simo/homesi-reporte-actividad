@@ -15,6 +15,19 @@ import type { DateRange } from './aggregate';
  * forecast-business-rules): el equipo opera en UTC-5, y derivar "hoy" con
  * métodos locales puede desplazar el mes cerca de medianoche según el huso
  * horario del navegador de quien mira la pantalla.
+ *
+ * ⚠ DOS funciones de "hoy" distintas, para dos propósitos distintos --
+ * FIX-BUSINESS-TODAY (confirmado con el bug real: el selector de período
+ * saltaba a septiembre desde las 7:00pm hora Colombia el 31 de agosto):
+ *   - `utcToday()`: UTC puro. Para PARSEAR fechas ya guardadas
+ *     ('YYYY-MM-DD') sin que el huso del navegador las corra un día --
+ *     ese caso sigue siendo correcto en UTC, no se toca.
+ *   - `businessToday()`: hora de negocio (Bogotá, UTC-5 fijo). Para
+ *     DEFAULTS y comparaciones "¿está en curso?" (selector de período,
+ *     progreso del Hero KPI, capado YTD, año por defecto de Monthly
+ *     Trends) -- ahí "hoy" tiene que ser el día de negocio en Colombia,
+ *     no el día UTC, que ya cruza al siguiente 5 horas antes de que el
+ *     día de negocio termine.
  */
 
 export type PeriodMode = 'month' | 'quarter' | 'ytd';
@@ -65,21 +78,22 @@ export function utcToday(): { year: number; month: number; day: number } {
   return { year: now.getUTCFullYear(), month: now.getUTCMonth() + 1, day: now.getUTCDate() };
 }
 
-/**
- * Etapa ACTUAL-CLOSINGS -- portado desde `feat/analytics-podium-fixes`
- * (todavía sin mergear a `main`), donde ya se diagnosticó y corrigió: usar
- * `utcToday()` para "qué día es hoy" (a diferencia de PARSEAR una fecha ya
- * guardada, donde UTC sí es correcto) cruza al mes siguiente 5 horas antes
- * de que el día de negocio en Colombia termine (desde las 7pm hora
- * Bogotá). Esta etapa necesita "hoy" para decidir si el Forecast Month
- * elegido ya quedó en el pasado -- mismo caso de uso, mismo bug si se
- * usara `utcToday()` acá. Se porta la función tal cual (sin duplicar la
- * lógica con variaciones) hasta que esa rama se mergee a `main` y esto se
- * pueda importar de un solo lugar.
- */
+/** Offset fijo de Colombia -- Bogotá no observa horario de verano. */
 const BUSINESS_UTC_OFFSET_HOURS = -5;
 
-/** 'hoy' en hora de negocio (Bogotá, UTC-5 fijo) -- para defaults y comparaciones "en curso"/"ya pasó", nunca para parsear fechas guardadas (ahí sigue siendo utcToday()). */
+/**
+ * 'hoy' en hora de negocio (Bogotá, UTC-5 fijo) -- para defaults y
+ * comparaciones "en curso" (selector de período, progreso del Hero
+ * KPI, capado YTD, año por defecto de Monthly Trends). Distinto de
+ * utcToday(): un new Date() leído en UTC puro ya cruza al día/mes
+ * siguiente a las 7:00pm hora Colombia -- 5 horas antes de que el día
+ * de negocio en Colombia realmente termine. utcToday() sigue
+ * existiendo para el caso que sí necesita UTC puro (parsear fechas
+ * guardadas 'YYYY-MM-DD' sin depender del huso del navegador); esta
+ * función es para "qué día es hoy en Colombia", sin depender tampoco
+ * del huso del navegador de quien mira la pantalla (nunca usa
+ * getFullYear/getMonth locales).
+ */
 export function businessToday(): { year: number; month: number; day: number } {
   const now = new Date(Date.now() + BUSINESS_UTC_OFFSET_HOURS * 60 * 60 * 1000);
   return { year: now.getUTCFullYear(), month: now.getUTCMonth() + 1, day: now.getUTCDate() };
@@ -95,21 +109,21 @@ function lastDayOfUtcMonth(year: number, month: number): number {
   return new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
 
-/** Mes en curso (UTC) -- default real del selector, nunca hardcodeado. */
+/** Mes en curso (hora de negocio, Bogotá) -- default real del selector, nunca hardcodeado. */
 export function getDefaultPeriodSelection(): PeriodSelection {
-  const { year, month } = utcToday();
+  const { year, month } = businessToday();
   return { mode: 'month', year, month };
 }
 
-/** Quarter en curso (UTC) -- default al cambiar a modo Quarter. */
+/** Quarter en curso (hora de negocio, Bogotá) -- default al cambiar a modo Quarter. */
 export function getDefaultQuarterSelection(): QuarterPeriod {
-  const { year, month } = utcToday();
+  const { year, month } = businessToday();
   return { mode: 'quarter', year, quarter: quarterOfMonth(month) };
 }
 
-/** Año en curso (UTC) -- default al cambiar a modo YTD. */
+/** Año en curso (hora de negocio, Bogotá) -- default al cambiar a modo YTD. */
 export function getDefaultYtdSelection(): YtdPeriod {
-  const { year } = utcToday();
+  const { year } = businessToday();
   return { mode: 'ytd', year };
 }
 
@@ -132,7 +146,7 @@ export function periodDateRange(selection: PeriodSelection): DateRange {
     const lastDay = lastDayOfUtcMonth(year, endMonth);
     return { startDate: `${year}-${pad2(startMonth)}-01`, endDate: `${year}-${pad2(endMonth)}-${pad2(lastDay)}` };
   }
-  const today = utcToday();
+  const today = businessToday();
   const endDate = selection.year === today.year ? `${today.year}-${pad2(today.month)}-${pad2(today.day)}` : `${selection.year}-12-31`;
   return { startDate: `${selection.year}-01-01`, endDate };
 }
@@ -157,7 +171,7 @@ export function periodMonths(selection: PeriodSelection): string[] {
     const startMonth = (selection.quarter - 1) * 3 + 1;
     return [0, 1, 2].map((i) => `${selection.year}-${pad2(startMonth + i)}`);
   }
-  const today = utcToday();
+  const today = businessToday();
   const lastMonth = selection.year === today.year ? today.month : 12;
   return Array.from({ length: lastMonth }, (_, i) => `${selection.year}-${pad2(i + 1)}`);
 }
