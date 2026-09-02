@@ -425,6 +425,42 @@ export default function PipelinePage() {
   }, [data]);
 
   /*
+   * ==========================================================================
+   * ¿LLEGÓ TODO? — el aviso de integridad de la carga (etapa RPT5)
+   * ==========================================================================
+   *
+   * Va EN PANTALLA y no sólo en consola, mismo criterio que el ⚠ de branches
+   * sin resolver: un chequeo que avisa donde nadie mira no avisa.
+   *
+   * Los dos numeros y por que son esos dos --y no una comparacion de totales
+   * contra Commercial Activity, que daria mil falsos positivos-- estan
+   * explicados en `/api/pipeline/integrity`.
+   */
+  const [integrity, setIntegrity] = useState<{
+    vanished: string[];
+    closedNeverInPipeline: { loanNumber: string; channel: string; branch: string; closingMonth: string }[];
+    previousSnapshotDate: string | null;
+    closedSince: string;
+    activeWarnings: string[] | null;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!data) return;
+    let cancelled = false;
+    fetch('/api/pipeline/integrity')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (cancelled || !body || body.error) return;
+        setIntegrity(body);
+      })
+      /* Un chequeo que no pudo correr no debe romper la pantalla que revisa. */
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [data]);
+
+  /*
    * Acá vivía `handleFileSelected`, que subía el archivo a /api/pipeline/parse.
    *
    * Se retira el ACCESO desde esta pantalla, no el endpoint: el archivo ahora
@@ -1204,6 +1240,54 @@ export default function PipelinePage() {
          */
         lastUpdatedLabel={lastUploadedAt ? formatLastUpload(lastUploadedAt) : null}
       />
+
+      {/*
+        El aviso de la carga. Sólo aparece si hay algo que decir -- una franja
+        permanente que dice "todo bien" se vuelve invisible en una semana y deja
+        de avisar el día que importa.
+      */}
+      {integrity &&
+        (integrity.vanished.length > 0 ||
+          integrity.closedNeverInPipeline.length > 0 ||
+          (integrity.activeWarnings?.length ?? 0) > 0) && (
+          <div className="fc-integrity">
+            <span className="fc-integrity__ic" aria-hidden="true">
+              ⚠
+            </span>
+            <div>
+              {integrity.vanished.length > 0 && (
+                <p
+                  title={`Loan numbers: ${integrity.vanished.slice(0, 40).join(', ')}${
+                    integrity.vanished.length > 40 ? ` and ${integrity.vanished.length - 40} more` : ''
+                  }`}
+                >
+                  <strong>{integrity.vanished.length}</strong> loan
+                  {integrity.vanished.length === 1 ? '' : 's'} open in the {integrity.previousSnapshotDate} snapshot
+                  {integrity.vanished.length === 1 ? ' is' : ' are'} in this one neither as open nor as resolved.
+                </p>
+              )}
+              {integrity.closedNeverInPipeline.length > 0 && (
+                <p
+                  title={integrity.closedNeverInPipeline
+                    .slice(0, 40)
+                    .map((l) => `${l.loanNumber} · ${l.branch} · ${l.channel} · closed ${l.closingMonth}`)
+                    .join('\n')}
+                >
+                  <strong>{integrity.closedNeverInPipeline.length}</strong> loan
+                  {integrity.closedNeverInPipeline.length === 1 ? '' : 's'} closed since {integrity.closedSince} without
+                  ever appearing in any snapshot — the forecast never saw{' '}
+                  {integrity.closedNeverInPipeline.length === 1 ? 'it' : 'them'}.
+                </p>
+              )}
+              {(integrity.activeWarnings?.length ?? 0) > 0 && (
+                <p title={(integrity.activeWarnings ?? []).slice(0, 40).join('\n')}>
+                  <strong>{integrity.activeWarnings?.length}</strong> notice
+                  {integrity.activeWarnings?.length === 1 ? '' : 's'} recorded when this snapshot was loaded.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
 
       {!data && isLoadingInitial && (
         <div className="empty">
