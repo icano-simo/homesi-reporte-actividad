@@ -27,6 +27,8 @@ import {
   buildBranchForecastRows,
   type BranchForecastRow,
 } from '@/lib/pipeline/branchForecast';
+import { buildLoanOfficerForecastRows } from '@/lib/pipeline/loanOfficerForecast';
+import { buildStrategyBranchRows } from '@/lib/pipeline/strategyBranchRows';
 import AdverseTable, { type ChannelFilter } from './AdverseTable';
 import Topbar from './Topbar';
 import TabNavigation, { type TabType } from './TabNavigation';
@@ -270,6 +272,8 @@ export default function PipelinePage() {
   const [isExporting, setIsExporting] = useState(false);
   /* Etapa RPT1: estado propio, no compartido con `isExporting` -- son dos descargas distintas. */
   const [isBuildingMonthly, setIsBuildingMonthly] = useState(false);
+  /* Etapa PDF-INVESTIGACIÓN: estado propio, tercera descarga independiente de las otras dos. */
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isBuildingDay, setIsBuildingDay] = useState(false);
 
   // Etapa F5a: si nadie subió un archivo en esta sesión (data===null),
@@ -1048,6 +1052,208 @@ export default function PipelinePage() {
   );
 
   /**
+   * Etapa PDF-INVESTIGACIÓN (sin UI todavía) -- mismo forecast por Loan
+   * Officer, ahora APORCIONADO en vez de recalculado -- ver el comentario
+   * de cabecera de `buildLoanOfficerForecastRows()` (lib/pipeline/
+   * loanOfficerForecast.ts). Recibe `branchRowsForSummary` (ya calculado
+   * más arriba para el resumen por estrategia -- mismo dato, no uno
+   * nuevo), `filteredResolvedLoans` (para reconstruir los cerrados por
+   * branch+channel, igual que hace `buildBranchRows()` internamente) y
+   * `forecastRange` (la MISMA variable que ya recibe la llamada a
+   * `buildBranchRows()` de arriba -- ya no hace falta `pipelineDateRange`
+   * acá: la población de abiertos viene de
+   * `branchRow.branchForecastRow.loans`, que `branchRowsForSummary` ya
+   * armó con ese rango).
+   */
+  const loanOfficerForecastRows = data
+    ? buildLoanOfficerForecastRows(branchRowsForSummary, filteredResolvedLoans, forecastRange, PULL_THROUGH_RATES)
+    : [];
+
+  /**
+   * Etapa PDF-INVESTIGACIÓN -- mismo resumen por estrategia de arriba
+   * (`strategySummaryRows`/`strategySummaryTotal`, SIN modificarlos),
+   * pero acotado a un solo canal por vez. Misma lógica de reduce,
+   * extraída a una función local para no repetirla 2 veces a mano.
+   */
+  function buildStrategySummaryFor(rows: BranchRow[]): {
+    rows: (typeof EMPTY_STRATEGY_TOTALS & { strategy: Strategy })[];
+    total: typeof EMPTY_STRATEGY_TOTALS;
+  } {
+    const totals = new Map<Strategy, typeof EMPTY_STRATEGY_TOTALS>(STRATEGY_ORDER.map((s) => [s, { ...EMPTY_STRATEGY_TOTALS }]));
+    for (const branchRow of rows) {
+      for (const sr of branchRow.strategyRows) {
+        const acc = totals.get(sr.strategy) ?? { ...EMPTY_STRATEGY_TOTALS };
+        acc.totalCount += sr.totalCount;
+        acc.healthyCount += sr.healthyCount;
+        acc.closedCount += sr.closedCount;
+        acc.projectedToClose += sr.projectedToClose;
+        acc.totalForecast += sr.totalForecast;
+        totals.set(sr.strategy, acc);
+      }
+    }
+    const summaryRows = STRATEGY_ORDER.map((strategy) => ({ strategy, ...(totals.get(strategy) ?? EMPTY_STRATEGY_TOTALS) }));
+    const total = summaryRows.reduce(
+      (acc, r) => ({
+        totalCount: acc.totalCount + r.totalCount,
+        healthyCount: acc.healthyCount + r.healthyCount,
+        closedCount: acc.closedCount + r.closedCount,
+        projectedToClose: acc.projectedToClose + r.projectedToClose,
+        totalForecast: acc.totalForecast + r.totalForecast,
+      }),
+      { ...EMPTY_STRATEGY_TOTALS }
+    );
+    return { rows: summaryRows, total };
+  }
+
+  const { rows: bankedStrategySummaryRows, total: bankedStrategySummaryTotal } = buildStrategySummaryFor(
+    branchRowsForSummary.filter((r) => r.channel === 'Banked - Retail')
+  );
+  const { rows: brokeredStrategySummaryRows, total: brokeredStrategySummaryTotal } = buildStrategySummaryFor(
+    branchRowsForSummary.filter((r) => r.channel === 'Brokered')
+  );
+
+  /**
+   * Etapa STRATEGY-PAGES -- una entrada por estrategia (STRATEGY_ORDER),
+   * con las 2 tablas (Banked/Brokered) ya armadas para las 5 páginas del
+   * PDF por estrategia. `buildStrategyBranchRows()` (lib/pipeline/
+   * strategyBranchRows.ts) reusa `branchRowsForSummary` (el mismo
+   * `BranchRow[]` de arriba, ya con `strategyRows` calculado por
+   * `buildStrategyRows()`) -- ningún cálculo nuevo, solo reparte por
+   * branch lo que ya existe, mostrando el MISMO conjunto de branches que
+   * ya lista "Por Branch" del Resumen (una fila en cero cuando esa
+   * estrategia no está presente en ese branch, nunca un branch de más).
+   */
+  const strategyBranchPages = STRATEGY_ORDER.map((strategy) => ({
+    strategy,
+    banked: buildStrategyBranchRows(branchRowsForSummary.filter((r) => r.channel === 'Banked - Retail'), strategy),
+    brokered: buildStrategyBranchRows(branchRowsForSummary.filter((r) => r.channel === 'Brokered'), strategy),
+  }));
+
+  /**
+   * Etapa PDF-INVESTIGACIÓN -- verificación de desarrollo, mismo estilo
+   * que el `console.warn` de CTC+Closing en `buildBranchRows()`
+   * (PivotTable.tsx): si esto no cuadra, algo del reparto por Loan
+   * Officer o por estrategia-y-canal está mal, no es un detalle de
+   * presentación.
+   */
+  if (process.env.NODE_ENV !== 'production') {
+    const sumLoanOfficerByChannel = (channel: PipelineLoan['channel']) =>
+      loanOfficerForecastRows
+        .filter((r) => r.channel === channel)
+        .reduce(
+          (acc, r) => ({
+            totalCount: acc.totalCount + r.totalCount,
+            healthyCount: acc.healthyCount + r.healthyCount,
+            closedCount: acc.closedCount + r.closedCount,
+            totalForecast: acc.totalForecast + r.totalForecast,
+          }),
+          { totalCount: 0, healthyCount: 0, closedCount: 0, totalForecast: 0 }
+        );
+
+    const loBanked = sumLoanOfficerByChannel('Banked - Retail');
+    const loBrokered = sumLoanOfficerByChannel('Brokered');
+    const bankedSummaryCells = {
+      totalCount: bankedSummary.totalCount,
+      healthyCount: bankedSummary.healthyCount,
+      closedCount: bankedSummary.closedCount,
+      totalForecast: bankedSummary.totalForecast,
+    };
+    const brokeredSummaryCells = {
+      totalCount: brokeredSummary.totalCount,
+      healthyCount: brokeredSummary.healthyCount,
+      closedCount: brokeredSummary.closedCount,
+      totalForecast: brokeredSummary.totalForecast,
+    };
+
+    console.table({
+      'Banked -- loanOfficerForecastRows (suma)': loBanked,
+      'Banked -- bankedSummary (pantalla)': bankedSummaryCells,
+      'Banked -- bankedStrategySummaryTotal': bankedStrategySummaryTotal,
+      'Brokered -- loanOfficerForecastRows (suma)': loBrokered,
+      'Brokered -- brokeredSummary (pantalla)': brokeredSummaryCells,
+      'Brokered -- brokeredStrategySummaryTotal': brokeredStrategySummaryTotal,
+    });
+
+    const cellsMatch = (a: typeof loBanked, b: typeof loBanked) =>
+      a.totalCount === b.totalCount && a.healthyCount === b.healthyCount && a.closedCount === b.closedCount && a.totalForecast === b.totalForecast;
+
+    if (!cellsMatch(loBanked, bankedSummaryCells)) {
+      console.warn('PDF-INVESTIGACIÓN: loanOfficerForecastRows (Banked) no coincide con bankedSummary', {
+        loanOfficerSum: loBanked,
+        bankedSummary: bankedSummaryCells,
+      });
+    }
+    if (!cellsMatch(loBrokered, brokeredSummaryCells)) {
+      console.warn('PDF-INVESTIGACIÓN: loanOfficerForecastRows (Brokered) no coincide con brokeredSummary', {
+        loanOfficerSum: loBrokered,
+        brokeredSummary: brokeredSummaryCells,
+      });
+    }
+    if (!cellsMatch(bankedStrategySummaryTotal, bankedSummaryCells)) {
+      console.warn('PDF-INVESTIGACIÓN: bankedStrategySummaryTotal no coincide con bankedSummary', {
+        bankedStrategySummaryTotal,
+        bankedSummary: bankedSummaryCells,
+      });
+    }
+    if (!cellsMatch(brokeredStrategySummaryTotal, brokeredSummaryCells)) {
+      console.warn('PDF-INVESTIGACIÓN: brokeredStrategySummaryTotal no coincide con brokeredSummary', {
+        brokeredStrategySummaryTotal,
+        brokeredSummary: brokeredSummaryCells,
+      });
+    }
+
+    /**
+     * Etapa STRATEGY-PAGES -- red de seguridad propia: la suma de las
+     * filas por branch de `strategyBranchPages` (una por estrategia, por
+     * canal) tiene que dar EXACTO la fila de esa misma estrategia en
+     * `bankedStrategySummaryRows`/`brokeredStrategySummaryRows` -- son
+     * los mismos `strategyRows` de `branchRowsForSummary`, solo repartidos
+     * por branch en vez de sumados. Si no coincide, hay un branch faltante
+     * o duplicado en `buildStrategyBranchRows()`.
+     */
+    const cellsMatch5 = (
+      a: { totalCount: number; healthyCount: number; closedCount: number; projectedToClose: number; totalForecast: number },
+      b: { totalCount: number; healthyCount: number; closedCount: number; projectedToClose: number; totalForecast: number }
+    ) =>
+      a.totalCount === b.totalCount &&
+      a.healthyCount === b.healthyCount &&
+      a.closedCount === b.closedCount &&
+      a.projectedToClose === b.projectedToClose &&
+      a.totalForecast === b.totalForecast;
+
+    const sumBranchRowLite = (rows: { totalCount: number; healthyCount: number; closedCount: number; projectedToClose: number; totalForecast: number }[]) =>
+      rows.reduce(
+        (acc, r) => ({
+          totalCount: acc.totalCount + r.totalCount,
+          healthyCount: acc.healthyCount + r.healthyCount,
+          closedCount: acc.closedCount + r.closedCount,
+          projectedToClose: acc.projectedToClose + r.projectedToClose,
+          totalForecast: acc.totalForecast + r.totalForecast,
+        }),
+        { totalCount: 0, healthyCount: 0, closedCount: 0, projectedToClose: 0, totalForecast: 0 }
+      );
+
+    for (const page of strategyBranchPages) {
+      const bankedExpected = bankedStrategySummaryRows.find((r) => r.strategy === page.strategy);
+      const brokeredExpected = brokeredStrategySummaryRows.find((r) => r.strategy === page.strategy);
+      const bankedSum = sumBranchRowLite(page.banked);
+      const brokeredSum = sumBranchRowLite(page.brokered);
+      if (bankedExpected && !cellsMatch5(bankedSum, bankedExpected)) {
+        console.warn(`PDF-INVESTIGACIÓN: buildStrategyBranchRows (Banked, ${page.strategy}) no coincide con bankedStrategySummaryRows`, {
+          strategyBranchRowsSum: bankedSum,
+          bankedStrategySummaryRow: bankedExpected,
+        });
+      }
+      if (brokeredExpected && !cellsMatch5(brokeredSum, brokeredExpected)) {
+        console.warn(`PDF-INVESTIGACIÓN: buildStrategyBranchRows (Brokered, ${page.strategy}) no coincide con brokeredStrategySummaryRows`, {
+          strategyBranchRowsSum: brokeredSum,
+          brokeredStrategySummaryRow: brokeredExpected,
+        });
+      }
+    }
+  }
+
+  /**
    * Etapa EXCEL-6: hoja de portada -- todo dato ya calculado/disponible
    * en este componente, ningún cálculo nuevo. `activeStrategyFilter`
    * solo distingue "hay una estrategia elegida" de "no hay filtro" -- no
@@ -1248,6 +1454,103 @@ export default function PipelinePage() {
     }
   }
 
+  /**
+   * PDF-INVESTIGACIÓN — página 1 (Resumen) del futuro export a PDF.
+   * Mismo patrón que handleExport(): junta lo que YA está calculado en
+   * pantalla y lo manda tal cual a /api/pipeline/pdf, que solo dibuja
+   * (no vuelve a consultar Supabase). branchRowsForSummary/
+   * loanOfficerForecastRows/bankedStrategySummaryRows/
+   * brokeredStrategySummaryRows ya existen más arriba (etapa
+   * PDF-INVESTIGACIÓN anterior) -- acá solo se aplanan a los campos
+   * "Lite" que pide PipelineSummaryPdf, sin recalcular nada.
+   */
+  async function handleExportPdf() {
+    setIsExportingPdf(true);
+    setError(null);
+    try {
+      const toBranchLite = (rows: BranchRow[]) =>
+        rows.map((r) => ({
+          branch: r.branch,
+          totalCount: r.totalCount,
+          healthyCount: r.healthyCount,
+          closedCount: r.closedCount,
+          projectedToClose: r.projectedToClose,
+          totalForecast: r.totalForecast,
+        }));
+      const toLoanOfficerLite = (channel: PipelineLoan['channel']) =>
+        loanOfficerForecastRows
+          .filter((r) => r.channel === channel)
+          .map((r) => ({
+            branch: r.branch,
+            loanOfficer: r.loanOfficer,
+            totalCount: r.totalCount,
+            healthyCount: r.healthyCount,
+            closedCount: r.closedCount,
+            projectedToClose: r.projectedToClose,
+            totalForecast: r.totalForecast,
+          }));
+      const toStrategyLite = (rows: typeof bankedStrategySummaryRows) =>
+        rows.map((r) => ({
+          strategy: r.strategy,
+          totalCount: r.totalCount,
+          healthyCount: r.healthyCount,
+          closedCount: r.closedCount,
+          projectedToClose: r.projectedToClose,
+          totalForecast: r.totalForecast,
+        }));
+
+      const res = await fetch('/api/pipeline/pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kpis: {
+            totalPipeline: grandTotalCount,
+            healthyPipeline: grandHealthyCount,
+            closed: closedCount,
+            totalForecast,
+          },
+          meta: {
+            forecastMonthLabel,
+            pipelineRangeLabel: pipelineDateRange.startDate + ' to ' + pipelineDateRange.endDate,
+            branchLabel: selectedBranch === 'ALL' ? 'All branches' : selectedBranch,
+            generatedAtLabel: new Date().toISOString().slice(0, 10),
+          },
+          branchRows: {
+            banked: toBranchLite(branchRowsForSummary.filter((r) => r.channel === 'Banked - Retail')),
+            brokered: toBranchLite(branchRowsForSummary.filter((r) => r.channel === 'Brokered')),
+          },
+          loanOfficerRows: {
+            banked: toLoanOfficerLite('Banked - Retail'),
+            brokered: toLoanOfficerLite('Brokered'),
+          },
+          strategyRows: {
+            banked: toStrategyLite(bankedStrategySummaryRows),
+            brokered: toStrategyLite(brokeredStrategySummaryRows),
+          },
+          /* Etapa STRATEGY-PAGES -- ya armado por strategyBranchPages, sin transformar. */
+          strategyPages: strategyBranchPages,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(typeof body?.error === 'string' ? body.error : 'Could not generate the PDF file.');
+      }
+      const blob = await res.blob();
+      const contentDisposition = res.headers.get('Content-Disposition') ?? '';
+      const match = contentDisposition.match(/filename="([^"]+)"/);
+      const downloadName = match ? match[1] : 'Forecast_Pipeline_Resumen.pdf';
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = downloadName;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setIsExportingPdf(false);
+    }
+  }
+
   // resolvedLoans (Funded/Adverse) no entran a ningún OTRO cálculo -- los
   // 'adverse' nunca se suman a nada. Antes había una variable local
   // (`resolvedSummary`) que armaba un texto informativo con este mismo
@@ -1306,6 +1609,26 @@ export default function PipelinePage() {
             >
               <DownloadIcon />
               {isExporting ? 'Generating…' : isAdverseHistoryLoading ? 'Preparing…' : 'Download Excel'}
+            </button>
+          )}
+          {/*
+            PDF-INVESTIGACIÓN — página 1 (Resumen) del futuro export a PDF,
+            junto a "Download Excel". Botón nuevo, no reemplaza nada: baja lo
+            mismo que ya está en pantalla (sin las páginas de detalle por
+            estrategia todavía, esa es la etapa siguiente). Mismo criterio de
+            deshabilitado que el Excel (isAdverseHistoryLoading), más su
+            propio estado de carga (isExportingPdf, no compartido con
+            isExporting).
+          */}
+          {data && (
+            <button
+              type="button"
+              className="btn"
+              onClick={handleExportPdf}
+              disabled={isExportingPdf || isAdverseHistoryLoading}
+            >
+              <DownloadIcon />
+              {isExportingPdf ? 'Generating…' : isAdverseHistoryLoading ? 'Preparing…' : 'Download PDF'}
             </button>
           )}
           {/*
