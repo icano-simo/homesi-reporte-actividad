@@ -1162,6 +1162,7 @@ export default function PipelinePage() {
             pipelineRange: pipelineDateRange,
             forecastMonthLabel,
             branchFilter: selectedBranch === 'ALL' ? 'All branches' : `Branch ${selectedBranch}`,
+            generatedAt: new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC',
           },
         }),
       });

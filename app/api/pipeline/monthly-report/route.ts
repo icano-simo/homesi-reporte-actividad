@@ -251,17 +251,60 @@ export async function POST(request: Request) {
     /* El del ÚLTIMO snapshot del mes: decide quién seguía abierto al cierre. */
     let openAtMonthEnd = new Set<string>(anchorOpen.map((l) => l.sourceLoanId));
     const lastMilestone = new Map<string, { milestone: string; date: string | null; at: number }>();
-    for (const l of anchorOpen) lastMilestone.set(l.sourceLoanId, { milestone: l.rawMilestone, date: l.milestoneDate, at: anchor.id });
+    /*
+     * ⚠ LA PRIMERA VEZ QUE SE VIO ABIERTO CADA PRESTAMO, en la MISMA pasada
+     * — etapa RPT7. Sale del `min(snapshot_id)` del corte en adelante, que es
+     * el mismo recorrido que ya se hacia para el ultimo milestone.
+     *
+     * Se siembra con los del corte porque son la primera aparicion posible: el
+     * bucle recorre `duringMonth` en orden ascendente y sólo escribe si la clave
+     * no está, así que el primero gana.
+     */
+    const firstSeen = new Map<string, { snapshotDate: string; estClosingDate: string | null }>();
+    for (const l of anchorOpen) {
+      lastMilestone.set(l.sourceLoanId, { milestone: l.rawMilestone, date: l.milestoneDate, at: anchor.id });
+      firstSeen.set(l.sourceLoanId, { snapshotDate: anchor.snapshot_date, estClosingDate: l.estClosingDate });
+    }
+    /* La Est. Closing Date del ultimo dia del mes -- ver `estClosingEnd`. */
+    let estAtMonthEnd = new Map<string, string | null>();
     for (const s of duringMonth) {
-      const rows = await page<{ source_loan_id: string; raw_milestone: string; milestone_date: string | null }>(
+      const rows = await page<{
+        source_loan_id: string;
+        raw_milestone: string;
+        milestone_date: string | null;
+        est_closing_date: string | null;
+      }>(
         'pipeline_loans',
-        'source_loan_id, raw_milestone, milestone_date',
+        'source_loan_id, raw_milestone, milestone_date, est_closing_date',
         (q) => (q as never as { eq: (a: string, b: number) => unknown }).eq('snapshot_id', s.id)
       );
       const aqui = new Set<string>();
+      const estAqui = new Map<string, string | null>();
       for (const r of rows) {
         existedByMonthEnd.add(r.source_loan_id);
         aqui.add(r.source_loan_id);
+        estAqui.set(r.source_loan_id, r.est_closing_date);
+        /*
+         * ⚠ LA PRIMERA APARICIÓN Y LA PRIMERA FECHA NO SIEMPRE SON EL MISMO DÍA.
+         *
+         * Medido: dos préstamos de agosto de 2026 --747002075711 y
+         * 700002074679-- aparecieron abiertos SIN Est. Closing Date y la
+         * recibieron en un snapshot posterior. Si la fecha de entrada se tomara
+         * sólo del primer snapshot, esas dos filas quedarían vacías teniendo el
+         * dato disponible.
+         *
+         * Así que se guardan las dos cosas: `snapshotDate` es la primera vez que
+         * se lo vio abierto --la marca-- y `estClosingDate` es la primera fecha
+         * que tuvo. Para 175 de 177 son el mismo día; para esas dos no, y que la
+         * hoja lo muestre es correcto: el préstamo estuvo en el pipeline antes
+         * de tener una fecha estimada.
+         */
+        const ya = firstSeen.get(r.source_loan_id);
+        if (!ya) {
+          firstSeen.set(r.source_loan_id, { snapshotDate: s.snapshot_date, estClosingDate: r.est_closing_date });
+        } else if (ya.estClosingDate === null && r.est_closing_date !== null) {
+          ya.estClosingDate = r.est_closing_date;
+        }
         const prev = lastMilestone.get(r.source_loan_id);
         if (!prev || prev.at < s.id) {
           lastMilestone.set(r.source_loan_id, { milestone: r.raw_milestone, date: r.milestone_date, at: s.id });
@@ -269,6 +312,28 @@ export async function POST(request: Request) {
       }
       /* `duringMonth` viene ordenado por fecha, así que el último gana. */
       openAtMonthEnd = aqui;
+      estAtMonthEnd = estAqui;
+    }
+
+    /*
+     * Y los que al cierre del mes YA NO ESTABAN ABIERTOS: su Est. Closing Date
+     * sale de `pipeline_resolved_loans` del mismo snapshot de cierre. Con las
+     * dos mitades, `Est closing - end` queda llena en todas las filas -- medido
+     * en agosto de 2026: 104 de abiertos y 74 de resueltos.
+     *
+     * ⚠ No sobrescribe: si el préstamo estaba abierto ese día, manda el abierto.
+     * Un resuelto acumulativo puede traer una fecha de meses atrás.
+     */
+    const monthEndSnap = duringMonth[duringMonth.length - 1];
+    if (monthEndSnap) {
+      const res = await page<{ source_loan_id: string; est_closing_date: string | null }>(
+        'pipeline_resolved_loans',
+        'source_loan_id, est_closing_date',
+        (q) => (q as never as { eq: (a: string, b: number) => unknown }).eq('snapshot_id', monthEndSnap.id)
+      );
+      for (const r of res) {
+        if (!estAtMonthEnd.has(r.source_loan_id)) estAtMonthEnd.set(r.source_loan_id, r.est_closing_date);
+      }
     }
 
     /* ── 4. El estado de hoy ────────────────────────────────────────────── */
@@ -321,6 +386,8 @@ export async function POST(request: Request) {
       anchorResolved,
       existedByMonthEnd,
       openAtMonthEnd,
+      estAtMonthEnd,
+      firstSeen,
       activeOpen,
       activeResolved,
       lastMilestone: new Map([...lastMilestone].map(([k, v]) => [k, { milestone: v.milestone, date: v.date }])),
@@ -334,6 +401,7 @@ export async function POST(request: Request) {
       anchorDate: anchor.snapshot_date,
       activeId: active.id,
       activeDate: active.snapshot_date,
+      generatedAt: new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC',
       monthEnd: monthRange.endDate,
     });
     const buffer = await wb.xlsx.writeBuffer();
@@ -404,6 +472,8 @@ interface Meta {
   anchorDate: string;
   activeId: number;
   activeDate: string;
+  /** Cuándo se generó, en UTC. Ver la nota del subtítulo. */
+  generatedAt: string;
   /** Ultimo dia del mes -- la otra fecha del titulo. */
   monthEnd: string;
 }
@@ -470,7 +540,33 @@ function buildSummary(
    */
   const titulo = sh.addRow([`Pipeline monthly report — ${meta.month}`]);
   titulo.font = { name: FONT, bold: true, size: 16, color: { argb: C.navy } };
-  const sub1 = sh.addRow([`Cut-off ${meta.cutoffDate} · month-end ${meta.monthEnd}`]);
+  /*
+   * ==========================================================================
+   * ⚠ CUÁNDO SE GENERÓ Y DE QUÉ SNAPSHOT — etapa RPT8
+   * ==========================================================================
+   *
+   * Es la única forma de explicar por qué dos copias del mismo archivo dicen
+   * números distintos, y pasa de verdad: los cierres de agosto de 2026 fueron
+   * 32 el 31 de agosto, 36 y 38 el 1 de septiembre y 39 el 2. Cuatro valores
+   * para el mismo mes en tres días, todos correctos en su momento.
+   *
+   * La causa es el retraso de carga --Salesforce marca Closed Won después de
+   * que se tomó el export-- y el reporte hace lo correcto leyendo el snapshot
+   * activo. Lo que faltaba era decir CUÁL activo.
+   *
+   * ⚠ Y NO ES UN TEXTO EXPLICATIVO de los que RPT4 sacó: son dos datos en la
+   * misma línea que ya existía. La diferencia entre un dato y un párrafo es que
+   * el dato cambia con el archivo.
+   *
+   * Medido para saber cuánto dura la provisionalidad: julio cerró con 40 Banked
+   * el 31 de julio y quedó en 48 el 4 de agosto --día 4--, con Brokered
+   * estabilizando en 9 el día 11. Un reporte de mes recién cerrado es
+   * provisional una o dos semanas, no un día.
+   */
+  const sub1 = sh.addRow([
+    `Cut-off ${meta.cutoffDate} · month-end ${meta.monthEnd} · generated ${meta.generatedAt} ` +
+      `from snapshot ${meta.activeId} of ${meta.activeDate}`,
+  ]);
   sub1.font = { name: FONT, size: 10, color: { argb: C.slate500 } };
   for (const r of [titulo, sub1]) sh.mergeCells(r.number, 1, r.number, LAST_COL);
   sh.addRow([]);
@@ -740,6 +836,19 @@ const DETAIL_COLUMNS: { header: string; key: keyof MonthlyReportRow | 'blank'; w
   { header: 'Est closing - start', key: 'estClosingStart', width: 17 },
   { header: 'Est closing - end', key: 'estClosingEnd', width: 17 },
   /*
+   * ⚠ TRES COLUMNAS DE LA ETAPA RPT7, al final para no tocar el orden del
+   * archivo de julio.
+   *
+   * `First seen open` es la marca que hace honesta a la fecha de entrada: dice
+   * de qué snapshot salió, o `never open` cuando el préstamo no apareció abierto
+   * en ninguno. Sin ella una celda vacía en la fecha de entrada se lee como un
+   * dato perdido.
+   *
+   * `Days moved` es FÓRMULA, no valor -- ver `buildDetail`.
+   */
+  { header: 'First seen open', key: 'firstSeenOpen', width: 15 },
+  { header: 'Days moved', key: 'blank', width: 12 },
+  /*
    * ⚠ LAS DOS COLUMNAS QUE NO ESTÁN EN EL ARCHIVO DE JULIO, y están a propósito
    * — etapa RPT3. Van al final para no tocar el orden del original.
    *
@@ -823,6 +932,50 @@ function buildDetail(wb: Workbook, model: ReturnType<typeof buildMonthlyReport>)
       if (NUM.has(i)) cc.alignment = { horizontal: 'right' };
     }
     row.getCell(DETAIL_COLUMNS.findIndex((c) => c.key === 'loanAmount') + 1).numFmt = '#,##0';
+
+    /*
+     * ======================================================================
+     * ⚠ LAS DOS FECHAS VAN COMO FECHAS DE VERDAD, no como texto — etapa RPT7
+     * ======================================================================
+     *
+     * Es lo que hace posible la columna `Days moved`. El resto de las fechas de
+     * esta hoja son strings 'YYYY-MM-DD' y así se quedan: cambiar todas está
+     * fuera de esta etapa. Pero una resta entre textos no da un número, y la
+     * alternativa --`DATEVALUE()`-- depende del formato regional de quien abra
+     * el archivo, que es una dependencia que no vale la pena aceptar para
+     * ahorrar dos líneas.
+     */
+    for (const key of ['estClosingStart', 'estClosingEnd'] as const) {
+      const i = DETAIL_COLUMNS.findIndex((c) => c.key === key) + 1;
+      const v = r[key];
+      const cc = row.getCell(i);
+      /* `T00:00:00Z` explícito: sin él el navegador lo lee en su huso y puede correr un día. */
+      cc.value = v ? new Date(v + 'T00:00:00Z') : '';
+      cc.numFmt = 'yyyy-mm-dd';
+      cc.alignment = { horizontal: 'right' };
+    }
+
+    /*
+     * ⚠ `Days moved` ES FÓRMULA, con su resultado en caché. Cuántos días corrió
+     * la fecha estimada entre que el préstamo entró al pipeline y el cierre del
+     * mes. Vacía --no cero-- cuando falta la de entrada: cero afirmaría que no
+     * se movió, y de un préstamo que nunca estuvo abierto no se sabe.
+     */
+    const iStart = DETAIL_COLUMNS.findIndex((c) => c.key === 'estClosingStart') + 1;
+    const iEnd = DETAIL_COLUMNS.findIndex((c) => c.key === 'estClosingEnd') + 1;
+    const iDays = DETAIL_COLUMNS.findIndex((c) => c.header === 'Days moved') + 1;
+    const cs = sh.getColumn(iStart).letter;
+    const ce = sh.getColumn(iEnd).letter;
+    const n = row.number;
+    const dias =
+      r.estClosingStart && r.estClosingEnd
+        ? Math.round(
+            (Date.parse(r.estClosingEnd + 'T00:00:00Z') - Date.parse(r.estClosingStart + 'T00:00:00Z')) / 86400000
+          )
+        : '';
+    const cd = row.getCell(iDays);
+    cd.value = { formula: `IF(OR(${cs}${n}="",${ce}${n}=""),"",${ce}${n}-${cs}${n})`, result: dias };
+    cd.alignment = { horizontal: 'right' };
   }
 
   sh.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: N } };
