@@ -84,22 +84,42 @@ export interface IntegrityReport {
   vanished: string[];
   /** Cerrados según Commercial Activity que ningún snapshot tuvo nunca. */
   closedNeverInPipeline: { loanNumber: string; channel: string; branch: string; closingMonth: string }[];
-  /** Los meses que cubre el chequeo 2. */
-  closedSince: string;
+  /**
+   * El mes que se miró, 'YYYY-MM'.
+   *
+   * ⚠ EL CHEQUEO 2 RESPETA EL SELECTOR DE MES — corrección posterior a RPT5. La
+   * primera versión miraba tres meses hacia atrás desde hoy, así que estando en
+   * agosto mostraba dos préstamos que cerraron en JULIO. Un aviso que habla de
+   * otro mes que el que la pantalla muestra se lee como si fuera de este, y
+   * manda a buscar un problema donde no está.
+   *
+   * ⚠ El chequeo 1 NO depende del mes y no puede: compara el snapshot anterior
+   * contra el activo, sin ninguna fecha de por medio. Su texto lo dice --habla
+   * de la última carga-- en vez de dejar que se lea como si fuera del mes.
+   */
+  month: string;
   /** Avisos guardados de la carga del snapshot activo. `null` = la columna no existe todavía. */
   activeWarnings: string[] | null;
 }
 
-/** Tres meses hacia atrás: cubre el mes en curso y los dos cerrados anteriores. */
-function closedSinceDate(): string {
-  const d = new Date();
-  d.setUTCDate(1);
-  d.setUTCMonth(d.getUTCMonth() - 2);
-  return d.toISOString().slice(0, 10);
+/** El primer y el último día de un mes 'YYYY-MM'. */
+function monthBounds(month: string): { from: string; to: string } {
+  const [y, m] = month.split('-').map(Number);
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return { from: `${month}-01`, to: `${month}-${String(last).padStart(2, '0')}` };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    /*
+     * El mes que muestra la pantalla. Sin él no hay chequeo posible: 400 y no un
+     * default, porque un default silencioso es lo que produjo el aviso de julio
+     * apareciendo en agosto.
+     */
+    const month = new URL(request.url).searchParams.get('month') ?? '';
+    if (!/^\d{4}-\d{2}$/.test(month)) {
+      return NextResponse.json({ error: '"month" must be YYYY-MM.' }, { status: 400 });
+    }
     const pf = await getServerClient('pipeline_forecast');
     const ar = await getServerClient('activity_report');
 
@@ -163,7 +183,7 @@ export async function GET() {
       }
     }
 
-    const desde = closedSinceDate();
+    const { from: desde, to: hasta } = monthBounds(month);
     const cerrados: { loan_number: string; loan_channel: string; branch: string; closing_month: string }[] = [];
     let from = 0;
     for (;;) {
@@ -172,6 +192,7 @@ export async function GET() {
         .select('loan_number, loan_channel, branch, closing_month')
         .eq('is_closed', true)
         .gte('closing_month', desde)
+        .lte('closing_month', hasta)
         .order('loan_number', { ascending: true })
         .range(from, from + 999);
       if (error) throw error;
@@ -212,7 +233,7 @@ export async function GET() {
       previousSnapshotDate: previous?.snapshot_date ?? null,
       vanished,
       closedNeverInPipeline,
-      closedSince: desde,
+      month,
       activeWarnings,
     };
     return NextResponse.json(report);
