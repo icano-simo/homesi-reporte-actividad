@@ -308,6 +308,54 @@ export async function POST(request: Request) {
          */
         saved = (rpcResult ?? null) as SaveResult | null;
         persisted = true;
+
+        /*
+         * ====================================================================
+         * ⚠ LOS AVISOS DE LA CARGA, GUARDADOS — etapa RPT5
+         * ====================================================================
+         *
+         * Hasta acá los warnings viajaban SÓLO en esta respuesta HTTP y morían
+         * con ella. El parser descarta filas en silencio en tres lugares --un
+         * `Current Milestone` desconocido, un `Stage` desconocido, y el salto
+         * de dos filas tras cada `Subtotal`-- y cada descarte produce un aviso
+         * que nadie podía consultar después.
+         *
+         * Lo que costó: los 13 préstamos Brokered que ningún snapshot tiene
+         * aparecieron un mes más tarde, comparando dos Excel a mano. Con los
+         * avisos guardados, un descarte se ve con un SELECT el mismo día.
+         *
+         * ⚠ VA EN UN UPDATE APARTE, DESPUÉS del RPC, y a propósito:
+         *
+         *   · no cambia la firma de `save_pipeline_snapshot`, que es
+         *     transaccional y está probada;
+         *   · si la columna todavía no existe --el SQL lo aplica quien
+         *     administra la base, ver `docs/sql/2026-09-snapshot-warnings.sql`--
+         *     esto falla solo y no arrastra al guardado, que ya ocurrió.
+         *
+         * Los avisos son diagnóstico: perderlos es malo, pero perder el
+         * snapshot por no poder escribirlos sería peor.
+         *
+         * ⚠ Y SE VERIFICA QUE ESCRIBIÓ. `error: null` con cero filas afectadas
+         * es lo que devuelve RLS cuando la policy no aplica --filtra, no
+         * rechaza-- así que sin `select` de vuelta un fallo de permisos se vería
+         * exactamente igual que un éxito.
+         */
+        const snapshotId = saved?.snapshot_id;
+        if (snapshotId != null) {
+          const { data: escrito, error: wErr } = await supabase
+            .from('pipeline_snapshots')
+            .update({ warnings })
+            .eq('id', snapshotId)
+            .select('id');
+          if (wErr) {
+            warnings.push('The load notices could not be saved: ' + wErr.message + ' (the snapshot itself was saved).');
+          } else if (!escrito || escrito.length === 0) {
+            warnings.push(
+              'The load notices could not be saved: the update affected no rows, which is what row-level security does ' +
+                'when its policy does not apply (the snapshot itself was saved).'
+            );
+          }
+        }
       } catch (persistErr) {
         const msg = errorMessage(persistErr);
         warnings.push(

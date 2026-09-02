@@ -236,6 +236,75 @@ const STATE_TAG: Record<string, { text: string; title: string }> = {
   },
 };
 
+/**
+ * ============================================================================
+ * EL BENCHMARK, JUNTO AL NOMBRE — etapa OL18
+ * ============================================================================
+ *
+ * Era una columna propia, y eso es lo que hacía que la tabla se leyera como una
+ * planilla: un número que compite por ancho horizontal con los doce meses,
+ * teniendo un peso completamente distinto. El benchmark no es un mes; es la BASE
+ * de la que salen los meses proyectados.
+ *
+ * Ahora va al lado del nombre de su fila, en tono tenue, como dato secundario. El
+ * lápiz se mantiene: sólo cambia dónde vive.
+ *
+ * ⚠ CALCULADO vs EDITABLE, sin explicarlo. Un benchmark calculado --el de una
+ * fila de estrategia, que es la SUMA de sus hijas-- no se puede editar: no hay
+ * un número guardado detrás, hay una suma. Se distingue por no tener lápiz y por
+ * llevar el signo `Σ`, que dice "esto es una suma" sin una palabra. Editar la
+ * suma no tendría dónde escribirse; hay que editar las partes.
+ */
+function BenchTag({
+  value,
+  text,
+  onEdit,
+  editLabel,
+  editTitle,
+}: {
+  value: number | null;
+  /**
+   * El número ya formateado, cuando `fmt` no alcanza.
+   *
+   * ⚠ Lo usa el realtor: su benchmark es el promedio de 3 meses y casi siempre
+   * fraccionario --0,33 · 0,67 · 1,33--. Con un decimal se pierde de dónde sale
+   * el número, que son tercios. El resto de la tabla sigue con `fmt`.
+   */
+  text?: string;
+  /** Ausente = calculado, no editable. */
+  onEdit?: () => void;
+  editLabel?: string;
+  editTitle?: string;
+}) {
+  if (value === null && !onEdit) return null;
+  /*
+   * ⚠ El separador va SOLO si hay número. Sin esto, una fila sin benchmark
+   * mostraba `Josue Toro · ✎` -- un punto suelto que se lee como un glitch, no
+   * como "acá no hay número todavía". El lápiz solo ya dice que se puede fijar.
+   */
+  const numero = text ?? fmt(value);
+  return (
+    <span className={'ol-bench-in' + (onEdit ? '' : ' ol-bench-in--calc')} onClick={(e) => e.stopPropagation()}>
+      {numero !== '' && (
+        <span className="ol-bench-in__sep" aria-hidden="true">
+          ·
+        </span>
+      )}
+      {!onEdit && (
+        <span className="ol-bench-in__sum" title="Calculated: the sum of the rows below. Edit the parts, not the sum.">
+          Σ
+        </span>
+      )}
+      <span className="ol-bench-in__n">{numero}</span>
+      {onEdit && (
+        <button type="button" className="ol-edit" onClick={onEdit} aria-label={editLabel} title={editTitle}>
+          ✎
+        </button>
+      )}
+    </span>
+  );
+}
+
 export default function OutlookBranchPage({ params }: { params: Promise<{ code: string }> }) {
   const { code } = use(params);
   /*
@@ -307,6 +376,17 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * alguien mira un año más.
    */
   const horizonteHastaDic = data.remainingMonths.length;
+  /*
+   * Los diciembres de los años siguientes, DERIVADOS del mes en curso: en enero
+   * `horizonteHastaDic` da 11 y estas opciones se corren solas. Nada de años
+   * escritos a mano, que es lo que obliga a volver cada 1 de enero.
+   */
+  const finesDeAnio = [1, 2].map((suma) => {
+    const anio = Number(year) + suma;
+    /* Meses desde el mes en curso hasta diciembre de ese año. */
+    const meses = (anio - Number(year)) * 12 + (12 - Number(currentMonth.slice(5, 7)));
+    return { anio, meses };
+  });
   const meses = horizonte ?? horizonteHastaDic;
   /*
    * ⚠ Sin `useMemo`, y no por descuido: esto vive DESPUÉS de los early returns
@@ -443,6 +523,67 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * de agosto de AFFINITY fueron producción propia. En ese caso los pesos son
    * los cierres REALES del mes por estrategia, que es lo que efectivamente pasó.
    */
+  /**
+   * ¿Tiene esta persona un presupuesto PROPIO en esta estrategia?
+   *
+   * ⚠ UN BENCHMARK O UN MES FIJADO, NUNCA UNA REGLA. Es la trampa de OL8, que ya
+   * costó dos veces: la siembra dejó 185 reglas --las 37 personas × 5
+   * estrategias-- así que "tiene regla" es verdad para todo el mundo. Una regla
+   * sobre un benchmark en cero no proyecta nada: es una intención guardada, no un
+   * presupuesto.
+   *
+   * Estaba escrito dos veces --acá y en el filtro de estrategias-- y ahora hay un
+   * tercer lugar que lo necesita, así que vive en uno solo.
+   */
+  const tienePresupuestoPropio = (lo: OutlookLoanOfficer, s: OutlookStrategy) =>
+    (lo.strategyBenchmarks[s] ?? 0) > 0 || Object.keys(lo.targetsByStrategy[s] ?? {}).length > 0;
+
+  /*
+   * ==========================================================================
+   * ⚠ QUIÉNES ABREN UNA ESTRATEGIA QUE SE ABRE POR PERSONA — etapa OL19
+   * ==========================================================================
+   *
+   * No son siempre todos, y hasta acá lo eran. `opensBy: 'loanOfficer'` abría
+   * `branch.loanOfficers` entero, que es correcto para Own Production y falso
+   * para Recruitment. La diferencia no es de grado, es de qué significa cada una:
+   *
+   *   Own Production  es la PERTENENCIA POR DEFECTO. Todo Loan Officer del branch
+   *                   está en ella por definición, haya cerrado o no; su fila en
+   *                   cero es la información --dice que no produjo--.
+   *   Recruitment     es un PROGRAMA EN EL QUE SE PARTICIPA. Quien no participa
+   *                   no tiene una fila en cero: no tiene fila.
+   *
+   * Medido en el 710 --el único branch con cierres de Recruitment-- abría 7 filas
+   * para 5 participantes. Johann Otiniano y José Arango no cerraron ni uno.
+   *
+   * ⚠ EL PRESUPUESTO CUENTA, NO SÓLO LOS CIERRES, y no es una licencia sobre el
+   * pedido: es la misma excepción que ya tiene el filtro de estrategias de OL12,
+   * por la misma razón. A quien se le fijó un número TIENE que vérsele, o el
+   * número no se puede revisar ni corregir, y su presupuesto seguiría entrando en
+   * la proyección de la estrategia sin una fila que lo explique. Ese es
+   * exactamente el caso que llega con RC1 --alguien entra al programa antes de
+   * cerrar su primer préstamo-- y la cláusula está para no tener que acordarse
+   * ese día.
+   *
+   * Hoy no cambia nada: medido, `outlook.strategy_benchmark` no tiene UNA SOLA
+   * fila de Recruitment y `outlook.monthly_target` tampoco, así que el filtro es
+   * literalmente "tiene cierres".
+   */
+  const participa = (lo: OutlookLoanOfficer, s: OutlookStrategy) =>
+    s !== 'Recruitment' ||
+    (lo.strategies.find((x) => x.strategy === s)?.ytd ?? 0) > 0 ||
+    tienePresupuestoPropio(lo, s);
+
+  /**
+   * Las personas que abren esta estrategia. UN SOLO LUGAR, y hace falta que lo
+   * sea: el mismo conjunto lo leen el presupuesto exacto, el benchmark sumado, el
+   * "N of M" de la regla y las filas hijas. Filtrar en cuatro lugares es dejar
+   * cuatro conjuntos que pueden diferir, y el que difiera rompe la suma sin que
+   * nada avise.
+   */
+  const personasDe = (bs: BranchStrategy) =>
+    bs.opensBy !== 'loanOfficer' ? [] : branch.loanOfficers.filter((lo) => participa(lo, bs.strategy));
+
   /*
    * ==========================================================================
    * ⚠ QUÉ ESTRATEGIAS MUESTRA ESTE BRANCH — etapa OL12
@@ -471,20 +612,11 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
     bs.targetRevision > 0 ||
     bs.realtors.length > 0 ||
     /*
-     * Por persona: su presupuesto vive en la gente, no en el branch.
-     *
-     * ⚠ UN BENCHMARK, NO UNA REGLA. Es la misma trampa de OL8 y volví a caer en
-     * ella: la siembra dejó 185 reglas --las 37 personas × 5 estrategias-- así
-     * que "tiene regla" es verdad para todos, y Recruitment aparecía en catorce
-     * branches que no tienen ni un cierre. Una regla sobre un benchmark en cero
-     * no proyecta nada: es una intención guardada, no un presupuesto.
+     * Por persona: su presupuesto vive en la gente, no en el branch. Ver
+     * `tienePresupuestoPropio`, que es donde quedó escrita la trampa de OL8.
      */
     (bs.opensBy === 'loanOfficer' &&
-      branch.loanOfficers.some(
-        (lo) =>
-          (lo.strategyBenchmarks[bs.strategy] ?? 0) > 0 ||
-          Object.keys(lo.targetsByStrategy[bs.strategy] ?? {}).length > 0
-      ));
+      branch.loanOfficers.some((lo) => tienePresupuestoPropio(lo, bs.strategy)));
 
   const filasBase = branch.byStrategy.filter(tieneAlgo);
   const proyectaAlgo = filasBase.some((bs) => bs.currentMonthRaw > 0);
@@ -522,7 +654,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
   const exactoDe = (bs: BranchStrategy): Record<string, number> => {
     const out: Record<string, number> = {};
     if (bs.opensBy === 'loanOfficer') {
-      for (const lo of branch.loanOfficers) {
+      for (const lo of personasDe(bs)) {
         const st = projectLoanOfficer(lo, remainingMonths).stepsByStrategy[bs.strategy] ?? [];
         remainingMonths.forEach((m, i) => (out[m] = (out[m] ?? 0) + (st[i]?.value ?? 0)));
       }
@@ -681,7 +813,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
       );
       const bench =
         bs.opensBy === 'loanOfficer'
-          ? branch.loanOfficers.reduce((a, lo) => a + (lo.strategyBenchmarks[s] ?? 0), 0)
+          ? personasDe(bs).reduce((a, lo) => a + (lo.strategyBenchmarks[s] ?? 0), 0)
           : bs.opensBy === 'owner'
             ? /* La suma de los dueños, más el de branch que quedó sin dueño. */
               bs.owners.reduce((a, o) => a + (o.isPerson && o.mode !== 'monthly' ? o.benchmarkAtDisplay : 0), 0) +
@@ -907,6 +1039,16 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
             title="How many months forward the budget columns go. The growth rules already know how to reach any future month; this only decides how many are drawn."
           >
             <option value={horizonteHastaDic}>Dec {year}</option>
+            {/*
+              ⚠ DOS FORMAS DE PENSAR EL MISMO HORIZONTE, y las dos sirven: "seis
+              meses más" es una pregunta de planificación y "hasta diciembre del
+              año que viene" es una de presupuesto anual. Ninguna reemplaza a la
+              otra, así que están las dos.
+
+              La etiqueta dice SIEMPRE hasta dónde llega -- `12 months (Sep 2027)`
+              y `Dec 2027 (16 months)` -- para que las dos listas se puedan
+              comparar entre sí sin contar meses a mano.
+            */}
             {[6, 12, 18, 24]
               .filter((n) => n !== horizonteHastaDic)
               .map((n) => (
@@ -914,6 +1056,11 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                   {n} months ({monthLabel(addMonths(currentMonth, n))} {addMonths(currentMonth, n).slice(0, 4)})
                 </option>
               ))}
+            {finesDeAnio.map(({ anio, meses }) => (
+              <option key={'y' + anio} value={meses}>
+                Dec {anio} ({meses} months)
+              </option>
+            ))}
           </select>
         </label>
       </div>
@@ -943,7 +1090,8 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                 </th>
               )}
               <th className="bp-center"></th>
-              <th className="bp-center ol-band ol-band--decide" colSpan={2}>
+              {/* Una sola columna de decisión: el benchmark se fue al nombre. */}
+              <th className="bp-center ol-band ol-band--decide" colSpan={1}>
                 Decision
               </th>
             </tr>
@@ -955,17 +1103,24 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                 </th>
               ))}
               <th className="bp-center totcol">{totalLabel}</th>
-              <th className="bp-center ol-bench">Benchmark</th>
-              <th className="lbl">Rule</th>
+              <th className="ol-rulecol">Rule</th>
               {/* Sin columna de funnel: es informacion de Business Plan. */}
             </tr>
           </thead>
           <tbody>
             {strategyRows.map(({ bs, s, proyecta, sYear, bench, steps, porDueno, huerfanoPorMes }) => {
               const abierta = open.has('s:' + s);
-              const plegable = bs.opensBy !== 'branch';
+              /*
+               * ⚠ SIN HIJAS NO SE PLIEGA — etapa OL19. Desde que Recruitment
+               * filtra por participación, una estrategia que se abre por persona
+               * puede no tener a nadie: el 747 y el 777 tienen pipeline de
+               * Recruitment este mes y ni un cierre de alguien con fila acá. El
+               * chevron prometía algo que al abrirse no mostraba nada.
+               */
+              const personas = personasDe(bs);
+              const plegable = bs.opensBy === 'loanOfficer' ? personas.length > 0 : bs.opensBy !== 'branch';
 
-              const conBenchmark = branch.loanOfficers.filter((lo) => (lo.strategyBenchmarks[s] ?? 0) > 0).length;
+              const conBenchmark = personas.filter((lo) => (lo.strategyBenchmarks[s] ?? 0) > 0).length;
               /*
                 ⚠ CORTO, Y EL RESTO EN EL TOOLTIP. Own Production y NPPM no
                 tienen regla propia --deciden por persona y por realtor-- así que
@@ -976,7 +1131,14 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               const conAE = bs.owners.filter((o) => o.isPerson && o.benchmarkSchedule.length > 0).length;
               const regla =
                 bs.opensBy === 'loanOfficer'
-                  ? `${conBenchmark} of ${branch.loanOfficers.length}`
+                  ? /*
+                     * "0 of 0" no dice nada. Sin nadie, lo que hay que decir es
+                     * que la estrategia tiene pipeline este mes y todavía nadie
+                     * a quien atribuírselo acá -- ver el título.
+                     */
+                    personas.length === 0
+                    ? 'nobody yet'
+                    : `${conBenchmark} of ${personas.length}`
                   : bs.opensBy === 'owner'
                     ? `${conAE} of ${bs.owners.filter((o) => o.isPerson).length}`
                     : s === 'NPPM'
@@ -984,7 +1146,17 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                     : branchRuleLabel(bs);
               const reglaTitulo =
                 bs.opensBy === 'loanOfficer'
-                  ? `${conBenchmark} of the ${branch.loanOfficers.length} loan officers here have a benchmark in ${s}.`
+                  ? personas.length === 0
+                    ? `Nobody in this branch has closings in ${s} or a budget for it, so there is no row to open. ` +
+                      `The month's figure is pipeline that is classified as ${s}: the loans are real and they are ` +
+                      `counted, they just have no owner here yet.`
+                    : `${conBenchmark} of the ${personas.length} loan officers shown here have a benchmark in ${s}.` +
+                      (s === 'Recruitment'
+                        ? ` Recruitment only opens for those who took part in it: ${
+                            branch.loanOfficers.length - personas.length
+                          } of the branch's ${branch.loanOfficers.length} loan officers have no closings in it and ` +
+                          `no budget, so they have no row.`
+                        : '')
                   : bs.opensBy === 'owner'
                     ? `${conAE} of the ${bs.owners.filter((o) => o.isPerson).length} owners have a ` +
                       `benchmark. The system user cannot have one.`
@@ -1041,6 +1213,16 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                           by owner
                         </span>
                       )}
+                      {/*
+                        Su benchmark. Editable sólo en las de branch --las otras
+                        son la SUMA de sus hijas y no hay nada que guardar--.
+                      */}
+                      <BenchTag
+                        value={bench}
+                        onEdit={esDelBranch(bs) ? () => setEditing({ kind: 'branch', strategy: s }) : undefined}
+                        editLabel={`Edit ${s}'s benchmark and rule for branch ${branch.branchCode}`}
+                        editTitle={`Set ${s}'s benchmark and growth rule for the whole branch`}
+                      />
                     </td>
                     {monthsOfYear.map((m) => (
                       <td
@@ -1070,22 +1252,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                       guardaría en un sujeto que no es el que muestra la fila.
                       Las tres del branch sí se editan acá.
                     */}
-                    <td className="bp-center ol-bench" onClick={(e) => e.stopPropagation()}>
-                      <span className="ol-bench__n">{fmt(bench)}</span>
-                      {/* Sin lapiz en las que se abren por persona: su fila es una suma. */}
-                      {esDelBranch(bs) && (
-                        <button
-                          type="button"
-                          className="ol-edit"
-                          onClick={() => setEditing({ kind: 'branch', strategy: s })}
-                          aria-label={`Edit ${s}'s benchmark and rule for branch ${branch.branchCode}`}
-                          title={`Set ${s}'s benchmark and growth rule for the whole branch`}
-                        >
-                          ✎
-                        </button>
-                      )}
-                    </td>
-                    <td className="lbl" onClick={(e) => e.stopPropagation()}>
+                    <td className="ol-rulecol" onClick={(e) => e.stopPropagation()}>
                       {esDelBranch(bs) ? (
                         <button
                           type="button"
@@ -1122,13 +1289,13 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                        * en proporción a su presupuesto exacto. Así las filas suman
                        * la fila de arriba y ninguna muestra decimales.
                        */
-                      const exactos = branch.loanOfficers.map((lo) => {
+                      const exactos = personas.map((lo) => {
                         const st = projectLoanOfficer(lo, remainingMonths).stepsByStrategy[s] ?? [];
                         const out: Record<string, number> = {};
                         remainingMonths.forEach((m, i) => (out[m] = st[i]?.value ?? 0));
                         return out;
                       });
-                      const enteros: Record<string, number>[] = branch.loanOfficers.map(() => ({}));
+                      const enteros: Record<string, number>[] = personas.map(() => ({}));
                       for (const m of remainingMonths) {
                         const partes = apportionByWeight(
                           presupuestoDe.get(s)?.[m] ?? 0,
@@ -1136,7 +1303,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                         );
                         partes.forEach((v, i) => (enteros[i][m] = v));
                       }
-                      return branch.loanOfficers.map((lo, idx) => {
+                      return personas.map((lo, idx) => {
                       const cell = cellOf(lo, s, enteros[idx]);
                       const isMonthly = (lo.modeByStrategy[s] ?? 'growth') === 'monthly';
                       const b = lo.strategyBenchmarks[s] ?? 0;
@@ -1175,6 +1342,16 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                                 BM
                               </span>
                             )}
+                            <BenchTag
+                              value={isMonthly ? null : b}
+                              onEdit={() => setEditing({ kind: 'employee', employeeKey: lo.employeeKey, strategy: s })}
+                              editLabel={`Edit ${lo.fullName}'s benchmark and rule in ${s}`}
+                              editTitle={
+                                isMonthly
+                                  ? 'Set month by month: the benchmark does not take part. It stays saved in case this goes back to growth rate.'
+                                  : `Its benchmark is edited in the Business Plan. What is edited here is ${lo.fullName}'s growth rule.`
+                              }
+                            />
                           </td>
                           {monthsOfYear.map((m) => (
                             <td
@@ -1192,22 +1369,6 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                             </td>
                           ))}
                           <td className="bp-center totcol">{fmt(sumOfShown(monthsOfYear.map((m) => cell.year.byMonth[m] ?? null)))}</td>
-                          <td className="bp-center ol-bench">
-                            <span className="ol-bench__n">{isMonthly ? fmt(null) : fmt(b)}</span>
-                            <button
-                              type="button"
-                              className="ol-edit"
-                              onClick={() => setEditing({ kind: 'employee', employeeKey: lo.employeeKey, strategy: s })}
-                              aria-label={`Edit ${lo.fullName}'s benchmark and rule in ${s}`}
-                              title={
-                                isMonthly
-                                  ? 'Set month by month: the benchmark does not take part. It stays saved in case this goes back to growth rate.'
-                                  : `Its benchmark is edited in the Business Plan. What is edited here is ${lo.fullName}'s growth rule.`
-                              }
-                            >
-                              ✎
-                            </button>
-                          </td>
                           {/*
                             ⚠ LA PÍLDORA TAMBIÉN ACÁ, y sobre todo acá: son estas
                             filas las que repetían `25% quarterly from Sep · 1st
@@ -1215,7 +1376,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                             revisión viven en el tooltip; lo que se compara de un
                             vistazo es cuánto y cada cuánto.
                           */}
-                          <td className="lbl">
+                          <td className="ol-rulecol">
                             <button
                               type="button"
                               className={
@@ -1269,6 +1430,16 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                                 system user
                               </span>
                             )}
+                            {o.isPerson && (
+                              <BenchTag
+                                value={o.mode === 'monthly' ? null : o.benchmarkSchedule.length ? o.benchmarkAtDisplay : null}
+                                onEdit={() =>
+                                  setEditing({ kind: 'employee', employeeKey: o.employeeKey as number, strategy: s })
+                                }
+                                editLabel={`Edit ${o.owner}'s benchmark and rule in ${s}`}
+                                editTitle={`Set ${o.owner}'s benchmark and growth rule in ${s}`}
+                              />
+                            )}
                           </td>
                           {monthsOfYear.map((m) => (
                             <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
@@ -1279,27 +1450,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                             {fmt(sumOfShown(monthsOfYear.map((m) => oYear.byMonth[m] ?? null)))}
                           </td>
                           {/* Su presupuesto, editable como el de una persona. */}
-                          <td className="bp-center ol-bench">
-                            {o.isPerson && (
-                              <>
-                                <span className="ol-bench__n">
-                                  {o.mode === 'monthly' ? fmt(null) : fmt(o.benchmarkSchedule.length ? o.benchmarkAtDisplay : null)}
-                                </span>
-                                <button
-                                  type="button"
-                                  className="ol-edit"
-                                  onClick={() =>
-                                    setEditing({ kind: 'employee', employeeKey: o.employeeKey as number, strategy: s })
-                                  }
-                                  aria-label={`Edit ${o.owner}'s benchmark and rule in ${s}`}
-                                  title={`Set ${o.owner}'s benchmark and growth rule in ${s}`}
-                                >
-                                  ✎
-                                </button>
-                              </>
-                            )}
-                          </td>
-                          <td className="lbl">
+                          <td className="ol-rulecol">
                             {o.isPerson ? (
                               <button
                                 type="button"
@@ -1346,6 +1497,12 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                         >
                           to be split
                         </span>
+                        <BenchTag
+                          value={bs.benchmarkAtDisplay}
+                          onEdit={() => setEditing({ kind: 'branch', strategy: s })}
+                          editLabel={`Edit the branch-level budget left in ${s}`}
+                          editTitle="Edit or zero out the branch-level budget that has no owner yet"
+                        />
                       </td>
                       {monthsOfYear.map((m) => (
                         <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
@@ -1355,19 +1512,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                       <td className="bp-center totcol">
                         {fmt(sumOfShown(remainingMonths.map((m) => huerfanoPorMes[m] ?? 0)))}
                       </td>
-                      <td className="bp-center ol-bench">
-                        <span className="ol-bench__n">{fmt(bs.benchmarkAtDisplay)}</span>
-                        <button
-                          type="button"
-                          className="ol-edit"
-                          onClick={() => setEditing({ kind: 'branch', strategy: s })}
-                          aria-label={`Edit the branch-level budget left in ${s}`}
-                          title="Edit or zero out the branch-level budget that has no owner yet"
-                        >
-                          ✎
-                        </button>
-                      </td>
-                      <td className="lbl bp-muted">not assigned</td>
+                      <td className="ol-rulecol bp-muted">not assigned</td>
                     </tr>
                   )}
 
@@ -1391,6 +1536,24 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                         <tr key={'s-' + s + '-r-' + r.realtor} className="metric mrow">
                           <td className="lbl" style={{ paddingLeft: '30px' }}>
                             {r.realtor}
+                            {/*
+                              ⚠ Dos decimales: el promedio de 3 meses de un realtor
+                              es casi siempre fraccionario --0,33 · 0,67 · 1,33-- y
+                              con uno se pierde de dónde sale el número. Por eso el
+                              valor va formateado acá y no por `fmt`.
+                            */}
+                            <BenchTag
+                              value={r.benchmark}
+                              onEdit={() => setEditingNppm({ realtor: r.realtor, ytd: r.ytd })}
+                              editLabel={`Edit ${r.realtor}'s benchmark`}
+                              editTitle={
+                                r.benchmarkIsDefault
+                                  ? `Nobody has set it, so what applies is the average of their closings over the 3 ` +
+                                    `closed months: ${r.avg3m.toFixed(2)}. One number per realtor, across every branch.`
+                                  : `Set by hand. Their 3-month average is ${r.avg3m.toFixed(2)}.`
+                              }
+                              text={Number.isInteger(r.benchmark) ? String(r.benchmark) : r.benchmark.toFixed(2)}
+                            />
                           </td>
                           {monthsOfYear.map((m) => (
                             <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
@@ -1412,33 +1575,11 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                             tercios. El resto de la tabla sigue con un decimal,
                             que es lo que un pronóstico de pipeline necesita.
                           */}
-                          <td className="bp-center ol-bench">
-                            <span className="ol-bench__n">
-                              {Number.isInteger(r.benchmark) ? r.benchmark : r.benchmark.toFixed(2)}
-                            </span>
-                            {/*
-                              ⚠ ACÁ HABÍA UNA ETIQUETA `default` Y SE FUE.
-                              Decía lo mismo que la píldora de la columna de regla
-                              --`3-mo avg`-- y su ancho hacía que la celda no
-                              entrara: 129px de contenido en 118 de columna, tres
-                              celdas recortadas. El número exacto del promedio
-                              sigue en el tooltip de la píldora.
-                            */}
-                            <button
-                              type="button"
-                              className="ol-edit"
-                              onClick={() => setEditingNppm({ realtor: r.realtor, ytd: r.ytd })}
-                              aria-label={`Edit ${r.realtor}'s benchmark`}
-                              title={`Set ${r.realtor}'s benchmark. One number per realtor, across every branch.`}
-                            >
-                              ✎
-                            </button>
-                          </td>
                           {/*
                             El realtor no tiene regla: su columna dice de dónde
                             sale el número, que es lo único que hay que decidir.
                           */}
-                          <td className="lbl">
+                          <td className="ol-rulecol">
                             <button
                               type="button"
                               className={'ol-pill' + (r.benchmarkIsDefault ? ' ol-pill--empty' : '')}
@@ -1522,7 +1663,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                 ))}
                 <td className="bp-center totcol">{fmt(sumOfShown(monthsOfYear.map((m) => (Math.abs(residual[m]) <= 0.001 ? null : residual[m]))))}</td>
                 <td className="bp-center"></td>
-                <td className="lbl"></td>
+                <td className="ol-rulecol"></td>
               </tr>
             )}
 
@@ -1551,7 +1692,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                 {fmt(sumOfShown(monthsOfYear.map((m) => totalByMonth[m])))}
               </td>
               <td className="bp-center"></td>
-              <td className="lbl"></td>
+              <td className="ol-rulecol"></td>
             </tr>
           </tbody>
         </table>
