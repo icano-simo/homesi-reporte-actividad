@@ -29,9 +29,12 @@ export const runtime = 'nodejs';
  *   3. Sin `app_date` quedan 3.815 abiertos, de los cuales 3.808 no están en
  *      ningún snapshot. Buscando qué separa a los 13 de esos 3.808 --fecha de
  *      creación del file, monto, programa, reporte de crédito, carpeta-- no hay
- *      ningún campo que los distinga: 12 de los 13 están en `Current Prospects`
- *      con file creado en los últimos 3 meses, y ahí hay 998 filas de las
- *      cuales 992 tampoco están en ningún snapshot.
+ *      ningún campo que los distinga.
+ *
+ *      ⚠ Y NO ES UNA ANOMALÍA, ES UNA POBLACIÓN ENTERA: `Current Prospects`
+ *      tiene 3.480 abiertos y 3.467 nunca estuvieron en ningún snapshot. Los 13
+ *      son la parte de esa población que además es Brokered y tenía cierre
+ *      estimado en agosto. Cualquier filtro que los incluya arrastra miles.
  *
  * La razón es estructural y no se arregla eligiendo mejor el filtro: el
  * snapshot contiene lo que Salesforce tiene en `Stage = Negotiation`, y
