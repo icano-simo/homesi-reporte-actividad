@@ -180,22 +180,14 @@ export async function GET(request: Request) {
      *
      * Son dos problemas distintos y el arreglo de cada uno es distinto:
      *
-     * 1. LOS RESUELTOS SE LEEN DE UN SOLO SNAPSHOT, y es EXACTO, no una
-     *    aproximación. `pipeline_resolved_loans` es acumulativa: el snapshot
-     *    activo trae todo lo que se resolvió alguna vez.
-     *
-     *    Verificado, no supuesto: 815 ids resueltos en toda la historia de la
-     *    tabla, 815 en el snapshot activo, CERO faltantes. O sea que
-     *    `.eq('snapshot_id', active.id)` sobre esta tabla da el mismo conjunto
-     *    y saca de la cuenta la mitad más grande del escaneo --815 filas por
-     *    snapshot contra ~100 de abiertos--.
-     *
-     *    ⚠ Si algún día una purga de retención borra snapshots viejos, hay que
-     *    volver a comprobar la igualdad: la propiedad depende de que el sync
-     *    reescriba el histórico completo en cada carga.
+     * 1. LOS RESUELTOS SE LEEN DE UN SOLO SNAPSHOT — ya aplicado, abajo. Es
+     *    EXACTO, no una aproximación: `pipeline_resolved_loans` es acumulativa
+     *    y el snapshot activo trae todo lo que se resolvió alguna vez. Saca de
+     *    la cuenta la mitad más grande del escaneo: 815 filas por snapshot
+     *    contra ~100 de abiertos.
      *
      * 2. LOS ABIERTOS SÍ NECESITAN LA UNIÓN de varios snapshots, y ahí va una
-     *    ventana de 12 MESES.
+     *    ventana de 12 MESES -- todavía SIN aplicar.
      *
      *    Por qué doce y no otro número: la ventana tiene que cubrir la vida
      *    entera de un préstamo en el pipeline, o "nunca estuvo" empieza a
@@ -211,11 +203,45 @@ export async function GET(request: Request) {
      *    deja margen para un caso peor que el peor visto y sigue acotando el
      *    escaneo a unos 250 snapshots de abiertos en vez de todos.
      */
-    const vistos = new Set<string>();
-    for (const tabla of ['pipeline_loans', 'pipeline_resolved_loans']) {
+    /*
+     * ⚠ DE QUÉ DEPENDE QUE LEER UN SOLO SNAPSHOT SEA EXACTO, y cuál es el
+     * riesgo concreto de que deje de serlo.
+     *
+     * Depende de que el sync REESCRIBA EL HISTÓRICO COMPLETO de resueltos en
+     * cada carga. Eso es lo que hace acumulativa a la tabla, y no es una
+     * garantía del esquema: es una propiedad del job, que no vive en este repo.
+     *
+     * ⚠ EL RIESGO TIENE FECHA: el job de anclajes purga snapshots el día 15 de
+     * cada mes. Si alguna purga se llevara filas de `pipeline_resolved_loans` de
+     * meses viejos, la igualdad se rompe, este chequeo empieza a dar FALSOS
+     * POSITIVOS --préstamos que sí estuvieron y ya no figuran-- y no avisa: el
+     * aviso diría que el forecast nunca los vio, que es exactamente lo
+     * contrario de lo que pasó.
+     *
+     * ⚠ CÓMO RE-COMPROBARLA en un minuto, sin deducir nada. Los tres números
+     * tienen que ser iguales y el tercero cero:
+     *
+     *   with activo as (select id from pipeline_forecast.pipeline_snapshots
+     *                   where is_active),
+     *        todos as (select distinct source_loan_id
+     *                  from pipeline_forecast.pipeline_resolved_loans),
+     *        en_activo as (select distinct source_loan_id
+     *                      from pipeline_forecast.pipeline_resolved_loans
+     *                      where snapshot_id = (select id from activo))
+     *   select (select count(*) from todos)     as en_toda_la_historia,
+     *          (select count(*) from en_activo) as en_el_activo,
+     *          (select count(*) from todos t
+     *            where t.source_loan_id not in
+     *              (select source_loan_id from en_activo)) as faltan;
+     *
+     * Medido el 2026-09-02: 815, 815, 0.
+     */
+    const vistos = await ids('pipeline_resolved_loans', active.id);
+    /* Los abiertos sí: la unión de todos los snapshots. Ver el punto 2 de arriba. */
+    {
       let from = 0;
       for (;;) {
-        const { data, error } = await pf.from(tabla).select('source_loan_id').range(from, from + 999);
+        const { data, error } = await pf.from('pipeline_loans').select('source_loan_id').range(from, from + 999);
         if (error) throw error;
         const rows = (data ?? []) as { source_loan_id: string }[];
         for (const r of rows) vistos.add(r.source_loan_id);
