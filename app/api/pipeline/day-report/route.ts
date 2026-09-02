@@ -45,6 +45,13 @@ interface Meta {
   pipelineRange: { startDate: string; endDate: string };
   forecastMonthLabel: string;
   branchFilter: string;
+  /**
+   * La HORA, no sólo el día. El título ya dice `Forecast as of <día>`, así que
+   * lo que agrega esto es el momento: dos descargas del mismo día pueden diferir
+   * si entre una y otra entró un snapshot nuevo. Pasó cuatro veces en tres días
+   * con los cierres de agosto -- ver la nota del reporte mensual.
+   */
+  generatedAt: string;
 }
 
 /*
@@ -150,7 +157,8 @@ function buildSummary(wb: Workbook, model: DayReportModel, meta: Meta, rng: (c: 
    * comparar el archivo.
    */
   const sub = sh.addRow([
-    `Pipeline ${meta.pipelineRange.startDate} – ${meta.pipelineRange.endDate} · closings ${meta.forecastMonthLabel} · ${meta.branchFilter}`,
+    `Pipeline ${meta.pipelineRange.startDate} – ${meta.pipelineRange.endDate} · closings ${meta.forecastMonthLabel} · ` +
+      `${meta.branchFilter} · generated ${meta.generatedAt}`,
   ]);
   sub.font = { name: FONT, size: 10, color: { argb: C.slate500 } };
   for (const r of [titulo, sub]) sh.mergeCells(r.number, 1, r.number, G.lastCol);

@@ -401,6 +401,7 @@ export async function POST(request: Request) {
       anchorDate: anchor.snapshot_date,
       activeId: active.id,
       activeDate: active.snapshot_date,
+      generatedAt: new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC',
       monthEnd: monthRange.endDate,
     });
     const buffer = await wb.xlsx.writeBuffer();
@@ -471,6 +472,8 @@ interface Meta {
   anchorDate: string;
   activeId: number;
   activeDate: string;
+  /** Cuándo se generó, en UTC. Ver la nota del subtítulo. */
+  generatedAt: string;
   /** Ultimo dia del mes -- la otra fecha del titulo. */
   monthEnd: string;
 }
@@ -537,7 +540,33 @@ function buildSummary(
    */
   const titulo = sh.addRow([`Pipeline monthly report — ${meta.month}`]);
   titulo.font = { name: FONT, bold: true, size: 16, color: { argb: C.navy } };
-  const sub1 = sh.addRow([`Cut-off ${meta.cutoffDate} · month-end ${meta.monthEnd}`]);
+  /*
+   * ==========================================================================
+   * ⚠ CUÁNDO SE GENERÓ Y DE QUÉ SNAPSHOT — etapa RPT8
+   * ==========================================================================
+   *
+   * Es la única forma de explicar por qué dos copias del mismo archivo dicen
+   * números distintos, y pasa de verdad: los cierres de agosto de 2026 fueron
+   * 32 el 31 de agosto, 36 y 38 el 1 de septiembre y 39 el 2. Cuatro valores
+   * para el mismo mes en tres días, todos correctos en su momento.
+   *
+   * La causa es el retraso de carga --Salesforce marca Closed Won después de
+   * que se tomó el export-- y el reporte hace lo correcto leyendo el snapshot
+   * activo. Lo que faltaba era decir CUÁL activo.
+   *
+   * ⚠ Y NO ES UN TEXTO EXPLICATIVO de los que RPT4 sacó: son dos datos en la
+   * misma línea que ya existía. La diferencia entre un dato y un párrafo es que
+   * el dato cambia con el archivo.
+   *
+   * Medido para saber cuánto dura la provisionalidad: julio cerró con 40 Banked
+   * el 31 de julio y quedó en 48 el 4 de agosto --día 4--, con Brokered
+   * estabilizando en 9 el día 11. Un reporte de mes recién cerrado es
+   * provisional una o dos semanas, no un día.
+   */
+  const sub1 = sh.addRow([
+    `Cut-off ${meta.cutoffDate} · month-end ${meta.monthEnd} · generated ${meta.generatedAt} ` +
+      `from snapshot ${meta.activeId} of ${meta.activeDate}`,
+  ]);
   sub1.font = { name: FONT, size: 10, color: { argb: C.slate500 } };
   for (const r of [titulo, sub1]) sh.mergeCells(r.number, 1, r.number, LAST_COL);
   sh.addRow([]);
