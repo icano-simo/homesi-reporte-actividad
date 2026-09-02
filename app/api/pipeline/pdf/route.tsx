@@ -1,4 +1,27 @@
 import { NextResponse } from 'next/server';
+/*
+ * ============================================================================
+ * POR QUÉ @react-pdf/renderer -- documentado a pedido de Isa
+ * ============================================================================
+ * Encaja con el mismo patrón que ya usa el Excel (`export/route.ts`): el
+ * cliente calcula todo, el servidor solo dibuja -- acá con
+ * @react-pdf/renderer en vez de ExcelJS, mismo reparto de responsabilidades.
+ * Tiene motor de layout propio (flexbox, ver `pdfShared.tsx`) -- las tablas
+ * se arman con `flexDirection`/`width` en vez de posicionar cada celda a
+ * mano en coordenadas x/y.
+ *
+ * ⚠ TRES ALTERNATIVAS DESCARTADAS:
+ *   Puppeteer/Playwright -- un navegador headless entero para renderizar un
+ *     PDF es desproporcionado acá (cold starts largos, bundle pesado).
+ *   pdf-lib -- sin motor de layout: cada celda se posiciona a mano en
+ *     coordenadas x/y.
+ *   jsPDF -- mismo problema que pdf-lib, sin motor de layout propio.
+ *
+ * ⚠ NO MEDIDO: ni el bundle size ni el cold-start reales de
+ * @react-pdf/renderer en esta ruta -- la elección fue por ajuste de patrón
+ * y por tener motor de layout, no por un benchmark. Si el cold-start
+ * resulta un problema en producción, ese dato todavía falta.
+ */
 import { renderToBuffer } from '@react-pdf/renderer';
 import PipelineSummaryPdf, {
   type BranchRowLite,
