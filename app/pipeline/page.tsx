@@ -26,6 +26,7 @@ import {
   type BranchForecastRow,
 } from '@/lib/pipeline/branchForecast';
 import { buildLoanOfficerForecastRows } from '@/lib/pipeline/loanOfficerForecast';
+import { buildStrategyBranchRows } from '@/lib/pipeline/strategyBranchRows';
 import AdverseTable, { type ChannelFilter } from './AdverseTable';
 import Topbar from './Topbar';
 import TabNavigation, { type TabType } from './TabNavigation';
@@ -1026,6 +1027,22 @@ export default function PipelinePage() {
   );
 
   /**
+   * Etapa STRATEGY-PAGES -- una entrada por estrategia (STRATEGY_ORDER),
+   * con las 2 tablas (Banked/Brokered) ya armadas para las 5 páginas del
+   * PDF por estrategia. `buildStrategyBranchRows()` (lib/pipeline/
+   * strategyBranchRows.ts) reusa `branchRowsForSummary` (el mismo
+   * `BranchRow[]` de arriba, ya con `strategyRows` calculado por
+   * `buildStrategyRows()`) -- ningún cálculo nuevo, solo reparte por
+   * branch lo que ya existe, mostrando TODOS los branches conocidos
+   * aunque den cero en esa estrategia.
+   */
+  const strategyBranchPages = STRATEGY_ORDER.map((strategy) => ({
+    strategy,
+    banked: buildStrategyBranchRows(branchRowsForSummary.filter((r) => r.channel === 'Banked - Retail'), knownBranches, strategy),
+    brokered: buildStrategyBranchRows(branchRowsForSummary.filter((r) => r.channel === 'Brokered'), knownBranches, strategy),
+  }));
+
+  /**
    * Etapa PDF-INVESTIGACIÓN -- verificación de desarrollo, mismo estilo
    * que el `console.warn` de CTC+Closing en `buildBranchRows()`
    * (PivotTable.tsx): si esto no cuadra, algo del reparto por Loan
@@ -1096,6 +1113,56 @@ export default function PipelinePage() {
         brokeredStrategySummaryTotal,
         brokeredSummary: brokeredSummaryCells,
       });
+    }
+
+    /**
+     * Etapa STRATEGY-PAGES -- red de seguridad propia: la suma de las
+     * filas por branch de `strategyBranchPages` (una por estrategia, por
+     * canal) tiene que dar EXACTO la fila de esa misma estrategia en
+     * `bankedStrategySummaryRows`/`brokeredStrategySummaryRows` -- son
+     * los mismos `strategyRows` de `branchRowsForSummary`, solo repartidos
+     * por branch en vez de sumados. Si no coincide, hay un branch faltante
+     * o duplicado en `buildStrategyBranchRows()`.
+     */
+    const cellsMatch5 = (
+      a: { totalCount: number; healthyCount: number; closedCount: number; projectedToClose: number; totalForecast: number },
+      b: { totalCount: number; healthyCount: number; closedCount: number; projectedToClose: number; totalForecast: number }
+    ) =>
+      a.totalCount === b.totalCount &&
+      a.healthyCount === b.healthyCount &&
+      a.closedCount === b.closedCount &&
+      a.projectedToClose === b.projectedToClose &&
+      a.totalForecast === b.totalForecast;
+
+    const sumBranchRowLite = (rows: { totalCount: number; healthyCount: number; closedCount: number; projectedToClose: number; totalForecast: number }[]) =>
+      rows.reduce(
+        (acc, r) => ({
+          totalCount: acc.totalCount + r.totalCount,
+          healthyCount: acc.healthyCount + r.healthyCount,
+          closedCount: acc.closedCount + r.closedCount,
+          projectedToClose: acc.projectedToClose + r.projectedToClose,
+          totalForecast: acc.totalForecast + r.totalForecast,
+        }),
+        { totalCount: 0, healthyCount: 0, closedCount: 0, projectedToClose: 0, totalForecast: 0 }
+      );
+
+    for (const page of strategyBranchPages) {
+      const bankedExpected = bankedStrategySummaryRows.find((r) => r.strategy === page.strategy);
+      const brokeredExpected = brokeredStrategySummaryRows.find((r) => r.strategy === page.strategy);
+      const bankedSum = sumBranchRowLite(page.banked);
+      const brokeredSum = sumBranchRowLite(page.brokered);
+      if (bankedExpected && !cellsMatch5(bankedSum, bankedExpected)) {
+        console.warn(`PDF-INVESTIGACIÓN: buildStrategyBranchRows (Banked, ${page.strategy}) no coincide con bankedStrategySummaryRows`, {
+          strategyBranchRowsSum: bankedSum,
+          bankedStrategySummaryRow: bankedExpected,
+        });
+      }
+      if (brokeredExpected && !cellsMatch5(brokeredSum, brokeredExpected)) {
+        console.warn(`PDF-INVESTIGACIÓN: buildStrategyBranchRows (Brokered, ${page.strategy}) no coincide con brokeredStrategySummaryRows`, {
+          strategyBranchRowsSum: brokeredSum,
+          brokeredStrategySummaryRow: brokeredExpected,
+        });
+      }
     }
   }
 
@@ -1312,6 +1379,8 @@ export default function PipelinePage() {
             banked: toStrategyLite(bankedStrategySummaryRows),
             brokered: toStrategyLite(brokeredStrategySummaryRows),
           },
+          /* Etapa STRATEGY-PAGES -- ya armado por strategyBranchPages, sin transformar. */
+          strategyPages: strategyBranchPages,
         }),
       });
       if (!res.ok) {

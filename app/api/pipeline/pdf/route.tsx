@@ -4,6 +4,7 @@ import PipelineSummaryPdf, {
   type BranchRowLite,
   type LoanOfficerRowLite,
   type StrategyRowLite,
+  type StrategyPageData,
 } from '@/app/pipeline/pdf/PipelineSummaryPdf';
 
 export const runtime = 'nodejs';
@@ -24,6 +25,7 @@ interface PdfRequestBody {
   branchRows: { banked: BranchRowLite[]; brokered: BranchRowLite[] };
   loanOfficerRows: { banked: LoanOfficerRowLite[]; brokered: LoanOfficerRowLite[] };
   strategyRows: { banked: StrategyRowLite[]; brokered: StrategyRowLite[] };
+  strategyPages: StrategyPageData[];
 }
 
 /** Ver el mismo helper en app/api/pipeline/export/route.ts -- duplicado por el mismo motivo (sin lib/ compartido server-side todavía). */
@@ -36,18 +38,26 @@ function errorMessage(err: unknown): string {
 }
 
 /**
- * PDF-INVESTIGACIÓN — Página 1 (Resumen) del futuro export a PDF.
+ * PDF-INVESTIGACIÓN — Resumen + una página "Por branch" por estrategia.
  *
  * Mismo patrón que app/api/pipeline/export/route.ts: recibe TODO ya
  * calculado por page.tsx en el body (nada de lógica de negocio acá, no
  * vuelve a consultar Supabase), y solo dibuja -- acá con
- * @react-pdf/renderer en vez de ExcelJS. Sin las páginas de detalle por
- * estrategia todavía (etapa siguiente).
+ * @react-pdf/renderer en vez de ExcelJS. Etapa STRATEGY-PAGES: agrega
+ * `strategyPages` (una entrada por STRATEGY_ORDER, ya armada por
+ * `buildStrategyBranchRows()` en page.tsx) sin tocar nada de lo anterior.
  */
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as Partial<PdfRequestBody>;
-    if (!body?.kpis || !body?.meta || !body?.branchRows || !body?.loanOfficerRows || !body?.strategyRows) {
+    if (
+      !body?.kpis ||
+      !body?.meta ||
+      !body?.branchRows ||
+      !body?.loanOfficerRows ||
+      !body?.strategyRows ||
+      !Array.isArray(body?.strategyPages)
+    ) {
       return NextResponse.json({ error: 'Missing required fields in the request body.' }, { status: 400 });
     }
 
@@ -58,6 +68,7 @@ export async function POST(request: Request) {
         branchRows={body.branchRows}
         loanOfficerRows={body.loanOfficerRows}
         strategyRows={body.strategyRows}
+        strategyPages={body.strategyPages}
       />
     );
 
