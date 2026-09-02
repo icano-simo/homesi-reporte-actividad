@@ -1033,13 +1033,14 @@ export default function PipelinePage() {
    * strategyBranchRows.ts) reusa `branchRowsForSummary` (el mismo
    * `BranchRow[]` de arriba, ya con `strategyRows` calculado por
    * `buildStrategyRows()`) -- ningún cálculo nuevo, solo reparte por
-   * branch lo que ya existe, mostrando TODOS los branches conocidos
-   * aunque den cero en esa estrategia.
+   * branch lo que ya existe, mostrando el MISMO conjunto de branches que
+   * ya lista "Por Branch" del Resumen (una fila en cero cuando esa
+   * estrategia no está presente en ese branch, nunca un branch de más).
    */
   const strategyBranchPages = STRATEGY_ORDER.map((strategy) => ({
     strategy,
-    banked: buildStrategyBranchRows(branchRowsForSummary.filter((r) => r.channel === 'Banked - Retail'), knownBranches, strategy),
-    brokered: buildStrategyBranchRows(branchRowsForSummary.filter((r) => r.channel === 'Brokered'), knownBranches, strategy),
+    banked: buildStrategyBranchRows(branchRowsForSummary.filter((r) => r.channel === 'Banked - Retail'), strategy),
+    brokered: buildStrategyBranchRows(branchRowsForSummary.filter((r) => r.channel === 'Brokered'), strategy),
   }));
 
   /**
