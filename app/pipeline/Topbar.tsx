@@ -37,22 +37,25 @@ export default function Topbar({
 }: TopbarProps) {
   return (
     <div className="control-bar">
-      <div className="control-group">
-        <span className="label-chip">Branch</span>
-        <select className="field" value={selectedBranch} onChange={(e) => onSelectBranch(e.target.value)}>
-          <option value="ALL">All Branches (Combined)</option>
-          {availableBranches.map((b) => (
-            <option key={b} value={b}>
-              Branch {b}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="control-bar__status">
+      <div className="control-bar__row">
+        <div className="control-group">
+          <span className="label-chip">Branch</span>
+          <select className="field" value={selectedBranch} onChange={(e) => onSelectBranch(e.target.value)}>
+            <option value="ALL">All Branches (Combined)</option>
+            {availableBranches.map((b) => (
+              <option key={b} value={b}>
+                Branch {b}
+              </option>
+            ))}
+          </select>
+        </div>
         {lastUpdatedLabel && <span className="pill">{lastUpdatedLabel}</span>}
-        {error && <span className="pill warn">{error}</span>}
       </div>
+      {error && (
+        <div className="control-bar__status">
+          <span className="pill warn">{error}</span>
+        </div>
+      )}
     </div>
   );
 }
