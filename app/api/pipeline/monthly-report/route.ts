@@ -8,6 +8,17 @@ import {
   type MonthlyReportRow,
   type MonthlyReportSummaryRow,
 } from '@/lib/pipeline/monthlyReport';
+import {
+  C,
+  FONT,
+  MEDIUM,
+  THIN,
+  channelGrid,
+  fill,
+  setChannelWidths,
+  writeChannelHeader,
+  type ChannelGridSpec,
+} from '@/lib/pipeline/reportStyle';
 import type { PipelineLoan, ResolvedLoan } from '@/lib/pipeline/types';
 
 export const runtime = 'nodejs';
@@ -411,32 +422,23 @@ function buildWorkbook(model: ReturnType<typeof buildMonthlyReport>, meta: Meta)
 }
 
 /*
- * ============================================================================
- * LA GEOMETRÍA DE LA HOJA DE RESUMEN
- * ============================================================================
- *
- *   A  Branch
- *   B  Loan Officer
- *   C  aire
- *   D..O   BANKED - RETAIL    (10 columnas de dato + 2 separadoras internas)
- *   P  separadora de CANAL
- *   Q..AB  BROKERED           (idem)
- *
- * ⚠ LAS SEPARADORAS SON COLUMNAS DE VERDAD, angostas y vacías, no un borde. Es
- * lo que hace el archivo original --D, H, J, O, R, de ancho 1,7 a 3,7-- y con
- * veintidós columnas de números seguidas el aire entre bloques es lo que
- * permite leer una fila sin perder de vista en qué grupo se está.
- *
- * `OFFSETS` traduce el índice de columna de dato (0..9) a su desplazamiento
- * real dentro del canal, salteando las separadoras. Todo el resto del código
- * habla en índices 0..9 y nunca en columnas absolutas.
+ * ⚠ LA GEOMETRÍA Y LAS BANDAS SE MUDARON a `lib/pipeline/reportStyle.ts` --
+ * etapa RPT6. El export del día tiene que leerse igual que este, y dos copias
+ * del mismo encabezado divergen a la primera correccion que se aplique a una
+ * sola. La especificación de columnas se queda acá, que es lo propio de esta
+ * hoja; el dibujo es compartido.
  */
-const OFFSETS = [0, 1, 2, 3, 5, 6, 7, 8, 10, 11] as const;
-const CHANNEL_SPAN = 12;
-const BANKED_AT = 4;
-const SEP_COL = BANKED_AT + CHANNEL_SPAN;
-const BROKERED_AT = SEP_COL + 1;
-const LAST_COL = BROKERED_AT + CHANNEL_SPAN - 1;
+const GRID_SPEC: ChannelGridSpec = {
+  groups: [
+    /* El rótulo del primer grupo lleva la fecha del corte, que cambia por mes. */
+    { label: 'As of', span: 4 },
+    { label: 'End of Month', span: 4 },
+    { label: '% vs Forecast', span: 2 },
+  ],
+  headers: ['Pipeline', 'Closed', 'Potential', 'Forecast', 'Closed', 'Closed', 'Adversed', 'Still Open', 'Loan Count', '%'],
+  /* Debajo de los dos `Closed` del cierre de mes, y sólo ahí. */
+  sub: { 4: 'First lien', 5: 'Second Lien' },
+};
 
 function buildSummary(
   wb: Workbook,
@@ -445,7 +447,13 @@ function buildSummary(
   rng: (c: string) => string
 ): void {
   const sh = wb.addWorksheet('Summary');
-  const at = (channelAt: number, i: number) => channelAt + OFFSETS[i];
+  const spec: ChannelGridSpec = {
+    ...GRID_SPEC,
+    groups: GRID_SPEC.groups.map((g, i) => (i === 0 ? { ...g, label: `As of ${meta.cutoffDate}` } : g)),
+  };
+  const G = channelGrid(spec);
+  const { bankedAt: BANKED_AT, brokeredAt: BROKERED_AT, sepCol: SEP_COL, lastCol: LAST_COL } = G;
+  const at = G.at;
 
   /*
    * ⚠ SIN TEXTOS EXPLICATIVOS — etapa RPT4. Acá había cuatro párrafos: el
@@ -467,87 +475,7 @@ function buildSummary(
   for (const r of [titulo, sub1]) sh.mergeCells(r.number, 1, r.number, LAST_COL);
   sh.addRow([]);
 
-  const HEADERS = ['Pipeline', 'Closed', 'Potential', 'Forecast', 'Closed', 'Closed', 'Adversed', 'Still Open', 'Loan Count', '%'];
-  /*
-   * ⚠ CUATRO FILAS DE ENCABEZADO, CON JERARQUÍA DE COLOR — etapas RPT1c y RPT2.
-   *
-   *   canal    navy sólido, texto blanco   la separación más fuerte de la hoja
-   *   grupo    sky suave                   dónde termina el corte y empieza el cierre
-   *   columna  slate tenue                 el nombre, que no tiene que competir
-   *   sub                                  First lien / Second Lien
-   *
-   * La del medio es la que faltaba y la que más importa: sin ella las diez
-   * columnas de cada canal corren seguidas y no se ve dónde termina el corte y
-   * dónde empieza el cierre, que es la comparación entera del reporte.
-   */
-  const GROUPS: { label: string; span: number }[] = [
-    { label: `As of ${meta.cutoffDate}`, span: 4 },
-    { label: 'End of Month', span: 4 },
-    { label: '% vs Forecast', span: 2 },
-  ];
-
-  const rowCanal = sh.addRow([]);
-  const rowGrupo = sh.addRow([]);
-  const rowCol = sh.addRow([]);
-  const rowSub = sh.addRow([]);
-
-  for (const channelAt of [BANKED_AT, BROKERED_AT]) {
-    const c = rowCanal.getCell(channelAt);
-    c.value = channelAt === BANKED_AT ? 'BANKED - RETAIL' : 'BROKERED';
-    c.alignment = { horizontal: 'center', vertical: 'middle' };
-    c.font = { name: FONT, bold: true, size: 11, color: { argb: C.white } };
-    c.fill = fill(C.navy);
-    sh.mergeCells(rowCanal.number, channelAt, rowCanal.number, channelAt + CHANNEL_SPAN - 1);
-
-    let i = 0;
-    for (const g of GROUPS) {
-      const desde = at(channelAt, i);
-      const hasta = at(channelAt, i + g.span - 1);
-      const gc = rowGrupo.getCell(desde);
-      gc.value = g.label;
-      gc.alignment = { horizontal: 'center' };
-      gc.font = { name: FONT, bold: true, size: 10, color: { argb: C.navy } };
-      gc.fill = fill(C.skySoft);
-      gc.border = { top: THIN, bottom: THIN, left: MEDIUM, right: MEDIUM };
-      if (hasta > desde) sh.mergeCells(rowGrupo.number, desde, rowGrupo.number, hasta);
-      i += g.span;
-    }
-
-    HEADERS.forEach((h, idx) => {
-      const cc = rowCol.getCell(at(channelAt, idx));
-      cc.value = h;
-      cc.alignment = { horizontal: 'center', vertical: 'bottom', wrapText: true };
-      cc.font = { name: FONT, bold: true, size: 9, color: { argb: C.navy } };
-      cc.fill = fill(C.slate100);
-    });
-    /* Debajo de los dos `Closed` del cierre de mes, y sólo ahí. */
-    for (const [idx, txt] of [
-      [4, 'First lien'],
-      [5, 'Second Lien'],
-    ] as const) {
-      const cc = rowSub.getCell(at(channelAt, idx));
-      cc.value = txt;
-      cc.alignment = { horizontal: 'center', wrapText: true };
-      cc.font = { name: FONT, bold: true, size: 8, color: { argb: C.slate500 } };
-    }
-    for (let k = 0; k < 10; k++) {
-      rowSub.getCell(at(channelAt, k)).fill = fill(C.slate100);
-      rowSub.getCell(at(channelAt, k)).border = { bottom: MEDIUM };
-    }
-  }
-
-  sh.getCell(rowCanal.number, 1).value = 'Branch';
-  sh.getCell(rowCanal.number, 2).value = 'Loan Officer';
-  sh.mergeCells(rowCanal.number, 1, rowSub.number, 1);
-  sh.mergeCells(rowCanal.number, 2, rowSub.number, 2);
-  for (const col of [1, 2]) {
-    const cc = sh.getCell(rowCanal.number, col);
-    cc.alignment = { vertical: 'bottom' };
-    cc.font = { name: FONT, bold: true, size: 10, color: { argb: C.white } };
-    cc.fill = fill(C.navy);
-  }
-
-  const HEAD_ROW = rowSub.number;
+  const HEAD_ROW = writeChannelHeader(sh, spec, G);
 
   /* Qué criterios lleva el COUNTIFS de cada fila, según su nivel. */
   const crit = (r: MonthlyReportSummaryRow, n: number): string => {
@@ -681,17 +609,7 @@ function buildSummary(
    */
   /* Encabezados congelados: después de la fila de sub-encabezado y de Loan Officer. */
   sh.views = [{ state: 'frozen', xSplit: 2, ySplit: HEAD_ROW }];
-  sh.getColumn(1).width = 11;
-  sh.getColumn(2).width = 30;
-  sh.getColumn(3).width = 2;
-  sh.getColumn(SEP_COL).width = 3;
-  for (const channelAt of [BANKED_AT, BROKERED_AT]) {
-    for (let k = 0; k < 10; k++) sh.getColumn(at(channelAt, k)).width = k === 9 ? 8 : 11;
-    sh.getColumn(channelAt + 4).width = 2;
-    sh.getColumn(channelAt + 9).width = 2;
-  }
-  sh.getRow(rowCanal.number).height = 20;
-  sh.getRow(rowCol.number).height = 24;
+  setChannelWidths(sh, G, (k) => (k === 9 ? 8 : 11));
 }
 
 const BY_BRANCH_COLUMNS = [
@@ -855,52 +773,11 @@ const colOf = (header: string): string => {
   return String.fromCharCode(65 + i);
 };
 
-/**
- * ============================================================================
- * LOS COLORES — etapa RPT2
- * ============================================================================
- *
- * ⚠ SALEN DE `app/styles/tokens.css`, no se inventan acá. Son los cuatro de
- * HomeSí más la escala neutra que ya usa toda la app, en ARGB porque es lo que
- * pide ExcelJS. Si alguno cambia en la marca, cambia ahí y acá.
- *
- * Los tres tonos derivados --`NAVY_SOFT`, `CORAL_SOFT`, `SKY_SOFT`-- son mezclas
- * del color de marca sobre blanco, porque un relleno de Excel es OPACO: no hay
- * opacidad, así que el tono claro hay que calcularlo. El porcentaje va anotado
- * en cada uno para que se pueda rehacer.
+/*
+ * ⚠ LA PALETA Y LOS BORDES SE MUDARON a `lib/pipeline/reportStyle.ts` -- etapa
+ * RPT6, cuando aparecio el segundo consumidor. Los colores siguen saliendo de
+ * `app/styles/tokens.css`; lo unico que cambio es donde viven.
  */
-const C = {
-  navy: 'FF001A40',
-  coral: 'FFFF4040',
-  sky: 'FFA6DEFF',
-  canvas: 'FFFCFCFA',
-  white: 'FFFFFFFF',
-  slate100: 'FFF1F5F9',
-  slate200: 'FFE2E8F0',
-  slate300: 'FFCBD5E1',
-  slate500: 'FF64748B',
-  /** coral al 28% sobre blanco: la fila de división. Al 12% no se leia. */
-  coralSoft: 'FFFFCCCC',
-  /** navy al 16% sobre blanco: las filas de branch. */
-  navySoft: 'FFD8DCE4',
-  /** sky al 45% sobre blanco: la banda de periodo. Al 25% se leia como blanco. */
-  skySoft: 'FFD3EEFF',
-  /**
-   * La banda cebra de las filas de persona. Es  y no :
-   * medido contra la captura, al 50 no se distinguia del blanco y la cebra no
-   * cumplia su unica funcion, que es seguir una fila a lo ancho de 22 columnas.
-   */
-  zebra: 'FFF1F5F9',
-} as const;
-
-/** Arial: la app usa Inter, que Excel no tiene. Ver la nota del brief. */
-const FONT = 'Arial';
-
-type Fill = { type: 'pattern'; pattern: 'solid'; fgColor: { argb: string } };
-const fill = (argb: string): Fill => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } });
-
-const THIN = { style: 'thin' as const, color: { argb: C.slate300 } };
-const MEDIUM = { style: 'medium' as const, color: { argb: C.navy } };
 
 const COL = {
   orgId: colOf('OrgID'),

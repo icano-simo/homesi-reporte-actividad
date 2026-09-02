@@ -17,6 +17,8 @@ import {
 } from '@/lib/pipeline/aggregate';
 import type { PipelineLoan, ResolvedLoan } from '@/lib/pipeline/types';
 import { classifyStrategy, hasStrategyData, STRATEGY_ORDER, type Strategy } from '@/lib/pipeline/strategy';
+import { buildDayReport, exportKindForMonth } from '@/lib/pipeline/dayReport';
+import { businessToday } from '@/lib/pipeline/period';
 import SummaryCards, { type SummaryBlock } from './SummaryCards';
 import type { MilestoneCascadeRow } from './MilestoneCascade';
 import PivotTable, { buildBranchRows, type BranchRow, type StrategyRow } from './PivotTable';
@@ -272,6 +274,7 @@ export default function PipelinePage() {
   const [isExporting, setIsExporting] = useState(false);
   /* Etapa RPT1: estado propio, no compartido con `isExporting` -- son dos descargas distintas. */
   const [isBuildingMonthly, setIsBuildingMonthly] = useState(false);
+  const [isBuildingDay, setIsBuildingDay] = useState(false);
 
   // Etapa F5a: si nadie subió un archivo en esta sesión (data===null),
   // restaura el último snapshot activo desde Supabase -- para no perder el
@@ -485,6 +488,8 @@ export default function PipelinePage() {
   const forecastMonthParsed = parseMonthInputValue(forecastMonth);
   const forecastRange = targetMonthRange(forecastMonthParsed);
   const forecastMonthLabel = formatForecastMonthLabel(forecastMonthParsed);
+  /* Qué export ofrece el mes elegido. Ver `exportKindForMonth`. */
+  const exportKind = exportKindForMonth(forecastMonth, businessToday());
 
   // Cálculo derivado -- igual que en F3, pero sobre data.openLoans (real) en
   // vez de DEMO_LOANS. aggregate.ts (F2) no se modificó: se llaman sus
@@ -1073,6 +1078,66 @@ export default function PipelinePage() {
    * mandarlo filtrado por branch daría un archivo que dice "agosto" y muestra
    * un pedazo de agosto.
    */
+  /*
+   * ==========================================================================
+   * EL FORECAST DE HOY — etapa RPT6
+   * ==========================================================================
+   *
+   * ⚠ EL MODELO SE ARMA ACÁ, EN EL CLIENTE, sobre `filteredBranchRows` y
+   * `filteredResolvedLoans` -- los mismos objetos que alimentan las tarjetas del
+   * Executive Summary. La ruta sólo dibuja.
+   *
+   * Es lo que hace que "los números son exactamente los de la pantalla" sea una
+   * propiedad por construcción y no algo que haya que verificar: no hay una
+   * segunda consulta ni un segundo cálculo del que puedan diferir.
+   *
+   * Y se pasan los DOS rangos porque la pantalla usa dos independientes:
+   * `pipelineDateRange` acota Total/Healthy Pipeline y `forecastRange` acota los
+   * cerrados. Ver la nota de `dayReport.ts`.
+   */
+  async function handleDayReport() {
+    setIsBuildingDay(true);
+    setError(null);
+    try {
+      const model = buildDayReport({
+        branchRows: filteredBranchRows,
+        resolvedLoans: filteredResolvedLoans,
+        pipelineRange: pipelineDateRange,
+        forecastRange,
+      });
+      const hoy = businessToday();
+      const today = `${hoy.year}-${String(hoy.month).padStart(2, '0')}-${String(hoy.day).padStart(2, '0')}`;
+      const res = await fetch('/api/pipeline/day-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          meta: {
+            today,
+            pipelineRange: pipelineDateRange,
+            forecastMonthLabel,
+            branchFilter: selectedBranch === 'ALL' ? 'All branches' : `Branch ${selectedBranch}`,
+          },
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(typeof body?.error === 'string' ? body.error : 'Could not build the forecast export.');
+      }
+      const blob = await res.blob();
+      const match = (res.headers.get('Content-Disposition') ?? '').match(/filename="([^"]+)"/);
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = match ? match[1] : `Forecast_Today_${today}.xlsx`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setIsBuildingDay(false);
+    }
+  }
+
   async function handleMonthlyReport() {
     setIsBuildingMonthly(true);
     setError(null);
@@ -1205,7 +1270,17 @@ export default function PipelinePage() {
             depende de ningún filtro de la pantalla. Usa el mes del selector de
             Forecast, que es el único mes que la usuaria ya eligió.
           */}
-          {data && (
+          {/*
+            ⚠ LOS DOS BOTONES NO CONVIVEN — etapa RPT6. El mes elegido decide
+            cuál aparece, y para un mes futuro no aparece ninguno.
+
+            El motivo: un reporte de cierre generado a mitad de mes muestra un
+            cierre que todavía no ocurrió, y quien lo abra lo va a leer como
+            definitivo. Que la opción NO EXISTA es mejor que advertir que no se
+            use. La regla se deriva de la fecha del sistema en hora de negocio
+            -- ver `exportKindForMonth`.
+          */}
+          {data && exportKind === 'monthly' && (
             <button
               type="button"
               className="btn"
@@ -1215,6 +1290,18 @@ export default function PipelinePage() {
             >
               <FileSheetIcon />
               {isBuildingMonthly ? 'Building…' : `Monthly report (${forecastMonthLabel})`}
+            </button>
+          )}
+          {data && exportKind === 'day' && (
+            <button
+              type="button"
+              className="btn"
+              onClick={handleDayReport}
+              disabled={isBuildingDay}
+              title="Export the forecast exactly as it stands on screen today"
+            >
+              <FileSheetIcon />
+              {isBuildingDay ? 'Building…' : 'Export today’s forecast'}
             </button>
           )}
         </div>
