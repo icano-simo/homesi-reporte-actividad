@@ -169,6 +169,47 @@ export async function GET(request: Request) {
      * El universo de "estuvo alguna vez" se arma sobre TODOS los snapshots, no
      * sólo el activo: un préstamo que estuvo abierto en junio y cerró en julio
      * sí fue visto por el pipeline, y no es un hallazgo.
+     *
+     * ========================================================================
+     * ⚠ ESTO NO ESCALA, Y ACÁ ESTÁ EL ARREGLO MEDIDO
+     * ========================================================================
+     *
+     * Recorre las dos tablas COMPLETAS, sin filtro de snapshot. Con 24
+     * snapshots ya tarda más de tres segundos y medio --medido: una prueba con
+     * ese timeout dio un falso negativo--. Con 200 va a ser inusable.
+     *
+     * Son dos problemas distintos y el arreglo de cada uno es distinto:
+     *
+     * 1. LOS RESUELTOS SE LEEN DE UN SOLO SNAPSHOT, y es EXACTO, no una
+     *    aproximación. `pipeline_resolved_loans` es acumulativa: el snapshot
+     *    activo trae todo lo que se resolvió alguna vez.
+     *
+     *    Verificado, no supuesto: 815 ids resueltos en toda la historia de la
+     *    tabla, 815 en el snapshot activo, CERO faltantes. O sea que
+     *    `.eq('snapshot_id', active.id)` sobre esta tabla da el mismo conjunto
+     *    y saca de la cuenta la mitad más grande del escaneo --815 filas por
+     *    snapshot contra ~100 de abiertos--.
+     *
+     *    ⚠ Si algún día una purga de retención borra snapshots viejos, hay que
+     *    volver a comprobar la igualdad: la propiedad depende de que el sync
+     *    reescriba el histórico completo en cada carga.
+     *
+     * 2. LOS ABIERTOS SÍ NECESITAN LA UNIÓN de varios snapshots, y ahí va una
+     *    ventana de 12 MESES.
+     *
+     *    Por qué doce y no otro número: la ventana tiene que cubrir la vida
+     *    entera de un préstamo en el pipeline, o "nunca estuvo" empieza a
+     *    significar "entró antes de que empiece a mirar". Medido sobre los 481
+     *    cerrados con las dos fechas, de solicitud a cierre:
+     *
+     *      mediana   33 días
+     *      p90       57 días
+     *      p99      104 días
+     *      máximo   184 días
+     *
+     *    Doce meses es el doble del máximo observado. Seis ya alcanzarían; doce
+     *    deja margen para un caso peor que el peor visto y sigue acotando el
+     *    escaneo a unos 250 snapshots de abiertos en vez de todos.
      */
     const vistos = new Set<string>();
     for (const tabla of ['pipeline_loans', 'pipeline_resolved_loans']) {
