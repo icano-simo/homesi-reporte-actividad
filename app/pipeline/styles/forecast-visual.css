@@ -633,6 +633,19 @@ table.piv.piv--combined td.totcol {
 }
 
 /*
+ * Etapa ACTUAL-CLOSINGS: con una sola tarjeta (Closed) el grid de 4
+ * columnas la deja angosta y pegada a la izquierda. Modificador propio
+ * de Forecast -- no toca la regla base .hero-banner (compartida con
+ * Analytics/Commercial Activity). Sin @media a propósito: por orden en
+ * el archivo, esta regla gana igual dentro del @media (max-width:900px)
+ * existente (misma especificidad, un solo selector de clase cada uno).
+ */
+.hero-banner--closings {
+  grid-template-columns: minmax(0, 320px);
+  justify-content: center;
+}
+
+/*
  * Etapa HERO-STRATEGY-DONUT-WIDE -- la tarjeta "Strategy Mix" (donut +
  * leyenda lado a lado) necesita más ancho que las otras 3 del hero-banner
  * para no apilarse. Con las 4 columnas iguales de `.hero-banner`

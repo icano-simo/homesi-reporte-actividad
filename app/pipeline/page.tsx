@@ -516,6 +516,16 @@ export default function PipelinePage() {
   // directamente. targetMonthRange() se reutiliza tal cual (aggregate.ts,
   // sin tocar) para convertir el mes elegido en {startDate, endDate}.
   const forecastMonthParsed = parseMonthInputValue(forecastMonth);
+  // Etapa ACTUAL-CLOSINGS: un mes anterior al actual ya cerró -- Total
+  // Pipeline/Healthy Pipeline/Total Forecast dejan de significar algo
+  // (todo lo pendiente se resolvió o viajó al mes siguiente, y eso es
+  // lo correcto, no un error de cálculo). Isa: "el mes actual es
+  // forecast, los anteriores son actual closings".
+  const businessNow = businessToday();
+  const isPastForecastMonth =
+    forecastMonthParsed.year < businessNow.year ||
+    (forecastMonthParsed.year === businessNow.year && forecastMonthParsed.month < businessNow.month);
+  const pageTitle = isPastForecastMonth ? 'Actual Closings' : 'Forecast & Pipeline';
   const forecastRange = targetMonthRange(forecastMonthParsed);
   const forecastMonthLabel = formatForecastMonthLabel(forecastMonthParsed);
   /* Qué export ofrece el mes elegido. Ver `exportKindForMonth`. */
@@ -1261,7 +1271,7 @@ export default function PipelinePage() {
       */}
       <div className="page-head">
         <div>
-          <h1 className="page-head__title">Forecast &amp; Pipeline</h1>
+          <h1 className="page-head__title">{pageTitle}</h1>
           <input
             type="month"
             className="fc-month"
@@ -1471,6 +1481,7 @@ export default function PipelinePage() {
             projectedToCloseSoon={projectedToCloseSoon}
             ctcCount={ctcClosingSplit.ctcCount}
             closingCount={ctcClosingSplit.closingCount}
+            mode={isPastForecastMonth ? 'actual-closings' : 'forecast'}
           />
 
           <TabNavigation activeTab={activeTab} onTabChange={setActiveTab} adverseCount={adverseInRange.length} />
