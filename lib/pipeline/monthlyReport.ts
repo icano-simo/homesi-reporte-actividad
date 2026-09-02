@@ -1,5 +1,5 @@
-import { apportionByWeight, isClosedInMonth, type DateRange } from './aggregate';
-import { buildBranchForecastRows } from './branchForecast';
+import { isClosedInMonth, type DateRange } from './aggregate';
+import { buildBranchForecastRows, pullThroughWeight } from './branchForecast';
 import { classifyStrategy, type Strategy } from './strategy';
 import type { PipelineLoan, ResolvedLoan } from './types';
 
@@ -40,10 +40,10 @@ import type { PipelineLoan, ResolvedLoan } from './types';
  * ---------------------------------------------------------------------------
  * "Cerrado" es `isClosedInMonth`, la misma que usa el Executive Summary de la
  * pantalla. El forecast es `buildBranchForecastRows`, la misma cascada, con las
- * mismas tasas y la misma diferencia entre Banked y Brokered. El reparto entre
- * Loan Officers es `apportionByWeight`, el mismo de siempre. La estrategia es
- * `classifyStrategy`. Este archivo ORDENA esos números; no calcula ninguno por
- * su cuenta.
+ * mismas tasas y la misma diferencia entre Banked y Brokered. El peso por
+ * préstamo es `pullThroughWeight`, que es esa misma cascada mirada de a un
+ * préstamo. La estrategia es `classifyStrategy`. Este archivo ORDENA esos
+ * números; no calcula ninguno por su cuenta.
  */
 
 /** El estado al cierre del mes. Los tres son excluyentes y cubren el universo. */
@@ -67,13 +67,66 @@ export interface MonthlyReportRow {
   loanProgram: string;
   /** `'Pipeline'` si estaba abierto al corte; vacío si apareció después. */
   startOfMonth: '' | 'Pipeline';
+  /**
+   * ⚠ LA COLUMNA QUE HACE AUDITABLE EL RESUMEN — etapa RPT3.
+   *
+   * `Start of month` dice sí o no; ésta dice cuál de los cuatro casos, y por eso
+   * el `Closed` de la columna del corte puede ser un COUNTIFS como todo lo demás
+   * en vez de un número escrito a mano.
+   *
+   *   'Pipeline'      abierto al corte Y con cierre estimado dentro del mes
+   *   'Out of month'  abierto al corte, pero cerrando fuera del mes
+   *   'Closed'        ya había cerrado cuando se tomó el snapshot del corte
+   *   'Not yet'       todavía no existía
+   *
+   * `'Out of month'` no es relleno: es la exclusión hecha visible. Sin ese valor,
+   * los préstamos que la cascada descarta desaparecerían del conteo sin dejar
+   * rastro y no habría forma de reconstruir el número filtrando la hoja.
+   */
+  statusAtCutoff: 'Pipeline' | 'Out of month' | 'Closed' | 'Not yet';
+  /**
+   * Lo que este préstamo aporta al forecast del corte. 0 si no estaba, si cierra
+   * fuera del mes, o si es Banked y no está healthy. Ver `pullThroughWeight`.
+   */
+  ptWeight: number;
   endOfMonth: EndOfMonthState;
   strategy: Strategy | '';
   loanType: string;
-  /** Su Est. Closing Date en el snapshot del corte. Vacío si no estaba. */
+  /**
+   * ⚠ LA FECHA CON LA QUE ENTRÓ AL PIPELINE, no la del corte — etapa RPT7.
+   *
+   * Para los que estaban abiertos al corte es su fecha de ese día; para los que
+   * llegaron después, la del PRIMER snapshot donde se los ve abiertos. Antes
+   * sólo se llenaba en los del corte y quedaba vacía en todos los demás, que es
+   * la mitad de la columna.
+   *
+   * `null` sólo cuando el préstamo nunca apareció abierto en ningún snapshot
+   * --los que cerraron antes del corte y los que el pipeline nunca vio--. NO se
+   * inventa: `firstSeenOpen` lleva `never open` para que se distinga de un dato
+   * que falta.
+   */
   estClosingStart: string | null;
-  /** Dónde quedó. */
+  /**
+   * ⚠ LA FECHA AL CIERRE DEL MES, llena en TODAS las filas — etapa RPT7.
+   *
+   * Del snapshot del último día del mes: de `pipeline_loans` si seguía abierto,
+   * de `pipeline_resolved_loans` si ya se había resuelto. Si terminó con la
+   * misma fecha con la que entró, va la misma; no se deja vacía.
+   *
+   * ⚠ ES LA ÚNICA COLUMNA QUE MIRA EL SNAPSHOT DE CIERRE Y NO EL ACTIVO, y es
+   * deliberado: la columna dice "al cierre del mes", así que su fuente es ese
+   * día. El resto de la fila --estado, fecha de cierre, milestone-- sigue
+   * saliendo del activo por el retraso de carga.
+   */
   estClosingEnd: string | null;
+  /**
+   * La fecha del primer snapshot donde se lo vio ABIERTO, o `never open`.
+   *
+   * ⚠ ES LA MARCA QUE HACE HONESTA A `estClosingStart`. Sin ella, una celda
+   * vacía en la fecha de entrada se lee como un dato que se perdió; con ella se
+   * lee como lo que es: ese préstamo nunca estuvo abierto en un snapshot.
+   */
+  firstSeenOpen: string | 'never open';
   /** `'Yes'` sólo si las dos existen y difieren -- "no sé" no es "no se movió". */
   estClosingMoved: '' | 'Yes';
   /** 1 o 2, de `loan_records_v2.lien_position`. */
@@ -90,7 +143,8 @@ export interface MonthlyReportChannelCells {
   pipelineAtCutoff: number;
   closedAtCutoff: number;
   potentialAtCutoff: number;
-  forecastAtCutoff: number;
+  /** `null` en las filas de persona: el forecast es del branch. Ver `celdasDe`. */
+  forecastAtCutoff: number | null;
   /* Al cierre del mes. */
   closedFirstLien: number;
   closedSecondLien: number;
@@ -134,6 +188,21 @@ export interface MonthlyReportInput {
    * préstamo seguía en el pipeline al cierre -- ver `endOfMonth`.
    */
   openAtMonthEnd: Set<string>;
+  /**
+   * La Est. Closing Date en el snapshot del ÚLTIMO DÍA del mes, abierto o
+   * resuelto. Es la fuente de `estClosingEnd` -- etapa RPT7.
+   */
+  estAtMonthEnd: Map<string, string | null>;
+  /**
+   * Por préstamo: la primera vez que se lo vio ABIERTO del corte en adelante, y
+   * la primera Est. Closing Date que tuvo -- etapa RPT7.
+   *
+   * ⚠ Los dos campos pueden ser de días distintos: un préstamo puede aparecer
+   * sin fecha estimada y recibirla después. `snapshotDate` alimenta
+   * `firstSeenOpen` y `estClosingDate` alimenta `estClosingStart`; ver la nota
+   * de la ruta, que es donde se arman.
+   */
+  firstSeen: Map<string, { snapshotDate: string; estClosingDate: string | null }>;
   /** El estado de HOY. */
   activeOpen: PipelineLoan[];
   activeResolved: ResolvedLoan[];
@@ -158,6 +227,8 @@ export interface MonthlyReportModel {
     appearedDuringMonth: number;
     /** Los que ya habían cerrado cuando se tomó el snapshot del corte. */
     closedBeforeCutoff: number;
+    /** Los que cambiaron de branch entre el corte y hoy. */
+    transferred: number;
     closed: number;
     adversed: number;
     stillOpen: number;
@@ -178,13 +249,40 @@ export function buildMonthlyReport(input: MonthlyReportInput): MonthlyReportMode
     anchorResolved,
     existedByMonthEnd,
     openAtMonthEnd,
+    estAtMonthEnd,
+    firstSeen,
     activeOpen,
     activeResolved,
     lastMilestone,
     fromActivity,
   } = input;
 
+  /*
+   * ==========================================================================
+   * ⚠ QUÉ POBLACIÓN ALIMENTA CADA COLUMNA — etapa RPT3
+   * ==========================================================================
+   *
+   * Hasta acá `Pipeline` contaba TODOS los abiertos al corte y `Forecast` corría
+   * la cascada sólo sobre los que cierran dentro del mes. Dos poblaciones
+   * distintas en columnas contiguas: la que decía "Pipeline" no era la que
+   * alimentaba a la que decía "Forecast", y por eso el resumen no se podía
+   * reconstruir a mano. Medido en agosto de 2026: 65 Banked contra 57.
+   *
+   * Ahora las tres columnas del corte --Pipeline, Potential y Forecast-- miran la
+   * MISMA población: abiertos al corte con cierre estimado dentro del mes. Un
+   * préstamo abierto al corte con cierre en diciembre no es potencial de agosto.
+   *
+   * `splitHealthyTotal` --la función de la app-- filtra por los dos extremos del
+   * rango y descarta los `estClosingDate` nulos; `enElMes` reproduce ese mismo
+   * criterio para las columnas que no pasan por la cascada, y no otro.
+   */
+  const enElMes = (d: string | null) => d !== null && d >= monthRange.startDate && d <= monthRange.endDate;
+
   const anchorById = new Map(anchorOpen.map((l) => [l.sourceLoanId, l]));
+  /* Los que ya figuraban cerrados en el snapshot del corte. */
+  const cerradoAlCorte = new Set(
+    anchorResolved.filter((r) => isClosedInMonth(r, monthRange)).map((r) => r.sourceLoanId)
+  );
   const activeOpenById = new Map(activeOpen.map((l) => [l.sourceLoanId, l]));
   const activeResolvedById = new Map(activeResolved.map((l) => [l.sourceLoanId, l]));
 
@@ -279,12 +377,49 @@ export function buildMonthlyReport(input: MonthlyReportInput): MonthlyReportMode
       date: null,
     };
 
-    const estStart = atCutoff?.estClosingDate ?? null;
-    const estEnd = openNow?.estClosingDate ?? resolvedNow?.estClosingDate ?? null;
+    /*
+     * ⚠ LAS DOS FECHAS, CADA UNA DE SU MOMENTO. `atCutoff` ya no manda en la de
+     * entrada: manda la primera vez que se lo vio abierto, que para los del
+     * corte ES el corte y para los que llegaron después es su primer snapshot.
+     */
+    const primera = firstSeen.get(id);
+    const estStart = primera?.estClosingDate ?? null;
+    /*
+     * Y si el snapshot de cierre no lo tiene --no puede pasar hoy, los 178
+     * están-- se cae al activo antes que dejarla vacía: la columna promete estar
+     * llena y una fecha de un día después es mejor que ninguna.
+     */
+    const estEnd = estAtMonthEnd.has(id)
+      ? (estAtMonthEnd.get(id) ?? null)
+      : (openNow?.estClosingDate ?? resolvedNow?.estClosingDate ?? null);
 
     rows.push({
-      orgId: openNow?.branch ?? base.branch,
-      branch: base.branch,
+      /*
+       * ==========================================================================
+       * ⚠ UNA SOLA BRANCH POR FILA, Y ES LA DEL CORTE — etapa RPT3
+       * ==========================================================================
+       *
+       * Un préstamo puede transferirse de branch durante el mes. Medido entre el
+       * snapshot 19 y el activo: tres lo hicieron. Ninguno cambió de Loan Officer
+       * ni de canal.
+       *
+       * Si la fila tomara la branch de HOY, las columnas del corte quedarían
+       * contadas en una branch y las del cierre en otra, y encima el `COUNTIFS`
+       * del resumen --que filtra por `OrgID`-- daría distinto del modelo. Eso es
+       * exactamente lo que pasaba: el 716 mostraba 7 de pipeline en el modelo y 9
+       * al recalcular en Excel, porque ganaba dos préstamos del 710 y del 747.
+       *
+       * Se elige la branch DEL CORTE porque la hoja es un seguimiento de cohorte:
+       * "estos préstamos estaban en el pipeline de agosto, esto les pasó". Con la
+       * branch de hoy, ninguna de las dos mitades de la fila es estable.
+       *
+       * No cuesta nada hoy --los tres siguen abiertos o cayeron adverse, ninguno
+       * cerró-- así que ningún cierre queda mal atribuido. El día que un préstamo
+       * transferido cierre, va a contar en su branch del corte y no en la de
+       * Forecast; la hoja lo dice para que no se descubra comparando.
+       */
+      orgId: atCutoff?.branch ?? base.branch,
+      branch: atCutoff?.branch ?? base.branch,
       channel: base.channel,
       loanNumber: id,
       borrowerName: base.borrowerName ?? '',
@@ -305,9 +440,18 @@ export function buildMonthlyReport(input: MonthlyReportInput): MonthlyReportMode
       loanType: base.loanType ?? '',
       estClosingStart: estStart,
       estClosingEnd: estEnd,
+      firstSeenOpen: primera?.snapshotDate ?? 'never open',
       /* Sin las dos fechas no se puede afirmar que se movió, así que no se afirma. */
       estClosingMoved: estStart && estEnd && estStart !== estEnd ? 'Yes' : '',
       lien: extra?.lien ?? null,
+      statusAtCutoff: atCutoff
+        ? enElMes(atCutoff.estClosingDate)
+          ? 'Pipeline'
+          : 'Out of month'
+        : cerradoAlCorte.has(id)
+          ? 'Closed'
+          : 'Not yet',
+      ptWeight: atCutoff && enElMes(atCutoff.estClosingDate) ? pullThroughWeight(atCutoff) : 0,
     });
   }
 
@@ -339,26 +483,21 @@ export function buildMonthlyReport(input: MonthlyReportInput): MonthlyReportMode
   const branchChannelRows = buildBranchForecastRows(anchorOpen, cutoffRange);
 
   /*
-   * ⚠ EL FORECAST POR PERSONA, PRIMERO Y APARTE. Se reparte por (branch, canal)
-   * con `apportionByWeight`, así que hay que resolverlo antes de armar las filas
-   * -- una fila necesita su parte, y la parte sólo existe mirando a todo el
-   * grupo.
+   * ⚠ EL FORECAST, POR (BRANCH, CANAL) Y NADA MÁS.
+   *
+   * Sale tal cual de `buildBranchForecastRows`, ya redondeado por fila -- que es
+   * exactamente lo que hace el Executive Summary de la pantalla, y por eso el
+   * total del reporte coincide con el de Forecast.
+   *
+   * ⚠ ACÁ HABÍA UN REPARTO ENTRE LOAN OFFICERS Y SE FUE — etapa RPT3. Repartir el
+   * forecast del branch entre su gente con `apportionByWeight` producía una cifra
+   * por persona que no existe: la cascada está definida por (branch, canal), que
+   * es donde el negocio fijó las tasas. El reparto tiene sentido en Outlook,
+   * donde cada persona tiene presupuesto propio; acá era inventarlo.
    */
-  const forecastPorLo = new Map<string, number>();
   const forecastPorBranchCanal = new Map<string, number>();
   for (const br of branchChannelRows) {
     forecastPorBranchCanal.set(br.branch + '|' + br.channel, br.forecastTotal);
-    const suyos = anchorOpen.filter((l) => l.branch === br.branch && l.channel === br.channel);
-    const officers = [...new Set(suyos.map((l) => l.loanOfficer))].sort((a, b) => a.localeCompare(b));
-    /* La MISMA función, sobre los préstamos de una sola persona, sin redondear. */
-    const pesos = officers.map((who) =>
-      buildBranchForecastRows(
-        suyos.filter((l) => l.loanOfficer === who),
-        cutoffRange
-      ).reduce((a, r) => a + r.forecastExact, 0)
-    );
-    const partes = apportionByWeight(br.forecastTotal, pesos);
-    officers.forEach((who, i) => forecastPorLo.set(br.branch + '|' + br.channel + '|' + who, partes[i]));
   }
 
   /*
@@ -375,26 +514,48 @@ export function buildMonthlyReport(input: MonthlyReportInput): MonthlyReportMode
   for (const r of rows) claves.set(r.branch + '|' + r.loanOfficer, { branch: r.branch, loanOfficer: r.loanOfficer });
 
   const celdasDe = (branch: string, loanOfficer: string | null, channel: PipelineLoan['channel']): MonthlyReportChannelCells => {
+    /* La MISMA población que la cascada -- ver la nota de `enElMes`. */
     const abiertos = anchorOpen.filter(
-      (l) => l.branch === branch && l.channel === channel && (loanOfficer === null || l.loanOfficer === loanOfficer)
+      (l) =>
+        l.branch === branch &&
+        l.channel === channel &&
+        (loanOfficer === null || l.loanOfficer === loanOfficer) &&
+        enElMes(l.estClosingDate)
     );
     const delDetalle = rows.filter(
       (r) => r.branch === branch && r.channel === channel && (loanOfficer === null || r.loanOfficer === loanOfficer)
     );
+    const cerrados = anchorResolved.filter(
+      (r) =>
+        r.branch === branch &&
+        r.channel === channel &&
+        (loanOfficer === null || r.loanOfficer === loanOfficer) &&
+        isClosedInMonth(r, monthRange)
+    ).length;
     return {
       pipelineAtCutoff: abiertos.length,
-      closedAtCutoff: anchorResolved.filter(
-        (r) =>
-          r.branch === branch &&
-          r.channel === channel &&
-          (loanOfficer === null || r.loanOfficer === loanOfficer) &&
-          isClosedInMonth(r, monthRange)
-      ).length,
-      potentialAtCutoff: abiertos.filter((l) => l.healthy === true).length,
-      forecastAtCutoff:
-        loanOfficer === null
-          ? (forecastPorBranchCanal.get(branch + '|' + channel) ?? 0)
-          : (forecastPorLo.get(branch + '|' + channel + '|' + loanOfficer) ?? 0),
+      closedAtCutoff: cerrados,
+      /*
+       * ⚠ POTENTIAL ES LA SUMA, NO LA RESTA. Pipeline es lo que seguía abierto y
+       * Closed lo que ya cerró: el potencial del mes es todo lo que había
+       * disponible para cerrar, o sea los dos juntos. Con la resta, un branch que
+       * ya había cerrado la mitad de su pipeline al corte mostraba un potencial
+       * más chico que el real.
+       *
+       * No se notaba contra el archivo de julio porque ahí `Closed` es 0 en toda
+       * la columna --el corte fue el día 2-- y las dos fórmulas dan lo mismo.
+       */
+      potentialAtCutoff: abiertos.length + cerrados,
+      /*
+       * ⚠ EL FORECAST ES DEL BRANCH, Y POR ESO UNA PERSONA NO TIENE. La cascada
+       * está definida por (branch, canal) --es ahí donde el negocio fijó las
+       * tasas-- así que un forecast por Loan Officer sería un número inventado.
+       *
+       * Antes se repartía con `apportionByWeight`. Ese reparto tiene sentido en
+       * Outlook, donde cada persona tiene presupuesto propio; acá no hay nada que
+       * repartir. `null` y no 0: cero afirmaría que se espera que no cierre nada.
+       */
+      forecastAtCutoff: loanOfficer === null ? (forecastPorBranchCanal.get(branch + '|' + channel) ?? 0) : null,
       closedFirstLien: delDetalle.filter((r) => r.endOfMonth === 'Closed' && r.lien === 1).length,
       closedSecondLien: delDetalle.filter((r) => r.endOfMonth === 'Closed' && r.lien === 2).length,
       adversed: delDetalle.filter((r) => r.endOfMonth === 'Adversed').length,
@@ -408,7 +569,7 @@ export function buildMonthlyReport(input: MonthlyReportInput): MonthlyReportMode
         pipelineAtCutoff: a.pipelineAtCutoff + c.pipelineAtCutoff,
         closedAtCutoff: a.closedAtCutoff + c.closedAtCutoff,
         potentialAtCutoff: a.potentialAtCutoff + c.potentialAtCutoff,
-        forecastAtCutoff: a.forecastAtCutoff + c.forecastAtCutoff,
+        forecastAtCutoff: (a.forecastAtCutoff ?? 0) + (c.forecastAtCutoff ?? 0),
         closedFirstLien: a.closedFirstLien + c.closedFirstLien,
         closedSecondLien: a.closedSecondLien + c.closedSecondLien,
         adversed: a.adversed + c.adversed,
@@ -487,6 +648,12 @@ export function buildMonthlyReport(input: MonthlyReportInput): MonthlyReportMode
        */
       appearedDuringMonth: rows.filter((r) => r.startOfMonth === '' && existedByMonthEnd.has(r.loanNumber)).length,
       closedBeforeCutoff: rows.filter((r) => r.startOfMonth === '' && !existedByMonthEnd.has(r.loanNumber)).length,
+      /** Cuántos se transfirieron de branch despues del corte. Ver la nota de `orgId`. */
+      transferred: rows.filter((r) => {
+        const a = anchorById.get(r.loanNumber);
+        const h = activeOpenById.get(r.loanNumber) ?? activeResolvedById.get(r.loanNumber);
+        return a !== undefined && h !== undefined && a.branch !== h.branch;
+      }).length,
       closed: rows.filter((r) => r.endOfMonth === 'Closed').length,
       adversed: rows.filter((r) => r.endOfMonth === 'Adversed').length,
       stillOpen: rows.filter((r) => r.endOfMonth === 'Still Open').length,

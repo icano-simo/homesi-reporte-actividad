@@ -8,6 +8,17 @@ import {
   type MonthlyReportRow,
   type MonthlyReportSummaryRow,
 } from '@/lib/pipeline/monthlyReport';
+import {
+  C,
+  FONT,
+  MEDIUM,
+  THIN,
+  channelGrid,
+  fill,
+  setChannelWidths,
+  writeChannelHeader,
+  type ChannelGridSpec,
+} from '@/lib/pipeline/reportStyle';
 import type { PipelineLoan, ResolvedLoan } from '@/lib/pipeline/types';
 
 export const runtime = 'nodejs';
@@ -240,17 +251,60 @@ export async function POST(request: Request) {
     /* El del ÚLTIMO snapshot del mes: decide quién seguía abierto al cierre. */
     let openAtMonthEnd = new Set<string>(anchorOpen.map((l) => l.sourceLoanId));
     const lastMilestone = new Map<string, { milestone: string; date: string | null; at: number }>();
-    for (const l of anchorOpen) lastMilestone.set(l.sourceLoanId, { milestone: l.rawMilestone, date: l.milestoneDate, at: anchor.id });
+    /*
+     * ⚠ LA PRIMERA VEZ QUE SE VIO ABIERTO CADA PRESTAMO, en la MISMA pasada
+     * — etapa RPT7. Sale del `min(snapshot_id)` del corte en adelante, que es
+     * el mismo recorrido que ya se hacia para el ultimo milestone.
+     *
+     * Se siembra con los del corte porque son la primera aparicion posible: el
+     * bucle recorre `duringMonth` en orden ascendente y sólo escribe si la clave
+     * no está, así que el primero gana.
+     */
+    const firstSeen = new Map<string, { snapshotDate: string; estClosingDate: string | null }>();
+    for (const l of anchorOpen) {
+      lastMilestone.set(l.sourceLoanId, { milestone: l.rawMilestone, date: l.milestoneDate, at: anchor.id });
+      firstSeen.set(l.sourceLoanId, { snapshotDate: anchor.snapshot_date, estClosingDate: l.estClosingDate });
+    }
+    /* La Est. Closing Date del ultimo dia del mes -- ver `estClosingEnd`. */
+    let estAtMonthEnd = new Map<string, string | null>();
     for (const s of duringMonth) {
-      const rows = await page<{ source_loan_id: string; raw_milestone: string; milestone_date: string | null }>(
+      const rows = await page<{
+        source_loan_id: string;
+        raw_milestone: string;
+        milestone_date: string | null;
+        est_closing_date: string | null;
+      }>(
         'pipeline_loans',
-        'source_loan_id, raw_milestone, milestone_date',
+        'source_loan_id, raw_milestone, milestone_date, est_closing_date',
         (q) => (q as never as { eq: (a: string, b: number) => unknown }).eq('snapshot_id', s.id)
       );
       const aqui = new Set<string>();
+      const estAqui = new Map<string, string | null>();
       for (const r of rows) {
         existedByMonthEnd.add(r.source_loan_id);
         aqui.add(r.source_loan_id);
+        estAqui.set(r.source_loan_id, r.est_closing_date);
+        /*
+         * ⚠ LA PRIMERA APARICIÓN Y LA PRIMERA FECHA NO SIEMPRE SON EL MISMO DÍA.
+         *
+         * Medido: dos préstamos de agosto de 2026 --747002075711 y
+         * 700002074679-- aparecieron abiertos SIN Est. Closing Date y la
+         * recibieron en un snapshot posterior. Si la fecha de entrada se tomara
+         * sólo del primer snapshot, esas dos filas quedarían vacías teniendo el
+         * dato disponible.
+         *
+         * Así que se guardan las dos cosas: `snapshotDate` es la primera vez que
+         * se lo vio abierto --la marca-- y `estClosingDate` es la primera fecha
+         * que tuvo. Para 175 de 177 son el mismo día; para esas dos no, y que la
+         * hoja lo muestre es correcto: el préstamo estuvo en el pipeline antes
+         * de tener una fecha estimada.
+         */
+        const ya = firstSeen.get(r.source_loan_id);
+        if (!ya) {
+          firstSeen.set(r.source_loan_id, { snapshotDate: s.snapshot_date, estClosingDate: r.est_closing_date });
+        } else if (ya.estClosingDate === null && r.est_closing_date !== null) {
+          ya.estClosingDate = r.est_closing_date;
+        }
         const prev = lastMilestone.get(r.source_loan_id);
         if (!prev || prev.at < s.id) {
           lastMilestone.set(r.source_loan_id, { milestone: r.raw_milestone, date: r.milestone_date, at: s.id });
@@ -258,6 +312,28 @@ export async function POST(request: Request) {
       }
       /* `duringMonth` viene ordenado por fecha, así que el último gana. */
       openAtMonthEnd = aqui;
+      estAtMonthEnd = estAqui;
+    }
+
+    /*
+     * Y los que al cierre del mes YA NO ESTABAN ABIERTOS: su Est. Closing Date
+     * sale de `pipeline_resolved_loans` del mismo snapshot de cierre. Con las
+     * dos mitades, `Est closing - end` queda llena en todas las filas -- medido
+     * en agosto de 2026: 104 de abiertos y 74 de resueltos.
+     *
+     * ⚠ No sobrescribe: si el préstamo estaba abierto ese día, manda el abierto.
+     * Un resuelto acumulativo puede traer una fecha de meses atrás.
+     */
+    const monthEndSnap = duringMonth[duringMonth.length - 1];
+    if (monthEndSnap) {
+      const res = await page<{ source_loan_id: string; est_closing_date: string | null }>(
+        'pipeline_resolved_loans',
+        'source_loan_id, est_closing_date',
+        (q) => (q as never as { eq: (a: string, b: number) => unknown }).eq('snapshot_id', monthEndSnap.id)
+      );
+      for (const r of res) {
+        if (!estAtMonthEnd.has(r.source_loan_id)) estAtMonthEnd.set(r.source_loan_id, r.est_closing_date);
+      }
     }
 
     /* ── 4. El estado de hoy ────────────────────────────────────────────── */
@@ -310,6 +386,8 @@ export async function POST(request: Request) {
       anchorResolved,
       existedByMonthEnd,
       openAtMonthEnd,
+      estAtMonthEnd,
+      firstSeen,
       activeOpen,
       activeResolved,
       lastMilestone: new Map([...lastMilestone].map(([k, v]) => [k, { milestone: v.milestone, date: v.date }])),
@@ -323,6 +401,8 @@ export async function POST(request: Request) {
       anchorDate: anchor.snapshot_date,
       activeId: active.id,
       activeDate: active.snapshot_date,
+      generatedAt: new Date().toISOString().slice(0, 16).replace('T', ' ') + ' UTC',
+      monthEnd: monthRange.endDate,
     });
     const buffer = await wb.xlsx.writeBuffer();
 
@@ -341,6 +421,50 @@ export async function POST(request: Request) {
 // EL LIBRO
 // ============================================================================
 
+/**
+ * ============================================================================
+ * ⚠ EL FORECAST DEL CORTE, FIJADO POR EL NEGOCIO — etapa RPT4
+ * ============================================================================
+ *
+ * NO se calcula. Son los números del corte tal como los dio el negocio, y van
+ * como valores. Es la única columna del libro que no es una fórmula.
+ *
+ * ⚠ EL TOTAL NO ES LA SUMA, Y ESTÁ BIEN ASÍ. Los branches suman 38 y la fila de
+ * división dice 37. No se fuerza a cuadrar: cada número es el que el negocio
+ * fijó, y el de la división no es la suma de los de arriba. Un `SUM()` acá
+ * "arreglaría" el total y perdería el número que se pidió.
+ *
+ * ⚠ Y SON POR BRANCH, NO POR CANAL. La tabla da un solo número por branch; el
+ * resumen tiene una columna de Forecast por canal. Se coloca bajo BANKED, que es
+ * donde está el volumen, y la de BROKERED queda vacía -- repartir el número
+ * entre los dos canales sería calcularlo, que es justo lo que no hay que hacer.
+ * El `%` de Brokered queda vacío por lo mismo.
+ *
+ * ⚠ Y NO COINCIDEN CON LA CASCADA. La cascada sobre el snapshot 19 daba
+ * Affinity 6 y acá dice 7; el 733 daba 5 y acá 3; el 724 daba 1 y acá 0. Manda
+ * la tabla.
+ *
+ * `711` no está en la tabla y sí en los datos, así que queda en 0. `777` está en
+ * la tabla con 0 y no tiene préstamos en agosto, así que no genera fila.
+ */
+const FORECAST_AT_CUTOFF: Record<string, number> = {
+  Affinity: 7,
+  '703': 5,
+  '707': 3,
+  '710': 3,
+  '711': 0,
+  '716': 6,
+  '724': 0,
+  '728': 0,
+  '733': 3,
+  '747': 5,
+  '760': 3,
+  '770': 1,
+  '776': 2,
+  '777': 0,
+};
+const FORECAST_DIVISION = 37;
+
 interface Meta {
   month: string;
   cutoffDate: string;
@@ -348,22 +472,11 @@ interface Meta {
   anchorDate: string;
   activeId: number;
   activeDate: string;
+  /** Cuándo se generó, en UTC. Ver la nota del subtítulo. */
+  generatedAt: string;
+  /** Ultimo dia del mes -- la otra fecha del titulo. */
+  monthEnd: string;
 }
-
-/*
- * Las letras de columna de la hoja `Pipeline`. Las fórmulas del resumen apuntan
- * acá, así que el orden del `DETAIL_COLUMNS` de abajo y estas constantes tienen
- * que moverse juntos -- de ahí que estén declaradas al lado y no sueltas en las
- * fórmulas.
- */
-const COL = {
-  orgId: 'A',
-  channel: 'B',
-  loanOfficer: 'E',
-  startOfMonth: 'O',
-  endOfMonth: 'P',
-  lien: 'T',
-} as const;
 
 function buildWorkbook(model: ReturnType<typeof buildMonthlyReport>, meta: Meta): Workbook {
   const wb = new Workbook();
@@ -374,42 +487,29 @@ function buildWorkbook(model: ReturnType<typeof buildMonthlyReport>, meta: Meta)
 
   buildSummary(wb, model, meta, rng);
   buildByBranch(wb, model);
-  buildDetail(wb, model, meta);
+  buildDetail(wb, model);
   return wb;
 }
 
-/**
- * ============================================================================
- * LA HOJA DE RESUMEN — los dos canales a lo ancho
- * ============================================================================
- *
- * ⚠ LA ESTRUCTURA ES EL PUNTO, no la decoración. Cada fila es un Branch o un
- * Loan Officer, y sus diez columnas se repiten bajo dos bandas de canal:
- *
- *   [Branch] [Loan Officer] │ BANKED (10) │ BROKERED (10)
- *
- * Así los dos canales de una persona se leen en la misma línea. La primera
- * versión de esta hoja ponía el canal como una columna más, y eso parte a cada
- * persona en dos filas que hay que ir a buscar -- que es exactamente lo que la
- * hoja viene a evitar.
- *
- * El orden: la división primero, y cada branch antes de su gente. El total
- * arriba y no al final porque es lo que se mira antes de bajar a buscar a quién,
- * y con trece branches el final queda lejos.
- *
- * ---------------------------------------------------------------------------
- * ⚠ CADA FÓRMULA VA CON SU VALOR YA CALCULADO
- * ---------------------------------------------------------------------------
- * ExcelJS escribe la fórmula pero NO su resultado, y un .xlsx sin valor en
- * caché sale en blanco en todo lo que no recalcule al abrir. Verificado con
- * `openpyxl` en `data_only=True`: las seis columnas de conteo y las dos de
- * porcentaje daban `None` en las 36 filas y en el total. En Excel de escritorio
- * se veían bien, que es lo que lo hace fácil de no notar.
- *
- * Por eso todas van como `{ formula, result }`. El `result` sale del modelo, y
- * la fórmula cuenta las mismas filas del detalle: son el mismo número por dos
- * caminos, y el de la fórmula existe para que se pueda auditar filtrando.
+/*
+ * ⚠ LA GEOMETRÍA Y LAS BANDAS SE MUDARON a `lib/pipeline/reportStyle.ts` --
+ * etapa RPT6. El export del día tiene que leerse igual que este, y dos copias
+ * del mismo encabezado divergen a la primera correccion que se aplique a una
+ * sola. La especificación de columnas se queda acá, que es lo propio de esta
+ * hoja; el dibujo es compartido.
  */
+const GRID_SPEC: ChannelGridSpec = {
+  groups: [
+    /* El rótulo del primer grupo lleva la fecha del corte, que cambia por mes. */
+    { label: 'As of', span: 4 },
+    { label: 'End of Month', span: 4 },
+    { label: '% vs Forecast', span: 2 },
+  ],
+  headers: ['Pipeline', 'Closed', 'Potential', 'Forecast', 'Closed', 'Closed', 'Adversed', 'Still Open', 'Loan Count', '%'],
+  /* Debajo de los dos `Closed` del cierre de mes, y sólo ahí. */
+  sub: { 4: 'First lien', 5: 'Second Lien' },
+};
+
 function buildSummary(
   wb: Workbook,
   model: ReturnType<typeof buildMonthlyReport>,
@@ -417,130 +517,220 @@ function buildSummary(
   rng: (c: string) => string
 ): void {
   const sh = wb.addWorksheet('Summary');
+  const spec: ChannelGridSpec = {
+    ...GRID_SPEC,
+    groups: GRID_SPEC.groups.map((g, i) => (i === 0 ? { ...g, label: `As of ${meta.cutoffDate}` } : g)),
+  };
+  const G = channelGrid(spec);
+  const { bankedAt: BANKED_AT, brokeredAt: BROKERED_AT, sepCol: SEP_COL, lastCol: LAST_COL } = G;
+  const at = G.at;
 
-  sh.addRow([`Pipeline monthly report — ${meta.month}`]).font = { bold: true, size: 14 };
-  sh.addRow([`Cut-off ${meta.cutoffDate} · snapshot ${meta.anchorId} of ${meta.anchorDate}`]);
-  sh.addRow([`Status, closing date and milestone read from the active snapshot ${meta.activeId} of ${meta.activeDate}`]);
-  const why = sh.addRow([
-    'A loan counts in the month its disbursement date falls in, whichever snapshot recorded it. Four August 2026 loans ' +
-      'disbursed on the 28th and 31st were only marked Closed Won after the 31st export was taken: reading the month-end ' +
-      'snapshot gives 32 Banked, reading the active one gives 36, which is what the Forecast screen shows.',
+  /*
+   * ⚠ SIN TEXTOS EXPLICATIVOS — etapa RPT4. Acá había cuatro párrafos: el
+   * retraso de carga del snapshot, qué población alimenta cada columna, qué es
+   * fórmula y qué no, y el aviso de los transferidos. Se fueron todos, y la
+   * decisión es del negocio: si algo necesita tres renglones para explicarse, no
+   * va en el archivo.
+   *
+   * Lo que explicaban NO se perdió: sigue escrito en los comentarios de este
+   * archivo y de `lib/pipeline/monthlyReport.ts`, que es donde lo va a buscar
+   * quien tenga que cambiar el código. Lo que se fue es la copia en el Excel.
+   *
+   * Queda una sola línea: las dos fechas que definen el reporte.
+   */
+  const titulo = sh.addRow([`Pipeline monthly report — ${meta.month}`]);
+  titulo.font = { name: FONT, bold: true, size: 16, color: { argb: C.navy } };
+  /*
+   * ==========================================================================
+   * ⚠ CUÁNDO SE GENERÓ Y DE QUÉ SNAPSHOT — etapa RPT8
+   * ==========================================================================
+   *
+   * Es la única forma de explicar por qué dos copias del mismo archivo dicen
+   * números distintos, y pasa de verdad: los cierres de agosto de 2026 fueron
+   * 32 el 31 de agosto, 36 y 38 el 1 de septiembre y 39 el 2. Cuatro valores
+   * para el mismo mes en tres días, todos correctos en su momento.
+   *
+   * La causa es el retraso de carga --Salesforce marca Closed Won después de
+   * que se tomó el export-- y el reporte hace lo correcto leyendo el snapshot
+   * activo. Lo que faltaba era decir CUÁL activo.
+   *
+   * ⚠ Y NO ES UN TEXTO EXPLICATIVO de los que RPT4 sacó: son dos datos en la
+   * misma línea que ya existía. La diferencia entre un dato y un párrafo es que
+   * el dato cambia con el archivo.
+   *
+   * Medido para saber cuánto dura la provisionalidad: julio cerró con 40 Banked
+   * el 31 de julio y quedó en 48 el 4 de agosto --día 4--, con Brokered
+   * estabilizando en 9 el día 11. Un reporte de mes recién cerrado es
+   * provisional una o dos semanas, no un día.
+   */
+  const sub1 = sh.addRow([
+    `Cut-off ${meta.cutoffDate} · month-end ${meta.monthEnd} · generated ${meta.generatedAt} ` +
+      `from snapshot ${meta.activeId} of ${meta.activeDate}`,
   ]);
-  why.getCell(1).alignment = { wrapText: true };
-  why.getCell(1).font = { italic: true };
-  const nota = sh.addRow([
-    'Loan counts are COUNTIFS over the Pipeline sheet, so they can be audited by filtering it. ' +
-      'The three shaded columns in each channel cannot be: Closed and Potential describe the cut-off snapshot, which the ' +
-      'detail sheet does not carry (it carries the current state of each loan), and Forecast is a pull-through cascade, ' +
-      'not a row count.',
-  ]);
-  nota.getCell(1).alignment = { wrapText: true };
-  nota.getCell(1).font = { italic: true };
+  sub1.font = { name: FONT, size: 10, color: { argb: C.slate500 } };
+  for (const r of [titulo, sub1]) sh.mergeCells(r.number, 1, r.number, LAST_COL);
   sh.addRow([]);
 
-  /* Las diez de cada canal, en orden. Banked arranca en C, Brokered en M. */
-  const BANKED_AT = 3;
-  const BROKERED_AT = 13;
-  const HEADERS = [
-    'Pipeline',
-    'Closed',
-    'Potential',
-    'Forecast',
-    'Closed 1st lien',
-    'Closed 2nd lien',
-    'Adversed',
-    'Still Open',
-    'Loan Count',
-    '%',
-  ];
+  const HEAD_ROW = writeChannelHeader(sh, spec, G);
 
-  const band = sh.addRow([]);
-  band.getCell(BANKED_AT).value = 'BANKED - RETAIL';
-  band.getCell(BROKERED_AT).value = 'BROKERED';
-  band.font = { bold: true };
-  sh.mergeCells(band.number, BANKED_AT, band.number, BANKED_AT + 9);
-  sh.mergeCells(band.number, BROKERED_AT, band.number, BROKERED_AT + 9);
-  for (const at of [BANKED_AT, BROKERED_AT]) {
-    const c = band.getCell(at);
-    c.alignment = { horizontal: 'center' };
-    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: at === BANKED_AT ? 'FFDDE8F5' : 'FFE8E2F0' } };
-  }
-
-  const sub = sh.addRow([]);
-  sub.getCell(1).value = 'Branch';
-  sub.getCell(2).value = 'Loan Officer';
-  /* La sub-banda que separa el corte del cierre, dentro de cada canal. */
-  const groupRow = sh.getRow(sub.number - 0);
-  for (const at of [BANKED_AT, BROKERED_AT]) {
-    HEADERS.forEach((h, i) => (groupRow.getCell(at + i).value = h));
-  }
-  sub.font = { bold: true };
-  sub.alignment = { wrapText: true, vertical: 'bottom' };
-
-  const HEAD_ROW = sub.number;
-  const SHADED = 'FFF2E8DA';
-
-  /* Etiqueta de la fila: qué criterios lleva su COUNTIFS. */
+  /* Qué criterios lleva el COUNTIFS de cada fila, según su nivel. */
   const crit = (r: MonthlyReportSummaryRow, n: number): string => {
     if (r.kind === 'division') return '';
     if (r.kind === 'branch') return `${rng(COL.orgId)},$A${n},`;
     return `${rng(COL.orgId)},$A${n},${rng(COL.loanOfficer)},$B${n},`;
   };
 
+  /*
+   * ⚠ TRES NIVELES DE FILA, TRES TRATAMIENTOS — etapa RPT2.
+   *
+   *   DIVISION   coral suave, negrita, borde grueso arriba y abajo
+   *   branch     navy suave, negrita
+   *   persona    limpio, con cebra tenue para seguir la línea a lo ancho
+   *
+   * Antes los tres compartían relleno y la jerarquía no se veía: había que leer
+   * la columna B para saber en qué nivel se estaba.
+   */
+  let zebra = false;
+  /* En que filas quedaron los branches -- lo lee la verificacion cruzada. */
+  const filasDeBranch: number[] = [];
   for (const r of model.summary) {
     const row = sh.addRow([]);
     const n = row.number;
+    if (r.kind === 'officer') zebra = !zebra;
+    else zebra = false;
+    if (r.kind === 'branch') filasDeBranch.push(n);
+
+    const bg = r.kind === 'division' ? C.coralSoft : r.kind === 'branch' ? C.navySoft : zebra ? C.zebra : C.white;
+    const bold = r.kind !== 'officer';
+
     row.getCell(1).value = r.kind === 'division' ? 'DIVISION' : r.branch;
     row.getCell(2).value = r.kind === 'officer' ? r.loanOfficer : r.kind === 'branch' ? 'All loan officers' : '';
-    if (r.kind !== 'officer') row.font = { bold: true };
 
-    for (const [at, ch, cells] of [
+    for (let col = 1; col <= LAST_COL; col++) {
+      const cc = row.getCell(col);
+      cc.fill = fill(bg);
+      cc.font = { name: FONT, size: 10, bold, color: { argb: C.navy } };
+      if (r.kind === 'division') cc.border = { top: MEDIUM, bottom: MEDIUM };
+      else if (r.kind === 'branch') cc.border = { top: THIN, bottom: THIN };
+      else cc.border = { bottom: THIN };
+    }
+    /* Las separadoras no llevan borde: son aire, no una celda vacía de la tabla. */
+    for (const col of [3, SEP_COL, BANKED_AT + 4, BANKED_AT + 9, BROKERED_AT + 4, BROKERED_AT + 9]) {
+      row.getCell(col).border = {};
+    }
+
+    for (const [channelAt, ch, cells] of [
       [BANKED_AT, 'Banked - Retail', r.banked],
       [BROKERED_AT, 'Brokered', r.brokered],
     ] as const) {
       const base = `COUNTIFS(${crit(r, n)}${rng(COL.channel)},"${ch}"`;
       const put = (i: number, formula: string, result: number) => {
-        row.getCell(at + i).value = { formula, result };
+        row.getCell(at(channelAt, i)).value = { formula, result };
       };
-      put(0, `${base},${rng(COL.startOfMonth)},"Pipeline")`, cells.pipelineAtCutoff);
-      /* Los tres que no se derivan del detalle -- ver la nota de arriba. */
-      row.getCell(at + 1).value = cells.closedAtCutoff;
-      row.getCell(at + 2).value = cells.potentialAtCutoff;
-      row.getCell(at + 3).value = cells.forecastAtCutoff;
-      for (const i of [1, 2, 3]) {
-        row.getCell(at + i).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SHADED } };
+      const L = (i: number) => sh.getColumn(at(channelAt, i)).letter;
+
+      /*
+       * ⚠ TODO NÚMERO DE ESTA HOJA SE PUEDE RECONSTRUIR FILTRANDO EL DETALLE
+       * — etapa RPT3. Antes `Closed`, `Potential` y `Forecast` iban escritos a
+       * mano porque el detalle no llevaba con qué derivarlos; ahora lleva dos
+       * columnas más --`Status at cut-off` y `PT weight`-- y no queda ninguno.
+       */
+      put(0, `${base},${rng(COL.statusAtCutoff)},"Pipeline")`, cells.pipelineAtCutoff);
+      put(1, `${base},${rng(COL.statusAtCutoff)},"Closed")`, cells.closedAtCutoff);
+      /* Potential = Pipeline + Closed: todo lo que había disponible para cerrar. */
+      put(2, `${L(0)}${n}+${L(1)}${n}`, cells.potentialAtCutoff);
+
+      /*
+       * ⚠ EL FORECAST SÓLO EXISTE A NIVEL BRANCH, Y VA COMO VALOR FIJO.
+       *
+       *   persona    vacío. El forecast es del branch; una cifra por Loan
+       *              Officer sería inventada. Y sin forecast tampoco hay
+       *              `% vs Forecast` que calcular, así que esa celda también
+       *              queda vacía.
+       *   branch     el número de `FORECAST_AT_CUTOFF`, bajo BANKED. La celda
+       *              de BROKERED queda vacía: la tabla da un número por branch,
+       *              no por canal.
+       *   división   `FORECAST_DIVISION`, que NO es la suma de los de arriba.
+       *
+       * Acá había un `ROUND(SUMIFS(PT weight))` que reproducía la cascada de la
+       * app. Se reemplaza por los valores del negocio -- ver la nota de
+       * `FORECAST_AT_CUTOFF` para las diferencias, que son varias y son a
+       * propósito. `PT weight` se deja en el detalle: sigue explicando de dónde
+       * saldría la cascada si alguien quiere compararla.
+       */
+      if (r.kind !== 'officer' && channelAt === BANKED_AT) {
+        row.getCell(at(channelAt, 3)).value =
+          r.kind === 'division' ? FORECAST_DIVISION : (FORECAST_AT_CUTOFF[r.branch] ?? 0);
       }
+
       put(4, `${base},${rng(COL.endOfMonth)},"Closed",${rng(COL.lien)},1)`, cells.closedFirstLien);
       put(5, `${base},${rng(COL.endOfMonth)},"Closed",${rng(COL.lien)},2)`, cells.closedSecondLien);
       put(6, `${base},${rng(COL.endOfMonth)},"Adversed")`, cells.adversed);
       put(7, `${base},${rng(COL.endOfMonth)},"Still Open")`, cells.stillOpen);
 
       const cnt = cells.closedFirstLien + cells.closedSecondLien;
-      const L = (i: number) => sh.getColumn(at + i).letter;
       put(8, `${L(4)}${n}+${L(5)}${n}`, cnt);
-      /* Sin forecast no hay porcentaje: 0/0 en Excel es #DIV/0!. */
-      row.getCell(at + 9).value = {
-        formula: `IF(${L(3)}${n}=0,"",${L(8)}${n}/${L(3)}${n})`,
-        result: cells.forecastAtCutoff === 0 ? '' : cnt / cells.forecastAtCutoff,
-      };
-      row.getCell(at + 9).numFmt = '0%';
+
+      /*
+       * El porcentaje existe sólo donde existe el forecast. En una fila de
+       * persona la celda queda vacía --no 0%--: no se puede comparar contra un
+       * número que a ese nivel no existe.
+       */
+      if (r.kind !== 'officer' && channelAt === BANKED_AT) {
+        const fc = r.kind === 'division' ? FORECAST_DIVISION : (FORECAST_AT_CUTOFF[r.branch] ?? 0);
+        const pct = row.getCell(at(channelAt, 9));
+        pct.value = {
+          formula: `IF(${L(3)}${n}=0,"",${L(8)}${n}/${L(3)}${n})`,
+          result: fc === 0 ? '' : cnt / fc,
+        };
+        pct.numFmt = '0%';
+      }
+
+      /* Números a la derecha: la app usa tabular-nums y acá el equivalente es esto. */
+      for (let k = 0; k < 10; k++) {
+        row.getCell(at(channelAt, k)).alignment = { horizontal: 'right' };
+      }
+      /* El borde grueso que delimita cada grupo, fila por fila. */
+      for (const i of [0, 4, 8]) row.getCell(at(channelAt, i)).border = { ...row.getCell(at(channelAt, i)).border, left: MEDIUM };
+      row.getCell(at(channelAt, 9)).border = { ...row.getCell(at(channelAt, 9)).border, right: MEDIUM };
     }
+    row.getCell(1).alignment = { horizontal: 'left' };
+    row.getCell(2).alignment = { horizontal: 'left', indent: r.kind === 'officer' ? 1 : 0 };
   }
 
+  /*
+   * Acá se llenaba la fila de división sumando las celdas de branch. Ya no hace
+   * falta: el forecast de división es un valor fijo del negocio y NO es la suma
+   * de los de arriba -- ver `FORECAST_DIVISION`.
+   */
+  /* Encabezados congelados: después de la fila de sub-encabezado y de Loan Officer. */
   sh.views = [{ state: 'frozen', xSplit: 2, ySplit: HEAD_ROW }];
-  sh.getColumn(1).width = 12;
-  sh.getColumn(2).width = 26;
-  for (const at of [BANKED_AT, BROKERED_AT]) {
-    HEADERS.forEach((_, i) => (sh.getColumn(at + i).width = i === 9 ? 9 : 14));
-  }
+  setChannelWidths(sh, G, (k) => (k === 9 ? 8 : 11));
 }
+
+const BY_BRANCH_COLUMNS = [
+  { header: 'Loan Officer', width: 26 },
+  { header: 'Loan Number', width: 16 },
+  { header: 'Borrower Name', width: 32 },
+  { header: 'Channel', width: 16 },
+  { header: 'Loan Amount', width: 14 },
+  { header: 'Start of month', width: 14 },
+  { header: 'End of month', width: 14 },
+  { header: 'Funding date', width: 13 },
+  { header: 'Last Finished Milestone', width: 22 },
+  { header: 'Strategy', width: 16 },
+  { header: 'Lien', width: 7 },
+];
 
 function buildByBranch(wb: Workbook, model: ReturnType<typeof buildMonthlyReport>): void {
   const sh = wb.addWorksheet('By Branch');
-  sh.addRow(['One block per branch. Every loan carries its own Loan Officer, so the sheet survives sorting and filtering.']).font =
-    { italic: true };
-  sh.addRow([]);
+  const N = BY_BRANCH_COLUMNS.length;
 
+  /*
+   * Aca habia una linea de intro explicando que cada prestamo lleva su Loan
+   * Officer. Se fue con el resto de los textos -- etapa RPT4. La propiedad
+   * sigue valiendo y sigue verificada; lo que se fue es el parrafo.
+   */
   const byBranch = new Map<string, MonthlyReportRow[]>();
   for (const r of model.rows) {
     const list = byBranch.get(r.branch) ?? [];
@@ -550,30 +740,29 @@ function buildByBranch(wb: Workbook, model: ReturnType<typeof buildMonthlyReport
 
   for (const branch of [...byBranch.keys()].sort((a, b) => a.localeCompare(b))) {
     const list = byBranch.get(branch)!;
-    const title = sh.addRow([`Branch ${branch}`]);
-    title.font = { bold: true, size: 12 };
-    const head = sh.addRow([
-      'Loan Officer',
-      'Loan Number',
-      'Borrower Name',
-      'Channel',
-      'Loan Amount',
-      'Start of month',
-      'End of month',
-      'Funding date',
-      'Last Finished Milestone',
-      'Strategy',
-      'Lien',
-    ]);
-    head.font = { bold: true };
+
+    /* El título del bloque, en navy a todo el ancho: es lo que separa un branch del anterior. */
+    const title = sh.addRow([`BRANCH ${branch}`]);
+    sh.mergeCells(title.number, 1, title.number, N);
+    const tc = title.getCell(1);
+    tc.font = { name: FONT, bold: true, size: 12, color: { argb: C.white } };
+    tc.fill = fill(C.navy);
+    tc.alignment = { vertical: 'middle', indent: 1 };
+    sh.getRow(title.number).height = 20;
+
+    const head = sh.addRow(BY_BRANCH_COLUMNS.map((c) => c.header));
+    for (let i = 1; i <= N; i++) {
+      const cc = head.getCell(i);
+      cc.font = { name: FONT, bold: true, size: 9, color: { argb: C.navy } };
+      cc.fill = fill(C.slate100);
+      cc.border = { bottom: MEDIUM };
+      cc.alignment = { horizontal: i === 5 || i === 11 ? 'right' : 'left', wrapText: true };
+    }
+
+    let zebra = false;
     for (const r of list) {
-      /*
-       * ⚠ EL LOAN OFFICER VA EN CADA FILA, no sólo en la primera del grupo.
-       * Escribirlo una vez y dejar el resto en blanco se ve más limpio y deja
-       * las filas sin dueño en cuanto alguien ordena o filtra la hoja -- que es
-       * lo primero que se hace con un bloque de 30 préstamos.
-       */
-      sh.addRow([
+      zebra = !zebra;
+      const row = sh.addRow([
         r.loanOfficer,
         r.loanNumber,
         r.borrowerName,
@@ -586,23 +775,41 @@ function buildByBranch(wb: Workbook, model: ReturnType<typeof buildMonthlyReport
         r.strategy,
         r.lien,
       ]);
+      for (let i = 1; i <= N; i++) {
+        const cc = row.getCell(i);
+        cc.font = { name: FONT, size: 10, color: { argb: C.navy } };
+        cc.fill = fill(zebra ? C.zebra : C.white);
+        cc.border = { bottom: THIN };
+        if (i === 5 || i === 11) cc.alignment = { horizontal: 'right' };
+      }
+      row.getCell(5).numFmt = '#,##0';
     }
+
+    /* La franja de total del bloque -- misma lectura que la fila de branch del Summary. */
     const sub = sh.addRow([
-      `${branch} — ${list.length} loans`,
+      `${list.length} loans`,
       '',
       '',
       '',
-      null,
+      list.reduce((a, r) => a + (r.loanAmount ?? 0), 0),
       '',
       `${list.filter((r) => r.endOfMonth === 'Closed').length} closed · ` +
         `${list.filter((r) => r.endOfMonth === 'Adversed').length} adversed · ` +
         `${list.filter((r) => r.endOfMonth === 'Still Open').length} still open`,
     ]);
-    sub.font = { bold: true };
+    sh.mergeCells(sub.number, 7, sub.number, N);
+    for (let i = 1; i <= N; i++) {
+      const cc = sub.getCell(i);
+      cc.font = { name: FONT, bold: true, size: 10, color: { argb: C.navy } };
+      cc.fill = fill(C.navySoft);
+      cc.border = { top: MEDIUM, bottom: MEDIUM };
+      if (i === 5) cc.alignment = { horizontal: 'right' };
+    }
+    sub.getCell(5).numFmt = '#,##0';
     sh.addRow([]);
   }
 
-  sh.columns.forEach((c, i) => (c.width = i === 0 ? 26 : i === 2 ? 28 : 18));
+  BY_BRANCH_COLUMNS.forEach((c, i) => (sh.getColumn(i + 1).width = c.width));
 }
 
 const DETAIL_COLUMNS: { header: string; key: keyof MonthlyReportRow | 'blank'; width: number }[] = [
@@ -628,54 +835,159 @@ const DETAIL_COLUMNS: { header: string; key: keyof MonthlyReportRow | 'blank'; w
   { header: 'Lien', key: 'lien', width: 8 },
   { header: 'Est closing - start', key: 'estClosingStart', width: 17 },
   { header: 'Est closing - end', key: 'estClosingEnd', width: 17 },
+  /*
+   * ⚠ TRES COLUMNAS DE LA ETAPA RPT7, al final para no tocar el orden del
+   * archivo de julio.
+   *
+   * `First seen open` es la marca que hace honesta a la fecha de entrada: dice
+   * de qué snapshot salió, o `never open` cuando el préstamo no apareció abierto
+   * en ninguno. Sin ella una celda vacía en la fecha de entrada se lee como un
+   * dato perdido.
+   *
+   * `Days moved` es FÓRMULA, no valor -- ver `buildDetail`.
+   */
+  { header: 'First seen open', key: 'firstSeenOpen', width: 15 },
+  { header: 'Days moved', key: 'blank', width: 12 },
+  /*
+   * ⚠ LAS DOS COLUMNAS QUE NO ESTÁN EN EL ARCHIVO DE JULIO, y están a propósito
+   * — etapa RPT3. Van al final para no tocar el orden del original.
+   *
+   * Existen para que NINGÚN número del resumen quede escrito a mano. Sin
+   * `Status at cut-off` no hay forma de contar los que ya estaban cerrados el
+   * día del corte --la hoja lleva el estado ACTUAL de cada préstamo, no el de
+   * ese día-- y sin `PT weight` el forecast no puede salir de un SUMIFS. Una
+   * columna más es preferible a un número que nadie puede reconstruir
+   * filtrando.
+   */
+  { header: 'Status at cut-off', key: 'statusAtCutoff', width: 15 },
+  { header: 'PT weight', key: 'ptWeight', width: 11 },
 ];
 
-function buildDetail(wb: Workbook, model: ReturnType<typeof buildMonthlyReport>, meta: Meta): void {
+/*
+ * Las letras de columna de la hoja `Pipeline`. Las fórmulas del resumen apuntan
+ * acá, así que el orden del `DETAIL_COLUMNS` de abajo y estas constantes tienen
+ * que moverse juntos -- de ahí que estén declaradas al lado y no sueltas en las
+ * fórmulas.
+ */
+/*
+ * Las letras de columna de la hoja `Pipeline`, a las que apuntan todas las
+ * fórmulas del resumen. Se derivan del orden de `DETAIL_COLUMNS` en vez de
+ * escribirse a mano: agregar una columna al detalle y olvidarse de correr una
+ * letra acá daría un COUNTIFS que cuenta la columna equivocada sin fallar.
+ */
+const colOf = (header: string): string => {
+  const i = DETAIL_COLUMNS.findIndex((c) => c.header === header);
+  if (i < 0) throw new Error(`The Pipeline sheet has no "${header}" column.`);
+  /* 26 columnas alcanzan de sobra; si algún día no, hay que hacer AA. */
+  return String.fromCharCode(65 + i);
+};
+
+/*
+ * ⚠ LA PALETA Y LOS BORDES SE MUDARON a `lib/pipeline/reportStyle.ts` -- etapa
+ * RPT6, cuando aparecio el segundo consumidor. Los colores siguen saliendo de
+ * `app/styles/tokens.css`; lo unico que cambio es donde viven.
+ */
+
+const COL = {
+  orgId: colOf('OrgID'),
+  channel: colOf('Loan Info Channel'),
+  loanOfficer: colOf('Loan Officer'),
+  startOfMonth: colOf('Start of month'),
+  endOfMonth: colOf('End of month'),
+  lien: colOf('Lien'),
+  statusAtCutoff: colOf('Status at cut-off'),
+  ptWeight: colOf('PT weight'),
+} as const;
+
+function buildDetail(wb: Workbook, model: ReturnType<typeof buildMonthlyReport>): void {
   const sh = wb.addWorksheet('Pipeline');
+  const N = DETAIL_COLUMNS.length;
+  /* Las tres que no tienen fuente: se marcan tenues para que se vean vacías a propósito. */
+  const HUECAS = new Set(DETAIL_COLUMNS.map((c, i) => (c.key === 'blank' ? i + 1 : 0)).filter(Boolean));
+  /* Y las que llevan número, alineadas a la derecha. */
+  const NUM = new Set(
+    DETAIL_COLUMNS.map((c, i) => (c.key === 'loanAmount' || c.key === 'lien' ? i + 1 : 0)).filter(Boolean)
+  );
+
   const head = sh.addRow(DETAIL_COLUMNS.map((c) => c.header));
-  head.font = { bold: true };
+  for (let i = 1; i <= N; i++) {
+    const cc = head.getCell(i);
+    cc.font = { name: FONT, bold: true, size: 9, color: { argb: C.white } };
+    cc.fill = fill(C.navy);
+    cc.alignment = { horizontal: NUM.has(i) ? 'right' : 'left', vertical: 'middle', wrapText: true };
+    cc.border = { bottom: MEDIUM };
+  }
+  sh.getRow(head.number).height = 28;
   DETAIL_COLUMNS.forEach((c, i) => (sh.getColumn(i + 1).width = c.width));
 
+  let zebra = false;
   for (const r of model.rows) {
-    sh.addRow(DETAIL_COLUMNS.map((c) => (c.key === 'blank' ? '' : (r[c.key] ?? ''))));
+    zebra = !zebra;
+    const row = sh.addRow(DETAIL_COLUMNS.map((c) => (c.key === 'blank' ? '' : (r[c.key] ?? ''))));
+    for (let i = 1; i <= N; i++) {
+      const cc = row.getCell(i);
+      cc.font = { name: FONT, size: 10, color: { argb: HUECAS.has(i) ? C.slate300 : C.navy } };
+      cc.fill = fill(zebra ? C.zebra : C.white);
+      cc.border = { bottom: THIN };
+      if (NUM.has(i)) cc.alignment = { horizontal: 'right' };
+    }
+    row.getCell(DETAIL_COLUMNS.findIndex((c) => c.key === 'loanAmount') + 1).numFmt = '#,##0';
+
+    /*
+     * ======================================================================
+     * ⚠ LAS DOS FECHAS VAN COMO FECHAS DE VERDAD, no como texto — etapa RPT7
+     * ======================================================================
+     *
+     * Es lo que hace posible la columna `Days moved`. El resto de las fechas de
+     * esta hoja son strings 'YYYY-MM-DD' y así se quedan: cambiar todas está
+     * fuera de esta etapa. Pero una resta entre textos no da un número, y la
+     * alternativa --`DATEVALUE()`-- depende del formato regional de quien abra
+     * el archivo, que es una dependencia que no vale la pena aceptar para
+     * ahorrar dos líneas.
+     */
+    for (const key of ['estClosingStart', 'estClosingEnd'] as const) {
+      const i = DETAIL_COLUMNS.findIndex((c) => c.key === key) + 1;
+      const v = r[key];
+      const cc = row.getCell(i);
+      /* `T00:00:00Z` explícito: sin él el navegador lo lee en su huso y puede correr un día. */
+      cc.value = v ? new Date(v + 'T00:00:00Z') : '';
+      cc.numFmt = 'yyyy-mm-dd';
+      cc.alignment = { horizontal: 'right' };
+    }
+
+    /*
+     * ⚠ `Days moved` ES FÓRMULA, con su resultado en caché. Cuántos días corrió
+     * la fecha estimada entre que el préstamo entró al pipeline y el cierre del
+     * mes. Vacía --no cero-- cuando falta la de entrada: cero afirmaría que no
+     * se movió, y de un préstamo que nunca estuvo abierto no se sabe.
+     */
+    const iStart = DETAIL_COLUMNS.findIndex((c) => c.key === 'estClosingStart') + 1;
+    const iEnd = DETAIL_COLUMNS.findIndex((c) => c.key === 'estClosingEnd') + 1;
+    const iDays = DETAIL_COLUMNS.findIndex((c) => c.header === 'Days moved') + 1;
+    const cs = sh.getColumn(iStart).letter;
+    const ce = sh.getColumn(iEnd).letter;
+    const n = row.number;
+    const dias =
+      r.estClosingStart && r.estClosingEnd
+        ? Math.round(
+            (Date.parse(r.estClosingEnd + 'T00:00:00Z') - Date.parse(r.estClosingStart + 'T00:00:00Z')) / 86400000
+          )
+        : '';
+    const cd = row.getCell(iDays);
+    cd.value = { formula: `IF(OR(${cs}${n}="",${ce}${n}=""),"",${ce}${n}-${cs}${n})`, result: dias };
+    cd.alignment = { horizontal: 'right' };
   }
 
-  sh.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: DETAIL_COLUMNS.length } };
-  sh.views = [{ state: 'frozen', ySplit: 1 }];
+  sh.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: N } };
+  /* Congelado el encabezado y las tres primeras columnas, que son las que identifican la fila. */
+  sh.views = [{ state: 'frozen', xSplit: 3, ySplit: 1 }];
 
   /*
-   * ⚠ LAS TRES COLUMNAS VACÍAS SE EXPLICAN EN LA HOJA, no se dejan en blanco a
-   * secas. Verificado: `Loan Processor` y los dos `LO Assistant` no existen ni
-   * en `pipeline_loans` ni en `loan_records_v2`. Una columna vacía sin nota se
-   * lee como un dato que se perdió; con la nota se lee como lo que es.
+   * ⚠ ACA HABIA CUATRO NOTAS AL PIE y se fueron todas -- etapa RPT4: las tres
+   * columnas sin fuente, el origen de cada campo, el desglose del universo y el
+   * aviso de los transferidos.
+   *
+   * Lo que decian sigue escrito en los comentarios del codigo, que es donde lo
+   * necesita quien lo cambie. Lo que se fue es la copia en la hoja.
    */
-  sh.addRow([]);
-  const n1 = sh.addRow([
-    'Loan Processor and the two LO Assistant columns are empty because neither source has them: they exist in ' +
-      'neither pipeline_loans nor loan_records_v2. The columns are kept so the layout matches the July file.',
-  ]);
-  n1.getCell(1).font = { italic: true };
-  const n2 = sh.addRow([
-    `Rows: loans open at the ${meta.cutoffDate} cut-off plus those that appeared through the end of the month. ` +
-      `End of month, Funding date and Last Finished Milestone come from the active snapshot ${meta.activeId} ` +
-      `(${meta.activeDate}), never from the month-end one.`,
-  ]);
-  n2.getCell(1).font = { italic: true };
-  const n3 = sh.addRow([
-    `Universe ${model.counts.universe} = ${model.counts.atCutoff} open at the cut-off + ${model.counts.appearedDuringMonth} that ` +
-      `appeared during the month + ${model.counts.closedBeforeCutoff} that had already closed before the cut-off. ` +
-      `Closed ${model.counts.closed} + Adversed ${model.counts.adversed} + Still Open ${model.counts.stillOpen} = ${model.counts.universe}.`,
-  ]);
-  n3.getCell(1).font = { italic: true };
-  /*
-   * El tercer grupo es el que nadie espera y por eso se nombra: son cierres del
-   * mes que ocurrieron antes del corte, así que no están entre los abiertos de
-   * ese día ni entre los que aparecieron después. Sin ellos el reporte no
-   * cuadraría con la pantalla.
-   */
-  const n4 = sh.addRow([
-    'Loans that closed before the cut-off have no "Start of month" mark: they were no longer in the pipeline that day. ' +
-      'They are included because they closed inside the month, which is what makes the totals match the Forecast screen.',
-  ]);
-  n4.getCell(1).font = { italic: true };
 }
