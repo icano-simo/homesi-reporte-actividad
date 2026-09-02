@@ -123,6 +123,21 @@ function errorMessage(err: unknown): string {
  * server-side (a diferencia de Actividad, que arma el workbook en el
  * navegador) porque así lo pide el brief de esta etapa.
  */
+
+/**
+ * Etapa PDF-DOWNLOAD-ONLY: el botón "Download Excel" y su handler del lado
+ * del cliente (`handleExport()` en page.tsx) se retiraron, porque el PDF ya
+ * cubre esa misma información (KPIs, By Branch, By Loan Officer, Strategy
+ * Summary). Este endpoint queda vivo A PROPÓSITO, sin ningún llamador real
+ * hoy, por si hace falta revertir más adelante.
+ *
+ * Antes de borrarlo en una futura limpieza de código muerto, hay que
+ * confirmar de nuevo que sigue sin consumidores -- igual que se hizo acá: un
+ * grep de `/api/pipeline/export` y `handleExport` en todo el proyecto, y
+ * clasificar cada mención como uso real de código o solo comentario/prosa
+ * (varios archivos lo citan como patrón de referencia sin importarlo ni
+ * llamarlo -- eso no cuenta como consumidor).
+ */
 export async function POST(request: Request) {
   try {
     const body = await request.json();
