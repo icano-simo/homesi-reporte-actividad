@@ -323,6 +323,7 @@ export async function POST(request: Request) {
       anchorDate: anchor.snapshot_date,
       activeId: active.id,
       activeDate: active.snapshot_date,
+      monthEnd: monthRange.endDate,
     });
     const buffer = await wb.xlsx.writeBuffer();
 
@@ -341,6 +342,50 @@ export async function POST(request: Request) {
 // EL LIBRO
 // ============================================================================
 
+/**
+ * ============================================================================
+ * ⚠ EL FORECAST DEL CORTE, FIJADO POR EL NEGOCIO — etapa RPT4
+ * ============================================================================
+ *
+ * NO se calcula. Son los números del corte tal como los dio el negocio, y van
+ * como valores. Es la única columna del libro que no es una fórmula.
+ *
+ * ⚠ EL TOTAL NO ES LA SUMA, Y ESTÁ BIEN ASÍ. Los branches suman 38 y la fila de
+ * división dice 37. No se fuerza a cuadrar: cada número es el que el negocio
+ * fijó, y el de la división no es la suma de los de arriba. Un `SUM()` acá
+ * "arreglaría" el total y perdería el número que se pidió.
+ *
+ * ⚠ Y SON POR BRANCH, NO POR CANAL. La tabla da un solo número por branch; el
+ * resumen tiene una columna de Forecast por canal. Se coloca bajo BANKED, que es
+ * donde está el volumen, y la de BROKERED queda vacía -- repartir el número
+ * entre los dos canales sería calcularlo, que es justo lo que no hay que hacer.
+ * El `%` de Brokered queda vacío por lo mismo.
+ *
+ * ⚠ Y NO COINCIDEN CON LA CASCADA. La cascada sobre el snapshot 19 daba
+ * Affinity 6 y acá dice 7; el 733 daba 5 y acá 3; el 724 daba 1 y acá 0. Manda
+ * la tabla.
+ *
+ * `711` no está en la tabla y sí en los datos, así que queda en 0. `777` está en
+ * la tabla con 0 y no tiene préstamos en agosto, así que no genera fila.
+ */
+const FORECAST_AT_CUTOFF: Record<string, number> = {
+  Affinity: 7,
+  '703': 5,
+  '707': 3,
+  '710': 3,
+  '711': 0,
+  '716': 6,
+  '724': 0,
+  '728': 0,
+  '733': 3,
+  '747': 5,
+  '760': 3,
+  '770': 1,
+  '776': 2,
+  '777': 0,
+};
+const FORECAST_DIVISION = 37;
+
 interface Meta {
   month: string;
   cutoffDate: string;
@@ -348,6 +393,8 @@ interface Meta {
   anchorDate: string;
   activeId: number;
   activeDate: string;
+  /** Ultimo dia del mes -- la otra fecha del titulo. */
+  monthEnd: string;
 }
 
 function buildWorkbook(model: ReturnType<typeof buildMonthlyReport>, meta: Meta): Workbook {
@@ -359,7 +406,7 @@ function buildWorkbook(model: ReturnType<typeof buildMonthlyReport>, meta: Meta)
 
   buildSummary(wb, model, meta, rng);
   buildByBranch(wb, model);
-  buildDetail(wb, model, meta);
+  buildDetail(wb, model);
   return wb;
 }
 
@@ -400,48 +447,24 @@ function buildSummary(
   const sh = wb.addWorksheet('Summary');
   const at = (channelAt: number, i: number) => channelAt + OFFSETS[i];
 
+  /*
+   * ⚠ SIN TEXTOS EXPLICATIVOS — etapa RPT4. Acá había cuatro párrafos: el
+   * retraso de carga del snapshot, qué población alimenta cada columna, qué es
+   * fórmula y qué no, y el aviso de los transferidos. Se fueron todos, y la
+   * decisión es del negocio: si algo necesita tres renglones para explicarse, no
+   * va en el archivo.
+   *
+   * Lo que explicaban NO se perdió: sigue escrito en los comentarios de este
+   * archivo y de `lib/pipeline/monthlyReport.ts`, que es donde lo va a buscar
+   * quien tenga que cambiar el código. Lo que se fue es la copia en el Excel.
+   *
+   * Queda una sola línea: las dos fechas que definen el reporte.
+   */
   const titulo = sh.addRow([`Pipeline monthly report — ${meta.month}`]);
   titulo.font = { name: FONT, bold: true, size: 16, color: { argb: C.navy } };
-  const sub1 = sh.addRow([`Cut-off ${meta.cutoffDate} · snapshot ${meta.anchorId} of ${meta.anchorDate}`]);
-  const sub2 = sh.addRow([
-    `Status, closing date and milestone read from the active snapshot ${meta.activeId} of ${meta.activeDate}`,
-  ]);
-  for (const r of [sub1, sub2]) r.font = { name: FONT, size: 10, color: { argb: C.slate500 } };
-
-  const why = sh.addRow([
-    'A loan counts in the month its disbursement date falls in, whichever snapshot recorded it. Four August 2026 loans ' +
-      'disbursed on the 28th and 31st were only marked Closed Won after the 31st export was taken: reading the month-end ' +
-      'snapshot gives 32 Banked, reading the active one gives 36, which is what the Forecast screen shows.',
-  ]);
-  /*
-   * ⚠ QUÉ POBLACIÓN ALIMENTA CADA COLUMNA, DICHO EN LA HOJA. No se deduce
-   * mirando, y es lo primero que hace falta saber para comparar este archivo
-   * contra cualquier otro -- sobre todo contra los que se armaban a mano.
-   */
-  const nota = sh.addRow([
-    'Every number on this sheet is a formula over the Pipeline sheet, so it can be audited by filtering it. ' +
-      'As-of columns cover the loans that were open at the cut-off AND whose estimated closing date falls inside the ' +
-      'month; a loan open at the cut-off but closing in December is not August potential, and it shows as ' +
-      '"Out of month" in the detail. Potential = Pipeline + Closed, everything that was available to close. ' +
-      'Forecast is rounded PER BRANCH and the division total is the sum of those rounded figures, exactly as the ' +
-      'Forecast Executive Summary does it; rounding at the end instead would give a different number from the screen. ' +
-      'Forecast has no value on loan officer rows because the pull-through cascade is defined per branch and channel.',
-  ]);
-  /*
-   * ⚠ LAS NOTAS VAN COMBINADAS A TODO EL ANCHO, y hay que verlo para saber por
-   * qué. Con `wrapText` sobre una celda suelta, el texto se envuelve dentro del
-   * ancho de la columna A --once caracteres-- y Excel estira la fila hasta unos
-   * novecientos píxeles: la tabla quedaba empujada fuera de la primera pantalla
-   * detrás de dos columnas de texto en hilera. Combinadas, el mismo texto entra
-   * en dos renglones.
-   */
-  for (const r of [why, nota]) {
-    sh.mergeCells(r.number, 1, r.number, LAST_COL);
-    r.getCell(1).alignment = { wrapText: true, vertical: 'top' };
-    r.getCell(1).font = { name: FONT, italic: true, size: 9, color: { argb: C.slate500 } };
-    sh.getRow(r.number).height = 26;
-  }
-  for (const r of [titulo, sub1, sub2]) sh.mergeCells(r.number, 1, r.number, LAST_COL);
+  const sub1 = sh.addRow([`Cut-off ${meta.cutoffDate} · month-end ${meta.monthEnd}`]);
+  sub1.font = { name: FONT, size: 10, color: { argb: C.slate500 } };
+  for (const r of [titulo, sub1]) sh.mergeCells(r.number, 1, r.number, LAST_COL);
   sh.addRow([]);
 
   const HEADERS = ['Pipeline', 'Closed', 'Potential', 'Forecast', 'Closed', 'Closed', 'Adversed', 'Still Open', 'Loan Count', '%'];
@@ -544,15 +567,13 @@ function buildSummary(
    * la columna B para saber en qué nivel se estaba.
    */
   let zebra = false;
-  /* Para cerrar la fila de division: en que fila quedo, y en cuales los branches. */
-  let filaDivision = 0;
+  /* En que filas quedaron los branches -- lo lee la verificacion cruzada. */
   const filasDeBranch: number[] = [];
   for (const r of model.summary) {
     const row = sh.addRow([]);
     const n = row.number;
     if (r.kind === 'officer') zebra = !zebra;
     else zebra = false;
-    if (r.kind === 'division') filaDivision = n;
     if (r.kind === 'branch') filasDeBranch.push(n);
 
     const bg = r.kind === 'division' ? C.coralSoft : r.kind === 'branch' ? C.navySoft : zebra ? C.zebra : C.white;
@@ -596,31 +617,26 @@ function buildSummary(
       put(2, `${L(0)}${n}+${L(1)}${n}`, cells.potentialAtCutoff);
 
       /*
-       * ⚠ EL FORECAST SÓLO EXISTE A NIVEL BRANCH.
+       * ⚠ EL FORECAST SÓLO EXISTE A NIVEL BRANCH, Y VA COMO VALOR FIJO.
        *
-       *   persona    vacío. La cascada está definida por (branch, canal); una
-       *              cifra por Loan Officer sería inventada. Y sin forecast
-       *              tampoco hay `% vs Forecast` que calcular.
-       *   branch     `ROUND(SUMIFS(PT weight), 0)`. El `ROUND` va acá, por
-       *              branch, porque es donde lo hace la app.
-       *   división   la SUMA de las celdas de branch, no un SUMIFS propio.
-       *              Se completa después del bucle, cuando ya se sabe en qué
-       *              filas quedaron.
+       *   persona    vacío. El forecast es del branch; una cifra por Loan
+       *              Officer sería inventada. Y sin forecast tampoco hay
+       *              `% vs Forecast` que calcular, así que esa celda también
+       *              queda vacía.
+       *   branch     el número de `FORECAST_AT_CUTOFF`, bajo BANKED. La celda
+       *              de BROKERED queda vacía: la tabla da un número por branch,
+       *              no por canal.
+       *   división   `FORECAST_DIVISION`, que NO es la suma de los de arriba.
        *
-       * ⚠ Por qué la división suma celdas en vez de repetir el SUMIFS: el total
-       * de la app es la suma de los redondeos POR BRANCH, no el redondeo de la
-       * suma. Medido en agosto de 2026: por branch da 33 Banked y 5 Brokered; al
-       * final, 32 y 6. Un `ROUND(SUMIFS(...))` sin criterio de branch daría lo
-       * segundo y el Excel dejaría de coincidir con la pantalla.
+       * Acá había un `ROUND(SUMIFS(PT weight))` que reproducía la cascada de la
+       * app. Se reemplaza por los valores del negocio -- ver la nota de
+       * `FORECAST_AT_CUTOFF` para las diferencias, que son varias y son a
+       * propósito. `PT weight` se deja en el detalle: sigue explicando de dónde
+       * saldría la cascada si alguien quiere compararla.
        */
-      if (r.kind === 'branch') {
-        row.getCell(at(channelAt, 3)).value = {
-          formula: `ROUND(SUMIFS(${rng(COL.ptWeight)},${crit(r, n)}${rng(COL.channel)},"${ch}"),0)`,
-          result: cells.forecastAtCutoff ?? 0,
-        };
-      } else if (r.kind === 'division') {
-        /* Marcador: lo llena `cerrarDivision`, más abajo. */
-        row.getCell(at(channelAt, 3)).value = cells.forecastAtCutoff ?? 0;
+      if (r.kind !== 'officer' && channelAt === BANKED_AT) {
+        row.getCell(at(channelAt, 3)).value =
+          r.kind === 'division' ? FORECAST_DIVISION : (FORECAST_AT_CUTOFF[r.branch] ?? 0);
       }
 
       put(4, `${base},${rng(COL.endOfMonth)},"Closed",${rng(COL.lien)},1)`, cells.closedFirstLien);
@@ -636,8 +652,8 @@ function buildSummary(
        * persona la celda queda vacía --no 0%--: no se puede comparar contra un
        * número que a ese nivel no existe.
        */
-      if (r.kind !== 'officer') {
-        const fc = cells.forecastAtCutoff ?? 0;
+      if (r.kind !== 'officer' && channelAt === BANKED_AT) {
+        const fc = r.kind === 'division' ? FORECAST_DIVISION : (FORECAST_AT_CUTOFF[r.branch] ?? 0);
         const pct = row.getCell(at(channelAt, 9));
         pct.value = {
           formula: `IF(${L(3)}${n}=0,"",${L(8)}${n}/${L(3)}${n})`,
@@ -659,29 +675,10 @@ function buildSummary(
   }
 
   /*
-   * ⚠ EL FORECAST DE LA DIVISIÓN ES LA SUMA DE LAS CELDAS DE BRANCH, célula por
-   * célula, no un SUMIFS sobre todo el detalle.
-   *
-   * El total de la app es la suma de los redondeos POR BRANCH, no el redondeo de
-   * la suma. Medido sobre el snapshot 19: por branch da 33 Banked y 5 Brokered;
-   * redondeando al final, 32 y 6. Un SUMIFS sin criterio de branch daría lo
-   * segundo, y el Excel dejaría de coincidir con el Executive Summary de la
-   * pantalla -- que es peor que la diferencia.
-   *
-   * Es la misma forma que usa el archivo de julio para sus totales: .
+   * Acá se llenaba la fila de división sumando las celdas de branch. Ya no hace
+   * falta: el forecast de división es un valor fijo del negocio y NO es la suma
+   * de los de arriba -- ver `FORECAST_DIVISION`.
    */
-  if (filaDivision > 0 && filasDeBranch.length > 0) {
-    for (const channelAt of [BANKED_AT, BROKERED_AT]) {
-      const col = sh.getColumn(at(channelAt, 3)).letter;
-      const celda = sh.getRow(filaDivision).getCell(at(channelAt, 3));
-      const previo = typeof celda.value === 'number' ? celda.value : 0;
-      celda.value = {
-        formula: filasDeBranch.map((f) => col + f).join('+'),
-        result: previo,
-      };
-    }
-  }
-
   /* Encabezados congelados: después de la fila de sub-encabezado y de Loan Officer. */
   sh.views = [{ state: 'frozen', xSplit: 2, ySplit: HEAD_ROW }];
   sh.getColumn(1).width = 11;
@@ -715,12 +712,11 @@ function buildByBranch(wb: Workbook, model: ReturnType<typeof buildMonthlyReport
   const sh = wb.addWorksheet('By Branch');
   const N = BY_BRANCH_COLUMNS.length;
 
-  const intro = sh.addRow([
-    'One block per branch. Every loan carries its own Loan Officer, so the sheet survives sorting and filtering.',
-  ]);
-  intro.getCell(1).font = { name: FONT, italic: true, size: 9, color: { argb: C.slate500 } };
-  sh.addRow([]);
-
+  /*
+   * Aca habia una linea de intro explicando que cada prestamo lleva su Loan
+   * Officer. Se fue con el resto de los textos -- etapa RPT4. La propiedad
+   * sigue valiendo y sigue verificada; lo que se fue es el parrafo.
+   */
   const byBranch = new Map<string, MonthlyReportRow[]>();
   for (const r of model.rows) {
     const list = byBranch.get(r.branch) ?? [];
@@ -917,7 +913,7 @@ const COL = {
   ptWeight: colOf('PT weight'),
 } as const;
 
-function buildDetail(wb: Workbook, model: ReturnType<typeof buildMonthlyReport>, meta: Meta): void {
+function buildDetail(wb: Workbook, model: ReturnType<typeof buildMonthlyReport>): void {
   const sh = wb.addWorksheet('Pipeline');
   const N = DETAIL_COLUMNS.length;
   /* Las tres que no tienen fuente: se marcan tenues para que se vean vacías a propósito. */
@@ -957,51 +953,11 @@ function buildDetail(wb: Workbook, model: ReturnType<typeof buildMonthlyReport>,
   sh.views = [{ state: 'frozen', xSplit: 3, ySplit: 1 }];
 
   /*
-   * ⚠ LAS TRES COLUMNAS VACÍAS SE EXPLICAN EN LA HOJA, no se dejan en blanco a
-   * secas. Verificado: `Loan Processor` y los dos `LO Assistant` no existen ni
-   * en `pipeline_loans` ni en `loan_records_v2`. Una columna vacía sin nota se
-   * lee como un dato que se perdió; con la nota se lee como lo que es.
+   * ⚠ ACA HABIA CUATRO NOTAS AL PIE y se fueron todas -- etapa RPT4: las tres
+   * columnas sin fuente, el origen de cada campo, el desglose del universo y el
+   * aviso de los transferidos.
+   *
+   * Lo que decian sigue escrito en los comentarios del codigo, que es donde lo
+   * necesita quien lo cambie. Lo que se fue es la copia en la hoja.
    */
-  sh.addRow([]);
-  const n1 = sh.addRow([
-    'Loan Processor and the two LO Assistant columns are empty because neither source has them: they exist in ' +
-      'neither pipeline_loans nor loan_records_v2. The columns are kept so the layout matches the July file.',
-  ]);
-  n1.getCell(1).font = { italic: true };
-  const n2 = sh.addRow([
-    `Rows: loans open at the ${meta.cutoffDate} cut-off plus those that appeared through the end of the month. ` +
-      `End of month, Funding date and Last Finished Milestone come from the active snapshot ${meta.activeId} ` +
-      `(${meta.activeDate}), never from the month-end one.`,
-  ]);
-  n2.getCell(1).font = { italic: true };
-  const n3 = sh.addRow([
-    `Universe ${model.counts.universe} = ${model.counts.atCutoff} open at the cut-off + ${model.counts.appearedDuringMonth} that ` +
-      `appeared during the month + ${model.counts.closedBeforeCutoff} that had already closed before the cut-off. ` +
-      `Closed ${model.counts.closed} + Adversed ${model.counts.adversed} + Still Open ${model.counts.stillOpen} = ${model.counts.universe}.`,
-  ]);
-  n3.getCell(1).font = { italic: true };
-  /*
-   * El tercer grupo es el que nadie espera y por eso se nombra: son cierres del
-   * mes que ocurrieron antes del corte, así que no están entre los abiertos de
-   * ese día ni entre los que aparecieron después. Sin ellos el reporte no
-   * cuadraría con la pantalla.
-   */
-  if (model.counts.transferred > 0) {
-    /*
-     * Los transferidos, dichos en la hoja. Son pocos --tres en agosto de 2026--
-     * y sin la nota la unica forma de descubrirlo es no cuadrar contra Forecast
-     * por branch y no saber por que.
-     */
-    const nt = sh.addRow([
-      `${model.counts.transferred} loan(s) moved to a different branch after the cut-off. Each row keeps the branch it ` +
-        'was in at the cut-off, so both halves of the row describe the same branch. The Forecast screen shows them ' +
-        'under their current branch instead.',
-    ]);
-    nt.getCell(1).font = { italic: true };
-  }
-  const n4 = sh.addRow([
-    'Loans that closed before the cut-off have no "Start of month" mark: they were no longer in the pipeline that day. ' +
-      'They are included because they closed inside the month, which is what makes the totals match the Forecast screen.',
-  ]);
-  n4.getCell(1).font = { italic: true };
 }
