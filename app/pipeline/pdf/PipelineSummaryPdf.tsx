@@ -8,9 +8,9 @@ import PipelineStrategyPagePdf from './PipelineStrategyPagePdf';
  * ============================================================================
  * Solo layout -- ningún cálculo de negocio adentro de este archivo. Todo
  * (KPIs, filas por branch/loan officer/strategy, ya separadas por canal)
- * llega ya resuelto por props, igual que `handleExport()` ya arma
- * `exportRows`/`cover`/`strategySummary` para el Excel antes de mandarlos a
- * `app/api/pipeline/export/route.ts`.
+ * llega ya resuelto por props, mismo patrón que ya usa
+ * `app/api/pipeline/export/route.ts`: recibe `cover`/`strategySummary` ya
+ * armados en el body, sin volver a calcular nada del lado del servidor.
  *
  * react-pdf no tiene <table> -- cada tabla es una View por fila con
  * flexDirection: 'row', y cada celda un View con un width fijo (%).
