@@ -1619,3 +1619,44 @@ table.piv tr.strat-break-row td {
 #analytics-section-concentration {
   scroll-margin-top: calc(var(--header-h) + var(--control-bar-h));
 }
+
+/* ==========================================================================
+   EL AVISO DE INTEGRIDAD DE LA CARGA — etapa RPT5
+   ==========================================================================
+   Coral porque es lo único de la pantalla que pide una acción fuera de ella:
+   si aparece, hay que ir a mirar el origen del dato, no otra pestaña. Los
+   detalles van en el `title` y no en pantalla -- mismo criterio que el ⚠ de
+   branches sin resolver. */
+.fc-integrity {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 0 0 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--coral);
+  border-left-width: 4px;
+  border-radius: 8px;
+  background: #fff5f5;
+}
+
+.fc-integrity__ic {
+  color: var(--coral);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.fc-integrity p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--navy);
+  cursor: help;
+}
+
+.fc-integrity p + p {
+  margin-top: 4px;
+}
+
+.fc-integrity strong {
+  font-variant-numeric: tabular-nums;
+}
