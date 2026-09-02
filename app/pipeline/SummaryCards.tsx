@@ -34,6 +34,10 @@ export interface SummaryCardsProps {
    */
   ctcCount: number;
   closingCount: number;
+  /** Etapa ACTUAL-CLOSINGS: 'actual-closings' oculta Total Pipeline,
+   * Healthy Pipeline y Total Forecast -- solo aplica a un mes ya
+   * cerrado, donde esas 3 tarjetas dejan de significar algo. */
+  mode?: 'forecast' | 'actual-closings';
 }
 
 function fmtInt(n: number): string {
@@ -114,29 +118,33 @@ function ChannelSplit({
  * necesita leerla: el texto de la tarjeta pasó a mostrar `ctcCount`/
  * `closingCount` en su lugar.
  */
-export default function SummaryCards({ combined, banked, brokered, ctcCount, closingCount }: SummaryCardsProps) {
+export default function SummaryCards({ combined, banked, brokered, ctcCount, closingCount, mode = 'forecast' }: SummaryCardsProps) {
   const healthyPct = combined.totalCount ? Math.round((combined.healthyCount / combined.totalCount) * 100) : 0;
 
   return (
-    <div className="hero-banner">
-      <div className="mcard">
-        <div className="m-name">Total Pipeline</div>
-        <div className="kpi-hero__value">{loansLabel(combined.totalCount)}</div>
-        <ChannelSplit bankedValue={fmtInt(banked.totalCount)} brokeredValue={fmtInt(brokered.totalCount)} />
-        <div className="kpi-hero__sub">In Negotiation, within Pipeline Range</div>
-      </div>
+    <div className={`hero-banner${mode === 'actual-closings' ? ' hero-banner--closings' : ''}`}>
+      {mode !== 'actual-closings' && (
+        <div className="mcard">
+          <div className="m-name">Total Pipeline</div>
+          <div className="kpi-hero__value">{loansLabel(combined.totalCount)}</div>
+          <ChannelSplit bankedValue={fmtInt(banked.totalCount)} brokeredValue={fmtInt(brokered.totalCount)} />
+          <div className="kpi-hero__sub">In Negotiation, within Pipeline Range</div>
+        </div>
+      )}
 
-      <div className="mcard mcard--emerald">
-        <div className="m-name">
-          <span className="dot-healthy" />
-          Healthy Pipeline
+      {mode !== 'actual-closings' && (
+        <div className="mcard mcard--emerald">
+          <div className="m-name">
+            <span className="dot-healthy" />
+            Healthy Pipeline
+          </div>
+          <div className="kpi-hero__value kpi-hero__value--emerald">{loansLabel(combined.healthyCount)}</div>
+          <ChannelSplit bankedValue={fmtInt(banked.healthyCount)} brokeredValue={fmtInt(brokered.healthyCount)} />
+          <div style={{ marginTop: '8px' }}>
+            <span className="badge badge--pill badge--emerald">{healthyPct}% of total</span>
+          </div>
         </div>
-        <div className="kpi-hero__value kpi-hero__value--emerald">{loansLabel(combined.healthyCount)}</div>
-        <ChannelSplit bankedValue={fmtInt(banked.healthyCount)} brokeredValue={fmtInt(brokered.healthyCount)} />
-        <div style={{ marginTop: '8px' }}>
-          <span className="badge badge--pill badge--emerald">{healthyPct}% of total</span>
-        </div>
-      </div>
+      )}
 
       <div className="mcard">
         <div className="m-name">Closed</div>
@@ -161,32 +169,34 @@ export default function SummaryCards({ combined, banked, brokered, ctcCount, clo
         </div>
       </div>
 
-      <div className="mcard mcard--sky">
-        <div className="m-name">Total Forecast</div>
-        <div className="kpi-hero__value kpi-hero__value--lg">{fmtRounded(combined.totalForecast)}</div>
-        {/*
-         * Etapa F5j, Cambio 4: se saca el .toFixed(1) -- el forecast se
-         * muestra siempre entero, en los 2 canales. Desde F5j/F5j-b,
-         * `banked.totalForecast`/`brokered.totalForecast` ya llegan como la
-         * suma de forecastTotal ya redondeado por branch (page.tsx,
-         * summarizeChannel) más el closedCount de ese canal (entero) -- son
-         * enteros de por sí acá, `fmtRounded()` solo cubre el caso de que
-         * algún llamador futuro pase un decimal. Reemplaza la asimetría de
-         * redondeo de UX7 (1 decimal acá, entero en el resto): con la regla
-         * de F5j ("redondear por fila y sumar, no al revés") ya no hace
-         * falta -- ambos canales llegan enteros por construcción, no por un
-         * .toFixed(1) que ocultaba el redondeo.
-         */}
-        <ChannelSplit bankedValue={fmtRounded(banked.totalForecast)} brokeredValue={fmtRounded(brokered.totalForecast)} size="lg" />
-        {/*
-         * Etapa UX9: se achica el subtítulo (`kpi-hero__sub--sm`, ver
-         * forecast-visual.css) y se saca la aclaración del 40% de Brokered
-         * (vivía acá desde F5j) -- esa nota solo aplica a un canal, no a esta
-         * tarjeta que resume ambos, así que se movió debajo de la tabla
-         * Brokered en PivotTable.tsx (Etapa UX9).
-         */}
-        <div className="kpi-hero__sub kpi-hero__sub--sm">Forecast = On Track Loans after PT + Closed</div>
-      </div>
+      {mode !== 'actual-closings' && (
+        <div className="mcard mcard--sky">
+          <div className="m-name">Total Forecast</div>
+          <div className="kpi-hero__value kpi-hero__value--lg">{fmtRounded(combined.totalForecast)}</div>
+          {/*
+           * Etapa F5j, Cambio 4: se saca el .toFixed(1) -- el forecast se
+           * muestra siempre entero, en los 2 canales. Desde F5j/F5j-b,
+           * `banked.totalForecast`/`brokered.totalForecast` ya llegan como la
+           * suma de forecastTotal ya redondeado por branch (page.tsx,
+           * summarizeChannel) más el closedCount de ese canal (entero) -- son
+           * enteros de por sí acá, `fmtRounded()` solo cubre el caso de que
+           * algún llamador futuro pase un decimal. Reemplaza la asimetría de
+           * redondeo de UX7 (1 decimal acá, entero en el resto): con la regla
+           * de F5j ("redondear por fila y sumar, no al revés") ya no hace
+           * falta -- ambos canales llegan enteros por construcción, no por un
+           * .toFixed(1) que ocultaba el redondeo.
+           */}
+          <ChannelSplit bankedValue={fmtRounded(banked.totalForecast)} brokeredValue={fmtRounded(brokered.totalForecast)} size="lg" />
+          {/*
+           * Etapa UX9: se achica el subtítulo (`kpi-hero__sub--sm`, ver
+           * forecast-visual.css) y se saca la aclaración del 40% de Brokered
+           * (vivía acá desde F5j) -- esa nota solo aplica a un canal, no a esta
+           * tarjeta que resume ambos, así que se movió debajo de la tabla
+           * Brokered en PivotTable.tsx (Etapa UX9).
+           */}
+          <div className="kpi-hero__sub kpi-hero__sub--sm">Forecast = On Track Loans after PT + Closed</div>
+        </div>
+      )}
     </div>
   );
 }
