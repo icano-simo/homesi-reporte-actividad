@@ -7663,3 +7663,172 @@ uno cada vez que se reporte el mismo síntoma en un estado distinto.
 
 `lib/pipeline/usStatesSvgPaths.ts` (Colorado movido al final, con
 comentario).
+
+---
+
+## PDF export — por qué @react-pdf/renderer (y qué se descartó)
+
+El export a PDF del Forecast (`app/api/pipeline/pdf/route.tsx`) reusa el
+mismo patrón que ya usa el export a Excel (`app/api/pipeline/export/
+route.ts`): el cliente calcula todo (KPIs, filas por branch/loan officer/
+estrategia, ya separadas por canal) y lo manda armado en el body; el
+servidor no vuelve a consultar Supabase ni a recalcular nada, solo dibuja.
+Mismo reparto de responsabilidades, con `@react-pdf/renderer` en el lugar
+de ExcelJS.
+
+Se eligió `@react-pdf/renderer` en particular porque tiene motor de
+layout propio (flexbox — ver `app/pipeline/pdf/pdfShared.tsx`): las
+tablas se arman con `flexDirection`/`width` sobre `View`/`Text`, igual
+que CSS, en vez de tener que posicionar cada celda a mano en coordenadas
+x/y.
+
+### Alternativas descartadas
+
+- **Puppeteer/Playwright** (renderizar HTML a PDF vía navegador headless)
+  -- un navegador entero para generar un PDF es desproporcionado en este
+  contexto: cold starts largos y un bundle pesado para lo que hace falta.
+- **pdf-lib** -- sin motor de layout: cada celda se posiciona a mano en
+  coordenadas x/y.
+- **jsPDF** -- mismo problema que pdf-lib, sin motor de layout propio.
+
+### No medido
+
+Ni el bundle size ni el cold-start reales de `@react-pdf/renderer` en
+esta ruta se midieron -- la elección fue por ajuste de patrón (mismo
+cliente-calcula/servidor-dibuja que el Excel) y por tener motor de
+layout, no por un benchmark. Si el cold-start real resulta un problema
+en producción, ese dato todavía falta.
+
+### Archivos
+
+`app/api/pipeline/pdf/route.tsx` (el POST, `runtime = 'nodejs'`, mismo
+comentario duplicado en el código junto al import de
+`@react-pdf/renderer`), `app/pipeline/pdf/pdfShared.tsx` (estilos y
+piezas compartidas entre páginas), `app/pipeline/pdf/
+PipelineSummaryPdf.tsx` y `app/pipeline/pdf/PipelineStrategyPagePdf.tsx`
+(las páginas del documento).
+
+## Total Pipeline range -- derivado del Forecast Month, no un estado independiente
+
+Antes de este cambio, el rango de fechas usado para calcular Total
+Pipeline (`pipelineDateRange`) vivía en su propio estado (`useState`),
+con un panel de Settings que permitía editarlo a mano y un default
+calculado con `getDefaultPipelineDateRange()`/`formatDateLocal()`. Pasó
+a derivarse directamente del Forecast Month seleccionado:
+`pipelineRangeFromForecastMonth(target: TargetMonth): DateRange` calcula
+el rango como mes anterior al Forecast Month (inicio) hasta el propio
+Forecast Month (fin), reusando `targetMonthRange()` (ya existente en
+`aggregate.ts`, sin tocarlo) dos veces en vez de reimplementar la
+aritmética de meses con `Date` local.
+
+Motivo -- decisión de negocio, no solo técnica: el panel de Settings
+permitía que el rango quedara desincronizado del mes que se estaba
+mirando, lo cual generaba resultados de Total Pipeline que no
+correspondían al Forecast Month visible en pantalla. Al derivarlo
+siempre del mes seleccionado, ambos quedan atados por construcción.
+
+### Archivos
+
+`app/pipeline/page.tsx` (agrega `pipelineRangeFromForecastMonth()`,
+elimina `pipelineDateRange`/`setPipelineDateRange`, `formatDateLocal()`,
+`getDefaultPipelineDateRange()`), `app/pipeline/Topbar.tsx` (ya no
+recibe `pipelineDateRange`/`onPipelineDateRangeChange`, se elimina el
+panel de Settings de rango manual).
+
+## Título dinámico "Actual Closings" para meses ya cerrados
+
+El título de la página (`Forecast & Pipeline`) pasa a ser dinámico según
+si el Forecast Month seleccionado ya pasó o no: `isPastForecastMonth`
+compara el mes seleccionado contra `businessNow`/`businessToday()` (hora
+de negocio en Bogotá, UTC-5) y, si el mes ya cerró, `pageTitle` cambia a
+"Actual Closings" -- para un mes pasado, "Forecast" ya no describe lo
+que se está mirando, son cierres reales, no una proyección.
+
+El mismo booleano se pasa a `<SummaryCards mode={isPastForecastMonth ?
+'actual-closings' : 'forecast'}>`, que aplica la clase CSS
+`.hero-banner--closings` -- angosta el hero banner a una sola tarjeta
+centrada, porque en un mes pasado solo "Closed" tiene sentido mostrar
+(Healthy/Total Pipeline no aplican a algo que ya cerró).
+
+### Archivos
+
+`app/pipeline/page.tsx` (agrega `businessNow`, `isPastForecastMonth`,
+`pageTitle`), `app/pipeline/SummaryCards.tsx` (prop nueva `mode?:
+'forecast' | 'actual-closings'`, default `'forecast'`),
+`app/pipeline/styles/forecast-visual.css` (regla
+`.hero-banner--closings`), `lib/pipeline/period.ts` (`businessToday()`,
+ya existente, sin cambios de lógica en este merge).
+
+## Badge "Updated on..." -- reubicado junto al filtro Branch
+
+El pill que muestra cuándo se subió el snapshot activo
+(`lastUpdatedLabel`, armado por `formatLastUpload()` a partir de
+`uploaded_at`, no `data_as_of`) vivía en su propia fila dentro de
+`.control-bar`, dejando un espacio lateral en blanco considerable junto
+al filtro Branch. Se reubicó en la misma fila que el filtro, reusando
+`.control-bar__row` -- la misma clase ya usada en `TabAnalytics.tsx`
+para componer 2 controles lado a lado -- sin tocar ningún CSS
+compartido.
+
+`.control-bar__status` (con su `flex-basis: 100%`, que fuerza a ocupar
+toda la fila) queda ahora exclusivo para el pill de `error` -- mismo uso
+que ya tiene esa clase en Actividad (`app/page.tsx`), donde sí llega a
+mostrar varios pills juntos (fecha de sync, Rows, Range, error).
+`Topbar.tsx` es exclusivo de `/pipeline`, sin otra variante compartida
+con otras pantallas -- el único riesgo real de este cambio estaba en
+las clases CSS, no en el componente en sí.
+
+### Archivos
+
+`app/pipeline/Topbar.tsx` (único archivo tocado -- reordena JSX, sin
+tocar ningún `.css`).
+
+## Retiro del botón "Download Excel" -- redundante con "Export today's forecast"
+
+El Excel que genera "Export today's forecast" -- ya construido como
+parte de RPT6, presente en `main` antes de este cambio -- contiene la
+misma información y el mismo formato que "Download Excel" venía
+descargando. Con ese camino ya cubriendo el mismo resultado, se retiró
+el botón "Download Excel" y su handler (`handleExport()`, estado
+`isExporting`) del cliente. El endpoint que consumía
+(`app/api/pipeline/export/route.ts`) queda vivo A PROPÓSITO en el
+backend, sin ningún llamador real hoy -- confirmado por grep en todo el
+proyecto, incluidos los 6 archivos que solo lo mencionan en comentarios
+como referencia de patrón (`day-report/route.ts`,
+`monthly-report/route.ts`, `pdf/route.tsx`, `PipelineSummaryPdf.tsx`,
+`dayReport.ts`, `monthlyReport.ts`) -- por si se necesita revertir más
+adelante; queda documentado con un comentario propio arriba del handler
+`POST` de ese archivo.
+
+Al botón "Download PDF" -- una feature aparte, no la razón de este
+retiro -- se le agregó de paso un `title` nativo (mismo patrón que ya
+usan "Monthly report"/"Export today's forecast") describiendo qué
+filtros respeta: Forecast Month y Branch del Topbar SÍ; el filtro de
+estrategia (siempre muestra las 5 completas) y el de canal de Adverse
+(Adverse no entra al PDF) NO -- mismo comportamiento que ya tenía el
+Excel, no es un cambio de alcance del PDF.
+
+### Cascada de código muerto
+
+Borrar `handleExport()` destapó una cadena de 10 símbolos más sin
+ningún consumidor real (`exportRows`, `coverSheetData`,
+`strategySummaryTotal`, `strategySummaryRows`, funciones de formateo
+por fila, variables de filtrado por estrategia/canal) -- se confirmó
+cada uno por grep (declaración vs. uso real vs. mención en comentario)
+antes de borrarlo, en 4 rondas hasta que `eslint` dejó de señalar algo
+nuevo.
+
+Quedaron 3 sin tocar a propósito -- `activeStrategyFilter`,
+`channelFilter`, `activeSnapshotId` -- porque sus setters siguen
+conectados a componentes vivos (`<AdverseTable>`, `<PivotTable>`, el
+efecto que carga `/api/pipeline/latest`) aunque `page.tsx` ya no lea el
+valor. Sacarlos del todo implicaría tocar las props de esos componentes
+hijos -- alcance distinto, no se hizo en esta rama.
+
+### Archivos
+
+`app/pipeline/page.tsx` (retira `handleExport()`, el botón, y los 10
+símbolos de la cascada; agrega el `title` al botón PDF),
+`app/api/pipeline/export/route.ts` (comentario documentando que queda
+vivo a propósito), `app/pipeline/pdf/PipelineSummaryPdf.tsx` (comentario
+actualizado, ya no menciona `handleExport()`/`exportRows`).

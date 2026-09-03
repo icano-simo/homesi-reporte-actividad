@@ -278,17 +278,42 @@ export function targetMonthRange(target: TargetMonth): DateRange {
  * exactamente con un Excel armado a mano, que suele tener ajustes manuales
  * que esta regla no puede replicar -- no es un bug si difiere.
  */
+/**
+ * ============================================================================
+ * ⚠ LA ÚNICA DEFINICIÓN DE "CERRADO EN ESTE MES" — etapa RPT1
+ * ============================================================================
+ *
+ * Estaba escrita inline dentro de `calculateTotalForecastWithClosed` y de
+ * `buildOrphanBranchRows` (PivotTable), y el reporte mensual necesitaba una
+ * tercera. Tres copias de un predicado de tres líneas es exactamente cómo se
+ * llega a que la pantalla diga un número y el Excel otro.
+ *
+ * Fundeado, y con la FECHA DE DESEMBOLSO dentro del mes. Dos cosas que hay que
+ * tener presentes al leer esto:
+ *
+ *   1. Vale igual para los dos canales. Que Brokered cierre por Milestone
+ *      Completion es una regla de su CASCADA DE PULL-THROUGH, no del conteo de
+ *      cerrados -- ver `BROKERED_FLAT_PULL_THROUGH_RATE`.
+ *   2. El mes lo decide el desembolso, no cuándo se enteró Salesforce. Medido
+ *      en agosto de 2026: cuatro préstamos desembolsaron el 28 y el 31 y
+ *      quedaron marcados Closed Won después del export del 31, así que el
+ *      snapshot de fin de mes decía 32 y el actual dice 36. Por eso el estado
+ *      se lee SIEMPRE del snapshot activo, nunca del de cierre de mes.
+ */
+export function isClosedInMonth(loan: ResolvedLoan, monthRange: DateRange): boolean {
+  return (
+    loan.status === 'funded' &&
+    loan.disbursementDate >= monthRange.startDate &&
+    loan.disbursementDate <= monthRange.endDate
+  );
+}
+
 export function calculateTotalForecastWithClosed(
   resolvedLoans: ResolvedLoan[],
   forecastTotal: number,
   forecastMonthRange: DateRange
 ): TotalForecastWithClosed {
-  const closedCount = resolvedLoans.filter(
-    (loan) =>
-      loan.status === 'funded' &&
-      loan.disbursementDate >= forecastMonthRange.startDate &&
-      loan.disbursementDate <= forecastMonthRange.endDate
-  ).length;
+  const closedCount = resolvedLoans.filter((loan) => isClosedInMonth(loan, forecastMonthRange)).length;
   return {
     closedCount,
     pullThroughForecast: forecastTotal,
@@ -471,6 +496,35 @@ export function calculateBrokeredForecast(
  * `total` no es 0 sin ningún peso -- no debería pasar en la práctica, pero
  * ante ese dato inconsistente se lo lleva completo la primera categoría en
  * vez de perderlo en silencio (la suma tiene que seguir dando `total`).
+ *
+ * ============================================================================
+ * ⚠⚠ UN PESO QUE FALTA NO FALLA: EL RESTO SE LLEVA SU PARTE
+ * ============================================================================
+ *
+ * Esta función garantiza que las partes sumen `total`, y ESO ES TODO lo que
+ * garantiza. Si una categoría que sí aporta al total queda FUERA de `weights`,
+ * su parte se reparte entre las demás y la suma sigue dando `total`: no hay
+ * error, no hay `NaN`, no hay nada que lo delate. El número aparece en la
+ * categoría equivocada y el invariante se cumple igual.
+ *
+ * Pasó dos veces en Outlook, las dos con el mismo síntoma:
+ *
+ *   OL12  el mes en curso de un branch que no proyecta. Los pesos eran los
+ *         pronósticos por estrategia, todos 0, y el total entero se fue entero a
+ *         Own Production: los 5 cierres de agosto de AFFINITY salían como
+ *         producción propia.
+ *   OL15  el presupuesto de branch sin dueño quedó fuera de los pesos de los
+ *         dueños de B2B. Annie Garrido apareció con 2, 2, 3 de presupuesto sin
+ *         tener ninguno -- era el del branch.
+ *
+ * ⚠ REGLA PARA EL QUE VENGA: antes de llamar a esto, verificar que `weights`
+ * incluya a TODAS las fuentes que arman `total`. Si una puede tener peso 0
+ * legítimamente, igual tiene que estar en el arreglo -- estar con peso 0 y no
+ * estar dan resultados distintos, y sólo el primero es el correcto.
+ *
+ * Es la misma familia que la fila de reconciliación de Outlook: una construcción
+ * que hace cerrar la cuenta siempre no puede avisar cuando lo que falta es un
+ * error.
  */
 export function apportionByWeight(total: number, weights: number[]): number[] {
   const weightSum = weights.reduce((a, b) => a + b, 0);

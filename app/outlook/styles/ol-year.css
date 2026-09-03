@@ -489,3 +489,95 @@ table.piv.ol-year thead .yr-row th.ol-band {
   font-size: var(--ol-text);
   padding: 4px 8px;
 }
+
+/*
+ * ============================================================================
+ * EL BENCHMARK, JUNTO AL NOMBRE — etapa OL18
+ * ============================================================================
+ *
+ * ⚠ ACÁ HABÍA UNA COLUMNA Y SE FUE, con todo lo que costó alinearla: ancho fijo
+ * en OL11, y una grilla de tres huecos en OL13 para que el número no se corriera
+ * según lo que viniera después. Todo ese trabajo era para que una columna
+ * conviviera con los doce meses; el arreglo real era que no fuera columna.
+ *
+ * El benchmark no es un mes: es la BASE de la que salen los meses proyectados.
+ * Ahora vive al lado del nombre de su fila, en tono tenue, y los 118px que
+ * ocupaba volvieron a la tabla.
+ */
+.ol-page .ol-bench-in {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ol-page .ol-bench-in__sep {
+  color: var(--slate-300);
+}
+.ol-page .ol-bench-in__n {
+  color: var(--slate-500);
+  font-weight: 400;
+}
+/*
+ * ⚠ La `Σ` dice "esto es una suma" sin una palabra, y es la única marca que
+ * distingue un benchmark CALCULADO de uno editable. El otro indicio es la
+ * ausencia del lápiz -- dos señales para lo mismo, porque la ausencia de algo es
+ * difícil de notar si no se sabe que podría estar.
+ */
+.ol-page .ol-bench-in__sum {
+  color: var(--slate-400);
+  font-size: 0.9em;
+}
+.ol-page .ol-bench-in--calc .ol-bench-in__n {
+  color: var(--slate-400);
+}
+
+/*
+ * Los cierres ajenos, al pie de la tabla — etapa OL16.
+ *
+ * Una línea, con el tamaño y el color de una nota al pie: los nombres son la
+ * explicación del descuadre, no un dato que compita con la tabla. Va sin
+ * párrafo alrededor a propósito -- si hiciera falta explicarla, el problema
+ * estaría en la tabla.
+ */
+.ol-page .ol-outsiders {
+  margin: 10px 0 0;
+  font-size: var(--ol-text);
+  color: var(--slate-500);
+  line-height: 1.6;
+}
+.ol-page .ol-outsiders__lbl {
+  color: var(--slate-400);
+}
+.ol-page .ol-outsiders b {
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * ============================================================================
+ * LA COLUMNA DE REGLA NO ES UNA COLUMNA DE NOMBRES — etapa OL18
+ * ============================================================================
+ *
+ * ⚠ Usaba `className="lbl"` y con eso heredaba dos cosas que no le
+ * correspondían, ninguna visible al leer el JSX:
+ *
+ *   `min-width: 240px`  pensado para una columna de nombres. La regla es una
+ *                       píldora de cuatro caracteres --`25% / qtr`-- y la
+ *                       columna medía 260px. Ahí estaba el ancho, no en el
+ *                       benchmark.
+ *   `position: sticky; left: 0`  pensado para la PRIMERA columna. En la última,
+ *                       fijarse a la izquierda no tiene ningún sentido.
+ *
+ * Medido: sacar `lbl` de esas cinco celdas devuelve ~150px a la tabla, bastante
+ * más que los 118 del benchmark. La estimación que había hecho sobre el
+ * benchmark era equivocada -- mover un número no libera ancho si el ancho lo
+ * estaba gastando otra columna.
+ */
+.ol-page table.piv.ol-year th.ol-rulecol,
+.ol-page table.piv.ol-year td.ol-rulecol {
+  text-align: left;
+  min-width: 96px;
+  white-space: nowrap;
+}

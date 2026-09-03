@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import type { BranchForecastRow } from '@/lib/pipeline/branchForecast';
 import type { PipelineLoan, ResolvedLoan } from '@/lib/pipeline/types';
 import {
   STRATEGY_ORDER,
@@ -14,6 +15,7 @@ import {
   calculateForecast,
   calculateTotalForecastWithClosed,
   countByMilestoneBucket,
+  isClosedInMonth,
   splitCtcAndClosing,
   type BucketCounts,
   type ForecastByBucket,
@@ -23,21 +25,16 @@ import {
 import LoanDetailModal, { type LoanDetailModalLoan } from './LoanDetailModal';
 
 /**
- * Lo que page.tsx arma por branch+channel (usado también para la cascada
- * agregada de MilestoneCascade). PivotTable solo lee `loans` de acá para
- * alimentar el modal de auditoría; no toca aggregate.ts.
+ * Lo que se arma por branch+channel (usado también para la cascada agregada de
+ * MilestoneCascade). PivotTable solo lee `loans` de acá para alimentar el modal
+ * de auditoría.
+ *
+ * ⚠ Etapa RPT1: el tipo y la función que lo produce se mudaron a
+ * `lib/pipeline/branchForecast.ts`, porque el reporte mensual corre en el
+ * servidor y necesita el mismo cálculo. Se re-exporta desde acá para no tocar a
+ * quien lo importaba de este archivo.
  */
-export interface BranchForecastRow {
-  branch: string;
-  channel: PipelineLoan['channel'];
-  totalCount: number;
-  healthyCount: number;
-  bucketTotal: BucketCounts;
-  bucketHealthy: BucketCounts;
-  forecastByBucket: ForecastByBucket;
-  forecastTotal: number;
-  loans: PipelineLoan[];
-}
+export type { BranchForecastRow } from '@/lib/pipeline/branchForecast';
 
 export interface PivotTableProps {
   rows: BranchForecastRow[];
@@ -286,11 +283,7 @@ function buildOrphanBranchRows(
   const knownKeys = new Set(rows.map((r) => r.branch + '::' + r.channel));
 
   const orphanFunded = resolvedLoans.filter(
-    (loan) =>
-      loan.status === 'funded' &&
-      loan.disbursementDate >= dateRange.startDate &&
-      loan.disbursementDate <= dateRange.endDate &&
-      !knownKeys.has(loan.branch + '::' + loan.channel)
+    (loan) => isClosedInMonth(loan, dateRange) && !knownKeys.has(loan.branch + '::' + loan.channel)
   );
 
   const grouped = new Map<string, { branch: string; channel: PipelineLoan['channel']; count: number }>();
@@ -311,6 +304,8 @@ function buildOrphanBranchRows(
       bucketHealthy: EMPTY_BUCKETS,
       forecastByBucket: EMPTY_FORECAST_BUCKETS,
       forecastTotal: 0,
+      /* Sin pipeline abierto no hay nada que proyectar: el exacto es el mismo 0. */
+      forecastExact: 0,
       loans: [],
     };
     /*
