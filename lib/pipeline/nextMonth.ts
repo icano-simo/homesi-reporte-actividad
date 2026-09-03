@@ -75,11 +75,26 @@ export function summarizeCountAmount(loans: PipelineLoan[]): CountAmount {
   return { count: loans.length, amount: loans.reduce((sum, loan) => sum + loan.amount, 0) };
 }
 
+/**
+ * Etapa NEXTMONTH-3: mismo count/amount de CountAmount, más los préstamos
+ * detrás de la celda -- lo que necesita el drill-down (LoanDetailModal) de
+ * TabNextMonth.tsx. Las 3 tarjetas KPI de arriba siguen usando
+ * summarizeCountAmount() puro (CountAmount, sin `.loans`), no este tipo --
+ * no necesitan drill-down.
+ */
+export interface NextMonthCell extends CountAmount {
+  loans: PipelineLoan[];
+}
+
+function summarizeNextMonthCell(loans: PipelineLoan[]): NextMonthCell {
+  return { ...summarizeCountAmount(loans), loans };
+}
+
 export interface NextMonthByBranchRow {
   branch: string;
-  estClosingNextMonth: CountAmount;
-  outOfScope: CountAmount;
-  combined: CountAmount;
+  estClosingNextMonth: NextMonthCell;
+  outOfScope: NextMonthCell;
+  combined: NextMonthCell;
 }
 
 /**
@@ -96,17 +111,17 @@ export function buildNextMonthByBranch(populations: NextMonthPopulations): NextM
 
   return [...branches].sort().map((branch) => ({
     branch,
-    estClosingNextMonth: summarizeCountAmount(populations.estClosingNextMonth.filter((loan) => loan.branch === branch)),
-    outOfScope: summarizeCountAmount(populations.outOfScope.filter((loan) => loan.branch === branch)),
-    combined: summarizeCountAmount(populations.combined.filter((loan) => loan.branch === branch)),
+    estClosingNextMonth: summarizeNextMonthCell(populations.estClosingNextMonth.filter((loan) => loan.branch === branch)),
+    outOfScope: summarizeNextMonthCell(populations.outOfScope.filter((loan) => loan.branch === branch)),
+    combined: summarizeNextMonthCell(populations.combined.filter((loan) => loan.branch === branch)),
   }));
 }
 
 export interface NextMonthByStrategyRow {
   strategy: Strategy;
-  estClosingNextMonth: CountAmount;
-  outOfScope: CountAmount;
-  combined: CountAmount;
+  estClosingNextMonth: NextMonthCell;
+  outOfScope: NextMonthCell;
+  combined: NextMonthCell;
 }
 
 /**
@@ -134,8 +149,8 @@ export function buildNextMonthByStrategy(populations: NextMonthPopulations): Nex
 
   return STRATEGY_ORDER.filter((strategy) => strategies.has(strategy)).map((strategy) => ({
     strategy,
-    estClosingNextMonth: summarizeCountAmount(estClosingNextMonthByStrategy.get(strategy) ?? []),
-    outOfScope: summarizeCountAmount(outOfScopeByStrategy.get(strategy) ?? []),
-    combined: summarizeCountAmount(combinedByStrategy.get(strategy) ?? []),
+    estClosingNextMonth: summarizeNextMonthCell(estClosingNextMonthByStrategy.get(strategy) ?? []),
+    outOfScope: summarizeNextMonthCell(outOfScopeByStrategy.get(strategy) ?? []),
+    combined: summarizeNextMonthCell(combinedByStrategy.get(strategy) ?? []),
   }));
 }

@@ -1,7 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import type { NextMonthByBranchRow, NextMonthByStrategyRow, CountAmount } from '@/lib/pipeline/nextMonth';
+import type { NextMonthByBranchRow, NextMonthByStrategyRow, NextMonthCell, CountAmount } from '@/lib/pipeline/nextMonth';
+import type { PipelineLoan } from '@/lib/pipeline/types';
+import LoanDetailModal, { type LoanDetailModalLoan } from './LoanDetailModal';
 
 // Etapa NEXTMONTH-2 — ARCHIVO NUEVO.
 //
@@ -33,8 +35,66 @@ function loansLabel(n: number): string {
   return fmtInt(n) + (n === 1 ? ' Loan' : ' Loans');
 }
 
+/**
+ * Etapa NEXTMONTH-3: mismo mapper que PivotTable.tsx (openLoanToModalLoan,
+ * ~línea 690) -- copiado tal cual, no importado. Mismo criterio que ya usa
+ * el repo: este mapper está duplicado en PivotTable.tsx 3 veces, no
+ * exportado; no se refactoriza PivotTable.tsx para exportarlo acá, eso es
+ * otro alcance.
+ */
+function openLoanToModalLoan(loan: PipelineLoan): LoanDetailModalLoan {
+  return {
+    sourceLoanId: loan.sourceLoanId,
+    branch: loan.branch,
+    strategyRaw: loan.strategyRaw,
+    opportunityOwnerTitle: loan.opportunityOwnerTitle,
+    nppmRealtor: loan.nppmRealtor,
+    referredBy: loan.referredBy,
+    borrowerName: loan.borrowerName,
+    loanOfficer: loan.loanOfficer,
+    channel: loan.channel,
+    amount: loan.amount,
+    rawMilestone: loan.rawMilestone,
+    rawHealthiness: loan.rawHealthiness,
+    branchTransferred: loan.branchTransferred,
+    loanType: loan.loanType,
+    loanProgram: loan.loanProgram,
+    noteHistory: loan.noteHistory,
+    propertyState: loan.propertyState,
+  };
+}
+
+/** Estado del modal de drill-down: qué celda se clickeó y qué préstamos hay detrás. Mismo shape reducido que ModalState de PivotTable.tsx (sin sections/showChannelColumn -- no hay split Banked/Brokered acá). */
+interface ModalState {
+  context: string;
+  metric: string;
+  loans: LoanDetailModalLoan[];
+}
+
+/** Mismo patrón que CountCell de PivotTable.tsx (~línea 1218): botón cuando hay préstamos, texto plano en 0 -- Amount nunca pasa por acá, no es clickeable (número calculado, no una lista de préstamos). */
+function CountCell({ cell, onClick }: { cell: NextMonthCell; onClick: () => void }) {
+  if (cell.count === 0) {
+    return <span className="cell-trigger is-zero">0</span>;
+  }
+  return (
+    <button type="button" className="cell-trigger" onClick={onClick}>
+      {fmtInt(cell.count)}
+    </button>
+  );
+}
+
 export default function TabNextMonth({ estClosingNextMonth, outOfScope, combined, byBranchRows, byStrategyRows }: TabNextMonthProps) {
   const [view, setView] = useState<'branch' | 'strategy'>('branch');
+  const [modal, setModal] = useState<ModalState | null>(null);
+
+  /** "Branch {code}", mismo criterio que contextForBranch() de PivotTable.tsx. */
+  function contextForBranch(branch: string): string {
+    return `Branch ${branch}`;
+  }
+
+  function openCell(context: string, metric: string, loans: PipelineLoan[]) {
+    setModal({ context, metric, loans: loans.map(openLoanToModalLoan) });
+  }
 
   return (
     <>
@@ -109,11 +169,23 @@ export default function TabNextMonth({ estClosingNextMonth, outOfScope, combined
                       <td className="lbl" style={{ textAlign: 'left' }}>
                         {row.branch}
                       </td>
-                      <td className="val col-nextmonth group-start">{fmtInt(row.estClosingNextMonth.count)}</td>
+                      <td className="val col-nextmonth group-start">
+                        <CountCell
+                          cell={row.estClosingNextMonth}
+                          onClick={() => openCell(contextForBranch(row.branch), 'Est Closing Next Month', row.estClosingNextMonth.loans)}
+                        />
+                      </td>
                       <td className="val col-nextmonth">${fmtAmount(row.estClosingNextMonth.amount)}</td>
-                      <td className="val col-outofscope group-start">{fmtInt(row.outOfScope.count)}</td>
+                      <td className="val col-outofscope group-start">
+                        <CountCell
+                          cell={row.outOfScope}
+                          onClick={() => openCell(contextForBranch(row.branch), 'Out of Scope', row.outOfScope.loans)}
+                        />
+                      </td>
                       <td className="val col-outofscope">${fmtAmount(row.outOfScope.amount)}</td>
-                      <td className="val col-combined group-start">{fmtInt(row.combined.count)}</td>
+                      <td className="val col-combined group-start">
+                        <CountCell cell={row.combined} onClick={() => openCell(contextForBranch(row.branch), 'Combined', row.combined.loans)} />
+                      </td>
                       <td className="val col-combined">${fmtAmount(row.combined.amount)}</td>
                     </tr>
                   ))
@@ -122,11 +194,20 @@ export default function TabNextMonth({ estClosingNextMonth, outOfScope, combined
                       <td className="lbl" style={{ textAlign: 'left' }}>
                         {row.strategy}
                       </td>
-                      <td className="val col-nextmonth group-start">{fmtInt(row.estClosingNextMonth.count)}</td>
+                      <td className="val col-nextmonth group-start">
+                        <CountCell
+                          cell={row.estClosingNextMonth}
+                          onClick={() => openCell(row.strategy, 'Est Closing Next Month', row.estClosingNextMonth.loans)}
+                        />
+                      </td>
                       <td className="val col-nextmonth">${fmtAmount(row.estClosingNextMonth.amount)}</td>
-                      <td className="val col-outofscope group-start">{fmtInt(row.outOfScope.count)}</td>
+                      <td className="val col-outofscope group-start">
+                        <CountCell cell={row.outOfScope} onClick={() => openCell(row.strategy, 'Out of Scope', row.outOfScope.loans)} />
+                      </td>
                       <td className="val col-outofscope">${fmtAmount(row.outOfScope.amount)}</td>
-                      <td className="val col-combined group-start">{fmtInt(row.combined.count)}</td>
+                      <td className="val col-combined group-start">
+                        <CountCell cell={row.combined} onClick={() => openCell(row.strategy, 'Combined', row.combined.loans)} />
+                      </td>
                       <td className="val col-combined">${fmtAmount(row.combined.amount)}</td>
                     </tr>
                   ))}
@@ -148,6 +229,14 @@ export default function TabNextMonth({ estClosingNextMonth, outOfScope, combined
           </table>
         </div>
       </div>
+
+      <LoanDetailModal
+        isOpen={modal !== null}
+        onClose={() => setModal(null)}
+        context={modal?.context ?? ''}
+        metric={modal?.metric ?? ''}
+        loans={modal?.loans ?? []}
+      />
     </>
   );
 }

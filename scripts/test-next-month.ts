@@ -88,6 +88,37 @@ for (const row of byStrategy) {
   );
 }
 
+/* ── Etapa NEXTMONTH-3: sanity check barato -- .loans.length tiene que
+   coincidir con .count en cada celda de cada fila, o algo quedó mal armado
+   en summarizeNextMonthCell()/buildNextMonthByBranch()/buildNextMonthByStrategy(). ── */
+console.log('\n=== sanity check: row.cell.loans.length === row.cell.count ===');
+let cellMismatches = 0;
+for (const row of byBranch) {
+  for (const [pop, cell] of [
+    ['estClosingNextMonth', row.estClosingNextMonth],
+    ['outOfScope', row.outOfScope],
+    ['combined', row.combined],
+  ] as const) {
+    if (cell.loans.length !== cell.count) {
+      cellMismatches++;
+      console.log('  ** MISMATCH ** byBranch branch=' + row.branch + ' pop=' + pop + ' count=' + cell.count + ' loans.length=' + cell.loans.length);
+    }
+  }
+}
+for (const row of byStrategy) {
+  for (const [pop, cell] of [
+    ['estClosingNextMonth', row.estClosingNextMonth],
+    ['outOfScope', row.outOfScope],
+    ['combined', row.combined],
+  ] as const) {
+    if (cell.loans.length !== cell.count) {
+      cellMismatches++;
+      console.log('  ** MISMATCH ** byStrategy strategy=' + row.strategy + ' pop=' + pop + ' count=' + cell.count + ' loans.length=' + cell.loans.length);
+    }
+  }
+}
+console.log('  ' + (cellMismatches === 0 ? 'OK -- todas las celdas cuadran' : cellMismatches + ' celdas NO cuadran, revisar'));
+
 /* ── Préstamos sin estClosingDate -- no entran a ninguna población, se listan para bulto. ── */
 const sinFecha = parsed.openLoans.filter((l) => l.estClosingDate === null);
 console.log('\n=== abiertos sin estClosingDate (excluidos de las 2 poblaciones) ===');
