@@ -1867,20 +1867,28 @@ function computeDelta(current: number, previous: number, previousHasData: boolea
 function DeltaBadge({ delta, previousLabel }: { delta: DeltaResult | null; previousLabel: string }) {
   if (delta === null) {
     return (
-      <span className="kpi-hero__sub" title={`No funded loans in the comparable prior period (${previousLabel}).`}>
-        No prior period
-      </span>
+      <>
+        <span className="kpi-hero__sub">No prior period</span>
+        <div className="kpi-hero__sub" style={{ marginTop: '2px' }}>
+          {previousLabel}
+        </div>
+      </>
     );
   }
   const cls = delta.direction === 'up' ? 'badge--up' : delta.direction === 'down' ? 'badge--down' : 'badge--flat';
   const Icon = delta.direction === 'up' ? ArrowUpIcon : delta.direction === 'down' ? ArrowDownIcon : MinusIcon;
   const sign = delta.pct > 0 ? '+' : '';
   return (
-    <span className={'badge ' + cls} title={`vs ${previousLabel}`}>
-      <Icon size={9} />
-      {sign}
-      {delta.pct.toFixed(1)}%
-    </span>
+    <>
+      <span className={'badge ' + cls}>
+        <Icon size={9} />
+        {sign}
+        {delta.pct.toFixed(1)}%
+      </span>
+      <div className="kpi-hero__sub" style={{ marginTop: '2px' }}>
+        vs {previousLabel}
+      </div>
+    </>
   );
 }
 
@@ -1947,7 +1955,7 @@ function PaceNote({
   if (pace === null) return null;
   const word = !pace.isDifferent ? 'in line with' : pace.aheadOfPrevious ? 'above' : 'below';
   return (
-    <div className="kpi-hero__sub">
+    <div className="kpi-hero__sub kpi-hero__sub--pace">
       On pace to close at {formatValue(pace.projectedValue)}, {word} {previousFullLabel}&apos;s {formatValue(previousFullValue)}
     </div>
   );

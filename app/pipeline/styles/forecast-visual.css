@@ -622,6 +622,14 @@ table.piv.piv--combined td.totcol {
   color: var(--ctc-dot);
 }
 
+.kpi-hero__sub--pace {
+  display: block;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--slate-100);
+  font-style: italic;
+}
+
 .hero-banner .mcard {
   text-align: center;
 }
