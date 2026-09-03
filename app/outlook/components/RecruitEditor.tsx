@@ -51,6 +51,43 @@ import { saveRecruitLink, saveRecruitProjection } from '@/lib/outlook/save';
  * `bp-form__label`, `bp-btn` -- porque es el mismo tipo de decisión y tiene que
  * verse igual. Inventar clases nuevas habría dado un panel sin estilos.
  */
+/**
+ * El marcador de "todavía no se sabe a qué branch va".
+ *
+ * ⚠ ES UNA CONSTANTE Y NO UN LITERAL SUELTO desde OL21: el bug del desplegable
+ * salió justo de tenerlo escrito en dos lados --acá como valor por defecto y en
+ * la vista como el código que se filtraba de la lista-- así que uno de los dos
+ * podía moverse sin el otro. Y se movió.
+ */
+export const RECRUITMENT_BRANCH = 'Recruitment';
+
+/**
+ * El balde de `classifyBranch` para un `OrgID` que no está en el roster oficial.
+ *
+ * ⚠ NO ES UN DESTINO ASIGNABLE, y por eso el desplegable lo saca. Aparece como
+ * fila en la tabla porque tiene cierres reales --los 2 del branch 150-- pero
+ * "mandar a alguien a Branch Out of Division" no significa nada: es la etiqueta
+ * de un branch que la división no reconoce, no un lugar donde trabajar.
+ *
+ * Se detectó ofreciéndolo: el `select` de OL21 pasó a listar `data.branches`
+ * entero y este entró con los demás.
+ */
+export const OUT_OF_DIVISION_BRANCH = 'Branch Out of Division';
+
+/**
+ * Los branches que se pueden ELEGIR como destino, en el orden en que se ofrecen.
+ *
+ * ⚠ `Recruitment` PRIMERO Y SIEMPRE PRESENTE: es el valor por defecto del
+ * formulario, y un valor por defecto que no está entre las opciones es la mitad
+ * del bug que OL21 arregló. La otra mitad era el `datalist`.
+ */
+export function branchOptions(codes: string[]): string[] {
+  return [
+    RECRUITMENT_BRANCH,
+    ...codes.filter((c) => c !== RECRUITMENT_BRANCH && c !== OUT_OF_DIVISION_BRANCH).sort(),
+  ];
+}
+
 export default function RecruitEditor({
   recruit,
   branches,
@@ -61,7 +98,11 @@ export default function RecruitEditor({
 }: {
   /** `null` = alta a mano: el mismo formulario, en blanco. */
   recruit: BranchRecruit | null;
-  /** Los branches reales, para no obligar a tipear un código. */
+  /**
+   * TODOS los branches que ofrece el desplegable, `Recruitment` incluido y
+   * primero. Ver la nota del `select`: excluirlo de esta lista era la mitad del
+   * bug que OL21 arregla.
+   */
   branches: string[];
   /**
    * El roster, para vincular a mano. Sin ranking y sin "candidatos sugeridos":
@@ -75,7 +116,7 @@ export default function RecruitEditor({
 }) {
   const esAlta = recruit === null;
   const [name, setName] = useState(recruit?.personName ?? '');
-  const [branch, setBranch] = useState(recruit?.branchCodeActual ?? 'Recruitment');
+  const [branch, setBranch] = useState(recruit?.branchCodeActual ?? RECRUITMENT_BRANCH);
   const [startDate, setStartDate] = useState(recruit?.startDate ?? '');
   const [producingFrom, setProducingFrom] = useState(recruit?.producingFrom ?? mesSiguiente(currentMonth));
   /*
@@ -186,19 +227,36 @@ export default function RecruitEditor({
             <label className="bp-form__label" htmlFor="rec-branch">
               Branch
             </label>
-            <input
-              id="rec-branch"
-              type="text"
-              className="field"
-              list="rec-branches"
-              value={branch}
-              onChange={(e) => setBranch(e.target.value)}
-            />
-            <datalist id="rec-branches">
+            {/*
+              ══════════════════════════════════════════════════════════════
+              ⚠ UN `select`, Y ANTES ERA UN `input` CON `datalist` — etapa OL21
+              ══════════════════════════════════════════════════════════════
+
+              El bug que arregla, y el mecanismo, porque no es evidente: un
+              `datalist` FILTRA sus opciones por lo que el campo tiene escrito.
+              El campo nacía con `Recruitment`, y `Recruitment` no estaba entre
+              las opciones --se lo filtraba a propósito, para no ofrecer "no se
+              sabe" como destino--, así que el filtro no dejaba pasar ninguna:
+              medido, 0 opciones visibles de 16. El desplegable parecía ofrecer
+              sólo el `Recruitment` que ya tenía puesto.
+
+              Dos defectos que se tapaban entre sí: el valor por defecto no
+              estaba en la lista, y un `datalist` con un valor que no matchea no
+              muestra nada. Un `select` no puede tener ninguno de los dos: siempre
+              muestra todas sus opciones, y un valor fuera de la lista no es
+              representable.
+
+              ⚠ Y `Recruitment` AHORA SÍ ES UNA OPCIÓN. Sigue siendo el valor por
+              defecto --es donde cae quien no tiene branch asignado-- y por eso
+              tiene que poder elegirse de vuelta después de cambiarlo.
+            */}
+            <select id="rec-branch" className="field" value={branch} onChange={(e) => setBranch(e.target.value)}>
               {branches.map((b) => (
-                <option key={b} value={b} />
+                <option key={b} value={b}>
+                  {b === RECRUITMENT_BRANCH ? `${b} — not assigned yet` : b}
+                </option>
               ))}
-            </datalist>
+            </select>
           </div>
         </div>
 

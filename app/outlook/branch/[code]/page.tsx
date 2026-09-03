@@ -13,7 +13,7 @@ import {
   type BranchStrategy,
   type BranchRecruit,
 } from '@/lib/outlook/loadData';
-import { STAGE_LABEL, type NotProjectingReason, type Ramp, type RecruitStage } from '@/lib/outlook/recruitment';
+import { STAGE_LABEL, type NotProjectingReason, type RecruitStage } from '@/lib/outlook/recruitment';
 import {
   cadenceLabel,
   projectPlan,
@@ -25,8 +25,7 @@ import { fmt, sumOfShown } from '@/lib/outlook/format';
 import { useOutlookDataContext } from '@/lib/outlook/useOutlookData';
 import StrategyEditor, { type OutlookEditable } from '@/app/outlook/components/StrategyEditor';
 import NppmEditor from '@/app/outlook/components/NppmEditor';
-import RecruitEditor from '@/app/outlook/components/RecruitEditor';
-import RecruitRampEditor from '@/app/outlook/components/RecruitRampEditor';
+import RecruitEditor, { branchOptions } from '@/app/outlook/components/RecruitEditor';
 
 /**
  * ============================================================================
@@ -208,18 +207,7 @@ function RECRUIT_MONTH_TITLE(r: BranchRecruit, month: string): string {
   );
 }
 
-/**
- * La rampa, en el botón que la abre: `25% · 50% · 100%`.
- *
- * ⚠ SE LEE DE `data.recruitRamp` y no se escribe a mano. Es la revisión vigente
- * de `outlook.recruitment_ramp`, así que el botón muestra lo que el motor está
- * usando de verdad -- un `25% · 50% · 100%` literal seguiría diciendo eso
- * despues de que alguien la cambie.
- */
-function rampaTexto(r: Ramp): string {
-  const p = (v: number) => Math.round(v * 100) + '%';
-  return `${p(r.month1)} · ${p(r.month2)} · ${p(r.month3Plus)}`;
-}
+/* `rampaTexto` se fue a la vista 1 con la barra que lo usaba -- etapa OL21. */
 
 /** Cuántos meses hay entre dos 'YYYY-MM'. */
 function monthsApart(desde: string, hasta: string): number {
@@ -431,9 +419,12 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * version vieja y el panel seguiria mostrando el benchmark anterior al que se
    * acaba de escribir. La fila se resuelve en cada render desde `data` fresca.
    *
-   * `'new'` es el alta a mano y `'ramp'` la rampa global, que no tienen fila.
+   * ⚠ SÓLO UNA `identity` desde OL21. Antes admitía `'new'` y `'ramp'` para el
+   * alta y la rampa, que se fueron a la vista 1: son decisiones del módulo y no
+   * de este branch. Dejar los dos valores acá habría dejado dos ramas de render
+   * que nada puede alcanzar.
    */
-  const [editingRecruit, setEditingRecruit] = useState<string | 'new' | 'ramp' | null>(null);
+  const [editingRecruit, setEditingRecruit] = useState<string | null>(null);
 
   if (error) return <div className="hub-container"><div className="bp-empty">Could not load Outlook: {error}</div></div>;
   if (!data) return <div className="hub-container"><div className="bp-empty">Loading…</div></div>;
@@ -1975,32 +1966,22 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
         descubrir al apretar Guardar que no hay tabla.
       */}
       {/*
-        ⚠ SÓLO EN LOS BRANCHES QUE TIENEN GENTE EN CONTRATACIÓN. Dibujarla
-        siempre pondría una barra de reclutamiento en los diecisiete, la mayoría
-        sin una sola fila que explicara qué ramifica esa rampa.
+        ══════════════════════════════════════════════════════════════════════
+        ⚠ LA RAMPA Y EL ALTA SE FUERON DE ACÁ — etapa OL21
+        ══════════════════════════════════════════════════════════════════════
 
-        Lo que se pierde es poder dar el alta desde un branch sin nadie en
-        proceso, y no se pierde nada: un alta nace en el branch que se elija en
-        el formulario, y el marcador `Recruitment` --que es donde cae quien
-        todavía no tiene destino-- tiene fila propia mientras haya al menos uno
-        sin asignar.
+        Estaban debajo de esta tabla, y sólo en los branches que ya tenían gente
+        en proceso: estaban en el 747 y no en el 724. Las dos son decisiones del
+        MÓDULO --la rampa rige para los diecisiete branches, y un alta todavía no
+        tiene branch-- así que vivir dentro de un branch las hacía parecer de ese
+        branch y las escondía en los demás.
+
+        Viven en la vista 1, al lado de la tabla de la división. Desde ahí se
+        elige el branch en el formulario y la persona se aloja donde corresponda.
+
+        Lo que SÍ se queda acá: el lápiz de cada fila proyectada, que edita a UNA
+        persona y por lo tanto sí es de este branch.
       */}
-      {data.diagnostics.recruitTablesAvailable && reclutas.length > 0 && (
-        <p className="ol-recbar">
-          <span className="ol-recbar__lbl">In hiring</span>
-          <button type="button" className="ol-pill" onClick={() => setEditingRecruit('ramp')}>
-            {rampaTexto(data.recruitRamp)}
-          </button>
-          <button type="button" className="ol-pill ol-pill--empty" onClick={() => setEditingRecruit('new')}>
-            + Add someone
-          </button>
-          {/*
-            Lo que la barra dice sin que nadie pregunte: la rampa NO es de este
-            branch. Se abre desde acá, así que hay que decirlo acá.
-          */}
-          <span>the same ramp for everyone in hiring, in every branch</span>
-        </p>
-      )}
 
       {/*
         ══════════════════════════════════════════════════════════════════════
@@ -2157,25 +2138,22 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               lo={editable}
               strategy={editing.strategy}
               data={data}
+              /*
+                ⚠ LOS MESES QUE LA TABLA ESTA MOSTRANDO, no los del año — OL21.
+
+                `remainingMonths` de acá es la lista del HORIZONTE elegido, que
+                es estado de esta pantalla. Sin esto el editor caia en
+                `data.remainingMonths` y ofrecia tres meses mientras la tabla
+                dibujaba treinta y seis.
+              */
+              months={remainingMonths}
               onClose={() => setEditing(null)}
               onSaved={reload}
             />
           );
         })()}
 
-      {editingRecruit === 'ramp' && (
-        <RecruitRampEditor
-          ramp={data.recruitRamp}
-          onClose={() => setEditingRecruit(null)}
-          onSaved={() => {
-            setEditingRecruit(null);
-            reload();
-          }}
-        />
-      )}
-
       {editingRecruit !== null &&
-        editingRecruit !== 'ramp' &&
         (() => {
           /*
            * ⚠ LA FILA SE RESUELVE ACA, EN CADA RENDER, desde `data` fresca. Es
@@ -2190,21 +2168,27 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
            * buscarlo en el 710 no lo encontraria -- el panel se cerraria solo,
            * sin error, justo despues de un guardado correcto.
            */
-          const r =
-            editingRecruit === 'new'
-              ? null
-              : data.branches.flatMap((b) => b.byStrategy.flatMap((bs) => bs.recruits)).find((x) => x.identity === editingRecruit);
+          const r = data.branches
+            .flatMap((b) => b.byStrategy.flatMap((bs) => bs.recruits))
+            .find((x) => x.identity === editingRecruit);
           /* La fila se fue de la fuente entre el render y el clic. Nada que abrir. */
           if (r === undefined) return null;
           return (
             <RecruitEditor
               recruit={r}
               /*
-                Los branches REALES para el desplegable, sin el marcador
-                `Recruitment`: ofrecerlo como destino seria ofrecer "no se sabe"
-                como una respuesta.
+                ⚠ TODOS, Y `Recruitment` PRIMERO — corregido en OL21.
+
+                Antes se lo filtraba de la lista "para no ofrecer no-se-sabe como
+                destino", y el campo nacia justamente en `Recruitment`: el valor
+                por defecto no estaba entre las opciones. Con un `datalist`, que
+                filtra por lo escrito, eso dejaba CERO opciones visibles --medido,
+                0 de 16-- y parecia que el desplegable solo ofrecia Recruitment.
+
+                La leccion es la del assert: un valor por defecto tiene que ser
+                un valor elegible. Si no lo es, algo lo va a ocultar.
               */
-              branches={data.branches.map((b) => b.branchCode).filter((c) => c !== 'Recruitment').sort()}
+              branches={branchOptions(data.branches.map((b) => b.branchCode))}
               /*
                 El roster para vincular a mano, de los diecisiete branches y
                 ordenado por nombre. La persona con la que hay que vincular a un

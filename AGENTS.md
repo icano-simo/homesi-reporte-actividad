@@ -23,10 +23,25 @@ que se parecía a un bug del código:
 | «mover el benchmark liberó 118px» | la estimación era mía; medido, la tabla quedó **más ancha** |
 | «el forecast de Brokered no coincide» | mi script de comparación leía la columna equivocada del Excel |
 | «julio no muestra el aviso de integridad» | mi timeout era de 3,5s y la ruta tardaba más |
+| «la ventana de 12 meses aceleró la ruta 3×» | la ventana no descartaba **ni un** snapshot; los 7,9s eran el compile en frío |
 
-Los cuatro fallaron de modos **distintos**, así que no hay un chequeo general
-que los cubra. Lo único que funcionó las cuatro veces fue medir de nuevo por un
+Los cinco fallaron de modos **distintos**, así que no hay un chequeo general
+que los cubra. Lo único que funcionó las cinco veces fue medir de nuevo por un
 camino que no compartiera el error con el primero.
+
+**El quinto es el difícil**, y por eso está: los otros cuatro parecían bugs del
+código, así que había ganas de mirarlos. Este parecía un éxito. El número era
+bueno, el cambio era real y nadie lo habría cuestionado — una mentira plausible.
+Lo que lo delató no fue el número sino que **no se explicaba por el mecanismo**:
+una ventana que no descarta un solo snapshot no puede acelerar nada.
+
+Que es el corolario de abajo en la dirección contraria, y vale igual:
+
+> **Cuando el número no se explica por el mecanismo, tenía razón el mecanismo.**
+
+Y una regla operativa que sale sólo de este caso: **medir una ruta de Next en
+dev necesita una corrida de calentamiento antes de la primera que cuenta**, o el
+compile se cobra en la primera medición y se lo atribuye al cambio.
 
 ## El corolario
 

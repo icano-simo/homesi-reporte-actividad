@@ -1,6 +1,10 @@
 'use client';
 
+import { Fragment, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import RecruitEditor, { RECRUITMENT_BRANCH, branchOptions } from '@/app/outlook/components/RecruitEditor';
+import RecruitRampEditor from '@/app/outlook/components/RecruitRampEditor';
+import type { Ramp } from '@/lib/outlook/recruitment';
 import { composeYear, currentMonthByBranch, projectBranch, type OutlookData } from '@/lib/outlook/loadData';
 import { fmt, sumOfShown } from '@/lib/outlook/format';
 import { useOutlookDataContext } from '@/lib/outlook/useOutlookData';
@@ -49,11 +53,32 @@ function bandOf(month: string, currentMonth: string): 'actual' | 'forecast' | 'b
   return month < currentMonth ? 'actual' : month === currentMonth ? 'forecast' : 'budget';
 }
 
+/**
+ * La rampa, en el botón que la abre: `25% · 50% · 100%`.
+ *
+ * ⚠ SE LEE DE `data.recruitRamp` y no se escribe a mano. Es la revisión vigente
+ * de `outlook.recruitment_ramp`, así que el botón muestra lo que el motor está
+ * usando de verdad -- un `25% · 50% · 100%` literal seguiría diciendo eso
+ * después de que alguien la cambie.
+ */
+function rampaTexto(r: Ramp): string {
+  const p = (v: number) => Math.round(v * 100) + '%';
+  return `${p(r.month1)} · ${p(r.month2)} · ${p(r.month3Plus)}`;
+}
+
 export default function OutlookPage() {
   const router = useRouter();
+  /*
+   * El panel abierto: la rampa global o el alta a mano -- etapa OL21. Los dos
+   * son del módulo, así que su estado vive en esta vista y no en un branch.
+   *
+   * ⚠ El hook va ANTES de los early returns. React exige el mismo orden de
+   * hooks en cada render, y abajo hay dos `return` que salen antes de la tabla.
+   */
+  const [panel, setPanel] = useState<'ramp' | 'new' | null>(null);
   /* Los datos vienen del contexto del layout: una sola carga para las dos
      vistas. Ver `lib/outlook/useOutlookData.tsx`. */
-  const { data, error } = useOutlookDataContext();
+  const { data, error, reload } = useOutlookDataContext();
 
   if (error) {
     return (
@@ -85,8 +110,19 @@ export default function OutlookPage() {
    * texto se reporta como bug, y quien lo reporta tiene razón en preguntar.
    * A quién pertenece ese presupuesto es una decisión de negocio pendiente.
    */
-  const projectsNothing = (code: string) =>
-    !data.branches.find((b) => b.branchCode === code)?.loanOfficers.some((l) => l.primaryBranch === code);
+  /*
+   * ⚠ AHORA SALE DEL LOADER Y NO DE `loanOfficers` — etapa OL21.
+   *
+   * Antes se preguntaba "¿alguien de la lista tiene este branch como primario?",
+   * que no es lo mismo: `loanOfficers` incluye a los `outsiders` de OL16 --gente
+   * cuyo branch de roster es otro y que cerró acá-- así que un branch con un
+   * cierre ajeno podía contestar que sí. Medido: el 741 tiene 2 cierres de
+   * Nathan Martinez, que en el roster no es del 741.
+   *
+   * `isInactive` le pregunta al ROSTER, que es quien decide. Y la regla es por
+   * dato: el 741 vuelve a activo solo el día que le asignen a alguien.
+   */
+  const isInactive = (code: string) => data.branches.find((b) => b.branchCode === code)?.isInactive ?? false;
 
   /*
    * ============================================================================
@@ -121,6 +157,63 @@ export default function OutlookPage() {
     branch: b,
     year: composeYear(monthsOfYear, currentMonth, b.actualByMonth, currentCell(b), projectBranch(b, remainingMonths)),
   }));
+
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * ⚠ DOS BLOQUES, Y LOS INACTIVOS AL FINAL — etapa OL21
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * Pedido de Isabella, y la razón es de lectura: un branch que produjo cuatro
+   * préstamos en enero y no tiene a nadie desde entonces, puesto entre los que
+   * operan, se lee como un branch que anda mal. Puesto aparte se lee como lo que
+   * es -- historia.
+   *
+   * ⚠ SIGUEN SUMANDO AL TOTAL DE LA DIVISIÓN. Separarlos es de presentación, no
+   * de cuenta: la fila `Total` recorre `rows`, que son los dos bloques juntos.
+   * Si algún día alguien filtra la lista, tiene que filtrar `rows` y no cada
+   * bloque, o el total deja de ser el de la división -- que es exactamente el
+   * defecto que esta etapa vino a arreglar.
+   *
+   * El orden DENTRO de cada bloque es el que ya traía el loader (por YTD), así
+   * que no se reordena nada: sólo se parte en dos.
+   */
+  /*
+   * ⚠ Y `Recruitment` NO ES NINGUNO DE LOS DOS, así que va en su propio bloque.
+   *
+   * Cumple la regla de `isInactive` --no tiene ni un productor en el roster-- y
+   * aun así llamarlo "Inactive" seria falso: nunca estuvo activo. Es el marcador
+   * de la gente en contratación que todavía no tiene branch asignado, así que su
+   * fila en cero no es un branch que dejó de producir, es una cola de espera.
+   *
+   * Meterlo en el bloque `Inactive` lo ponía al lado del 741 --que sí produjo y
+   * sí se quedó sin nadie-- y las dos filas se leían como lo mismo.
+   */
+  const esMarcador = (code: string) => code === RECRUITMENT_BRANCH;
+  const rowsActivos = rows.filter((r) => !r.branch.isInactive && !esMarcador(r.branch.branchCode));
+  const rowsInactivos = rows.filter((r) => r.branch.isInactive && !esMarcador(r.branch.branchCode));
+  const rowsMarcador = rows.filter((r) => esMarcador(r.branch.branchCode));
+
+  /**
+   * El contenido de una celda de mes.
+   *
+   * ⚠ SÓLO CAMBIA PARA LOS INACTIVOS, y sólo a `null`. Un branch activo sigue
+   * mostrando su cero: ahí un cero SÍ es información --estaba y no cerró-- y
+   * vaciarlo perdería la diferencia con un mes que todavía no llegó.
+   *
+   * ⚠ Y NO TOCA `totalByMonth`. El total suma `y.byMonth`, que es el número de
+   * verdad; esto es de presentación. Si el total se calculara sobre esto, vaciar
+   * una celda haría bajar el total de la división -- y el 741 dejaría de aportar
+   * sus 4 cierres, que es justo lo contrario de lo que la etapa vino a hacer.
+   */
+  const celda = (
+    b: OutlookData['branches'][number],
+    y: { byMonth: Record<string, number | null> },
+    m: string
+  ): number | null => {
+    const v = y.byMonth[m] ?? null;
+    if (!b.isInactive) return v;
+    return v === 0 ? null : v;
+  };
 
   /*
    * Los totales de la fila final son la suma de las filas, sin recalcular. El
@@ -206,7 +299,35 @@ export default function OutlookPage() {
             </tr>
           </thead>
           <tbody>
-            {rows.map(({ branch: b, year: y }) => (
+            {[
+              { titulo: null, nota: null, lista: rowsActivos },
+              {
+                titulo: 'Inactive',
+                nota: 'no active producer on the roster · counts in the division total · nothing to set here',
+                lista: rowsInactivos,
+              },
+              {
+                titulo: 'Not assigned yet',
+                nota: 'people in hiring with no branch decided · they project here until someone assigns them',
+                lista: rowsMarcador,
+              },
+            ].map(({ titulo, nota, lista }) => (
+              <Fragment key={titulo ?? 'active'}>
+                {/*
+                  El encabezado del bloque. No se dibuja si el bloque esta vacio:
+                  un "Inactive" solo, sin filas debajo, se lee como un error de
+                  la pantalla -- y el dia que a los cinco branches les asignen
+                  gente, el bloque tiene que desaparecer solo.
+                */}
+                {titulo !== null && lista.length > 0 && (
+                  <tr className="metric ol-blockhead">
+                    <td className="lbl" colSpan={monthsOfYear.length + 2}>
+                      {titulo}
+                      <span className="bp-muted ol-tag">{nota}</span>
+                    </td>
+                  </tr>
+                )}
+                {lista.map(({ branch: b, year: y }) => (
               <tr
                 key={b.branchCode}
                 className="metric bp-row-link"
@@ -255,7 +376,7 @@ export default function OutlookPage() {
                     }
                     title={
                       m === currentMonth
-                        ? projectsNothing(b.branchCode)
+                        ? isInactive(b.branchCode)
                           ? `No forecast: nobody has this branch on their roster, and the month's forecast is charged ` +
                             `to each person's roster branch. What is shown is what already closed this month ` +
                             `(${b.actualByMonth[currentMonth] ?? 0}) — a real floor, not a forecast.`
@@ -263,24 +384,45 @@ export default function OutlookPage() {
                             `pipeline with its rate. Closings are INSIDE this number, not next to it. Activity counts ` +
                             `${b.actualByMonth[currentMonth] ?? 0} closing(s) in this branch this month, attributed by ` +
                             `loan — the two criteria differ and both are legitimate.`
-                        : m > currentMonth && projectsNothing(b.branchCode)
+                        : m > currentMonth && isInactive(b.branchCode)
                           ? `${b.branchCode} does not project: no Loan Officer has this branch on their roster. Its ` +
                             `${b.ytd} closings this year are real; the projection is charged to each person's roster ` +
                             `branch. Who owns this budget is still to be decided.`
                           : undefined
                     }
                   >
-                    {fmt(y.byMonth[m] ?? null)}
+                    {/*
+                      ⚠ VACÍO Y NO CERO en un branch inactivo — etapa OL21.
+
+                      Un cero afirmaría que el branch estaba y no cerró nada. No
+                      estaba: no tiene a nadie asignado. Los meses en que SÍ
+                      produjo muestran su número, que es la parte que importa --
+                      el 741 muestra 2 en enero y 2 en febrero, y el resto vacío.
+
+                      Es la misma distinción que el módulo usa en todas partes:
+                      cero es una decisión, vacío es que no hay ninguna.
+                    */}
+                    {fmt(celda(b, y, m))}
                   </td>
                 ))}
                 <td className="bp-center totcol">
                   {/* La suma de lo MOSTRADO -- ver `sumOfShown`. */}
-                  {fmt(sumOfShown(monthsOfYear.map((m) => y.byMonth[m] ?? null)))}
-                  {b.ytd > 0 && projectsNothing(b.branchCode) && (
-                    <span className="bp-muted ol-tag">no LOs assigned</span>
+                  {fmt(sumOfShown(monthsOfYear.map((m) => celda(b, y, m))))}
+                  {/*
+                    ⚠ DECÍA "no LOs assigned" Y AHORA DICE "Inactive" — OL21.
+
+                    El texto viejo describía la CAUSA --nadie asignado-- y lo que
+                    hace falta leer de un tirón es el ESTADO. La causa sigue
+                    estando, en el tooltip de la celda y en el bloque en el que
+                    la fila vive.
+                  */}
+                  {isInactive(b.branchCode) && !esMarcador(b.branchCode) && (
+                    <span className="bp-muted ol-tag">Inactive</span>
                   )}
                 </td>
               </tr>
+                ))}
+              </Fragment>
             ))}
             <tr className="metric ol-total">
               <td className="lbl">Total</td>
@@ -294,6 +436,71 @@ export default function OutlookPage() {
           </tbody>
         </table>
       </div>
+
+      {/*
+        ══════════════════════════════════════════════════════════════════════
+        LAS HERRAMIENTAS DE RECLUTAMIENTO DEL MÓDULO — etapa OL21
+        ══════════════════════════════════════════════════════════════════════
+
+        La rampa y el alta a mano. Estaban dentro de la vista de un branch, y
+        sólo en los que ya tenían gente en proceso: en el 747 sí y en el 724 no.
+        Las dos son decisiones del MÓDULO --la rampa rige para los diecisiete
+        branches, y un alta todavía no tiene branch-- así que vivían en el lugar
+        que las hacía parecer de un branch y las escondía en los demás.
+
+        Acá se dibujan siempre, al lado de la tabla de la división, que es donde
+        una decisión de toda la división corresponde.
+
+        ⚠ SÓLO SI HAY DÓNDE GUARDAR. Igual que `monthlyModeAvailable` con el modo
+        mes a mes: sin las tres tablas de OL20 aplicadas, alguien llenaría el
+        formulario para descubrir al apretar Guardar que no hay tabla.
+      */}
+      {data.diagnostics.recruitTablesAvailable && (
+        <p className="ol-recbar">
+          <span className="ol-recbar__lbl">In hiring</span>
+          <span>
+            {data.diagnostics.recruitsRead} in the hiring process · ramp
+          </span>
+          <button type="button" className="ol-pill" onClick={() => setPanel('ramp')}>
+            {rampaTexto(data.recruitRamp)}
+          </button>
+          <button type="button" className="ol-pill ol-pill--empty" onClick={() => setPanel('new')}>
+            + Add someone
+          </button>
+          <span>the same ramp for everyone, in every branch</span>
+        </p>
+      )}
+
+      {panel === 'ramp' && (
+        <RecruitRampEditor
+          ramp={data.recruitRamp}
+          onClose={() => setPanel(null)}
+          onSaved={() => {
+            setPanel(null);
+            void reload();
+          }}
+        />
+      )}
+
+      {panel === 'new' && (
+        <RecruitEditor
+          recruit={null}
+          /*
+            ⚠ TODOS, Y `Recruitment` PRIMERO. Es el valor por defecto del
+            formulario, asi que tiene que estar entre las opciones -- excluirlo
+            era la mitad del bug del desplegable que OL21 arregla.
+          */
+          branches={branchOptions(data.branches.map((b) => b.branchCode))}
+          /* En un alta no hay a quien vincular todavia: la fila no existe. */
+          roster={[]}
+          currentMonth={currentMonth}
+          onClose={() => setPanel(null)}
+          onSaved={() => {
+            setPanel(null);
+            void reload();
+          }}
+        />
+      )}
 
       {/*
         ⚠ ACÁ HABÍA UN PÁRRAFO LARGO, Y SE FUE A PROPÓSITO — etapa OL6.
