@@ -310,6 +310,70 @@ table.piv.piv--combined td.totcol {
 .piv--exec td.group-start {
   border-left: 1px solid var(--slate-200);
 }
+
+/*
+ * --- Etapa NEXTMONTH-2b: TabNextMonth.tsx, mismo mecanismo de arriba ---
+ *
+ * 3 pares de columnas (Loans/Amount por población: Est Closing Next Month /
+ * Out of Scope / Combined), agrupados por un tinte de fondo compartido +
+ * `group-start` como divisor -- misma idea que `.col-pipeline`/
+ * `.col-forecast`, no una celda combinada "N ($monto)".
+ *
+ * Tabla propia (`.piv--nextmonth`), no `.piv--exec`: el min-width/centrado
+ * de esa clase está calibrado a mano para las tablas ejecutivas (ver el
+ * historial UX5/UX6/UX8/UX9 más arriba) y no aplica a esta tabla de 7
+ * columnas. Tampoco se centra el valor (a diferencia de `.piv--exec`, que
+ * centra porque sus columnas son badges/píldoras) -- acá son números
+ * crudos (count/$), mismo criterio de alineación a la derecha que ya usan
+ * Commercial Activity y la cascada para comparar magnitudes.
+ *
+ * 3 tintes: `col-nextmonth` reusa el mismo slate/sky neutro de
+ * `col-pipeline` (población base, sin urgencia). `col-outofscope` usa
+ * amber -- misma paleta de aviso/atención que ya usa el ícono de
+ * diagnóstico de TabAnalytics.tsx (`--amber-700`/`--amber-800`), consistente
+ * con lo que representa la población (se esperaba que cerrara este mes y no
+ * va a poder). `col-combined` usa emerald -- mismo verde de síntesis/
+ * resultado que ya usa `col-forecast` para el número final de la cascada.
+ */
+.piv--nextmonth thead .mo-row th.col-nextmonth {
+  background: rgba(248, 250, 252, 0.6); /* slate-50/60, igual que .col-pipeline */
+  color: var(--slate-700);
+}
+.piv--nextmonth thead .mo-row th.col-outofscope {
+  background: var(--amber-50);
+  color: var(--amber-800);
+  font-weight: 700;
+}
+.piv--nextmonth thead .mo-row th.col-combined {
+  background: var(--emerald-50);
+  color: var(--emerald-800);
+  font-weight: 700;
+}
+.piv--nextmonth thead .mo-row th.group-start {
+  border-left: 1px solid var(--slate-200);
+}
+
+.piv--nextmonth tbody td.col-nextmonth {
+  background: rgba(248, 250, 252, 0.75) !important;
+}
+.piv--nextmonth tbody tr.metric:hover td.col-nextmonth {
+  background: rgba(166, 222, 255, 0.2) !important;
+}
+.piv--nextmonth tbody td.col-outofscope {
+  background: var(--amber-50) !important;
+}
+.piv--nextmonth tbody tr.metric:hover td.col-outofscope {
+  background: var(--amber-100) !important;
+}
+.piv--nextmonth tbody td.col-combined {
+  background: var(--emerald-50) !important;
+}
+.piv--nextmonth tbody tr.metric:hover td.col-combined {
+  background: var(--emerald-200) !important;
+}
+.piv--nextmonth td.group-start {
+  border-left: 1px solid var(--slate-200);
+}
 .piv--exec .th-left {
   text-align: left;
 }

@@ -33,11 +33,6 @@ function loansLabel(n: number): string {
   return fmtInt(n) + (n === 1 ? ' Loan' : ' Loans');
 }
 
-/** "N ($monto)" -- formato de celda de la tabla por branch/strategy. */
-function fmtCell(ca: CountAmount): string {
-  return fmtInt(ca.count) + ' ($' + fmtAmount(ca.amount) + ')';
-}
-
 export default function TabNextMonth({ estClosingNextMonth, outOfScope, combined, byBranchRows, byStrategyRows }: TabNextMonthProps) {
   const [view, setView] = useState<'branch' | 'strategy'>('branch');
 
@@ -76,19 +71,35 @@ export default function TabNextMonth({ estClosingNextMonth, outOfScope, combined
           <span className="tbl-card__title">{view === 'branch' ? 'By Branch' : 'By Strategy'}</span>
         </div>
         <div className="tbl-scroll">
-          <table className="piv">
+          {/*
+            Etapa NEXTMONTH-2b: mismo criterio de PivotTable.tsx (.col-pipeline/
+            .col-forecast) -- un par de columnas (Loans/Amount) por población,
+            agrupadas por un tinte de fondo compartido + `group-start` como
+            divisor, en vez de una celda combinada "N ($monto)". Valores crudos
+            (count/$), no badges -- se conserva la alineación a la derecha de
+            `table.piv td.val` (mismo criterio que Commercial Activity/la
+            cascada), sin el centrado que sí tiene sentido en .piv--exec para
+            sus badges/píldoras.
+          */}
+          <table className="piv piv--nextmonth">
             <colgroup>
-              <col style={{ width: '25%' }} />
-              <col style={{ width: '25%' }} />
-              <col style={{ width: '25%' }} />
-              <col style={{ width: '25%' }} />
+              <col style={{ width: '16%' }} />
+              <col style={{ width: '14%' }} />
+              <col style={{ width: '14%' }} />
+              <col style={{ width: '14%' }} />
+              <col style={{ width: '14%' }} />
+              <col style={{ width: '14%' }} />
+              <col style={{ width: '14%' }} />
             </colgroup>
             <thead>
               <tr className="mo-row">
                 <th className="lbl">{view === 'branch' ? 'Branch' : 'Strategy'}</th>
-                <th>Est Closing Next Month</th>
-                <th>Out of Scope</th>
-                <th>Combined</th>
+                <th className="col-nextmonth group-start">Est Closing Next Month</th>
+                <th className="col-nextmonth">Amount</th>
+                <th className="col-outofscope group-start">Out of Scope</th>
+                <th className="col-outofscope">Amount</th>
+                <th className="col-combined group-start">Combined</th>
+                <th className="col-combined">Amount</th>
               </tr>
             </thead>
             <tbody>
@@ -98,9 +109,12 @@ export default function TabNextMonth({ estClosingNextMonth, outOfScope, combined
                       <td className="lbl" style={{ textAlign: 'left' }}>
                         {row.branch}
                       </td>
-                      <td className="val">{fmtCell(row.estClosingNextMonth)}</td>
-                      <td className="val">{fmtCell(row.outOfScope)}</td>
-                      <td className="val">{fmtCell(row.combined)}</td>
+                      <td className="val col-nextmonth group-start">{fmtInt(row.estClosingNextMonth.count)}</td>
+                      <td className="val col-nextmonth">${fmtAmount(row.estClosingNextMonth.amount)}</td>
+                      <td className="val col-outofscope group-start">{fmtInt(row.outOfScope.count)}</td>
+                      <td className="val col-outofscope">${fmtAmount(row.outOfScope.amount)}</td>
+                      <td className="val col-combined group-start">{fmtInt(row.combined.count)}</td>
+                      <td className="val col-combined">${fmtAmount(row.combined.amount)}</td>
                     </tr>
                   ))
                 : byStrategyRows.map((row) => (
@@ -108,21 +122,24 @@ export default function TabNextMonth({ estClosingNextMonth, outOfScope, combined
                       <td className="lbl" style={{ textAlign: 'left' }}>
                         {row.strategy}
                       </td>
-                      <td className="val">{fmtCell(row.estClosingNextMonth)}</td>
-                      <td className="val">{fmtCell(row.outOfScope)}</td>
-                      <td className="val">{fmtCell(row.combined)}</td>
+                      <td className="val col-nextmonth group-start">{fmtInt(row.estClosingNextMonth.count)}</td>
+                      <td className="val col-nextmonth">${fmtAmount(row.estClosingNextMonth.amount)}</td>
+                      <td className="val col-outofscope group-start">{fmtInt(row.outOfScope.count)}</td>
+                      <td className="val col-outofscope">${fmtAmount(row.outOfScope.amount)}</td>
+                      <td className="val col-combined group-start">{fmtInt(row.combined.count)}</td>
+                      <td className="val col-combined">${fmtAmount(row.combined.amount)}</td>
                     </tr>
                   ))}
               {view === 'branch' && !byBranchRows.length && (
                 <tr>
-                  <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={4}>
+                  <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={7}>
                     No data.
                   </td>
                 </tr>
               )}
               {view === 'strategy' && !byStrategyRows.length && (
                 <tr>
-                  <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={4}>
+                  <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={7}>
                     No data.
                   </td>
                 </tr>
