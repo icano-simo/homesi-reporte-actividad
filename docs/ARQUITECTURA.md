@@ -7832,3 +7832,148 @@ símbolos de la cascada; agrega el `title` al botón PDF),
 `app/api/pipeline/export/route.ts` (comentario documentando que queda
 vivo a propósito), `app/pipeline/pdf/PipelineSummaryPdf.tsx` (comentario
 actualizado, ya no menciona `handleExport()`/`exportRows`).
+
+## Pestañas de Analytics (Trends/Mix/Scorecards) reubicadas junto al selector de Period
+
+La barra de navegación sticky entre secciones (Trends/Mix/Scorecards) vivía
+como una tarjeta flotante aparte, separada del selector de Period y Branch.
+Se unificaron en una sola tarjeta sticky (`.control-bar`) de 2 filas: la
+primera con Period + Branch compartiendo fila (`.control-bar__row`, misma
+clase que ya usa `Topbar.tsx`), la segunda con `<AnalyticsSectionNav />`
+como segundo hijo directo de `.control-bar` -- ya no un hermano suelto
+después de su cierre.
+
+El tamaño de las pestañas se redujo después para igualar los controles de
+la fila de filtros (mismo padding/font-size que `.seg`/`.field`: `6px
+14px`, `12px`; el ícono de cada pestaña bajó de 19 a 14). Cada uno de los
+2 cambios movió `--control-bar-h` (la altura medida de la barra completa,
+129px tras la unificación) -- de esa variable dependen tanto el
+`scroll-margin-top` de cada sección (vía `calc()`, para que el título no
+quede tapado al hacer scroll hasta ahí) como el `rootMargin` del
+`IntersectionObserver` del scrollspy (hardcoded, no vía `calc()`) -- las
+dos tuvieron que actualizarse a mano en los 2 commits para no
+desincronizarse de la altura real.
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx`, `app/pipeline/styles/forecast-visual.css`.
+
+## Tarjeta "Top Strategy" del Hero KPI reemplazada por una dona de Strategy Mix con leyenda
+
+La 4ta tarjeta del Hero KPI de Analytics mostraba solo texto -- el nombre
+de la estrategia con más préstamos cerrados en el período y su porcentaje.
+Se reemplazó por `StrategyDonutChart`, el mismo componente que ya armaba
+la dona de la sección "Productivity & Concentration" (`buildStrategyMix`,
+sin ninguna agregación nueva) -- reuso directo, no una segunda
+implementación. La tarjeta se renombra de "Top Strategy" a "Strategy Mix"
+para reflejar lo que ahora muestra.
+
+`StrategyDonutChart` gana 2 props opcionales, `size`/`strokeWidth`
+(default 160/22, el mismo tamaño de siempre -- la instancia de
+Productivity & Concentration no los pasaba y quedaba sin cambios); la
+instancia nueva del Hero KPI los pasa en 110/16. El tamaño de fuente del
+texto central (total + "loans") pasa de un valor fijo a proporcional a
+`size`, para que se achique junto con la dona en vez de quedar
+desproporcionado a 110px. Un click sobre un segmento abre el mismo modal
+de drill-down que ya usan las demás métricas (`fundedInRange` filtrado
+por `classifyStrategy(l) === row.strategy`).
+
+La sección que seguía usando el tamaño default (Productivity &
+Concentration) se retira más abajo en este mismo documento -- desde ese
+punto, la instancia con default (160/22) queda sin consumidor real; el
+prop sigue con ese valor porque nada obliga a sacarlo, no porque tenga un
+uso pendiente.
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx`.
+
+## Podio de Scorecards: deja de quedarse en 0, medallas por posición, valor destacado en "Most Closings"
+
+El podio de Commercial Scorecards (top 3 por métrica) podía quedarse
+permanentemente en 0 si el primer render llegaba sin filas -- el
+`IntersectionObserver` que dispara la animación de conteo se creaba una
+sola vez, y si en ese momento `rows` estaba vacío, nunca se volvía a crear
+cuando los datos llegaban después. Se agregó el reintento:
+`ScorecardPodiumPanel` vuelve a conectar el observer cuando `rows` pasa de
+vacío a no-vacío.
+
+Aparte, las medallas de los 3 primeros puestos usaban el mismo navy para
+1er y 2do lugar -- ahora cada posición tiene su propio color
+(`amber-500`/`slate-400`/`amber-700`, oro/plata/bronce). `MetricPodiumCard`
+gana un `valueSuffix` opcional; las tarjetas de "Most Closings" lo usan
+para mostrar una etiqueta "closed" atenuada junto al conteo, para que no
+se confunda visualmente con el nombre del branch/loan officer.
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx` (el fix del observer vive en
+`ScorecardPodiumPanel`, las medallas en el markup del podio),
+`app/pipeline/styles/forecast-visual.css` (colores de medalla).
+
+## Pareto chart y sección "Productivity & Concentration" retirados
+
+Se retiró la sección completa "Productivity & Concentration": el
+`ParetoChart` y sus helpers (`PARETO_LABEL_MAX_CHARS`,
+`truncateParetoLabel`, `paretoTooltip`, `ParetoDataByCut`), el cálculo
+`paretoData` y el bloque de scorecard YTD-only que lo alimentaba, más la
+instancia standalone de Strategy Mix (redundante con la dona ya agregada
+al Hero KPI, ver la sección anterior). Se consideró que el podio de
+Scorecards ya cubre esa misma información. La 4ta pestaña del scrollspy
+("Concentration") y su import de `FunnelIcon` se eliminan junto con la
+sección; `lib/pipeline/paretoMix.ts` se borra completo -- sin ningún
+consumidor restante.
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx`, `lib/pipeline/paretoMix.ts` (borrado).
+
+## Split del podio "Business Developer Performance" en B2B y NPPM Realtor
+
+El podio "Business Developer Performance" mezclaba 2 poblaciones distintas
+bajo un mismo criterio: `opportunityOwnerTitle === 'Business Developer'`.
+Los 24 préstamos NPPM llevan ese mismo título -- `classifyStrategy()` ya
+documentaba (evalúa NPPM antes que B2B, a propósito) que esos préstamos NO
+son B2B, pero el scorecard los seguía contando como tales por comparar el
+título crudo en vez de reusar esa clasificación. `buildBusinessDeveloperScorecard()`
+pasa a filtrar por `classifyStrategy(loan) === 'B2B'` -- el número de
+Business Developer baja como consecuencia esperada de la corrección,
+documentada a propósito, no una regresión.
+
+El podio se separa en 2: Business Developer (con el filtro corregido) y
+uno nuevo, NPPM Realtor (`buildNppmRealtorScorecard()`,
+`classifyStrategy(loan) === 'NPPM'`, agrupado por `nppmRealtor`). A
+diferencia de Branch/Loan Officer/Business Developer, NPPM Realtor no pasa
+por `aliasIndex`/`excludedIndex`: el realtor es una persona externa a
+HomeSí, sin roster de empleados contra el cual resolverlo -- se agrupa por
+el nombre crudo tal cual viene, sin combinar variantes de grafía. Queda
+pendiente de validar con negocio si hace falta ese matching.
+
+### Archivos
+
+`lib/pipeline/scorecards.ts` (`buildBusinessDeveloperScorecard` corregido,
+`buildNppmRealtorScorecard` nuevo), `app/pipeline/TabAnalytics.tsx` (2do
+podio en pantalla, su propio drill-down `loansForNppmRealtor`).
+
+## Delta badge del Hero KPI: comparación visible, separada de la proyección de ritmo
+
+El badge de delta de las 3 tarjetas con comparación contra el período
+anterior (Total Closed Volume, Closed Loans, Average Ticket) solo
+mostraba contra qué período comparaba en un `title` -- invisible sin
+hover, y totalmente invisible en tablet (sin mouse). El texto ("vs
+{previousLabel}") pasa a ser visible siempre, en una línea propia debajo
+del badge, mismo patrón (`.kpi-hero__sub`) que ya usaba `PaceNote` para su
+propio texto.
+
+Con las 2 líneas visibles a la vez (delta y ritmo, en Total Closed
+Volume/Closed Loans, que son las únicas 2 tarjetas con `PaceNote`), se
+leían como la misma comparación cuando no lo son: el delta compara contra
+el período anterior CAPADO al mismo número de días transcurridos, mientras
+que `PaceNote` proyecta contra el período anterior COMPLETO. Se separan
+visualmente con `.kpi-hero__sub--pace` (línea divisoria + itálica) en la
+línea de `PaceNote`, sin tocar la clase base `.kpi-hero__sub` (que también
+usa Commercial Activity).
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx`, `app/pipeline/styles/forecast-visual.css`.
