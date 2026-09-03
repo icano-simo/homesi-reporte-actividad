@@ -11,7 +11,9 @@ import {
   projectBranch,
   type OutlookLoanOfficer,
   type BranchStrategy,
+  type BranchRecruit,
 } from '@/lib/outlook/loadData';
+import { STAGE_LABEL, type NotProjectingReason, type RecruitStage } from '@/lib/outlook/recruitment';
 import {
   cadenceLabel,
   projectPlan,
@@ -23,6 +25,7 @@ import { fmt, sumOfShown } from '@/lib/outlook/format';
 import { useOutlookDataContext } from '@/lib/outlook/useOutlookData';
 import StrategyEditor, { type OutlookEditable } from '@/app/outlook/components/StrategyEditor';
 import NppmEditor from '@/app/outlook/components/NppmEditor';
+import RecruitEditor from '@/app/outlook/components/RecruitEditor';
 
 /**
  * ============================================================================
@@ -147,6 +150,70 @@ function ruleLabel(lo: OutlookLoanOfficer, strategy: OutlookStrategy, months: st
  * La distinción entre por quién se ABRE y de quién es el PRESUPUESTO sigue
  * haciendo falta: son dos preguntas, y `opensBy` sólo responde la primera.
  */
+/**
+ * ============================================================================
+ * LOS TEXTOS DE UNA FILA PROYECTADA — etapa OL20
+ * ============================================================================
+ *
+ * ⚠ CADA CERO TIENE QUE DECIR POR QUÉ. Son cuatro razones distintas y desde la
+ * celda no se distinguen: la etapa del proceso, que ya se vinculó al roster,
+ * que nadie fijó su benchmark, o que su fecha venció sin vincular. Un cero sin
+ * razón en una fila proyectada es indistinguible de un bug.
+ *
+ * La píldora dice cuál en dos palabras; el título dice la frase entera. Mismo
+ * reparto que las reglas de crecimiento.
+ */
+const NOT_PROJECTING_PILL: Record<NotProjectingReason, string> = {
+  stage: 'not budgeted',
+  linked: 'in roster',
+  no_benchmark: 'no benchmark',
+  expired: 'past due',
+};
+
+const RECRUIT_TITLE: Record<RecruitStage, (r: BranchRecruit) => string> = {
+  in_hiring: (r) =>
+    `In the hiring pipeline${r.startDate ? `, starting ${r.startDate}` : ''}. Counts from ${r.producingFrom}` +
+    `${r.monthlyBenchmark === null ? ', once someone sets how much is expected of them.' : '.'}`,
+  in_offering: (r) =>
+    `An offer is out${r.closeDate ? `, recruitment closed ${r.closeDate}` : ''}. Counts from ${r.producingFrom}` +
+    `${r.monthlyBenchmark === null ? ', once someone sets how much is expected of them.' : '.'}`,
+  /*
+   * ⚠ EL `close_date` A LA VISTA, y es el dato que explica la fila. Un
+   * reclutamiento cerrado hace más de 30 días que sigue sin fecha de inicio no
+   * es pipeline, es un caso sin resolver: proyectarlo sería inventar producción
+   * de alguien que quizás nunca entró. La regla es por fecha y no por lista, así
+   * que entra y sale solo.
+   */
+  stale: (r) =>
+    `Recruitment closed ${r.closeDate ?? '(no date)'} and there is still no start date, so this is an unresolved case ` +
+    'rather than a pipeline one. Not budgeted until someone sets a start date.',
+  tentative: (r) =>
+    `Nobody closed this recruitment${r.closeDate ? ` — last close date ${r.closeDate}` : ''}. Shown because the ` +
+    'candidate exists, not budgeted because the hire does not.',
+};
+
+/**
+ * Qué dice un mes futuro. Con proyección explica la rampa; sin ella, cuál de las
+ * cuatro razones lo dejó en cero.
+ */
+function RECRUIT_MONTH_TITLE(r: BranchRecruit, month: string): string {
+  if (r.notProjecting) return RECRUIT_TITLE[r.stage](r);
+  if (month < r.producingFrom) return `Not counted yet: this one starts counting in ${r.producingFrom}.`;
+  const n = monthsApart(r.producingFrom, month);
+  const pct = n === 0 ? '25%' : n === 1 ? '50%' : '100%';
+  return (
+    `Month ${n + 1} since ${r.producingFrom}, so ${pct} of the ${r.monthlyBenchmark} expected a month — ` +
+    'a new hire ramps up rather than producing their full benchmark from day one.'
+  );
+}
+
+/** Cuántos meses hay entre dos 'YYYY-MM'. */
+function monthsApart(desde: string, hasta: string): number {
+  const [ya, ma] = desde.split('-').map(Number);
+  const [yb, mb] = hasta.split('-').map(Number);
+  return (yb - ya) * 12 + (mb - ma);
+}
+
 function esDelBranch(bs: BranchStrategy): boolean {
   return bs.opensBy === 'branch';
 }
@@ -341,6 +408,8 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
     { kind: 'employee'; employeeKey: number; strategy: OutlookStrategy } | { kind: 'branch'; strategy: OutlookStrategy } | null
   >(null);
   const [editingNppm, setEditingNppm] = useState<{ realtor: string; ytd: number } | null>(null);
+  /* La proyeccion de reclutamiento que se esta editando -- etapa OL20. */
+  const [editingRecruit, setEditingRecruit] = useState<BranchRecruit | null>(null);
 
   if (error) return <div className="hub-container"><div className="bp-empty">Could not load Outlook: {error}</div></div>;
   if (!data) return <div className="hub-container"><div className="bp-empty">Loading…</div></div>;
@@ -611,6 +680,14 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
     bs.benchmarkSchedule.length > 0 ||
     bs.targetRevision > 0 ||
     bs.realtors.length > 0 ||
+    /*
+     * ⚠ Y LOS RECLUTAS — etapa OL20. Sin esto, el 728 --que tiene un recluta y
+     * ni un cierre de Recruitment-- no mostraría la estrategia y su proyección
+     * no aparecería en ningún lado. Es el mismo criterio que el resto de la
+     * lista: una estrategia se muestra si tiene ALGO, y una persona en proceso
+     * de contratación es algo.
+     */
+    bs.recruits.length > 0 ||
     /*
      * Por persona: su presupuesto vive en la gente, no en el branch. Ver
      * `tienePresupuestoPropio`, que es donde quedó escrita la trampa de OL8.
@@ -1118,7 +1195,10 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                * chevron prometía algo que al abrirse no mostraba nada.
                */
               const personas = personasDe(bs);
-              const plegable = bs.opensBy === 'loanOfficer' ? personas.length > 0 : bs.opensBy !== 'branch';
+              const plegable =
+                bs.opensBy === 'loanOfficer'
+                  ? personas.length + bs.recruits.length > 0
+                  : bs.opensBy !== 'branch';
 
               const conBenchmark = personas.filter((lo) => (lo.strategyBenchmarks[s] ?? 0) > 0).length;
               /*
@@ -1396,6 +1476,114 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                       );
                       });
                     })()}
+
+
+                  {/*
+                    ══════════════════════════════════════════════════════════
+                    LA GENTE EN PROCESO DE CONTRATACIÓN — etapa OL20
+                    ══════════════════════════════════════════════════════════
+
+                    Van como hijas de Recruitment, al mismo nivel que las
+                    personas reales, y lo que las distingue NO es sólo la
+                    píldora:
+
+                      una persona real      tiene meses cerrados
+                      una proyectada        los tiene VACÍOS
+
+                    Esa es la diferencia que se lee sin explicación, y es la
+                    misma distinción entre vacío y cero que el módulo usa en
+                    todos lados. La píldora dice por qué.
+
+                    ⚠ Y CADA CERO LLEVA SU MOTIVO en el tooltip. Un cero sin
+                    razón en una fila proyectada es indistinguible de un bug:
+                    puede ser la etapa, el vínculo, el benchmark que nadie fijó
+                    o el vencimiento, y son cuatro cosas distintas.
+                  */}
+                  {abierta &&
+                    bs.recruits.map((r) => {
+                      const suma = monthsOfYear.reduce((a, m) => a + (r.byMonth[m] ?? 0), 0);
+                      return (
+                        <tr key={'s-' + s + '-rec-' + r.identity} className="metric mrow ol-rec">
+                          <td className="lbl" style={{ paddingLeft: '30px' }}>
+                            {r.personName}
+                            <span
+                              className={'bp-muted ol-tag ol-tag--rec ol-tag--' + r.stage}
+                              title={RECRUIT_TITLE[r.stage](r)}
+                            >
+                              {STAGE_LABEL[r.stage]}
+                            </span>
+                            {r.linkedEmployeeKey !== null && (
+                              <span
+                                className="bp-muted ol-tag"
+                                title={
+                                  r.linkedByNmls
+                                    ? 'Matched to a roster employee by NMLS, which is a national registry number and ' +
+                                      'therefore an exact match. From here on the roster projects them, so this row adds nothing.'
+                                    : 'Someone confirmed which roster employee this is. From here on the roster projects ' +
+                                      'them, so this row adds nothing.'
+                                }
+                              >
+                                {r.linkedByNmls ? 'in roster (NMLS)' : 'in roster'}
+                              </span>
+                            )}
+                            <BenchTag
+                              value={r.monthlyBenchmark}
+                              onEdit={() => setEditingRecruit(r)}
+                              editLabel={`Edit ${r.personName}'s projection`}
+                              editTitle={
+                                r.monthlyBenchmark === null
+                                  ? 'Nobody has set how much they are expected to produce, so this row adds nothing. ' +
+                                    'Empty, not zero: zero would claim no production is expected.'
+                                  : `Expected ${r.monthlyBenchmark} a month once ramped up, from ${r.producingFrom}.`
+                              }
+                            />
+                          </td>
+                          {monthsOfYear.map((m) => (
+                            <td
+                              key={m}
+                              className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}
+                              title={
+                                m > currentMonth
+                                  ? RECRUIT_MONTH_TITLE(r, m)
+                                  : /*
+                                     * Los meses ya cerrados y el actual van VACÍOS y
+                                     * no en cero: esta persona no estaba, así que no
+                                     * hay producción que informar. Un cero diría que
+                                     * estuvo y no cerró nada.
+                                     */
+                                    'Not on the roster this month, so there is nothing to report — empty, not zero.'
+                              }
+                            >
+                              {/*
+                                ⚠ VACÍO CUANDO NO PROYECTA, no cero. Un `0` en un
+                                mes futuro afirmaría que se espera que esa persona
+                                no cierre nada; la verdad es que nadie fijó su
+                                benchmark, o que su etapa no entra al presupuesto.
+                                Es la misma distinción de siempre y acá es la que
+                                hace legible la fila: la píldora dice por qué está
+                                vacía.
+
+                                Cuando SÍ proyecta, el cero se muestra: un mes
+                                anterior a `producing_from` es un cero decidido --
+                                todavía no cuenta-- y no una ausencia.
+                              */}
+                              {m > currentMonth && !r.notProjecting ? fmt(r.byMonth[m] ?? null) : ''}
+                            </td>
+                          ))}
+                          <td className="bp-center totcol">{fmt(suma === 0 ? null : suma)}</td>
+                          <td className="ol-rulecol">
+                            <button
+                              type="button"
+                              className={'ol-pill' + (r.notProjecting ? ' ol-pill--empty' : '')}
+                              onClick={() => setEditingRecruit(r)}
+                              title={RECRUIT_TITLE[r.stage](r)}
+                            >
+                              {r.notProjecting ? NOT_PROJECTING_PILL[r.notProjecting] : 'ramping up'}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
 
                   {/* ── Affinity: se abre por Account Executive ─────────────── */}
                   {abierta &&
@@ -1831,6 +2019,23 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
             />
           );
         })()}
+
+      {editingRecruit && (
+        <RecruitEditor
+          recruit={editingRecruit}
+          /*
+            Los branches REALES para el desplegable, sin el marcador
+            `Recruitment`: ofrecerlo como destino seria ofrecer "no se sabe" como
+            una respuesta.
+          */
+          branches={data.branches.map((b) => b.branchCode).filter((c) => c !== 'Recruitment').sort()}
+          onClose={() => setEditingRecruit(null)}
+          onSaved={() => {
+            setEditingRecruit(null);
+            reload();
+          }}
+        />
+      )}
 
       {editingNppm && (
         <NppmEditor

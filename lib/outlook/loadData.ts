@@ -529,6 +529,14 @@ export interface BranchRecruit {
   identity: string;
   personName: string;
   role: 'loan_officer' | 'nppm';
+  /**
+   * El branch VIGENTE, que puede ser el editado y no el de la fuente. Va en la
+   * fila --y no se deduce de en qué branch aparece-- porque el editor lo
+   * necesita para precargarlo.
+   */
+  branchCodeActual: string;
+  /** Su NMLS, si lo trae. Se conserva al guardar para no perder el único enlace exacto. */
+  nmls: string | null;
   stage: RecruitStage;
   /** Cuándo entra. `null` en los 13 de Salesforce, que no traen ninguna. */
   startDate: string | null;
@@ -1528,6 +1536,8 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       identity,
       personName: ed?.person_name ?? f.nombre,
       role: (ed?.role as 'loan_officer' | 'nppm') ?? 'loan_officer',
+      branchCodeActual: branchCode,
+      nmls: nmls || null,
       stage,
       startDate,
       closeDate: f.close_date,
@@ -1559,6 +1569,8 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       identity: ed.identity,
       personName: ed.person_name,
       role: ed.role as 'loan_officer' | 'nppm',
+      branchCodeActual: ed.branch_code,
+      nmls: ed.nmls,
       stage: 'in_hiring',
       startDate: ed.start_date,
       closeDate: null,
