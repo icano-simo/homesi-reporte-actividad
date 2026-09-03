@@ -339,6 +339,17 @@ table.piv.piv--combined td.totcol {
  * repetir la asociación "verde = todo bien" que sí tiene sentido en
  * Healthy Pipeline pero acá no aplica (Combined es una suma, no un
  * estado positivo).
+ *
+ * Etapa NEXTMONTH-6: los valores de gris/azul citados arriba (`--slate-100`/
+ * `--slate-200` para Out of Scope, `--accent-soft`/`--navy` para Combined)
+ * quedaron desactualizados por este ajuste -- revisado sobre captura real,
+ * los 3 tintes se leían demasiado parecidos entre sí. Valores reales desde
+ * esta etapa: Out of Scope pasa a `--slate-200`/`--slate-300` (un escalón
+ * más oscuro que antes, mismo criterio "gris neutro, no semáforo" de
+ * NEXTMONTH-5, sin cambiar QUÉ representa el color, solo cuánto se nota).
+ * Combined pasa a `rgba(166, 222, 255, 0.35)`/`rgba(166, 222, 255, 0.5)` --
+ * el mismo azul "Light Sky" de siempre, ahora visible en reposo y no solo
+ * en :hover.
  */
 .piv--nextmonth thead .mo-row th.col-nextmonth {
   background: rgba(248, 250, 252, 0.6); /* slate-50/60, igual que .col-pipeline */
