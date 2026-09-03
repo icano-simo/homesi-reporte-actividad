@@ -7977,3 +7977,55 @@ usa Commercial Activity).
 ### Archivos
 
 `app/pipeline/TabAnalytics.tsx`, `app/pipeline/styles/forecast-visual.css`.
+
+## KPIs de "Total Closed Volume" / "Closed Loans" / "Average Ticket" ahora abren drill-down
+
+Las 3 tarjetas del Hero KPI de Analytics ahora abren el mismo tipo de
+drill-down (`LoanDetailModal`) que ya usan las filas de scorecard/ranking
+de esta pestaña -- mismo mecanismo (`setDrillDown`), sin sumar nada
+nuevo. Las 3 apuntan al MISMO conjunto de préstamos (`fundedInRange`)
+porque Volume/Count/Avg Ticket son 3 lecturas del mismo grupo, no 3
+poblaciones distintas -- a diferencia de Strategy Mix (la 4ta tarjeta),
+que sigue con su propio drill-down por segmento de estrategia y no se
+tocó.
+
+Affordance visual: clase nueva `.mcard--clickable` (solo `cursor:
+pointer`) -- mismo criterio minimalista que ya usa `.metric--drill` en
+las filas de tabla; el hover de fondo/sombra de las tarjetas ya era
+global, no hizo falta tocarlo.
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx` (3 props nuevas en `HeroKpiCards`:
+`onVolumeClick`/`onCountClick`/`onAvgTicketClick`, wiring en la
+invocación), `app/pipeline/styles/forecast-visual.css`
+(`.mcard--clickable`).
+
+## Filtro de Channel (Banked - Retail / Brokered) en Analytics -- mismo punto único que Branch
+
+Se agregó la posibilidad de filtrar toda la pestaña Analytics por canal,
+igual que ya se podía por Branch. Se agregó sobre el MISMO punto único
+de filtrado que ya alimenta las 4 capas de la pestaña (Hero KPI, Monthly
+Trends, Product Mix, Scorecards/Pareto) -- la variable que antes se
+llamaba `branchFilteredLoans` se renombró a `filteredLoans` porque ya
+filtra por 2 criterios, no solo por branch; el nombre viejo habría
+quedado mintiendo sobre lo que hace. Los 2 filtros (Branch y Channel)
+son un AND, no un OR.
+
+A diferencia de Branch (opciones dinámicas desde
+`pipeline_forecast.branches` -- puede aparecer una sucursal nueva),
+Channel usa las 2 opciones fijas del negocio (`'Banked - Retail' |
+'Brokered'`, mismo union type de `ResolvedLoan['channel']`) -- mismo
+texto ya usado en el selector de Channel de `AdverseTable.tsx`, sin
+inventar copy nuevo.
+
+Verificado contra el export real de Salesforce: By channel para agosto
+2026 (Banked 39/$13,831,841, Brokered 6/$1,751,400) y YTD 2026 (Banked
+315/$110,350,560, Brokered 42/$13,527,839) -- ambos coinciden con lo que
+muestra la app.
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx` (único archivo tocado -- estado
+`selectedChannel`, rename de `branchFilteredLoans` a `filteredLoans`,
+`<select>` de Channel en `.control-bar__row`).

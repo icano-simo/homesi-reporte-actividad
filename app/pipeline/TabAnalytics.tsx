@@ -1989,6 +1989,9 @@ function HeroKpiCards({
   topStrategy,
   strategyMix,
   onStrategySegmentClick,
+  onVolumeClick,
+  onCountClick,
+  onAvgTicketClick,
 }: {
   currentVolume: number;
   currentCount: number;
@@ -2007,6 +2010,9 @@ function HeroKpiCards({
   /** Etapa HERO-STRATEGY-DONUT: mismo array que ya arma `buildStrategyMix` para la instancia de Productivity & Concentration -- ninguna agregación nueva. */
   strategyMix: StrategyMixRow[];
   onStrategySegmentClick?: (row: StrategyMixRow) => void;
+  onVolumeClick?: () => void;
+  onCountClick?: () => void;
+  onAvgTicketClick?: () => void;
 }) {
   const previousHasData = previousCount > 0;
   const volumeDelta = computeDelta(currentVolume, previousVolume, previousHasData);
@@ -2028,7 +2034,12 @@ function HeroKpiCards({
         variante `--sky`) -- mismo patrón que esa tarjeta de referencia, que
         tampoco recolorea el número sobre el fondo sky.
       */}
-      <div className="mcard mcard--sky mcard--accent-left">
+      <div
+        className={'mcard mcard--sky mcard--accent-left' + (onVolumeClick ? ' mcard--clickable' : '')}
+        onClick={onVolumeClick}
+        role={onVolumeClick ? 'button' : undefined}
+        tabIndex={onVolumeClick ? 0 : undefined}
+      >
         <div className="m-name">Total Closed Volume</div>
         <div className="kpi-hero__value kpi-hero__value--lg">${fmtAmount(currentVolume)}</div>
         <div style={{ marginTop: '8px' }}>
@@ -2042,7 +2053,12 @@ function HeroKpiCards({
         />
       </div>
 
-      <div className="mcard">
+      <div
+        className={'mcard' + (onCountClick ? ' mcard--clickable' : '')}
+        onClick={onCountClick}
+        role={onCountClick ? 'button' : undefined}
+        tabIndex={onCountClick ? 0 : undefined}
+      >
         <div className="m-name">Closed Loans</div>
         <div className="kpi-hero__value kpi-hero__value--lg">{fmtInt(currentCount)}</div>
         <div style={{ marginTop: '8px' }}>
@@ -2066,7 +2082,12 @@ function HeroKpiCards({
         />
       </div>
 
-      <div className="mcard">
+      <div
+        className={'mcard' + (onAvgTicketClick ? ' mcard--clickable' : '')}
+        onClick={onAvgTicketClick}
+        role={onAvgTicketClick ? 'button' : undefined}
+        tabIndex={onAvgTicketClick ? 0 : undefined}
+      >
         <div className="m-name">Average Ticket</div>
         <div className="kpi-hero__value kpi-hero__value--lg">${fmtAmount(currentAvgTicket)}</div>
         <div style={{ marginTop: '8px' }}>
@@ -2116,16 +2137,29 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
    * aparte" -- esta es esa etapa), y el alcance de esta tarea es
    * TabAnalytics.tsx, no esa página wrapper.
    *
-   * `branchFilteredLoans` es el ÚNICO punto de filtrado: todo lo que antes
-   * leía `resolvedLoans` directo (fundedInRange, previousFunded,
+   * `filteredLoans` es el ÚNICO punto de filtrado: todo lo que antes leía
+   * `resolvedLoans` directo (fundedInRange, previousFunded,
    * previousFullFunded, ytdFunded, earliestDate, monthlyTotals,
    * monthlyTypeBreakdown) pasa a leer esto -- así el filtro alcanza a las 4
    * capas completas (Hero KPI, Monthly Trends, Product Mix, Scorecards/
    * Pareto) por construcción, sin tener que acordarse de aplicarlo en cada
    * cálculo por separado.
+   *
+   * Etapa ANALYTICS-CHANNEL-1: se suma un segundo filtro, de Channel
+   * ('ALL' o un canal), sobre el mismo punto único -- por eso la variable
+   * se renombra: el nombre anterior solo decía "filtrado por branch", y
+   * ya no es honesto sobre lo que realmente hace. Los 2 filtros son un AND
+   * (se encadenan como 2 `.filter()` sucesivos, cada uno sobre el
+   * resultado del anterior), no un OR -- un préstamo tiene que cumplir el
+   * branch elegido Y el channel elegido para entrar, mismo criterio que ya
+   * usa el filtro combinado de Branch+Strategy+Channel del Excel de
+   * Forecast (ver EXCEL-6 en docs/ARQUITECTURA.md).
    */
   const [selectedBranch, setSelectedBranch] = useState<string>('ALL');
-  const branchFilteredLoans = selectedBranch === 'ALL' ? resolvedLoans : resolvedLoans.filter((l) => l.branch === selectedBranch);
+  const [selectedChannel, setSelectedChannel] = useState<'ALL' | ResolvedLoan['channel']>('ALL');
+  const filteredLoans = resolvedLoans
+    .filter((l) => selectedBranch === 'ALL' || l.branch === selectedBranch)
+    .filter((l) => selectedChannel === 'ALL' || l.channel === selectedChannel);
 
   /**
    * Etapa FIX (selector de Branch limitado a los branches que estudia
@@ -2239,7 +2273,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
   }, []);
 
   const range = periodDateRange(period);
-  const earliestDate = earliestFundedDisbursementDate(branchFilteredLoans);
+  const earliestDate = earliestFundedDisbursementDate(filteredLoans);
   /*
    * "Nunca un total incompleto disfrazado de total completo": si el período
    * pedido empieza antes de la disbursementDate más antigua que existe en el
@@ -2249,7 +2283,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
    */
   const exceedsHistory = earliestDate !== null && range.startDate < earliestDate;
 
-  const fundedInRange = fundedLoansInRange(branchFilteredLoans, range);
+  const fundedInRange = fundedLoansInRange(filteredLoans, range);
   const programRanking = buildLoanProgramRanking(fundedInRange);
   const typeRanking = buildLoanTypeRanking(fundedInRange);
   const propertyStateRanking = buildPropertyStateRanking(fundedInRange);
@@ -2342,8 +2376,8 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
     fullRange: previousFullRange,
     fullLabel: previousFullLabel,
   } = previousPeriodComparison(period, progress);
-  const previousFunded = fundedLoansInRange(branchFilteredLoans, previousRange);
-  const previousFullFunded = fundedLoansInRange(branchFilteredLoans, previousFullRange);
+  const previousFunded = fundedLoansInRange(filteredLoans, previousRange);
+  const previousFullFunded = fundedLoansInRange(filteredLoans, previousFullRange);
   const currentVolume = fundedInRange.reduce((sum, l) => sum + l.amount, 0);
   const currentCount = fundedInRange.length;
   const currentAvgTicket = currentCount > 0 ? currentVolume / currentCount : 0;
@@ -2368,8 +2402,8 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
   /*
    * Etapa F7, Parte 3: las tendencias son SIEMPRE del año en curso (UTC),
    * independiente del año que tenga seleccionado el período de arriba --
-   * `branchFilteredLoans` acá es el array completo YA filtrado por branch
-   * (sin filtrar por `fundedLoansInRange`, que solo cubre el período
+   * `filteredLoans` acá es el array completo YA filtrado por branch y
+   * channel (sin filtrar por `fundedLoansInRange`, que solo cubre el período
    * elegido) porque la serie necesita los 12 meses del año, no solo el
    * período seleccionado. Etapa AJUSTES-ANALYTICS-1, punto 5: antes decía
    * `resolvedLoans` acá -- sin este cambio, Monthly Trends habría quedado
@@ -2377,8 +2411,8 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
    * respetaba.
    */
   const trendsYear = currentYear();
-  const monthlyTotals = buildMonthlyTotals(branchFilteredLoans, trendsYear);
-  const monthlyTypeBreakdown = buildMonthlyTypeBreakdown(branchFilteredLoans, trendsYear);
+  const monthlyTotals = buildMonthlyTotals(filteredLoans, trendsYear);
+  const monthlyTypeBreakdown = buildMonthlyTypeBreakdown(filteredLoans, trendsYear);
   const highlightMonths = new Set(periodMonths(period).filter((m) => m.startsWith(String(trendsYear) + '-')));
   const trendsTotalCount = monthlyTotals.reduce((sum, t) => sum + t.count, 0);
 
@@ -2439,6 +2473,24 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
               ))}
             </select>
           </div>
+          {/*
+            Etapa ANALYTICS-CHANNEL-1: mismo texto de opciones que ya usa el
+            selector de Channel de AdverseTable.tsx -- no es copy nuevo, y no
+            se agrega ningún mecanismo dinámico de opciones (son 2 valores
+            fijos, a diferencia de `availableBranches`).
+          */}
+          <div className="control-group">
+            <span className="label-chip">Channel</span>
+            <select
+              className="field"
+              value={selectedChannel}
+              onChange={(e) => setSelectedChannel(e.target.value as 'ALL' | ResolvedLoan['channel'])}
+            >
+              <option value="ALL">All channels</option>
+              <option value="Banked - Retail">Banked - Retail</option>
+              <option value="Brokered">Brokered</option>
+            </select>
+          </div>
         </div>
 
         {/*
@@ -2492,6 +2544,30 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
             hiddenColumns: ['milestone', 'status'],
           })
         }
+        onVolumeClick={() =>
+          setDrillDown({
+            metric: 'Total Closed Volume',
+            context: periodLabel(period),
+            loans: fundedInRange.map(closedLoanToModalLoan),
+            hiddenColumns: ['milestone', 'status'],
+          })
+        }
+        onCountClick={() =>
+          setDrillDown({
+            metric: 'Closed Loans',
+            context: periodLabel(period),
+            loans: fundedInRange.map(closedLoanToModalLoan),
+            hiddenColumns: ['milestone', 'status'],
+          })
+        }
+        onAvgTicketClick={() =>
+          setDrillDown({
+            metric: 'Average Ticket',
+            context: periodLabel(period),
+            loans: fundedInRange.map(closedLoanToModalLoan),
+            hiddenColumns: ['milestone', 'status'],
+          })
+        }
       />
 
       {/*
@@ -2531,7 +2607,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
                   setDrillDown({
                     metric: 'Closings by Month',
                     context: month,
-                    loans: loansForMonth(branchFilteredLoans, month).map(closedLoanToModalLoan),
+                    loans: loansForMonth(filteredLoans, month).map(closedLoanToModalLoan),
                     hiddenColumns: ['milestone', 'status'],
                   })
                 }
@@ -2554,7 +2630,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
                   setDrillDown({
                     metric: 'Amount Closed by Month',
                     context: month,
-                    loans: loansForMonth(branchFilteredLoans, month).map(closedLoanToModalLoan),
+                    loans: loansForMonth(filteredLoans, month).map(closedLoanToModalLoan),
                     hiddenColumns: ['milestone', 'status'],
                   })
                 }
@@ -2582,7 +2658,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
                 setDrillDown({
                   metric: 'Avg Ticket by Month',
                   context: month,
-                  loans: loansForMonth(branchFilteredLoans, month).map(closedLoanToModalLoan),
+                  loans: loansForMonth(filteredLoans, month).map(closedLoanToModalLoan),
                   hiddenColumns: ['milestone', 'status'],
                 })
               }
@@ -2713,7 +2789,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
               setDrillDown({
                 metric: 'Loan Type Distribution by Month',
                 context: `${typeLabel} — ${month}`,
-                loans: loansForMonthAndType(branchFilteredLoans, month, typeLabel).map(closedLoanToModalLoan),
+                loans: loansForMonthAndType(filteredLoans, month, typeLabel).map(closedLoanToModalLoan),
                 hiddenColumns: ['loanType', 'milestone', 'status'],
               })
             }
