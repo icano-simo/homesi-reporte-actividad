@@ -581,3 +581,42 @@ table.piv.ol-year thead .yr-row th.ol-band {
   min-width: 96px;
   white-space: nowrap;
 }
+
+/*
+ * ============================================================================
+ * LAS FILAS DE GENTE EN CONTRATACIÓN — etapa OL20
+ * ============================================================================
+ *
+ * `.ol-rec` existía en el JSX sin una sola regla que la definiera, igual que
+ * los `ol-tag--<stage>` que se fueron. Se le da contenido en vez de borrarla
+ * porque la fila SÍ es distinta de las de al lado y conviene que se vea: son
+ * personas que todavía no están, y sus meses cerrados están vacíos.
+ *
+ * Un filete a la izquierda del nombre y nada más. Ni fondo ni color de texto:
+ * la tabla ya usa el fondo para las tres bandas de meses --real, pronóstico,
+ * presupuesto-- y pintar la fila competiría con eso.
+ */
+.ol-page table.piv.ol-year tr.ol-rec td.lbl {
+  box-shadow: inset 3px 0 0 var(--slate-200);
+}
+
+/*
+ * La barra de la estrategia Recruitment: la rampa y el alta a mano.
+ *
+ * ⚠ VA DEBAJO DE LA TABLA Y NO EN UNA FILA. Meter dos botones en una fila de la
+ * tabla los pondría dentro de la grilla de doce meses, donde cualquier cosa que
+ * no sea un número se lee como un dato del mes.
+ */
+.ol-page .ol-recbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+  font-size: var(--ol-text);
+  color: var(--slate-500);
+}
+.ol-page .ol-recbar__lbl {
+  font-weight: 600;
+  color: var(--slate-700);
+}

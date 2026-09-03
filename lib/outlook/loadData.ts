@@ -2,6 +2,16 @@
 
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { buildAliasIndex, buildExcludedIndex } from '@/lib/business-plan/aliasIndex';
+import {
+  DEFAULT_RAMP,
+  classifyRecruit,
+  defaultProducingFrom,
+  notProjectingReason,
+  projectRecruit,
+  type NotProjectingReason,
+  type Ramp,
+  type RecruitStage,
+} from '@/lib/outlook/recruitment';
 import { classifyBranch } from '@/lib/domain/classifyBranch';
 import { classifyStrategy } from '@/lib/pipeline/strategy';
 import { apportionByWeight } from '@/lib/pipeline/aggregate';
@@ -456,6 +466,103 @@ export interface BranchOwner {
   isPerson: boolean;
 }
 
+/** Una fila de `activity_report.future_loan_officer`, tal como llega. */
+interface FutureLoRow {
+  nombre: string;
+  origen: string;
+  confianza: string;
+  branch_code: string | null;
+  cargo: string | null;
+  fecha_inicio: string | null;
+  close_date: string | null;
+  nmls_number: string | null;
+  es_nppm: boolean;
+  id_fuente: string | null;
+}
+
+/** Una fila de `outlook.recruitment_projection`. La vigente es la de `revision` más alta. */
+interface RecruitProjectionRow {
+  identity: string;
+  revision: number;
+  source: string;
+  person_name: string;
+  role: string;
+  branch_code: string;
+  start_date: string | null;
+  producing_from: string;
+  monthly_benchmark: number | string | null;
+  nmls: string | null;
+}
+
+interface RecruitRampRow {
+  revision: number;
+  month_1_pct: number | string;
+  month_2_pct: number | string;
+  month_3_plus_pct: number | string;
+}
+
+/** Una fila de `outlook.recruitment_link`. La vigente es la más reciente por `identity`. */
+interface RecruitLinkRow {
+  identity: string;
+  employee_key: number | null;
+  created_at: string;
+}
+
+/**
+ * ============================================================================
+ * UNA PERSONA EN PROCESO DE CONTRATACIÓN — etapa OL20
+ * ============================================================================
+ *
+ * No está en el roster todavía. Sale de `activity_report.future_loan_officer`
+ * --filtrada por `producira`, NO por `confianza`: de los 6 con
+ * `confianza = 'confirmado'` hay 4 que no producen-- y de las tres tablas de
+ * `outlook` que guardan lo que se editó encima.
+ *
+ * ⚠ NO ES UN `OutlookLoanOfficer` Y NO DEBE SERLO. Un Loan Officer del roster
+ * tiene `employee_key`, producción real por mes y cinco estrategias; esto tiene
+ * un nombre, una fecha y una expectativa. Forzarlos al mismo tipo haría que
+ * cualquier código que recorra `loanOfficers` empezara a sumar proyecciones sin
+ * saberlo -- que es exactamente el doble conteo que la etapa evita.
+ */
+export interface BranchRecruit {
+  /** La clave estable: `future:<id_fuente>` o `manual:<uuid>`. Nunca el nombre. */
+  identity: string;
+  personName: string;
+  role: 'loan_officer' | 'nppm';
+  /**
+   * El branch VIGENTE, que puede ser el editado y no el de la fuente. Va en la
+   * fila --y no se deduce de en qué branch aparece-- porque el editor lo
+   * necesita para precargarlo.
+   */
+  branchCodeActual: string;
+  /** Su NMLS, si lo trae. Se conserva al guardar para no perder el único enlace exacto. */
+  nmls: string | null;
+  stage: RecruitStage;
+  /** Cuándo entra. `null` en los 13 de Salesforce, que no traen ninguna. */
+  startDate: string | null;
+  /** Cuándo se cerró el reclutamiento. Se muestra en las etapas que no proyectan. */
+  closeDate: string | null;
+  /** Desde qué mes cuenta, 'YYYY-MM'. */
+  producingFrom: string;
+  /**
+   * Su producción mensual esperada. `null` = nadie la fijó.
+   *
+   * ⚠ VACÍO Y CERO NO SON LO MISMO. Cero afirmaría que no se espera producción;
+   * vacío dice que nadie lo decidió. Hoy es `null` en los 15: medido,
+   * `outlook.strategy_benchmark` tiene dos filas en toda la tabla y las dos son
+   * de B2B, así que no hay ni un benchmark de Recruitment del cual precargar.
+   */
+  monthlyBenchmark: number | null;
+  /** El `employee_key` al que se vinculó, si alguien lo confirmó. */
+  linkedEmployeeKey: number | null;
+  /** `nmls` cuando calzó automáticamente contra `org.dim_employee`. */
+  linkedByNmls: boolean;
+  /** Lo que aporta al presupuesto, mes por mes. Todo cero si no proyecta. */
+  byMonth: Record<string, number>;
+  /** Por qué no suma, cuando no suma. `null` = sí suma. */
+  notProjecting: NotProjectingReason | null;
+}
+
 export interface BranchStrategy {
   strategy: OutlookStrategy;
   ytd: number;
@@ -470,6 +577,16 @@ export interface BranchStrategy {
    * Affinity--. Vacío en las otras tres.
    */
   owners: BranchOwner[];
+  /**
+   * ⚠ LA GENTE EN PROCESO DE CONTRATACIÓN — etapa OL20.
+   *
+   * Sólo en Recruitment, y en TODOS los branches: la decisión del negocio es que
+   * cualquiera que venga del proceso de reclutamiento se proyecta bajo esa
+   * estrategia sin importar a qué branch se lo asigne. No en Own Production.
+   *
+   * Vacío en las otras cuatro estrategias.
+   */
+  recruits: BranchRecruit[];
   /**
    * ⚠ LA DECISIÓN DEL BRANCH, para las estrategias que son suyas — etapa OL11.
    *
@@ -573,6 +690,16 @@ export interface OutlookData {
   branches: OutlookBranch[];
   /** El mes desde el que rige cualquier benchmark editado hoy. */
   effectiveFrom: string;
+  /**
+   * ⚠ LA RAMPA DE ARRANQUE, QUE ES UNA Y ES DE TODOS — etapa OL20.
+   *
+   * 25% el primer mes, 50% el segundo, 100% desde el tercero, editable. Va acá
+   * y no en cada `BranchRecruit` porque es UNA decisión global: la revisión
+   * vigente de `outlook.recruitment_ramp` rige para los 15, así que si viviera
+   * repetida en cada fila un editor podría cambiarla en un branch y dejar los
+   * otros catorce con la vieja sin que nada lo dijera.
+   */
+  recruitRamp: Ramp;
   /** Las filas crudas de las tres tablas, para historial y edición — OL2. */
   history: {
     strategyBenchmarks: StrategyBenchmarkRow[];
@@ -610,6 +737,25 @@ export interface OutlookData {
      * descubrir al apretar Guardar que no hay dónde ponerlos.
      */
     monthlyModeAvailable: boolean;
+    /**
+     * ¿Están las tres tablas de OL20? — `outlook.recruitment_projection`,
+     * `recruitment_ramp` y `recruitment_link`.
+     *
+     * ⚠ Mismo uso que `monthlyModeAvailable`: NO ofrecer los editores cuando no
+     * hay dónde guardar. Sin esto, alguien fija el benchmark de quince personas
+     * y lo descubre al apretar Guardar.
+     */
+    recruitTablesAvailable: boolean;
+    /** Gente en contratación leída de la fuente. Hoy 15. */
+    recruitsRead: number;
+    /**
+     * Proyecciones vencidas y sin vincular — ver el aviso de la pantalla.
+     *
+     * Su mes de producción ya llegó y nadie dijo con quién del roster se
+     * corresponden, así que dejaron de sumar. Debería tender a 0: cada una es
+     * alguien de quien el presupuesto se olvidó.
+     */
+    recruitsExpiredUnlinked: number;
   };
 }
 
@@ -768,6 +914,58 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
     ]);
   })();
 
+  /*
+   * ==========================================================================
+   * ⚠ LA GENTE EN PROCESO DE CONTRATACIÓN — etapa OL20
+   * ==========================================================================
+   *
+   * `activity_report.future_loan_officer` y no las otras dos tablas de
+   * reclutamiento: trae las reglas ya aplicadas.
+   *
+   * ⚠ EL FILTRO ES `producira`, NO `confianza`. Medido: de los 6 con
+   * `confianza = 'confirmado'` hay 4 que NO producen, así que el filtro que uno
+   * escribiría primero da al revés.
+   *
+   * ⚠ Y LOS `es_nppm` NO ENTRAN COMO PERSONAS con presupuesto propio: van al
+   * desglose de NPPM del branch, que se abre por realtor. Hoy son 3 y los tres
+   * tienen `producira = false`, así que ya quedan fuera del filtro -- se deja
+   * explícito para que el día que uno tenga `producira = true` no se cuele como
+   * Loan Officer.
+   *
+   * Las tres tablas de `outlook` van en un `try` propio: el SQL lo aplica el
+   * revisor, y hasta entonces la etapa funciona con los valores por defecto.
+   */
+  const recruitPromise = (async () => {
+    const fuente = await supabase
+      .from('future_loan_officer')
+      .select('nombre, origen, confianza, branch_code, cargo, fecha_inicio, close_date, nmls_number, es_nppm, id_fuente')
+      .eq('producira', true)
+      .eq('es_nppm', false);
+    let editado: {
+      proyecciones: RecruitProjectionRow[];
+      rampas: RecruitRampRow[];
+      vinculos: RecruitLinkRow[];
+    } | null = null;
+    try {
+      const ol = supabase.schema('outlook');
+      const [pr, ra, li] = await Promise.all([
+        ol.from('recruitment_projection').select('*'),
+        ol.from('recruitment_ramp').select('*'),
+        ol.from('recruitment_link').select('*'),
+      ]);
+      if (!pr.error && !ra.error && !li.error) {
+        editado = {
+          proyecciones: (pr.data ?? []) as RecruitProjectionRow[],
+          rampas: (ra.data ?? []) as RecruitRampRow[],
+          vinculos: (li.data ?? []) as RecruitLinkRow[],
+        };
+      }
+    } catch {
+      /* Las tablas todavía no existen. Se sigue con los valores por defecto. */
+    }
+    return { fuente, editado };
+  })();
+
   const orgPromise = Promise.all([
     supabase.schema('org').from('employee_alias').select('*'),
     supabase.schema('org').from('source_name_excluded').select('source_system, name_raw'),
@@ -784,14 +982,16 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
      * no está en la lista del Business Plan. El roster no siempre la tiene: las
      * personas que cerraron y no figuran en el roster no tienen `display_name`.
      */
-    supabase.schema('org').from('dim_employee').select('employee_key, full_name, is_branch_manager'),
+    /* `nmls` desde OL20: el único identificador que une el roster con la gente en proceso. */
+    supabase.schema('org').from('dim_employee').select('employee_key, full_name, is_branch_manager, nmls'),
   ]);
 
-  const [bp, rows, outlookTables, orgTables] = await Promise.all([
+  const [bp, rows, outlookTables, orgTables, recruitTables] = await Promise.all([
     loadBusinessPlanData(reference) as Promise<BusinessPlanData>,
     activityPromise,
     outlookPromise,
     orgPromise,
+    recruitPromise,
   ]);
 
   const currentMonth = bp.diagnostics.pipelineMonths.current;
@@ -1289,6 +1489,162 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
    * la columna 'Benchmark' y las columnas de meses hablan del mismo número. En
    * diciembre no queda ninguno por proyectar y se cae al mes en curso.
    */
+  /*
+   * ==========================================================================
+   * LOS RECLUTAS, POR BRANCH — etapa OL20
+   * ==========================================================================
+   *
+   * La fuente da el estado del proceso; las tres tablas de `outlook` dan lo que
+   * se editó encima: branch, fechas y benchmark. La vigente es la revisión más
+   * alta por `identity`.
+   *
+   * ⚠ LA CLAVE ES `identity`, NUNCA EL NOMBRE. Hay dos `Jose Flores` distintos
+   * en los 15 registros de hoy --uno de `hr_pipeline` en el 728 y otro de
+   * Salesforce, `tentative`-- así que cualquier cosa que agrupe por nombre los
+   * une siendo distintos o los separa siendo el mismo, y desde acá no hay forma
+   * de saber cuál de las dos cosas es.
+   */
+  const hoyISO = new Date().toISOString().slice(0, 10);
+  const rampa: Ramp = (() => {
+    const filas = recruitTables.editado?.rampas ?? [];
+    if (filas.length === 0) return DEFAULT_RAMP;
+    const v = filas.reduce((a, b) => (b.revision > a.revision ? b : a));
+    return { month1: Number(v.month_1_pct), month2: Number(v.month_2_pct), month3Plus: Number(v.month_3_plus_pct) };
+  })();
+
+  /* La proyección vigente de cada persona, por revisión. */
+  const editadaPor = new Map<string, RecruitProjectionRow>();
+  for (const r of recruitTables.editado?.proyecciones ?? []) {
+    const ya = editadaPor.get(r.identity);
+    if (!ya || r.revision > ya.revision) editadaPor.set(r.identity, r);
+  }
+  /* El vínculo vigente: el más reciente, y `null` significa desvinculado. */
+  const vinculoPor = new Map<string, number | null>();
+  for (const l of (recruitTables.editado?.vinculos ?? []).slice().sort((a, b) => a.created_at.localeCompare(b.created_at))) {
+    vinculoPor.set(l.identity, l.employee_key);
+  }
+  /*
+   * ⚠ EL NMLS ES EL ÚNICO IDENTIFICADOR QUE UNE LAS DOS FUENTES SIN ADIVINAR.
+   * Es un registro nacional único por licenciado, así que un match ES identidad
+   * y no una heurística. Cubre 6 de los 15 --y 44 de los 127 empleados-- pero
+   * los que cubre son exactos, que es lo que importa.
+   */
+  const empleadoPorNmls = new Map<string, number>();
+  const empleadosCrudos = (orgTables[3].error ? [] : (orgTables[3].data ?? [])) as {
+    employee_key: number;
+    nmls?: string | null;
+  }[];
+  for (const e of empleadosCrudos) {
+    const n = (e.nmls ?? '').trim();
+    if (n) empleadoPorNmls.set(n, e.employee_key);
+  }
+
+  const recruitsPorBranch = new Map<string, BranchRecruit[]>();
+  for (const f of (recruitTables.fuente.data ?? []) as FutureLoRow[]) {
+    const identity = 'future:' + (f.id_fuente ?? f.nombre);
+    const ed = editadaPor.get(identity);
+    const startDate = ed?.start_date ?? f.fecha_inicio ?? null;
+    const stage = classifyRecruit(
+      { origen: f.origen, confianza: f.confianza, closeDate: f.close_date, startDate },
+      hoyISO
+    );
+    const branchCode = ed?.branch_code ?? f.branch_code ?? 'Recruitment';
+    const producingFrom = ed?.producing_from ?? defaultProducingFrom(startDate, currentMonth);
+    const benchmark =
+      ed && ed.monthly_benchmark !== null && ed.monthly_benchmark !== undefined ? Number(ed.monthly_benchmark) : null;
+    const nmls = (ed?.nmls ?? f.nmls_number ?? '').trim();
+    const porNmls = nmls ? (empleadoPorNmls.get(nmls) ?? null) : null;
+    /* El vínculo explícito manda sobre el automático: alguien lo confirmó a mano. */
+    const linked = vinculoPor.has(identity) ? vinculoPor.get(identity)! : porNmls;
+    const input = { producingFrom, monthlyBenchmark: benchmark, stage, linked: linked !== null, ramp: rampa };
+    const valores = projectRecruit(remainingMonths, input, currentMonth);
+    const byMonth: Record<string, number> = {};
+    remainingMonths.forEach((m, i) => (byMonth[m] = valores[i]));
+    const lista = recruitsPorBranch.get(branchCode) ?? [];
+    lista.push({
+      identity,
+      personName: ed?.person_name ?? f.nombre,
+      role: (ed?.role as 'loan_officer' | 'nppm') ?? 'loan_officer',
+      branchCodeActual: branchCode,
+      nmls: nmls || null,
+      stage,
+      startDate,
+      closeDate: f.close_date,
+      producingFrom,
+      monthlyBenchmark: benchmark,
+      linkedEmployeeKey: linked,
+      linkedByNmls: linked !== null && !vinculoPor.has(identity),
+      byMonth,
+      notProjecting: notProjectingReason(input, currentMonth),
+    });
+    recruitsPorBranch.set(branchCode, lista);
+  }
+  /* Las creadas a mano no tienen fila en la fuente: salen sólo de `outlook`. */
+  for (const ed of editadaPor.values()) {
+    if (ed.source !== 'manual') continue;
+    const producingFrom = ed.producing_from;
+    const benchmark = ed.monthly_benchmark === null ? null : Number(ed.monthly_benchmark);
+    const linked = vinculoPor.get(ed.identity) ?? null;
+    /*
+     * ⚠ UNA CREADA A MANO SIEMPRE ES `in_hiring`. No viene de ningún proceso que
+     * se pueda clasificar: alguien la escribió porque sabe que esa persona entra.
+     */
+    const input = { producingFrom, monthlyBenchmark: benchmark, stage: 'in_hiring' as const, linked: linked !== null, ramp: rampa };
+    const valores = projectRecruit(remainingMonths, input, currentMonth);
+    const byMonth: Record<string, number> = {};
+    remainingMonths.forEach((m, i) => (byMonth[m] = valores[i]));
+    const lista = recruitsPorBranch.get(ed.branch_code) ?? [];
+    lista.push({
+      identity: ed.identity,
+      personName: ed.person_name,
+      role: ed.role as 'loan_officer' | 'nppm',
+      branchCodeActual: ed.branch_code,
+      nmls: ed.nmls,
+      stage: 'in_hiring',
+      startDate: ed.start_date,
+      closeDate: null,
+      producingFrom,
+      monthlyBenchmark: benchmark,
+      linkedEmployeeKey: linked,
+      linkedByNmls: false,
+      byMonth,
+      notProjecting: notProjectingReason(input, currentMonth),
+    });
+    recruitsPorBranch.set(ed.branch_code, lista);
+  }
+  for (const lista of recruitsPorBranch.values()) {
+    lista.sort((a, b) => a.personName.localeCompare(b.personName));
+  }
+  /*
+   * Los quince en una sola lista, para contarlos sin recorrer los branches.
+   *
+   * ⚠ NO ES UNA SEGUNDA FUENTE DE VERDAD: es la misma referencia de objeto que
+   * está en `recruitsPorBranch`, aplanada. Copiar las filas dejaría dos listas
+   * que se pueden desincronizar, y el conteo del pie diría una cosa mientras la
+   * tabla muestra otra.
+   */
+  const todosLosReclutas = [...recruitsPorBranch.values()].flat();
+
+  /*
+   * ==========================================================================
+   * ⚠ UN BRANCH QUE SÓLO TIENE RECLUTAS TAMBIÉN EXISTE — etapa OL20
+   * ==========================================================================
+   *
+   * Es la misma siembra que salvó a AFFINITY en OL8, por el mismo motivo: el
+   * mapa se siembra con los branches, no se deriva de las filas de personas.
+   * Sin esto, `Recruitment` --que es un marcador y no un branch real, con 5
+   * personas hoy-- no aparecería en ningún lado y sus proyecciones se
+   * perderían sin que nada lo dijera.
+   *
+   * ⚠ `Recruitment` COMO BRANCH ES UN MARCADOR DE "TODAVÍA NO SE SABE", no un
+   * lugar. Va junto a los reales porque su gente proyecta como la de cualquier
+   * otro; el `branch_code` de cada persona es editable, así que moverla a su
+   * branch real no espera a que la fuente lo traiga.
+   */
+  for (const code of recruitsPorBranch.keys()) {
+    if (!branchMap.has(code)) branchMap.set(code, []);
+  }
+
   const displayMonth = remainingMonths[0] ?? currentMonth;
 
   for (const lo of bp.loanOfficers) {
@@ -1718,6 +2074,12 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
         targets: targetsByKey.get(bk) ?? {},
         targetRevision: targetRevisionByKey.get(bk) ?? 0,
         /*
+         * ⚠ SÓLO RECRUITMENT LLEVA RECLUTAS — etapa OL20. Decisión del negocio:
+         * cualquiera que venga del proceso de contratación se proyecta bajo esta
+         * estrategia sin importar a qué branch se lo asigne.
+         */
+        recruits: strategy === 'Recruitment' ? (recruitsPorBranch.get(branchCode) ?? []) : [],
+        /*
          * ⚠ RECRUITMENT SE ABRE POR PERSONA — cambio de OL12.
          *
          * Estaba como estrategia del branch, con las otras dos. Pero en el 710
@@ -1798,6 +2160,7 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
     actualMonths: monthsOfYear.filter((m) => m < currentMonth),
     branches,
     effectiveFrom: addMonths(currentMonth, 1) + '-01',
+    recruitRamp: rampa,
     history,
     diagnostics: {
       activityRowsRead: rows.length,
@@ -1829,6 +2192,11 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       ),
       activeProducers: rosterRows.filter((r) => r.is_producer && r.is_active).length,
       monthlyModeAvailable,
+      recruitTablesAvailable: recruitTables.editado !== null,
+      recruitsRead: todosLosReclutas.length,
+      recruitsExpiredUnlinked: todosLosReclutas.filter(
+        (r) => r.notProjecting === 'expired' && r.linkedEmployeeKey === null
+      ).length,
     },
   };
 }
@@ -1977,6 +2345,29 @@ export function projectBranch(branch: OutlookBranch, months: string[]): Record<s
         targets: o.targets,
       });
       steps.forEach((st) => (byMonth[st.month] += st.value));
+    }
+  }
+
+  /*
+   * ==========================================================================
+   * ⚠ Y LOS RECLUTAS — etapa OL20. CUARTA fuente de presupuesto.
+   * ==========================================================================
+   *
+   * La advertencia de la fila de reconciliación, por cuarta vez y con el mismo
+   * procedimiento: se suma ACÁ antes de mirar la pantalla, porque el residuo no
+   * lo va a avisar. Las dos primeras --el presupuesto de branch en OL11 y NPPM
+   * en OL12-- se descubrieron después de que la fila las tapara; ésta y la de
+   * los dueños en OL15 se sumaron antes.
+   *
+   * ⚠ `byMonth` YA VIENE EN CERO cuando la proyección no cuenta: etapa que no
+   * proyecta, ya vinculada al roster, sin benchmark, o vencida sin vincular. Por
+   * eso este bucle no repite ninguna de las cuatro condiciones -- si las
+   * repitiera, serían dos definiciones de "cuánto aporta" y algún día
+   * diferirían. La decisión vive en `projectRecruit` y acá sólo se suma.
+   */
+  for (const bs of branch.byStrategy) {
+    for (const r of bs.recruits) {
+      for (const m of months) byMonth[m] += r.byMonth[m] ?? 0;
     }
   }
 
