@@ -1,6 +1,7 @@
 import type { ResolvedLoan } from './types';
 import type { AliasIndex } from '../business-plan/aliasIndex';
 import type { SourceSystem } from '../business-plan/types';
+import { classifyStrategy } from './strategy';
 
 /**
  * ============================================================================
@@ -220,19 +221,26 @@ export function buildLoanOfficerScorecard(
 }
 
 /**
- * Business Developer: comparación exacta de `opportunityOwnerTitle`, mismo
- * criterio (sin trim ni normalización) que ya usa `lib/pipeline/strategy.ts`
- * para clasificar B2B -- no se reinterpreta esa regla acá, solo se reusa el
- * mismo filtro para armar el scorecard.
+ * Business Developer: población = `classifyStrategy(loan) === 'B2B'`, NO
+ * el filtro de título crudo que tenía antes.
  *
- * Etapa F7.20: agrupa por `opportunityOwner` (columna "Opportunity Owner"
- * del export), no por `loanOfficer` -- confirmado con captura real que son
- * personas distintas en la misma fila; `loanOfficer` procesa el préstamo,
- * `opportunityOwner` es quien realmente originó/lleva la relación B2B. La
- * resolución sigue exactamente igual (`aliasIndex.lookup('salesforce', ...)`,
- * `excludedIndex.has(...)`) -- mismo mecanismo, distinto nombre crudo de
- * entrada. Un valor como "sf integrations" se excluye por el mismo
- * `excludedIndex` ya usado para Loan Officer, no por un chequeo nuevo acá.
+ * FIX-BD-B2B-POPULATION -- el filtro viejo (`opportunityOwnerTitle ===
+ * 'Business Developer'`) mezclaba 2 poblaciones distintas: `strategy.ts`
+ * documenta explícito (ver el comentario largo de `classifyStrategy`) que
+ * los 24 préstamos NPPM tienen TODOS ese mismo título -- así que este
+ * scorecard los contaba como B2B, cuando la fuente de verdad del negocio
+ * para "qué es B2B" ya existe y dice lo contrario (NPPM se evalúa ANTES
+ * que B2B, a propósito). `classifyStrategy` también saca cualquier
+ * préstamo de una branch de Recruitment que diga ese título (misma regla,
+ * ver `RECRUITMENT_BRANCHES` en strategy.ts). El resultado real BAJA
+ * respecto de antes -- es la corrección, no un efecto colateral.
+ *
+ * Etapa F7.20: sigue agrupando por `opportunityOwner` (columna
+ * "Opportunity Owner" del export), no por `loanOfficer` -- confirmado con
+ * captura real que son personas distintas en la misma fila. La resolución
+ * sigue exactamente igual (`aliasIndex.lookup('salesforce', ...)`,
+ * `excludedIndex.has(...)`) -- mismo mecanismo, solo cambió el filtro de
+ * población de entrada.
  */
 export function buildBusinessDeveloperScorecard(
   loans: ResolvedLoan[],
@@ -240,6 +248,38 @@ export function buildBusinessDeveloperScorecard(
   excludedIndex: { has(source: SourceSystem, nameRaw: string | null | undefined): boolean },
   employeeNameByKey: Map<number, string>
 ): PersonScorecardResult {
-  const bdLoans = loans.filter((loan) => loan.opportunityOwnerTitle === 'Business Developer');
+  const bdLoans = loans.filter((loan) => classifyStrategy(loan) === 'B2B');
   return buildPersonScorecard(bdLoans, (loan) => loan.opportunityOwner, 'salesforce', aliasIndex, excludedIndex, employeeNameByKey, 'Unknown Business Developer');
+}
+
+/**
+ * NPPM Realtor -- población = `classifyStrategy(loan) === 'NPPM'`, agrupado
+ * por `loan.nppmRealtor` (el realtor externo que trajo el préstamo).
+ *
+ * ⚠ PENDIENTE DE VALIDAR CON EL NEGOCIO -- a diferencia de Branch/Loan
+ * Officer/Business Developer, este scorecard NO pasa por `aliasIndex`/
+ * `excludedIndex`: el Realtor de NPPM es una persona EXTERNA a HomeSí, no
+ * un empleado -- no está (ni tendría por qué estar) en `org.employee_alias`.
+ * Se agrupa por el nombre crudo (`.trim()`) directo, mismo patrón simple
+ * que `buildBranchScorecard` (sin resolución de identidad) -- dos grafías
+ * distintas del mismo realtor NO se combinan acá. Si el negocio confirma
+ * que hace falta ese matching (ej. un realtor que aparece con 2 variantes
+ * de nombre en Salesforce), este supuesto cambia.
+ */
+export function buildNppmRealtorScorecard(loans: ResolvedLoan[]): { rows: ScorecardRow[]; totalInput: number; blankCount: number } {
+  const nppmLoans = loans.filter((loan) => classifyStrategy(loan) === 'NPPM');
+  const byKey = new Map<string, { label: string; count: number; amount: number }>();
+  let blankCount = 0;
+
+  for (const loan of nppmLoans) {
+    const nameRaw = loan.nppmRealtor.trim();
+    const key = nameRaw || UNKNOWN_PERSON_KEY;
+    if (!nameRaw) blankCount += 1;
+    const cur = byKey.get(key) ?? { label: nameRaw || 'Unknown NPPM Realtor', count: 0, amount: 0 };
+    cur.count += 1;
+    cur.amount += loan.amount;
+    byKey.set(key, cur);
+  }
+
+  return { rows: toRows(byKey, nppmLoans.length), totalInput: nppmLoans.length, blankCount };
 }

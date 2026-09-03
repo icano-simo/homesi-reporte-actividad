@@ -16,6 +16,7 @@ import {
   buildBranchScorecard,
   buildBusinessDeveloperScorecard,
   buildLoanOfficerScorecard,
+  buildNppmRealtorScorecard,
   UNKNOWN_PERSON_KEY,
   type PersonScorecardResult,
   type ScorecardRow,
@@ -1298,8 +1299,23 @@ function loansForScorecardCut(
   if (cut === 'loanOfficer') {
     return loans.filter((l) => loanResolvesToEmployeeKey(l, (loan) => loan.loanOfficer, aliasIndex, key));
   }
+  // FIX-BD-B2B-POPULATION: mismo fix de correctness que buildBusinessDeveloperScorecard
+  // (lib/pipeline/scorecards.ts) -- classifyStrategy() como fuente de verdad de
+  // la población B2B, no el título crudo (que mezclaba los 24 NPPM). Sin este
+  // cambio el drill-down mostraría loans que el scorecard de arriba ya no cuenta.
+  return loans.filter((l) => classifyStrategy(l) === 'B2B' && loanResolvesToEmployeeKey(l, (loan) => loan.opportunityOwner, aliasIndex, key));
+}
+
+/**
+ * Drill-down de NPPM Realtor -- mismo criterio de `classifyStrategy(l) ===
+ * 'NPPM'` que `buildNppmRealtorScorecard`, pero SIN `loanResolvesToEmployeeKey`
+ * (ese scorecard no pasa por `aliasIndex`, ver el `⚠` de esa función): acá
+ * `key` es el nombre crudo de `nppmRealtor` tal cual, o `UNKNOWN_PERSON_KEY`
+ * para la fila sintética de vacíos.
+ */
+function loansForNppmRealtor(loans: ResolvedLoan[], key: string): ResolvedLoan[] {
   return loans.filter(
-    (l) => l.opportunityOwnerTitle === 'Business Developer' && loanResolvesToEmployeeKey(l, (loan) => loan.opportunityOwner, aliasIndex, key)
+    (l) => classifyStrategy(l) === 'NPPM' && (key === UNKNOWN_PERSON_KEY ? !l.nppmRealtor.trim() : l.nppmRealtor.trim() === key)
   );
 }
 
@@ -2257,6 +2273,19 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
     businessDeveloperScorecard.diagnostics.blankCount === businessDeveloperScorecard.diagnostics.totalInput;
 
   /**
+   * Etapa FIX-BD-B2B-POPULATION, punto 2 -- Business Developer y NPPM
+   * Realtor eran UN solo podio ("Business Developer Performance") que
+   * mezclaba las 2 poblaciones (mismo bug que el filtro de título
+   * corregido arriba). Se separan en 2 scorecards -- `buildNppmRealtorScorecard`
+   * no toma `aliasIndex`/`excludedIndex` (ver el `⚠` de esa función en
+   * scorecards.ts): el Realtor es externo, no hay roster de empleados
+   * contra el cual resolverlo.
+   */
+  const nppmRealtorScorecard = buildNppmRealtorScorecard(fundedInRange);
+  /** Mismo criterio que `bdOwnerDataMissing` -- distingue "snapshot sin `nppm_realtor`" de "0 NPPM este período". */
+  const nppmDataMissing = nppmRealtorScorecard.totalInput > 0 && nppmRealtorScorecard.blankCount === nppmRealtorScorecard.totalInput;
+
+  /**
    * Etapa F7, Parte 10: mezcla de estrategia comercial -- NO depende de
    * `org` (classifyStrategy solo lee campos crudos de `fundedInRange`), a
    * diferencia de Branch/Loan Officer/Business Developer de arriba. Por
@@ -2707,7 +2736,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
       <DiagnosticsNote
         count={1}
         summary="Branch, Loan Officer, and Business Developer are matched against the company roster, so name variants are combined."
-        detail="Name variants -- different spellings or nicknames across systems -- are matched through the company roster, not simple text comparison, so the same person is never split into two rows."
+        detail="Name variants -- different spellings or nicknames across systems -- are matched through the company roster, not simple text comparison, so the same person is never split into two rows. NPPM Realtor is the exception: realtors are external, not part of the company roster, so that scorecard groups by the raw name recorded on the loan, with no variant matching -- two spellings of the same realtor's name appear as two separate rows."
       />
 
       {orgRoster.loading && <p className="foot-note">Loading org roster…</p>}
@@ -2806,6 +2835,53 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
                   diagnostic={personDiagnosticsNote(businessDeveloperScorecard)}
                 />
                 <ScorecardPodiumPanel rows={businessDeveloperScorecard.rows} />
+              </>
+            )}
+          </div>
+
+          {/*
+            Etapa FIX-BD-B2B-POPULATION, punto 2 -- NPPM Realtor separado de
+            Business Developer (antes un solo podio mezclaba las 2
+            poblaciones, mismo bug que el filtro de título ya corregido
+            arriba). Misma estructura EXACTA que el bloque de Business
+            Developer -- diagnostic inline (NO personDiagnosticsNote, esa
+            función lee `.diagnostics.*` de PersonScorecardResult, y
+            buildNppmRealtorScorecard no pasa por aliasIndex/excludedIndex,
+            así que no tiene esa forma -- mismo criterio simple que
+            branchScorecard.diagnostic más arriba).
+          */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2.1fr) minmax(0, 1fr)', gap: '20px', marginBottom: '24px' }}>
+            {nppmDataMissing ? (
+              <div className="tbl-card" style={{ padding: '16px' }}>
+                <div className="tbl-card__head">
+                  <span className="tbl-card__title">NPPM Realtor</span>
+                </div>
+                <p className="foot-note" style={{ margin: 0 }}>
+                  No NPPM Realtor data in this snapshot — re-upload required to populate this view.
+                </p>
+              </div>
+            ) : (
+              <>
+                <ScorecardTable
+                  title="NPPM Realtor"
+                  columnLabel="NPPM Realtor"
+                  rows={nppmRealtorScorecard.rows}
+                  totalCount={nppmRealtorScorecard.totalInput}
+                  onRowClick={(row) =>
+                    setDrillDown({
+                      metric: 'NPPM Realtor',
+                      context: row.label,
+                      loans: loansForNppmRealtor(fundedInRange, row.key).map(closedLoanToModalLoan),
+                      hiddenColumns: ['loanOfficer', 'milestone', 'status'],
+                    })
+                  }
+                  diagnostic={{
+                    count: nppmRealtorScorecard.blankCount,
+                    summary: `${fmtInt(nppmRealtorScorecard.blankCount)} loan${nppmRealtorScorecard.blankCount === 1 ? '' : 's'} with no NPPM Realtor recorded`,
+                    detail: 'These loans are still counted in the total below, grouped under "Unknown NPPM Realtor" instead of being dropped silently.',
+                  }}
+                />
+                <ScorecardPodiumPanel rows={nppmRealtorScorecard.rows} />
               </>
             )}
           </div>
