@@ -345,12 +345,12 @@ table.piv.piv--combined td.totcol {
   color: var(--slate-700);
 }
 .piv--nextmonth thead .mo-row th.col-outofscope {
-  background: var(--slate-100);
+  background: var(--slate-200);
   color: var(--slate-700);
   font-weight: 700;
 }
 .piv--nextmonth thead .mo-row th.col-combined {
-  background: var(--accent-soft);
+  background: rgba(166, 222, 255, 0.35);
   color: var(--navy);
   font-weight: 700;
 }
@@ -365,16 +365,16 @@ table.piv.piv--combined td.totcol {
   background: rgba(166, 222, 255, 0.2) !important;
 }
 .piv--nextmonth tbody td.col-outofscope {
-  background: var(--slate-100) !important;
-}
-.piv--nextmonth tbody tr.metric:hover td.col-outofscope {
   background: var(--slate-200) !important;
 }
+.piv--nextmonth tbody tr.metric:hover td.col-outofscope {
+  background: var(--slate-300) !important;
+}
 .piv--nextmonth tbody td.col-combined {
-  background: var(--accent-soft) !important;
+  background: rgba(166, 222, 255, 0.35) !important;
 }
 .piv--nextmonth tbody tr.metric:hover td.col-combined {
-  background: rgba(166, 222, 255, 0.35) !important; /* 'Light Sky', mismo tono que el hover de col-nextmonth, más saturado */
+  background: rgba(166, 222, 255, 0.5) !important; /* 'Light Sky', mismo tono que el hover de col-nextmonth, más saturado */
 }
 .piv--nextmonth td.group-start {
   border-left: 1px solid var(--slate-200);
