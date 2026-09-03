@@ -83,6 +83,47 @@ function CountCell({ cell, onClick }: { cell: NextMonthCell; onClick: () => void
   );
 }
 
+/** Suma una población (count/amount) sobre todas las filas -- sin recalcular nada de lib/pipeline/nextMonth.ts, es una suma directa sobre los NextMonthCell ya recibidos por prop. */
+function sumPopulation<T>(rows: T[], pick: (row: T) => NextMonthCell): CountAmount {
+  return rows.reduce(
+    (acc, row) => {
+      const cell = pick(row);
+      return { count: acc.count + cell.count, amount: acc.amount + cell.amount };
+    },
+    { count: 0, amount: 0 }
+  );
+}
+
+/**
+ * Etapa NEXTMONTH-4: mismo patrón que ExecTotalRow de PivotTable.tsx --
+ * `tr.grp.total`, `td.lbl`, celdas de valor con las MISMAS clases de tinte
+ * que las filas de arriba (col-nextmonth/col-outofscope/col-combined +
+ * group-start en la primera de cada par) para que el tinte se vea continuo
+ * hasta el total. Sin CountCell/onClick -- mismo criterio que ExecTotalRow,
+ * el total no es clickeable, es una suma, no una lista de préstamos propia.
+ */
+function TotalRow({
+  estClosingNextMonth,
+  outOfScope,
+  combined,
+}: {
+  estClosingNextMonth: CountAmount;
+  outOfScope: CountAmount;
+  combined: CountAmount;
+}) {
+  return (
+    <tr className="grp total">
+      <td className="lbl">Total</td>
+      <td className="val col-nextmonth group-start">{fmtInt(estClosingNextMonth.count)}</td>
+      <td className="val col-nextmonth">${fmtAmount(estClosingNextMonth.amount)}</td>
+      <td className="val col-outofscope group-start">{fmtInt(outOfScope.count)}</td>
+      <td className="val col-outofscope">${fmtAmount(outOfScope.amount)}</td>
+      <td className="val col-combined group-start">{fmtInt(combined.count)}</td>
+      <td className="val col-combined">${fmtAmount(combined.amount)}</td>
+    </tr>
+  );
+}
+
 export default function TabNextMonth({ estClosingNextMonth, outOfScope, combined, byBranchRows, byStrategyRows }: TabNextMonthProps) {
   const [view, setView] = useState<'branch' | 'strategy'>('branch');
   const [modal, setModal] = useState<ModalState | null>(null);
@@ -94,6 +135,42 @@ export default function TabNextMonth({ estClosingNextMonth, outOfScope, combined
 
   function openCell(context: string, metric: string, loans: PipelineLoan[]) {
     setModal({ context, metric, loans: loans.map(openLoanToModalLoan) });
+  }
+
+  const byBranchTotals = {
+    estClosingNextMonth: sumPopulation(byBranchRows, (r) => r.estClosingNextMonth),
+    outOfScope: sumPopulation(byBranchRows, (r) => r.outOfScope),
+    combined: sumPopulation(byBranchRows, (r) => r.combined),
+  };
+  const byStrategyTotals = {
+    estClosingNextMonth: sumPopulation(byStrategyRows, (r) => r.estClosingNextMonth),
+    outOfScope: sumPopulation(byStrategyRows, (r) => r.outOfScope),
+    combined: sumPopulation(byStrategyRows, (r) => r.combined),
+  };
+
+  /**
+   * Etapa NEXTMONTH-4: verificación de desarrollo, mismo estilo que el
+   * `console.warn` de CTC+Closing en page.tsx -- el total de cada columna
+   * (suma de byBranchRows/byStrategyRows) tiene que coincidir EXACTO con
+   * summarizeCountAmount() de esa población (la misma fuente que ya
+   * alimenta las 3 tarjetas KPI, recibida acá por prop). No debería fallar
+   * nunca -- es la misma fuente sumada de dos formas distintas -- pero si
+   * algún día no cuadra, mejor un aviso en consola que un número mudo.
+   */
+  if (process.env.NODE_ENV !== 'production') {
+    const checks: [string, CountAmount, CountAmount][] = [
+      ['byBranch / Est Closing Next Month', byBranchTotals.estClosingNextMonth, estClosingNextMonth],
+      ['byBranch / Out of Scope', byBranchTotals.outOfScope, outOfScope],
+      ['byBranch / Combined', byBranchTotals.combined, combined],
+      ['byStrategy / Est Closing Next Month', byStrategyTotals.estClosingNextMonth, estClosingNextMonth],
+      ['byStrategy / Out of Scope', byStrategyTotals.outOfScope, outOfScope],
+      ['byStrategy / Combined', byStrategyTotals.combined, combined],
+    ];
+    for (const [label, rowsSum, kpi] of checks) {
+      if (rowsSum.count !== kpi.count || rowsSum.amount !== kpi.amount) {
+        console.warn(`[TabNextMonth] Total de ${label} no coincide con la tarjeta KPI`, { rowsSum, kpi });
+      }
+    }
   }
 
   return (
@@ -225,6 +302,7 @@ export default function TabNextMonth({ estClosingNextMonth, outOfScope, combined
                   </td>
                 </tr>
               )}
+              {view === 'branch' ? <TotalRow {...byBranchTotals} /> : <TotalRow {...byStrategyTotals} />}
             </tbody>
           </table>
         </div>
