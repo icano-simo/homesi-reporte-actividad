@@ -33,30 +33,37 @@ import { projectPlan, type OutlookStrategy } from '@/lib/outlook/project';
  * que las dos pantallas muestran el mismo número".
  *
  * ══════════════════════════════════════════════════════════════════════════════
- * ⚠ ESTADO REAL HOY: LA VISTA 2 TODAVÍA TIENE SU PROPIA COPIA
+ * LAS DOS VISTAS LEEN DE ACÁ — migración completa en OL22
  * ══════════════════════════════════════════════════════════════════════════════
  *
- * La vista 1 usa esto. `app/outlook/branch/[code]/page.tsx` sigue calculándolo
- * inline: `filasBase`, `agostoDe`, `presupuestoDe` y sus helpers viven ahí igual
- * que antes. O sea que HOY el código está duplicado, que es justo lo que este
- * archivo dice que no hay que hacer.
+ * En OL21 esto nació como copia y la vista 2 se quedó con la suya: dos
+ * implementaciones del mismo cálculo, que es exactamente lo que este archivo
+ * dice que no hay que hacer. En OL22 se borró la de la vista 2 --unas 220 líneas
+ * entre helpers y las dos cascadas-- y las dos pantallas quedaron leyendo de
+ * acá. Una diferencia entre ellas ya no es posible por construcción.
  *
- * Se deja así --y escrito-- por una razón de riesgo y no de gusto: la vista 2 es
- * la pantalla más verificada del módulo, y rehacer sus llamadas al final de una
- * etapa de seis ítems es el momento más malo para tocarla. Lo que sí se hizo es
- * la parte que vuelve segura esa migración: se verificó que las dos den lo
- * MISMO, celda por celda.
+ * ⚠ CÓMO SE VERIFICÓ LA MIGRACIÓN, en dos pasos y en este orden:
  *
- * ⚠ CÓMO SE VERIFICÓ, para poder repetirlo antes de migrar: con el filtro de la
- * vista 1 en cada estrategia, se compara su fila de un branch contra la fila de
- * esa estrategia en la vista 2 de ese mismo branch. Medido el 2026-09-03, las
- * trece celdas iguales en las cinco:
+ * 1. ANTES de borrar nada, que las dos dieran lo mismo. Con el filtro de la
+ *    vista 1 en cada estrategia, su fila de un branch contra la fila de esa
+ *    estrategia en la vista 2 del mismo branch. Las trece celdas iguales en las
+ *    cinco, medido el 2026-09-03:
  *
- *   Own Production 747   3 2 5 8 4 1 6 4 5 7 7 9 = 61
- *   B2B            747   0 0 1 5 2 3 4 2 2 2 2 3 = 26
- *   NPPM           733   0 0 0 0 1 4 1 0 0 2 2 2 = 12
- *   Recruitment    747   0 0 0 0 0 0 0 0 1 0 0 0 = 1
- *   Affinity       716   0 0 0 0 0 0 0 0 4 0 0 0 = 4
+ *      Own Production 747   3 2 5 8 4 1 6 4 5 7 7 9 = 61
+ *      B2B            747   0 0 1 5 2 3 4 2 2 2 2 3 = 26
+ *      NPPM           733   0 0 0 0 1 4 1 0 0 2 2 2 = 12
+ *      Recruitment    747   0 0 0 0 0 0 0 0 1 0 0 0 = 1
+ *      Affinity       716   0 0 0 0 0 0 0 0 4 0 0 0 = 4
+ *
+ * 2. DESPUÉS de borrarla, que la vista 2 no se moviera. Se volcó la pantalla
+ *    ENTERA a JSON --los 19 branches, todas las estrategias abiertas, 183
+ *    filas-- antes y después, y se comparó con `diff`: idéntico, 38.798 bytes
+ *    los dos.
+ *
+ *    ⚠ LA COMPARACIÓN VIVE AFUERA DEL SCRIPT QUE GENERA LOS VOLCADOS, a
+ *    propósito. Si viviera adentro, un bug del script podría dar verde sobre dos
+ *    salidas distintas -- que es el modo en que fallaron cuatro de las cinco
+ *    verificaciones de la tabla de AGENTS.md.
  *
  * Y un control independiente que no mira ninguna de las dos: las cinco
  * estrategias suman 632 y el total de la división da 647. La diferencia --15--
@@ -64,9 +71,12 @@ import { projectPlan, type OutlookStrategy } from '@/lib/outlook/project';
  * pertenecen a ninguna estrategia. Que ese número caiga solo es la señal de que
  * el reparto no perdió ni inventó nada.
  *
- * ⚠ EL PRÓXIMO QUE TOQUE ESTO: migrar la vista 2 a estas funciones y borrar su
- * copia, corriendo esa comparación antes y después. Mientras la copia exista,
- * un arreglo va en LOS DOS lados.
+ * ⚠ UNA DIFERENCIA QUE LA MIGRACIÓN CORRIGIÓ, y no cambió ningún número hoy: la
+ * vista 2 armaba el presupuesto de una estrategia SIEMPRE desde el reparto, así
+ * que una estrategia sin de dónde proyectar mostraba `0` -- mientras su propio
+ * comentario decía que tenía que mostrar vacío. Acá va `null`. Hoy no se ve
+ * porque las 33 estrategias visibles proyectan todas; el día que aparezca una
+ * que no, va a decir vacío en las dos pantallas en vez de `0` en una.
  *
  * ---------------------------------------------------------------------------
  * ⚠ LAS DOS CASCADAS DE REDONDEO, que son la parte delicada
