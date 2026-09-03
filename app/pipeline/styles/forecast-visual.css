@@ -328,25 +328,30 @@ table.piv.piv--combined td.totcol {
  * Commercial Activity y la cascada para comparar magnitudes.
  *
  * 3 tintes: `col-nextmonth` reusa el mismo slate/sky neutro de
- * `col-pipeline` (población base, sin urgencia). `col-outofscope` usa
- * amber -- misma paleta de aviso/atención que ya usa el ícono de
- * diagnóstico de TabAnalytics.tsx (`--amber-700`/`--amber-800`), consistente
- * con lo que representa la población (se esperaba que cerrara este mes y no
- * va a poder). `col-combined` usa emerald -- mismo verde de síntesis/
- * resultado que ya usa `col-forecast` para el número final de la cascada.
+ * `col-pipeline` (población base, sin urgencia). `col-outofscope` --
+ * Etapa NEXTMONTH-5, revisado sobre captura real: amber/emerald se leían
+ * como semáforo (aviso/éxito), y ninguna de las 2 poblaciones es un
+ * estado de alerta o de logro -- pasa a gris neutro (`--slate-100`/
+ * `--slate-200`, ya usados en otras tablas de esta pestaña, no valores
+ * nuevos). `col-combined` pasa a azul (`--accent-soft`/`--navy`, el par
+ * ya usado por `.badge--sky`, y el mismo rgba "Light Sky" que ya usa el
+ * hover de `col-pipeline` más abajo) -- deliberadamente NO verde, para no
+ * repetir la asociación "verde = todo bien" que sí tiene sentido en
+ * Healthy Pipeline pero acá no aplica (Combined es una suma, no un
+ * estado positivo).
  */
 .piv--nextmonth thead .mo-row th.col-nextmonth {
   background: rgba(248, 250, 252, 0.6); /* slate-50/60, igual que .col-pipeline */
   color: var(--slate-700);
 }
 .piv--nextmonth thead .mo-row th.col-outofscope {
-  background: var(--amber-50);
-  color: var(--amber-800);
+  background: var(--slate-100);
+  color: var(--slate-700);
   font-weight: 700;
 }
 .piv--nextmonth thead .mo-row th.col-combined {
-  background: var(--emerald-50);
-  color: var(--emerald-800);
+  background: var(--accent-soft);
+  color: var(--navy);
   font-weight: 700;
 }
 .piv--nextmonth thead .mo-row th.group-start {
@@ -360,19 +365,41 @@ table.piv.piv--combined td.totcol {
   background: rgba(166, 222, 255, 0.2) !important;
 }
 .piv--nextmonth tbody td.col-outofscope {
-  background: var(--amber-50) !important;
+  background: var(--slate-100) !important;
 }
 .piv--nextmonth tbody tr.metric:hover td.col-outofscope {
-  background: var(--amber-100) !important;
+  background: var(--slate-200) !important;
 }
 .piv--nextmonth tbody td.col-combined {
-  background: var(--emerald-50) !important;
+  background: var(--accent-soft) !important;
 }
 .piv--nextmonth tbody tr.metric:hover td.col-combined {
-  background: var(--emerald-200) !important;
+  background: rgba(166, 222, 255, 0.35) !important; /* 'Light Sky', mismo tono que el hover de col-nextmonth, más saturado */
 }
 .piv--nextmonth td.group-start {
   border-left: 1px solid var(--slate-200);
+}
+
+/*
+ * Etapa NEXTMONTH-5, AJUSTE 1 -- la fila de Total no se veía en negrita.
+ * Causa real, confirmada leyendo el CSS aplicado (no asumida): el
+ * font-weight:700 de una fila de total vive en `tr.grp td` (components.css,
+ * SOLO 1 clase -- especificidad (0,1,2)) -- `tr.grp.total td` (2 clases,
+ * (0,2,2)) no vuelve a declarar `font-weight`, así que sigue heredando el
+ * de `tr.grp`. Pero `table.piv td.val` (components.css) también es
+ * (0,2,2) -- MISMA especificidad que `tr.grp.total`, así que la victoria
+ * de `tr.grp td` (0,1,2) contra `table.piv td.val` (0,2,2) para las celdas
+ * `.val` es IMPOSIBLE por especificidad, sin importar el orden en el
+ * archivo: table.piv td.val (500) le gana a tr.grp td (700) en toda celda
+ * que además tenga clase `val` -- que es el caso de las 6 celdas de
+ * valor del Total acá. (ExecTotalRow no lo mostraba porque sus celdas de
+ * valor van dentro de `.totcol`/badges, que no llevan `.val` y no chocan
+ * con esta regla -- ningún .val puro compite ahí.) Mismo criterio ya
+ * usado en `piv--combined` más arriba (agregar una clase de contexto para
+ * ganar por especificidad en vez de pelear con !important):
+ */
+.piv--nextmonth tr.grp.total td.val {
+  font-weight: 700;
 }
 .piv--exec .th-left {
   text-align: left;
