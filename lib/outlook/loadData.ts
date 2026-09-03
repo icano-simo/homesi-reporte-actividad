@@ -690,6 +690,16 @@ export interface OutlookData {
   branches: OutlookBranch[];
   /** El mes desde el que rige cualquier benchmark editado hoy. */
   effectiveFrom: string;
+  /**
+   * ⚠ LA RAMPA DE ARRANQUE, QUE ES UNA Y ES DE TODOS — etapa OL20.
+   *
+   * 25% el primer mes, 50% el segundo, 100% desde el tercero, editable. Va acá
+   * y no en cada `BranchRecruit` porque es UNA decisión global: la revisión
+   * vigente de `outlook.recruitment_ramp` rige para los 15, así que si viviera
+   * repetida en cada fila un editor podría cambiarla en un branch y dejar los
+   * otros catorce con la vieja sin que nada lo dijera.
+   */
+  recruitRamp: Ramp;
   /** Las filas crudas de las tres tablas, para historial y edición — OL2. */
   history: {
     strategyBenchmarks: StrategyBenchmarkRow[];
@@ -727,6 +737,25 @@ export interface OutlookData {
      * descubrir al apretar Guardar que no hay dónde ponerlos.
      */
     monthlyModeAvailable: boolean;
+    /**
+     * ¿Están las tres tablas de OL20? — `outlook.recruitment_projection`,
+     * `recruitment_ramp` y `recruitment_link`.
+     *
+     * ⚠ Mismo uso que `monthlyModeAvailable`: NO ofrecer los editores cuando no
+     * hay dónde guardar. Sin esto, alguien fija el benchmark de quince personas
+     * y lo descubre al apretar Guardar.
+     */
+    recruitTablesAvailable: boolean;
+    /** Gente en contratación leída de la fuente. Hoy 15. */
+    recruitsRead: number;
+    /**
+     * Proyecciones vencidas y sin vincular — ver el aviso de la pantalla.
+     *
+     * Su mes de producción ya llegó y nadie dijo con quién del roster se
+     * corresponden, así que dejaron de sumar. Debería tender a 0: cada una es
+     * alguien de quien el presupuesto se olvidó.
+     */
+    recruitsExpiredUnlinked: number;
   };
 }
 
@@ -1586,6 +1615,15 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
   for (const lista of recruitsPorBranch.values()) {
     lista.sort((a, b) => a.personName.localeCompare(b.personName));
   }
+  /*
+   * Los quince en una sola lista, para contarlos sin recorrer los branches.
+   *
+   * ⚠ NO ES UNA SEGUNDA FUENTE DE VERDAD: es la misma referencia de objeto que
+   * está en `recruitsPorBranch`, aplanada. Copiar las filas dejaría dos listas
+   * que se pueden desincronizar, y el conteo del pie diría una cosa mientras la
+   * tabla muestra otra.
+   */
+  const todosLosReclutas = [...recruitsPorBranch.values()].flat();
 
   /*
    * ==========================================================================
@@ -2122,6 +2160,7 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
     actualMonths: monthsOfYear.filter((m) => m < currentMonth),
     branches,
     effectiveFrom: addMonths(currentMonth, 1) + '-01',
+    recruitRamp: rampa,
     history,
     diagnostics: {
       activityRowsRead: rows.length,
@@ -2153,6 +2192,11 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       ),
       activeProducers: rosterRows.filter((r) => r.is_producer && r.is_active).length,
       monthlyModeAvailable,
+      recruitTablesAvailable: recruitTables.editado !== null,
+      recruitsRead: todosLosReclutas.length,
+      recruitsExpiredUnlinked: todosLosReclutas.filter(
+        (r) => r.notProjecting === 'expired' && r.linkedEmployeeKey === null
+      ).length,
     },
   };
 }

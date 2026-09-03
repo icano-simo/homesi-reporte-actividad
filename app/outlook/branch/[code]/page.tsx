@@ -13,7 +13,7 @@ import {
   type BranchStrategy,
   type BranchRecruit,
 } from '@/lib/outlook/loadData';
-import { STAGE_LABEL, type NotProjectingReason, type RecruitStage } from '@/lib/outlook/recruitment';
+import { STAGE_LABEL, type NotProjectingReason, type Ramp, type RecruitStage } from '@/lib/outlook/recruitment';
 import {
   cadenceLabel,
   projectPlan,
@@ -26,6 +26,7 @@ import { useOutlookDataContext } from '@/lib/outlook/useOutlookData';
 import StrategyEditor, { type OutlookEditable } from '@/app/outlook/components/StrategyEditor';
 import NppmEditor from '@/app/outlook/components/NppmEditor';
 import RecruitEditor from '@/app/outlook/components/RecruitEditor';
+import RecruitRampEditor from '@/app/outlook/components/RecruitRampEditor';
 
 /**
  * ============================================================================
@@ -205,6 +206,19 @@ function RECRUIT_MONTH_TITLE(r: BranchRecruit, month: string): string {
     `Month ${n + 1} since ${r.producingFrom}, so ${pct} of the ${r.monthlyBenchmark} expected a month — ` +
     'a new hire ramps up rather than producing their full benchmark from day one.'
   );
+}
+
+/**
+ * La rampa, en el botón que la abre: `25% · 50% · 100%`.
+ *
+ * ⚠ SE LEE DE `data.recruitRamp` y no se escribe a mano. Es la revisión vigente
+ * de `outlook.recruitment_ramp`, así que el botón muestra lo que el motor está
+ * usando de verdad -- un `25% · 50% · 100%` literal seguiría diciendo eso
+ * despues de que alguien la cambie.
+ */
+function rampaTexto(r: Ramp): string {
+  const p = (v: number) => Math.round(v * 100) + '%';
+  return `${p(r.month1)} · ${p(r.month2)} · ${p(r.month3Plus)}`;
 }
 
 /** Cuántos meses hay entre dos 'YYYY-MM'. */
@@ -408,8 +422,18 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
     { kind: 'employee'; employeeKey: number; strategy: OutlookStrategy } | { kind: 'branch'; strategy: OutlookStrategy } | null
   >(null);
   const [editingNppm, setEditingNppm] = useState<{ realtor: string; ytd: number } | null>(null);
-  /* La proyeccion de reclutamiento que se esta editando -- etapa OL20. */
-  const [editingRecruit, setEditingRecruit] = useState<BranchRecruit | null>(null);
+  /*
+   * Lo que se esta editando de reclutamiento -- etapa OL20.
+   *
+   * ⚠ SE GUARDA LA `identity`, NO LA FILA. Es la misma regla que el bloque de
+   * los editores mas abajo: `reload` reemplaza `data` entera despues de
+   * guardar, asi que un `BranchRecruit` guardado en el estado apuntaria a la
+   * version vieja y el panel seguiria mostrando el benchmark anterior al que se
+   * acaba de escribir. La fila se resuelve en cada render desde `data` fresca.
+   *
+   * `'new'` es el alta a mano y `'ramp'` la rampa global, que no tienen fila.
+   */
+  const [editingRecruit, setEditingRecruit] = useState<string | 'new' | 'ramp' | null>(null);
 
   if (error) return <div className="hub-container"><div className="bp-empty">Could not load Outlook: {error}</div></div>;
   if (!data) return <div className="hub-container"><div className="bp-empty">Loading…</div></div>;
@@ -427,6 +451,18 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
 
   const { actualMonths, currentMonth } = data;
   const year = currentMonth.split('-')[0];
+
+  /*
+   * La gente en contratacion de este branch, en una lista -- etapa OL20.
+   *
+   * Viene de `byStrategy`, que la trae sólo en Recruitment. Se aplana acá y no
+   * se recorre dos veces: la barra necesita saber si hay alguien y el aviso
+   * necesita a los vencidos.
+   */
+  const reclutas = branch.byStrategy.flatMap((bs) => bs.recruits);
+  const vencidasSinVincular = reclutas.filter(
+    (r) => r.notProjecting === 'expired' && r.linkedEmployeeKey === null
+  );
 
   /*
    * ==========================================================================
@@ -1506,10 +1542,15 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                         <tr key={'s-' + s + '-rec-' + r.identity} className="metric mrow ol-rec">
                           <td className="lbl" style={{ paddingLeft: '30px' }}>
                             {r.personName}
-                            <span
-                              className={'bp-muted ol-tag ol-tag--rec ol-tag--' + r.stage}
-                              title={RECRUIT_TITLE[r.stage](r)}
-                            >
+                            {/*
+                              ⚠ SIN MODIFICADOR POR ETAPA. Habia un
+                              `ol-tag--<stage>` por fila y ninguna hoja de
+                              estilo lo definia: cinco clases que no hacian
+                              nada. La etiqueta ya dice la etapa con palabras,
+                              que es mas claro que un color que hay que
+                              aprender.
+                            */}
+                            <span className="bp-muted ol-tag" title={RECRUIT_TITLE[r.stage](r)}>
                               {STAGE_LABEL[r.stage]}
                             </span>
                             {r.linkedEmployeeKey !== null && (
@@ -1528,7 +1569,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                             )}
                             <BenchTag
                               value={r.monthlyBenchmark}
-                              onEdit={() => setEditingRecruit(r)}
+                              onEdit={() => setEditingRecruit(r.identity)}
                               editLabel={`Edit ${r.personName}'s projection`}
                               editTitle={
                                 r.monthlyBenchmark === null
@@ -1575,7 +1616,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                             <button
                               type="button"
                               className={'ol-pill' + (r.notProjecting ? ' ol-pill--empty' : '')}
-                              onClick={() => setEditingRecruit(r)}
+                              onClick={() => setEditingRecruit(r.identity)}
                               title={RECRUIT_TITLE[r.stage](r)}
                             >
                               {r.notProjecting ? NOT_PROJECTING_PILL[r.notProjecting] : 'ramping up'}
@@ -1919,6 +1960,108 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
         descuadre se explica solo -- que es el criterio que reemplazó a los
         párrafos en OL6 y OL12.
       */}
+      {/*
+        ══════════════════════════════════════════════════════════════════════
+        LA BARRA DE RECLUTAMIENTO — etapa OL20
+        ══════════════════════════════════════════════════════════════════════
+
+        La rampa y el alta a mano. Va debajo de la tabla porque las dos son
+        decisiones del PROGRAMA y no de una fila: la rampa es una y es de los
+        diecisiete branches, y un alta a mano todavía no tiene fila.
+
+        ⚠ SE OFRECE SÓLO SI HAY DÓNDE GUARDAR. Es lo mismo que hace
+        `monthlyModeAvailable` con el modo mes a mes: sin las tres tablas de
+        OL20 aplicadas, alguien llenaría el formulario de quince personas para
+        descubrir al apretar Guardar que no hay tabla.
+      */}
+      {/*
+        ⚠ SÓLO EN LOS BRANCHES QUE TIENEN GENTE EN CONTRATACIÓN. Dibujarla
+        siempre pondría una barra de reclutamiento en los diecisiete, la mayoría
+        sin una sola fila que explicara qué ramifica esa rampa.
+
+        Lo que se pierde es poder dar el alta desde un branch sin nadie en
+        proceso, y no se pierde nada: un alta nace en el branch que se elija en
+        el formulario, y el marcador `Recruitment` --que es donde cae quien
+        todavía no tiene destino-- tiene fila propia mientras haya al menos uno
+        sin asignar.
+      */}
+      {data.diagnostics.recruitTablesAvailable && reclutas.length > 0 && (
+        <p className="ol-recbar">
+          <span className="ol-recbar__lbl">In hiring</span>
+          <button type="button" className="ol-pill" onClick={() => setEditingRecruit('ramp')}>
+            {rampaTexto(data.recruitRamp)}
+          </button>
+          <button type="button" className="ol-pill ol-pill--empty" onClick={() => setEditingRecruit('new')}>
+            + Add someone
+          </button>
+          {/*
+            Lo que la barra dice sin que nadie pregunte: la rampa NO es de este
+            branch. Se abre desde acá, así que hay que decirlo acá.
+          */}
+          <span>the same ramp for everyone in hiring, in every branch</span>
+        </p>
+      )}
+
+      {/*
+        ══════════════════════════════════════════════════════════════════════
+        ⚠ LAS PROYECCIONES VENCIDAS Y SIN VINCULAR — etapa OL20
+        ══════════════════════════════════════════════════════════════════════
+
+        Su mes de producción llegó y nadie dijo con quién del roster se
+        corresponden, así que dejaron de sumar. Es la única de las cuatro
+        razones para no sumar que hay que ARREGLAR: las otras tres son
+        decisiones --la etapa, el vínculo, el benchmark que nadie fijó-- y esta
+        es un olvido.
+
+        ⚠ Y EL FALLO ELEGIDO ES ESTE, a propósito: un presupuesto corto y
+        visible antes que uno inflado y callado. Si al vencer siguiera sumando,
+        el mes que la persona entra al roster su producción se contaría dos
+        veces y el número seguiría pareciendo plausible. Acá falta, y el aviso
+        dice cuánto y de quién.
+
+        ⚠ Y NO NOMBRA A QUIEN ADEMÁS NO TIENE BENCHMARK, porque
+        `notProjectingReason` mira el benchmark ANTES del vencimiento. Es el
+        orden correcto: sin benchmark no había proyección que perder, así que no
+        falta nada del presupuesto -- lo que falta es la decisión, y eso ya lo
+        dice la píldora `no benchmark` de su fila. Hoy los quince están así, así
+        que este aviso no aparece: se verificó cambiando el filtro a
+        `no_benchmark` --4 en el 710, con nombre y con el botón que abre el
+        editor-- y volviéndolo atrás. No se escribieron filas de prueba: las
+        tablas de OL20 no tienen policy de DELETE, así que una fila de prueba se
+        queda para siempre.
+
+        ⚠ NO PROPONE A NADIE. Medido contra los datos de hoy: `employee_alias`
+        propone 0 de 15 y el nombre exacto contra `dim_employee` propone 0 de
+        15; lo único que propone algo es el apellido, y sus tres propuestas son
+        de personas equivocadas. El editor abre una lista alfabética del roster
+        y decide una persona -- ver la nota del selector en `RecruitEditor`.
+      */}
+      {vencidasSinVincular.length > 0 && (
+        <p className="ol-notice">
+          <b>
+            {vencidasSinVincular.length === 1
+              ? 'One projection has expired'
+              : `${vencidasSinVincular.length} projections have expired`}
+          </b>{' '}
+          and nobody said who they are on the roster, so they stopped counting:{' '}
+          {vencidasSinVincular.map((r, i) => (
+            <span key={r.identity}>
+              {i > 0 ? ' · ' : ''}
+              <button
+                type="button"
+                className="ol-pill ol-pill--empty"
+                onClick={() => setEditingRecruit(r.identity)}
+                title={`Producing from ${r.producingFrom}, which has already arrived. Link them to a roster employee, or move the month.`}
+              >
+                {r.personName}
+              </button>
+            </span>
+          ))}
+          . The budget is <b>short</b> by what they were expected to produce, on purpose — counting them while they are
+          also on the roster would count the same production twice.
+        </p>
+      )}
+
       {branch.outsiders.length > 0 && (
         <p className="ol-outsiders">
           <span className="ol-outsiders__lbl">Closed here by loan officers from other branches:</span>{' '}
@@ -2020,15 +2163,9 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
           );
         })()}
 
-      {editingRecruit && (
-        <RecruitEditor
-          recruit={editingRecruit}
-          /*
-            Los branches REALES para el desplegable, sin el marcador
-            `Recruitment`: ofrecerlo como destino seria ofrecer "no se sabe" como
-            una respuesta.
-          */
-          branches={data.branches.map((b) => b.branchCode).filter((c) => c !== 'Recruitment').sort()}
+      {editingRecruit === 'ramp' && (
+        <RecruitRampEditor
+          ramp={data.recruitRamp}
           onClose={() => setEditingRecruit(null)}
           onSaved={() => {
             setEditingRecruit(null);
@@ -2036,6 +2173,57 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
           }}
         />
       )}
+
+      {editingRecruit !== null &&
+        editingRecruit !== 'ramp' &&
+        (() => {
+          /*
+           * ⚠ LA FILA SE RESUELVE ACA, EN CADA RENDER, desde `data` fresca. Es
+           * la misma regla que el bloque de los otros editores: `reload`
+           * reemplaza `data` entera despues de guardar, asi que un
+           * `BranchRecruit` guardado en el estado dejaria el panel mostrando el
+           * benchmark anterior al que se acaba de escribir -- el bug que uno no
+           * revisa porque el guardado "funciono".
+           *
+           * ⚠ Y SE BUSCA EN TODOS LOS BRANCHES, no en este. Editar el branch de
+           * alguien lo MUEVE de lista: se guarda, `reload` lo pone en el 728, y
+           * buscarlo en el 710 no lo encontraria -- el panel se cerraria solo,
+           * sin error, justo despues de un guardado correcto.
+           */
+          const r =
+            editingRecruit === 'new'
+              ? null
+              : data.branches.flatMap((b) => b.byStrategy.flatMap((bs) => bs.recruits)).find((x) => x.identity === editingRecruit);
+          /* La fila se fue de la fuente entre el render y el clic. Nada que abrir. */
+          if (r === undefined) return null;
+          return (
+            <RecruitEditor
+              recruit={r}
+              /*
+                Los branches REALES para el desplegable, sin el marcador
+                `Recruitment`: ofrecerlo como destino seria ofrecer "no se sabe"
+                como una respuesta.
+              */
+              branches={data.branches.map((b) => b.branchCode).filter((c) => c !== 'Recruitment').sort()}
+              /*
+                El roster para vincular a mano, de los diecisiete branches y
+                ordenado por nombre. La persona con la que hay que vincular a un
+                recluta casi nunca esta en el branch donde se lo esta mirando --
+                si ya se supiera, el branch estaria corregido.
+              */
+              roster={data.branches
+                .flatMap((b) => b.loanOfficers.map((lo) => ({ employeeKey: lo.employeeKey, name: lo.fullName, branchCode: b.branchCode })))
+                .filter((p, i, a) => a.findIndex((q) => q.employeeKey === p.employeeKey) === i)
+                .sort((a, b) => a.name.localeCompare(b.name))}
+              currentMonth={currentMonth}
+              onClose={() => setEditingRecruit(null)}
+              onSaved={() => {
+                setEditingRecruit(null);
+                reload();
+              }}
+            />
+          );
+        })()}
 
       {editingNppm && (
         <NppmEditor

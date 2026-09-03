@@ -11,6 +11,16 @@ import { saveRecruitLink, saveRecruitProjection } from '@/lib/outlook/save';
  * EL EDITOR DE UNA PROYECCIÓN DE RECLUTAMIENTO — etapa OL20
  * ============================================================================
  *
+ * Hace dos cosas con el mismo formulario, porque son la misma fila: editar la
+ * proyección de alguien que vino de la fuente, y CREAR una a mano para alguien
+ * que no está en ninguna. La diferencia es sólo la `identity` --
+ * `future:<id_fuente>` contra `manual:<uuid>` -- y de ahí sale el `source`.
+ *
+ * ⚠ CREAR A MANO NO TOCA EL ROSTER. Escribe en `outlook.recruitment_projection`
+ * y nada más. `org.dim_employee` y `org.roster_current` los escribe el sync, no
+ * esta pantalla: una persona inventada ahí aparecería como empleada real en
+ * Business Plan y en Commercial Activity.
+ *
  * ⚠ DOS FECHAS Y NO UNA, y hace falta que sean dos:
  *
  *   Start date      cuándo entra. Precargada de `fecha_inicio` cuando existe --
@@ -31,6 +41,12 @@ import { saveRecruitLink, saveRecruitProjection } from '@/lib/outlook/save';
  * sabe", no un lugar: cuando se sepa a dónde va alguien, se corrige acá sin
  * esperar a que la fuente lo traiga.
  *
+ * ⚠ NO HAY CAMPO `Role`, Y ES A PROPÓSITO. El brief lo pedía, pero hoy nada lo
+ * lee: un recluta NPPM tendría que proyectar bajo NPPM --que se abre por
+ * realtor y no por persona-- y eso no existe. Un desplegable que no cambia
+ * ningún número es peor que un campo que falta: se ve, se usa, y no pasa nada.
+ * Toda alta a mano se guarda como `loan_officer`.
+ *
  * Usa el mismo `Modal` y las mismas clases que `StrategyEditor` -- `ol-editor`,
  * `bp-form__label`, `bp-btn` -- porque es el mismo tipo de decisión y tiene que
  * verse igual. Inventar clases nuevas habría dado un panel sin estilos.
@@ -38,19 +54,30 @@ import { saveRecruitLink, saveRecruitProjection } from '@/lib/outlook/save';
 export default function RecruitEditor({
   recruit,
   branches,
+  roster,
+  currentMonth,
   onClose,
   onSaved,
 }: {
-  recruit: BranchRecruit;
+  /** `null` = alta a mano: el mismo formulario, en blanco. */
+  recruit: BranchRecruit | null;
   /** Los branches reales, para no obligar a tipear un código. */
   branches: string[];
+  /**
+   * El roster, para vincular a mano. Sin ranking y sin "candidatos sugeridos":
+   * ver la nota del selector.
+   */
+  roster: { employeeKey: number; name: string; branchCode: string }[];
+  /** Para precargar el mes de producción de un alta a mano: el que viene. */
+  currentMonth: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [name, setName] = useState(recruit.personName);
-  const [branch, setBranch] = useState(recruit.branchCodeActual);
-  const [startDate, setStartDate] = useState(recruit.startDate ?? '');
-  const [producingFrom, setProducingFrom] = useState(recruit.producingFrom);
+  const esAlta = recruit === null;
+  const [name, setName] = useState(recruit?.personName ?? '');
+  const [branch, setBranch] = useState(recruit?.branchCodeActual ?? 'Recruitment');
+  const [startDate, setStartDate] = useState(recruit?.startDate ?? '');
+  const [producingFrom, setProducingFrom] = useState(recruit?.producingFrom ?? mesSiguiente(currentMonth));
   /*
    * ⚠ EL BENCHMARK VIVE COMO TEXTO mientras se edita, y no como número: un
    * `number | null` no puede representar "el campo está vacío porque lo estoy
@@ -59,7 +86,7 @@ export default function RecruitEditor({
    * produzca". Son dos cosas distintas y el editor tiene que poder decir las dos.
    */
   const [benchmark, setBenchmark] = useState(
-    recruit.monthlyBenchmark === null ? '' : String(recruit.monthlyBenchmark)
+    recruit && recruit.monthlyBenchmark !== null ? String(recruit.monthlyBenchmark) : ''
   );
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
@@ -76,16 +103,24 @@ export default function RecruitEditor({
     setBusy(true);
     setError(null);
     try {
+      /*
+       * ⚠ LA `identity` DE UN ALTA SE INVENTA UNA SOLA VEZ, acá, y no se deriva
+       * del nombre. Hay dos `Jose Flores` distintos entre los quince de hoy, así
+       * que un `manual:<nombre>` uniría a dos personas o partiría a una sola sin
+       * que nada lo dijera. Un uuid no dice nada de nadie, que es la propiedad
+       * que se necesita.
+       */
+      const identity = recruit?.identity ?? 'manual:' + crypto.randomUUID();
       await saveRecruitProjection({
-        identity: recruit.identity,
-        source: recruit.identity.startsWith('manual:') ? 'manual' : 'future_loan_officer',
+        identity,
+        source: identity.startsWith('manual:') ? 'manual' : 'future_loan_officer',
         personName: name,
-        role: recruit.role,
+        role: recruit?.role ?? 'loan_officer',
         branchCode: branch,
         startDate: startDate.trim() === '' ? null : startDate,
         producingFrom,
         monthlyBenchmark: numero,
-        nmls: recruit.nmls,
+        nmls: recruit?.nmls ?? null,
         note: note.trim() === '' ? null : note.trim(),
       });
       onSaved();
@@ -96,11 +131,17 @@ export default function RecruitEditor({
     }
   }
 
-  async function unlink() {
+  /** Vincular o desvincular. `key === null` desvincula, y es una fila nueva. */
+  async function link(key: number | null) {
+    if (!recruit) return;
     setBusy(true);
     setError(null);
     try {
-      await saveRecruitLink({ identity: recruit.identity, employeeKey: null, note: 'Unlinked from the branch view.' });
+      await saveRecruitLink({
+        identity: recruit.identity,
+        employeeKey: key,
+        note: key === null ? 'Unlinked from the branch view.' : 'Linked from the branch view.',
+      });
       onSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -110,14 +151,25 @@ export default function RecruitEditor({
   }
 
   return (
-    <Modal title={`${recruit.personName} — ${STAGE_LABEL[recruit.stage]}`} onClose={onClose}>
+    <Modal
+      title={esAlta ? 'Add someone in hiring' : `${recruit.personName} — ${STAGE_LABEL[recruit.stage]}`}
+      onClose={onClose}
+    >
       <div className="ol-editor">
+        {esAlta && (
+          <p className="ol-editor__hint">
+            For someone who is being hired and is not in any source yet. This does <b>not</b> add them to the roster —
+            it only projects what they are expected to produce, and it disappears from the budget once they show up on
+            the roster and get linked.
+          </p>
+        )}
+
         {/*
           El `close_date` se muestra y no se edita: viene de la fuente, explica
           la etapa, y es lo que decide --por fecha-- si un `probable` sigue
           siendo pipeline o pasó a caso sin resolver.
         */}
-        {recruit.closeDate && (
+        {recruit?.closeDate && (
           <p className="ol-editor__hint">
             Recruitment closed <b>{recruit.closeDate}</b>. That date comes from the source and is not edited here.
           </p>
@@ -183,9 +235,9 @@ export default function RecruitEditor({
               id="rec-bench"
               type="text"
               inputMode="decimal"
-              className="field"
+              className="field ol-editor__num"
               value={benchmark}
-              placeholder="nobody has set it"
+              placeholder="—"
               onChange={(e) => setBenchmark(e.target.value)}
             />
           </div>
@@ -201,10 +253,62 @@ export default function RecruitEditor({
           first month, 50% the second, 100% from the third.
         </p>
 
-        {recruit.linkedEmployeeKey !== null && (
+        {/*
+          ══════════════════════════════════════════════════════════════════
+          ⚠ EL VÍNCULO CON EL ROSTER, QUE ES LO QUE EVITA EL DOBLE CONTEO
+          ══════════════════════════════════════════════════════════════════
+
+          Una proyección vinculada deja de sumar: desde que la persona está en
+          el roster, es el roster el que la proyecta. Sin esto, el mes que
+          alguien entra su producción se cuenta dos veces -- una por su fila
+          real y otra por esta.
+
+          ⚠ Y ES UNA LISTA ALFABÉTICA, NO UNA LISTA DE CANDIDATOS SUGERIDOS.
+          Medido contra los datos de hoy: de los 15 en proceso, `employee_alias`
+          propone 0 y el nombre exacto contra `dim_employee` propone 0. Lo único
+          que propone algo es el apellido, y las tres propuestas que da son de
+          personas equivocadas -- Jose Flores contra Kelvin Flores, Jonathan
+          Osorio contra Giovanni Osorio, Fidel Rodriguez contra tres Rodriguez
+          distintos. Poner esos tres nombres con un botón al lado sería invitar
+          al clic errado; es la misma trampa que el encabezado de `aliasIndex`
+          ya documenta con Juseth Castro y July Castro.
+
+          Así que se ordena por nombre y decide una persona. El NMLS sigue
+          siendo el único vínculo que la app hace sola, porque es un registro
+          nacional y un match ES identidad.
+        */}
+        {!esAlta && recruit.linkedEmployeeKey === null && (
+          <div className="ol-editor__row">
+            <div className="bp-form__field ol-editor__grow">
+              <label className="bp-form__label" htmlFor="rec-link">
+                Already on the roster? Link them
+              </label>
+              <select
+                id="rec-link"
+                className="field"
+                defaultValue=""
+                disabled={busy}
+                onChange={(e) => {
+                  if (e.target.value) void link(Number(e.target.value));
+                }}
+              >
+                <option value="">Not on the roster yet</option>
+                {roster.map((p) => (
+                  <option key={p.employeeKey} value={p.employeeKey}>
+                    {p.name} — {p.branchCode}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
+
+        {!esAlta && recruit.linkedEmployeeKey !== null && (
           <p className="ol-editor__hint">
-            Linked to a roster employee{recruit.linkedByNmls ? ' by NMLS, which is an exact match' : ''}, so this
-            projection adds nothing: from here on the roster projects them.
+            Linked to{' '}
+            <b>{roster.find((p) => p.employeeKey === recruit.linkedEmployeeKey)?.name ?? 'a roster employee'}</b>
+            {recruit.linkedByNmls ? ' by NMLS, which is a national registry number and therefore an exact match' : ''},
+            so this projection adds nothing: from here on the roster projects them.
           </p>
         )}
 
@@ -215,13 +319,19 @@ export default function RecruitEditor({
             </label>
             <input id="rec-note" type="text" className="field" value={note} onChange={(e) => setNote(e.target.value)} />
           </div>
-          {recruit.linkedEmployeeKey !== null && !recruit.linkedByNmls && (
-            <button type="button" className="bp-btn bp-btn--small" onClick={unlink} disabled={busy}>
+          {/*
+            Desvincular se ofrece sólo cuando el vínculo lo puso una persona. El
+            del NMLS no: es exacto, así que "desvincular" ahí sería decir que el
+            registro nacional se equivocó. Si de verdad se equivocó, se arregla
+            en el NMLS y no acá.
+          */}
+          {!esAlta && recruit.linkedEmployeeKey !== null && !recruit.linkedByNmls && (
+            <button type="button" className="bp-btn bp-btn--small" onClick={() => void link(null)} disabled={busy}>
               Unlink
             </button>
           )}
           <button type="button" className="bp-btn bp-btn--small" onClick={save} disabled={busy || invalido}>
-            {busy ? '…' : 'Save'}
+            {busy ? '…' : esAlta ? 'Add' : 'Save'}
           </button>
         </div>
 
@@ -229,4 +339,17 @@ export default function RecruitEditor({
       </div>
     </Modal>
   );
+}
+
+/**
+ * El mes que viene, para precargar un alta.
+ *
+ * ⚠ NUNCA EL MES EN CURSO. `projectRecruit` no toca el mes actual --su
+ * pronóstico ya está cerrado y sale del pipeline real-- así que un alta con
+ * `producingFrom` igual al mes de hoy nacería vencida y sin sumar nada, que es
+ * un formulario que se llena para que no pase nada.
+ */
+function mesSiguiente(month: string): string {
+  const [y, m] = month.split('-').map(Number);
+  return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
 }
