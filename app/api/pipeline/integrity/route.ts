@@ -187,7 +187,7 @@ export async function GET(request: Request) {
      *    contra ~100 de abiertos.
      *
      * 2. LOS ABIERTOS SÍ NECESITAN LA UNIÓN de varios snapshots, y ahí va una
-     *    ventana de 12 MESES -- todavía SIN aplicar.
+     *    ventana de 12 MESES -- YA APLICADA, abajo.
      *
      *    Por qué doce y no otro número: la ventana tiene que cubrir la vida
      *    entera de un préstamo en el pipeline, o "nunca estuvo" empieza a
@@ -202,6 +202,44 @@ export async function GET(request: Request) {
      *    Doce meses es el doble del máximo observado. Seis ya alcanzarían; doce
      *    deja margen para un caso peor que el peor visto y sigue acotando el
      *    escaneo a unos 250 snapshots de abiertos en vez de todos.
+     *
+     * ========================================================================
+     * ⚠ Y HOY NO RECORTA NADA. Medido el 2026-09-03, los 26 snapshots van del 31
+     * de julio al 3 de septiembre --34 días-- así que la ventana de doce meses
+     * los incluye a los 26 y deja los 207 ids intactos.
+     * ========================================================================
+     *
+     * ⚠ Y CASI SE REPORTÓ UN 3× QUE NO EXISTÍA. La primera medición dio 7,9s
+     * antes contra 2,5s después, sobre los mismos datos y con la ventana sin
+     * descartar un solo snapshot -- o sea, imposible. Re-medido con `git stash`
+     * y el dev server YA CALIENTE: 2,9s antes contra 2,5s después, dentro de la
+     * dispersión de las tres corridas. Los 7,9s eran el compile en frío de la
+     * ruta, que la primera medición se llevó puesto porque fue la primera en
+     * pegarle.
+     *
+     * La regla que lo atrapó: cuando el número no se explica por el mecanismo,
+     * la sospecha va sobre la medición. Acá el mecanismo decía "no puede
+     * acelerar nada" y el cronómetro decía 3×; tenía razón el mecanismo.
+     * Cualquier medición de esta ruta necesita una corrida de calentamiento
+     * antes de la primera que cuenta.
+     *
+     * Se aplica igual, y no es prematuro: el escaneo crece con la historia y el
+     * costo de agregarla después es el mismo que ahora, con la diferencia de que
+     * el día que estorbe va a estorbar en producción. Lo que NO hay que hacer es
+     * reportarla como una mejora de rendimiento -- no lo es todavía, y va a
+     * empezar a serlo recién cuando la historia pase los doce meses, o sea
+     * después del 31 de julio de 2027.
+     *
+     * ⚠ LO QUE SÍ SE VERIFICÓ, porque un 0 contra 0 no prueba nada:
+     *
+     *   - el invariante que importa: de los cerrados de julio, agosto y
+     *     septiembre que están en la unión COMPLETA de abiertos, la ventana no
+     *     pierde ni uno. Cero falsos positivos nuevos, que es el fallo peor
+     *     --el aviso diría que el forecast no vio un préstamo que sí vio--.
+     *   - que el filtro filtra: con una ventana angosta a propósito (corte
+     *     2026-08-27) deja 6 snapshots de 26 y 130 ids de 207. Sin este control,
+     *     un filtro mal escrito que no descartara nada daría el mismo verde que
+     *     uno correcto.
      */
     /*
      * ⚠ DE QUÉ DEPENDE QUE LEER UN SOLO SNAPSHOT SEA EXACTO, y cuál es el
@@ -237,11 +275,35 @@ export async function GET(request: Request) {
      * Medido el 2026-09-02: 815, 815, 0.
      */
     const vistos = await ids('pipeline_resolved_loans', active.id);
-    /* Los abiertos sí: la unión de todos los snapshots. Ver el punto 2 de arriba. */
+    /*
+     * Los abiertos sí: la unión de varios snapshots, acotada a 12 meses. Ver el
+     * punto 2 de arriba.
+     *
+     * ⚠ EL ANCLA ES EL MES QUE SE CONSULTA, NO EL SNAPSHOT ACTIVO. Un préstamo
+     * que cerró en el mes M entró al pipeline antes de M, así que la ventana
+     * tiene que empezar antes de M -- anclarla en el snapshot activo dejaría la
+     * ventana más corta cada vez que alguien mira un mes viejo, que es justo
+     * cuando más historia hace falta.
+     *
+     * ⚠ Y NO TIENE TOPE SUPERIOR, a propósito. Incluir snapshots posteriores al
+     * mes no puede inventar un hallazgo --sólo agrega cobertura al universo de
+     * "estuvo alguna vez"-- y el tope sí podría sacar uno: si el sync cargara
+     * tarde un préstamo del mes, un tope lo dejaría afuera y el aviso diría que
+     * nunca estuvo. Además garantiza que la lista nunca quede vacía.
+     */
+    const desdeSnapshot = (() => {
+      const [y, m] = month.split('-').map(Number);
+      return `${y - 1}-${String(m).padStart(2, '0')}-01`;
+    })();
+    const enVentana = all.filter((s) => s.snapshot_date >= desdeSnapshot).map((s) => s.id);
     {
       let from = 0;
       for (;;) {
-        const { data, error } = await pf.from('pipeline_loans').select('source_loan_id').range(from, from + 999);
+        const { data, error } = await pf
+          .from('pipeline_loans')
+          .select('source_loan_id')
+          .in('snapshot_id', enVentana)
+          .range(from, from + 999);
         if (error) throw error;
         const rows = (data ?? []) as { source_loan_id: string }[];
         for (const r of rows) vistos.add(r.source_loan_id);
