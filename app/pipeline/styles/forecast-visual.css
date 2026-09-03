@@ -1080,6 +1080,15 @@ table.piv tr.strat-break-row td {
 }
 
 /*
+ * Etapa ANALYTICS-KPI-1: mismo criterio que .metric--drill -- el hover de
+ * fondo/sombra ya es global (.analytics-tab .mcard:hover), esta clase solo
+ * agrega el cursor como affordance de que la tarjeta es interactiva.
+ */
+.mcard--clickable {
+  cursor: pointer;
+}
+
+/*
  * ---------------------------------------------------------------------------
  * Etapa PULIDO-1, FIX -- sombra de tarjeta, acotada a la pestaña Analytics
  * ---------------------------------------------------------------------------

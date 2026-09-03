@@ -1989,6 +1989,9 @@ function HeroKpiCards({
   topStrategy,
   strategyMix,
   onStrategySegmentClick,
+  onVolumeClick,
+  onCountClick,
+  onAvgTicketClick,
 }: {
   currentVolume: number;
   currentCount: number;
@@ -2007,6 +2010,9 @@ function HeroKpiCards({
   /** Etapa HERO-STRATEGY-DONUT: mismo array que ya arma `buildStrategyMix` para la instancia de Productivity & Concentration -- ninguna agregación nueva. */
   strategyMix: StrategyMixRow[];
   onStrategySegmentClick?: (row: StrategyMixRow) => void;
+  onVolumeClick?: () => void;
+  onCountClick?: () => void;
+  onAvgTicketClick?: () => void;
 }) {
   const previousHasData = previousCount > 0;
   const volumeDelta = computeDelta(currentVolume, previousVolume, previousHasData);
@@ -2028,7 +2034,12 @@ function HeroKpiCards({
         variante `--sky`) -- mismo patrón que esa tarjeta de referencia, que
         tampoco recolorea el número sobre el fondo sky.
       */}
-      <div className="mcard mcard--sky mcard--accent-left">
+      <div
+        className={'mcard mcard--sky mcard--accent-left' + (onVolumeClick ? ' mcard--clickable' : '')}
+        onClick={onVolumeClick}
+        role={onVolumeClick ? 'button' : undefined}
+        tabIndex={onVolumeClick ? 0 : undefined}
+      >
         <div className="m-name">Total Closed Volume</div>
         <div className="kpi-hero__value kpi-hero__value--lg">${fmtAmount(currentVolume)}</div>
         <div style={{ marginTop: '8px' }}>
@@ -2042,7 +2053,12 @@ function HeroKpiCards({
         />
       </div>
 
-      <div className="mcard">
+      <div
+        className={'mcard' + (onCountClick ? ' mcard--clickable' : '')}
+        onClick={onCountClick}
+        role={onCountClick ? 'button' : undefined}
+        tabIndex={onCountClick ? 0 : undefined}
+      >
         <div className="m-name">Closed Loans</div>
         <div className="kpi-hero__value kpi-hero__value--lg">{fmtInt(currentCount)}</div>
         <div style={{ marginTop: '8px' }}>
@@ -2066,7 +2082,12 @@ function HeroKpiCards({
         />
       </div>
 
-      <div className="mcard">
+      <div
+        className={'mcard' + (onAvgTicketClick ? ' mcard--clickable' : '')}
+        onClick={onAvgTicketClick}
+        role={onAvgTicketClick ? 'button' : undefined}
+        tabIndex={onAvgTicketClick ? 0 : undefined}
+      >
         <div className="m-name">Average Ticket</div>
         <div className="kpi-hero__value kpi-hero__value--lg">${fmtAmount(currentAvgTicket)}</div>
         <div style={{ marginTop: '8px' }}>
@@ -2489,6 +2510,30 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
             metric: 'Strategy Mix',
             context: row.strategy,
             loans: fundedInRange.filter((l) => classifyStrategy(l) === row.strategy).map(closedLoanToModalLoan),
+            hiddenColumns: ['milestone', 'status'],
+          })
+        }
+        onVolumeClick={() =>
+          setDrillDown({
+            metric: 'Total Closed Volume',
+            context: periodLabel(period),
+            loans: fundedInRange.map(closedLoanToModalLoan),
+            hiddenColumns: ['milestone', 'status'],
+          })
+        }
+        onCountClick={() =>
+          setDrillDown({
+            metric: 'Closed Loans',
+            context: periodLabel(period),
+            loans: fundedInRange.map(closedLoanToModalLoan),
+            hiddenColumns: ['milestone', 'status'],
+          })
+        }
+        onAvgTicketClick={() =>
+          setDrillDown({
+            metric: 'Average Ticket',
+            context: periodLabel(period),
+            loans: fundedInRange.map(closedLoanToModalLoan),
             hiddenColumns: ['milestone', 'status'],
           })
         }
