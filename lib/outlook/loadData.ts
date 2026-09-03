@@ -641,10 +641,43 @@ export interface OutlookBranch {
    * es lo que se puede presupuestar; Commercial Activity los cuenta porque mide
    * el branch, no la división.
    *
-   * Se expone para que la diferencia con Commercial Activity se explique en la
-   * pantalla y no preguntando: 47 (+4 sin atribuir) contra los 51 de allá.
+   * ⚠ Y DESDE OL21 YA NO SON UNA DIFERENCIA CON COMMERCIAL ACTIVITY: se cuentan
+   * en `actualByMonth` y en `ytd`, así que los dos módulos dan el mismo número
+   * --355 de enero a agosto, verificado mes por mes contra la pantalla de
+   * Commercial Activity--. Este contador sobrevive porque sigue diciendo algo
+   * que ningún otro dice: cuánto del total del branch NO le suma a ninguna
+   * persona, estrategia ni realtor. Es exactamente el hueco entre el total y la
+   * suma de las estrategias, y `outOfDivision` dice de quién es.
    */
   unattributed: number;
+  /**
+   * QUIÉNES son esos cierres sin atribuir, con nombre — etapa OL21.
+   *
+   * Mismo criterio y mismo formato que `outsiders`: el hueco ya tenía número y
+   * lo que faltaba era el nombre. La diferencia entre los dos es de quién es la
+   * persona: un `outsider` es un Loan Officer de la división que pertenece a
+   * OTRO branch, y esto es alguien que no es Loan Officer de la división.
+   */
+  outOfDivision: { name: string; closings: number }[];
+  /**
+   * ⚠ NADIE DEL ROSTER TIENE ESTE BRANCH — etapa OL21.
+   *
+   * `true` cuando el branch no tiene ni un productor activo en
+   * `org.roster_current`. Son cinco hoy: AFFINITY (32 cierres), 741 (4), 150
+   * (2), 701 (2) y 771 (2).
+   *
+   * ⚠ LA REGLA ES POR DATO Y NO POR LISTA, a propósito: se deriva del roster en
+   * cada carga, así que el 741 vuelve a activo solo el día que le asignen a
+   * alguien, sin que nadie tenga que acordarse de sacarlo de una constante.
+   *
+   * Qué implica en la pantalla:
+   *   - va en el bloque `Inactive`, al final y separado de los que operan
+   *   - suma al total de la división igual que cualquier otro
+   *   - los meses SIN producción van vacíos, no en cero
+   *   - no se le puede fijar nada: no hay a quién asignárselo
+   *   - no proyecta meses futuros
+   */
+  isInactive: boolean;
   /**
    * Cerrados de ESTE branch cuyo originador no tiene fila acá — etapa OL8.
    *
@@ -1297,6 +1330,17 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
    */
   const actualByBranch: MonthCounter = new Map();
   const unattributedByBranch = new Map<string, number>();
+  /*
+   * ⚠ QUIÉN CERRÓ LO QUE NO SE LE ATRIBUYE A NADIE — etapa OL21.
+   *
+   * Los cierres cuyo originador no resuelve contra el roster, con NOMBRE y por
+   * branch. Sin el nombre, el hueco entre el total del branch y la suma de sus
+   * estrategias sería un descuadre sin explicación; con el nombre se lee solo.
+   *
+   * Es el mismo criterio que `outsiders` en OL16: el número ya decía cuánto
+   * faltaba, y lo que hacía falta era de quién.
+   */
+  const outOfDivisionByBranch = new Map<string, Map<string, number>>();
   const actualByBranchLo: MonthCounter = new Map();
   const actualByLo: MonthCounter = new Map();
   const actualByLoStrategy: MonthCounter = new Map();
@@ -1342,18 +1386,47 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       unattributedByBranch.set(b, (unattributedByBranch.get(b) ?? 0) + 1);
 
       /*
-       * ⚠ ACÁ SE CONTABA EL PRÉSTAMO DEL LADO DEL REALTOR, Y SE REVIRTIÓ.
+       * ══════════════════════════════════════════════════════════════════════
+       * ⚠ ESTE PRÉSTAMO SÍ CUENTA EN EL TOTAL DEL BRANCH — etapa OL21
+       * ══════════════════════════════════════════════════════════════════════
        *
-       * En OL8 se decidió que NPPM contara al realtor aunque el originador
-       * estuviera excluido: el realtor sí es de la división y el argumento era
-       * que excluirlo mezclaba dos cosas. El negocio lo revirtió en OL13, y la
-       * regla queda más simple: si el originador está excluido, el préstamo NO
-       * cuenta en ninguna parte -- ni para el branch ni para el realtor.
+       * HISTORIA DE TRES ETAPAS, porque la regla cambió dos veces y conviene
+       * que se lea entera antes de cambiarla una tercera:
        *
-       * Lo que se gana además de la simpleza: la fila de reconciliación queda en
-       * cero en los dieciséis branches. El -1 de mayo del 733 era exactamente
-       * este préstamo, contado para el realtor y no para el branch.
+       *   OL8   el préstamo contaba del lado del REALTOR aunque el originador
+       *         estuviera excluido: el realtor sí es de la división.
+       *   OL13  el negocio lo revirtió: si el originador está excluido, el
+       *         préstamo no cuenta en ninguna parte. Se ganó que la fila de
+       *         reconciliación quedara en cero en los dieciséis branches -- el
+       *         -1 de mayo del 733 era exactamente esto.
+       *   OL21  cuenta en el TOTAL DEL BRANCH, y no cuenta para ninguna
+       *         persona, estrategia ni realtor.
+       *
+       * ⚠ POR QUÉ SE VOLVIÓ A CAMBIAR, y no es un capricho: Outlook mostraba
+       * 340 cierres de enero a agosto y Commercial Activity 355, sobre el mismo
+       * período y la misma tabla. Medido: la diferencia son exactamente estos
+       * 15 préstamos. `countsIn()` --la regla de Commercial Activity-- sólo mira
+       * `counts_for_division`, y no consulta `source_name_excluded`: para un
+       * total de división un cierre es un cierre. Dos pantallas de la misma app
+       * dando números distintos del mismo mes es peor que una fila que no suma.
+       *
+       * ⚠ LO QUE ESTO CUESTA, dicho para que no aparezca como sorpresa: la fila
+       * de reconciliación vuelve a no-cero en tres branches --733 +4, 747 +4,
+       * 716 +1-- y la suma de las estrategias deja de dar el total del branch.
+       * Es a propósito, y por eso va con nombre: `outOfDivision` dice QUIÉN
+       * cerró cada uno. Un hueco con nombre se explica; el mismo hueco sin
+       * nombre es el descuadre que OL13 vino a cerrar.
+       *
+       * ⚠ Y NO SE TOCA NADA MÁS: ni `actualByBranchLo`, ni las estrategias, ni
+       * los realtors, ni `actualByLo`. Un préstamo de alguien de fuera de la
+       * división no le suma producción a ninguna persona de la división, que es
+       * la parte de OL13 que sigue en pie.
        */
+      bump(actualByBranch, b, row.closing_month.slice(0, 7));
+      const nombre = row.loan_officer?.trim() || 'unknown loan officer';
+      const porNombre = outOfDivisionByBranch.get(b) ?? new Map<string, number>();
+      porNombre.set(nombre, (porNombre.get(nombre) ?? 0) + 1);
+      outOfDivisionByBranch.set(b, porNombre);
       continue;
     }
     ytdRowsCounted += 1;
@@ -2126,6 +2199,20 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
         .filter((l) => l.primaryBranch === branchCode)
         .reduce((a, l) => a + l.closedToDate, 0),
       unattributed: unattributedByBranch.get(branchCode) ?? 0,
+      /* Los mismos cierres que cuenta `unattributed`, con nombre — OL21. */
+      outOfDivision: [...(outOfDivisionByBranch.get(branchCode) ?? new Map<string, number>()).entries()]
+        .map(([name, closings]) => ({ name, closings }))
+        .sort((a, b) => b.closings - a.closings || a.name.localeCompare(b.name)),
+      /*
+       * ⚠ SE PREGUNTA AL ROSTER, no a `los`. `los` incluye a gente que aparece
+       * sólo porque cerró acá --los `outsiders` de OL16, cuyo branch de roster
+       * es otro-- así que derivarlo de ahí diría que el 741 tiene productores
+       * cuando lo que tiene es un cierre de alguien de otro branch. Medido: el
+       * 741 tiene 2 cierres de Nathan Martinez, que en el roster no es del 741.
+       */
+      isInactive: !rosterRows.some(
+        (r) => r.branch_code === branchCode && r.is_producer && r.is_active
+      ),
       /*
        * Por RESTA, y a propósito: lo que el branch tiene menos lo que explican
        * sus filas. Contarlo aparte sería una segunda fórmula para el mismo

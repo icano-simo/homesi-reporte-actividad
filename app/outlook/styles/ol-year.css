@@ -601,6 +601,34 @@ table.piv.ol-year thead .yr-row th.ol-band {
 }
 
 /*
+ * ============================================================================
+ * EL ENCABEZADO DEL BLOQUE `Inactive` — etapa OL21
+ * ============================================================================
+ *
+ * Separa los branches sin nadie asignado de los que operan. Es una fila de la
+ * misma tabla --no una tabla aparte-- porque la fila `Total` de abajo tiene que
+ * seguir sumando los dos bloques: son parte del total de la división.
+ *
+ * Una línea arriba y el rótulo en mayúsculas chicas. Sin fondo: la tabla ya usa
+ * el fondo para las tres bandas de meses.
+ */
+.ol-page table.piv.ol-year tr.ol-blockhead td {
+  border-top: 2px solid var(--slate-200);
+  padding-top: 12px;
+  font-size: var(--ol-text);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--slate-500);
+  background: transparent;
+}
+/* La fila no es un link: no se comporta como las de branch. */
+.ol-page table.piv.ol-year tr.ol-blockhead td.lbl {
+  position: static;
+  min-width: 0;
+}
+
+/*
  * La barra de la estrategia Recruitment: la rampa y el alta a mano.
  *
  * ⚠ VA DEBAJO DE LA TABLA Y NO EN UNA FILA. Meter dos botones en una fila de la
@@ -619,4 +647,24 @@ table.piv.ol-year thead .yr-row th.ol-band {
 .ol-page .ol-recbar__lbl {
   font-weight: 600;
   color: var(--slate-700);
+}
+
+/*
+ * EL FILTRO DE ESTRATEGIA, en el encabezado de la vista 1 — etapa OL21.
+ *
+ * Mismo lugar y misma forma que el selector de horizonte de la vista de un
+ * branch: las dos son decisiones sobre QUE se mira, no sobre una fila.
+ */
+.ol-page .ol-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.ol-page .ol-filter__lbl {
+  font-size: var(--ol-text);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--slate-500);
 }
