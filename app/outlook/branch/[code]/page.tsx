@@ -755,6 +755,19 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * es 2,33 y ese es el dato. Lo que va en entero son las PROYECCIONES que salen
    * de él, que son préstamos.
    */
+  /*
+   * ⚠ ESTO VIVE TAMBIÉN EN `lib/outlook/strategyRows.ts` — etapa OL21.
+   *
+   * El filtro de estrategia de la vista 1 necesita los mismos números, así que
+   * se extrajo a un módulo compartido. Esta copia sigue acá porque rehacer las
+   * llamadas de la pantalla más verificada del módulo, al final de una etapa de
+   * seis ítems, es el peor momento para tocarla.
+   *
+   * ⚠ MIENTRAS LAS DOS EXISTAN, UN ARREGLO VA EN LAS DOS. Está verificado que
+   * dan lo mismo --las trece celdas, las cinco estrategias-- y cómo re-comprobarlo
+   * está escrito en el encabezado de ese archivo. El próximo que toque esto:
+   * migrar a las funciones compartidas y borrar esta copia.
+   */
   const exactoDe = (bs: BranchStrategy): Record<string, number> => {
     const out: Record<string, number> = {};
     if (bs.opensBy === 'loanOfficer') {

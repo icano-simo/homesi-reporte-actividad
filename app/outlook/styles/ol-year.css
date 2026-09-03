@@ -648,3 +648,23 @@ table.piv.ol-year thead .yr-row th.ol-band {
   font-weight: 600;
   color: var(--slate-700);
 }
+
+/*
+ * EL FILTRO DE ESTRATEGIA, en el encabezado de la vista 1 — etapa OL21.
+ *
+ * Mismo lugar y misma forma que el selector de horizonte de la vista de un
+ * branch: las dos son decisiones sobre QUE se mira, no sobre una fila.
+ */
+.ol-page .ol-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.ol-page .ol-filter__lbl {
+  font-size: var(--ol-text);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--slate-500);
+}

@@ -5,7 +5,16 @@ import { useRouter } from 'next/navigation';
 import RecruitEditor, { RECRUITMENT_BRANCH, branchOptions } from '@/app/outlook/components/RecruitEditor';
 import RecruitRampEditor from '@/app/outlook/components/RecruitRampEditor';
 import type { Ramp } from '@/lib/outlook/recruitment';
-import { composeYear, currentMonthByBranch, projectBranch, type OutlookData } from '@/lib/outlook/loadData';
+import {
+  composeYear,
+  currentMonthByBranch,
+  projectBranch,
+  projectLoanOfficer,
+  type OutlookData,
+  type YearRow,
+} from '@/lib/outlook/loadData';
+import { personasDe, strategyRowsOf } from '@/lib/outlook/strategyRows';
+import { OUTLOOK_STRATEGIES, type OutlookStrategy } from '@/lib/outlook/project';
 import { fmt, sumOfShown } from '@/lib/outlook/format';
 import { useOutlookDataContext } from '@/lib/outlook/useOutlookData';
 
@@ -66,6 +75,12 @@ function rampaTexto(r: Ramp): string {
   return `${p(r.month1)} · ${p(r.month2)} · ${p(r.month3Plus)}`;
 }
 
+/** Una persona en el desglose de un branch filtrado por estrategia — OL21. */
+interface PersonaFila {
+  name: string;
+  year: YearRow;
+}
+
 export default function OutlookPage() {
   const router = useRouter();
   /*
@@ -76,6 +91,25 @@ export default function OutlookPage() {
    * hooks en cada render, y abajo hay dos `return` que salen antes de la tabla.
    */
   const [panel, setPanel] = useState<'ramp' | 'new' | null>(null);
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * ⚠ EL FILTRO DE ESTRATEGIA — etapa OL21
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * `null` = todas, que es la tabla que ya existía. Con una estrategia elegida,
+   * cada fila de branch muestra los números DE esa estrategia y se puede abrir
+   * para ver su gente.
+   *
+   * ⚠ NO ESCONDE BRANCHES, y es una decisión de Isabella con un motivo: un
+   * branch que aparece vacío dice algo --"acá no hay B2B"-- y uno que desaparece
+   * hace que el total deje de ser el de la división, que es exactamente el
+   * defecto que la otra mitad de esta etapa vino a arreglar.
+   *
+   * ⚠ Y NO SE DESPLIEGAN TODOS DE UNA. Trece branches abiertos a la vez es una
+   * pantalla ilegible; el clic para abrir uno es barato.
+   */
+  const [filtro, setFiltro] = useState<OutlookStrategy | null>(null);
+  const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
   /* Los datos vienen del contexto del layout: una sola carga para las dos
      vistas. Ver `lib/outlook/useOutlookData.tsx`. */
   const { data, error, reload } = useOutlookDataContext();
@@ -152,11 +186,59 @@ export default function OutlookPage() {
   const currentByBranch = currentMonthByBranch(data);
   const currentCell = (b: OutlookData['branches'][number]) => currentByBranch.get(b.branchCode) ?? 0;
 
-  /* La fila de doce meses de cada branch, armada por la misma función. */
-  const rows = data.branches.map((b) => ({
-    branch: b,
-    year: composeYear(monthsOfYear, currentMonth, b.actualByMonth, currentCell(b), projectBranch(b, remainingMonths)),
-  }));
+  /*
+   * La fila de doce meses de cada branch, armada por la misma función.
+   *
+   * ⚠ CON FILTRO, LA FILA ES LA DE LA ESTRATEGIA, y sale de `strategyRowsOf` --
+   * la MISMA función que usa la vista de un branch. No se recalcula acá: dos
+   * cálculos del mismo número se separan en el primer arreglo que se haga en uno
+   * solo, y nada avisa porque cada uno suma bien por su cuenta.
+   *
+   * Un branch sin esa estrategia devuelve `null` y su fila sale vacía --no en
+   * cero-- porque no tiene esa estrategia, no tiene cero de esa estrategia.
+   */
+  const rows = data.branches.map((b) => {
+    const completa = composeYear(
+      monthsOfYear,
+      currentMonth,
+      b.actualByMonth,
+      currentCell(b),
+      projectBranch(b, remainingMonths)
+    );
+    if (filtro === null) return { branch: b, year: completa, gente: [] as PersonaFila[] };
+
+    const deEstrategia = strategyRowsOf(data, b, monthsOfYear, remainingMonths).find((r) => r.strategy === filtro);
+    if (!deEstrategia) {
+      return {
+        branch: b,
+        year: { byMonth: Object.fromEntries(monthsOfYear.map((m) => [m, null])) } as typeof completa,
+        gente: [] as PersonaFila[],
+      };
+    }
+    /*
+     * Su gente, para el desglose. Sólo en las estrategias que se abren por
+     * persona: NPPM se abre por realtor y B2B/Affinity por dueño de la
+     * oportunidad, y meterlos acá como si fueran personas del branch diría algo
+     * falso. Para esas, el desglose sigue estando donde vive: dentro del branch.
+     */
+    const gente: PersonaFila[] = personasDe(b, deEstrategia.bs).map((lo) => {
+      const st = lo.strategies.find((x) => x.strategy === filtro);
+      const pasos = projectLoanOfficer(lo, remainingMonths).stepsByStrategy[filtro] ?? [];
+      const proj: Record<string, number | null> = {};
+      remainingMonths.forEach((m, i) => (proj[m] = pasos[i]?.value ?? 0));
+      return {
+        name: lo.fullName,
+        year: composeYear(
+          monthsOfYear,
+          currentMonth,
+          st?.actualByMonth ?? {},
+          st?.actualByMonth[currentMonth] ?? 0,
+          proj
+        ),
+      };
+    });
+    return { branch: b, year: deEstrategia.year, gente };
+  });
 
   /*
    * ══════════════════════════════════════════════════════════════════════════
@@ -232,8 +314,40 @@ export default function OutlookPage() {
           <p className="page-head__subtitle">
             {year} month by month — {actualMonths.length} closed, {monthLabel(currentMonth)} forecast,{' '}
             {remainingMonths.length} budgeted
+            {filtro !== null && (
+              <>
+                {' · '}
+                <b>{filtro}</b> only
+              </>
+            )}
           </p>
         </div>
+        {/*
+          El filtro de estrategia — etapa OL21. Va en el encabezado y no arriba
+          de la tabla, al lado del selector de horizonte de la otra vista: es una
+          decisión sobre QUÉ se mira, no sobre una fila.
+        */}
+        <label className="ol-filter">
+          <span className="ol-filter__lbl">Strategy</span>
+          <select
+            className="field"
+            value={filtro ?? ''}
+            onChange={(e) => {
+              setFiltro((e.target.value || null) as OutlookStrategy | null);
+              /* Al cambiar de estrategia se cierran los desgloses: los abiertos
+                 eran de la anterior y dejarlos abiertos muestra otra cosa con la
+                 misma forma. */
+              setAbiertos(new Set());
+            }}
+          >
+            <option value="">All strategies</option>
+            {OUTLOOK_STRATEGIES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
       {/*
@@ -327,17 +441,39 @@ export default function OutlookPage() {
                     </td>
                   </tr>
                 )}
-                {lista.map(({ branch: b, year: y }) => (
+                {lista.map(({ branch: b, year: y, gente }) => (
+              <Fragment key={b.branchCode}>
               <tr
-                key={b.branchCode}
                 className="metric bp-row-link"
                 tabIndex={0}
                 role="link"
-                onClick={() => router.push('/outlook/branch/' + b.branchCode)}
+                /*
+                  ⚠ CON FILTRO, EL CLIC ABRE EL DESGLOSE; sin filtro, navega al
+                  branch — etapa OL21.
+
+                  Es la misma fila haciendo dos cosas, y la razón es que la
+                  pregunta cambia: sin filtro se está eligiendo un branch para
+                  ir a verlo; con filtro se está mirando UNA estrategia en toda
+                  la división, y lo que se quiere es su gente sin perder la
+                  comparación con los otros branches. Navegar ahí obligaría a
+                  volver y re-elegir la estrategia para mirar el siguiente.
+                */
+                onClick={() => {
+                  if (filtro === null) {
+                    router.push('/outlook/branch/' + b.branchCode);
+                    return;
+                  }
+                  setAbiertos((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(b.branchCode)) next.delete(b.branchCode);
+                    else next.add(b.branchCode);
+                    return next;
+                  });
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
-                    router.push('/outlook/branch/' + b.branchCode);
+                    e.currentTarget.click();
                   }
                 }}
               >
@@ -421,6 +557,57 @@ export default function OutlookPage() {
                   )}
                 </td>
               </tr>
+              {/*
+                El desglose: la gente del branch en esa estrategia. Sólo con
+                filtro y sólo si el branch está abierto.
+
+                ⚠ NO SUMA AL TOTAL, y no debe: `totalByMonth` recorre `rows`,
+                que son las filas de BRANCH. Estas son sus hijas -- contarlas
+                también sería contar la misma producción dos veces, que es
+                exactamente lo que las tres bandas de OL3 vinieron a evitar.
+
+                ⚠ Y SÓLO APARECE EN LAS ESTRATEGIAS QUE SE ABREN POR PERSONA.
+                NPPM se abre por realtor y B2B/Affinity por dueño de la
+                oportunidad, así que `gente` viene vacía: su desglose no son
+                personas del branch y mostrarlo como si lo fueran diría algo
+                falso. Para esas, el desglose sigue estando dentro del branch.
+              */}
+              {filtro !== null &&
+                abiertos.has(b.branchCode) &&
+                gente.map((p) => (
+                  <tr key={b.branchCode + '|' + p.name} className="metric mrow">
+                    <td className="lbl" style={{ paddingLeft: '26px' }}>
+                      {p.name}
+                    </td>
+                    {monthsOfYear.map((m) => (
+                      <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
+                        {fmt(p.year.byMonth[m] ?? null)}
+                      </td>
+                    ))}
+                    <td className="bp-center totcol">
+                      {fmt(sumOfShown(monthsOfYear.map((m) => p.year.byMonth[m] ?? null)))}
+                    </td>
+                  </tr>
+                ))}
+              {/*
+                Un branch abierto que no tiene a nadie en esa estrategia lo dice.
+                Sin esto, el clic no hace nada visible y se lee como un boton
+                roto -- el mismo criterio del "lapiz que no hacia nada".
+              */}
+              {filtro !== null && abiertos.has(b.branchCode) && gente.length === 0 && (
+                <tr className="metric mrow">
+                  <td className="lbl bp-muted" colSpan={monthsOfYear.length + 2} style={{ paddingLeft: '26px' }}>
+                    {`No ${filtro} broken down by person here — ${
+                      filtro === 'NPPM'
+                        ? 'NPPM opens by realtor'
+                        : filtro === 'B2B' || filtro === 'Affinity'
+                          ? 'it opens by opportunity owner'
+                          : 'nobody in this branch takes part in it'
+                    }. Open the branch to see it.`}
+                  </td>
+                </tr>
+              )}
+              </Fragment>
                 ))}
               </Fragment>
             ))}
