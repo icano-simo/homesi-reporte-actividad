@@ -1,9 +1,9 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { BuildingIcon, GridIcon, AlertTriangleIcon } from '@/components/ui/icons';
+import { BuildingIcon, GridIcon, AlertTriangleIcon, CalendarIcon } from '@/components/ui/icons';
 
-export type TabType = 'executive' | 'matrix' | 'adverse';
+export type TabType = 'executive' | 'matrix' | 'adverse' | 'nextMonth';
 
 export interface TabNavigationProps {
   activeTab: TabType;
@@ -35,6 +35,9 @@ const TABS: TabDefinition[] = [
   // ninguna noción de "riesgo" en el código; el rótulo viejo prometía algo
   // que no está.
   { id: 'adverse', label: 'Adverse Loans', icon: <AlertTriangleIcon size={14} />, badge: 'adverseCount' },
+  // Etapa NEXTMONTH-2: sin badge -- no hay ningún contador tipo adverseCount
+  // para esta pestaña.
+  { id: 'nextMonth', label: 'Next Month', icon: <CalendarIcon size={14} /> },
 ];
 
 /**

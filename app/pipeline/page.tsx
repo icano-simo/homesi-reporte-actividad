@@ -29,10 +29,12 @@ import {
 } from '@/lib/pipeline/branchForecast';
 import { buildLoanOfficerForecastRows } from '@/lib/pipeline/loanOfficerForecast';
 import { buildStrategyBranchRows } from '@/lib/pipeline/strategyBranchRows';
+import { buildNextMonthPopulations, summarizeCountAmount, buildNextMonthByBranch, buildNextMonthByStrategy } from '@/lib/pipeline/nextMonth';
 import AdverseTable, { type ChannelFilter } from './AdverseTable';
 import Topbar from './Topbar';
 import TabNavigation, { type TabType } from './TabNavigation';
 import TabMilestoneMatrix from './TabMilestoneMatrix';
+import TabNextMonth from './TabNextMonth';
 import { getForecastDb, isSupabaseConfigured } from '@/lib/supabase/client';
 import { DownloadIcon, FileSheetIcon } from '@/components/ui/icons';
 
@@ -547,6 +549,12 @@ export default function PipelinePage() {
    * dejado dos definiciones del forecast. Ver la nota de ese archivo.
    */
   const branchRows: BranchForecastRow[] = data ? buildBranchForecastRows(data.openLoans, pipelineDateRange) : [];
+
+  // Etapa NEXTMONTH-2: mismo selector de mes que ya usan Cerrados/Forecast
+  // (forecastMonthParsed), no un rango derivado -- ver lib/pipeline/nextMonth.ts.
+  const nextMonthPopulations = data
+    ? buildNextMonthPopulations(data.openLoans, forecastMonthParsed)
+    : { estClosingNextMonth: [], outOfScope: [], combined: [] };
 
   // Etapa F6h, extendido en ajuste posterior: filtro de branch para TODA la
   // página (banner, Executive, Matrix, Adverse) -- no solo Executive como se
@@ -1595,6 +1603,16 @@ export default function PipelinePage() {
               forecastMonthLabel={forecastMonthLabel}
               firstSeenAsAdverse={firstSeenAsAdverse}
               onChannelFilterChange={setChannelFilter}
+            />
+          )}
+
+          {activeTab === 'nextMonth' && (
+            <TabNextMonth
+              estClosingNextMonth={summarizeCountAmount(nextMonthPopulations.estClosingNextMonth)}
+              outOfScope={summarizeCountAmount(nextMonthPopulations.outOfScope)}
+              combined={summarizeCountAmount(nextMonthPopulations.combined)}
+              byBranchRows={buildNextMonthByBranch(nextMonthPopulations)}
+              byStrategyRows={buildNextMonthByStrategy(nextMonthPopulations)}
             />
           )}
 
