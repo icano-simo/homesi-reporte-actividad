@@ -1306,8 +1306,8 @@ export default function PipelinePage() {
             brokered: hideZeroBranches(toBranchLite(branchRowsForSummary.filter((r) => r.channel === 'Brokered'))),
           },
           loanOfficerRows: {
-            banked: toLoanOfficerLite('Banked - Retail'),
-            brokered: toLoanOfficerLite('Brokered'),
+            banked: hideZeroBranches(toLoanOfficerLite('Banked - Retail')),
+            brokered: hideZeroBranches(toLoanOfficerLite('Brokered')),
           },
           strategyRows: {
             banked: toStrategyLite(bankedStrategySummaryRows),
