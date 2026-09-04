@@ -8066,3 +8066,25 @@ filtrar las verificaciones `cellsMatch5` más arriba en el mismo archivo).
 `app/pipeline/page.tsx` (`hideZeroBranches()` nueva dentro de
 `handleExportPdf()`, aplicada a `branchRows.banked`/`.brokered` y a
 `page.banked`/`.brokered` de cada entrada de `strategyPages`).
+
+## Loan Officers inactivos ocultos del PDF
+
+Mismo criterio que branches (las 5 columnas en cero -- `totalCount`,
+`healthyCount`, `closedCount`, `projectedToClose` Y `totalForecast`),
+extendido a la tabla Por Loan Officer.
+
+Causa confirmada en `lib/pipeline/loanOfficerForecast.ts`
+(`buildLoanOfficerForecastRows()`): el conjunto de Loan Officers de un
+branch+canal se arma con TODOS los préstamos cerrados históricos de ese
+branch+canal (`closedLoansForBranch`, sin filtro de fecha) más los
+abiertos -- el `dateRange` del Forecast Month recién se aplica después,
+para calcular `closedCount` del período mostrado. Un LO entra a la lista
+con un solo préstamo cerrado en ese branch+canal alguna vez, sin importar
+si cae dentro del rango actual -- por eso podía quedar con las 5 columnas
+en cero para el período que se está mirando.
+
+### Archivos
+
+`app/pipeline/page.tsx` (`hideZeroBranches()` reusada tal cual, aplicada
+a `loanOfficerRows.banked`/`.brokered` en `handleExportPdf()` -- ningún
+cambio en `lib/pipeline/loanOfficerForecast.ts`).
