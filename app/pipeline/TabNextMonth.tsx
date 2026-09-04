@@ -22,14 +22,18 @@ export interface TabNextMonthProps {
 /**
  * Etapa NEXTMONTH-7: selector de población tipo píldora -- reemplaza los 3
  * pares de columnas fijos por una sola tabla que muestra UNA población a
- * la vez, elegida acá. `tint` es la misma clase de fondo ya definida en
- * forecast-visual.css (`.col-nextmonth`/`.col-outofscope`/`.col-combined`,
- * Etapa NEXTMONTH-2b/5/6) -- no se agrega ningún tinte nuevo.
+ * la vez, elegida acá.
+ *
+ * El tinte de fondo por color (`col-nextmonth`/`col-outofscope`/
+ * `col-combined`, Etapa NEXTMONTH-2b/5/6) se retiró de la tabla -- ya no
+ * aplica con una sola población visible a la vez (esos 3 colores existían
+ * para distinguir 3 pares de columnas simultáneos). Queda solo la línea
+ * divisoria (`group-start`, sin color) entre el label y los valores.
  */
 const POPULATION_OPTIONS = [
-  { key: 'estClosingNextMonth', label: 'Est Closing Next Month', tint: 'col-nextmonth' },
-  { key: 'outOfScope', label: 'Out of Scope', tint: 'col-outofscope' },
-  { key: 'combined', label: 'Combined', tint: 'col-combined' },
+  { key: 'estClosingNextMonth', label: 'Est Closing Next Month' },
+  { key: 'outOfScope', label: 'Out of Scope' },
+  { key: 'combined', label: 'Combined' },
 ] as const;
 type PopulationKey = (typeof POPULATION_OPTIONS)[number]['key'];
 
@@ -111,17 +115,17 @@ function sumPopulation<T>(rows: T[], pick: (row: T) => NextMonthCell): CountAmou
 /**
  * Etapa NEXTMONTH-4, reducida en NEXTMONTH-7 a una sola población (la
  * píldora activa) -- mismo patrón que ExecTotalRow de PivotTable.tsx:
- * `tr.grp.total`, `td.lbl`, celda de valor con el MISMO tinte que las
- * filas de arriba (`group-start` en la primera, para que se vea continuo
- * hasta el total). Sin CountCell/onClick -- el total no es clickeable, es
- * una suma, no una lista de préstamos propia.
+ * `tr.grp.total`, `td.lbl`, celda de valor con `group-start` (sin tinte de
+ * color, retirado -- ver el comentario de POPULATION_OPTIONS) para que la
+ * línea divisoria se vea continua hasta el total. Sin CountCell/onClick --
+ * el total no es clickeable, es una suma, no una lista de préstamos propia.
  */
-function TotalRow({ tint, value }: { tint: string; value: CountAmount }) {
+function TotalRow({ value }: { value: CountAmount }) {
   return (
     <tr className="grp total">
       <td className="lbl">Total</td>
-      <td className={'val ' + tint + ' group-start'}>{fmtInt(value.count)}</td>
-      <td className={'val ' + tint}>${fmtAmount(value.amount)}</td>
+      <td className="val group-start">{fmtInt(value.count)}</td>
+      <td className="val">${fmtAmount(value.amount)}</td>
     </tr>
   );
 }
@@ -233,18 +237,19 @@ export default function TabNextMonth({ estClosingNextMonth, outOfScope, combined
         <div className="tbl-scroll">
           {/*
             Etapa NEXTMONTH-2b: mismo criterio de PivotTable.tsx (.col-pipeline/
-            .col-forecast) -- un par de columnas (Loans/Amount), agrupadas por
-            un tinte de fondo compartido + `group-start` como divisor, en vez
-            de una celda combinada "N ($monto)". Valores crudos (count/$), no
+            .col-forecast) -- un par de columnas (Loans/Amount), en vez de una
+            celda combinada "N ($monto)". Valores crudos (count/$), no
             badges -- se conserva la alineación a la derecha de `table.piv
             td.val` (mismo criterio que Commercial Activity/la cascada), sin
             el centrado que sí tiene sentido en .piv--exec para sus
             badges/píldoras.
 
-            Etapa NEXTMONTH-7: antes eran 3 pares fijos (uno por población);
-            ahora es un solo par, el de la población elegida en la píldora de
-            arriba (`POPULATION_OPTIONS`/`activePopulation`) -- mismo tinte,
-            mismo mecanismo, un solo par visible a la vez en vez de los 3.
+            Etapa NEXTMONTH-7: antes eran 3 pares fijos (uno por población,
+            cada uno con su propio tinte de color); ahora es un solo par, el
+            de la población elegida en la píldora de arriba
+            (`POPULATION_OPTIONS`/`activePopulation`) -- sin tinte de color
+            (ya no aplica con una sola población visible), solo `group-start`
+            como línea divisoria entre el label y los valores.
           */}
           <table className="piv piv--nextmonth">
             <colgroup>
@@ -255,8 +260,8 @@ export default function TabNextMonth({ estClosingNextMonth, outOfScope, combined
             <thead>
               <tr className="mo-row">
                 <th className="lbl">{view === 'branch' ? 'Branch' : 'Strategy'}</th>
-                <th className={activePopulation.tint + ' group-start'}>{activePopulation.label}</th>
-                <th className={activePopulation.tint}>Amount</th>
+                <th className="group-start">{activePopulation.label}</th>
+                <th>Amount</th>
               </tr>
             </thead>
             <tbody>
@@ -266,13 +271,13 @@ export default function TabNextMonth({ estClosingNextMonth, outOfScope, combined
                       <td className="lbl" style={{ textAlign: 'left' }}>
                         {row.branch}
                       </td>
-                      <td className={'val ' + activePopulation.tint + ' group-start'}>
+                      <td className="val group-start">
                         <CountCell
                           cell={row[population]}
                           onClick={() => openCell(contextForBranch(row.branch), activePopulation.label, row[population].loans)}
                         />
                       </td>
-                      <td className={'val ' + activePopulation.tint}>${fmtAmount(row[population].amount)}</td>
+                      <td className="val">${fmtAmount(row[population].amount)}</td>
                     </tr>
                   ))
                 : byStrategyRows.map((row) => (
@@ -280,13 +285,13 @@ export default function TabNextMonth({ estClosingNextMonth, outOfScope, combined
                       <td className="lbl" style={{ textAlign: 'left' }}>
                         {row.strategy}
                       </td>
-                      <td className={'val ' + activePopulation.tint + ' group-start'}>
+                      <td className="val group-start">
                         <CountCell
                           cell={row[population]}
                           onClick={() => openCell(row.strategy, activePopulation.label, row[population].loans)}
                         />
                       </td>
-                      <td className={'val ' + activePopulation.tint}>${fmtAmount(row[population].amount)}</td>
+                      <td className="val">${fmtAmount(row[population].amount)}</td>
                     </tr>
                   ))}
               {view === 'branch' && !byBranchRows.length && (
@@ -304,9 +309,9 @@ export default function TabNextMonth({ estClosingNextMonth, outOfScope, combined
                 </tr>
               )}
               {view === 'branch' ? (
-                <TotalRow tint={activePopulation.tint} value={byBranchTotals[population]} />
+                <TotalRow value={byBranchTotals[population]} />
               ) : (
-                <TotalRow tint={activePopulation.tint} value={byStrategyTotals[population]} />
+                <TotalRow value={byStrategyTotals[population]} />
               )}
             </tbody>
           </table>
