@@ -227,6 +227,22 @@ una **tautología**: `!a.includes(b) || a.length === 3`, cuyo segundo término
 siempre era cierto. Una aserción que no puede fallar es peor que ninguna, porque
 ocupa el lugar de una que sí mide.
 
+Pasó **dos veces**, y las dos escribiendo la prueba de otra cosa. La segunda fue
+`/is-current/.test(...) || st.some((x) => x.punto !== null && !/is-current|is-done/.test(x.clases))`,
+para verificar que un punto de “trabado” convive con el contorno de estado del
+botón: el segundo término se cumplía solo, porque un nodo trabado y sin estado
+siempre hay. Las dos veces la forma fue la misma, y es buscable:
+
+> **Un OR en una aserción es una pregunta sin contestar; se contesta armando el
+> estado, no ampliando la condición.**
+
+Un `||` se escribe cuando no se sabe cuál de los dos casos va a venir — y esa
+incertidumbre es justo la señal de que hay que **construir** el caso. La versión
+válida eligió el nodo trabado para que quedara en curso y completó su step con
+el antecesor sin terminar: el botón quedó `is-done is-current` con el punto
+puesto, que es lo que un cuarto estado no podría representar. Así la prueba
+justifica la decisión de diseño además de verificarla.
+
 **Las otras cuatro se quedan como nota, y por buenas razones.** El timeout corto
 no tiene un número correcto general — depende de la ruta. La columna equivocada
 del Excel se evita leyendo por nombre, que es una convención y no una función. Y
