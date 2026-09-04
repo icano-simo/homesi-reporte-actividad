@@ -26,6 +26,7 @@ import { useOutlookDataContext } from '@/lib/outlook/useOutlookData';
 import StrategyEditor, { type OutlookEditable } from '@/app/outlook/components/StrategyEditor';
 import NppmEditor from '@/app/outlook/components/NppmEditor';
 import RecruitEditor, { branchOptions } from '@/app/outlook/components/RecruitEditor';
+import OutlookTopBar from '@/app/outlook/components/OutlookTopBar';
 /*
  * ⚠ UNA SOLA IMPLEMENTACION del calculo por estrategia — etapa OL22. Esta
  * pantalla tenia su propia copia y la vista 1 otra; ahora las dos leen de acá.
@@ -1029,7 +1030,13 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                       `not per loan. Who owns this budget is still to be decided.`
                 }
               >
-                {branch.branchCode === 'AFFINITY' ? 'opens by account executive' : 'Inactive'}
+                {/*
+                  ⚠ AFFINITY YA NO LLEVA NOTA — etapa OL25. Decia `opens by
+                  account executive` y la tabla de abajo ya muestra a Shirley
+                  Camargo y David Alvarez: la nota repetia lo que se ve. El
+                  motivo completo sigue en el tooltip, que es donde se busca.
+                */}
+                {branch.branchCode === 'AFFINITY' ? '' : 'Inactive'}
               </span>
             )}
           </h1>
@@ -1067,6 +1074,13 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
           </p>
         </div>
       </div>
+
+      {/*
+        ⚠ LA BARRA, DEBAJO DEL ENCABEZADO — etapa OL25. Ver la nota del layout:
+        vivia arriba del titulo y con su propia columna, 110px corrida respecto
+        del breadcrumb. Aca hereda la columna del contenido.
+      */}
+      <OutlookTopBar />
 
       {/*
         ══════════════════════ UNA SOLA TABLA — etapa OL9 ═════════════════════

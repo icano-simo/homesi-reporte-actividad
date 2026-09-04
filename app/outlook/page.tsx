@@ -2,6 +2,7 @@
 
 import { Fragment, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import OutlookTopBar from '@/app/outlook/components/OutlookTopBar';
 import { RECRUITMENT_BRANCH } from '@/app/outlook/components/RecruitEditor';
 import { composeYear, currentMonthByBranch, projectBranch, type OutlookData } from '@/lib/outlook/loadData';
 import { remainingMonthsFor } from '@/lib/outlook/horizon';
@@ -324,6 +325,7 @@ export default function OutlookPage() {
             {remainingMonths.length} budgeted
           </p>
         </div>
+
         {/*
           ⚠ ACA ESTABA LA TARJETA `647 · Total projection` Y SE FUE — etapa OL24.
 
@@ -335,6 +337,20 @@ export default function OutlookPage() {
           nada -- que era el problema que la tarjeta venia a resolver.
         */}
       </div>
+
+      {/*
+        ⚠ LA BARRA, DEBAJO DEL ENCABEZADO — etapa OL25.
+
+        Vivia en el layout, arriba del titulo y con su propia columna de 1600px
+        contra los 1380 del contenido: medido, la etiqueta `Project through`
+        arrancaba 110px a la izquierda del breadcrumb. Aca hereda la columna del
+        contenido y se alinea sola.
+
+        El encabezado queda con titulo y subtitulo, y los controles debajo, que
+        es el orden en que se leen: primero que pantalla es, despues que se puede
+        hacer con ella.
+      */}
+      <OutlookTopBar />
 
       {/*
         ⚠ El aviso dice "no se puede LEER", no "no está aplicado". La diferencia
@@ -570,7 +586,13 @@ export default function OutlookPage() {
                   */}
                   {isInactive(b.branchCode) && !esMarcador(b.branchCode) && (
                     <span className="bp-muted ol-tag">
-                      {operaSinRoster(b.branchCode) ? 'opens by account executive' : 'Inactive'}
+                      {/*
+                        ⚠ AFFINITY YA NO LLEVA NOTA — etapa OL25. Ver el branch:
+                        la nota repetia lo que la tabla ya muestra. Aca ademas
+                        AFFINITY esta en el bloque de activos, asi que no
+                        necesita ninguna etiqueta -- opera como los demas.
+                      */}
+                      {operaSinRoster(b.branchCode) ? '' : 'Inactive'}
                     </span>
                   )}
                 </td>
