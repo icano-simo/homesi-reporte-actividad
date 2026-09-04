@@ -2153,6 +2153,8 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                 .filter((p, i, a) => a.findIndex((q) => q.employeeKey === p.employeeKey) === i)
                 .sort((a, b) => a.name.localeCompare(b.name))}
               currentMonth={currentMonth}
+              ramp={data.recruitRamp}
+              recruitCount={data.diagnostics.recruitsRead}
               onClose={() => setEditingRecruit(null)}
               onSaved={() => {
                 setEditingRecruit(null);

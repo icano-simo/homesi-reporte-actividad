@@ -101,7 +101,7 @@
 /* La vigente se distingue: en una lista de revisiones, cuál manda es el dato. */
 .ol-editor__rev-card.is-current {
   border-color: var(--brand-300, var(--slate-400));
-  background: var(--white, #fff);
+  background: var(--white);
 }
 .ol-editor__rev-head {
   display: flex;
@@ -131,7 +131,7 @@
   padding: 1px 7px;
   border-radius: 999px;
   border: 1px solid var(--slate-200);
-  background: var(--white, #fff);
+  background: var(--white);
   color: var(--slate-600);
 }
 .ol-editor__rev-note {
@@ -184,7 +184,7 @@
   padding: 9px 12px;
   border: 1px solid var(--slate-200);
   border-radius: var(--radius-md);
-  background: var(--white, #fff);
+  background: var(--white);
   cursor: pointer;
   font-family: inherit;
   transition: border-color 0.14s, background 0.14s;
@@ -273,4 +273,28 @@
  */
 .ol-preview tbody td {
   font-size: var(--ol-lg);
+}
+
+/*
+ * ============================================================================
+ * LA RAMPA, DENTRO DEL ALTA — etapa OL24
+ * ============================================================================
+ *
+ * Tenia modal propio y se mudo adentro del formulario de alta: es la otra mitad
+ * de la misma decision --cuanto se espera de alguien, y con que curva llega--.
+ *
+ * ⚠ SE ENCIERRA EN SU PROPIA CAJA a proposito. Es lo unico del formulario que NO
+ * es de la persona que se esta creando: es una curva global a la division. Sin
+ * un limite visible queda como un campo mas entre las fechas y el benchmark, y
+ * lo natural es leerla como suya. El aviso de adentro lo dice con palabras; la
+ * caja lo dice antes de leer.
+ */
+.ol-editor__ramp {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  background: var(--slate-50);
 }

@@ -150,7 +150,7 @@ table.piv.ol-year tr.grp.togg:hover td.ol-m {
  * portal, así que un cambio de paleta los alcanza.
  */
 table.piv.ol-year thead .yr-row th.ol-band {
-  border-bottom: 2px solid var(--white, transparent);
+  border-bottom: 2px solid var(--white);
 }
 .ol-band--actual {
   background: var(--slate-100);
@@ -699,68 +699,37 @@ table.piv.ol-year thead .yr-row th.ol-band {
   gap: 8px;
   white-space: nowrap;
 }
+/*
+ * ⚠ ALINEADO CON EL BREADCRUMB — etapa OL24.
+ *
+ * Venía en mayúsculas con `letter-spacing`, o sea con la forma de un rótulo de
+ * sección: pesaba como un encabezado al lado de uno que sí lo es. Ahora usa lo
+ * mismo que `.bp-breadcrumbs` --`--ol-text` y la escala gris-- así que se lee
+ * como lo que es, la etiqueta de un control.
+ *
+ * ⚠ Y NO SE FIJA UN TAMAÑO NUEVO: `--ol-text` es el mismo token que usa el
+ * breadcrumb dos líneas más abajo. Un `12px` escrito acá se separaría del
+ * breadcrumb el día que la escala del módulo cambie.
+ */
 .ol-topbar__lbl {
+  font-size: var(--ol-text);
   font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   color: var(--slate-500);
 }
 
-/* ── La barra de reclutamiento — etapa OL23 ──────────────────────────────── */
+/* ── El boton unico de reclutamiento — etapas OL23 y OL24 ────────────────── */
 
 /*
- * Superficie propia: eran dos botones sueltos al lado del horizonte y se leian
- * como tres controles del mismo rango. Son dos cosas distintas -- a la
- * izquierda el PIPELINE, a la derecha la CURVA con la que arranca cada persona.
+ * OL23 puso una barra con cuatro controles: dos insignias, el boton y la
+ * pildora de la rampa. OL24 la reduce a UN boton que se lleva el contador.
+ * Eran cuatro cosas del mismo rango para una sola decision, y la rampa
+ * --global a la division-- competia con el alta de una persona.
  */
-.ol-recruitbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 12px;
-  width: 100%;
-  max-width: 1600px;
-  margin: 0 auto 4px;
-  padding: 10px 14px;
-  background: var(--white);
-  border: 1px solid var(--slate-200);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-xs);
-}
-.ol-recruitbar__side {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.ol-recruitbar__lbl {
-  font-weight: 600;
-  color: var(--slate-500);
-}
-
-/* La insignia del conteo. */
-.ol-badge {
-  padding: 3px 10px;
-  border-radius: var(--radius-full);
-  background: var(--slate-100);
-  color: var(--slate-700);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-/* La segunda dice menos: es el numero que hoy vale cero. */
-.ol-badge--quiet {
-  background: transparent;
-  border: 1px dashed var(--slate-300);
-  color: var(--slate-500);
-  font-weight: 400;
-}
 
 /*
  * La accion primaria del modulo, y la unica en `--coral`: es el color de marca
  * y pierde fuerza si se reparte. Nada mas en Outlook lo usa salvo el total del
- * anio, que es el otro numero que se viene a leer.
+ * anio en la fila anclada, que es el otro numero que se viene a leer.
  */
 .ol-btn-coral {
   padding: 5px 12px;
@@ -776,64 +745,21 @@ table.piv.ol-year thead .yr-row th.ol-band {
   background: color-mix(in srgb, var(--coral) 85%, var(--navy));
   border-color: color-mix(in srgb, var(--coral) 85%, var(--navy));
 }
+/* El contador, dentro del boton: mas tenue que la accion, pero ahi. */
+.ol-btn-coral__count {
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
 
 /*
- * La pildora segmentada de la rampa. Los tres tramos son elementos propios y no
- * una cadena: asi se leen como tres decisiones y no como un texto.
+ * ⚠ ACA VIVIA `.ol-metric`, LA TARJETA DEL TOTAL, Y SE FUE — etapa OL24.
+ *
+ * 26px en `--coral` al lado de un titulo de 22px: el encabezado se leia como
+ * si el numero fuera el titulo. Y desde que la fila de totales quedo anclada al
+ * fondo del viewport, el mismo numero ya esta siempre a la vista sin competir
+ * con nada -- que era el problema que la tarjeta venia a resolver.
  */
-.ol-ramp {
-  display: inline-flex;
-  align-items: stretch;
-  padding: 0;
-  border: 1px solid var(--accent-border);
-  border-radius: var(--radius-full);
-  background: var(--accent-soft);
-  font: inherit;
-  font-variant-numeric: tabular-nums;
-  color: var(--navy);
-  cursor: pointer;
-  overflow: hidden;
-}
-.ol-ramp__seg {
-  padding: 4px 11px;
-  font-weight: 600;
-}
-.ol-ramp__seg + .ol-ramp__seg {
-  border-left: 1px solid var(--accent-border);
-}
-.ol-ramp:hover {
-  background: color-mix(in srgb, var(--sky) 45%, transparent);
-}
-
-/* ── La tarjeta de la metrica principal — etapa OL23 ─────────────────────── */
-
-/*
- * El total del anio vive al fondo de una tabla de diecinueve filas, asi que la
- * primera pregunta de la pantalla --cuanto proyecta la division-- se contestaba
- * scrolleando. Sale de la MISMA fuente que la fila de abajo: ver la nota del
- * TSX sobre por que no se recalcula.
- */
-.ol-page .ol-metric {
-  text-align: right;
-  padding: 8px 16px;
-  border: 1px solid var(--slate-200);
-  border-radius: var(--radius-lg);
-  background: var(--white);
-  box-shadow: var(--shadow-xs);
-}
-.ol-page .ol-metric__n {
-  font-size: 26px;
-  font-weight: 700;
-  line-height: 1.1;
-  color: var(--coral);
-  font-variant-numeric: tabular-nums;
-}
-.ol-page .ol-metric__lbl {
-  font-size: var(--ol-text);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--slate-500);
-}
 
 /* ── El acordeon de los bloques del fondo — etapa OL23 ───────────────────── */
 
@@ -891,20 +817,40 @@ table.piv.ol-year thead .yr-row th.ol-band {
  * ⚠ EL `sticky` VA EN LAS CELDAS Y NO EN EL `<tr>`: sobre una fila no lo
  * soportan todos los motores, sobre una celda si.
  *
- * ⚠ Y EL CONTENEDOR NECESITA ALTO. `position: sticky; bottom: 0` pinea al fondo
- * del SCROLLPORT mas cercano, que aca es `.tbl-scroll` porque tiene
- * `overflow-x: auto`. Con el contenedor del alto de su contenido, ese scrollport
- * termina donde termina la tabla y la fila queda en su lugar de siempre: el
- * efecto seria ninguno. Dandole alto de viewport, la tabla scrollea adentro y la
- * fila queda a la vista, que es lo que se pidio.
+ * ══════════════════════════════════════════════════════════════════════════════
+ * ⚠ UN SOLO SCROLL, Y POR QUE ESO OBLIGA A `overflow: visible` — etapa OL24
+ * ══════════════════════════════════════════════════════════════════════════════
+ *
+ * OL23 le dio a este contenedor `max-height: calc(100vh - 230px); overflow:
+ * auto` para que el `sticky bottom` tuviera contra que pinearse. Funcionaba, y
+ * traia una segunda barra de scroll vertical: la de la ventana y la del
+ * contenedor. Medido a 1900x780, que es alto de laptop: ventana 947/780 y
+ * `.tbl-scroll` 657/550.
+ *
+ * ⚠ NO ALCANZA CON SACAR EL `max-height`. `position: sticky; bottom: 0` pinea al
+ * fondo del SCROLLPORT mas cercano, y un `overflow-x: auto` --que la clase base
+ * ya trae para que doce columnas puedan correrse-- YA CREA un scrollport. Sin
+ * alto, ese scrollport termina donde termina la tabla y la fila vuelve a quedar
+ * en su lugar de siempre: una sola barra, y el anclaje perdido.
+ *
+ * Por eso `overflow: visible`. Con eso el scrollport pasa a ser el documento y
+ * la fila se ancla al fondo del VIEWPORT, que es lo que se pidio en los dos
+ * puntos a la vez.
+ *
+ * ⚠ LO QUE CUESTA, dicho para que no aparezca como sorpresa: la tabla ya no
+ * tiene scroll horizontal PROPIO. Cuando no entra --pantalla angosta, o el
+ * horizonte en 36 meses-- la que se corre es la pagina entera. Es un cambio
+ * real y es el precio de tener un solo scroll vertical; si algun dia molesta,
+ * lo que hay que discutir es cual de las dos cosas vale mas, no volver a poner
+ * el `max-height` sin mirar el anclaje.
  *
  * ⚠ Y NO SE DUPLICA EL NUMERO EN UNA BARRA FIJA APARTE, que es la otra forma de
  * conseguirlo: serian dos lugares mostrando el mismo total, y dos lugares que
  * pueden decir cosas distintas.
  */
 .ol-page .tbl-scroll {
-  max-height: calc(100vh - 230px);
-  overflow: auto;
+  max-height: none;
+  overflow: visible;
 }
 /*
  * ⚠ LOS TRES SELECTORES DE CLASE SON NECESARIOS, no son de adorno.

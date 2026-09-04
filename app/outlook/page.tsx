@@ -325,20 +325,15 @@ export default function OutlookPage() {
           </p>
         </div>
         {/*
-          ⚠ LA MÉTRICA PRINCIPAL, ARRIBA — etapa OL23.
+          ⚠ ACA ESTABA LA TARJETA `647 · Total projection` Y SE FUE — etapa OL24.
 
-          El total del año vive al fondo de una tabla de diecinueve filas, así
-          que la primera pregunta de la pantalla --¿cuánto proyecta la división?--
-          se contestaba scrolleando.
-
-          ⚠ Y SALE DE `totalByMonth`, la MISMA fuente que la fila de abajo. Un
-          segundo cálculo del mismo número es la forma segura de que un día
-          digan cosas distintas: ver `strategyRows.ts`, que existe por eso.
+          La puso OL23 para que la primera pregunta de la pantalla no se
+          contestara scrolleando. Estorbaba: 26px en --coral al lado de un titulo
+          de 22px, asi que el encabezado se leia como si el numero fuera el
+          titulo. Y desde que la fila de totales quedo anclada al fondo del
+          viewport, el mismo numero ya esta siempre a la vista sin competir con
+          nada -- que era el problema que la tarjeta venia a resolver.
         */}
-        <div className="ol-metric">
-          <div className="ol-metric__n">{fmt(sumOfShown(monthsOfYear.map((m) => totalByMonth[m])))}</div>
-          <div className="ol-metric__lbl">Total projection</div>
-        </div>
       </div>
 
       {/*
