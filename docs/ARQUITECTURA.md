@@ -7977,3 +7977,32 @@ usa Commercial Activity).
 ### Archivos
 
 `app/pipeline/TabAnalytics.tsx`, `app/pipeline/styles/forecast-visual.css`.
+
+## Selector de población tipo píldora en Next Month (1ra parte del rediseño)
+
+Las tablas By Branch/By Strategy de la pestaña Next Month mostraban las 3
+poblaciones (Est Closing Next Month / Out of Scope / Combined) a la vez,
+como 3 pares de columnas fijos -- 7 columnas en total. Pasan a mostrar
+UNA sola población por vez, elegida con un selector tipo píldora (mismo
+patrón visual/de estado que el toggle By branch/By strategy ya
+existente) -- la tabla queda en 3 columnas (nombre + Loans + Amount), con
+el mismo tinte de fondo que ya tenía esa población en el esquema de 3
+pares (sin tintes nuevos).
+
+El total de la fila `Total` sigue siendo el de la población activa
+únicamente -- las 3 sumas completas se siguen calculando igual que antes
+(`byBranchTotals`/`byStrategyTotals`), porque el chequeo de desarrollo en
+consola (que compara esas sumas contra las 3 tarjetas KPI) las sigue
+necesitando completas, no solo la que se muestra.
+
+Las 3 tarjetas KPI del Hero (arriba de la tabla) NO cambian con la
+píldora -- siguen mostrando las 3 poblaciones fijas siempre, sin importar
+cuál esté seleccionada en la tabla de abajo (decisión de diseño).
+
+Sin cambios en `lib/pipeline/nextMonth.ts` ni en `app/pipeline/page.tsx`
+-- `byBranchRows`/`byStrategyRows` ya traían las 3 poblaciones por fila,
+no hizo falta recalcular nada, solo elegir cuál mostrar.
+
+### Archivos
+
+`app/pipeline/TabNextMonth.tsx` (único archivo tocado).
