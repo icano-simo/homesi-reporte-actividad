@@ -181,7 +181,7 @@ export default function TeamPage() {
           </div>
 
           {/* ── Pasos asignados ─────────────────────────────────────────────── */}
-          <h3 className="bp-section-title">Stages assigned to {viewing.full_name.split(' ')[0]}</h3>
+          <h3 className="bp-section-title">Steps assigned to {viewing.full_name.split(' ')[0]}</h3>
           <div className="tbl-card">
             <div className="tbl-scroll">
             <table className="piv bp-table--team">
@@ -200,7 +200,7 @@ export default function TeamPage() {
                   <th className="bp-center">Branch</th>
                   <th className="bp-left">Funnel</th>
                   <th className="bp-left">Node</th>
-                  <th className="bp-left">Stage</th>
+                  <th className="bp-left">Step</th>
                   <th className="bp-center">Status</th>
                   <th className="bp-center">Target date</th>
                 </tr>

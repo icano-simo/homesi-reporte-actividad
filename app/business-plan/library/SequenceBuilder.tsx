@@ -259,7 +259,7 @@ export default function SequenceBuilder({
                     <FunnelGlyph icon={node?.icon} size={18} />
                     {node?.name ?? 'unknown node'}
                   </div>
-                  <div className="bp-builder__card-sub">{count} stages</div>
+                  <div className="bp-builder__card-sub">{count} steps</div>
 
                   <div className="bp-builder__reorder">
                     <button
@@ -309,7 +309,7 @@ export default function SequenceBuilder({
                   {confirmRemove === nodeKey && (
                     <div className="bp-builder__confirm" onClick={(e) => e.stopPropagation()}>
                       <p>
-                        Remove <strong>{node?.name}</strong> from this funnel? Its {count} stages go with it.
+                        Remove <strong>{node?.name}</strong> from this funnel? Its {count} steps go with it.
                       </p>
                       <p className="bp-builder__confirm-note">The node stays in the library.</p>
                       <div className="bp-builder__confirm-actions">

@@ -56,6 +56,8 @@ type Dialog =
   | { kind: 'node-detail'; node: FunnelNode }
   | { kind: 'ms-form'; nodeKey: number; milestone: NodeMilestone | null }
   | { kind: 'ms-delete'; milestone: NodeMilestone }
+  /* Quien esta enrolado en un funnel, con su avance — etapa BP40. */
+  | { kind: 'funnel-enrolled'; funnel: Funnel }
   | null;
 
 export default function FunnelLibraryPage() {
@@ -214,7 +216,7 @@ export default function FunnelLibraryPage() {
                       <th className="lbl">Funnel</th>
                       <th className="bp-center">Category</th>
                       <th className="bp-left">Nodes, in order</th>
-                      <th className="bp-center">Stages</th>
+                      <th className="bp-center">Steps</th>
                       <th className="bp-center">Weeks</th>
                       <th className="bp-center">In use</th>
                       <th className="bp-center">Actions</th>
@@ -305,7 +307,32 @@ export default function FunnelLibraryPage() {
                               }}
                             />
                           </td>
-                          <td className="bp-center">{inUse === 0 ? <span className="bp-muted">0</span> : inUse}</td>
+                          {/*
+                            ⚠ EL NÚMERO SE VUELVE UN BOTÓN — etapa BP40.
+
+                            La columna decía cuántos, y para saber QUIÉNES había
+                            que entrar al perfil de cada persona de a una. Con
+                            tres enrolados eso es incómodo; con treinta, inviable.
+
+                            ⚠ Y EL CERO NO ES UN BOTÓN. Un control que abre una
+                            lista vacía se ve, se usa, y no pasa nada -- es el
+                            mismo criterio con el que no se ofrece editar lo que
+                            no se puede editar.
+                          */}
+                          <td className="bp-center">
+                            {inUse === 0 ? (
+                              <span className="bp-muted">0</span>
+                            ) : (
+                              <button
+                                type="button"
+                                className="bp-linkish"
+                                onClick={() => setDialog({ kind: 'funnel-enrolled', funnel: f })}
+                                title={`See who has this funnel active, and how far along they are`}
+                              >
+                                {inUse}
+                              </button>
+                            )}
+                          </td>
                           {/* Acciones EN LÍNEA: apiladas, cada fila medía el triple. */}
                           <td className="bp-center">
                             <div className="bp-actions">
@@ -402,7 +429,7 @@ export default function FunnelLibraryPage() {
                   <thead>
                     <tr className="mo-row">
                       <th className="lbl">Node</th>
-                      <th className="bp-center">Stages</th>
+                      <th className="bp-center">Steps</th>
                       {/* La columna que faltaba: la relación, visible. */}
                       <th className="bp-left">Used in funnels</th>
                       <th className="bp-center">Accountable</th>
@@ -459,7 +486,7 @@ export default function FunnelLibraryPage() {
                           </td>
                           <td className="bp-center">
                             <div className="bp-actions">
-                              <button type="button" className="bp-icon-btn" title="Stages" onClick={() => setDialog({ kind: 'node-detail', node: n })}>
+                              <button type="button" className="bp-icon-btn" title="Steps" onClick={() => setDialog({ kind: 'node-detail', node: n })}>
                                 ☰
                               </button>
                               <button type="button" className="bp-icon-btn" title="Edit node" onClick={() => setDialog({ kind: 'node-form', node: n })}>
@@ -559,6 +586,44 @@ export default function FunnelLibraryPage() {
                 );
               }}
             />
+          )}
+
+          {/*
+            ══════════════════════════════════════════════════════════════════
+            QUIÉN ESTÁ ENROLADO — etapa BP40
+            ══════════════════════════════════════════════════════════════════
+
+            ⚠ EL AVANCE SE MIDE EN STEPS Y NO EN NODOS. Lo que alguien completa
+            son steps, y un nodo de ocho pesa distinto que uno de dos: contar
+            nodos daría un porcentaje que no se corresponde con el trabajo.
+
+            ⚠ Y `0%` CON SUS DOS NÚMEROS AL LADO. Un `0%` solo no distingue
+            "no empezó" de "no tiene steps"; con `0 / 8` se lee lo primero y con
+            `0 / 0` lo segundo -- que es un plan mal armado y otra conversación.
+          */}
+          {dialog?.kind === 'funnel-enrolled' && (
+            <Modal title={dialog.funnel.name + ' — who has it active'} onClose={() => setDialog(null)}>
+              <table className="piv bp-table--los">
+                <thead>
+                  <tr className="mo-row">
+                    <th className="lbl">Loan Officer</th>
+                    <th className="bp-center">Steps done</th>
+                    <th className="bp-center">Progress</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(data.enrolledByFunnel[dialog.funnel.funnel_key] ?? []).map((e) => (
+                    <tr key={e.employee_key} className="metric">
+                      <td className="lbl">{e.full_name}</td>
+                      <td className="bp-center">
+                        {e.done} / {e.total}
+                      </td>
+                      <td className="bp-center">{e.pct}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Modal>
           )}
 
           {dialog?.kind === 'funnel-delete' && (
@@ -665,7 +730,7 @@ export default function FunnelLibraryPage() {
           )}
 
           {dialog?.kind === 'node-detail' && dlgNode && (
-            <Modal title={dlgNode.name + ' — stages'} onClose={() => setDialog(null)}>
+            <Modal title={dlgNode.name + ' — steps'} onClose={() => setDialog(null)}>
               <p className="bp-modal__lead">
                 Used in: {funnelsOf(dlgNode.node_key).map((f) => f.name).join(', ') || 'no funnel yet'} ·{' '}
                 <button type="button" className="bp-linkish" onClick={() => setDialog({ kind: 'node-form', node: dlgNode })}>
@@ -697,7 +762,7 @@ export default function FunnelLibraryPage() {
                 <table className="piv">
                   <thead>
                     <tr className="mo-row">
-                      <th className="lbl">Stage</th>
+                      <th className="lbl">Step</th>
                       <th className="bp-left">Accountable</th>
                       <th className="bp-center">SLA</th>
                       <th className="bp-center">Pos</th>
@@ -740,7 +805,7 @@ export default function FunnelLibraryPage() {
                     {nodeStages.length === 0 && (
                       <tr>
                         <td className="lbl bp-empty-cell" colSpan={5}>
-                          This node has no stages yet.
+                          This node has no steps yet.
                         </td>
                       </tr>
                     )}
@@ -762,7 +827,7 @@ export default function FunnelLibraryPage() {
                         <button
                           type="button"
                           className="bp-flow__card"
-                          title="Edit this stage"
+                          title="Edit this step"
                           onClick={() => setDialog({ kind: 'ms-form', nodeKey: dlgNode.node_key, milestone: m })}
                         >
                           <span className="bp-flow__n">
@@ -789,7 +854,7 @@ export default function FunnelLibraryPage() {
                       </div>
                     );
                   })}
-                  {nodeStages.length === 0 && <p className="bp-flow__empty">This node has no stages yet.</p>}
+                  {nodeStages.length === 0 && <p className="bp-flow__empty">This node has no steps yet.</p>}
                 </div>
               )}
 
@@ -831,11 +896,11 @@ export default function FunnelLibraryPage() {
 
           {dialog?.kind === 'ms-delete' && (
             <ConfirmDelete
-              what={'stage "' + dialog.milestone.title + '"'}
+              what={'step "' + dialog.milestone.title + '"'}
               busy={busy}
               /* En la plantilla se borra libre: los planes ya activados tienen
                  su copia y no se ven afectados. */
-              warning="Plans already activated keep their own copy of this stage."
+              warning="Plans already activated keep their own copy of this step."
               onClose={() => setDialog(null)}
               onConfirm={() => run(() => bp().from('node_milestone').delete().eq('milestone_key', dialog.milestone.milestone_key))}
             />

@@ -227,7 +227,7 @@ export function MilestoneForm({
   const set = <K extends keyof MilestoneDraft>(k: K, v: MilestoneDraft[K]) => setD((p) => ({ ...p, [k]: v }));
 
   return (
-    <Modal title={initial ? 'Edit stage' : 'New stage'} onClose={onClose}>
+    <Modal title={initial ? 'Edit step' : 'New step'} onClose={onClose}>
       <div className="bp-form">
         <Field label="Title">
           <input className="field" value={d.title} onChange={(e) => set('title', e.target.value)} autoFocus />

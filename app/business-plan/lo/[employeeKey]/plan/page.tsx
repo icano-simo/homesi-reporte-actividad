@@ -376,7 +376,7 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                         ))
                       )}
                     </span>
-                    <span className="bp-owners__hint">accountable for the stage moving forward</span>
+                    <span className="bp-owners__hint">accountable for the step moving forward</span>
                   </div>
                 </div>
 
@@ -399,7 +399,7 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                   */}
                   <li className="bp-ms bp-ms--head" aria-hidden="true">
                     <span />
-                    <span>Stage</span>
+                    <span>Step</span>
                     <span>Owner</span>
                     <span>Status</span>
                     <span>Target date</span>
@@ -452,7 +452,7 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                               'Completed on ' +
                               String(m.completed_at).slice(0, 10) +
                               (m.completed_by ? ' by ' + m.completed_by : '') +
-                              ' — done stages cannot be reopened'
+                              ' — done steps cannot be reopened'
                             }
                           >
                             {MILESTONE_STATUS_LABEL.done}
@@ -465,7 +465,7 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                             onChange={(e) => changeStatus(m, e.target.value as MilestoneStatus)}
                             title={
                               mine
-                                ? 'You are accountable for this stage'
+                                ? 'You are accountable for this step'
                                 : person
                                   ? `Only ${person.full_name} can mark this one as done`
                                   : 'No accountable person assigned — nobody can close it'
@@ -501,7 +501,7 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                         <button
                           type="button"
                           className={'bp-icon-btn' + (openNotes === m.enrollment_milestone_key ? ' is-on' : '')}
-                          title="Stage notes"
+                          title="Step notes"
                           onClick={() =>
                             setOpenNotes((k) => (k === m.enrollment_milestone_key ? null : m.enrollment_milestone_key))
                           }
@@ -521,13 +521,13 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                       </li>
                     );
                   })}
-                  {node.milestones.length === 0 && <li className="bp-muted-line">No stages in this node.</li>}
+                  {node.milestones.length === 0 && <li className="bp-muted-line">No steps in this node.</li>}
                 </ul>
 
                 <NotesPanel
                   target={{ kind: 'node', key: node.enrollment_node_key }}
                   title={'Notes on ' + node.name}
-                  placeholder="What was discussed about this stage…"
+                  placeholder="What was discussed about this step…"
                 />
               </div>
             );
