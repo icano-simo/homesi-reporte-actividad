@@ -8077,3 +8077,26 @@ el bloque completo (entrada + su comentario histórico), sin tocar
 ### Archivos
 
 `components/layout/ServiceHubHeader.tsx`.
+
+## Barras de Monthly Trends: contorno en vez de relleno sólido
+
+Las barras no seleccionadas de "Closings by Month"/"Amount Closed by
+Month" (Monthly Trends, Analytics) pasan de fondo navy sólido a
+transparente con contorno navy de 1.5px -- la barra del mes seleccionado
+sigue con fondo coral sólido, sin cambios (marca "esto es lo que está
+seleccionado ahora mismo", ver el comentario ya existente de esa regla).
+
+`box-sizing: border-box` no hizo falta agregarlo -- ya viene de un reset
+universal (`* { box-sizing: border-box; }`, `app/styles/base.css`),
+verificado antes de asumir que faltaba.
+
+Los meses sin datos (Oct/Nov/Dec, con `min-height` chico) se revisaron a
+mano: con el mínimo anterior (1px), el contorno (1.5px arriba + 1.5px
+abajo) ocupaba la caja entera y se veía como una línea sólida, sin hueco
+visible -- indistinguible del relleno sólido de antes. Se subió
+`min-height` de 1px a 6px para que esos meses se lean como una cajita con
+contorno real, no como una línea.
+
+### Archivos
+
+`app/pipeline/styles/forecast-visual.css` (único archivo tocado).

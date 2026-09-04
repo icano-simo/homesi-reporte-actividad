@@ -927,8 +927,16 @@ table.piv tr.strat-break-row td {
 .trend-chart__bar {
   width: 100%;
   border-radius: 3px 3px 0 0;
-  background: var(--navy);
-  min-height: 1px;
+  background: transparent;
+  border: 1.5px solid var(--navy);
+  /*
+   * Verificado en pantalla: con 1px, el borde (1.5px arriba + 1.5px abajo)
+   * ocupa la caja entera -- se ve como una línea sólida, sin hueco
+   * visible, indistinguible del fill sólido de antes. 6px deja lugar para
+   * un hueco real en los meses en 0 (Oct/Nov/Dec), leíble como una cajita
+   * con contorno y no como una línea.
+   */
+  min-height: 6px;
   transform-origin: bottom;
   transition: opacity 0.15s ease, background-color 0.25s ease;
 }
