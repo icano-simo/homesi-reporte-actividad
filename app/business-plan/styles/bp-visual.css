@@ -4603,3 +4603,78 @@ table.piv tr.metric.is-picked td.lbl {
   color: var(--slate-400);
   font-variant-numeric: tabular-nums;
 }
+
+/*
+ * ============================================================================
+ * LA VISTA PREVIA DEL SLA ACUMULADO — etapa BP40
+ * ============================================================================
+ *
+ * ⚠ ESTO NO ES DECORATIVO, es la mitad del cambio. `sla_days` paso a ser los
+ * dias DESDE EL STEP ANTERIOR, asi que mover un step mueve a todos los que le
+ * siguen en su nodo. La primera vez que alguien lo vea sin aviso va a parecer un
+ * bug -- editar un numero y ver cambiar cuatro.
+ *
+ * Por eso el formulario dibuja los dias resultantes de todo el nodo mientras se
+ * escribe, con el step que se esta editando marcado. Los colores salen de los
+ * tokens; ni un hexadecimal.
+ */
+.bp-sla-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  background: var(--slate-50);
+}
+.bp-sla-preview__lbl {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--slate-500);
+}
+.bp-sla-preview__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+/* El aviso: lo que hay que leer si se movio algo. */
+.bp-sla-preview__warn {
+  font-size: 12px;
+  color: var(--amber-700);
+}
+
+.bp-sla-chip {
+  display: inline-flex;
+  gap: 6px;
+  align-items: baseline;
+  padding: 3px 9px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-full);
+  background: var(--white);
+  font-size: 12px;
+  color: var(--slate-600);
+  white-space: nowrap;
+}
+.bp-sla-chip b {
+  font-variant-numeric: tabular-nums;
+  color: var(--navy);
+}
+/*
+ * El step que se esta editando. Se marca con el acento del portal y no con
+ * negrita: la negrita ya la usa el numero del dia adentro de cada pildora, y
+ * dos negritas en la misma linea dejan de distinguir nada.
+ */
+.bp-sla-chip--this {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--navy);
+}
+
+/* El dia acumulado en la tabla del detalle: es el numero que se viene a leer. */
+.bp-strong {
+  font-weight: 700;
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+}

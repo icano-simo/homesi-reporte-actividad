@@ -7,6 +7,7 @@ import {
   canDeleteFunnel,
   checkNodeDelete,
   findNodeNameClash,
+  cumulativeDays,
   funnelStats,
   NODE_AREAS,
   type Funnel,
@@ -161,11 +162,28 @@ export default function FunnelLibraryPage() {
 
 
   const dlgNode = dialog && 'node' in dialog ? dialog.node : null;
+  /*
+   * LA CLAVE DEL NODO EN JUEGO, POR LOS DOS CAMINOS -- etapa BP40.
+   *
+   * El detalle trae el nodo entero (`node`); el formulario de step trae solo su
+   * clave (`nodeKey`), porque `dialog` es un solo estado y abrir el editor
+   * REEMPLAZA al detalle en vez de apilarse. Mirando solo `'node' in dialog`,
+   * `nodeStages` quedaba vacio justo cuando el editor necesita los hermanos
+   * para dibujar su vista previa: la lista aparecia sin ningun step.
+   */
+  const dlgNodeKey =
+    dlgNode?.node_key ?? (dialog && 'nodeKey' in dialog ? dialog.nodeKey : null);
   /* Los stages del nodo abierto, en orden. Una sola vez: las dos vistas del
      detalle los recorren, y filtrar dos veces las dejaba libres de discrepar. */
   const nodeStages = (data?.milestones ?? [])
-    .filter((m) => dlgNode !== null && m.node_key === dlgNode.node_key)
+    .filter((m) => dlgNodeKey !== null && m.node_key === dlgNodeKey)
     .sort((a, b) => a.position - b.position);
+  /*
+   * El dia en que cae cada step: la suma corrida de los deltas -- BP40. Sale de
+   * `cumulativeDays`, la MISMA funcion que usa el editor para mostrar el efecto
+   * de un cambio. Dos sumas del mismo numero pueden diferir.
+   */
+  const diasAcumulados = cumulativeDays(nodeStages.map((m) => m.sla_days));
 
   return (
     <>
@@ -850,13 +868,21 @@ export default function FunnelLibraryPage() {
                     <tr className="mo-row">
                       <th className="lbl">Step</th>
                       <th className="bp-left">Accountable</th>
-                      <th className="bp-center">SLA</th>
+                      {/*
+                        DOS COLUMNAS Y NO UNA -- etapa BP40. `+ days` es lo que se
+                        edita: los dias desde el step anterior. `Day` es lo que
+                        resulta, y es el que se lee para saber cuando cae. Sin la
+                        segunda, nadie sabe en que dia del nodo esta un step; sin
+                        la primera, no se puede editar sin hacer la resta a mano.
+                      */}
+                      <th className="bp-center">+ days</th>
+                      <th className="bp-center">Day</th>
                       <th className="bp-center">Pos</th>
                       <th className="bp-center">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {nodeStages.map((m) => (
+                    {nodeStages.map((m, i) => (
                       <tr key={m.milestone_key} className="metric">
                         <td className="lbl bp-wrap">{m.title}</td>
                         <td className="bp-left">
@@ -865,6 +891,7 @@ export default function FunnelLibraryPage() {
                           )}
                         </td>
                         <td className="bp-center">{m.sla_days ?? '—'}</td>
+                        <td className="bp-center bp-strong">{diasAcumulados[i]}</td>
                         <td className="bp-center">{m.position}</td>
                         <td className="bp-center">
                           <div className="bp-actions">
@@ -950,7 +977,7 @@ export default function FunnelLibraryPage() {
                   className="bp-btn bp-btn--small"
                   onClick={() => setDialog({ kind: 'ms-form', nodeKey: dlgNode.node_key, milestone: null })}
                 >
-                  + New stage
+                  + New step
                 </button>
               </div>
             </Modal>
@@ -958,6 +985,12 @@ export default function FunnelLibraryPage() {
 
           {dialog?.kind === 'ms-form' && (
             <MilestoneForm
+              siblings={nodeStages.map((m) => ({
+                milestone_key: m.milestone_key,
+                title: m.title,
+                sla_days: m.sla_days,
+                position: m.position,
+              }))}
               initial={dialog.milestone}
               support={data.support}
               busy={busy}

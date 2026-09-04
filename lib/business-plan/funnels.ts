@@ -152,6 +152,35 @@ export interface NodeDayRange {
 }
 
 /**
+ * ============================================================================
+ * EL DIA ACUMULADO DE CADA STEP -- etapa BP40
+ * ============================================================================
+ *
+ * `sla_days` paso a ser los dias DESDE EL STEP ANTERIOR, no el dia absoluto
+ * dentro del nodo. El dia en que cae un step es la suma corrida.
+ *
+ * POR QUE SE CAMBIO, y que costo: leido como absoluto, un numero menor que el
+ * anterior no molestaba --cada step decia su dia por su cuenta-- asi que se
+ * podia tener un plan donde el paso 4 caia ANTES que el paso 3. Los datos tenian
+ * dos casos asi, invisibles hasta que se miro el acumulado. Con esta lectura eso
+ * no es representable: un delta negativo no existe.
+ *
+ * Y LA CONSECUENCIA QUE HAY QUE MOSTRAR: correr un step corre a TODOS los que
+ * siguen en su nodo. La primera vez que alguien lo vea sin aviso va a parecer un
+ * bug, asi que el editor dibuja los dias resultantes mientras se escribe.
+ *
+ * Un step sin `sla_days` no aporta al acumulado y hereda el dia del anterior:
+ * son los de plantillas viejas, y darle un dia inventado seria peor.
+ */
+export function cumulativeDays(slaDays: (number | null)[]): number[] {
+  let acc = 0;
+  return slaDays.map((d) => {
+    acc += d ?? 0;
+    return acc;
+  });
+}
+
+/**
  * El rango "DAY 1-5" de cada nodo se CALCULA; no se escribe a mano.
  *
  * Un nodo dura lo que tarda su último milestone (el mayor `sla_days`, que se

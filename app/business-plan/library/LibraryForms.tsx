@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
-import type { Funnel, FunnelCategory, FunnelNode, NodeMilestone } from '@/lib/business-plan/funnels';
+import { useMemo, useState, type ReactNode } from 'react';
+import { cumulativeDays, type Funnel, type FunnelCategory, type FunnelNode, type NodeMilestone } from '@/lib/business-plan/funnels';
 import type { SupportPerson } from '@/lib/business-plan/useFunnelLibrary';
 import Modal from '../components/Modal';
 import IconPicker from './IconPicker';
@@ -204,14 +204,31 @@ export interface MilestoneDraft {
   position: string;
 }
 
+/** Un step del mismo nodo, para calcular en que dia cae cada uno -- BP40. */
+export interface StepSibling {
+  milestone_key: number;
+  title: string;
+  sla_days: number | null;
+  position: number;
+}
+
 export function MilestoneForm({
   initial,
   support,
+  siblings,
   onSave,
   onClose,
   busy,
 }: {
   initial: NodeMilestone | null;
+  /**
+   * Los OTROS steps del nodo, en orden, para dibujar en que dia cae cada uno
+   * con el delta que se esta escribiendo -- etapa BP40.
+   *
+   * Va como prop y no se lee de un hook: este formulario no sabe de donde
+   * vienen los datos, y es el mismo que se usa para crear y para editar.
+   */
+  siblings: StepSibling[];
   support: SupportPerson[];
   onSave: (d: MilestoneDraft) => void;
   onClose: () => void;
@@ -225,6 +242,49 @@ export function MilestoneForm({
     position: String(initial?.position ?? 1),
   });
   const set = <K extends keyof MilestoneDraft>(k: K, v: MilestoneDraft[K]) => setD((p) => ({ ...p, [k]: v }));
+
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * EN QUE DIA CAE CADA STEP CON LO QUE SE ESTA ESCRIBIENDO -- etapa BP40
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * Se recalcula en cada tecla, sobre la lista del nodo con ESTE step ya
+   * sustituido por el borrador. Es la razon de ser del bloque: correr un step
+   * corre a todos los que siguen, y sin verlo la primera vez parece un bug.
+   *
+   * Usa `cumulativeDays`, la misma funcion que la tabla del detalle. Sumar aca
+   * por separado serian dos cuentas del mismo numero que pueden diferir --
+   * exactamente lo que `strategyRows` vino a cerrar en Outlook.
+   *
+   * Un step NUEVO todavia no esta en `siblings`, asi que se agrega al final: es
+   * donde va a caer, porque `position` arranca en el ultimo + 1.
+   */
+  const delta = d.sla_days.trim() === '' ? null : Number(d.sla_days);
+  const vistaPrevia = useMemo(() => {
+    const esNuevo = initial === null;
+    const lista = esNuevo
+      ? [...siblings, { milestone_key: -1, title: d.title || 'this step', sla_days: delta, position: 9999 }]
+      : siblings.map((sb) =>
+          sb.milestone_key === initial.milestone_key ? { ...sb, sla_days: delta, title: d.title || sb.title } : sb
+        );
+    const ordenada = [...lista].sort((a, b) => a.position - b.position);
+    const dias = cumulativeDays(ordenada.map((sb) => sb.sla_days));
+    const idEste = esNuevo ? -1 : initial.milestone_key;
+    return ordenada.map((sb, i) => ({
+      key: sb.milestone_key,
+      title: sb.title,
+      dia: dias[i],
+      esEste: sb.milestone_key === idEste,
+    }));
+  }, [siblings, delta, d.title, initial]);
+
+  /*
+   * Cuantos se corren detras de este. Se cuenta desde su posicion y no se
+   * compara contra los dias viejos a proposito: lo que hay que decir es que
+   * mover ESTE mueve a los de atras, no cuanto se movio cada uno.
+   */
+  const idxEste = vistaPrevia.findIndex((v) => v.esEste);
+  const corridos = idxEste < 0 ? 0 : vistaPrevia.length - idxEste - 1;
 
   return (
     <Modal title={initial ? 'Edit step' : 'New step'} onClose={onClose}>
@@ -243,9 +303,51 @@ export function MilestoneForm({
             ))}
           </select>
         </Field>
-        <Field label="SLA (days from the start of the node)">
-          <input type="number" min="0" className="field" value={d.sla_days} onChange={(e) => set('sla_days', e.target.value)} />
+        {/*
+          ══════════════════════════════════════════════════════════════════════
+          EL DELTA, Y EL EFECTO DEL DELTA -- etapa BP40
+          ══════════════════════════════════════════════════════════════════════
+
+          Decia "days from the start of the node" y era el dia absoluto. Ahora es
+          los dias DESDE EL STEP ANTERIOR.
+
+          Y SE MUESTRA EN QUE SE CONVIERTE, porque correr un step corre a todos
+          los que siguen en su nodo. La primera vez que alguien lo vea sin aviso
+          va a parecer un bug: la lista de abajo dibuja los dias resultantes de
+          todo el nodo mientras se escribe, con este step marcado.
+
+          `min="0"` Y NO `min="1"`: un delta de 0 es valido y significa "el mismo
+          dia que el anterior" -- diez steps de la plantilla lo usan. Lo que no
+          existe es un negativo, que seria vencer antes que el anterior.
+        */}
+        <Field label="Days from the previous step">
+          <input
+            type="number"
+            min="0"
+            className="field"
+            value={d.sla_days}
+            onChange={(e) => set('sla_days', e.target.value)}
+          />
         </Field>
+        {vistaPrevia.length > 0 && (
+          <div className="bp-sla-preview">
+            <span className="bp-sla-preview__lbl">Days in the node</span>
+            <span className="bp-sla-preview__row">
+              {vistaPrevia.map((v) => (
+                <span key={v.key} className={'bp-sla-chip' + (v.esEste ? ' bp-sla-chip--this' : '')}>
+                  {v.title.length > 20 ? v.title.slice(0, 19) + '…' : v.title}
+                  <b>{' day ' + v.dia}</b>
+                </span>
+              ))}
+            </span>
+            {corridos > 0 && (
+              <span className="bp-sla-preview__warn">
+                {corridos} step{corridos === 1 ? '' : 's'} after this one move{corridos === 1 ? 's' : ''} too — a step
+                shifts everything that follows it inside the node.
+              </span>
+            )}
+          </div>
+        )}
         <Field label="Resource URL">
           <input className="field" value={d.resource_url} onChange={(e) => set('resource_url', e.target.value)} placeholder="https://…" />
         </Field>

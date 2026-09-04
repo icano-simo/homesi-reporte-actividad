@@ -174,7 +174,7 @@ export default function TeamPage() {
               <p className="bp-team-head__meta">{viewing.job_title ?? '—'}</p>
             </div>
             <div className="bp-team-head__counts">
-              <span className="bp-pill bp-pill--sky">{openCount} open stages</span>
+              <span className="bp-pill bp-pill--sky">{openCount} open steps</span>
               {overdueCount > 0 && <span className="bp-pill bp-pill--late">{overdueCount} overdue</span>}
               <span className="bp-pill bp-pill--sky">{myNodes.length} nodes owned</span>
             </div>

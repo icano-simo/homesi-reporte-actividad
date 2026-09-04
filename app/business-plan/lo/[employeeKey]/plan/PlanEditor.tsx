@@ -270,7 +270,7 @@ export default function PlanEditor({
                           type="button"
                           className="bp-icon-btn bp-icon-btn--danger"
                           disabled={busy || locked}
-                          title={locked ? 'Completed stages cannot be deleted' : 'Delete'}
+                          title={locked ? 'Completed steps cannot be deleted' : 'Delete'}
                           onClick={() => setDialog({ kind: 'ms-delete', milestone: m })}
                         >
                           <CloseIcon size={12} />
@@ -336,6 +336,19 @@ export default function PlanEditor({
 
       {dialog?.kind === 'ms-form' && (
         <MilestoneForm
+          /*
+            Los steps del MISMO nodo del plan, para que la vista previa diga en
+            que dia cae cada uno -- etapa BP40. Salen de la copia de la persona
+            y no de la plantilla: los dias que importan son los de su plan.
+          */
+          siblings={(plan.nodes.find((n) => n.enrollment_node_key === dialog.nodeKey)?.milestones ?? []).map(
+            (m) => ({
+              milestone_key: m.enrollment_milestone_key,
+              title: m.title,
+              sla_days: m.sla_days,
+              position: m.position,
+            })
+          )}
           initial={
             dialog.milestone
               ? {
