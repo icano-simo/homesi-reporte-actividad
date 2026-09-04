@@ -2296,6 +2296,40 @@ table.piv th.bp-wrap {
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * El area del nodo, editable en linea — etapa BP40.
+ *
+ * ⚠ Es un `select` y no un input de texto: las areas son cuatro y la base
+ * tiene un `check`. Un campo libre deja escribir `marketing` en minuscula, que
+ * la base rechaza con un error que nadie puede interpretar.
+ */
+.bp-inline-input--area {
+  width: 132px;
+  text-align: left;
+}
+
+/*
+ * El encabezado de un grupo de la biblioteca — etapa BP40.
+ *
+ * Separa los nodos por area. Es una fila de la MISMA tabla y no una tabla
+ * aparte, para que las columnas sigan alineadas entre grupos: con una tabla
+ * por area, cada una calcularia sus anchos por su cuenta.
+ */
+.bp-group-head td {
+  padding-top: 14px;
+  border-top: 2px solid var(--slate-200);
+  background: var(--slate-50);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--slate-600);
+}
+/* La primera fila de la tabla no necesita separarse de nada. */
+.bp-group-head:first-child td {
+  padding-top: 6px;
+  border-top: none;
+}
+
 /* ── Formularios ────────────────────────────────────────────────────────── */
 
 .bp-form {

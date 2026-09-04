@@ -31,12 +31,34 @@ export interface Funnel {
   is_example: boolean;
 }
 
+/**
+ * Las cuatro areas de la division — etapa BP40.
+ *
+ * ⚠ ES UNA LISTA CERRADA, y el `check` de la base la repite. No es duplicacion
+ * inutil: el desplegable necesita saber que ofrecer y la base necesita rechazar
+ * lo que llegue por otra via. Si algun dia hay una quinta, van las dos.
+ */
+export const NODE_AREAS = ['Marketing', 'Sales Coaching', 'Performance', 'IT'] as const;
+export type NodeArea = (typeof NODE_AREAS)[number];
+
 export interface FunnelNode {
   node_key: number;
   name: string;
   description: string | null;
   icon: string | null;
   is_example: boolean;
+  /**
+   * ⚠ EL AREA, QUE ANTES ERA UN PREFIJO DE `description` — etapa BP40.
+   *
+   * Vivia como primeras palabras hasta el primer punto --`Marketing.`, `Sales
+   * Coaching.`-- y ya se habia roto: de 31 nodos, 4 no lo tenian y 2 guardaron
+   * un parrafo entero donde iba.
+   *
+   * `null` = nadie la asigno, NO "sin area". Un valor de relleno se vuelve
+   * indistinguible de una decision el dia que alguien lo elija a proposito. Hoy
+   * son 6 en null, y la biblioteca los agrupa aparte para que se vean.
+   */
+  area: NodeArea | null;
 }
 
 export interface FunnelNodeLink {

@@ -8,14 +8,17 @@ import {
   checkNodeDelete,
   findNodeNameClash,
   funnelStats,
+  NODE_AREAS,
   type Funnel,
   type FunnelCategory,
   type FunnelNode,
+  type NodeArea,
   type NodeMilestone,
 } from '@/lib/business-plan/funnels';
 import { AlertTriangleIcon, CloseIcon } from '@/components/ui/icons';
 import { FunnelGlyph } from '../components/funnelIcons';
 import Breadcrumbs from '../components/Breadcrumbs';
+import { Fragment } from 'react';
 import Modal from '../components/Modal';
 import { Avatar, ErrorState, LoadingState } from '../components/shared';
 import SequenceBuilder from './SequenceBuilder';
@@ -133,6 +136,29 @@ export default function FunnelLibraryPage() {
     if (nodeFilter === 'none') return all.filter((n) => !linked.has(n.node_key));
     return all.filter((n) => (data?.links ?? []).some((l) => l.funnel_key === nodeFilter && l.node_key === n.node_key));
   }, [data, nodeFilter]);
+
+  /*
+   * Los nodos visibles, AGRUPADOS por area — etapa BP40.
+   *
+   * ⚠ El orden de los grupos es el de `NODE_AREAS` y no alfabetico: es el orden
+   * en que la division piensa sus areas, y alfabetico pondria IT primero.
+   * Los sin asignar van al final, siempre.
+   *
+   * ⚠ Y SOLO SE DIBUJAN LOS GRUPOS QUE TIENEN ALGO. Un "IT · 0 nodes" ocupa una
+   * fila para no decir nada -- mismo criterio que las estrategias vacias de
+   * Outlook.
+   */
+  const gruposDeArea = useMemo(() => {
+    const out: { area: NodeArea | null; nodos: FunnelNode[] }[] = [];
+    for (const a of NODE_AREAS) {
+      const nodos = visibleNodes.filter((n) => n.area === a);
+      if (nodos.length) out.push({ area: a, nodos });
+    }
+    const sin = visibleNodes.filter((n) => !n.area);
+    if (sin.length) out.push({ area: null, nodos: sin });
+    return out;
+  }, [visibleNodes]);
+
 
   const dlgNode = dialog && 'node' in dialog ? dialog.node : null;
   /* Los stages del nodo abierto, en orden. Una sola vez: las dos vistas del
@@ -421,6 +447,7 @@ export default function FunnelLibraryPage() {
                 <table className="piv bp-table--nodes">
                   <colgroup>
                     <col className="bp-col-fname" />
+                    <col className="bp-col-fcat" />
                     <col className="bp-col-fnum" />
                     <col className="bp-col-fnodes" />
                     <col className="bp-col-fcat" />
@@ -429,6 +456,7 @@ export default function FunnelLibraryPage() {
                   <thead>
                     <tr className="mo-row">
                       <th className="lbl">Node</th>
+                      <th className="bp-center">Area</th>
                       <th className="bp-center">Steps</th>
                       {/* La columna que faltaba: la relación, visible. */}
                       <th className="bp-left">Used in funnels</th>
@@ -437,7 +465,33 @@ export default function FunnelLibraryPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {visibleNodes.map((n) => {
+                    {/*
+                      ══════════════════════════════════════════════════════════
+                      AGRUPADOS POR AREA — etapa BP40
+                      ══════════════════════════════════════════════════════════
+
+                      Treinta y un nodos ordenados por nombre no dicen nada de
+                      como esta repartido el trabajo. Agrupados, la biblioteca
+                      contesta "cuanto hay de Marketing" sin contar filas.
+
+                      ⚠ LOS SIN ASIGNAR VAN AL FINAL Y CON SU PROPIO ROTULO, no
+                      mezclados ni escondidos. Son seis y hay que verlos: dos de
+                      ellos ni siquiera tienen un prefijo del que se pudiera
+                      derivar el area, asi que los asigna una persona.
+                    */}
+                    {gruposDeArea.map(({ area, nodos }) => (
+                      <Fragment key={area ?? '(sin area)'}>
+                        <tr className="metric bp-group-head">
+                          <td className="lbl" colSpan={6}>
+                            {area ?? 'Not set'}
+                            <span className="bp-muted">
+                              {' · '}
+                              {nodos.length} node{nodos.length === 1 ? '' : 's'}
+                              {area === null ? ' — assign an area to each one' : ''}
+                            </span>
+                          </td>
+                        </tr>
+                        {nodos.map((n) => {
                       const mine = data.milestones.filter((m) => m.node_key === n.node_key);
                       const inF = funnelsOf(n.node_key);
                       const owners = data.owners
@@ -469,6 +523,36 @@ export default function FunnelLibraryPage() {
                               }}
                             />
                             </span>
+                          </td>
+                          {/*
+                            ⚠ UN `select` Y NO UN CAMPO DE TEXTO. Las areas son
+                            cuatro y la base tiene un `check`: un input libre
+                            deja escribir `marketing` en minuscula, que la base
+                            rechaza con un error que nadie puede interpretar.
+
+                            ⚠ Y LA OPCION VACIA SE OFRECE. Seis nodos estan sin
+                            asignar y hay que poder dejarlos asi -- o volver a
+                            dejarlos asi si alguien se equivoco. Dice
+                            "-- not set --" y no un area de relleno.
+                          */}
+                          <td className="bp-center">
+                            <select
+                              className="bp-inline-input bp-inline-input--area"
+                              value={n.area ?? ''}
+                              disabled={busy}
+                              onChange={(e) => {
+                                const v = e.target.value === '' ? null : (e.target.value as NodeArea);
+                                if (v === n.area) return;
+                                run(() => bp().from('node').update({ area: v }).eq('node_key', n.node_key), false);
+                              }}
+                            >
+                              <option value="">— not set —</option>
+                              {NODE_AREAS.map((a) => (
+                                <option key={a} value={a}>
+                                  {a}
+                                </option>
+                              ))}
+                            </select>
                           </td>
                           <td className="bp-center">{mine.length}</td>
                           <td className="bp-left bp-wrap">
@@ -504,10 +588,12 @@ export default function FunnelLibraryPage() {
                           </td>
                         </tr>
                       );
-                    })}
+                        })}
+                      </Fragment>
+                    ))}
                     {visibleNodes.length === 0 && (
                       <tr>
-                        <td className="lbl bp-empty-cell" colSpan={5}>
+                        <td className="lbl bp-empty-cell" colSpan={6}>
                           No node in that funnel.
                         </td>
                       </tr>
