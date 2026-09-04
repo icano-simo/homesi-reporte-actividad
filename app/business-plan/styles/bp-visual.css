@@ -4796,54 +4796,6 @@ table.piv tr.metric.is-picked td.lbl {
   color: var(--slate-500);
 }
 
-/* ── El filtro por área, con sus conteos ──────────────────────────────────── */
-
-.bp-area-filter {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 0 0 18px;
-}
-.bp-area-filter__btn {
-  font-family: inherit;
-  font-size: 11.5px;
-  padding: 5px 11px;
-  border: 1px solid var(--slate-200);
-  border-radius: var(--radius-full);
-  background: var(--canvas);
-  color: var(--slate-600);
-  cursor: pointer;
-  font-variant-numeric: tabular-nums;
-}
-.bp-area-filter__btn b {
-  color: var(--navy);
-  margin-left: 3px;
-}
-.bp-area-filter__btn.is-on {
-  border-color: var(--navy);
-  background: var(--navy);
-  color: var(--canvas);
-}
-.bp-area-filter__btn.is-on b {
-  color: var(--canvas);
-}
-/* Los sin área en ámbar: es la familia del candado y de lo que falta decidir. */
-.bp-area-filter__btn--none {
-  border-color: var(--amber-200);
-  background: var(--amber-50);
-  color: var(--amber-800);
-}
-.bp-area-filter__btn--none b {
-  color: var(--amber-800);
-}
-.bp-area-filter__btn--none.is-on {
-  border-color: var(--amber-700);
-  background: var(--amber-700);
-  color: var(--canvas);
-}
-.bp-area-filter__btn--none.is-on b {
-  color: var(--canvas);
-}
 
 /* ── Los grupos ───────────────────────────────────────────────────────────── */
 
@@ -4891,66 +4843,6 @@ table.piv tr.metric.is-picked td.lbl {
   flex-direction: column;
   gap: 8px;
 }
-.bp-nodecard {
-  background: var(--canvas);
-  border: 1px solid var(--slate-200);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-xs);
-}
-.bp-nodecard__head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
-  /* wrap y no nowrap: NADA CORTADO. Un nombre largo empuja la metadata a la
-     línea siguiente y la tarjeta crece, en vez de recortar el nombre. */
-  flex-wrap: wrap;
-}
-.bp-nodecard__toggle {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  flex: 1 1 260px;
-  min-width: 0;
-  font-family: inherit;
-  text-align: left;
-  background: none;
-  border: 0;
-  padding: 0;
-  cursor: pointer;
-}
-.bp-nodecard__caret {
-  color: var(--slate-400);
-  font-size: 10px;
-}
-.bp-nodecard__name {
-  font-family: var(--font-display);
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--navy);
-  /* Sin text-overflow: el nombre entra entero, aunque ocupe dos líneas. */
-  overflow-wrap: anywhere;
-}
-.bp-nodecard__meta {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.bp-nodecard__stat {
-  font-size: 11.5px;
-  color: var(--slate-500);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-/* Lo que falta decidir, en ámbar: sin owner, sin funnel. */
-.bp-nodecard__stat--warn {
-  color: var(--amber-700);
-}
-.bp-nodecard__owners {
-  display: inline-flex;
-  gap: 3px;
-}
 .bp-initials {
   display: inline-flex;
   align-items: center;
@@ -4964,31 +4856,6 @@ table.piv tr.metric.is-picked td.lbl {
   font-weight: 700;
   letter-spacing: 0.02em;
   cursor: default;
-}
-.bp-nodecard__body {
-  padding: 4px 14px 14px;
-  border-top: 1px solid var(--slate-100);
-}
-.bp-nodecard__desc {
-  margin: 10px 0;
-  font-size: 12px;
-  line-height: 1.55;
-  color: var(--slate-600);
-  white-space: pre-line;
-}
-.bp-nodecard__actions {
-  margin-top: 10px;
-}
-/* La regla de la plantilla: se lee, no se grita. */
-.bp-nodecard__rule {
-  margin: 12px 0 0;
-  padding: 8px 10px;
-  border-left: 2px solid var(--sky);
-  background: var(--slate-50);
-  border-radius: var(--radius-sm);
-  font-size: 11.5px;
-  line-height: 1.5;
-  color: var(--slate-600);
 }
 .bp-legend {
   margin: 8px 0 0;
@@ -5122,4 +4989,355 @@ button.bp-ms__dot--btn:disabled {
 /* El check de un completado no es un boton, asi que no invita a clickear. */
 span.bp-ms__dot {
   cursor: default;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   TARJETAS HORIZONTALES, PÍLDORAS Y PANEL LATERAL — etapa BP43
+   ════════════════════════════════════════════════════════════════════════════
+
+   La especificación vino en Tailwind con hexadecimales. Los tres literales que
+   traía son --navy, --coral y --sky; acá no entra ninguno, ni una clase de
+   Tailwind, y los números van en Inter con tabular-nums.
+
+   Los códigos no se transcriben ni en un comentario: el grep de la etapa cuenta
+   hexadecimales en el archivo, y una excepción conocida --aunque sea prosa--
+   convierte un chequeo de cero en un chequeo de dos. */
+
+/* ── Las pestañas segmentadas ─────────────────────────────────────────────── */
+
+.bp-tabs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px;
+  margin: 0 0 18px;
+  background: var(--slate-50);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-full);
+}
+.bp-tabs__tab {
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 5px 13px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--slate-600);
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.bp-tabs__tab:hover:not(.is-on) {
+  border-color: var(--slate-300);
+}
+.bp-tabs__tab b {
+  margin-left: 4px;
+  color: var(--slate-500);
+}
+/* La activa: navy con texto blanco, como pide la maqueta. */
+.bp-tabs__tab.is-on {
+  background: var(--navy);
+  border-color: var(--navy);
+  color: var(--white);
+}
+.bp-tabs__tab.is-on b {
+  color: var(--white);
+}
+/* `No area` se queda destacada aunque no esté activa: es lo que hace que
+   alguien las asigne. */
+.bp-tabs__tab--none {
+  border-color: var(--amber-200);
+  background: var(--amber-50);
+  color: var(--amber-800);
+}
+.bp-tabs__tab--none b {
+  color: var(--amber-800);
+}
+.bp-tabs__tab--none.is-on {
+  background: var(--amber-700);
+  border-color: var(--amber-700);
+  color: var(--white);
+}
+.bp-tabs__tab--none.is-on b {
+  color: var(--white);
+}
+
+/* ── La tarjeta horizontal ────────────────────────────────────────────────── */
+
+.bp-nodecard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 12px 16px;
+  background: var(--canvas);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+  cursor: pointer;
+}
+.bp-nodecard:hover {
+  border-color: var(--slate-300);
+  box-shadow: var(--shadow-md);
+}
+.bp-nodecard:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 2px;
+}
+/* `min-width: 0` es lo que habilita el recorte del hijo: sin esto un flex item
+   no baja de su contenido y la descripción larga estira la tarjeta. */
+.bp-nodecard__left {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+/*
+ * ⚠ EL NOMBRE NUNCA SE CORTA. Sin `text-overflow`, y con `overflow-wrap` para
+ * que un nombre largo baje de línea en vez de desbordar. Es la distinción que
+ * costó el bug de `table.piv`: un nombre recortado es inidentificable
+ * --`Budget Allocation - Ca...`-- mientras que una descripción recortada sólo
+ * esconde detalle que igual no cabía.
+ */
+.bp-nodecard__name {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--navy);
+  overflow-wrap: anywhere;
+}
+/* La descripción SÍ se recorta, a una línea. Dos de los seis nodos sin área
+   guardan una sesión entera acá: 891 y 658 caracteres. */
+.bp-nodecard__desc {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--slate-500);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bp-nodecard__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.bp-nodecard__owners {
+  display: inline-flex;
+  gap: 3px;
+}
+
+/* ── Las píldoras ─────────────────────────────────────────────────────────── */
+
+.bp-pill {
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-full);
+  background: var(--slate-50);
+  color: var(--slate-600);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+/* Los días, en la familia --sky: es el dato derivado del SLA y conviene que se
+   distinga del conteo, que es un hecho. */
+.bp-pill--days {
+  background: var(--sky);
+  border-color: var(--sky);
+  color: var(--navy);
+}
+/* Lo que falta decidir. */
+.bp-pill--warn {
+  background: var(--amber-50);
+  border-color: var(--amber-200);
+  color: var(--amber-800);
+}
+button.bp-pill--link,
+button.bp-pill--action {
+  cursor: pointer;
+}
+button.bp-pill--link:hover {
+  border-color: var(--navy);
+  color: var(--navy);
+}
+button.bp-pill--warn:hover {
+  border-color: var(--amber-700);
+}
+/* La acción principal de la tarjeta, y la única en coral de esta pantalla. */
+button.bp-pill--action {
+  background: var(--coral);
+  border-color: var(--coral);
+  color: var(--white);
+}
+button.bp-pill--action:hover {
+  border-color: var(--navy);
+}
+button.bp-pill:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 2px;
+}
+.bp-pill-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+/* Las píldoras de área del panel: la elegida en navy, las otras con borde tenue. */
+button.bp-pill--area {
+  cursor: pointer;
+  background: var(--canvas);
+}
+button.bp-pill--area.is-on {
+  background: var(--navy);
+  border-color: var(--navy);
+  color: var(--white);
+}
+button.bp-pill--area.is-on.bp-pill--none {
+  background: var(--amber-700);
+  border-color: var(--amber-700);
+}
+button.bp-pill--area:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* ── El panel lateral ─────────────────────────────────────────────────────── */
+
+.bp-panel-backdrop {
+  position: fixed;
+  inset: 0;
+  /*
+   * ⚠ 100, EL MISMO QUE `.bp-modal-backdrop`, Y NO 40.
+   *
+   * Con 40 la barra global --`.hub-header`, sticky en 50-- pintaba ENCIMA del
+   * panel: el título del nodo y la × quedaban tapados. La medición leyó el
+   * título del DOM y dio verde; lo mostró la captura.
+   *
+   * Y no se arregla bajando el panel: es `aria-modal`, y dejar la navegación
+   * global visible y clicable sobre un modal es una trampa -- se puede saltar a
+   * Outlook con el panel abierto. Se sigue el mismo z-index que el Modal del
+   * módulo, que ya resolvió esto.
+   */
+  z-index: 100;
+  display: flex;
+  justify-content: flex-end;
+}
+.bp-panel-backdrop::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--navy);
+  opacity: 0.18;
+}
+.bp-panel {
+  position: relative;
+  width: min(720px, 94vw);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--canvas);
+  border-left: 1px solid var(--slate-200);
+  box-shadow: var(--shadow-lg);
+  animation: bp-panel-in 160ms ease-out;
+}
+/* Se desliza desde la derecha. `prefers-reduced-motion` lo apaga: el
+   desplazamiento es una pista de dónde salió, no información. */
+@keyframes bp-panel-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0.6;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bp-panel {
+    animation: none;
+  }
+}
+.bp-panel__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--slate-100);
+}
+.bp-panel__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--navy);
+  overflow-wrap: anywhere;
+}
+.bp-panel__sub {
+  margin: 3px 0 0;
+  font-size: 11.5px;
+  color: var(--slate-500);
+  font-variant-numeric: tabular-nums;
+}
+.bp-panel__close {
+  font-family: inherit;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  background: var(--canvas);
+  color: var(--slate-500);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.bp-panel__close:hover {
+  border-color: var(--navy);
+  color: var(--navy);
+}
+.bp-panel__body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 16px 20px 24px;
+}
+.bp-panel__field {
+  margin-bottom: 16px;
+}
+.bp-panel__label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--slate-500);
+}
+.bp-panel__desc {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  background: var(--slate-50);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--slate-600);
+  white-space: pre-line;
+}
+.bp-panel__actions {
+  margin-top: 12px;
+}
+.bp-panel__rule {
+  margin: 16px 0 0;
+  padding: 9px 11px;
+  border-left: 2px solid var(--sky);
+  background: var(--slate-50);
+  border-radius: var(--radius-sm);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--slate-600);
 }
