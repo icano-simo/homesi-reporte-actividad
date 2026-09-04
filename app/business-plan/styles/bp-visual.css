@@ -5577,3 +5577,24 @@ button.bp-metapill--area:disabled {
   color: var(--navy);
   font-weight: 700;
 }
+
+/*
+ * El aviso de trabado del plan, en la familia ambar del candado: es algo que
+ * falta que pase, no un error ni un dato.
+ *
+ * Se escribe SIN fallback a proposito -- `var(--amber-50)` y no
+ * `var(--amber-50, #fffbeb)`. Un respaldo que nunca se ejerce es lo que hace que
+ * la ausencia del original no se note: asi es como `--white` estuvo indefinido
+ * durante cuatro usos. Los tres tokens estan en `tokens.css` (lineas 84, 87, 89)
+ * y si alguno se fuera, esto tiene que salir feo y no tapado.
+ */
+.bp-plan-node__blocked {
+  margin: 6px 0 0;
+  padding: 6px 10px;
+  border-left: 2px solid var(--amber-500);
+  background: var(--amber-50);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--amber-800);
+}

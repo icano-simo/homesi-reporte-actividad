@@ -90,7 +90,20 @@ export default function FunnelPage({ params }: { params: Promise<{ funnelKey: st
       .map((l) => l.node_key);
   }, [data, funnelKey]);
 
-  const rangos = useMemo(() => (data ? nodeDayRanges(secuencia, data.milestones) : []), [data, secuencia]);
+  /* El mapa de dependencias del funnel, para que los dias las reflejen. */
+  const dependsOn = useMemo(
+    () =>
+      new Map<number, number | null>(
+        (data?.links ?? [])
+          .filter((l) => l.funnel_key === funnelKey)
+          .map((l) => [l.node_key, l.depends_on_node_key ?? null])
+      ),
+    [data, funnelKey]
+  );
+  const rangos = useMemo(
+    () => (data ? nodeDayRanges(secuencia, data.milestones, dependsOn) : []),
+    [data, secuencia, dependsOn]
+  );
   const totales = data ? funnelTotals(funnelKey, data) : { nodes: 0, steps: 0, endsDay: 0 };
   const enrolados: EnrolledPerson[] = data?.enrolledByFunnel[funnelKey] ?? [];
 
@@ -201,6 +214,27 @@ export default function FunnelPage({ params }: { params: Promise<{ funnelKey: st
           const depKey = data.links.find((l) => l.funnel_key === funnelKey && l.node_key === nodeKey)
             ?.depends_on_node_key ?? null;
           const antecesor = depKey === null ? null : data.nodes.find((x) => x.node_key === depKey) ?? null;
+          /*
+           * Los HERMANOS: los otros nodos que declaran el mismo antecesor. Se
+           * comparan por dependencia declarada y NUNCA por dia -- ver la nota
+           * del badge.
+           *
+           * Con `depKey === null` la lista queda vacia a proposito: hoy los 63
+           * nodos estan asi, y compararlos por "ninguno" los volveria hermanos
+           * de todos.
+           */
+          const hermanos =
+            depKey === null
+              ? []
+              : data.links
+                  .filter(
+                    (l) =>
+                      l.funnel_key === funnelKey &&
+                      l.node_key !== nodeKey &&
+                      (l.depends_on_node_key ?? null) === depKey
+                  )
+                  .map((l) => data.nodes.find((x) => x.node_key === l.node_key))
+                  .filter((x): x is FunnelNode => x !== undefined);
           const steps = stepsDe(nodeKey);
           const dias = cumulativeDays(steps.map((m) => m.sla_days));
 
@@ -295,6 +329,28 @@ export default function FunnelPage({ params }: { params: Promise<{ funnelKey: st
                   {antecesor !== null && (
                     <span className="bp-metapill bp-metapill--waits" title={'Waits for ' + antecesor.name}>
                       Waits for {antecesor.name}
+                    </span>
+                  )}
+                  {/*
+                    EL PARALELISMO SE DERIVA, no se declara — etapa BP46.
+
+                    Dos nodos que esperan al MISMO antecesor arrancan el mismo
+                    dia, y eso sale del dato: no hay nada que marcar como
+                    "paralelo".
+
+                    ⚠ Y SE DICE POR LA DEPENDENCIA, NO POR LA FECHA. Dos nodos
+                    que caen el mismo dia por casualidad --porque los SLA de
+                    arriba suman igual-- NO son paralelos, y rotularlos asi seria
+                    afirmar algo que el modelo no dice. El dia es la
+                    consecuencia; la dependencia es la causa.
+                  */}
+                  {hermanos.length > 0 && rango && (
+                    <span
+                      className="bp-metapill bp-metapill--waits"
+                      title={'Runs alongside ' + hermanos.map((h) => h.name).join(', ')}
+                    >
+                      in parallel with {hermanos.length === 1 ? hermanos[0].name : hermanos.length + ' others'} · both
+                      start day {rango.fromDay}
                     </span>
                   )}
                   <button
@@ -551,6 +607,43 @@ export default function FunnelPage({ params }: { params: Promise<{ funnelKey: st
                     );
                   })}
                 </div>
+                {/*
+                  ⚠ SE ANTICIPA QUE EL FUNNEL SE ACORTA — etapa BP46.
+
+                  Declarar una dependencia que produce paralelismo BAJA el
+                  `ends day` del funnel: dos nodos que antes corrian uno detras
+                  del otro pasan a correr a la vez. Es correcto y va a
+                  sorprender, asi que se dice antes -- igual que el corrimiento
+                  de los SLA en el editor de steps.
+
+                  El numero no se estima: se recalcula con la dependencia puesta
+                  y se compara contra el actual. Una estimacion propia
+                  presentada como medicion ya nos costo una vez.
+                */}
+                {(() => {
+                  const actual = rangos.length ? Math.max(...rangos.map((r) => r.toDay)) : 0;
+                  const conLaNueva = (destino: number | null) => {
+                    const m = new Map(dependsOn);
+                    m.set(dialog.node.node_key, destino);
+                    const r = nodeDayRanges(secuencia, data.milestones, m);
+                    return r.length ? Math.max(...r.map((x) => x.toDay)) : 0;
+                  };
+                  /* El mayor acortamiento entre las opciones que se ofrecen. */
+                  const mejor = secuencia
+                    .slice(0, dialog.posicion)
+                    .map((k) => ({ k, dia: conLaNueva(k) }))
+                    .filter((x) => x.dia < actual)
+                    .sort((x, y) => x.dia - y.dia)[0];
+                  if (!mejor) return null;
+                  const nombre = data.nodes.find((x) => x.node_key === mejor.k)?.name ?? '';
+                  return (
+                    <p className="bp-modal__lead bp-modal__lead--warn">
+                      Choosing <strong>{nombre}</strong> makes both nodes start on the same day and shortens the
+                      funnel from <strong>day {actual}</strong> to <strong>day {mejor.dia}</strong>. Plans already
+                      running keep their dates — they were copied when the funnel was activated.
+                    </p>
+                  );
+                })()}
                 <p className="bp-legend">
                   A node that waits for another cannot be dragged above it — the database refuses it, so the worst
                   that can happen is that the list snaps back.

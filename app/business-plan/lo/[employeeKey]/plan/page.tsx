@@ -12,6 +12,7 @@ import {
   MILESTONE_STATUS_LABEL,
   allowedStatuses,
   canToggleMilestone,
+  isBlocked,
   isOverdue,
   progressOf,
   type MilestoneStatus,
@@ -230,6 +231,24 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
    * dentro del render es impuro -- dos renders del mismo estado podrían dar
    * semanas distintas si el componente se re-renderiza al cruzar la medianoche.
    */
+  /*
+   * ═══════════════════════════════════════════════════════════════════════
+   * EL MAPA PARA `isBlocked` — etapa BP46
+   * ═══════════════════════════════════════════════════════════════════════
+   *
+   * `blocked` NO se guarda: se DERIVA de que la dependencia del nodo no esté
+   * completa. Un step en progreso cuyo antecesor no terminó tiene dos estados a
+   * la vez, y una sola columna no los guarda -- al desbloquearlo habría que
+   * adivinar cuál era.
+   *
+   * Se arma una vez por render y no por nodo: con doce nodos, hacerlo adentro
+   * del `map` serían doce recorridos del mismo array.
+   */
+  const nodosPorKey = useMemo(
+    () => new Map((plan?.nodes ?? []).map((n) => [n.enrollment_node_key, n])),
+    [plan]
+  );
+
   const [mountedAt] = useState(() => Date.now());
   const today = useMemo(() => new Date(mountedAt).toISOString().slice(0, 10), [mountedAt]);
 
@@ -360,7 +379,7 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                 <span className="bp-ring__pct">{progressOf(totals.done, totals.total)}%</span>
               </div>
               <div className="bp-ring__label">
-                {totals.done} of {totals.total} stages
+                {totals.done} of {totals.total} step{totals.total === 1 ? '' : 's'}
               </div>
             </div>
 
@@ -436,6 +455,45 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                       {node.name}
                     </h2>
                     {node.description && <p className="bp-plan-node__desc">{node.description}</p>}
+                    {/*
+                      ════════════════════════════════════════════════════
+                      TRABADO: SE DERIVA Y DESCRIBE, NO PROHÍBE — etapa BP46
+                      ════════════════════════════════════════════════════
+
+                      El badge dice qué falta y CUÁNTO falta, con el nombre del
+                      nodo que se espera -- nunca su posición, que cambia al
+                      reordenar.
+
+                      ⚠ Y NO DESHABILITA NADA. Si alguien hizo el trabajo fuera
+                      de orden, el registro tiene que poder decirlo: bloquear el
+                      control obligaría a mentir sobre el orden para poder
+                      registrar la verdad sobre el trabajo.
+                    */}
+                    {(() => {
+                      if (!isBlocked(node, nodosPorKey)) return null;
+                      const dep =
+                        node.depends_on_enrollment_node_key === null
+                          ? null
+                          : nodosPorKey.get(node.depends_on_enrollment_node_key) ?? null;
+                      /* Un antecesor que no se puede leer se informa igual:
+                         `isBlocked` lo trata como trabado, y decir "listo"
+                         sería inventar. */
+                      if (dep === null) {
+                        return (
+                          <p className="bp-plan-node__blocked">
+                            Blocked — it waits for a node that is no longer in this plan.
+                          </p>
+                        );
+                      }
+                      const faltan = dep.milestones.filter((m) => m.status !== 'completed').length;
+                      return (
+                        <p className="bp-plan-node__blocked">
+                          Blocked — waits for <strong>{dep.name}</strong>, which has {faltan} step
+                          {faltan === 1 ? '' : 's'} left. You can still mark steps here if the work was done out of
+                          order.
+                        </p>
+                      );
+                    })()}
                   </div>
 
                   <div className="bp-owners">
@@ -462,7 +520,7 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                     <span style={{ width: progressOf(p.done, p.total) + '%' }} />
                   </div>
                   <span className="bp-node-progress__label">
-                    {p.done} of {p.total} stages done
+                    {p.done} of {p.total} step{p.total === 1 ? '' : 's'} done
                   </span>
                 </div>
 

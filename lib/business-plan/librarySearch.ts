@@ -326,9 +326,18 @@ export function funnelTotals(funnelKey: number, data: SearchInput): FunnelTotals
    */
   const rangos = nodeDayRanges(
     enOrden.map((l) => l.node_key),
-    data.milestones
+    data.milestones,
+    new Map(enOrden.map((l) => [l.node_key, l.depends_on_node_key ?? null]))
   );
-  const endsDay = rangos.length ? rangos[rangos.length - 1].toDay : 0;
+  /*
+   * ⚠ EL MAYOR, no el del ultimo por posicion.
+   *
+   * Con paralelismo el ultimo de la lista puede no ser el que termina mas
+   * tarde: dos nodos que esperan al mismo antecesor corren a la vez, y el mas
+   * corto queda al final de la secuencia terminando antes. Con cero
+   * dependencias los dos son el mismo numero, asi que la linea base no se mueve.
+   */
+  const endsDay = rangos.length ? Math.max(...rangos.map((r) => r.toDay)) : 0;
 
   return { nodes: enOrden.length, steps, endsDay };
 }
