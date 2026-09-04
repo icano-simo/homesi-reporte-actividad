@@ -8029,3 +8029,51 @@ muestra la app.
 `app/pipeline/TabAnalytics.tsx` (único archivo tocado -- estado
 `selectedChannel`, rename de `branchFilteredLoans` a `filteredLoans`,
 `<select>` de Channel en `.control-bar__row`).
+
+## Foot-note de período redundante en Analytics
+
+El texto duplicado del período (ej. "August 2026" / "Q3 2026") se oculta
+en Month y Quarter, donde ya está visible en los controles propios (el
+input nativo de mes, o el año + el select de trimestre) -- queda visible
+SOLO en YTD, único modo sin controles propios que muestren el año.
+
+### Archivos
+
+`app/pipeline/PeriodSelector.tsx`.
+
+## Nombre real del Owner en el drill-down (no el rol)
+
+En préstamos no-NPPM, el sub-label "Owner" bajo el prestatario ahora
+muestra `opportunityOwner` (el nombre real de la persona -- Etapa
+F7.20) en vez de `opportunityOwnerTitle` (el rol, ej. "Business
+Developer"). Si `opportunityOwner` viene vacío, se muestra el mismo
+aviso honesto que ya usan `loanType`/`loanProgram`/`propertyState`
+("Not available for this snapshot") -- nunca cae de vuelta al rol ni
+queda en blanco. `opportunityOwnerTitle` sigue usándose solo para
+decidir SI se muestra el bloque (mismo gate de siempre), nunca como el
+valor mostrado.
+
+Se agregó el campo a los 3 constructores de `LoanDetailModalLoan`
+(`PivotTable.tsx` tenía 2, `TabMilestoneMatrix.tsx` el tercero -- este
+último no estaba en el alcance original de archivos declarado, lo
+señaló `tsc` al faltarle el campo nuevo, requerido en la interface).
+
+### Archivos
+
+`app/pipeline/LoanDetailModal.tsx` (campo nuevo en
+`LoanDetailModalLoan`, bloque "OWNER PARA B2B" actualizado),
+`app/pipeline/PivotTable.tsx` (`openLoanToModalLoan()`,
+`closedLoanToModalLoan()`), `app/pipeline/TabMilestoneMatrix.tsx` (3er
+constructor, agregado por necesidad mecánica, no por alcance original).
+
+## Orden de pestañas: Analytics antes de Business Plan
+
+Reorden de `NAV_TABS` en `ServiceHubHeader.tsx` -- Analytics pasa a
+mostrarse antes de Business Plan (orden final: Commercial Activity,
+Forecast & Pipeline, Analytics, Business Plan, Outlook, Admin). Se movió
+el bloque completo (entrada + su comentario histórico), sin tocar
+`isTabActive()` ni ninguna otra lógica.
+
+### Archivos
+
+`components/layout/ServiceHubHeader.tsx`.
