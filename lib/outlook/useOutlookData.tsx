@@ -73,13 +73,43 @@ export interface OutlookState {
   error: string | null;
 }
 
-type OutlookContextValue = OutlookState & { reload: () => Promise<void> };
+/**
+ * ============================================================================
+ * ⚠ EL HORIZONTE ES DEL MÓDULO, NO DE UNA PANTALLA — etapa OL22
+ * ============================================================================
+ *
+ * `Project through` vivía en el estado de la vista de cada branch, así que
+ * elegir "Dec 2028" en el 747 no cambiaba nada en el 733 y había que repetir la
+ * selección trece veces. Un horizonte distinto por branch no significa nada: el
+ * presupuesto es de la división.
+ *
+ * Vive acá y no en `OutlookData` --que es lo que primero se piensa-- por la
+ * razón que fijó OL12: meterlo en el loader obligaría a recargar las 33
+ * consultas cada vez que alguien mira un año más. Es una decisión del USUARIO
+ * sobre cuánto mirar, no un dato.
+ *
+ * `null` = hasta diciembre del año en curso, que es el valor por defecto y el
+ * único con el que la tabla de la vista 1 sigue siendo los doce meses del año.
+ * Cada pantalla lo traduce a su lista de meses.
+ */
+type OutlookContextValue = OutlookState & {
+  reload: () => Promise<void>;
+  /** Meses hacia adelante desde el actual. `null` = hasta diciembre. */
+  horizonMonths: number | null;
+  setHorizonMonths: (n: number | null) => void;
+};
 
 const OutlookDataContext = createContext<OutlookContextValue | null>(null);
 
 export function OutlookDataProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<OutlookState>({ data: null, isLoading: true, error: null });
   const [tick, setTick] = useState(0);
+  /*
+   * El horizonte, compartido por las dos vistas -- etapa OL22. Vive en el
+   * Provider, que el layout monta UNA vez y no se desmonta al navegar entre
+   * pantallas, asi que la seleccion sobrevive a ir de la vista 1 a un branch.
+   */
+  const [horizonMonths, setHorizonMonths] = useState<number | null>(null);
 
   /*
    * `reload` devuelve una promesa y los editores la ESPERAN antes de anunciar
@@ -111,7 +141,11 @@ export function OutlookDataProvider({ children }: { children: ReactNode }) {
     };
   }, [tick]);
 
-  return <OutlookDataContext.Provider value={{ ...state, reload }}>{children}</OutlookDataContext.Provider>;
+  return (
+    <OutlookDataContext.Provider value={{ ...state, reload, horizonMonths, setHorizonMonths }}>
+      {children}
+    </OutlookDataContext.Provider>
+  );
 }
 
 /** Debe usarse dentro de `OutlookDataProvider` (montado en app/outlook/layout.tsx). */

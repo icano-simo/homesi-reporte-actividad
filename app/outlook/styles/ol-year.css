@@ -668,3 +668,42 @@ table.piv.ol-year thead .yr-row th.ol-band {
   text-transform: uppercase;
   color: var(--slate-500);
 }
+
+/*
+ * ============================================================================
+ * LA BARRA DEL MODULO — etapa OL22
+ * ============================================================================
+ *
+ * Vive en el layout, arriba de las dos vistas. Dos controles que son de todo
+ * Outlook: el horizonte y el simulador de reclutamiento.
+ *
+ * Se alinea con el ancho de `.hub-container` para que no flote suelta sobre el
+ * contenido, y va discreta: es una barra de controles, no un encabezado.
+ */
+.ol-topbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 18px;
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 14px 32px 0;
+  font-size: var(--ol-text);
+}
+.ol-topbar__field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.ol-topbar__lbl {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--slate-500);
+}
+/* El contador del boton: dice el estado sin competir con el nombre. */
+.ol-topbar__count {
+  color: var(--slate-500);
+  font-variant-numeric: tabular-nums;
+}
