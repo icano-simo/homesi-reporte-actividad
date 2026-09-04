@@ -97,7 +97,7 @@ export default function PeriodSelector({ value, onChange }: PeriodSelectorProps)
         </>
       )}
 
-      {value.mode !== 'month' && (
+      {value.mode === 'ytd' && (
         <span className="foot-note" style={{ margin: 0 }}>
           {periodLabel(value)}
         </span>
