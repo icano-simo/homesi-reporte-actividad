@@ -683,14 +683,25 @@ table.piv.ol-year thead .yr-row th.ol-band {
  * nada de eso entra: el modulo usa Inter con `tabular-nums`, que es lo que hace
  * que los numeros de una columna se alineen sin una tipografia aparte.
  */
+/*
+ * ⚠ SIN COLUMNA PROPIA — etapa OL25.
+ *
+ * Tenia `max-width: 1600px; margin: 0 auto; padding-left: 32px`, o sea su
+ * propia columna, distinta de la del contenido: medido, la etiqueta
+ * `Project through` arrancaba en x=182 y el breadcrumb en x=292. Ciento diez
+ * pixeles, que no se veian como un desajuste de tamanio sino de sangria.
+ *
+ * OL24 le habia corregido el `font-size` --que ya coincidia con el
+ * breadcrumb-- y siguio desalineada, porque la causa era otra. Ahora la barra
+ * se dibuja DENTRO de cada pagina, asi que hereda la columna del contenido y
+ * no necesita ninguna medida propia.
+ */
 .ol-topbar {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 18px;
-  max-width: 1600px;
-  margin: 0 auto;
-  padding: 14px 32px 0;
+  margin-bottom: 14px;
   font-size: var(--ol-text);
 }
 .ol-topbar__field {
