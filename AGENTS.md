@@ -135,3 +135,64 @@ No alcanza con verificar que el caso nuevo **aparezca**. Hay que usarlo:
 
 El costo es un clic. Lo que evita es entregar una etapa correcta con una puerta
 que da a una pared, y que la encuentre quien la use.
+
+# Lo que compensa una ausencia hace que la ausencia no se note
+
+> Tercera sección aparte, y sale de haberlo visto **tres veces**. Un patrón se
+> reconoce por repetición, no por descripción: por eso van los tres casos con
+> nombre y no una definición general.
+
+## La regla
+
+**Cuando algo cae a un valor de respaldo, deja de haber señal de que el original
+falta.** El respaldo no es el bug — es lo que hace que el bug espere.
+
+Y de ahí lo que hay que mirar: **un respaldo que nunca se ejerció es sospechoso**.
+O el original siempre estuvo, y el respaldo sobra; o el original nunca estuvo, y
+lo que se está usando es el respaldo sin saberlo.
+
+## Los tres casos
+
+**1. `--white`, con su fallback.** El token no estaba definido en ninguna parte, y
+los cuatro usos del módulo Outlook lo pedían como `var(--white, #fff)` o
+`var(--white, transparent)`. Nunca rompió: el fallback tapaba la ausencia. Se
+descubrió al escribir el primer uso **sin** fallback — `color: var(--white)`
+sobre `--navy` habría salido oscuro sobre oscuro. Se definió en `tokens.css`, y
+los cuatro fallbacks se borraron: un respaldo muerto es una compensación
+esperando ocultar la próxima.
+
+**2. `--ol-text`, fuera de su alcance.** Está definido en `.ol-page, .ol-editor`,
+y la barra del módulo vive en el `layout.tsx`, que está fuera de las dos. Así que
+`font-size: var(--ol-text)` era una variable indefinida, la declaración se
+ignoraba, y **toda la barra vino en los 14px del documento en vez de los 12 del
+módulo, desde OL22 y sin que nadie lo notara**. Acá el respaldo ni siquiera está
+escrito: es la herencia del CSS, que siempre tiene algo que dar.
+
+**3. El `''` del parser.** Cuando el export no trae las columnas opcionales, el
+parser cae a cadena vacía y no a `null`, así que **«no vino la columna» y «vino
+vacía» se guardan igual** y no se pueden distinguir después. Está documentado en
+`docs/ARQUITECTURA.md` y no se cambió, porque tocar esa coerción afecta a otras
+etapas — pero saberlo es lo que evita leer un `''` como una decisión.
+
+## El contraejemplo, que es el que enseña
+
+`outlook.snapshot.warnings` hace lo contrario **a propósito**, y su SQL lo dice:
+
+> `NULL` = la carga no reportó nada (o es anterior a esta columna, que no es lo
+> mismo y no se puede distinguir). **Array vacío** = la carga corrió y no
+> encontró nada.
+
+Ahí no hay respaldo: los dos estados son distinguibles porque **nadie los
+compensó**. Es la misma distinción que sostiene todo el módulo Outlook — un cero
+es una decisión, vacío es que nadie decidió — y la razón por la que un benchmark
+sin fijar se guarda como `null` y no como `0`.
+
+## Qué hacer
+
+- Al escribir un uso nuevo de algo que en otros lados tiene respaldo, **escribirlo
+  sin respaldo primero** y ver si funciona. Si no funciona, el original no existe.
+- Al ver un `var(--x, algo)`, un `?? valorPorDefecto` o un `catch` que devuelve un
+  neutro, preguntarse **cuándo fue la última vez que esa rama se ejerció**.
+- Y cuando dos estados significan cosas distintas —no vino contra vino vacío, no
+  se decidió contra se decidió cero— **no darles el mismo valor**, aunque cueste
+  una columna nullable más.
