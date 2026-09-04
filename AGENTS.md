@@ -164,6 +164,43 @@ Es el mismo mecanismo que el séptimo caso de la tabla —un resultado que no
 distingue «no está» de «no llegó»— pero corrido un nivel: ahí lo confundía la
 medición, acá lo confunde **el arnés que la reporta**.
 
+## Y el caso peor: la medición que nunca se hizo
+
+Las siete de la tabla son mediciones que fallaron. La de arriba es un arnés que
+no corrió. Ésta es distinta de las dos: **nadie la escribió, porque nadie pensó
+en escribirla.**
+
+Durante semanas nadie pudo marcar un step como completado. Cuatro planes
+activos, doce steps en curso, **cero completados en toda la historia del
+módulo**. Estaba así desde BP20, cuando el estado pasó de botón a desplegable, y
+no lo detectó **ninguna** prueba mía. Lo detectó Isabella usándolo.
+
+La causa era que el desplegable sólo ofrecía «completado» al responsable
+nominal del step, y con los 75 steps repartidos entre nueve personas, **69 de 75
+no ofrecían la opción a quien estuviera mirando**.
+
+Y la razón por la que ninguna prueba lo vio es incómoda: **todas verificaban que
+la app hiciera lo que el código decía, y el código decía eso.** El test se
+escribió leyendo la implementación, así que sólo podía confirmarla. Ninguno
+preguntó lo que un usuario pregunta.
+
+> **Una prueba escrita desde el código sólo puede confirmar el código.**
+
+Las dos reglas operativas que salen de acá:
+
+- **Un control que depende de quién sos hay que probarlo como el OTRO.** Si la
+  regla es «sólo el responsable puede», la prueba que importa es la de alguien
+  que no lo es — y hay que mirar si le queda algún camino, no si el control
+  respeta la regla.
+- **Al menos una verificación por pantalla tiene que salir del OBJETIVO y no de
+  la implementación.** No «el desplegable ofrece los estados permitidos» sino
+  «¿alguien puede registrar que esto se hizo?». La primera se contesta leyendo
+  el código; la segunda, sólo usándolo.
+
+Y el corolario que duele: el número que lo delató —69 de 75— se podía haber
+calculado en cualquier momento con una consulta de treinta segundos. No hacía
+falta descubrirlo, hacía falta preguntarlo.
+
 # Un caso nuevo activa bugs que nadie escribió hoy
 
 > Sección aparte de la tabla de arriba a propósito. Los cinco casos de esa tabla
@@ -210,6 +247,33 @@ No alcanza con verificar que el caso nuevo **aparezca**. Hay que usarlo:
 
 El costo es un clic. Lo que evita es entregar una etapa correcta con una puerta
 que da a una pared, y que la encuentre quien la use.
+
+## Y el caso hermano: redefinir un nombre que ya existía
+
+Antes de definir una clase de CSS, **verificar que el nombre no exista**. Un
+`git grep` cuesta segundos.
+
+`.bp-pill` estaba definida desde antes, con `--radius-sm`, padding `2px 7px`,
+10px y peso 700, y la usaba `FunnelExplorer` con sus variantes `--sky`, `--day`
+y `--late`. La redefiní para las tarjetas de nodo, y como la mía venía después
+en el archivo, **le ganó**: las píldoras del explorador cambiaron de forma,
+padding, tamaño y peso sin que nadie lo pidiera.
+
+Lo que lo hizo invisible: las variantes sobreescriben **color y borde**, que es
+lo que se mira primero, así que seguían viéndose bien. Y ninguna medición de esa
+etapa tocaba el explorador — se estaba verificando la pantalla nueva.
+
+> **Una clase redefinida no rompe donde la escribís, rompe donde ya estaba.**
+
+Y una vuelta de tuerca que lo empeora en vez de mejorarlo: el contexto ajeno era
+**mío**, de dos etapas antes. Dos etapas propias también colisionan, así que la
+familiaridad con el archivo no sustituye al grep.
+
+La regla operativa: **al agregar CSS, `git grep` del selector primero.** Si ya
+existe, elegir otro nombre — no "mejorar" el existente de paso, porque quien lo
+usa no está en la pantalla que se está mirando. Y al medir un cambio de estilo,
+medir **la cascada** y no sólo el elemento nuevo: un elemento inyectado con la
+clase ajena dice si le pegaste, sin tener que navegar hasta ahí.
 
 # Lo que compensa una ausencia hace que la ausencia no se note
 

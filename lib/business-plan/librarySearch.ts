@@ -1,4 +1,4 @@
-import { cumulativeDays, type Funnel, type FunnelNode, type FunnelNodeLink, type NodeMilestone, type NodeOwner } from './funnels';
+import { cumulativeDays, nodeDayRanges, type Funnel, type FunnelNode, type FunnelNodeLink, type NodeMilestone, type NodeOwner } from './funnels';
 import type { SupportPerson } from './useFunnelLibrary';
 
 /**
@@ -305,12 +305,30 @@ export function funnelTotals(funnelKey: number, data: SearchInput): FunnelTotals
     .filter((l) => l.funnel_key === funnelKey)
     .sort((a, b) => a.position - b.position);
 
-  let steps = 0;
-  let endsDay = 0;
-  for (const l of enOrden) {
-    const st = data.milestones.filter((m) => m.node_key === l.node_key);
-    steps += st.length;
-    endsDay += st.reduce((s, m) => s + (m.sla_days ?? 0), 0);
-  }
+  const steps = enOrden.reduce(
+    (acc, l) => acc + data.milestones.filter((m) => m.node_key === l.node_key).length,
+    0
+  );
+
+  /*
+   * ⚠ `endsDay` SE DERIVA DE `nodeDayRanges`, no se suma aparte.
+   *
+   * Sumaba los `sla_days` del funnel, y eso difiere del ultimo dia que muestran
+   * las tarjetas en un caso concreto: un nodo SIN steps ocupa 1 dia igual --dos
+   * nodos no pueden arrancar el mismo dia-- y la suma no lo contaba.
+   *
+   * Medido cuando aparecio el primer nodo sin steps de la biblioteca: el
+   * encabezado de `Recruitment - DYS` decia "ends day 88" y su ultima tarjeta
+   * decia "day 89-89". Dos numeros para lo mismo, en la misma pantalla.
+   *
+   * Ahora hay una sola cuenta. Mismo criterio que hizo derivar
+   * `enrollmentsByFunnel` de `enrolledByFunnel` en BP40.
+   */
+  const rangos = nodeDayRanges(
+    enOrden.map((l) => l.node_key),
+    data.milestones
+  );
+  const endsDay = rangos.length ? rangos[rangos.length - 1].toDay : 0;
+
   return { nodes: enOrden.length, steps, endsDay };
 }
