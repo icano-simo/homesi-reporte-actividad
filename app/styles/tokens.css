@@ -38,6 +38,20 @@
   --coral: #ff4040; /* 'Warm Embrace'   */
   --sky: #a6deff; /* 'Light Sky'       */
   --canvas: #fcfcfa; /* 'New Day'       */
+  /*
+   * ⚠ `--white` SE USABA SIN ESTAR DEFINIDO — arreglado en OL23.
+   *
+   * Había cuatro usos en el módulo Outlook y todos con fallback --`var(--white,
+   * #fff)`, `var(--white, transparent)`-- así que nunca rompió y nadie lo notó:
+   * el fallback tapaba que el token no existía. Se descubrió al escribir un uso
+   * SIN fallback, que es cuando la variable indefinida deja de ser inofensiva:
+   * `color: var(--white)` sobre `--navy` habría salido oscuro sobre oscuro.
+   *
+   * Es el mismo mecanismo que el `datalist` de OL21 --dos defectos tapándose
+   * entre sí-- y el mismo patrón que `AGENTS.md`: el bug no estaba en lo que se
+   * cambió, estaba esperando que algo lo alcanzara.
+   */
+  --white: #ffffff;
 
   /* ---- Escala neutra (slate) -------------------------------------------- */
   --slate-50: #f8fafc;
