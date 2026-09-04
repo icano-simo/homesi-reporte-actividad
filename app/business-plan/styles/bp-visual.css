@@ -4802,39 +4802,6 @@ table.piv tr.metric.is-picked td.lbl {
 .bp-area-group {
   margin-bottom: 26px;
 }
-.bp-area-group__head {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  margin: 0 0 10px;
-  font-family: var(--font-display);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--slate-500);
-  border-bottom: 1px solid var(--slate-100);
-  padding-bottom: 6px;
-}
-.bp-area-group__head--none {
-  color: var(--amber-800);
-  border-bottom-color: var(--amber-200);
-}
-.bp-area-group__n {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0;
-  text-transform: none;
-  color: var(--slate-400);
-  font-variant-numeric: tabular-nums;
-}
-.bp-area-group__todo {
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0;
-  text-transform: none;
-  color: var(--amber-700);
-}
 
 /* ── La tarjeta de un nodo ────────────────────────────────────────────────── */
 
@@ -5097,21 +5064,31 @@ span.bp-ms__dot {
  * --`Budget Allocation - Ca...`-- mientras que una descripción recortada sólo
  * esconde detalle que igual no cabía.
  */
+/*
+ * EL NOMBRE MANDA SOBRE LA DESCRIPCION -- etapa BP47.
+ *
+ * Estaban a 13px y 11.5px: dos puntos y medio de diferencia, con la
+ * descripcion ocupando el ancho entero de la tarjeta. En una lista de 32 el ojo
+ * enganchaba la descripcion, que es la parte que ademas se recorta.
+ *
+ * Ahora 14.5px contra 11px, y la descripcion en `--slate-400` en vez de 500.
+ */
 .bp-nodecard__name {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 13px;
+  font-size: 14.5px;
   font-weight: 700;
+  line-height: 1.3;
   color: var(--navy);
   overflow-wrap: anywhere;
 }
 /* La descripción SÍ se recorta, a una línea. Dos de los seis nodos sin área
    guardan una sesión entera acá: 891 y 658 caracteres. */
 .bp-nodecard__desc {
-  margin: 2px 0 0;
-  font-size: 11.5px;
+  margin: 3px 0 0;
+  font-size: 11px;
   line-height: 1.45;
-  color: var(--slate-500);
+  color: var(--slate-400);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -5336,16 +5313,6 @@ button.bp-metapill--area:disabled {
 .bp-panel__actions {
   margin-top: 12px;
 }
-.bp-panel__rule {
-  margin: 16px 0 0;
-  padding: 9px 11px;
-  border-left: 2px solid var(--sky);
-  background: var(--slate-50);
-  border-radius: var(--radius-sm);
-  font-size: 11.5px;
-  line-height: 1.5;
-  color: var(--slate-600);
-}
 
 /* ── El menu de mas acciones de una tarjeta ── etapa BP44 ────────────────────
 
@@ -5413,15 +5380,6 @@ button.bp-metapill--area:disabled {
    LA PANTALLA DE UN FUNNEL — etapa BP45
    ════════════════════════════════════════════════════════════════════════════ */
 
-/* El nombre del funnel en la lista: es un enlace, pero no se ve como uno --
-   la tarjeta entera ya invita a entrar. */
-.bp-funnel-link {
-  color: var(--navy);
-  text-decoration: none;
-}
-.bp-funnel-link:hover {
-  text-decoration: underline;
-}
 
 /* ── La tarjeta de un nodo dentro de la secuencia ────────────────────────── */
 
@@ -5613,4 +5571,305 @@ button.bp-metapill--area:disabled {
   height: 7px;
   border-radius: 50%;
   background: var(--amber-500);
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   FUNNELS & NODES: UN MODULO, DOS PESTANAS — etapa BP47
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/*
+ * Las pestañas del módulo. No reusan `.bp-tabs`, que en esta pantalla ya está
+ * ocupada por el filtro de áreas: dos grupos de pestañas idénticos, uno arriba
+ * del otro y con ejes distintos, se leen como un solo control roto. Éstas son
+ * más grandes y llevan subrayado; el filtro de áreas queda como píldoras.
+ */
+.bp-modtabs {
+  display: flex;
+  gap: 2px;
+  margin: 0 0 18px;
+  border-bottom: 1px solid var(--slate-200);
+}
+.bp-modtabs__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 16px;
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--slate-500);
+  text-decoration: none;
+}
+.bp-modtabs__tab:hover {
+  color: var(--navy);
+  background: var(--slate-50);
+}
+.bp-modtabs__tab.is-on {
+  color: var(--navy);
+  border-bottom-color: var(--coral);
+}
+.bp-modtabs__n {
+  padding: 1px 7px;
+  border-radius: var(--radius-full);
+  background: var(--slate-100);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--slate-500);
+  font-variant-numeric: tabular-nums;
+}
+.bp-modtabs__tab.is-on .bp-modtabs__n {
+  background: var(--navy);
+  color: var(--white);
+}
+
+/* ── La franja de un funnel ──────────────────────────────────────────────── */
+
+.bp-fnlist {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+/*
+ * `position: relative` NO es decorativo: es lo que hace que el `<a>` estirado
+ * de abajo se mida contra la franja y no contra la página.
+ */
+.bp-fnrow {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px 18px;
+  background: var(--canvas);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+}
+.bp-fnrow:hover {
+  border-color: var(--navy);
+  box-shadow: var(--shadow-md);
+}
+/*
+ * EL LINK ESTIRADO. Cubre la franja entera y va DEBAJO de la tira de controles
+ * (`z-index: 0` contra `1`), así que `Edit` recibe su propio clic. Sin texto:
+ * su nombre accesible es el `aria-label`.
+ */
+.bp-fnrow__hit {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+}
+.bp-fnrow__hit:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 2px;
+}
+.bp-fnrow__main {
+  position: relative;
+  z-index: 0;
+  min-width: 0;
+  flex: 1 1 auto;
+  pointer-events: none;
+}
+.bp-fnrow__name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--navy);
+  overflow-wrap: anywhere;
+}
+.bp-fnrow__desc {
+  margin: 3px 0 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--slate-400);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* La tira de controles: por encima del link estirado, y con sus propios
+   eventos de puntero -- el `__main` los tiene apagados para que el clic en el
+   nombre caiga en el link. */
+.bp-fnrow__meta {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  /*
+   * ⚠ `flex: 0 0 auto` Y SIN `max-width`. Los controles no se encogen ni se
+   * envuelven: el lado del nombre es el que da el espacio, y para eso tiene
+   * `min-width: 0` y elipsis en la descripcion.
+   *
+   * Las dos variantes que salieron peor, medidas en las nueve franjas:
+   *
+   *   `0 0 auto` + `max-width: 46%`  → `Community Referrals` mandaba su `Edit`
+   *                                    solo a una segunda linea.
+   *   `1 1 auto` + `max-width: 54%`  → peor: con `flex-shrink: 1` la tira baja
+   *                                    de su contenido, y en `Javier Growth
+   *                                    Engine` --descripcion larguisima-- la
+   *                                    comprimio a SEIS lineas, una pildora
+   *                                    por linea.
+   *
+   * El `flex-wrap: wrap` se queda igual: es la red por si el viewport se hace
+   * mas angosto que los seis controles juntos.
+   */
+  flex: 0 0 auto;
+}
+/* Cero enrolados: texto y no píldora. Ver la nota del TSX. */
+.bp-fnrow__none {
+  font-size: 11px;
+  color: var(--slate-400);
+  padding: 0 4px;
+}
+
+/* ── La cadena de nodos ──────────────────────────────────────────────────── */
+
+/*
+ * ENVUELVE, y ninguna píldora se recorta. Un `<ol>` porque el ORDEN es el dato:
+ * la secuencia de un funnel no es un conjunto.
+ */
+.bp-chain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 2px;
+  margin: 9px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.bp-chain__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+.bp-chain__arrow {
+  flex: none;
+  color: var(--slate-300);
+}
+/*
+ * ⚠ SIN `text-overflow` Y SIN `white-space: nowrap`. El nombre más largo tiene
+ * 53 caracteres y tiene que poder bajar de línea adentro de su píldora antes
+ * que cortarse: un nombre a medias es inidentificable. Es la distinción que
+ * costó el bug de `table.piv`.
+ */
+.bp-chain__pill {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--slate-200);
+  background: var(--slate-50);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--slate-600);
+  overflow-wrap: anywhere;
+}
+.bp-fnrow:hover .bp-chain__pill {
+  border-color: var(--slate-300);
+}
+
+/* ── El encabezado de área de la biblioteca ──────────────────────────────── */
+
+.bp-areahead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 10px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--slate-200);
+  font-family: var(--font-display);
+  /*
+   * 17px, y el numero importa: el nombre de un nodo esta en 14.5px, asi que a
+   * 15px la medicion decia "mas grande" por medio pixel -- una diferencia que
+   * no se ve y que no sostiene la afirmacion. La jerarquia ahora es 17 / 14.5 /
+   * 11 y cada salto se mide.
+   */
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--navy);
+}
+/* La mayúscula la pone el CSS y no el texto: el área se guarda como
+   `Sales Coaching` y así se busca. */
+.bp-areahead__name {
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.bp-areahead__n {
+  padding: 2px 9px;
+  border-radius: var(--radius-full);
+  background: var(--slate-100);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--slate-500);
+  font-variant-numeric: tabular-nums;
+}
+/* Los 7 sin área conservan el ámbar: es lo que hace que alguien las asigne. */
+.bp-areahead--none {
+  color: var(--amber-800);
+  border-bottom-color: var(--amber-500);
+}
+.bp-areahead--none .bp-areahead__n {
+  background: var(--amber-100);
+  color: var(--amber-800);
+}
+
+/* ── Las notas aclaratorias, todas iguales ───────────────────────────────── */
+
+/*
+ * UNA SOLA CAJA PARA TODAS. Antes eran `bp-legend` a 11px sin caja,
+ * `bp-muted-line` a 12.5px sin caja y `bp-area-group__todo` a 11px en ámbar sin
+ * caja: tres tratamientos para la misma clase de texto, que es "esto lo aclara
+ * la pantalla, no es un dato".
+ *
+ * `bp-note` estaba tomada -- es la nota que escribe una PERSONA sobre un step,
+ * y redefinirla habría cambiado la lista de notas de la pantalla del plan sin
+ * que nada lo dijera. Un `git grep` antes de escribir el nombre.
+ */
+.bp-hint {
+  margin: 8px 0 0;
+  padding: 7px 11px;
+  border-radius: var(--radius-sm);
+  background: var(--slate-50);
+  border: 1px solid var(--slate-100);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--slate-500);
+}
+.bp-hint--warn {
+  background: var(--amber-50);
+  border-color: var(--amber-200);
+  color: var(--amber-800);
+}
+
+/* ── Dos matices de píldora que hacían falta ─────────────────────────────── */
+
+/* Con icono adentro: alinea el glifo con la cifra. */
+.bp-metapill--num {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-variant-numeric: tabular-nums;
+}
+.bp-metapill--num svg {
+  color: var(--slate-400);
+}
+/* Hay gente adentro. No es un estado a resolver, así que no es ámbar: es un
+   dato que existe, y por eso se destaca en navy en vez de gris. */
+.bp-metapill--on {
+  background: var(--navy);
+  border-color: var(--navy);
+  color: var(--white);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }

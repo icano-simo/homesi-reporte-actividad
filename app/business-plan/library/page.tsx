@@ -15,6 +15,7 @@ import { Fragment } from 'react';
 import { ErrorState, LoadingState } from '../components/shared';
 import NodeLibrary from './NodeLibrary';
 import { saveNode } from '@/lib/business-plan/saveNode';
+import FunnelNodeTabs from '../components/FunnelNodeTabs';
 import LibrarySearchBar from '../components/LibrarySearchBar';
 import { ConfirmDelete, MilestoneForm, NodeForm } from './LibraryForms';
 
@@ -177,10 +178,12 @@ export default function FunnelLibraryPage() {
 
   return (
     <>
-      <Breadcrumbs items={[{ label: 'Branch Portfolio', href: '/business-plan' }, { label: 'Funnel & Node Library' }]} />
+      <Breadcrumbs
+        items={[{ label: 'Branch Portfolio', href: '/business-plan' }, { label: 'Funnels & Nodes' }]}
+      />
 
       <div className="page-head">
-        <h1 className="page-head__title">Funnel &amp; Node Library</h1>
+        <h1 className="page-head__title">Funnels &amp; Nodes</h1>
         {/*
           LA BUSQUEDA VA EN LA CABECERA, fuera de las pestanas -- etapa BP41.
           Busca funnels, nodos, steps y owners a la vez, asi que atarla a la
@@ -189,6 +192,10 @@ export default function FunnelLibraryPage() {
         */}
         {data && <LibrarySearchBar data={data} />}
       </div>
+
+      {/* Las mismas dos pestanas que en /funnels, con los mismos conteos: es
+          una vista del mismo item de menu. */}
+      <FunnelNodeTabs funnels={data?.funnels.length} nodes={data?.nodes.length} />
 
       {isLoading && <LoadingState />}
       {error && <ErrorState message={error} />}
