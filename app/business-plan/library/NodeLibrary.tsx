@@ -1,29 +1,29 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { cumulativeDays, NODE_AREAS, type FunnelNode, type NodeArea, type NodeMilestone } from '@/lib/business-plan/funnels';
+import { useEffect, useMemo, useState } from 'react';
+import { NODE_AREAS, type FunnelNode, type NodeArea, type NodeMilestone } from '@/lib/business-plan/funnels';
 import { initialsOf, nodeStats, type SearchInput } from '@/lib/business-plan/librarySearch';
 import type { FunnelLibrary } from '@/lib/business-plan/useFunnelLibrary';
 import Modal from '../components/Modal';
+import StepsPanel from './StepsPanel';
 
 /**
  * ============================================================================
- * BIBLIOTECA DE NODOS — etapa BP41
+ * BIBLIOTECA DE NODOS — etapa BP41, reescrita en BP43
  * ============================================================================
  *
- * ARCHIVO NUEVO. Reemplaza a la tabla de nodos: los 31 nodos con sus steps,
- * agrupados por área, cada uno en una tarjeta que se abre en el lugar.
+ * Los 31 nodos, agrupados por área, cada uno en una tarjeta horizontal.
  *
- * ⚠ LO QUE ESTA PANTALLA MUESTRA ES LA PLANTILLA, y eso hay que decirlo donde
- * se edita. Los planes se copian al activar, así que agregarle un step a un
- * nodo NO cambia el plan de nadie que ya esté corriendo. La nota al pie de cada
- * tarjeta abierta existe porque es la pregunta que va a hacer cualquiera antes
- * de tocar algo, y no tenerla a la vista invita a no tocar nada.
+ * ⚠ LOS STEPS YA NO ESTÁN ACÁ. En BP41 la tarjeta se abría hacia abajo y
+ * mostraba su tabla; ahora abre un panel lateral (`StepsPanel`). El motivo no
+ * es estético: desplegándose hacia abajo, la tabla empujaba las tarjetas
+ * siguientes y se perdía el lugar en una lista de 31.
  *
- * ⚠ Y NO MUESTRA AVANCE. Las tarjetas son la plantilla: steps, días, owner. El
- * progreso vive por persona en `N enrolled` de la pantalla del funnel, porque
- * agregado esconde lo que importa -- alguien que terminó el primer nodo y
- * alguien que va en 1 de 3 dan el mismo promedio y no son la misma situación.
+ * ⚠ Y LA TARJETA NO MUESTRA AVANCE. Muestra la PLANTILLA: steps, días, owner.
+ * El progreso vive por persona en `N enrolled` de la pantalla del funnel,
+ * porque agregado esconde lo que importa -- alguien que terminó el primer nodo
+ * y alguien que va en 1 de 3 dan el mismo promedio y no son la misma situación.
+ * El panel respeta lo mismo: no lleva checkbox.
  */
 
 /** `null` = el grupo de los que no tienen área asignada. */
@@ -54,15 +54,50 @@ export default function NodeLibrary({
   onReorderSteps,
 }: NodeLibraryProps) {
   const [area, setArea] = useState<AreaFilter>('all');
-  const [abiertos, setAbiertos] = useState<Set<number>>(new Set());
-  /* Qué diálogo está abierto, si alguno. Un solo estado: dos booleanos
-     independientes permiten abrir los dos y hay que decidir cuál gana. */
+  /* Qué nodo tiene el panel abierto. Uno solo: dos paneles a la vez no existen. */
+  const [panel, setPanel] = useState<number | null>(null);
   const [dialogo, setDialogo] = useState<
-    { kind: 'funnels-of'; node: FunnelNode } | { kind: 'pick-funnels'; node: FunnelNode } | null
+    | { kind: 'funnels-of'; node: FunnelNode }
+    | { kind: 'pick-funnels'; node: FunnelNode }
+    | { kind: 'remove'; node: FunnelNode }
+    | null
   >(null);
-  const [arrastrado, setArrastrado] = useState<number | null>(null);
+  /* Que tarjeta tiene el menu de acciones desplegado. Uno solo a la vez. */
+  const [menu, setMenu] = useState<number | null>(null);
 
   const busqueda: SearchInput = data;
+
+  /*
+   * EL MENU CIERRA AL HACER CLIC AFUERA Y CON ESCAPE.
+   *
+   * Sin esto solo cerraba con su propio boton: cualquier otro clic --incluso en
+   * otra tarjeta-- lo dejaba abierto y flotando sobre la lista. Y el clic en el
+   * cuerpo de una tarjeta abre el panel, asi que el menu quedaba abierto DEBAJO
+   * del panel, invisible y activo.
+   *
+   * Se registra solo cuando hay un menu abierto: un listener permanente en
+   * `document` para un estado que casi siempre es null.
+   */
+  useEffect(() => {
+    if (menu === null) return;
+    const cerrar = () => setMenu(null);
+    const porTecla = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenu(null);
+    };
+    /*
+     * `capture: true` y no la fase de burbujeo: los botones del menu llaman
+     * `stopPropagation` de su contenedor, asi que en burbujeo este listener no
+     * se enteraria del clic. En captura corre primero -- y por eso el handler
+     * del propio item ya cerro el menu antes, lo que hace que el orden no
+     * importe.
+     */
+    document.addEventListener('click', cerrar, { capture: true });
+    document.addEventListener('keydown', porTecla);
+    return () => {
+      document.removeEventListener('click', cerrar, { capture: true });
+      document.removeEventListener('keydown', porTecla);
+    };
+  }, [menu]);
 
   /*
    * ══════════════════════════════════════════════════════════════════════════
@@ -70,13 +105,13 @@ export default function NodeLibrary({
    * ══════════════════════════════════════════════════════════════════════════
    *
    * Van arriba y no al final, y es lo contrario de lo que hacía la tabla de
-   * BP40. La razón es que acá son una TAREA: hay seis, están en `null` porque
-   * nadie los asignó, y medido contra la base ninguno de los seis tiene un
-   * prefijo del que derivar el área -- dos guardan una sesión entera en la
-   * descripción, uno tiene una frase sin punto y tres no tienen descripción.
+   * BP40. Acá son una TAREA: hay seis, están en `null` porque nadie los asignó,
+   * y medido contra la base ninguno de los seis tiene un prefijo del que
+   * derivar el área -- dos guardan una sesión entera en la descripción, uno
+   * tiene una frase sin punto y tres no tienen descripción.
    *
    * Al final de la lista se leen como "sobrantes"; arriba se leen como "esto
-   * falta". Y con el selector al lado, se resuelven donde se ven.
+   * falta".
    */
   const grupos = useMemo(() => {
     const visibles = area === 'all' ? data.nodes : data.nodes.filter((n) => (n.area ?? null) === area);
@@ -90,8 +125,8 @@ export default function NodeLibrary({
     return out;
   }, [data.nodes, area]);
 
-  /* Los conteos del filtro salen de `data.nodes`, no del grupo filtrado: si
-     salieran de lo visible, elegir un área pondría todos los demás en cero. */
+  /* Los conteos salen de `data.nodes`, no del grupo filtrado: si salieran de lo
+     visible, elegir un área pondría todos los demás en cero. */
   const conteos = useMemo(() => {
     const c = new Map<AreaFilter, number>([['all', data.nodes.length]]);
     c.set(null, data.nodes.filter((n) => !n.area).length);
@@ -99,40 +134,40 @@ export default function NodeLibrary({
     return c;
   }, [data.nodes]);
 
-  const toggle = (k: number) =>
-    setAbiertos((prev) => {
-      const s = new Set(prev);
-      if (s.has(k)) s.delete(k);
-      else s.add(k);
-      return s;
-    });
-
   const stepsDe = (nodeKey: number) =>
     data.milestones.filter((m) => m.node_key === nodeKey).sort((a, b) => a.position - b.position);
 
-  const nombreDe = (employeeKey: number | null) =>
-    employeeKey === null ? null : data.support.find((p) => p.employee_key === employeeKey)?.full_name ?? `employee ${employeeKey}`;
+  const nodoDelPanel = panel === null ? null : data.nodes.find((n) => n.node_key === panel) ?? null;
 
   return (
     <>
       {/*
-        EL FILTRO CON SUS CONTEOS. Es un filtro y no un desplegable porque los
-        números tienen que estar a la vista: `No area 6` es lo que hace que
-        alguien los asigne, y dentro de un `<select>` cerrado no se ve.
+        ══════════════════════════════════════════════════════════════════════
+        EL FILTRO, COMO PESTAÑAS SEGMENTADAS — etapa BP43
+        ══════════════════════════════════════════════════════════════════════
+
+        Un grupo segmentado y no botones sueltos: son opciones EXCLUYENTES sobre
+        el mismo eje, y sueltas se leían como cinco acciones independientes.
+
+        Los conteos van adentro y a la vista: `No area 6` es lo que hace que
+        alguien las asigne, y dentro de un `<select>` cerrado no se ve.
       */}
-      <div className="bp-area-filter" role="group" aria-label="Filter nodes by area">
+      <div className="bp-tabs" role="tablist" aria-label="Filter nodes by area">
         {([['all', 'All'], [null, 'No area'], ...NODE_AREAS.map((a) => [a, a] as const)] as [AreaFilter, string][]).map(
           ([valor, rotulo]) => {
             const n = conteos.get(valor) ?? 0;
+            /* Un área sin nodos no se ofrece: un "IT 0" ocupa una pestaña para
+               no decir nada. `All` siempre está, aunque la biblioteca esté vacía. */
             if (n === 0 && valor !== 'all') return null;
+            const activa = area === valor;
             return (
               <button
                 key={String(valor)}
                 type="button"
+                role="tab"
+                aria-selected={activa}
                 className={
-                  'bp-area-filter__btn' +
-                  (area === valor ? ' is-on' : '') +
-                  (valor === null ? ' bp-area-filter__btn--none' : '')
+                  'bp-tabs__tab' + (activa ? ' is-on' : '') + (valor === null ? ' bp-tabs__tab--none' : '')
                 }
                 onClick={() => setArea(valor)}
               >
@@ -152,228 +187,203 @@ export default function NodeLibrary({
             <span className="bp-area-group__n">
               {g.nodos.length} node{g.nodos.length === 1 ? '' : 's'}
             </span>
-            {/* Los sin área dicen qué hacer, no sólo que están. */}
             {g.area === null && <span className="bp-area-group__todo">assign an area to group them</span>}
           </h2>
 
           <div className="bp-node-list">
             {g.nodos.map((n) => {
               const st = nodeStats(n.node_key, busqueda);
-              const abierto = abiertos.has(n.node_key);
-              const steps = stepsDe(n.node_key);
-              const dias = cumulativeDays(steps.map((m) => m.sla_days));
-
               return (
-                <article key={n.node_key} className="bp-nodecard" id={'node-' + n.node_key}>
-                  <div className="bp-nodecard__head">
+                <article
+                  key={n.node_key}
+                  id={'node-' + n.node_key}
+                  className="bp-nodecard"
+                  /*
+                    El clic en la tarjeta abre el panel. Los controles de la tira
+                    llaman `stopPropagation` para que elegir un funnel o borrar
+                    el nodo no abra además el panel.
+                  */
+                  onClick={() => setPanel(n.node_key)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setPanel(n.node_key);
+                    }
+                  }}
+                >
+                  {/*
+                    ⚠ EL NOMBRE NUNCA SE CORTA; LA DESCRIPCIÓN SÍ.
+                    Es la distinción que costó el bug de `table.piv`: recortar
+                    un nombre lo vuelve inidentificable --`Budget Allocation -
+                    Ca...`-- mientras que recortar una descripción sólo esconde
+                    detalle que igual no cabía.
+                    Y es imprescindible acá: dos de los seis nodos sin área
+                    guardan una sesión entera en la descripción, de 891 y 658
+                    caracteres. Sin recorte, esas dos tarjetas serían muros.
+                  */}
+                  <div className="bp-nodecard__left">
+                    <h3 className="bp-nodecard__name">{n.name}</h3>
+                    {n.description && <p className="bp-nodecard__desc">{n.description}</p>}
+                  </div>
+
+                  <div className="bp-nodecard__meta" onClick={(e) => e.stopPropagation()} role="presentation">
                     {/*
-                      El nombre abre y cierra. Es un `<button>` y no un `<div>`
-                      con onClick para que llegue por teclado -- la tarjeta es
-                      la única forma de ver los steps.
+                      LAS DOS METRICAS EN TONO NEUTRO -- etapa BP44.
+                      Estaban en la familia --sky y salieron: son DATOS, no
+                      estados. El azul se lee como "esto significa algo" y no
+                      significa nada: 5 days no es mejor ni peor que 44. El
+                      tinte queda libre para lo que si es un estado -- el ambar
+                      de lo que falta decidir.
+                    */}
+                    <span className="bp-metapill">
+                      {st.steps} step{st.steps === 1 ? '' : 's'}
+                    </span>
+
+                    {/* `—` y no `0 days` sin steps: no hay duración que leer, y un
+                        cero afirmaría que dura nada. */}
+                    <span className="bp-metapill">{st.steps === 0 ? '— days' : st.days + ' days'}</span>
+
+                    {/* Cero NO es un botón: no hay nada que abrir. */}
+                    {st.funnelKeys.length === 0 ? (
+                      <span className="bp-metapill bp-metapill--warn">in no funnel</span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="bp-metapill bp-metapill--link"
+                        /* Abre la asignacion MULTIPLE, que es la accion util.
+                           Antes solo listaba donde estaba, y habia un
+                           `Funnels...` aparte para cambiarlo. El dialogo ya
+                           muestra los nueve con los actuales marcados, asi que
+                           dice lo mismo que la lista y ademas deja hacer algo. */
+                        onClick={() => setDialogo({ kind: 'pick-funnels', node: n })}
+                      >
+                        in {st.funnelKeys.length} funnel{st.funnelKeys.length === 1 ? '' : 's'}
+                      </button>
+                    )}
+
+                    {/*
+                      LOS OWNERS COMO INICIALES, todos. Medido: 20 de los 31
+                      nodos tienen tres. Mostrar "el primero" habría sido un dato
+                      inventado con forma de dato -- `node_owner` no tiene orden
+                      declarado. El nombre completo va en el `title`.
+                    */}
+                    <span className="bp-nodecard__owners">
+                      {st.owners.length === 0 ? (
+                        <span className="bp-metapill bp-metapill--warn">no owner</span>
+                      ) : (
+                        st.owners.map((o) => (
+                          <span key={o} className="bp-initials" title={o}>
+                            {initialsOf(o)}
+                          </span>
+                        ))
+                      )}
+                    </span>
+
+                    {/*
+                      EL AREA, EN DOS TONOS Y NO EN CINCO -- etapa BP44.
+
+                      Sin asignar: ambar, porque es lo que hay que resolver.
+                      Asignada: gris neutro, sin importar cual sea.
+
+                      ⚠ NO LLEVA UN COLOR POR AREA. Con areas editables el
+                      numero crece --es el punto 1 de esta etapa-- y una paleta
+                      por area se vuelve inmanejable en cuanto haya seis o diez.
+                      El nombre ya distingue; el color solo tiene que decir si
+                      falta o no.
+
+                      Es una pildora clicable y no un `<select>` nativo: abre el
+                      panel, que es donde estan las opciones a la vista.
                     */}
                     <button
                       type="button"
-                      className="bp-nodecard__toggle"
-                      onClick={() => toggle(n.node_key)}
-                      aria-expanded={abierto}
+                      className={'bp-metapill' + (n.area === null ? ' bp-metapill--warn' : ' bp-metapill--link')}
+                      onClick={() => setPanel(n.node_key)}
+                      title={n.area === null ? 'No area assigned — click to set it' : 'Area: ' + n.area}
                     >
-                      <span className="bp-nodecard__caret" aria-hidden="true">
-                        {abierto ? '▾' : '▸'}
-                      </span>
-                      {/* NADA CORTADO: el nombre entra entero y la tarjeta crece. */}
-                      <span className="bp-nodecard__name">{n.name}</span>
+                      {n.area ?? 'No area'}
                     </button>
 
-                    <div className="bp-nodecard__meta">
-                      <span className="bp-nodecard__stat">
-                        {st.steps} step{st.steps === 1 ? '' : 's'}
-                      </span>
-                      {/* `—` y no `0 days` cuando el nodo no tiene steps: no hay
-                          duración que leer, y un cero afirmaría que dura nada. */}
-                      <span className="bp-nodecard__stat">{st.steps === 0 ? '—' : st.days + ' days'}</span>
+                    {/*
+                      DE CUATRO CONTROLES A DOS -- etapa BP44.
 
-                      {/*
-                        `in N funnels`, clicable. Cero NO es un botón: no hay
-                        nada que abrir, y un botón que abre una lista vacía es
-                        el lápiz que no hacía nada de OL23.
-                      */}
-                      {st.funnelKeys.length === 0 ? (
-                        <span className="bp-nodecard__stat bp-nodecard__stat--warn">in no funnel</span>
-                      ) : (
-                        <button
-                          type="button"
-                          className="bp-linkish bp-nodecard__stat"
-                          onClick={() => setDialogo({ kind: 'funnels-of', node: n })}
-                        >
-                          in {st.funnelKeys.length} funnel{st.funnelKeys.length === 1 ? '' : 's'}
-                        </button>
+                      `Manage steps` se fue: el CUERPO de la tarjeta abre el
+                      editor, que era lo que ese boton hacia. Con 32 tarjetas
+                      eran 32 botones repitiendo el gesto que ya tiene la fila
+                      entera, y en coral, anulando la jerarquia que el color
+                      deberia dar.
+
+                      Quedan dos cosas, y hacen cosas distintas:
+                        - `in N funnels`, que abre la asignacion multiple;
+                        - un menu con editar y quitar, que son las acciones
+                          menos frecuentes y las unicas destructivas.
+                    */}
+                    <div className="bp-menu">
+                      <button
+                        type="button"
+                        className="bp-metapill bp-metapill--link bp-menu__trigger"
+                        aria-haspopup="true"
+                        aria-expanded={menu === n.node_key}
+                        aria-label={'More actions for ' + n.name}
+                        onClick={(e) => {
+                          /* Sin esto, el listener de captura de arriba veria
+                             este mismo clic y cerraria el menu que se acaba de
+                             abrir: se abriria y cerraria en un gesto. */
+                          e.stopPropagation();
+                          setMenu(menu === n.node_key ? null : n.node_key);
+                        }}
+                      >
+                        ⋯
+                      </button>
+                      {menu === n.node_key && (
+                        <div className="bp-menu__list" role="menu">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="bp-menu__item"
+                            onClick={() => {
+                              setMenu(null);
+                              onEditNode(n);
+                            }}
+                          >
+                            Edit node
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="bp-menu__item bp-menu__item--danger"
+                            onClick={() => {
+                              setMenu(null);
+                              setDialogo({ kind: 'remove', node: n });
+                            }}
+                          >
+                            Remove node
+                          </button>
+                        </div>
                       )}
-
-                      {/*
-                        LOS OWNERS COMO INICIALES, todos. Medido: 20 de los 31
-                        nodos tienen tres. Mostrar "el primero" habría sido un
-                        dato inventado con forma de dato -- `node_owner` no
-                        tiene orden declarado. El nombre completo va en el
-                        `title`, así que no se pierde nada.
-                      */}
-                      <span className="bp-nodecard__owners">
-                        {st.owners.length === 0 ? (
-                          <span className="bp-nodecard__stat bp-nodecard__stat--warn">no owner</span>
-                        ) : (
-                          st.owners.map((o) => (
-                            <span key={o} className="bp-initials" title={o}>
-                              {initialsOf(o)}
-                            </span>
-                          ))
-                        )}
-                      </span>
-
-                      <select
-                        className="bp-inline-input--area"
-                        value={n.area ?? ''}
-                        disabled={busy}
-                        aria-label={'Area of ' + n.name}
-                        onChange={(e) => onSetArea(n.node_key, (e.target.value || null) as NodeArea | null)}
-                      >
-                        <option value="">No area</option>
-                        {NODE_AREAS.map((a) => (
-                          <option key={a} value={a}>
-                            {a}
-                          </option>
-                        ))}
-                      </select>
-
-                      <button
-                        type="button"
-                        className="bp-btn bp-btn--small"
-                        onClick={() => setDialogo({ kind: 'pick-funnels', node: n })}
-                      >
-                        Funnels…
-                      </button>
-                      <button type="button" className="bp-icon-btn" title="Edit" onClick={() => onEditNode(n)}>
-                        ✎
-                      </button>
-                      <button
-                        type="button"
-                        className="bp-icon-btn bp-icon-btn--danger"
-                        title="Delete"
-                        onClick={() => onDeleteNode(n)}
-                      >
-                        ×
-                      </button>
                     </div>
                   </div>
-
-                  {abierto && (
-                    <div className="bp-nodecard__body">
-                      {n.description && <p className="bp-nodecard__desc">{n.description}</p>}
-
-                      {steps.length === 0 ? (
-                        <p className="bp-muted-line">No steps yet.</p>
-                      ) : (
-                        <table className="piv bp-steps-table">
-                          <thead>
-                            <tr>
-                              <th />
-                              <th>Step</th>
-                              <th>Accountable</th>
-                              <th className="bp-center">SLA</th>
-                              <th className="bp-center">Day</th>
-                              <th />
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {steps.map((m, i) => (
-                              <tr
-                                key={m.milestone_key}
-                                draggable={!busy}
-                                onDragStart={() => setArrastrado(m.milestone_key)}
-                                onDragEnd={() => setArrastrado(null)}
-                                onDragOver={(e) => e.preventDefault()}
-                                onDrop={(e) => {
-                                  e.preventDefault();
-                                  if (arrastrado === null || arrastrado === m.milestone_key) return;
-                                  /*
-                                   * SE MANDA EL ORDEN, NO LA POSICIÓN. La base
-                                   * renumera 1..N en `reorder_node_steps`, así
-                                   * que la posición es una consecuencia y no
-                                   * algo que se pueda escribir mal -- ya no se
-                                   * puede poner `1` y `1`.
-                                   */
-                                  const orden = steps.map((s) => s.milestone_key).filter((k) => k !== arrastrado);
-                                  orden.splice(i, 0, arrastrado);
-                                  setArrastrado(null);
-                                  onReorderSteps(n.node_key, orden);
-                                }}
-                                className={arrastrado === m.milestone_key ? 'is-dragging' : undefined}
-                              >
-                                <td className="bp-grip" aria-hidden="true">
-                                  ⠿
-                                </td>
-                                <td className="bp-strong">{m.title}</td>
-                                <td>{nombreDe(m.accountable_employee_key) ?? '— unassigned —'}</td>
-                                <td className="bp-center">{m.sla_days ?? '—'}</td>
-                                <td className="bp-center bp-strong">{dias[i]}</td>
-                                <td className="bp-right">
-                                  <button
-                                    type="button"
-                                    className="bp-icon-btn"
-                                    title="Edit"
-                                    onClick={() => onEditStep(n.node_key, m)}
-                                  >
-                                    ✎
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="bp-icon-btn bp-icon-btn--danger"
-                                    title="Delete"
-                                    onClick={() => onDeleteStep(m)}
-                                  >
-                                    ×
-                                  </button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      )}
-
-                      {/* La línea que explica las dos columnas, una vez por tabla. */}
-                      {steps.length > 0 && (
-                        <p className="bp-legend">
-                          SLA is days after the previous step. Day is where it lands in the plan.
-                        </p>
-                      )}
-
-                      <div className="bp-nodecard__actions">
-                        <button
-                          type="button"
-                          className="bp-btn bp-btn--small"
-                          onClick={() => onEditStep(n.node_key, null)}
-                        >
-                          + New step
-                        </button>
-                      </div>
-
-                      {/*
-                        ⚠ LA REGLA QUE IMPORTA, al pie del nodo abierto.
-                        Va acá y no en la cabecera de la pantalla porque es donde
-                        alguien está por editar. Sin esto, la duda "¿le rompo el
-                        plan a Ana?" hace que nadie toque nada.
-                      */}
-                      <p className="bp-nodecard__rule">
-                        Editing here changes the <strong>template</strong>, not the plans already running. Plans are
-                        copied when a funnel is activated, so adding a step now does not change anyone&apos;s current
-                        plan.
-                      </p>
-                    </div>
-                  )}
                 </article>
               );
             })}
           </div>
         </section>
       ))}
+
+      {nodoDelPanel !== null && (
+        <StepsPanel
+          node={nodoDelPanel}
+          steps={stepsDe(nodoDelPanel.node_key)}
+          support={data.support}
+          busy={busy}
+          onClose={() => setPanel(null)}
+          onSetArea={onSetArea}
+          onEditStep={onEditStep}
+          onDeleteStep={onDeleteStep}
+          onReorderSteps={onReorderSteps}
+        />
+      )}
 
       {dialogo?.kind === 'funnels-of' && (
         <Modal title={'Funnels using ' + dialogo.node.name} onClose={() => setDialogo(null)}>
@@ -385,6 +395,27 @@ export default function NodeLibrary({
             </ul>
           </div>
         </Modal>
+      )}
+
+      {/*
+        QUITAR DICE EN CUANTOS FUNNELS ESTA -- etapa BP44.
+
+        Sacar un nodo que esta en cinco no es lo mismo que sacar uno suelto: en
+        el primer caso se rompen cinco funnels de una. "Se va a borrar el nodo"
+        es generico y no se lee; el numero hace parar, igual que los steps
+        completados en la cancelacion de un plan.
+      */}
+      {dialogo?.kind === 'remove' && (
+        <RemoveNode
+          node={dialogo.node}
+          funnelNames={nodeStats(dialogo.node.node_key, busqueda).funnelNames}
+          busy={busy}
+          onClose={() => setDialogo(null)}
+          onConfirm={() => {
+            onDeleteNode(dialogo.node);
+            setDialogo(null);
+          }}
+        />
       )}
 
       {dialogo?.kind === 'pick-funnels' && (
@@ -400,6 +431,59 @@ export default function NodeLibrary({
         />
       )}
     </>
+  );
+}
+
+/**
+ * CONFIRMACION DE QUITAR UN NODO -- etapa BP44.
+ *
+ * Dice en cuantos funnels esta y los NOMBRA. Un nodo esta hoy en hasta cinco
+ * funnels --medido: `CRM, MMI & for Network effects`-- y quitarlo los toca a
+ * todos. El numero es lo que distingue sacar uno suelto de romper cinco.
+ */
+function RemoveNode({
+  node,
+  funnelNames,
+  busy,
+  onClose,
+  onConfirm,
+}: {
+  node: FunnelNode;
+  funnelNames: string[];
+  busy: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Modal title={'Remove ' + node.name + '?'} onClose={onClose}>
+      <div className="bp-form">
+        {funnelNames.length === 0 ? (
+          <p className="bp-modal__lead">
+            This node is not in any funnel, so nothing else changes.
+          </p>
+        ) : (
+          <p className="bp-modal__lead bp-modal__lead--warn">
+            It is used by{' '}
+            <strong>
+              {funnelNames.length} funnel{funnelNames.length === 1 ? '' : 's'}
+            </strong>{' '}
+            &mdash; {funnelNames.join(', ')}. Removing it takes it out of all of them.
+          </p>
+        )}
+        <p className="bp-modal__lead">
+          Plans already running keep their copy: they were copied when the funnel was activated. This cannot be
+          undone.
+        </p>
+        <div className="bp-form__actions">
+          <button type="button" className="bp-btn bp-btn--primary" disabled={busy} onClick={onConfirm}>
+            {busy ? 'Removing…' : 'Remove the node'}
+          </button>
+          <button type="button" className="bp-linkish" onClick={onClose}>
+            cancel
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -440,7 +524,6 @@ function FunnelPicker({
       return s;
     });
 
-  /* Qué cambia de verdad, dicho antes de guardar. */
   const agregados = [...elegidos].filter((k) => !actuales.includes(k));
   const quitados = actuales.filter((k) => !elegidos.has(k));
   const nombreF = (k: number) => data.funnels.find((f) => f.funnel_key === k)?.name ?? String(k);
