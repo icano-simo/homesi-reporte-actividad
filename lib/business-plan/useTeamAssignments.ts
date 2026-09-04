@@ -181,7 +181,7 @@ export function useTeamAssignments(): TeamState {
           const e = enrByKey.get(n.enrollment_key)!;
           const own = n.source_node_key === null ? [] : ownerRows.filter((o) => o.node_key === n.source_node_key);
           const its = rawMs.filter((m) => m.enrollment_node_key === n.enrollment_node_key);
-          const open = its.filter((m) => m.status !== 'done' && m.due_date !== null).map((m) => m.due_date as string);
+          const open = its.filter((m) => m.status !== 'completed' && m.due_date !== null).map((m) => m.due_date as string);
           return {
             enrollment_node_key: n.enrollment_node_key,
             employee_key: e.employee_key,
@@ -189,7 +189,7 @@ export function useTeamAssignments(): TeamState {
             funnel_icon: iconOf.get(e.funnel_key) ?? null,
             node_name: n.name,
             ownerKeys: own.map((o) => o.employee_key),
-            done: its.filter((m) => m.status === 'done').length,
+            done: its.filter((m) => m.status === 'completed').length,
             total: its.length,
             nextDue: open.length === 0 ? null : open.sort()[0],
           };

@@ -5090,3 +5090,36 @@ table.piv.bp-steps-table td.bp-strong:first-of-type,
 table.piv.bp-steps-table th:nth-child(2) {
   width: 45%;
 }
+
+/* ── El circulo de un step es el boton que parece ── etapa BP42 ─────────────
+
+   Era un `<span aria-hidden>` con `cursor: auto`: la forma del control de
+   completar, sin ser el control. Ahora hay dos variantes -- `<button>` cuando
+   se puede completar, `<span>` cuando ya esta hecho -- y el CSS tiene que
+   dejarlas identicas salvo en lo que cambia: el cursor y el foco.
+
+   `all: unset` no sirve acá: se llevaría el `border-radius` y el tamaño que
+   `.bp-ms__dot` ya define. Se apagan solo los estilos propios del boton. */
+
+button.bp-ms__dot--btn {
+  font: inherit;
+  padding: 0;
+  border: 1px solid var(--slate-300);
+  cursor: pointer;
+}
+button.bp-ms__dot--btn:hover:not(:disabled) {
+  border-color: var(--navy);
+  background: var(--sky);
+}
+button.bp-ms__dot--btn:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 2px;
+}
+button.bp-ms__dot--btn:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+/* El check de un completado no es un boton, asi que no invita a clickear. */
+span.bp-ms__dot {
+  cursor: default;
+}

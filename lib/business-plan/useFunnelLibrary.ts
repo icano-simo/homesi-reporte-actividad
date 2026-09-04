@@ -240,7 +240,7 @@ export function useFunnelLibrary(): LibraryState {
             position: n.position,
           };
           acc.total += 1;
-          if (m.status === 'done') acc.done += 1;
+          if (m.status === 'completed') acc.done += 1;
           delEnr.set(m.enrollment_node_key, acc);
           porNodo.set(n.enrollment, delEnr);
         }

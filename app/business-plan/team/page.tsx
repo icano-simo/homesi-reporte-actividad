@@ -98,7 +98,7 @@ export default function TeamPage() {
   }, [data, viewingKey]);
 
   const overdueCount = mySteps.filter((s) => isOverdue(s.status, s.due_date, today)).length;
-  const openCount = mySteps.filter((s) => s.status !== 'done').length;
+  const openCount = mySteps.filter((s) => s.status !== 'completed').length;
 
   return (
     <>
