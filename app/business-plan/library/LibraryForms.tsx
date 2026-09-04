@@ -348,12 +348,31 @@ export function MilestoneForm({
             )}
           </div>
         )}
-        <Field label="Resource URL">
-          <input className="field" value={d.resource_url} onChange={(e) => set('resource_url', e.target.value)} placeholder="https://…" />
-        </Field>
-        <Field label="Position">
-          <input type="number" min="1" className="field" value={d.position} onChange={(e) => set('position', e.target.value)} />
-        </Field>
+        {/*
+          ═══════════════════════════════════════════════════════════════
+          ACÁ HABÍA DOS CAMPOS QUE SE FUERON — etapa BP44
+          ═══════════════════════════════════════════════════════════════
+
+          `Position`: el orden lo da el arrastre y la base renumera 1..N en
+          `reorder_node_steps`. Un campo con el número invita a escribirlo, que
+          es exactamente lo que BP41 vino a eliminar -- podías poner `1` y `1`.
+          El valor sigue existiendo en la tabla; lo que se fue es el campo.
+
+          `Resource URL`: se saca de la vista, y la columna NO se borra.
+          Medido antes de tocar nada: 2 de 106 steps de plantilla la tienen con
+          valor, 0 de 75 copias, y NINGUNO de los dos valores es una URL --
+          dicen "LO & BD Accountable for this" y "Topic defined by the host
+          (LO)". O sea que la columna se estaba usando como nota libre y el
+          `placeholder="https://…"` empujaba a lo contrario.
+
+          Por eso se oculta y no se elimina: borrar la columna perdería esas dos
+          notas, y qué hacer con ellas es una conversación aparte.
+
+          ⚠ EL VALOR SE CONSERVA AL GUARDAR. `d.resource_url` sigue en el
+          borrador y se manda igual, así que editar el título de uno de esos dos
+          steps no le borra la nota. Sin esto, ocultar el campo habría sido un
+          borrado silencioso en el primer guardado.
+        */}
         <div className="bp-form__actions">
           <button type="button" className="bp-btn bp-btn--primary" disabled={busy || d.title.trim() === ''} onClick={() => onSave(d)}>
             {busy ? 'Saving…' : 'Save'}

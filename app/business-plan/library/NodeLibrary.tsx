@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { NODE_AREAS, type FunnelNode, type NodeArea, type NodeMilestone } from '@/lib/business-plan/funnels';
 import { initialsOf, nodeStats, type SearchInput } from '@/lib/business-plan/librarySearch';
 import type { FunnelLibrary } from '@/lib/business-plan/useFunnelLibrary';
@@ -57,10 +57,47 @@ export default function NodeLibrary({
   /* Qué nodo tiene el panel abierto. Uno solo: dos paneles a la vez no existen. */
   const [panel, setPanel] = useState<number | null>(null);
   const [dialogo, setDialogo] = useState<
-    { kind: 'funnels-of'; node: FunnelNode } | { kind: 'pick-funnels'; node: FunnelNode } | null
+    | { kind: 'funnels-of'; node: FunnelNode }
+    | { kind: 'pick-funnels'; node: FunnelNode }
+    | { kind: 'remove'; node: FunnelNode }
+    | null
   >(null);
+  /* Que tarjeta tiene el menu de acciones desplegado. Uno solo a la vez. */
+  const [menu, setMenu] = useState<number | null>(null);
 
   const busqueda: SearchInput = data;
+
+  /*
+   * EL MENU CIERRA AL HACER CLIC AFUERA Y CON ESCAPE.
+   *
+   * Sin esto solo cerraba con su propio boton: cualquier otro clic --incluso en
+   * otra tarjeta-- lo dejaba abierto y flotando sobre la lista. Y el clic en el
+   * cuerpo de una tarjeta abre el panel, asi que el menu quedaba abierto DEBAJO
+   * del panel, invisible y activo.
+   *
+   * Se registra solo cuando hay un menu abierto: un listener permanente en
+   * `document` para un estado que casi siempre es null.
+   */
+  useEffect(() => {
+    if (menu === null) return;
+    const cerrar = () => setMenu(null);
+    const porTecla = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenu(null);
+    };
+    /*
+     * `capture: true` y no la fase de burbujeo: los botones del menu llaman
+     * `stopPropagation` de su contenedor, asi que en burbujeo este listener no
+     * se enteraria del clic. En captura corre primero -- y por eso el handler
+     * del propio item ya cerro el menu antes, lo que hace que el orden no
+     * importe.
+     */
+    document.addEventListener('click', cerrar, { capture: true });
+    document.addEventListener('keydown', porTecla);
+    return () => {
+      document.removeEventListener('click', cerrar, { capture: true });
+      document.removeEventListener('keydown', porTecla);
+    };
+  }, [menu]);
 
   /*
    * ══════════════════════════════════════════════════════════════════════════
@@ -192,22 +229,35 @@ export default function NodeLibrary({
                   </div>
 
                   <div className="bp-nodecard__meta" onClick={(e) => e.stopPropagation()} role="presentation">
-                    <span className="bp-pill">
+                    {/*
+                      LAS DOS METRICAS EN TONO NEUTRO -- etapa BP44.
+                      Estaban en la familia --sky y salieron: son DATOS, no
+                      estados. El azul se lee como "esto significa algo" y no
+                      significa nada: 5 days no es mejor ni peor que 44. El
+                      tinte queda libre para lo que si es un estado -- el ambar
+                      de lo que falta decidir.
+                    */}
+                    <span className="bp-metapill">
                       {st.steps} step{st.steps === 1 ? '' : 's'}
                     </span>
 
                     {/* `—` y no `0 days` sin steps: no hay duración que leer, y un
                         cero afirmaría que dura nada. */}
-                    <span className="bp-pill bp-pill--days">{st.steps === 0 ? '— days' : st.days + ' days'}</span>
+                    <span className="bp-metapill">{st.steps === 0 ? '— days' : st.days + ' days'}</span>
 
                     {/* Cero NO es un botón: no hay nada que abrir. */}
                     {st.funnelKeys.length === 0 ? (
-                      <span className="bp-pill bp-pill--warn">in no funnel</span>
+                      <span className="bp-metapill bp-metapill--warn">in no funnel</span>
                     ) : (
                       <button
                         type="button"
-                        className="bp-pill bp-pill--link"
-                        onClick={() => setDialogo({ kind: 'funnels-of', node: n })}
+                        className="bp-metapill bp-metapill--link"
+                        /* Abre la asignacion MULTIPLE, que es la accion util.
+                           Antes solo listaba donde estaba, y habia un
+                           `Funnels...` aparte para cambiarlo. El dialogo ya
+                           muestra los nueve con los actuales marcados, asi que
+                           dice lo mismo que la lista y ademas deja hacer algo. */
+                        onClick={() => setDialogo({ kind: 'pick-funnels', node: n })}
                       >
                         in {st.funnelKeys.length} funnel{st.funnelKeys.length === 1 ? '' : 's'}
                       </button>
@@ -221,7 +271,7 @@ export default function NodeLibrary({
                     */}
                     <span className="bp-nodecard__owners">
                       {st.owners.length === 0 ? (
-                        <span className="bp-pill bp-pill--warn">no owner</span>
+                        <span className="bp-metapill bp-metapill--warn">no owner</span>
                       ) : (
                         st.owners.map((o) => (
                           <span key={o} className="bp-initials" title={o}>
@@ -232,43 +282,87 @@ export default function NodeLibrary({
                     </span>
 
                     {/*
-                      EL ÁREA ES UNA PÍLDORA CLICABLE, no un `<select>` nativo.
-                      Abre el panel, que es donde están las cinco opciones a la
-                      vista. Un select acá metía un control de sistema operativo
-                      en una tira de píldoras, y con 31 tarjetas eran 31.
-                      En ámbar cuando falta: es lo que hay que decidir.
+                      EL AREA, EN DOS TONOS Y NO EN CINCO -- etapa BP44.
+
+                      Sin asignar: ambar, porque es lo que hay que resolver.
+                      Asignada: gris neutro, sin importar cual sea.
+
+                      ⚠ NO LLEVA UN COLOR POR AREA. Con areas editables el
+                      numero crece --es el punto 1 de esta etapa-- y una paleta
+                      por area se vuelve inmanejable en cuanto haya seis o diez.
+                      El nombre ya distingue; el color solo tiene que decir si
+                      falta o no.
+
+                      Es una pildora clicable y no un `<select>` nativo: abre el
+                      panel, que es donde estan las opciones a la vista.
                     */}
                     <button
                       type="button"
-                      className={'bp-pill bp-pill--link' + (n.area === null ? ' bp-pill--warn' : '')}
+                      className={'bp-metapill' + (n.area === null ? ' bp-metapill--warn' : ' bp-metapill--link')}
                       onClick={() => setPanel(n.node_key)}
                       title={n.area === null ? 'No area assigned — click to set it' : 'Area: ' + n.area}
                     >
                       {n.area ?? 'No area'}
                     </button>
 
-                    <button type="button" className="bp-pill bp-pill--action" onClick={() => setPanel(n.node_key)}>
-                      Manage steps
-                    </button>
+                    {/*
+                      DE CUATRO CONTROLES A DOS -- etapa BP44.
 
-                    <button
-                      type="button"
-                      className="bp-pill bp-pill--link"
-                      onClick={() => setDialogo({ kind: 'pick-funnels', node: n })}
-                    >
-                      Funnels…
-                    </button>
-                    <button type="button" className="bp-icon-btn" title="Edit" onClick={() => onEditNode(n)}>
-                      ✎
-                    </button>
-                    <button
-                      type="button"
-                      className="bp-icon-btn bp-icon-btn--danger"
-                      title="Delete"
-                      onClick={() => onDeleteNode(n)}
-                    >
-                      ×
-                    </button>
+                      `Manage steps` se fue: el CUERPO de la tarjeta abre el
+                      editor, que era lo que ese boton hacia. Con 32 tarjetas
+                      eran 32 botones repitiendo el gesto que ya tiene la fila
+                      entera, y en coral, anulando la jerarquia que el color
+                      deberia dar.
+
+                      Quedan dos cosas, y hacen cosas distintas:
+                        - `in N funnels`, que abre la asignacion multiple;
+                        - un menu con editar y quitar, que son las acciones
+                          menos frecuentes y las unicas destructivas.
+                    */}
+                    <div className="bp-menu">
+                      <button
+                        type="button"
+                        className="bp-metapill bp-metapill--link bp-menu__trigger"
+                        aria-haspopup="true"
+                        aria-expanded={menu === n.node_key}
+                        aria-label={'More actions for ' + n.name}
+                        onClick={(e) => {
+                          /* Sin esto, el listener de captura de arriba veria
+                             este mismo clic y cerraria el menu que se acaba de
+                             abrir: se abriria y cerraria en un gesto. */
+                          e.stopPropagation();
+                          setMenu(menu === n.node_key ? null : n.node_key);
+                        }}
+                      >
+                        ⋯
+                      </button>
+                      {menu === n.node_key && (
+                        <div className="bp-menu__list" role="menu">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="bp-menu__item"
+                            onClick={() => {
+                              setMenu(null);
+                              onEditNode(n);
+                            }}
+                          >
+                            Edit node
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="bp-menu__item bp-menu__item--danger"
+                            onClick={() => {
+                              setMenu(null);
+                              setDialogo({ kind: 'remove', node: n });
+                            }}
+                          >
+                            Remove node
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </article>
               );
@@ -303,6 +397,27 @@ export default function NodeLibrary({
         </Modal>
       )}
 
+      {/*
+        QUITAR DICE EN CUANTOS FUNNELS ESTA -- etapa BP44.
+
+        Sacar un nodo que esta en cinco no es lo mismo que sacar uno suelto: en
+        el primer caso se rompen cinco funnels de una. "Se va a borrar el nodo"
+        es generico y no se lee; el numero hace parar, igual que los steps
+        completados en la cancelacion de un plan.
+      */}
+      {dialogo?.kind === 'remove' && (
+        <RemoveNode
+          node={dialogo.node}
+          funnelNames={nodeStats(dialogo.node.node_key, busqueda).funnelNames}
+          busy={busy}
+          onClose={() => setDialogo(null)}
+          onConfirm={() => {
+            onDeleteNode(dialogo.node);
+            setDialogo(null);
+          }}
+        />
+      )}
+
       {dialogo?.kind === 'pick-funnels' && (
         <FunnelPicker
           node={dialogo.node}
@@ -316,6 +431,59 @@ export default function NodeLibrary({
         />
       )}
     </>
+  );
+}
+
+/**
+ * CONFIRMACION DE QUITAR UN NODO -- etapa BP44.
+ *
+ * Dice en cuantos funnels esta y los NOMBRA. Un nodo esta hoy en hasta cinco
+ * funnels --medido: `CRM, MMI & for Network effects`-- y quitarlo los toca a
+ * todos. El numero es lo que distingue sacar uno suelto de romper cinco.
+ */
+function RemoveNode({
+  node,
+  funnelNames,
+  busy,
+  onClose,
+  onConfirm,
+}: {
+  node: FunnelNode;
+  funnelNames: string[];
+  busy: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Modal title={'Remove ' + node.name + '?'} onClose={onClose}>
+      <div className="bp-form">
+        {funnelNames.length === 0 ? (
+          <p className="bp-modal__lead">
+            This node is not in any funnel, so nothing else changes.
+          </p>
+        ) : (
+          <p className="bp-modal__lead bp-modal__lead--warn">
+            It is used by{' '}
+            <strong>
+              {funnelNames.length} funnel{funnelNames.length === 1 ? '' : 's'}
+            </strong>{' '}
+            &mdash; {funnelNames.join(', ')}. Removing it takes it out of all of them.
+          </p>
+        )}
+        <p className="bp-modal__lead">
+          Plans already running keep their copy: they were copied when the funnel was activated. This cannot be
+          undone.
+        </p>
+        <div className="bp-form__actions">
+          <button type="button" className="bp-btn bp-btn--primary" disabled={busy} onClick={onConfirm}>
+            {busy ? 'Removing…' : 'Remove the node'}
+          </button>
+          <button type="button" className="bp-linkish" onClick={onClose}>
+            cancel
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

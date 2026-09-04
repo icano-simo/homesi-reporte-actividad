@@ -5131,7 +5131,24 @@ span.bp-ms__dot {
 
 /* ── Las píldoras ─────────────────────────────────────────────────────────── */
 
-.bp-pill {
+/* ── Las píldoras de la biblioteca ──────────────────────────────────────────
+
+   ⚠ SE LLAMAN `bp-metapill` Y NO `bp-pill` PORQUE `.bp-pill` YA EXISTE.
+
+   Está definida mucho más arriba en este archivo, con `--radius-sm`,
+   padding 2px 7px, 10px y peso 700, y la usa `FunnelExplorer` con sus
+   variantes `--sky`, `--day` y `--late`.
+
+   En BP43 definí `.bp-pill` de nuevo para las tarjetas de nodo, y como
+   la mía va después le ganó: las píldoras del explorador cambiaron de
+   forma, padding, tamaño y peso sin que nadie lo pidiera. Las variantes
+   sobreescriben color y borde, así que seguían viéndose "bien" -- por eso
+   no lo delató ninguna medición de esta etapa.
+
+   Es el mismo mecanismo que `--ol-text` y `table.piv`: heredar
+   decisiones tomadas para otro contexto. La diferencia es que acá el
+   contexto ajeno era mío, de dos etapas antes. */
+.bp-metapill {
   font-family: inherit;
   display: inline-flex;
   align-items: center;
@@ -5145,63 +5162,51 @@ span.bp-ms__dot {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-/* Los días, en la familia --sky: es el dato derivado del SLA y conviene que se
-   distinga del conteo, que es un hecho. */
-.bp-pill--days {
-  background: var(--sky);
-  border-color: var(--sky);
-  color: var(--navy);
-}
 /* Lo que falta decidir. */
-.bp-pill--warn {
+.bp-metapill--warn {
   background: var(--amber-50);
   border-color: var(--amber-200);
   color: var(--amber-800);
 }
-button.bp-pill--link,
-button.bp-pill--action {
+button.bp-metapill--link {
   cursor: pointer;
 }
-button.bp-pill--link:hover {
+button.bp-metapill--link:hover {
   border-color: var(--navy);
   color: var(--navy);
 }
-button.bp-pill--warn:hover {
+button.bp-metapill--warn:hover {
   border-color: var(--amber-700);
 }
-/* La acción principal de la tarjeta, y la única en coral de esta pantalla. */
-button.bp-pill--action {
+button.bp-metapill--action {
   background: var(--coral);
   border-color: var(--coral);
   color: var(--white);
 }
-button.bp-pill--action:hover {
-  border-color: var(--navy);
-}
-button.bp-pill:focus-visible {
+button.bp-metapill:focus-visible {
   outline: 2px solid var(--sky);
   outline-offset: 2px;
 }
-.bp-pill-group {
+.bp-metapill-group {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
 }
 /* Las píldoras de área del panel: la elegida en navy, las otras con borde tenue. */
-button.bp-pill--area {
+button.bp-metapill--area {
   cursor: pointer;
   background: var(--canvas);
 }
-button.bp-pill--area.is-on {
+button.bp-metapill--area.is-on {
   background: var(--navy);
   border-color: var(--navy);
   color: var(--white);
 }
-button.bp-pill--area.is-on.bp-pill--none {
+button.bp-metapill--area.is-on.bp-metapill--none {
   background: var(--amber-700);
   border-color: var(--amber-700);
 }
-button.bp-pill--area:disabled {
+button.bp-metapill--area:disabled {
   cursor: default;
   opacity: 0.5;
 }
@@ -5340,4 +5345,66 @@ button.bp-pill--area:disabled {
   font-size: 11.5px;
   line-height: 1.5;
   color: var(--slate-600);
+}
+
+/* ── El menu de mas acciones de una tarjeta ── etapa BP44 ────────────────────
+
+   Reemplaza a tres controles por fila: `Manage steps`, el lapiz y la x. El
+   cuerpo de la tarjeta abre el editor, y las dos acciones que quedan --editar y
+   quitar-- viven aca porque son las menos frecuentes y las unicas destructivas.
+
+   Coral SALIO de esta pantalla: con 32 tarjetas eran 32 botones rojos, y un
+   color que aparece 32 veces deja de marcar jerarquia. Ahora el unico coral del
+   modulo es el boton primario de un dialogo. */
+
+.bp-menu {
+  position: relative;
+  display: inline-flex;
+}
+.bp-menu__trigger {
+  /* Cuadrado y no una pildora larga: no dice una metrica, es un gesto. */
+  min-width: 26px;
+  justify-content: center;
+  letter-spacing: 0.08em;
+}
+.bp-menu__list {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 156px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  background: var(--canvas);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+}
+.bp-menu__item {
+  font-family: inherit;
+  text-align: left;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--navy);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.bp-menu__item:hover {
+  background: var(--slate-50);
+}
+.bp-menu__item:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: -2px;
+}
+/* Quitar es destructivo y se ve: el rojo aca SI marca algo, porque hay uno solo
+   por menu y el menu esta cerrado casi siempre. */
+.bp-menu__item--danger {
+  color: var(--rose-700);
+}
+.bp-menu__item--danger:hover {
+  background: var(--rose-50);
 }

@@ -98,10 +98,10 @@ export default function StepsPanel({
           */}
           <div className="bp-panel__field">
             <span className="bp-panel__label">Area</span>
-            <div className="bp-pill-group" role="group" aria-label="Area">
+            <div className="bp-metapill-group" role="group" aria-label="Area">
               <button
                 type="button"
-                className={'bp-pill bp-pill--area' + (node.area === null ? ' is-on bp-pill--none' : '')}
+                className={'bp-metapill bp-metapill--area' + (node.area === null ? ' is-on bp-metapill--none' : '')}
                 disabled={busy}
                 onClick={() => onSetArea(node.node_key, null)}
               >
@@ -111,7 +111,7 @@ export default function StepsPanel({
                 <button
                   key={a}
                   type="button"
-                  className={'bp-pill bp-pill--area' + (node.area === a ? ' is-on' : '')}
+                  className={'bp-metapill bp-metapill--area' + (node.area === a ? ' is-on' : '')}
                   disabled={busy}
                   onClick={() => onSetArea(node.node_key, a)}
                 >

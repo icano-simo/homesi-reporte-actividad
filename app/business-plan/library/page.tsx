@@ -862,7 +862,22 @@ export default function FunnelLibraryPage() {
                   accountable_employee_key: d.accountable_employee_key === '' ? null : Number(d.accountable_employee_key),
                   sla_days: d.sla_days === '' ? null : Number(d.sla_days),
                   resource_url: d.resource_url.trim() || null,
-                  position: Number(d.position) || 1,
+                  /*
+                   * ⚠ LA POSICIÓN DE UN STEP NUEVO VA AL FINAL, CALCULADA — BP44.
+                   *
+                   * El campo `Position` se fue del editor porque el orden se
+                   * arrastra. Pero el borrador lo iniciaba en `1` para un step
+                   * nuevo, y `1` YA ESTÁ OCUPADO en cualquier nodo que tenga
+                   * steps: desde BP41 `(node_key, position)` es único, así que
+                   * el insert habría fallado al commit.
+                   *
+                   * Quitar el campo sin esto convertía "crear un step" en un
+                   * error en 30 de los 32 nodos. Al editar se conserva la
+                   * posición que ya tenía: el orden se cambia arrastrando.
+                   */
+                  position: dialog.milestone
+                    ? dialog.milestone.position
+                    : Math.max(0, ...nodeStages.map((m) => m.position)) + 1,
                 };
                 run(() =>
                   dialog.milestone
