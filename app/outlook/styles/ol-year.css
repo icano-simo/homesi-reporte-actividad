@@ -160,9 +160,24 @@ table.piv.ol-year thead .yr-row th.ol-band {
   background: color-mix(in srgb, var(--sky) 25%, transparent);
   color: var(--navy);
 }
+/*
+ * ⚠ ERA VERDE Y PASA A LA FAMILIA DE `--sky` — etapa OL23.
+ *
+ * Las columnas de presupuesto pasaron a un tinte derivado de `--sky`, y el
+ * rótulo tenía que seguirlas: hay un invariante escrito desde OL8 --"la columna
+ * y su cabecera dicen lo mismo con el mismo color"-- que dejarlo en verde
+ * habría roto en silencio, con la cabecera de un color y sus doce celdas de
+ * otro.
+ *
+ * ⚠ Y LAS DOS BANDAS PROYECTADAS QUEDAN EN LA MISMA FAMILIA, a propósito: el
+ * pedido es "los meses reales con fondo neutro y los proyectados con un tinte
+ * derivado de --sky", y el pronóstico TAMBIÉN es proyectado. Se distinguen por
+ * intensidad --el pronóstico más fuerte, que es la columna que se mira primero--
+ * y por la línea vertical donde arranca cada banda.
+ */
 .ol-band--budget {
-  background: color-mix(in srgb, var(--emerald-50) 70%, transparent);
-  color: var(--emerald-800);
+  background: color-mix(in srgb, var(--sky) 40%, transparent);
+  color: var(--navy);
 }
 .ol-band--decide {
   background: var(--slate-100);
@@ -372,17 +387,15 @@ table.piv.ol-year thead .yr-row th.ol-band {
  * cabecera dicen lo mismo con el mismo color.
  */
 .ol-page table.piv.ol-year td.ol-m--budget,
-.ol-page table.piv.ol-year th.ol-m--budget {
-  background: color-mix(in srgb, var(--emerald-50) 55%, transparent);
-}
+.ol-page table.piv.ol-year th.ol-m--budget,
 .ol-page table.piv.ol-year tr.metric:nth-child(odd) td.ol-m--budget,
 .ol-page table.piv.ol-year tr.grp td.ol-m--budget {
-  background: color-mix(in srgb, var(--emerald-50) 55%, transparent);
+  background: color-mix(in srgb, var(--sky) 16%, transparent);
 }
 /* El borde donde EMPIEZA el presupuesto, y sólo ahí. */
 .ol-page table.piv.ol-year td.ol-m--budget:first-of-type,
 .ol-page table.piv.ol-year th.ol-m--budget:first-of-type {
-  border-left: 1px solid var(--emerald-200);
+  border-left: 1px solid var(--accent-border);
 }
 
 /*
@@ -657,14 +670,18 @@ table.piv.ol-year thead .yr-row th.ol-band {
 
 /*
  * ============================================================================
- * LA BARRA DEL MODULO — etapa OL22
+ * LA BARRA DEL MODULO — etapas OL22 y OL23
  * ============================================================================
  *
- * Vive en el layout, arriba de las dos vistas. Dos controles que son de todo
- * Outlook: el horizonte y el simulador de reclutamiento.
+ * Vive en el layout, arriba de las dos vistas. Tres controles y dos rangos: el
+ * horizonte arriba, y debajo la barra de reclutamiento con su propia superficie.
  *
- * Se alinea con el ancho de `.hub-container` para que no flote suelta sobre el
- * contenido, y va discreta: es una barra de controles, no un encabezado.
+ * ⚠ NI UN HEXADECIMAL EN TODO ESTE ARCHIVO. Los colores salen de
+ * `app/styles/tokens.css` --`--navy`, `--coral`, `--sky`, la escala `--slate-*`--
+ * y de mezclas con `color-mix`, para que un cambio de paleta los alcance. La
+ * especificacion original venia en Tailwind con hexadecimales y `font-mono`;
+ * nada de eso entra: el modulo usa Inter con `tabular-nums`, que es lo que hace
+ * que los numeros de una columna se alineen sin una tipografia aparte.
  */
 .ol-topbar {
   display: flex;
@@ -688,8 +705,254 @@ table.piv.ol-year thead .yr-row th.ol-band {
   text-transform: uppercase;
   color: var(--slate-500);
 }
-/* El contador del boton: dice el estado sin competir con el nombre. */
-.ol-topbar__count {
+
+/* ── La barra de reclutamiento — etapa OL23 ──────────────────────────────── */
+
+/*
+ * Superficie propia: eran dos botones sueltos al lado del horizonte y se leian
+ * como tres controles del mismo rango. Son dos cosas distintas -- a la
+ * izquierda el PIPELINE, a la derecha la CURVA con la que arranca cada persona.
+ */
+.ol-recruitbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  width: 100%;
+  max-width: 1600px;
+  margin: 0 auto 4px;
+  padding: 10px 14px;
+  background: var(--white);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+}
+.ol-recruitbar__side {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.ol-recruitbar__lbl {
+  font-weight: 600;
   color: var(--slate-500);
+}
+
+/* La insignia del conteo. */
+.ol-badge {
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  background: var(--slate-100);
+  color: var(--slate-700);
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* La segunda dice menos: es el numero que hoy vale cero. */
+.ol-badge--quiet {
+  background: transparent;
+  border: 1px dashed var(--slate-300);
+  color: var(--slate-500);
+  font-weight: 400;
+}
+
+/*
+ * La accion primaria del modulo, y la unica en `--coral`: es el color de marca
+ * y pierde fuerza si se reparte. Nada mas en Outlook lo usa salvo el total del
+ * anio, que es el otro numero que se viene a leer.
+ */
+.ol-btn-coral {
+  padding: 5px 12px;
+  border: 1px solid var(--coral);
+  border-radius: var(--radius-full);
+  background: var(--coral);
+  color: var(--white);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ol-btn-coral:hover {
+  background: color-mix(in srgb, var(--coral) 85%, var(--navy));
+  border-color: color-mix(in srgb, var(--coral) 85%, var(--navy));
+}
+
+/*
+ * La pildora segmentada de la rampa. Los tres tramos son elementos propios y no
+ * una cadena: asi se leen como tres decisiones y no como un texto.
+ */
+.ol-ramp {
+  display: inline-flex;
+  align-items: stretch;
+  padding: 0;
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-full);
+  background: var(--accent-soft);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  color: var(--navy);
+  cursor: pointer;
+  overflow: hidden;
+}
+.ol-ramp__seg {
+  padding: 4px 11px;
+  font-weight: 600;
+}
+.ol-ramp__seg + .ol-ramp__seg {
+  border-left: 1px solid var(--accent-border);
+}
+.ol-ramp:hover {
+  background: color-mix(in srgb, var(--sky) 45%, transparent);
+}
+
+/* ── La tarjeta de la metrica principal — etapa OL23 ─────────────────────── */
+
+/*
+ * El total del anio vive al fondo de una tabla de diecinueve filas, asi que la
+ * primera pregunta de la pantalla --cuanto proyecta la division-- se contestaba
+ * scrolleando. Sale de la MISMA fuente que la fila de abajo: ver la nota del
+ * TSX sobre por que no se recalcula.
+ */
+.ol-page .ol-metric {
+  text-align: right;
+  padding: 8px 16px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  background: var(--white);
+  box-shadow: var(--shadow-xs);
+}
+.ol-page .ol-metric__n {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--coral);
+  font-variant-numeric: tabular-nums;
+}
+.ol-page .ol-metric__lbl {
+  font-size: var(--ol-text);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--slate-500);
+}
+
+/* ── El acordeon de los bloques del fondo — etapa OL23 ───────────────────── */
+
+.ol-page table.piv.ol-year tr.ol-acc td {
+  padding: 8px 0 6px;
+  background: transparent;
+  border: none;
+}
+.ol-page .ol-acc__bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 12px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  background: var(--slate-50);
+  color: var(--slate-500);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ol-page .ol-acc__bar:hover {
+  background: var(--slate-100);
+  border-color: var(--slate-300);
+}
+.ol-page .ol-acc__caret {
+  color: var(--slate-400);
+}
+.ol-page .ol-acc__lbl {
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--slate-600);
+}
+.ol-page .ol-acc__count {
+  color: var(--slate-500);
+}
+/*
+ * El subtotal, empujado a la derecha. Se muestra CERRADO a proposito: sin el,
+ * la suma de las filas visibles no daria el total de la division y nada lo
+ * explicaria -- el descuadre sin causa que el modulo evita en todos lados.
+ */
+.ol-page .ol-acc__sub {
+  margin-left: auto;
+  font-weight: 600;
+  color: var(--slate-600);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ── La fila de totales, anclada al fondo — etapa OL23 ───────────────────── */
+
+/*
+ * ⚠ EL `sticky` VA EN LAS CELDAS Y NO EN EL `<tr>`: sobre una fila no lo
+ * soportan todos los motores, sobre una celda si.
+ *
+ * ⚠ Y EL CONTENEDOR NECESITA ALTO. `position: sticky; bottom: 0` pinea al fondo
+ * del SCROLLPORT mas cercano, que aca es `.tbl-scroll` porque tiene
+ * `overflow-x: auto`. Con el contenedor del alto de su contenido, ese scrollport
+ * termina donde termina la tabla y la fila queda en su lugar de siempre: el
+ * efecto seria ninguno. Dandole alto de viewport, la tabla scrollea adentro y la
+ * fila queda a la vista, que es lo que se pidio.
+ *
+ * ⚠ Y NO SE DUPLICA EL NUMERO EN UNA BARRA FIJA APARTE, que es la otra forma de
+ * conseguirlo: serian dos lugares mostrando el mismo total, y dos lugares que
+ * pueden decir cosas distintas.
+ */
+.ol-page .tbl-scroll {
+  max-height: calc(100vh - 230px);
+  overflow: auto;
+}
+/*
+ * ⚠ LOS TRES SELECTORES DE CLASE SON NECESARIOS, no son de adorno.
+ *
+ * El bug que arreglan, y no lo encontro ningun chequeo automatico sino MIRAR LA
+ * CAPTURA: los meses de pronostico y presupuesto de esta fila salian ilegibles
+ * --54, 73, 75 y 90 en azul palido sobre azul palido-- porque el tinte de banda
+ * le ganaba al fondo navy. La regla que gana es
+ * `tr.metric:nth-child(odd) td.ol-m--budget`, que tiene una clase mas que un
+ * `tr.ol-total--pin td` pelado.
+ *
+ * ⚠ Y EL CHEQUEO NO LO VIO porque medía `td:first`, que es la celda del rotulo
+ * y esa si estaba navy. Un `getComputedStyle` sobre una celda no dice nada de
+ * las otras once.
+ */
+.ol-page table.piv.ol-year tr.metric.ol-total.ol-total--pin td {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: var(--navy);
+  color: var(--white);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  border-top: none;
+  border-bottom: none;
+  box-shadow: 0 -6px 14px color-mix(in srgb, var(--navy) 18%, transparent);
+}
+/* El total del anio: el otro numero que se viene a leer. */
+.ol-page table.piv.ol-year tr.metric.ol-total.ol-total--pin td.ol-total__year {
+  color: var(--coral);
+  font-size: var(--ol-lg);
+}
+
+/* ── Densidad: filas separadas y las dos bandas distinguibles — OL23 ─────── */
+
+/*
+ * ⚠ ESTO REABRE, ACOTADO, UNA DECISION DE OL8. Ahi se quito el tinte por columna
+ * de las doce celdas porque "el color competia con los numeros" y la tabla se
+ * leia como una planilla de calculo. El pedido de OL23 es que las dos bandas se
+ * distingan, que es la mitad util de aquello; asi que vuelve SOLO el tinte de la
+ * banda de presupuesto, derivado de `--sky` y al 14%, y no los tres.
+ *
+ * Si vuelve a competir con los numeros, lo que hay que bajar es el porcentaje
+ * del `color-mix`, no sacarlo entero otra vez.
+ */
+/* Las filas, con aire entre ellas: tarjetas y no una grilla continua. */
+.ol-page table.piv.ol-year tr.metric.bp-row-link td {
+  border-bottom: 3px solid var(--canvas);
+  padding-top: 7px;
+  padding-bottom: 7px;
 }

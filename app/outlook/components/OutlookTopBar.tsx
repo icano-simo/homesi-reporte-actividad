@@ -68,37 +68,65 @@ export default function OutlookTopBar() {
       </label>
 
       {/*
-        ⚠ SÓLO SI HAY DÓNDE GUARDAR. Igual que `monthlyModeAvailable` con el modo
-        mes a mes: sin las tres tablas de OL20 aplicadas, alguien llenaría el
-        formulario para descubrir al apretar Guardar que no hay tabla.
+        ══════════════════════════════════════════════════════════════════════
+        LA BARRA DE RECLUTAMIENTO — etapa OL23
+        ══════════════════════════════════════════════════════════════════════
+
+        Eran dos botones sueltos al lado del selector de horizonte y se leían
+        como tres controles del mismo rango. Son dos cosas distintas: a la
+        izquierda el PIPELINE --cuánta gente hay y cómo agregar-- y a la derecha
+        la CURVA con la que arranca cada uno.
+
+        ⚠ SÓLO SI HAY DÓNDE GUARDAR. Igual que `monthlyModeAvailable` con el
+        modo mes a mes: sin las tres tablas de OL20 aplicadas, alguien llenaría
+        el formulario para descubrir al apretar Guardar que no hay tabla.
       */}
       {data.diagnostics.recruitTablesAvailable && (
-        <div className="ol-topbar__field">
-          <button
-            type="button"
-            className="ol-pill"
-            onClick={() => setPanel('new')}
-            title={
-              `${enProceso} people are in the hiring process across every branch, and ${conBenchmark} of them have ` +
-              `a monthly production set. Without a target a person adds nothing to the budget — empty is not zero: ` +
-              `it means nobody has decided yet. Opens the simulator to add someone or set their numbers.`
-            }
-          >
-            Recruitment
-            <span className="ol-topbar__count">
-              {' · '}
-              {enProceso} in process{' · '}
-              {conBenchmark} with target
+        <div className="ol-recruitbar">
+          <div className="ol-recruitbar__side">
+            <span
+              className="ol-badge"
+              title={
+                `${enProceso} people are in the hiring process across every branch, and ${conBenchmark} of them ` +
+                `have a monthly production set. Without a target a person adds nothing to the budget — empty is ` +
+                `not zero: it means nobody has decided yet.`
+              }
+            >
+              {enProceso} in process
             </span>
-          </button>
-          <button
-            type="button"
-            className="ol-pill ol-pill--empty"
-            onClick={() => setPanel('ramp')}
-            title="The ramp-up curve for a new hire. One curve for everyone, in every branch."
-          >
-            ramp {rampaTexto(data.recruitRamp)}
-          </button>
+            {/*
+              ⚠ EL SEGUNDO NÚMERO ES EL QUE IMPORTA. `15 in process` dice que
+              existen; `0 with target` dice que el presupuesto de reclutamiento
+              vale cero, que es un estado correcto y no un bug -- pero hay que
+              poder verlo sin entrar a ningún branch.
+            */}
+            <span className="ol-badge ol-badge--quiet">{conBenchmark} with target</span>
+            <button type="button" className="ol-btn-coral" onClick={() => setPanel('new')}>
+              + Add hiring projection
+            </button>
+          </div>
+
+          <div className="ol-recruitbar__side">
+            <span className="ol-recruitbar__lbl">Ramp curve:</span>
+            {/*
+              ⚠ LOS TRES TRAMOS SALEN DE LA REVISIÓN VIGENTE de
+              `outlook.recruitment_ramp`, no de un literal. Un `25 · 50 · 100`
+              escrito a mano seguiría diciendo eso después de que alguien la
+              cambie, que es la clase de mentira que nadie revisa.
+            */}
+            <button
+              type="button"
+              className="ol-ramp"
+              onClick={() => setPanel('ramp')}
+              title="The ramp-up curve for a new hire: one curve for everyone, in every branch. Click to edit."
+            >
+              {[data.recruitRamp.month1, data.recruitRamp.month2, data.recruitRamp.month3Plus].map((v, i) => (
+                <span key={i} className="ol-ramp__seg">
+                  {Math.round(v * 100)}%
+                </span>
+              ))}
+            </button>
+          </div>
         </div>
       )}
 
@@ -131,8 +159,5 @@ export default function OutlookTopBar() {
   );
 }
 
-/** `25% · 50% · 100%`, leído de la revisión vigente y no escrito a mano. */
-function rampaTexto(r: { month1: number; month2: number; month3Plus: number }): string {
-  const p = (v: number) => Math.round(v * 100) + '%';
-  return `${p(r.month1)} · ${p(r.month2)} · ${p(r.month3Plus)}`;
-}
+/* `rampaTexto` se fue: la pildora segmentada de OL23 dibuja los tres tramos
+   como elementos propios, asi que ya no hay una cadena que armar. */

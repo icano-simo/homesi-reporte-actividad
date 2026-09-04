@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment } from 'react';
+import { Fragment, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { RECRUITMENT_BRANCH } from '@/app/outlook/components/RecruitEditor';
 import { composeYear, currentMonthByBranch, projectBranch, type OutlookData } from '@/lib/outlook/loadData';
@@ -58,6 +58,34 @@ function bandOf(month: string, currentMonth: string): 'actual' | 'forecast' | 'b
 
 export default function OutlookPage() {
   const router = useRouter();
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * ⚠ LOS DOS BLOQUES DEL FONDO, COLAPSADOS — etapa OL23
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * `Inactive` y `Not assigned yet` arrancan cerrados: son diez filas que casi
+   * siempre están en cero y competían por la atención con los catorce branches
+   * que operan.
+   *
+   * ⚠ COLAPSADO NO ES EXCLUIDO, y es la parte que hay que no romper. Sus
+   * números siguen sumando al total de la división: `totalByMonth` recorre
+   * `rows`, que son los tres bloques juntos, y NO la lista que se dibuja. Eso
+   * es exactamente lo que OL21 vino a arreglar cuando Outlook decía 340 y
+   * Commercial Activity 355; si al colapsar el total se moviera, sería el mismo
+   * defecto de vuelta por otra puerta.
+   *
+   * Por eso la barra muestra el SUBTOTAL del bloque aunque esté cerrado: se ve
+   * cuánto aporta sin tener que abrirlo, y un total que no cuadra con la suma
+   * visible queda explicado en la misma línea.
+   */
+  const [bloquesAbiertos, setBloquesAbiertos] = useState<Set<string>>(new Set());
+  const alternarBloque = (t: string) =>
+    setBloquesAbiertos((prev) => {
+      const next = new Set(prev);
+      if (next.has(t)) next.delete(t);
+      else next.add(t);
+      return next;
+    });
   /*
    * El panel abierto: la rampa global o el alta a mano -- etapa OL21. Los dos
    * son del módulo, así que su estado vive en esta vista y no en un branch.
@@ -296,6 +324,21 @@ export default function OutlookPage() {
             {remainingMonths.length} budgeted
           </p>
         </div>
+        {/*
+          ⚠ LA MÉTRICA PRINCIPAL, ARRIBA — etapa OL23.
+
+          El total del año vive al fondo de una tabla de diecinueve filas, así
+          que la primera pregunta de la pantalla --¿cuánto proyecta la división?--
+          se contestaba scrolleando.
+
+          ⚠ Y SALE DE `totalByMonth`, la MISMA fuente que la fila de abajo. Un
+          segundo cálculo del mismo número es la forma segura de que un día
+          digan cosas distintas: ver `strategyRows.ts`, que existe por eso.
+        */}
+        <div className="ol-metric">
+          <div className="ol-metric__n">{fmt(sumOfShown(monthsOfYear.map((m) => totalByMonth[m])))}</div>
+          <div className="ol-metric__lbl">Total projection</div>
+        </div>
       </div>
 
       {/*
@@ -389,14 +432,52 @@ export default function OutlookPage() {
                   gente, el bloque tiene que desaparecer solo.
                 */}
                 {titulo !== null && lista.length > 0 && (
-                  <tr className="metric ol-blockhead">
-                    <td className="lbl" colSpan={monthsOfYear.length + 2}>
-                      {titulo}
-                      <span className="bp-muted ol-tag">{nota}</span>
+                  <tr className="ol-acc">
+                    <td colSpan={monthsOfYear.length + 2}>
+                      {/*
+                        ⚠ UN `button` Y NO UN `div` CON `onClick`: es un control
+                        que abre y cierra, así que tiene que llegarle al teclado
+                        y decirle a un lector de pantalla en qué estado está.
+                        `aria-expanded` es la mitad de eso.
+                      */}
+                      <button
+                        type="button"
+                        className="ol-acc__bar"
+                        aria-expanded={bloquesAbiertos.has(titulo)}
+                        onClick={() => alternarBloque(titulo)}
+                        title={nota ?? undefined}
+                      >
+                        <span className="ol-acc__caret" aria-hidden="true">
+                          {bloquesAbiertos.has(titulo) ? '▾' : '▸'}
+                        </span>
+                        <span className="ol-acc__lbl">{titulo}</span>
+                        <span className="ol-acc__count">
+                          {lista.length} {titulo === 'Inactive' ? 'inactive branches / out of division' : 'in hiring'}
+                          {' — click to '}
+                          {bloquesAbiertos.has(titulo) ? 'collapse' : 'expand'}
+                        </span>
+                        {/*
+                          ⚠ EL SUBTOTAL, AUNQUE ESTÉ CERRADO. Sin esto, cerrar el
+                          bloque haría que la suma de las filas visibles no diera
+                          el total de la división y nada lo explicaría -- el
+                          descuadre sin causa que el módulo evita en todos lados.
+                          Sale de las MISMAS filas que suman al total, no de una
+                          cuenta aparte.
+                        */}
+                        <span className="ol-acc__sub">
+                          {fmt(
+                            sumOfShown(
+                              monthsOfYear.map((m) => lista.reduce((a, r) => a + (r.year.byMonth[m] ?? 0), 0))
+                            )
+                          )}{' '}
+                          in the division total
+                        </span>
+                      </button>
                     </td>
                   </tr>
                 )}
-                {lista.map(({ branch: b, year: y }) => (
+                {(titulo === null || bloquesAbiertos.has(titulo)) &&
+                  lista.map(({ branch: b, year: y }) => (
               <Fragment key={b.branchCode}>
               <tr
                 className="metric bp-row-link"
@@ -503,14 +584,26 @@ export default function OutlookPage() {
                 ))}
               </Fragment>
             ))}
-            <tr className="metric ol-total">
+            {/*
+              ⚠ LA FILA DE TOTALES SE ANCLA AL FONDO — etapa OL23.
+
+              El `sticky` va en las CELDAS y no en el `<tr>`: `position: sticky`
+              sobre una fila no lo soportan todos los motores, sobre una celda
+              sí. Y el contenedor `.tbl-scroll` de esta vista pasa a tener alto
+              de viewport, porque un `sticky bottom` pinea al fondo del
+              SCROLLPORT: con el contenedor del alto de su contenido, la fila
+              habría quedado en su lugar de siempre y el efecto sería ninguno.
+            */}
+            <tr className="metric ol-total ol-total--pin">
               <td className="lbl">Total</td>
               {monthsOfYear.map((m) => (
                 <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
                   {fmt(totalByMonth[m] ?? null)}
                 </td>
               ))}
-              <td className="bp-center totcol">{fmt(sumOfShown(monthsOfYear.map((m) => totalByMonth[m])))}</td>
+              <td className="bp-center totcol ol-total__year">
+                {fmt(sumOfShown(monthsOfYear.map((m) => totalByMonth[m])))}
+              </td>
             </tr>
           </tbody>
         </table>
