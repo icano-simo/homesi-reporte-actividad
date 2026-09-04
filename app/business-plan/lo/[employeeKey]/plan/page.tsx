@@ -2,7 +2,7 @@
 
 import { useMemo, useState, use } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { useBusinessPlanData } from '@/lib/business-plan/useBusinessPlanData';
 import { useEnrollment, type PlanMilestone, type PlanNode } from '@/lib/business-plan/useEnrollment';
@@ -76,6 +76,7 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
    */
   const searchParams = useSearchParams();
   const justActivated = searchParams.get('activated') === '1';
+  const router = useRouter();
 
   /* La biblioteca sólo se usa para el editor: de ahí salen los nodos que se
      pueden agregar al plan. */
@@ -83,6 +84,8 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
   const [editing, setEditing] = useState(false);
   const [activeNode, setActiveNode] = useState<number | null>(null);
   const [showTeam, setShowTeam] = useState(false);
+  /* Etapa BP40: quitar el plan. `false` = ni preguntado. */
+  const [cancelling, setCancelling] = useState(false);
   const [openNotes, setOpenNotes] = useState<number | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
   const [opError, setOpError] = useState<string | null>(null);
@@ -130,6 +133,50 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
         .eq('enrollment_milestone_key', m.enrollment_milestone_key);
       if (e) throw new Error(e.message);
       reload();
+    } catch (err) {
+      setOpError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /*
+   * ═══════════════════════════════════════════════════════════════════════
+   * QUITAR EL PLAN — etapa BP40
+   * ═══════════════════════════════════════════════════════════════════════
+   *
+   * Hasta acá no había forma de quitar un plan desde la interfaz: las veces que
+   * hizo falta se borró a mano desde el editor de SQL. Una sola llamada, porque
+   * son cinco tablas y un borrado repartido en varias llamadas deja estado
+   * parcial en cuanto una falle -- el mismo problema que `activate_funnel`.
+   *
+   * ⚠ `cancel_funnel` BORRA, no archiva. Es lo que se decidió: el registro de
+   * los steps hechos se va con el plan. La alternativa era guardarlos en una
+   * tabla histórica, y no se hizo porque nadie los iba a leer -- pero por eso
+   * la confirmación dice cuántos son antes de borrarlos.
+   */
+  async function cancelPlan() {
+    if (!plan) return;
+    /*
+     * `busy` guarda la clave del step en curso, y -1 es el centinela para "una
+     * operacion sobre el plan entero". Ninguna clave real es negativa. Un
+     * segundo estado booleano habria sido otro que puede desincronizarse.
+     */
+    setBusy(-1);
+    setOpError(null);
+    try {
+      const { error: e } = await getSupabaseClient()
+        .schema('business_plan')
+        .rpc('cancel_funnel', { p_enrollment_key: plan.enrollment_key });
+      if (e) throw new Error(e.message);
+      setCancelling(false);
+      /*
+       * Se va a la ficha de la persona y no se recarga esta pantalla: sin plan,
+       * esta ruta no tiene nada que mostrar. `push` y no `replace` para que el
+       * botón de atrás no vuelva a un plan que ya no existe... que igual
+       * mostraría el estado vacío, pero llegar ahí por accidente confunde.
+       */
+      router.push('/business-plan/lo/' + employeeKey);
     } catch (err) {
       setOpError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -551,6 +598,28 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
             <button type="button" className="bp-btn bp-btn--small" onClick={() => setEditing((v) => !v)}>
               {editing ? 'Close editor' : 'Edit plan'}
             </button>
+            {/*
+              ════════════════════════════════════════════════════════════
+              CAMBIAR Y QUITAR EL PLAN — etapa BP40
+              ════════════════════════════════════════════════════════════
+
+              Las dos acciones que faltaban. Sin ellas, un funnel elegido por
+              error se arreglaba borrando filas desde el editor de SQL.
+
+              "Change funnel" es un enlace al CATÁLOGO, no un selector de acá:
+              elegir el funnel nuevo necesita las categorías, el explorador y
+              `checkActivation`, y todo eso ya existe allá. Lleva la clave del
+              enrolamiento para que la función sepa cuál cancela.
+
+              Van al final de la barra y sin `--primary`: lo que se hace todos
+              los días es marcar pasos.
+            */}
+            <Link className="bp-btn bp-btn--small" href={'/business-plan/lo/' + employeeKey + '/funnel?change=' + plan.enrollment_key}>
+              Change funnel
+            </Link>
+            <button type="button" className="bp-btn bp-btn--small" onClick={() => setCancelling(true)}>
+              Cancel plan
+            </button>
             {/* Etapa BP27: "See impact" se fue de acá a la cabecera. Abajo
                 quedan las dos acciones de gestión del plan. */}
             <div className="bp-team-bar__stack">
@@ -569,6 +638,52 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
               support={plan.support}
               onDone={reload}
             />
+          )}
+
+          {/*
+            LA CONFIRMACIÓN DICE EL NÚMERO — etapa BP40.
+
+            No "se va a borrar el plan", que es genérico y no se lee, sino
+            cuántos steps hechos se pierden. `totals.done` es el MISMO número que
+            el anillo de la cabecera, del mismo cálculo: si la confirmación
+            contara por su cuenta, podría decir otro que el que la persona
+            acababa de mirar.
+
+            Y se nombra el funnel. Con dos pestañas abiertas, "cancel this plan"
+            no dice cuál.
+          */}
+          {cancelling && (
+            <Modal title="Cancel this plan?" onClose={() => setCancelling(false)}>
+              <div className="bp-form">
+                <p className="bp-modal__lead">
+                  <strong>{lo?.fullName ?? 'This person'}</strong> is on{' '}
+                  <strong>{plan.funnel_name}</strong>, started {plan.activated_at.slice(0, 10)}.
+                  Cancelling removes the plan and puts them back to choosing a funnel.
+                </p>
+                <p className="bp-modal__lead bp-modal__lead--warn">
+                  {totals.done > 0 ? (
+                    <>
+                      This plan has{' '}
+                      <strong>
+                        {totals.done} completed step{totals.done === 1 ? '' : 's'}
+                      </strong>{' '}
+                      — they are deleted, not archived, along with the notes and the baseline.
+                    </>
+                  ) : (
+                    <>Nothing has been completed yet, so nothing is lost — but the notes go too.</>
+                  )}{' '}
+                  This cannot be undone.
+                </p>
+                <div className="bp-form__actions">
+                  <button type="button" className="bp-btn bp-btn--primary" disabled={busy !== null} onClick={cancelPlan}>
+                    {busy === -1 ? 'Cancelling…' : 'Cancel the plan'}
+                  </button>
+                  <button type="button" className="bp-linkish" onClick={() => setCancelling(false)}>
+                    keep it
+                  </button>
+                </div>
+              </div>
+            </Modal>
           )}
 
           {showTeam && (

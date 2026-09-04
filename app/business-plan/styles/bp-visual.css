@@ -784,6 +784,23 @@ table.piv.bp-table--los th {
   cursor: pointer;
   white-space: nowrap;
 }
+/*
+ * Etapa BP40: `.bp-btn` tambien se pone sobre un <a>. "Change funnel" es un
+ * enlace de verdad --lleva al catalogo, y tiene que poder abrirse en otra
+ * pestana-- pero salia subrayado al lado de tres botones que no, y en la
+ * captura leia como algo de otra clase. El subrayado sale del `a` global.
+ *
+ * `inline-block` porque un <a> es inline y el padding vertical no empuja la
+ * linea: el enlace quedaba mas bajo que los botones de al lado.
+ *
+ * SOLO `a.bp-btn`, no `.bp-btn`: un <button> ya es inline-block, y poner
+ * `display` en la clase entera habria tocado los cientos de botones que no
+ * tienen nada que ver con esto.
+ */
+a.bp-btn {
+  display: inline-block;
+  text-decoration: none;
+}
 .bp-btn:disabled {
   opacity: 0.5;
   cursor: default;
