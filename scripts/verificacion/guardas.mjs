@@ -106,11 +106,16 @@ export async function diagnosticarTexto(locator) {
  *
  * @param {import('playwright-core').Page} page
  * @param {string} descripcion  Qué se está esperando, en palabras. Obligatorio.
- * @param {() => boolean} predicadoEnElNavegador  Corre en la página.
- * @param {{ timeout?: number }} [opts]
+ * @param {(arg?: any) => boolean} predicadoEnElNavegador  Corre en la página.
+ * @param {{ timeout?: number, arg?: any }} [opts]  `arg` viaja al navegador y
+ *   llega como parámetro del predicado. Hace falta más de lo que parece: el
+ *   predicado corre en la página, así que no ve ninguna variable de Node, y la
+ *   espera correcta muchas veces es "el título ya dice ESTE nombre" -- que es un
+ *   valor que está acá. Sin él la espera se degrada a "hay un título", que es
+ *   justo la señal equivocada que esta función existe para evitar.
  */
 export async function esperarDato(page, descripcion, predicadoEnElNavegador, opts = {}) {
-  const { timeout = 120000 } = opts;
+  const { timeout = 120000, arg = undefined } = opts;
   if (typeof descripcion !== 'string' || descripcion.trim() === '') {
     throw new Error(
       'esperarDato: falta `descripcion`. Nombrar el dato que se va a leer es lo que ' +
@@ -119,7 +124,7 @@ export async function esperarDato(page, descripcion, predicadoEnElNavegador, opt
     );
   }
   try {
-    await page.waitForFunction(predicadoEnElNavegador, { timeout });
+    await page.waitForFunction(predicadoEnElNavegador, arg, { timeout });
   } catch {
     throw new Error(
       `esperarDato: "${descripcion}" no llegó en ${timeout}ms. ` +

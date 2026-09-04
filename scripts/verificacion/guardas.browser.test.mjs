@@ -39,7 +39,7 @@ const { chromium } = await import(
   /^file:\/\//.test(rutaPlaywright) ? rutaPlaywright : pathToFileURL(rutaPlaywright).href
 );
 
-const a = crearArnes({ minimo: 17 });
+const a = crearArnes({ minimo: 19 });
 const browser = await chromium.launch({
   executablePath: process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe',
   headless: true,
@@ -155,6 +155,22 @@ try {
   a.ck(r.mediana === ordenadas[1], 'la mediana sale de las 3 que cuentan y no del promedio');
   a.ck(typeof r.calentamiento === 'number' && r.calentamiento > 0,
        'el calentamiento se devuelve APARTE, para poder mirarlo si el numero sorprende');
+  /* ── esperarDato lleva el `arg` al navegador ── */
+  console.log('\n=== esperarDato: el dato de Node llega al predicado ===');
+  await page.setContent('<h1 id="t">viejo</h1>');
+  setTimeout(() => { page.evaluate(() => { document.getElementById('t').textContent = 'nuevo'; }).catch(() => {}); }, 300);
+  await esperarDato(page, 'el titulo ya dice el nombre que espero',
+    (esperado) => document.getElementById('t').textContent === esperado,
+    { arg: 'nuevo', timeout: 8000 });
+  a.ck(await page.locator('#t').innerText() === 'nuevo',
+     'espero contra un valor que vive en Node, no contra "hay un titulo"');
+  /* Y que sin el arg el predicado lo vea como undefined, no que lo invente. */
+  let vio = 'no corrio';
+  await esperarDato(page, 'el predicado sin arg recibe undefined',
+    (x) => { window.__vio = String(x); return true; }, { timeout: 8000 });
+  vio = await page.evaluate(() => window.__vio);
+  a.ck(vio === 'undefined', 'sin `arg`, el predicado recibe undefined (recibio: ' + vio + ')');
+
 } finally {
   await browser.close();
   process.exit(a.resumen());
