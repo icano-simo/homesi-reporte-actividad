@@ -227,13 +227,22 @@ export function cumulativeDays(slaDays: (number | null)[]): number[] {
 /**
  * El rango "DAY 1-5" de cada nodo se CALCULA; no se escribe a mano.
  *
- * Un nodo dura lo que tarda su último milestone (el mayor `sla_days`, que se
- * cuenta desde el inicio DEL NODO). Los nodos van uno después del otro, así que
- * cada uno arranca donde terminó el anterior.
+ * Un nodo dura la SUMA de los `sla_days` de sus steps. Los nodos van uno
+ * después del otro, así que cada uno arranca donde terminó el anterior.
  *
- * La consecuencia práctica es la que importa: al reordenar la secuencia con el
- * drag and drop, los rangos se recalculan solos. Si estuvieran guardados,
- * reordenar dejaría todas las fechas mintiendo.
+ * ⚠ ANTES ERA `Math.max`, Y ESTABA MAL DESDE BP40.
+ *
+ * Hasta BP40 `sla_days` era el día ABSOLUTO dentro del nodo, así que el mayor
+ * era efectivamente la duración. BP40 lo convirtió en el DELTA contra el step
+ * anterior --con su migración de 12 `update`-- y esta función no se actualizó.
+ *
+ * El desfase medido en `Marketing Campaigns`, cuyos deltas son 5,1,3,5,30,0:
+ * `max` daba 30 y la suma da 44. La tarjeta de la biblioteca ya decía 44
+ * --sale de `cumulativeDays`-- así que dos pantallas mostraban dos duraciones
+ * distintas para el mismo nodo.
+ *
+ * Se usa `cumulativeDays` en vez de sumar acá: dos sumas del mismo número son
+ * dos números que pueden diferir, que es justo el error que esto vino a cerrar.
  *
  * Un nodo sin milestones, o con todos sin SLA, dura 1 día: no puede durar 0
  * porque entonces dos nodos empezarían el mismo día y el rango sería vacío.
@@ -245,8 +254,12 @@ export function nodeDayRanges(
   const out: NodeDayRange[] = [];
   let cursor = 1;
   orderedNodeKeys.forEach((node_key, i) => {
-    const mine = milestones.filter((m) => m.node_key === node_key);
-    const span = Math.max(1, ...mine.map((m) => m.sla_days ?? 0));
+    const mine = milestones
+      .filter((m) => m.node_key === node_key)
+      .sort((a, b) => a.position - b.position);
+    const acumulados = cumulativeDays(mine.map((m) => m.sla_days));
+    const total = acumulados.length ? acumulados[acumulados.length - 1] : 0;
+    const span = Math.max(1, total);
     out.push({ node_key, position: i + 1, fromDay: cursor, toDay: cursor + span - 1 });
     cursor += span;
   });
@@ -282,8 +295,19 @@ export function addDays(start: string, days: number): string {
  * plan en curso.
  *
  * LAS FECHAS LÍMITE se resuelven acá, al copiar: fecha de activación más los
- * SLA acumulados. El SLA de un milestone se cuenta desde el inicio de SU nodo,
- * y el nodo arranca donde terminó el anterior.
+ * SLA ACUMULADOS del nodo, y el nodo arranca donde terminó el anterior.
+ *
+ * ⚠ ACUMULADOS, Y NO EL VALOR CRUDO. Esto estaba mal desde BP40 y se corrigió
+ * midiendo los planes reales: 6 de 75 steps tenían una fecha límite ANTERIOR a
+ * la del step que los precede en su propio nodo.
+ *
+ * El caso más claro, del plan 66: `Report results` con `sla_days = 0` quedaba
+ * con fecha del día de activación, mientras el step anterior --`sla_days = 30`--
+ * vencía un mes después. Leído como delta, `0` significa "el mismo día que el
+ * anterior"; leído como absoluto, significa "el día de arranque".
+ *
+ * Las fechas YA GUARDADAS de los planes activados antes de esta corrección no
+ * se recalculan solas: son datos, y recalcularlas cambia lo que la gente ve.
  */
 export function buildEnrollmentPlan(
   orderedNodeKeys: number[],
@@ -301,6 +325,9 @@ export function buildEnrollmentPlan(
     const mine = milestones
       .filter((m) => m.node_key === node_key)
       .sort((a, b) => a.position - b.position);
+    /* El día de cada step DENTRO de su nodo, acumulando los deltas. Misma
+       función que la tabla, el editor y `nodeDayRanges`. */
+    const diaEnElNodo = cumulativeDays(mine.map((m) => m.sla_days));
 
     return [
       {
@@ -317,8 +344,11 @@ export function buildEnrollmentPlan(
           /*
            * `fromDay` es 1-based (el día 1 es el de activación), así que se
            * suma `fromDay - 1` para no correr todo el plan un día.
+           *
+           * Y el día dentro del nodo es el ACUMULADO, no `m.sla_days`: ver la
+           * nota del encabezado.
            */
-          due_date: addDays(activationDate, range.fromDay - 1 + (m.sla_days ?? 0)),
+          due_date: addDays(activationDate, range.fromDay - 1 + diaEnElNodo[j]),
           position: j + 1,
           sla_days: m.sla_days,
         })),
