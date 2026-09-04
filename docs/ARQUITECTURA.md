@@ -8029,3 +8029,40 @@ muestra la app.
 `app/pipeline/TabAnalytics.tsx` (único archivo tocado -- estado
 `selectedChannel`, rename de `branchFilteredLoans` a `filteredLoans`,
 `<select>` de Channel en `.control-bar__row`).
+
+## Página de detalle de Affinity removida del PDF por estrategia
+
+`STRATEGY_ORDER` se sigue usando igual en el resumen por estrategia, el
+Excel y los pills de `PivotTable` -- Affinity sigue apareciendo en todos
+esos lugares, sin cambios. Se excluye SOLO de `strategyBranchPages`
+(`page.tsx`), que alimenta las páginas de detalle por branch del PDF: una
+página menos, específicamente la de Affinity. Affinity sigue apareciendo
+como fila en el "Resumen por Estrategia" de la primera página del PDF --
+lo que se retira es únicamente su página de detalle por branch.
+
+### Archivos
+
+`app/pipeline/page.tsx` (`strategyBranchPages` filtra `STRATEGY_ORDER`
+antes de mapear, `STRATEGY_ORDER` en sí sin tocar).
+
+## Branches con las 5 columnas en cero ocultos en el PDF
+
+Criterio confirmado: se oculta un branch de una tabla del PDF solo si
+`totalCount`, `healthyCount`, `closedCount`, `projectedToClose` Y
+`totalForecast` están TODOS en cero -- no alcanza con que
+`totalCount`/`healthyCount`/`closedCount` sean cero. Ese es un criterio
+distinto (y más laxo) del que ya usa `visible` en `buildBranchRows()`,
+que sigue vivo ahí sin tocarse -- ese criterio sigue gobernando qué
+branch se muestra en pantalla y en el Excel, sin ningún cambio.
+
+El filtro nuevo (`hideZeroBranches()`) vive solo dentro de
+`handleExportPdf()`, aplicado a `branchRows` y a cada entrada de
+`strategyPages` antes de mandarlos al PDF -- no toca `buildBranchRows()`
+ni `strategyBranchPages` en sí (esa variable la siguen usando sin
+filtrar las verificaciones `cellsMatch5` más arriba en el mismo archivo).
+
+### Archivos
+
+`app/pipeline/page.tsx` (`hideZeroBranches()` nueva dentro de
+`handleExportPdf()`, aplicada a `branchRows.banked`/`.brokered` y a
+`page.banked`/`.brokered` de cada entrada de `strategyPages`).
