@@ -997,7 +997,7 @@ export default function PipelinePage() {
    * ya lista "Por Branch" del Resumen (una fila en cero cuando esa
    * estrategia no está presente en ese branch, nunca un branch de más).
    */
-  const strategyBranchPages = STRATEGY_ORDER.map((strategy) => ({
+  const strategyBranchPages = STRATEGY_ORDER.filter((s) => s !== 'Affinity').map((strategy) => ({
     strategy,
     banked: buildStrategyBranchRows(branchRowsForSummary.filter((r) => r.channel === 'Banked - Retail'), strategy),
     brokered: buildStrategyBranchRows(branchRowsForSummary.filter((r) => r.channel === 'Brokered'), strategy),
