@@ -1,29 +1,22 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { useFunnelLibrary } from '@/lib/business-plan/useFunnelLibrary';
-import {
-  canDeleteFunnel,
-  checkNodeDelete,
-  findNodeNameClash,
-  cumulativeDays,
-  funnelStats,
-  type Funnel,
-  type FunnelCategory,
+import {
+  checkNodeDelete,
+  type Funnel,
   type FunnelNode,
   type NodeMilestone,
 } from '@/lib/business-plan/funnels';
-import { AlertTriangleIcon, CloseIcon } from '@/components/ui/icons';
-import { FunnelGlyph } from '../components/funnelIcons';
+import { AlertTriangleIcon } from '@/components/ui/icons';
 import Breadcrumbs from '../components/Breadcrumbs';
 import { Fragment } from 'react';
-import Modal from '../components/Modal';
-import { Avatar, ErrorState, LoadingState } from '../components/shared';
-import SequenceBuilder from './SequenceBuilder';
+import { ErrorState, LoadingState } from '../components/shared';
 import NodeLibrary from './NodeLibrary';
+import { saveNode } from '@/lib/business-plan/saveNode';
 import LibrarySearchBar from '../components/LibrarySearchBar';
-import { ConfirmDelete, FunnelForm, MilestoneForm, NodeForm } from './LibraryForms';
+import { ConfirmDelete, MilestoneForm, NodeForm } from './LibraryForms';
 
 /**
  * ============================================================================
@@ -51,27 +44,30 @@ import { ConfirmDelete, FunnelForm, MilestoneForm, NodeForm } from './LibraryFor
  *   detalle del nodo casillas para agregarlo o quitarlo de cada funnel
  */
 
-type Tab = 'funnels' | 'nodes' | 'builder';
+/*
+ * Los cuatro dialogos que quedan. Se fueron en BP45, con las pestanas:
+ *
+ *   · `funnel-form`, `funnel-delete` y `funnel-enrolled` viven ahora en
+ *     /business-plan/funnels y en la pagina de cada funnel;
+ *   · `node-detail` lo disparaba la tabla vieja de nodos, y `NodeLibrary` no
+ *     lo usa: el detalle de un nodo es su panel lateral.
+ *
+ * Y no hay mas pestanas: esta pantalla es la biblioteca de nodos y nada mas.
+ */
 type Dialog =
-  | { kind: 'funnel-form'; funnel: Funnel | null }
-  | { kind: 'funnel-delete'; funnel: Funnel }
   | { kind: 'node-form'; node: FunnelNode | null }
   | { kind: 'node-delete'; node: FunnelNode }
-  | { kind: 'node-detail'; node: FunnelNode }
   | { kind: 'ms-form'; nodeKey: number; milestone: NodeMilestone | null }
   | { kind: 'ms-delete'; milestone: NodeMilestone }
-  /* Quien esta enrolado en un funnel, con su avance — etapa BP40. */
-  | { kind: 'funnel-enrolled'; funnel: Funnel }
   | null;
 
 export default function FunnelLibraryPage() {
   const { data, isLoading, available, error, reload } = useFunnelLibrary();
-  const [tab, setTab] = useState<Tab>('funnels');
+
   const [busy, setBusy] = useState(false);
   const [opError, setOpError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
-  const [selectedFunnel, setSelectedFunnel] = useState<number | null>(null);
-  const [selectedNode, setSelectedNode] = useState<number | null>(null);
+
   /*
    * Filtro de la pestaña Nodes. 'all' = todos; 'none' = huérfanos, que hasta
    * ahora sólo se distinguían por la marca ámbar y había que ir a buscarlos a
@@ -151,22 +147,6 @@ export default function FunnelLibraryPage() {
     }
   }
 
-  /* Lista o flujo dentro del detalle de un nodo. Etapa BP25. */
-  const [stageView, setStageView] = useState<'list' | 'flow'>('list');
-
-  const stats = useMemo(() => {
-    if (!data) return new Map<number, ReturnType<typeof funnelStats>>();
-    return new Map(
-      data.funnels.map((f) => [f.funnel_key, funnelStats(f.funnel_key, data.links, data.milestones, data.owners)])
-    );
-  }, [data]);
-
-  /** Nombres de los nodos de un funnel, en orden de secuencia. */
-  const nodeNamesOf = (funnelKey: number) =>
-    (data?.links ?? [])
-      .filter((l) => l.funnel_key === funnelKey)
-      .sort((a, b) => a.position - b.position)
-      .map((l) => data?.nodes.find((n) => n.node_key === l.node_key)?.name ?? '?');
 
   /** Funnels en los que se usa un nodo. Vacío = huérfano. */
   const funnelsOf = (nodeKey: number) =>
@@ -194,12 +174,6 @@ export default function FunnelLibraryPage() {
   const nodeStages = (data?.milestones ?? [])
     .filter((m) => dlgNodeKey !== null && m.node_key === dlgNodeKey)
     .sort((a, b) => a.position - b.position);
-  /*
-   * El dia en que cae cada step: la suma corrida de los deltas -- BP40. Sale de
-   * `cumulativeDays`, la MISMA funcion que usa el editor para mostrar el efecto
-   * de un cambio. Dos sumas del mismo numero pueden diferir.
-   */
-  const diasAcumulados = cumulativeDays(nodeStages.map((m) => m.sla_days));
 
   return (
     <>
@@ -231,29 +205,24 @@ export default function FunnelLibraryPage() {
 
       {data && available && (
         <>
+          {/*
+            LAS TRES PESTAÑAS SE FUERON — etapa BP45.
+
+            `Funnels` y `Sequence builder` viven ahora en /business-plan/funnels
+            y en la pagina de cada funnel. Con el constructor se fue tambien su
+            reordenamiento, que hacia `delete` de todos los `funnel_node` del
+            funnel y los reinsertaba: desde BP41 eso aniquilaria
+            `depends_on_node_key` sin aviso. La pagina nueva usa
+            `reorder_funnel_nodes`, que hace UPDATE.
+
+            Queda una sola pantalla y una sola accion, asi que no hay nada que
+            segmentar.
+          */}
           <div className="control-bar">
-            <div className="seg">
-              <button className={tab === 'funnels' ? 'on' : ''} onClick={() => setTab('funnels')}>
-                Funnels ({data.funnels.length})
-              </button>
-              <button className={tab === 'nodes' ? 'on' : ''} onClick={() => setTab('nodes')}>
-                Nodes ({data.nodes.length})
-              </button>
-              <button className={tab === 'builder' ? 'on' : ''} onClick={() => setTab('builder')}>
-                Sequence builder
-              </button>
-            </div>
             <div className="control-group">
-              {tab === 'funnels' && (
-                <button type="button" className="bp-btn bp-btn--primary" onClick={() => setDialog({ kind: 'funnel-form', funnel: null })}>
-                  + New funnel
-                </button>
-              )}
-              {tab === 'nodes' && (
-                <button type="button" className="bp-btn bp-btn--primary" onClick={() => setDialog({ kind: 'node-form', node: null })}>
-                  + New node
-                </button>
-              )}
+              <button type="button" className="bp-btn bp-btn--primary" onClick={() => setDialog({ kind: 'node-form', node: null })}>
+                + New node
+              </button>
             </div>
           </div>
 
@@ -265,201 +234,7 @@ export default function FunnelLibraryPage() {
           )}
 
           {/* ── Funnels ───────────────────────────────────────────────────── */}
-          {tab === 'funnels' && (
-            <div className="tbl-card">
-              <div className="tbl-scroll">
-                <table className="piv bp-table--funnels">
-                  <colgroup>
-                    <col className="bp-col-fname" />
-                    <col className="bp-col-fcat" />
-                    <col className="bp-col-fnodes" />
-                    <col className="bp-col-fnum" />
-                    <col className="bp-col-fnum" />
-                    <col className="bp-col-fnum" />
-                    <col className="bp-col-facts" />
-                  </colgroup>
-                  <thead>
-                    <tr className="mo-row">
-                      <th className="lbl">Funnel</th>
-                      <th className="bp-center">Category</th>
-                      <th className="bp-left">Nodes, in order</th>
-                      <th className="bp-center">Steps</th>
-                      <th className="bp-center">Weeks</th>
-                      <th className="bp-center">In use</th>
-                      <th className="bp-center">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.funnels.map((f) => {
-                      const s = stats.get(f.funnel_key);
-                      const inUse = data.enrollmentsByFunnel[f.funnel_key] ?? 0;
-                      const names = nodeNamesOf(f.funnel_key);
-                      return (
-                        <tr key={f.funnel_key} className="metric">
-                          {/*
-                            Nombre completo, sin ellipsis: son nombres cortos y
-                            la columna tiene espacio de sobra. Editable en línea.
-                          */}
-                          <td className="lbl bp-wrap">
-                            {/*
-                              Etapa BP21: el icono que se elige en el formulario,
-                              visible en la tabla. Sin esto no habia forma de
-                              saber cual tenia cada funnel sin abrir el editor.
-                              Etapa BP25: en claro. `--strong` es navy pleno y
-                              repetido por fila armaba una columna de cuadrados
-                              oscuros que pesaba mas que los nombres.
-
-                              ⚠ El `flex` va en un SPAN de adentro, nunca en el
-                              `td`. Un `display: flex` sobre una celda la saca del
-                              algoritmo de tabla: deja de ser celda y con
-                              `table-layout: fixed` se lleva puestos los anchos de
-                              todas las columnas.
-                            */}
-                            <span className="bp-name-cell">
-                              <FunnelGlyph icon={f.icon} size={15} />
-                              <input
-                                className="bp-inline-input bp-inline-input--name"
-                                defaultValue={f.name}
-                                disabled={busy}
-                                onBlur={(e) => {
-                                  if (e.target.value !== f.name && e.target.value.trim() !== '')
-                                    run(() => bp().from('funnel').update({ name: e.target.value.trim() }).eq('funnel_key', f.funnel_key), false);
-                                }}
-                              />
-                            </span>
-                            {!f.is_active && <span className="bp-chip">inactive</span>}
-                            {f.is_example && <span className="bp-chip">example</span>}
-                          </td>
-                          <td className="bp-center">
-                            <select
-                              className="bp-inline-input"
-                              value={f.category}
-                              disabled={busy}
-                              onChange={(e) =>
-                                run(() => bp().from('funnel').update({ category: e.target.value as FunnelCategory }).eq('funnel_key', f.funnel_key), false)
-                              }
-                            >
-                              {/* Capitalizado SÓLO al mostrar: el `value` sigue en
-                                  minúscula, que es lo que valida el check de la
-                                  columna. Capitalizarlo al guardar rompería el insert. */}
-                              <option value="core">Core</option>
-                              <option value="growth">Growth</option>
-                            </select>
-                          </td>
-                          {/*
-                            Los NOMBRES, no sólo el número: "5 nodos" no dice si
-                            el funnel está bien armado. No es editable acá --
-                            los nodos se agregan y quitan desde el constructor
-                            o desde el detalle del nodo.
-                          */}
-                          <td className="bp-left bp-wrap">
-                            {names.length === 0 ? (
-                              <span className="bp-muted">no nodes yet</span>
-                            ) : (
-                              <span className="bp-seq">{names.join(' → ')}</span>
-                            )}
-                          </td>
-                          <td className="bp-center">{s?.subMilestoneCount ?? 0}</td>
-                          <td className="bp-center">
-                            <input
-                              type="number"
-                              min="1"
-                              className="bp-inline-input bp-inline-input--num"
-                              defaultValue={f.duration_weeks ?? ''}
-                              disabled={busy}
-                              onBlur={(e) => {
-                                const v = e.target.value === '' ? null : Number(e.target.value);
-                                if (v !== f.duration_weeks)
-                                  run(() => bp().from('funnel').update({ duration_weeks: v }).eq('funnel_key', f.funnel_key), false);
-                              }}
-                            />
-                          </td>
-                          {/*
-                            ⚠ EL NÚMERO SE VUELVE UN BOTÓN — etapa BP40.
-
-                            La columna decía cuántos, y para saber QUIÉNES había
-                            que entrar al perfil de cada persona de a una. Con
-                            tres enrolados eso es incómodo; con treinta, inviable.
-
-                            ⚠ Y EL CERO NO ES UN BOTÓN. Un control que abre una
-                            lista vacía se ve, se usa, y no pasa nada -- es el
-                            mismo criterio con el que no se ofrece editar lo que
-                            no se puede editar.
-                          */}
-                          <td className="bp-center">
-                            {inUse === 0 ? (
-                              <span className="bp-muted">0</span>
-                            ) : (
-                              <button
-                                type="button"
-                                className="bp-linkish"
-                                onClick={() => setDialog({ kind: 'funnel-enrolled', funnel: f })}
-                                title={`See who has this funnel active, and how far along they are`}
-                              >
-                                {inUse}
-                              </button>
-                            )}
-                          </td>
-                          {/* Acciones EN LÍNEA: apiladas, cada fila medía el triple. */}
-                          <td className="bp-center">
-                            <div className="bp-actions">
-                              <button
-                                type="button"
-                                className="bp-icon-btn"
-                                title="Edit all fields"
-                                onClick={() => setDialog({ kind: 'funnel-form', funnel: f })}
-                              >
-                                ✎
-                              </button>
-                              <button
-                                type="button"
-                                className="bp-icon-btn"
-                                title="Open in the sequence builder"
-                                onClick={() => {
-                                  setSelectedFunnel(f.funnel_key);
-                                  setTab('builder');
-                                }}
-                              >
-                                ⇄
-                              </button>
-                              <button
-                                type="button"
-                                className="bp-icon-btn"
-                                title={f.is_active ? 'Deactivate' : 'Activate'}
-                                disabled={busy}
-                                onClick={() => run(() => bp().from('funnel').update({ is_active: !f.is_active }).eq('funnel_key', f.funnel_key), false)}
-                              >
-                                {f.is_active ? '◉' : '○'}
-                              </button>
-                              <button
-                                type="button"
-                                className="bp-icon-btn bp-icon-btn--danger"
-                                title="Delete"
-                                onClick={() => setDialog({ kind: 'funnel-delete', funnel: f })}
-                              >
-                                <CloseIcon size={13} />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                    {data.funnels.length === 0 && (
-                      <tr>
-                        <td className="lbl bp-empty-cell" colSpan={7}>
-                          No funnels yet.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* ── Nodos ─────────────────────────────────────────────────────── */}
-          {tab === 'nodes' && (
-            <NodeLibrary
+          <NodeLibrary
               data={data}
               busy={busy}
               onSetArea={(nodeKey, area) =>
@@ -481,128 +256,9 @@ export default function FunnelLibraryPage() {
                 )
               }
             />
-          )}
 
-          {/* ── Constructor ───────────────────────────────────────────────── */}
-          {tab === 'builder' && (
-            <>
-              <div className="control-bar">
-                <div className="control-group">
-                  <span className="label-chip">Funnel</span>
-                  <select
-                    className="field"
-                    value={selectedFunnel ?? ''}
-                    onChange={(e) => setSelectedFunnel(e.target.value === '' ? null : Number(e.target.value))}
-                  >
-                    <option value="">Pick a funnel…</option>
-                    {data.funnels.map((f) => (
-                      <option key={f.funnel_key} value={f.funnel_key}>
-                        {f.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              {selectedFunnel === null ? (
-                <p className="bp-muted-line">Pick a funnel to edit its sequence.</p>
-              ) : (
-                <SequenceBuilder
-                  funnelKey={selectedFunnel}
-                  nodes={data.nodes}
-                  links={data.links}
-                  milestones={data.milestones}
-                  selectedNodeKey={selectedNode}
-                  onSelectNode={setSelectedNode}
-                  busy={busy}
-                  onChangeSequence={(ordered) =>
-                    run(async () => {
-                      const del = await bp().from('funnel_node').delete().eq('funnel_key', selectedFunnel);
-                      if (del.error) return del;
-                      return bp()
-                        .from('funnel_node')
-                        .insert(ordered.map((node_key, i) => ({ funnel_key: selectedFunnel, node_key, position: i + 1 })));
-                    }, false)
-                  }
-                />
-              )}
-            </>
-          )}
 
-          {/* ══ Diálogos ═══════════════════════════════════════════════════ */}
-
-          {dialog?.kind === 'funnel-form' && (
-            <FunnelForm
-              initial={dialog.funnel}
-              busy={busy}
-              onClose={() => setDialog(null)}
-              onSave={(d) => {
-                const row = {
-                  name: d.name.trim(),
-                  category: d.category,
-                  description: d.description.trim() || null,
-                  duration_weeks: d.duration_weeks === '' ? null : Number(d.duration_weeks),
-                  icon: d.icon.trim() || null,
-                };
-                run(() =>
-                  dialog.funnel
-                    ? bp().from('funnel').update(row).eq('funnel_key', dialog.funnel.funnel_key)
-                    : bp().from('funnel').insert({ ...row, position: data.funnels.length + 1 })
-                );
-              }}
-            />
-          )}
-
-          {/*
-            ══════════════════════════════════════════════════════════════════
-            QUIÉN ESTÁ ENROLADO — etapa BP40
-            ══════════════════════════════════════════════════════════════════
-
-            ⚠ EL AVANCE SE MIDE EN STEPS Y NO EN NODOS. Lo que alguien completa
-            son steps, y un nodo de ocho pesa distinto que uno de dos: contar
-            nodos daría un porcentaje que no se corresponde con el trabajo.
-
-            ⚠ Y `0%` CON SUS DOS NÚMEROS AL LADO. Un `0%` solo no distingue
-            "no empezó" de "no tiene steps"; con `0 / 8` se lee lo primero y con
-            `0 / 0` lo segundo -- que es un plan mal armado y otra conversación.
-          */}
-          {dialog?.kind === 'funnel-enrolled' && (
-            <Modal title={dialog.funnel.name + ' — who has it active'} onClose={() => setDialog(null)}>
-              <table className="piv bp-table--los">
-                <thead>
-                  <tr className="mo-row">
-                    <th className="lbl">Loan Officer</th>
-                    <th className="bp-center">Steps done</th>
-                    <th className="bp-center">Progress</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(data.enrolledByFunnel[dialog.funnel.funnel_key] ?? []).map((e) => (
-                    <tr key={e.employee_key} className="metric">
-                      <td className="lbl">{e.full_name}</td>
-                      <td className="bp-center">
-                        {e.done} / {e.total}
-                      </td>
-                      <td className="bp-center">{e.pct}%</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </Modal>
-          )}
-
-          {dialog?.kind === 'funnel-delete' && (
-            <ConfirmDelete
-              what={'funnel "' + dialog.funnel.name + '"'}
-              busy={busy}
-              blockedReason={
-                canDeleteFunnel(data.enrollmentsByFunnel[dialog.funnel.funnel_key] ?? 0)
-                  ? null
-                  : `${data.enrollmentsByFunnel[dialog.funnel.funnel_key]} active plan(s) use this funnel. Deactivate it instead — the plans in progress keep working and it stops appearing in the catalogue.`
-              }
-              onClose={() => setDialog(null)}
-              onConfirm={() => run(() => bp().from('funnel').delete().eq('funnel_key', dialog.funnel.funnel_key))}
-            />
-          )}
+          {/* ══ Diálogos ═════════════════════════════════════════════ */}
 
           {dialog?.kind === 'node-form' && (
             <NodeForm
@@ -613,65 +269,21 @@ export default function FunnelLibraryPage() {
               support={data.support}
               busy={busy}
               onClose={() => setDialog(null)}
+              /*
+               * ⚠ ESTE HANDLER SE MUDÓ A `lib/business-plan/saveNode.ts` en
+               * BP45, cuando la página del funnel empezó a crear nodos también.
+               * Eran cincuenta líneas con el chequeo de nombre de BP25 adentro,
+               * y dos copias de eso divergen en el detalle que importa.
+               */
               onSave={(d) =>
-                run(async () => {
-                  /*
-                   * ⚠ Etapa BP25. Convivieron "Cold Calling" y "Cold calling",
-                   * y el segundo se coló en tres funnels antes de que alguien lo
-                   * notara. La columna ES unica, pero `text` distingue
-                   * mayusculas: para la base eran dos nombres distintos.
-                   *
-                   * Se devuelve un `error` con la misma forma que los de
-                   * PostgREST para que `run` lo muestre igual que cualquier otro
-                   * -- sin una segunda via de mensajes de error que mantener.
-                   */
-                  const clash = findNodeNameClash(d.name, data.nodes, dialog.node?.node_key ?? null);
-                  if (clash) {
-                    return {
-                      error: {
-                        message:
-                          'A node called "' + clash + '" already exists. Names must be different beyond upper/lower ' +
-                          'case and spacing — use that one, or pick another name.',
-                      },
-                    };
-                  }
-                  const row = { name: d.name.trim(), description: d.description.trim() || null, icon: d.icon.trim() || null };
-                  let nodeKey = dialog.node?.node_key;
-                  if (nodeKey) {
-                    const up = await bp().from('node').update(row).eq('node_key', nodeKey);
-                    if (up.error) return up;
-                  } else {
-                    const ins = await bp().from('node').insert(row).select('node_key').single();
-                    if (ins.error) return ins;
-                    nodeKey = (ins.data as { node_key: number }).node_key;
-                  }
-                  // Responsables: se reescriben enteros, son pocos.
-                  const delO = await bp().from('node_owner').delete().eq('node_key', nodeKey);
-                  if (delO.error) return delO;
-                  if (d.owners.length) {
-                    const insO = await bp().from('node_owner').insert(d.owners.map((employee_key) => ({ node_key: nodeKey, employee_key })));
-                    if (insO.error) return insO;
-                  }
-                  /*
-                   * Pertenencia a funnels desde ACÁ: es el otro lado del
-                   * constructor. Se quita de los que se destildaron y se agrega
-                   * al final de los nuevos -- agregarlo en medio cambiaría una
-                   * secuencia que alguien ya ordenó.
-                   */
-                  const current = funnelsOf(nodeKey).map((f) => f.funnel_key);
-                  const toRemove = current.filter((k) => !d.funnels.includes(k));
-                  const toAdd = d.funnels.filter((k) => !current.includes(k));
-                  for (const k of toRemove) {
-                    const r = await bp().from('funnel_node').delete().eq('funnel_key', k).eq('node_key', nodeKey);
-                    if (r.error) return r;
-                  }
-                  for (const k of toAdd) {
-                    const last = Math.max(0, ...data.links.filter((l) => l.funnel_key === k).map((l) => l.position));
-                    const r = await bp().from('funnel_node').insert({ funnel_key: k, node_key: nodeKey, position: last + 1 });
-                    if (r.error) return r;
-                  }
-                  return { error: null };
-                })
+                run(() =>
+                  saveNode({
+                    draft: d,
+                    nodes: data.nodes,
+                    links: data.links,
+                    nodeKey: dialog.node?.node_key ?? null,
+                  })
+                )
               }
             />
           )}
@@ -693,156 +305,6 @@ export default function FunnelLibraryPage() {
             />
           )}
 
-          {dialog?.kind === 'node-detail' && dlgNode && (
-            <Modal title={dlgNode.name + ' — steps'} onClose={() => setDialog(null)}>
-              <p className="bp-modal__lead">
-                Used in: {funnelsOf(dlgNode.node_key).map((f) => f.name).join(', ') || 'no funnel yet'} ·{' '}
-                <button type="button" className="bp-linkish" onClick={() => setDialog({ kind: 'node-form', node: dlgNode })}>
-                  change funnels and accountable people
-                </button>
-              </p>
-
-              {/*
-                ⚠ DOS VISTAS DE LO MISMO — etapa BP25.
-                La lista es la vista de TRABAJO: tiene el SLA, la posición y los
-                botones de editar y borrar. El flujo es la vista de LECTURA: los
-                pasos en secuencia con su responsable al frente, que es lo que se
-                quiere ver al explicarle el nodo a alguien.
-                La lista es la de por defecto porque es donde se hacen cosas;
-                arrancar en la de leer costaría un clic extra en el caso habitual.
-              */}
-              <div className="bp-view-toggle">
-                <div className="seg">
-                  <button type="button" className={stageView === 'list' ? 'on' : ''} onClick={() => setStageView('list')}>
-                    List
-                  </button>
-                  <button type="button" className={stageView === 'flow' ? 'on' : ''} onClick={() => setStageView('flow')}>
-                    Flow
-                  </button>
-                </div>
-              </div>
-
-              {stageView === 'list' ? (
-                <table className="piv">
-                  <thead>
-                    <tr className="mo-row">
-                      <th className="lbl">Step</th>
-                      <th className="bp-left">Accountable</th>
-                      {/*
-                        DOS COLUMNAS Y NO UNA -- etapa BP40. `+ days` es lo que se
-                        edita: los dias desde el step anterior. `Day` es lo que
-                        resulta, y es el que se lee para saber cuando cae. Sin la
-                        segunda, nadie sabe en que dia del nodo esta un step; sin
-                        la primera, no se puede editar sin hacer la resta a mano.
-                      */}
-                      <th className="bp-center">+ days</th>
-                      <th className="bp-center">Day</th>
-                      <th className="bp-center">Pos</th>
-                      <th className="bp-center">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {nodeStages.map((m, i) => (
-                      <tr key={m.milestone_key} className="metric">
-                        <td className="lbl bp-wrap">{m.title}</td>
-                        <td className="bp-left">
-                          {data.support.find((s) => s.employee_key === m.accountable_employee_key)?.full_name ?? (
-                            <span className="bp-muted">unassigned</span>
-                          )}
-                        </td>
-                        <td className="bp-center">{m.sla_days ?? '—'}</td>
-                        <td className="bp-center bp-strong">{diasAcumulados[i]}</td>
-                        <td className="bp-center">{m.position}</td>
-                        <td className="bp-center">
-                          <div className="bp-actions">
-                            <button
-                              type="button"
-                              className="bp-icon-btn"
-                              title="Edit"
-                              onClick={() => setDialog({ kind: 'ms-form', nodeKey: dlgNode.node_key, milestone: m })}
-                            >
-                              ✎
-                            </button>
-                            <button
-                              type="button"
-                              className="bp-icon-btn bp-icon-btn--danger"
-                              title="Delete"
-                              onClick={() => setDialog({ kind: 'ms-delete', milestone: m })}
-                            >
-                              <CloseIcon size={13} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {nodeStages.length === 0 && (
-                      <tr>
-                        <td className="lbl bp-empty-cell" colSpan={5}>
-                          This node has no steps yet.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              ) : (
-                /*
-                  Una sola fila con scroll, mismo criterio que el stepper del
-                  preview: una secuencia envuelta en varias filas deja de leerse
-                  como una secuencia. Se edita con un clic en la tarjeta, para no
-                  obligar a volver a la lista para corregir algo que se acaba de
-                  ver mal.
-                */
-                <div className="bp-flow">
-                  {nodeStages.map((m, i) => {
-                    const who = data.support.find((s) => s.employee_key === m.accountable_employee_key) ?? null;
-                    return (
-                      <div key={m.milestone_key} className="bp-flow__slot">
-                        <button
-                          type="button"
-                          className="bp-flow__card"
-                          title="Edit this step"
-                          onClick={() => setDialog({ kind: 'ms-form', nodeKey: dlgNode.node_key, milestone: m })}
-                        >
-                          <span className="bp-flow__n">
-                            STAGE {i + 1}
-                            {m.sla_days !== null && <> · day {m.sla_days}</>}
-                          </span>
-                          <span className="bp-flow__title">{m.title}</span>
-                          {/* El responsable AL FRENTE: es la pregunta que trae a
-                              alguien a esta vista. */}
-                          <span className="bp-flow__who">
-                            {who ? (
-                              <>
-                                <Avatar name={who.full_name} title={who.job_title ?? who.full_name} />
-                                {who.full_name}
-                              </>
-                            ) : (
-                              <span className="bp-muted">unassigned</span>
-                            )}
-                          </span>
-                        </button>
-                        <span className="bp-flow__arrow" aria-hidden="true">
-                          →
-                        </span>
-                      </div>
-                    );
-                  })}
-                  {nodeStages.length === 0 && <p className="bp-flow__empty">This node has no steps yet.</p>}
-                </div>
-              )}
-
-              <div className="bp-form__actions">
-                <button
-                  type="button"
-                  className="bp-btn bp-btn--small"
-                  onClick={() => setDialog({ kind: 'ms-form', nodeKey: dlgNode.node_key, milestone: null })}
-                >
-                  + New step
-                </button>
-              </div>
-            </Modal>
-          )}
-
           {dialog?.kind === 'ms-form' && (
             <MilestoneForm
               siblings={nodeStages.map((m) => ({
@@ -862,7 +324,22 @@ export default function FunnelLibraryPage() {
                   accountable_employee_key: d.accountable_employee_key === '' ? null : Number(d.accountable_employee_key),
                   sla_days: d.sla_days === '' ? null : Number(d.sla_days),
                   resource_url: d.resource_url.trim() || null,
-                  position: Number(d.position) || 1,
+                  /*
+                   * ⚠ LA POSICIÓN DE UN STEP NUEVO VA AL FINAL, CALCULADA — BP44.
+                   *
+                   * El campo `Position` se fue del editor porque el orden se
+                   * arrastra. Pero el borrador lo iniciaba en `1` para un step
+                   * nuevo, y `1` YA ESTÁ OCUPADO en cualquier nodo que tenga
+                   * steps: desde BP41 `(node_key, position)` es único, así que
+                   * el insert habría fallado al commit.
+                   *
+                   * Quitar el campo sin esto convertía "crear un step" en un
+                   * error en 30 de los 32 nodos. Al editar se conserva la
+                   * posición que ya tenía: el orden se cambia arrastrando.
+                   */
+                  position: dialog.milestone
+                    ? dialog.milestone.position
+                    : Math.max(0, ...nodeStages.map((m) => m.position)) + 1,
                 };
                 run(() =>
                   dialog.milestone

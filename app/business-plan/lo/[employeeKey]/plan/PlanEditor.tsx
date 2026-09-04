@@ -373,7 +373,26 @@ export default function PlanEditor({
               accountable_employee_key: d.accountable_employee_key === '' ? null : Number(d.accountable_employee_key),
               sla_days: sla,
               resource_url: d.resource_url.trim() || null,
-              position: Number(d.position) || 1,
+              /*
+               * ⚠ LA POSICIÓN DE UN STEP NUEVO VA AL FINAL — BP44.
+               *
+               * El campo `Position` se fue del editor compartido, y el borrador
+               * lo iniciaba en `1`. Acá el efecto es peor que en la plantilla:
+               * `enrollment_milestone` NO tiene unicidad sobre
+               * `(enrollment_node_key, position)` --comprobado contra la base--
+               * así que en vez de fallar, quedaban dos steps del plan en la
+               * posición 1 y el orden lo decidía el recorrido.
+               *
+               * Al editar se conserva la que ya tenía.
+               */
+              position: dialog.milestone
+                ? dialog.milestone.position
+                : Math.max(
+                    0,
+                    ...(plan.nodes.find((n) => n.enrollment_node_key === dialog.nodeKey)?.milestones ?? []).map(
+                      (m) => m.position
+                    )
+                  ) + 1,
             };
             run(async () => {
               if (dialog.milestone) {
