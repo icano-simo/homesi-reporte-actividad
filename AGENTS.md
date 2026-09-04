@@ -120,16 +120,17 @@ el razonamiento sea el mismo.
   filas que no deberían existir suman perfectamente.
 - Una consulta a Supabase: **cero filas con `error: null` es una policy de RLS
   que no aplica**, no una tabla vacía. RLS filtra, no rechaza.
-- Y su complemento, que apunta a otro lado: **un  no es RLS, es un  que falta.** Las policies deciden QUÉ FILAS;
-  el grant decide si se puede tocar la tabla. Los dos fallos son
-  distinguibles, y conviene: cero filas manda a mirar las policies, un 403
-  manda a mirar los grants.
+- Y su complemento, que apunta a otro lado: **un `403 permission denied for
+  table X` no es RLS, es un `GRANT` que falta.** Las policies deciden QUÉ FILAS;
+  el grant decide si se puede tocar la tabla. Los dos fallos son distinguibles,
+  y conviene: cero filas manda a mirar las policies, un 403 manda a mirar los
+  grants.
 
-  Un  nuevo **no hereda** el grant del esquema. Y es fácil
+  Un `create table` nuevo **no hereda** el grant del esquema. Y es fácil
   escribir las políticas y olvidarlo, porque las políticas son lo que uno está
-  pensando: la tabla  quedó como la única de nueve sin
-  grant, y eso rompió una pantalla que ni la menciona -- un trigger
-   la leía, así que asignar un área devolvía 403.
+  pensando: `business_plan.area` quedó como la única de nueve tablas sin grant,
+  y eso rompió una pantalla que ni la menciona — un trigger `security invoker`
+  la leía, así que asignar un área devolvía 403.
 
 ## Antes que todo lo anterior: que el arnés haya corrido
 
