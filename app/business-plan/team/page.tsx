@@ -174,14 +174,14 @@ export default function TeamPage() {
               <p className="bp-team-head__meta">{viewing.job_title ?? '—'}</p>
             </div>
             <div className="bp-team-head__counts">
-              <span className="bp-pill bp-pill--sky">{openCount} open stages</span>
+              <span className="bp-pill bp-pill--sky">{openCount} open steps</span>
               {overdueCount > 0 && <span className="bp-pill bp-pill--late">{overdueCount} overdue</span>}
               <span className="bp-pill bp-pill--sky">{myNodes.length} nodes owned</span>
             </div>
           </div>
 
           {/* ── Pasos asignados ─────────────────────────────────────────────── */}
-          <h3 className="bp-section-title">Stages assigned to {viewing.full_name.split(' ')[0]}</h3>
+          <h3 className="bp-section-title">Steps assigned to {viewing.full_name.split(' ')[0]}</h3>
           <div className="tbl-card">
             <div className="tbl-scroll">
             <table className="piv bp-table--team">
@@ -200,7 +200,7 @@ export default function TeamPage() {
                   <th className="bp-center">Branch</th>
                   <th className="bp-left">Funnel</th>
                   <th className="bp-left">Node</th>
-                  <th className="bp-left">Stage</th>
+                  <th className="bp-left">Step</th>
                   <th className="bp-center">Status</th>
                   <th className="bp-center">Target date</th>
                 </tr>

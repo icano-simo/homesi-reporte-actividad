@@ -784,6 +784,23 @@ table.piv.bp-table--los th {
   cursor: pointer;
   white-space: nowrap;
 }
+/*
+ * Etapa BP40: `.bp-btn` tambien se pone sobre un <a>. "Change funnel" es un
+ * enlace de verdad --lleva al catalogo, y tiene que poder abrirse en otra
+ * pestana-- pero salia subrayado al lado de tres botones que no, y en la
+ * captura leia como algo de otra clase. El subrayado sale del `a` global.
+ *
+ * `inline-block` porque un <a> es inline y el padding vertical no empuja la
+ * linea: el enlace quedaba mas bajo que los botones de al lado.
+ *
+ * SOLO `a.bp-btn`, no `.bp-btn`: un <button> ya es inline-block, y poner
+ * `display` en la clase entera habria tocado los cientos de botones que no
+ * tienen nada que ver con esto.
+ */
+a.bp-btn {
+  display: inline-block;
+  text-decoration: none;
+}
 .bp-btn:disabled {
   opacity: 0.5;
   cursor: default;
@@ -2294,6 +2311,40 @@ table.piv th.bp-wrap {
   width: 56px;
   text-align: center;
   font-variant-numeric: tabular-nums;
+}
+
+/*
+ * El area del nodo, editable en linea — etapa BP40.
+ *
+ * ⚠ Es un `select` y no un input de texto: las areas son cuatro y la base
+ * tiene un `check`. Un campo libre deja escribir `marketing` en minuscula, que
+ * la base rechaza con un error que nadie puede interpretar.
+ */
+.bp-inline-input--area {
+  width: 132px;
+  text-align: left;
+}
+
+/*
+ * El encabezado de un grupo de la biblioteca — etapa BP40.
+ *
+ * Separa los nodos por area. Es una fila de la MISMA tabla y no una tabla
+ * aparte, para que las columnas sigan alineadas entre grupos: con una tabla
+ * por area, cada una calcularia sus anchos por su cuenta.
+ */
+.bp-group-head td {
+  padding-top: 14px;
+  border-top: 2px solid var(--slate-200);
+  background: var(--slate-50);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--slate-600);
+}
+/* La primera fila de la tabla no necesita separarse de nada. */
+.bp-group-head:first-child td {
+  padding-top: 6px;
+  border-top: none;
 }
 
 /* ── Formularios ────────────────────────────────────────────────────────── */
@@ -4567,5 +4618,80 @@ table.piv tr.metric.is-picked td.lbl {
   font-size: 10px;
   font-weight: 600;
   color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * ============================================================================
+ * LA VISTA PREVIA DEL SLA ACUMULADO — etapa BP40
+ * ============================================================================
+ *
+ * ⚠ ESTO NO ES DECORATIVO, es la mitad del cambio. `sla_days` paso a ser los
+ * dias DESDE EL STEP ANTERIOR, asi que mover un step mueve a todos los que le
+ * siguen en su nodo. La primera vez que alguien lo vea sin aviso va a parecer un
+ * bug -- editar un numero y ver cambiar cuatro.
+ *
+ * Por eso el formulario dibuja los dias resultantes de todo el nodo mientras se
+ * escribe, con el step que se esta editando marcado. Los colores salen de los
+ * tokens; ni un hexadecimal.
+ */
+.bp-sla-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  background: var(--slate-50);
+}
+.bp-sla-preview__lbl {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--slate-500);
+}
+.bp-sla-preview__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+/* El aviso: lo que hay que leer si se movio algo. */
+.bp-sla-preview__warn {
+  font-size: 12px;
+  color: var(--amber-700);
+}
+
+.bp-sla-chip {
+  display: inline-flex;
+  gap: 6px;
+  align-items: baseline;
+  padding: 3px 9px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-full);
+  background: var(--white);
+  font-size: 12px;
+  color: var(--slate-600);
+  white-space: nowrap;
+}
+.bp-sla-chip b {
+  font-variant-numeric: tabular-nums;
+  color: var(--navy);
+}
+/*
+ * El step que se esta editando. Se marca con el acento del portal y no con
+ * negrita: la negrita ya la usa el numero del dia adentro de cada pildora, y
+ * dos negritas en la misma linea dejan de distinguir nada.
+ */
+.bp-sla-chip--this {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--navy);
+}
+
+/* El dia acumulado en la tabla del detalle: es el numero que se viene a leer. */
+.bp-strong {
+  font-weight: 700;
+  color: var(--navy);
   font-variant-numeric: tabular-nums;
 }

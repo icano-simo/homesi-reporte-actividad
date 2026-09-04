@@ -31,12 +31,34 @@ export interface Funnel {
   is_example: boolean;
 }
 
+/**
+ * Las cuatro areas de la division — etapa BP40.
+ *
+ * ⚠ ES UNA LISTA CERRADA, y el `check` de la base la repite. No es duplicacion
+ * inutil: el desplegable necesita saber que ofrecer y la base necesita rechazar
+ * lo que llegue por otra via. Si algun dia hay una quinta, van las dos.
+ */
+export const NODE_AREAS = ['Marketing', 'Sales Coaching', 'Performance', 'IT'] as const;
+export type NodeArea = (typeof NODE_AREAS)[number];
+
 export interface FunnelNode {
   node_key: number;
   name: string;
   description: string | null;
   icon: string | null;
   is_example: boolean;
+  /**
+   * ⚠ EL AREA, QUE ANTES ERA UN PREFIJO DE `description` — etapa BP40.
+   *
+   * Vivia como primeras palabras hasta el primer punto --`Marketing.`, `Sales
+   * Coaching.`-- y ya se habia roto: de 31 nodos, 4 no lo tenian y 2 guardaron
+   * un parrafo entero donde iba.
+   *
+   * `null` = nadie la asigno, NO "sin area". Un valor de relleno se vuelve
+   * indistinguible de una decision el dia que alguien lo elija a proposito. Hoy
+   * son 6 en null, y la biblioteca los agrupa aparte para que se vean.
+   */
+  area: NodeArea | null;
 }
 
 export interface FunnelNodeLink {
@@ -127,6 +149,35 @@ export interface NodeDayRange {
   /** Día 1-based desde el inicio del plan. */
   fromDay: number;
   toDay: number;
+}
+
+/**
+ * ============================================================================
+ * EL DIA ACUMULADO DE CADA STEP -- etapa BP40
+ * ============================================================================
+ *
+ * `sla_days` paso a ser los dias DESDE EL STEP ANTERIOR, no el dia absoluto
+ * dentro del nodo. El dia en que cae un step es la suma corrida.
+ *
+ * POR QUE SE CAMBIO, y que costo: leido como absoluto, un numero menor que el
+ * anterior no molestaba --cada step decia su dia por su cuenta-- asi que se
+ * podia tener un plan donde el paso 4 caia ANTES que el paso 3. Los datos tenian
+ * dos casos asi, invisibles hasta que se miro el acumulado. Con esta lectura eso
+ * no es representable: un delta negativo no existe.
+ *
+ * Y LA CONSECUENCIA QUE HAY QUE MOSTRAR: correr un step corre a TODOS los que
+ * siguen en su nodo. La primera vez que alguien lo vea sin aviso va a parecer un
+ * bug, asi que el editor dibuja los dias resultantes mientras se escribe.
+ *
+ * Un step sin `sla_days` no aporta al acumulado y hereda el dia del anterior:
+ * son los de plantillas viejas, y darle un dia inventado seria peor.
+ */
+export function cumulativeDays(slaDays: (number | null)[]): number[] {
+  let acc = 0;
+  return slaDays.map((d) => {
+    acc += d ?? 0;
+    return acc;
+  });
 }
 
 /**

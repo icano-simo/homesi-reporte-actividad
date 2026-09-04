@@ -7,15 +7,19 @@ import {
   canDeleteFunnel,
   checkNodeDelete,
   findNodeNameClash,
+  cumulativeDays,
   funnelStats,
+  NODE_AREAS,
   type Funnel,
   type FunnelCategory,
   type FunnelNode,
+  type NodeArea,
   type NodeMilestone,
 } from '@/lib/business-plan/funnels';
 import { AlertTriangleIcon, CloseIcon } from '@/components/ui/icons';
 import { FunnelGlyph } from '../components/funnelIcons';
 import Breadcrumbs from '../components/Breadcrumbs';
+import { Fragment } from 'react';
 import Modal from '../components/Modal';
 import { Avatar, ErrorState, LoadingState } from '../components/shared';
 import SequenceBuilder from './SequenceBuilder';
@@ -56,6 +60,8 @@ type Dialog =
   | { kind: 'node-detail'; node: FunnelNode }
   | { kind: 'ms-form'; nodeKey: number; milestone: NodeMilestone | null }
   | { kind: 'ms-delete'; milestone: NodeMilestone }
+  /* Quien esta enrolado en un funnel, con su avance — etapa BP40. */
+  | { kind: 'funnel-enrolled'; funnel: Funnel }
   | null;
 
 export default function FunnelLibraryPage() {
@@ -132,12 +138,52 @@ export default function FunnelLibraryPage() {
     return all.filter((n) => (data?.links ?? []).some((l) => l.funnel_key === nodeFilter && l.node_key === n.node_key));
   }, [data, nodeFilter]);
 
+  /*
+   * Los nodos visibles, AGRUPADOS por area — etapa BP40.
+   *
+   * ⚠ El orden de los grupos es el de `NODE_AREAS` y no alfabetico: es el orden
+   * en que la division piensa sus areas, y alfabetico pondria IT primero.
+   * Los sin asignar van al final, siempre.
+   *
+   * ⚠ Y SOLO SE DIBUJAN LOS GRUPOS QUE TIENEN ALGO. Un "IT · 0 nodes" ocupa una
+   * fila para no decir nada -- mismo criterio que las estrategias vacias de
+   * Outlook.
+   */
+  const gruposDeArea = useMemo(() => {
+    const out: { area: NodeArea | null; nodos: FunnelNode[] }[] = [];
+    for (const a of NODE_AREAS) {
+      const nodos = visibleNodes.filter((n) => n.area === a);
+      if (nodos.length) out.push({ area: a, nodos });
+    }
+    const sin = visibleNodes.filter((n) => !n.area);
+    if (sin.length) out.push({ area: null, nodos: sin });
+    return out;
+  }, [visibleNodes]);
+
+
   const dlgNode = dialog && 'node' in dialog ? dialog.node : null;
+  /*
+   * LA CLAVE DEL NODO EN JUEGO, POR LOS DOS CAMINOS -- etapa BP40.
+   *
+   * El detalle trae el nodo entero (`node`); el formulario de step trae solo su
+   * clave (`nodeKey`), porque `dialog` es un solo estado y abrir el editor
+   * REEMPLAZA al detalle en vez de apilarse. Mirando solo `'node' in dialog`,
+   * `nodeStages` quedaba vacio justo cuando el editor necesita los hermanos
+   * para dibujar su vista previa: la lista aparecia sin ningun step.
+   */
+  const dlgNodeKey =
+    dlgNode?.node_key ?? (dialog && 'nodeKey' in dialog ? dialog.nodeKey : null);
   /* Los stages del nodo abierto, en orden. Una sola vez: las dos vistas del
      detalle los recorren, y filtrar dos veces las dejaba libres de discrepar. */
   const nodeStages = (data?.milestones ?? [])
-    .filter((m) => dlgNode !== null && m.node_key === dlgNode.node_key)
+    .filter((m) => dlgNodeKey !== null && m.node_key === dlgNodeKey)
     .sort((a, b) => a.position - b.position);
+  /*
+   * El dia en que cae cada step: la suma corrida de los deltas -- BP40. Sale de
+   * `cumulativeDays`, la MISMA funcion que usa el editor para mostrar el efecto
+   * de un cambio. Dos sumas del mismo numero pueden diferir.
+   */
+  const diasAcumulados = cumulativeDays(nodeStages.map((m) => m.sla_days));
 
   return (
     <>
@@ -214,7 +260,7 @@ export default function FunnelLibraryPage() {
                       <th className="lbl">Funnel</th>
                       <th className="bp-center">Category</th>
                       <th className="bp-left">Nodes, in order</th>
-                      <th className="bp-center">Stages</th>
+                      <th className="bp-center">Steps</th>
                       <th className="bp-center">Weeks</th>
                       <th className="bp-center">In use</th>
                       <th className="bp-center">Actions</th>
@@ -305,7 +351,32 @@ export default function FunnelLibraryPage() {
                               }}
                             />
                           </td>
-                          <td className="bp-center">{inUse === 0 ? <span className="bp-muted">0</span> : inUse}</td>
+                          {/*
+                            ⚠ EL NÚMERO SE VUELVE UN BOTÓN — etapa BP40.
+
+                            La columna decía cuántos, y para saber QUIÉNES había
+                            que entrar al perfil de cada persona de a una. Con
+                            tres enrolados eso es incómodo; con treinta, inviable.
+
+                            ⚠ Y EL CERO NO ES UN BOTÓN. Un control que abre una
+                            lista vacía se ve, se usa, y no pasa nada -- es el
+                            mismo criterio con el que no se ofrece editar lo que
+                            no se puede editar.
+                          */}
+                          <td className="bp-center">
+                            {inUse === 0 ? (
+                              <span className="bp-muted">0</span>
+                            ) : (
+                              <button
+                                type="button"
+                                className="bp-linkish"
+                                onClick={() => setDialog({ kind: 'funnel-enrolled', funnel: f })}
+                                title={`See who has this funnel active, and how far along they are`}
+                              >
+                                {inUse}
+                              </button>
+                            )}
+                          </td>
                           {/* Acciones EN LÍNEA: apiladas, cada fila medía el triple. */}
                           <td className="bp-center">
                             <div className="bp-actions">
@@ -394,6 +465,7 @@ export default function FunnelLibraryPage() {
                 <table className="piv bp-table--nodes">
                   <colgroup>
                     <col className="bp-col-fname" />
+                    <col className="bp-col-fcat" />
                     <col className="bp-col-fnum" />
                     <col className="bp-col-fnodes" />
                     <col className="bp-col-fcat" />
@@ -402,7 +474,8 @@ export default function FunnelLibraryPage() {
                   <thead>
                     <tr className="mo-row">
                       <th className="lbl">Node</th>
-                      <th className="bp-center">Stages</th>
+                      <th className="bp-center">Area</th>
+                      <th className="bp-center">Steps</th>
                       {/* La columna que faltaba: la relación, visible. */}
                       <th className="bp-left">Used in funnels</th>
                       <th className="bp-center">Accountable</th>
@@ -410,7 +483,33 @@ export default function FunnelLibraryPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {visibleNodes.map((n) => {
+                    {/*
+                      ══════════════════════════════════════════════════════════
+                      AGRUPADOS POR AREA — etapa BP40
+                      ══════════════════════════════════════════════════════════
+
+                      Treinta y un nodos ordenados por nombre no dicen nada de
+                      como esta repartido el trabajo. Agrupados, la biblioteca
+                      contesta "cuanto hay de Marketing" sin contar filas.
+
+                      ⚠ LOS SIN ASIGNAR VAN AL FINAL Y CON SU PROPIO ROTULO, no
+                      mezclados ni escondidos. Son seis y hay que verlos: dos de
+                      ellos ni siquiera tienen un prefijo del que se pudiera
+                      derivar el area, asi que los asigna una persona.
+                    */}
+                    {gruposDeArea.map(({ area, nodos }) => (
+                      <Fragment key={area ?? '(sin area)'}>
+                        <tr className="metric bp-group-head">
+                          <td className="lbl" colSpan={6}>
+                            {area ?? 'Not set'}
+                            <span className="bp-muted">
+                              {' · '}
+                              {nodos.length} node{nodos.length === 1 ? '' : 's'}
+                              {area === null ? ' — assign an area to each one' : ''}
+                            </span>
+                          </td>
+                        </tr>
+                        {nodos.map((n) => {
                       const mine = data.milestones.filter((m) => m.node_key === n.node_key);
                       const inF = funnelsOf(n.node_key);
                       const owners = data.owners
@@ -443,6 +542,36 @@ export default function FunnelLibraryPage() {
                             />
                             </span>
                           </td>
+                          {/*
+                            ⚠ UN `select` Y NO UN CAMPO DE TEXTO. Las areas son
+                            cuatro y la base tiene un `check`: un input libre
+                            deja escribir `marketing` en minuscula, que la base
+                            rechaza con un error que nadie puede interpretar.
+
+                            ⚠ Y LA OPCION VACIA SE OFRECE. Seis nodos estan sin
+                            asignar y hay que poder dejarlos asi -- o volver a
+                            dejarlos asi si alguien se equivoco. Dice
+                            "-- not set --" y no un area de relleno.
+                          */}
+                          <td className="bp-center">
+                            <select
+                              className="bp-inline-input bp-inline-input--area"
+                              value={n.area ?? ''}
+                              disabled={busy}
+                              onChange={(e) => {
+                                const v = e.target.value === '' ? null : (e.target.value as NodeArea);
+                                if (v === n.area) return;
+                                run(() => bp().from('node').update({ area: v }).eq('node_key', n.node_key), false);
+                              }}
+                            >
+                              <option value="">— not set —</option>
+                              {NODE_AREAS.map((a) => (
+                                <option key={a} value={a}>
+                                  {a}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
                           <td className="bp-center">{mine.length}</td>
                           <td className="bp-left bp-wrap">
                             {inF.length === 0 ? (
@@ -459,7 +588,7 @@ export default function FunnelLibraryPage() {
                           </td>
                           <td className="bp-center">
                             <div className="bp-actions">
-                              <button type="button" className="bp-icon-btn" title="Stages" onClick={() => setDialog({ kind: 'node-detail', node: n })}>
+                              <button type="button" className="bp-icon-btn" title="Steps" onClick={() => setDialog({ kind: 'node-detail', node: n })}>
                                 ☰
                               </button>
                               <button type="button" className="bp-icon-btn" title="Edit node" onClick={() => setDialog({ kind: 'node-form', node: n })}>
@@ -477,10 +606,12 @@ export default function FunnelLibraryPage() {
                           </td>
                         </tr>
                       );
-                    })}
+                        })}
+                      </Fragment>
+                    ))}
                     {visibleNodes.length === 0 && (
                       <tr>
-                        <td className="lbl bp-empty-cell" colSpan={5}>
+                        <td className="lbl bp-empty-cell" colSpan={6}>
                           No node in that funnel.
                         </td>
                       </tr>
@@ -559,6 +690,44 @@ export default function FunnelLibraryPage() {
                 );
               }}
             />
+          )}
+
+          {/*
+            ══════════════════════════════════════════════════════════════════
+            QUIÉN ESTÁ ENROLADO — etapa BP40
+            ══════════════════════════════════════════════════════════════════
+
+            ⚠ EL AVANCE SE MIDE EN STEPS Y NO EN NODOS. Lo que alguien completa
+            son steps, y un nodo de ocho pesa distinto que uno de dos: contar
+            nodos daría un porcentaje que no se corresponde con el trabajo.
+
+            ⚠ Y `0%` CON SUS DOS NÚMEROS AL LADO. Un `0%` solo no distingue
+            "no empezó" de "no tiene steps"; con `0 / 8` se lee lo primero y con
+            `0 / 0` lo segundo -- que es un plan mal armado y otra conversación.
+          */}
+          {dialog?.kind === 'funnel-enrolled' && (
+            <Modal title={dialog.funnel.name + ' — who has it active'} onClose={() => setDialog(null)}>
+              <table className="piv bp-table--los">
+                <thead>
+                  <tr className="mo-row">
+                    <th className="lbl">Loan Officer</th>
+                    <th className="bp-center">Steps done</th>
+                    <th className="bp-center">Progress</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(data.enrolledByFunnel[dialog.funnel.funnel_key] ?? []).map((e) => (
+                    <tr key={e.employee_key} className="metric">
+                      <td className="lbl">{e.full_name}</td>
+                      <td className="bp-center">
+                        {e.done} / {e.total}
+                      </td>
+                      <td className="bp-center">{e.pct}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Modal>
           )}
 
           {dialog?.kind === 'funnel-delete' && (
@@ -665,7 +834,7 @@ export default function FunnelLibraryPage() {
           )}
 
           {dialog?.kind === 'node-detail' && dlgNode && (
-            <Modal title={dlgNode.name + ' — stages'} onClose={() => setDialog(null)}>
+            <Modal title={dlgNode.name + ' — steps'} onClose={() => setDialog(null)}>
               <p className="bp-modal__lead">
                 Used in: {funnelsOf(dlgNode.node_key).map((f) => f.name).join(', ') || 'no funnel yet'} ·{' '}
                 <button type="button" className="bp-linkish" onClick={() => setDialog({ kind: 'node-form', node: dlgNode })}>
@@ -697,15 +866,23 @@ export default function FunnelLibraryPage() {
                 <table className="piv">
                   <thead>
                     <tr className="mo-row">
-                      <th className="lbl">Stage</th>
+                      <th className="lbl">Step</th>
                       <th className="bp-left">Accountable</th>
-                      <th className="bp-center">SLA</th>
+                      {/*
+                        DOS COLUMNAS Y NO UNA -- etapa BP40. `+ days` es lo que se
+                        edita: los dias desde el step anterior. `Day` es lo que
+                        resulta, y es el que se lee para saber cuando cae. Sin la
+                        segunda, nadie sabe en que dia del nodo esta un step; sin
+                        la primera, no se puede editar sin hacer la resta a mano.
+                      */}
+                      <th className="bp-center">+ days</th>
+                      <th className="bp-center">Day</th>
                       <th className="bp-center">Pos</th>
                       <th className="bp-center">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {nodeStages.map((m) => (
+                    {nodeStages.map((m, i) => (
                       <tr key={m.milestone_key} className="metric">
                         <td className="lbl bp-wrap">{m.title}</td>
                         <td className="bp-left">
@@ -714,6 +891,7 @@ export default function FunnelLibraryPage() {
                           )}
                         </td>
                         <td className="bp-center">{m.sla_days ?? '—'}</td>
+                        <td className="bp-center bp-strong">{diasAcumulados[i]}</td>
                         <td className="bp-center">{m.position}</td>
                         <td className="bp-center">
                           <div className="bp-actions">
@@ -740,7 +918,7 @@ export default function FunnelLibraryPage() {
                     {nodeStages.length === 0 && (
                       <tr>
                         <td className="lbl bp-empty-cell" colSpan={5}>
-                          This node has no stages yet.
+                          This node has no steps yet.
                         </td>
                       </tr>
                     )}
@@ -762,7 +940,7 @@ export default function FunnelLibraryPage() {
                         <button
                           type="button"
                           className="bp-flow__card"
-                          title="Edit this stage"
+                          title="Edit this step"
                           onClick={() => setDialog({ kind: 'ms-form', nodeKey: dlgNode.node_key, milestone: m })}
                         >
                           <span className="bp-flow__n">
@@ -789,7 +967,7 @@ export default function FunnelLibraryPage() {
                       </div>
                     );
                   })}
-                  {nodeStages.length === 0 && <p className="bp-flow__empty">This node has no stages yet.</p>}
+                  {nodeStages.length === 0 && <p className="bp-flow__empty">This node has no steps yet.</p>}
                 </div>
               )}
 
@@ -799,7 +977,7 @@ export default function FunnelLibraryPage() {
                   className="bp-btn bp-btn--small"
                   onClick={() => setDialog({ kind: 'ms-form', nodeKey: dlgNode.node_key, milestone: null })}
                 >
-                  + New stage
+                  + New step
                 </button>
               </div>
             </Modal>
@@ -807,6 +985,12 @@ export default function FunnelLibraryPage() {
 
           {dialog?.kind === 'ms-form' && (
             <MilestoneForm
+              siblings={nodeStages.map((m) => ({
+                milestone_key: m.milestone_key,
+                title: m.title,
+                sla_days: m.sla_days,
+                position: m.position,
+              }))}
               initial={dialog.milestone}
               support={data.support}
               busy={busy}
@@ -831,11 +1015,11 @@ export default function FunnelLibraryPage() {
 
           {dialog?.kind === 'ms-delete' && (
             <ConfirmDelete
-              what={'stage "' + dialog.milestone.title + '"'}
+              what={'step "' + dialog.milestone.title + '"'}
               busy={busy}
               /* En la plantilla se borra libre: los planes ya activados tienen
                  su copia y no se ven afectados. */
-              warning="Plans already activated keep their own copy of this stage."
+              warning="Plans already activated keep their own copy of this step."
               onClose={() => setDialog(null)}
               onConfirm={() => run(() => bp().from('node_milestone').delete().eq('milestone_key', dialog.milestone.milestone_key))}
             />
