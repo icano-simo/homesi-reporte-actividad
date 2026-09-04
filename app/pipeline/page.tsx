@@ -1245,6 +1245,24 @@ export default function PipelinePage() {
           projectedToClose: r.projectedToClose,
           totalForecast: r.totalForecast,
         }));
+      function hideZeroBranches<
+        T extends {
+          totalCount: number;
+          healthyCount: number;
+          closedCount: number;
+          projectedToClose: number;
+          totalForecast: number;
+        },
+      >(rows: T[]): T[] {
+        return rows.filter(
+          (r) =>
+            r.totalCount > 0 ||
+            r.healthyCount > 0 ||
+            r.closedCount > 0 ||
+            r.projectedToClose > 0 ||
+            r.totalForecast > 0
+        );
+      }
       const toLoanOfficerLite = (channel: PipelineLoan['channel']) =>
         loanOfficerForecastRows
           .filter((r) => r.channel === channel)
@@ -1284,8 +1302,8 @@ export default function PipelinePage() {
             generatedAtLabel: new Date().toISOString().slice(0, 10),
           },
           branchRows: {
-            banked: toBranchLite(branchRowsForSummary.filter((r) => r.channel === 'Banked - Retail')),
-            brokered: toBranchLite(branchRowsForSummary.filter((r) => r.channel === 'Brokered')),
+            banked: hideZeroBranches(toBranchLite(branchRowsForSummary.filter((r) => r.channel === 'Banked - Retail'))),
+            brokered: hideZeroBranches(toBranchLite(branchRowsForSummary.filter((r) => r.channel === 'Brokered'))),
           },
           loanOfficerRows: {
             banked: toLoanOfficerLite('Banked - Retail'),
@@ -1295,8 +1313,17 @@ export default function PipelinePage() {
             banked: toStrategyLite(bankedStrategySummaryRows),
             brokered: toStrategyLite(brokeredStrategySummaryRows),
           },
-          /* Etapa STRATEGY-PAGES -- ya armado por strategyBranchPages, sin transformar. */
-          strategyPages: strategyBranchPages,
+          /*
+           * Etapa PDF-BRANCH-ZERO-1: ya armado por strategyBranchPages, con
+           * hideZeroBranches() aplicado acá sobre la COPIA que se serializa
+           * -- strategyBranchPages en sí no se toca (lo usan las
+           * verificaciones cellsMatch5 más arriba en este archivo).
+           */
+          strategyPages: strategyBranchPages.map((page) => ({
+            strategy: page.strategy,
+            banked: hideZeroBranches(page.banked),
+            brokered: hideZeroBranches(page.brokered),
+          })),
         }),
       });
       if (!res.ok) {
