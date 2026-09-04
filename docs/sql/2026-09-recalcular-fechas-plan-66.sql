@@ -29,9 +29,17 @@
 -- ya completado es mover el plazo de trabajo que ya se hizo: el `completed_at`
 -- diría que se cerró antes de una fecha límite que nunca existió.
 --
--- Se recalculan los 19 en `planned`. Queda una discontinuidad entre el nodo 5
--- --completado, con sus fechas viejas-- y el nodo 6 --recalculado--, y es
--- honesta: refleja que el plan se corrigió a mitad de camino.
+-- Se recalculan los 19 en `planned`.
+--
+-- Y la discontinuidad cae en un BORDE LIMPIO, medido: los 11 completados son
+-- todos los steps de los nodos 1 a 5 --1+1+3+4+2-- y del nodo 6 en adelante no
+-- hay ninguno completado. Así que no es un corte a mitad de un nodo: los cinco
+-- primeros nodos conservan enteras sus fechas originales y los seis siguientes
+-- quedan enteros con las corregidas.
+--
+-- Es el mejor caso posible para esta corrección, y es casualidad -- si Ricardo
+-- hubiera completado los steps salteados, el corte habría partido un nodo por
+-- el medio y la lectura del plan sería peor.
 --
 -- ⚠ Y OJO CON QUIÉN LO EJECUTA. La policy de UPDATE de
 -- `enrollment_milestone` es `has_access() AND status <> 'completed'`, así que
@@ -176,6 +184,48 @@ end $mig$;
 
 
 -- ---------------------------------------------------------------------------
+-- LA NOTA: QUE QUEDE DICHO QUE EL PLAN SE CORRIGIÓ
+-- ---------------------------------------------------------------------------
+--
+-- El plan pasa de terminar el 2026-11-01 al 2026-12-01. Un mes más largo no es
+-- un detalle: es el tipo de cambio que Jonathan va a notar, y sin registro
+-- parecería que alguien le movió las fechas sin avisar.
+--
+-- `business_plan.note` es append-only --sólo INSERT y SELECT, sin UPDATE ni
+-- DELETE-- justamente porque una nota es el registro de lo que se dijo. Y no
+-- tiene columna `enrollment_key`, así que una nota de PLAN se ancla en
+-- `employee_key`: el 41, que es Jonathan.
+--
+-- ⚠ HAY QUE PONER EL EMAIL DEL AUTOR. Se deja un marcador a propósito y el
+-- bloque FALLA si queda sin reemplazar: una nota firmada por
+-- `REEMPLAZAR@...` es peor que no tener nota, porque el registro diría que la
+-- escribió alguien que no existe.
+
+do $nota$
+declare
+  v_autor text := 'REEMPLAZAR@supremelending.com';   -- <-- poner el propio
+begin
+  if v_autor like 'REEMPLAZAR@%' then
+    raise exception 'poner el email del autor en v_autor antes de correr esto';
+  end if;
+
+  insert into business_plan.note (body, author_email, employee_key)
+  values (
+    'Fechas límite recalculadas el ' || to_char(now(), 'YYYY-MM-DD') || '. '
+    || 'Las fechas originales salieron de una fórmula que leía el SLA de cada step '
+    || 'como día absoluto del nodo en vez de como días desde el step anterior, así que '
+    || 'algunos vencían antes que el step que los precede. Se corrigieron los 19 steps '
+    || 'pendientes; los 11 ya completados conservan sus fechas originales, porque mover '
+    || 'el plazo de trabajo ya hecho sería reescribir el registro. '
+    || 'El plan termina el 2026-12-01 en vez del 2026-11-01.',
+    v_autor,
+    41
+  );
+  raise notice 'nota registrada en el perfil del empleado 41';
+end $nota$;
+
+
+-- ---------------------------------------------------------------------------
 -- CÓMO COMPROBAR QUE QUEDÓ
 -- ---------------------------------------------------------------------------
 --
@@ -189,6 +239,10 @@ end $mig$;
 --   )
 --   select count(*) from p where prev is not null and due_date < prev and status = 'planned';
 --   -- debe dar 0
+--
+--   -- la nota quedo
+--   select note_key, author_email, left(body, 70) from business_plan.note
+--    where employee_key = 41 order by created_at desc limit 1;
 --
 --   -- y los 11 completados conservan su fecha original
 --   select count(*) from business_plan.enrollment_milestone m
