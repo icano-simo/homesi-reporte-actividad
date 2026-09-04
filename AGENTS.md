@@ -121,6 +121,49 @@ el razonamiento sea el mismo.
 - Una consulta a Supabase: **cero filas con `error: null` es una policy de RLS
   que no aplica**, no una tabla vacía. RLS filtra, no rechaza.
 
+## Antes que todo lo anterior: que el arnés haya corrido
+
+Las siete lecciones de arriba son sobre mediciones que midieron mal. Ésta es
+sobre una que **no midió**, y va primero porque si el arnés puede dar verde sin
+correr, ninguna de las siete sirve.
+
+Un script de verificación imprimió **`SIN FALLAS`** sin haber ejecutado una sola
+aserción. El resumen vivía en un `finally`:
+
+```js
+} finally {
+  console.log(fails === 0 ? 'SIN FALLAS' : fails + ' FALLAS');
+}
+```
+
+El `import` del módulo bajo prueba falló, el `catch` no existía, y el `finally`
+corrió con `fails` todavía en `0`. **Cero fallas sobre cero pruebas se imprime
+exactamente igual que cero fallas sobre diecisiete.**
+
+> **Un contador de fallas no distingue «todo bien» de «no medí nada».**
+
+La regla operativa: **el resumen tiene que contar las aserciones que corrieron y
+compararlas contra las que se esperaban.** Un corte temprano dice `RESUMEN
+INVALIDO`, no verde:
+
+```js
+const MINIMO = 17;              // cuántas tiene que haber
+let corridas = 0;               // cuántas hubo
+const ck = (c, m) => { corridas++; if (!c) fails++; ... };
+...
+} finally {
+  if (corridas < MINIMO) console.log('** RESUMEN INVALIDO ** ' + corridas + ' de ' + MINIMO);
+  else console.log(fails === 0 ? 'SIN FALLAS (' + corridas + ')' : fails + ' FALLAS');
+}
+```
+
+Y el número va **escrito a mano**, no derivado del propio recorrido: derivarlo lo
+haría siempre coincidir, que es justo el problema que viene a resolver.
+
+Es el mismo mecanismo que el séptimo caso de la tabla —un resultado que no
+distingue «no está» de «no llegó»— pero corrido un nivel: ahí lo confundía la
+medición, acá lo confunde **el arnés que la reporta**.
+
 # Un caso nuevo activa bugs que nadie escribió hoy
 
 > Sección aparte de la tabla de arriba a propósito. Los cinco casos de esa tabla

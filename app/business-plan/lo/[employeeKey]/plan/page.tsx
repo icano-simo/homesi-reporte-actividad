@@ -99,14 +99,14 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
   const totals = useMemo(() => {
     if (!plan) return { done: 0, total: 0 };
     const all = plan.nodes.flatMap((n) => n.milestones);
-    return { done: all.filter((m) => m.status === 'done').length, total: all.length };
+    return { done: all.filter((m) => m.status === 'completed').length, total: all.length };
   }, [plan]);
 
   /** El nodo abierto: el elegido, o el primero que no esté completo. */
   const currentNodeKey = useMemo(() => {
     if (!plan) return null;
     if (activeNode !== null) return activeNode;
-    const pending = plan.nodes.find((n) => n.milestones.some((m) => m.status !== 'done'));
+    const pending = plan.nodes.find((n) => n.milestones.some((m) => m.status !== 'completed'));
     return (pending ?? plan.nodes[0])?.enrollment_node_key ?? null;
   }, [plan, activeNode]);
 
@@ -126,12 +126,41 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
     setBusy(m.enrollment_milestone_key);
     setOpError(null);
     try {
-      const { error: e } = await getSupabaseClient()
+      /*
+       * ═════════════════════════════════════════════════════════════════
+       * ⚠ CERO FILAS NO ES ÉXITO — etapa BP42
+       * ═════════════════════════════════════════════════════════════════
+       *
+       * El `.select()` no está por el dato: está para saber CUÁNTAS filas
+       * cambiaron. Sin él, un UPDATE que RLS filtra devuelve HTTP 200 con
+       * `error: null` y la app da el cambio por hecho.
+       *
+       * Medido contra la base: intentar volver un step completado a en curso
+       * devuelve `200`, `filas afectadas: 0`, `error: null`. La protección --el
+       * `using (status <> 'completed')` de la policy-- es correcta; el silencio
+       * no. La pantalla aceptaba el clic, no mostraba nada, y el valor no
+       * cambiaba.
+       *
+       * Es el mismo silencio de RLS que ya se documentó en AGENTS.md: filtra, no
+       * rechaza. Cero filas con `error: null` es una policy que no aplica.
+       */
+      const { data: filas, error: e } = await getSupabaseClient()
         .schema('business_plan')
         .from('enrollment_milestone')
         .update(patch)
-        .eq('enrollment_milestone_key', m.enrollment_milestone_key);
+        .eq('enrollment_milestone_key', m.enrollment_milestone_key)
+        .select('enrollment_milestone_key');
       if (e) throw new Error(e.message);
+      if ((filas ?? []).length === 0) {
+        /*
+         * El mensaje nombra la causa concreta y no "no se pudo guardar": con
+         * las policies de hoy, la única forma de que una fila visible no se
+         * actualice es que ya esté completada.
+         */
+        throw new Error(
+          'A completed step cannot be changed — not its status, not its date. Nothing was saved.'
+        );
+      }
       reload();
     } catch (err) {
       setOpError(err instanceof Error ? err.message : String(err));
@@ -190,8 +219,8 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
        inmutable: desde ese momento la policy de UPDATE ya no la ve. */
     patchMilestone(
       m,
-      next === 'done'
-        ? { status: 'done', completed_at: new Date().toISOString(), completed_by: sessionEmail }
+      next === 'completed'
+        ? { status: 'completed', completed_at: new Date().toISOString(), completed_by: sessionEmail }
         : { status: next }
     );
   }
@@ -238,7 +267,7 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
   }, [plan, lo, baseline, mountedAt]);
 
   const nodeProgress = (n: PlanNode) => ({
-    done: n.milestones.filter((m) => m.status === 'done').length,
+    done: n.milestones.filter((m) => m.status === 'completed').length,
     total: n.milestones.length,
   });
 
@@ -457,7 +486,7 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                     const person = personOf(m.accountable_employee_key);
                     const mine = canToggleMilestone(sessionEmail, person?.email ?? null);
                     const options = allowedStatuses(m.status, sessionEmail, person?.email ?? null);
-                    const locked = m.status === 'done';
+                    const locked = m.status === 'completed';
                     const late = isOverdue(m.status, m.due_date, today);
                     const rowBusy = busy === m.enrollment_milestone_key;
                     return (
@@ -465,9 +494,44 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                         key={m.enrollment_milestone_key}
                         className={'bp-ms' + (locked ? ' is-done' : '') + (late ? ' is-late' : '')}
                       >
-                        <span className={'bp-ms__dot bp-ms__dot--' + m.status} aria-hidden="true">
-                          {m.status === 'done' ? '✓' : ''}
-                        </span>
+                        {/*
+                          ══════════════════════════════════════════════════════
+                          EL CÍRCULO ES EL BOTÓN QUE PARECE — etapa BP42
+                          ═══════════════════════════════════════════════════════
+
+                          Era un `<span aria-hidden>` de 18×15 con
+                          `border-radius: 50%` y un ✓ adentro: medido, sin
+                          `onClick`, sin `role`, sin `tabindex` y con
+                          `cursor: auto`. O sea, exactamente la forma del control
+                          de completar, sin ser el control. El clic no disparaba
+                          una sola llamada.
+
+                          Ahora completa. Y el control real seguía siendo el
+                          desplegable, que para 69 de los 75 steps no ofrecía la
+                          opción -- las dos cosas juntas se leían como "no
+                          funciona nada", que es lo que reportaron.
+
+                          Un completado NO se reabre, así que ahí el círculo deja
+                          de ser botón: un botón que no puede hacer nada es el
+                          problema que este cambio vino a arreglar.
+                        */}
+                        {locked ? (
+                          <span
+                            className={'bp-ms__dot bp-ms__dot--' + m.status}
+                            title={'Completed' + (m.completed_by ? ' by ' + m.completed_by : '')}
+                          >
+                            ✓
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            className={'bp-ms__dot bp-ms__dot--' + m.status + ' bp-ms__dot--btn'}
+                            disabled={rowBusy}
+                            aria-label={'Mark "' + m.title + '" as completed'}
+                            title={'Mark as completed' + (person ? ' · accountable: ' + person.full_name : '')}
+                            onClick={() => changeStatus(m, 'completed')}
+                          />
+                        )}
 
                         <span className="bp-ms__title">{m.title}</span>
 
@@ -483,26 +547,28 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                         </span>
 
                         {/*
-                          ⚠ QUIÉN PUEDE MARCAR DONE no cambió con el desplegable.
-                          `allowedStatuses` sólo incluye 'done' cuando el email de
-                          la sesión coincide con el del responsable; para el resto
-                          el desplegable ofrece dos opciones y el `title` dice
-                          quién puede cerrarlo -- ocultarlo sin explicación dejaba
-                          a la persona buscando por qué no le responde el control.
-                          Y una fila ya hecha se muestra como píldora, sin control:
+                          ⚠ COMPLETAR YA NO ES EXCLUSIVO DEL RESPONSABLE — BP42.
+                          Un plan es una herramienta de acompañamiento: el coach y
+                          el Loan Officer lo revisan juntos y marcan lo que se
+                          hizo. Con el permiso viejo, 69 de 75 steps no ofrecían
+                          la opción a quien estuviera mirando, y el módulo llevaba
+                          cero steps completados en toda su historia.
+                          Quien lo marcó queda en `completed_by`, que ahora es un
+                          dato distinto del responsable y sirve para algo.
+                          Una fila ya hecha se muestra como píldora, sin control:
                           no se reabre, y la base tampoco lo permitiría.
                         */}
                         {locked ? (
                           <span
-                            className={MILESTONE_STATUS_CLASS.done}
+                            className={MILESTONE_STATUS_CLASS.completed}
                             title={
                               'Completed on ' +
                               String(m.completed_at).slice(0, 10) +
                               (m.completed_by ? ' by ' + m.completed_by : '') +
-                              ' — done steps cannot be reopened'
+                              ' — completed steps cannot be reopened'
                             }
                           >
-                            {MILESTONE_STATUS_LABEL.done}
+                            {MILESTONE_STATUS_LABEL.completed}
                           </span>
                         ) : (
                           <select
@@ -511,11 +577,9 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                             disabled={rowBusy}
                             onChange={(e) => changeStatus(m, e.target.value as MilestoneStatus)}
                             title={
-                              mine
-                                ? 'You are accountable for this step'
-                                : person
-                                  ? `Only ${person.full_name} can mark this one as done`
-                                  : 'No accountable person assigned — nobody can close it'
+                              person
+                                ? 'Accountable: ' + person.full_name + (mine ? ' (you)' : '')
+                                : 'No accountable person assigned'
                             }
                           >
                             {options.map((s) => (

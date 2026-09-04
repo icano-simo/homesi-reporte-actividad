@@ -81,7 +81,7 @@ export default function ImpactPage({ params }: { params: Promise<{ employeeKey: 
   const totals = useMemo(() => {
     if (!plan) return { done: 0, total: 0 };
     const all = plan.nodes.flatMap((n) => n.milestones);
-    return { done: all.filter((m) => m.status === 'done').length, total: all.length };
+    return { done: all.filter((m) => m.status === 'completed').length, total: all.length };
   }, [plan]);
 
   const loading = loadingRoster || loadingPlan || loadingBase;
