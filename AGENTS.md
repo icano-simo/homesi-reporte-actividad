@@ -164,6 +164,43 @@ Es el mismo mecanismo que el séptimo caso de la tabla —un resultado que no
 distingue «no está» de «no llegó»— pero corrido un nivel: ahí lo confundía la
 medición, acá lo confunde **el arnés que la reporta**.
 
+## Y el caso peor: la medición que nunca se hizo
+
+Las siete de la tabla son mediciones que fallaron. La de arriba es un arnés que
+no corrió. Ésta es distinta de las dos: **nadie la escribió, porque nadie pensó
+en escribirla.**
+
+Durante semanas nadie pudo marcar un step como completado. Cuatro planes
+activos, doce steps en curso, **cero completados en toda la historia del
+módulo**. Estaba así desde BP20, cuando el estado pasó de botón a desplegable, y
+no lo detectó **ninguna** prueba mía. Lo detectó Isabella usándolo.
+
+La causa era que el desplegable sólo ofrecía «completado» al responsable
+nominal del step, y con los 75 steps repartidos entre nueve personas, **69 de 75
+no ofrecían la opción a quien estuviera mirando**.
+
+Y la razón por la que ninguna prueba lo vio es incómoda: **todas verificaban que
+la app hiciera lo que el código decía, y el código decía eso.** El test se
+escribió leyendo la implementación, así que sólo podía confirmarla. Ninguno
+preguntó lo que un usuario pregunta.
+
+> **Una prueba escrita desde el código sólo puede confirmar el código.**
+
+Las dos reglas operativas que salen de acá:
+
+- **Un control que depende de quién sos hay que probarlo como el OTRO.** Si la
+  regla es «sólo el responsable puede», la prueba que importa es la de alguien
+  que no lo es — y hay que mirar si le queda algún camino, no si el control
+  respeta la regla.
+- **Al menos una verificación por pantalla tiene que salir del OBJETIVO y no de
+  la implementación.** No «el desplegable ofrece los estados permitidos» sino
+  «¿alguien puede registrar que esto se hizo?». La primera se contesta leyendo
+  el código; la segunda, sólo usándolo.
+
+Y el corolario que duele: el número que lo delató —69 de 75— se podía haber
+calculado en cualquier momento con una consulta de treinta segundos. No hacía
+falta descubrirlo, hacía falta preguntarlo.
+
 # Un caso nuevo activa bugs que nadie escribió hoy
 
 > Sección aparte de la tabla de arriba a propósito. Los cinco casos de esa tabla

@@ -33,7 +33,10 @@ interface SidebarItem {
 
 const ITEMS: SidebarItem[] = [
   { href: '/business-plan', label: 'Branch Portfolio', icon: <BuildingIcon size={16} /> },
-  { href: '/business-plan/library', label: 'Funnel & Node Library', icon: <GridIcon size={16} /> },
+  /* Las DOS pantallas de BP41: los nodos con sus steps, y los funnels con los
+     nodos que usan. Antes eran tres pestanas dentro de una sola. */
+  { href: '/business-plan/library', label: 'Node Library', icon: <GridIcon size={16} /> },
+  { href: '/business-plan/funnels', label: 'Funnels', icon: <GridIcon size={16} /> },
   /*
    * Etapa BP20. Las otras entradas miran el negocio por Loan Officer; ésta lo
    * mira por PERSONA DEL EQUIPO DE SOPORTE, que es lo que faltaba: para saber
