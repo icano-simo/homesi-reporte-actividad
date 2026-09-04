@@ -13,8 +13,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 **No reportes un fallo sin haberlo reproducido por otra vía.**
 
-Sale de cuatro casos reales de esta base de código, en una sola serie de
-trabajo. Las cuatro veces la herramienta de verificación dio un falso negativo
+Sale de siete casos reales de esta base de código, en una sola serie de
+trabajo. Las siete veces la herramienta de verificación dio un falso negativo
 que se parecía a un bug del código:
 
 | lo que la prueba dijo | lo que pasaba de verdad |
@@ -25,9 +25,10 @@ que se parecía a un bug del código:
 | «julio no muestra el aviso de integridad» | mi timeout era de 3,5s y la ruta tardaba más |
 | «la ventana de 12 meses aceleró la ruta 3×» | la ventana no descartaba **ni un** snapshot; los 7,9s eran el compile en frío |
 | «la fila anclada tiene fondo navy y texto blanco» | medí `td:first`; en cuatro de las doce celdas el texto quedaba ilegible |
+| «doce empleados no están en la población del módulo» | leí el subtítulo antes de que llegaran los datos; once eran falsos y **uno era real** |
 
-Los seis fallaron de modos **distintos**, así que no hay un chequeo general
-que los cubra. Lo único que funcionó las seis veces fue medir de nuevo por un
+Los siete fallaron de modos **distintos**, así que no hay un chequeo general
+que los cubra. Lo único que funcionó las siete veces fue medir de nuevo por un
 camino que no compartiera el error con el primero.
 
 **El quinto es el difícil**, y por eso está: los otros cuatro parecían bugs del
@@ -63,6 +64,37 @@ medir una no alcanza.** O se miden todas, o se mira la captura.
 Y de nuevo lo encontró la captura y no el número — igual que los seis hallazgos
 del módulo Outlook que salieron de ver una imagen. Un `getComputedStyle` verde
 sobre una celda y una fila ilegible conviven sin contradecirse.
+
+**El séptimo agrega un mecanismo que no estaba: medir antes de que el estado
+esté listo.** Sondeé doce empleados para encontrar uno sin plan, leyendo el
+nombre del subtítulo, y los doce dieron «no está en la población del módulo».
+Doce de doce parecía el hallazgo del turno — un bug enorme. Era que la pantalla
+renderiza `—` mientras los datos no llegaron: el catálogo lo dibuja la
+biblioteca, y el nombre lo llena la población del módulo, que es **otra carga**.
+Esperé a la primera y medí antes de la segunda.
+
+> **Una pantalla que todavía no cargó dice exactamente lo mismo que una que no
+> tiene el dato.**
+
+La regla operativa: **esperar a que el dato llegue antes de afirmar que no
+existe.** Y esperar al dato que se va a leer, no a cualquier señal de vida de la
+página — la espera correcta era «el subtítulo trae un nombre», no «hay tarjetas
+en pantalla».
+
+Pero lo que hace que este caso valga la sección es la parte de después. Al
+re-medir con la espera puesta, **uno de los doce siguió diciendo lo mismo a los
+90 segundos**: el empleado 77 no está en la población, de verdad. Había un caso
+real dentro de once falsos, y era el que hacía falta para explicar por qué el
+botón de activar no hacía nada.
+
+> **Un método de medición roto no vuelve falsos a todos sus resultados.**
+
+Lo cómodo, al descubrir que la medición estaba mal, es descartar la tanda
+entera y volver a empezar. Habría funcionado igual acá, pero por suerte: el
+diagnóstico correcto —un guardia que retornaba en silencio— salía justamente
+del único resultado que era cierto. La regla que queda: **cuando se cae una
+medición, hay que volver a mirar sus resultados uno por uno**, no tirarlos
+juntos. La medición era común; los casos no.
 
 ## El corolario
 
