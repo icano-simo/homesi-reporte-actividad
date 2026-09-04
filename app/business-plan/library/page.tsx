@@ -9,11 +9,9 @@ import {
   findNodeNameClash,
   cumulativeDays,
   funnelStats,
-  NODE_AREAS,
   type Funnel,
   type FunnelCategory,
   type FunnelNode,
-  type NodeArea,
   type NodeMilestone,
 } from '@/lib/business-plan/funnels';
 import { AlertTriangleIcon, CloseIcon } from '@/components/ui/icons';
@@ -23,6 +21,8 @@ import { Fragment } from 'react';
 import Modal from '../components/Modal';
 import { Avatar, ErrorState, LoadingState } from '../components/shared';
 import SequenceBuilder from './SequenceBuilder';
+import NodeLibrary from './NodeLibrary';
+import LibrarySearchBar from '../components/LibrarySearchBar';
 import { ConfirmDelete, FunnelForm, MilestoneForm, NodeForm } from './LibraryForms';
 
 /**
@@ -77,7 +77,8 @@ export default function FunnelLibraryPage() {
    * ahora sólo se distinguían por la marca ámbar y había que ir a buscarlos a
    * ojo entre 18 filas.
    */
-  const [nodeFilter, setNodeFilter] = useState<'all' | 'none' | number>('all');
+  /* El filtro por funnel de BP40 se fue: la biblioteca agrupa por AREA y filtra
+     por area, que es lo que pide BP41. `visibleNodes` queda para el constructor. */
 
   const bp = () => getSupabaseClient().schema('business_plan');
 
@@ -87,6 +88,54 @@ export default function FunnelLibraryPage() {
    * `PromiseLike` y no `Promise`: los builders de PostgREST son thenables, no
    * promesas.
    */
+  /*
+   * ═══════════════════════════════════════════════════════════════════════
+   * UN NODO EN VARIOS FUNNELS, DE UNA VEZ — etapa BP41
+   * ═══════════════════════════════════════════════════════════════════════
+   *
+   * Se calcula el DELTA y se escribe solo eso: los funnels que se agregaron y
+   * los que se quitaron. Borrar todos los vinculos del nodo y reponerlos habria
+   * sido una linea menos y habria perdido `position` y `depends_on_node_key` de
+   * los que ya estaban -- o sea, el orden dentro del funnel y las dependencias
+   * declaradas.
+   *
+   * ⚠ LA POSICION DEL NUEVO VA AL FINAL, calculada por funnel. Con un `0` fijo,
+   * dos nodos agregados al mismo funnel chocarian contra
+   * `funnel_node_position_uk`, que desde BP41 es unica.
+   *
+   * ⚠ Y QUITAR NO BORRA EL NODO: se borra la fila de `funnel_node`, nunca la de
+   * `node`. Un nodo sin ningun funnel es un estado valido y queda disponible.
+   */
+  async function guardarFunnels(nodeKey: number, funnelKeys: number[]) {
+    if (!data) return;
+    const actuales = data.links.filter((l) => l.node_key === nodeKey).map((l) => l.funnel_key);
+    const agregar = funnelKeys.filter((k) => !actuales.includes(k));
+    const quitar = actuales.filter((k) => !funnelKeys.includes(k));
+    if (agregar.length === 0 && quitar.length === 0) return;
+
+    setBusy(true);
+    setOpError(null);
+    try {
+      for (const fk of quitar) {
+        const { error: e } = await bp().from('funnel_node').delete().eq('funnel_key', fk).eq('node_key', nodeKey);
+        if (e) throw new Error(e.message);
+      }
+      for (const fk of agregar) {
+        const usadas = data.links.filter((l) => l.funnel_key === fk).map((l) => l.position);
+        const siguiente = usadas.length === 0 ? 1 : Math.max(...usadas) + 1;
+        const { error: e } = await bp()
+          .from('funnel_node')
+          .insert({ funnel_key: fk, node_key: nodeKey, position: siguiente });
+        if (e) throw new Error(e.message);
+      }
+      reload();
+    } catch (err) {
+      setOpError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function run(fn: () => PromiseLike<{ error: { message: string } | null }>, close = true) {
     setBusy(true);
     setOpError(null);
@@ -126,39 +175,6 @@ export default function FunnelLibraryPage() {
       .map((l) => data?.funnels.find((f) => f.funnel_key === l.funnel_key))
       .filter(Boolean) as Funnel[];
 
-  /*
-   * Un nodo puede estar en VARIOS funnels -- "Sales Call" está en 4 -- así que
-   * filtrar por uno lo MUESTRA; no lo oculta por pertenecer también a otros.
-   */
-  const visibleNodes = useMemo(() => {
-    const all = data?.nodes ?? [];
-    if (nodeFilter === 'all') return all;
-    const linked = new Set((data?.links ?? []).filter((l) => l.node_key !== undefined).map((l) => l.node_key));
-    if (nodeFilter === 'none') return all.filter((n) => !linked.has(n.node_key));
-    return all.filter((n) => (data?.links ?? []).some((l) => l.funnel_key === nodeFilter && l.node_key === n.node_key));
-  }, [data, nodeFilter]);
-
-  /*
-   * Los nodos visibles, AGRUPADOS por area — etapa BP40.
-   *
-   * ⚠ El orden de los grupos es el de `NODE_AREAS` y no alfabetico: es el orden
-   * en que la division piensa sus areas, y alfabetico pondria IT primero.
-   * Los sin asignar van al final, siempre.
-   *
-   * ⚠ Y SOLO SE DIBUJAN LOS GRUPOS QUE TIENEN ALGO. Un "IT · 0 nodes" ocupa una
-   * fila para no decir nada -- mismo criterio que las estrategias vacias de
-   * Outlook.
-   */
-  const gruposDeArea = useMemo(() => {
-    const out: { area: NodeArea | null; nodos: FunnelNode[] }[] = [];
-    for (const a of NODE_AREAS) {
-      const nodos = visibleNodes.filter((n) => n.area === a);
-      if (nodos.length) out.push({ area: a, nodos });
-    }
-    const sin = visibleNodes.filter((n) => !n.area);
-    if (sin.length) out.push({ area: null, nodos: sin });
-    return out;
-  }, [visibleNodes]);
 
 
   const dlgNode = dialog && 'node' in dialog ? dialog.node : null;
@@ -191,6 +207,13 @@ export default function FunnelLibraryPage() {
 
       <div className="page-head">
         <h1 className="page-head__title">Funnel &amp; Node Library</h1>
+        {/*
+          LA BUSQUEDA VA EN LA CABECERA, fuera de las pestanas -- etapa BP41.
+          Busca funnels, nodos, steps y owners a la vez, asi que atarla a la
+          pestana abierta la haria mentir: estando en Nodes encontraria funnels
+          igual, y estando en Funnels no encontraria un step.
+        */}
+        {data && <LibrarySearchBar data={data} />}
       </div>
 
       {isLoading && <LoadingState />}
@@ -436,191 +459,28 @@ export default function FunnelLibraryPage() {
 
           {/* ── Nodos ─────────────────────────────────────────────────────── */}
           {tab === 'nodes' && (
-            <>
-            <div className="control-bar">
-              <div className="control-group">
-                <span className="label-chip">In funnel</span>
-                <select
-                  className="field"
-                  value={String(nodeFilter)}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setNodeFilter(v === 'all' || v === 'none' ? v : Number(v));
-                  }}
-                >
-                  <option value="all">All funnels ({data.nodes.length})</option>
-                  {data.funnels.map((f) => (
-                    <option key={f.funnel_key} value={f.funnel_key}>
-                      {f.name} ({data.links.filter((l) => l.funnel_key === f.funnel_key).length})
-                    </option>
-                  ))}
-                  <option value="none">
-                    No funnel · orphans ({data.nodes.filter((n) => funnelsOf(n.node_key).length === 0).length})
-                  </option>
-                </select>
-              </div>
-            </div>
-            <div className="tbl-card">
-              <div className="tbl-scroll">
-                <table className="piv bp-table--nodes">
-                  <colgroup>
-                    <col className="bp-col-fname" />
-                    <col className="bp-col-fcat" />
-                    <col className="bp-col-fnum" />
-                    <col className="bp-col-fnodes" />
-                    <col className="bp-col-fcat" />
-                    <col className="bp-col-facts" />
-                  </colgroup>
-                  <thead>
-                    <tr className="mo-row">
-                      <th className="lbl">Node</th>
-                      <th className="bp-center">Area</th>
-                      <th className="bp-center">Steps</th>
-                      {/* La columna que faltaba: la relación, visible. */}
-                      <th className="bp-left">Used in funnels</th>
-                      <th className="bp-center">Accountable</th>
-                      <th className="bp-center">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {/*
-                      ══════════════════════════════════════════════════════════
-                      AGRUPADOS POR AREA — etapa BP40
-                      ══════════════════════════════════════════════════════════
-
-                      Treinta y un nodos ordenados por nombre no dicen nada de
-                      como esta repartido el trabajo. Agrupados, la biblioteca
-                      contesta "cuanto hay de Marketing" sin contar filas.
-
-                      ⚠ LOS SIN ASIGNAR VAN AL FINAL Y CON SU PROPIO ROTULO, no
-                      mezclados ni escondidos. Son seis y hay que verlos: dos de
-                      ellos ni siquiera tienen un prefijo del que se pudiera
-                      derivar el area, asi que los asigna una persona.
-                    */}
-                    {gruposDeArea.map(({ area, nodos }) => (
-                      <Fragment key={area ?? '(sin area)'}>
-                        <tr className="metric bp-group-head">
-                          <td className="lbl" colSpan={6}>
-                            {area ?? 'Not set'}
-                            <span className="bp-muted">
-                              {' · '}
-                              {nodos.length} node{nodos.length === 1 ? '' : 's'}
-                              {area === null ? ' — assign an area to each one' : ''}
-                            </span>
-                          </td>
-                        </tr>
-                        {nodos.map((n) => {
-                      const mine = data.milestones.filter((m) => m.node_key === n.node_key);
-                      const inF = funnelsOf(n.node_key);
-                      const owners = data.owners
-                        .filter((o) => o.node_key === n.node_key)
-                        .map((o) => data.support.find((s) => s.employee_key === o.employee_key)?.full_name)
-                        .filter(Boolean);
-                      return (
-                        <tr key={n.node_key} className="metric">
-                          {/* Etapa BP25: el nombre AL LADO del icono, no debajo. */}
-                          <td className="lbl bp-wrap">
-                            <span className="bp-name-cell">
-                            <FunnelGlyph icon={n.icon} size={15} />
-                            <input
-                              className="bp-inline-input bp-inline-input--name"
-                              defaultValue={n.name}
-                              disabled={busy}
-                              onBlur={(e) => {
-                                const next = e.target.value.trim();
-                                if (next === n.name || next === '') return;
-                                /* La misma puerta que en el formulario: renombrar
-                                   es la otra forma de crear el duplicado. */
-                                const clash = findNodeNameClash(next, data.nodes, n.node_key);
-                                if (clash) {
-                                  e.target.value = n.name;
-                                  setOpError('A node called "' + clash + '" already exists — the rename was undone.');
-                                  return;
-                                }
-                                run(() => bp().from('node').update({ name: next }).eq('node_key', n.node_key), false);
-                              }}
-                            />
-                            </span>
-                          </td>
-                          {/*
-                            ⚠ UN `select` Y NO UN CAMPO DE TEXTO. Las areas son
-                            cuatro y la base tiene un `check`: un input libre
-                            deja escribir `marketing` en minuscula, que la base
-                            rechaza con un error que nadie puede interpretar.
-
-                            ⚠ Y LA OPCION VACIA SE OFRECE. Seis nodos estan sin
-                            asignar y hay que poder dejarlos asi -- o volver a
-                            dejarlos asi si alguien se equivoco. Dice
-                            "-- not set --" y no un area de relleno.
-                          */}
-                          <td className="bp-center">
-                            <select
-                              className="bp-inline-input bp-inline-input--area"
-                              value={n.area ?? ''}
-                              disabled={busy}
-                              onChange={(e) => {
-                                const v = e.target.value === '' ? null : (e.target.value as NodeArea);
-                                if (v === n.area) return;
-                                run(() => bp().from('node').update({ area: v }).eq('node_key', n.node_key), false);
-                              }}
-                            >
-                              <option value="">— not set —</option>
-                              {NODE_AREAS.map((a) => (
-                                <option key={a} value={a}>
-                                  {a}
-                                </option>
-                              ))}
-                            </select>
-                          </td>
-                          <td className="bp-center">{mine.length}</td>
-                          <td className="bp-left bp-wrap">
-                            {inF.length === 0 ? (
-                              /* Huérfano: existe pero no lo usa ningún funnel. */
-                              <span className="bp-orphan" title="This node is not part of any funnel">
-                                orphan
-                              </span>
-                            ) : (
-                              <span className="bp-seq">{inF.map((f) => f.name).join(' · ')}</span>
-                            )}
-                          </td>
-                          <td className="bp-center bp-wrap">
-                            {owners.length ? owners.join(', ') : <span className="bp-muted">—</span>}
-                          </td>
-                          <td className="bp-center">
-                            <div className="bp-actions">
-                              <button type="button" className="bp-icon-btn" title="Steps" onClick={() => setDialog({ kind: 'node-detail', node: n })}>
-                                ☰
-                              </button>
-                              <button type="button" className="bp-icon-btn" title="Edit node" onClick={() => setDialog({ kind: 'node-form', node: n })}>
-                                ✎
-                              </button>
-                              <button
-                                type="button"
-                                className="bp-icon-btn bp-icon-btn--danger"
-                                title="Delete node"
-                                onClick={() => setDialog({ kind: 'node-delete', node: n })}
-                              >
-                                <CloseIcon size={13} />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                        })}
-                      </Fragment>
-                    ))}
-                    {visibleNodes.length === 0 && (
-                      <tr>
-                        <td className="lbl bp-empty-cell" colSpan={6}>
-                          No node in that funnel.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-            </>
+            <NodeLibrary
+              data={data}
+              busy={busy}
+              onSetArea={(nodeKey, area) =>
+                run(() => bp().from('node').update({ area }).eq('node_key', nodeKey), false)
+              }
+              onSetFunnels={guardarFunnels}
+              onEditNode={(node) => setDialog({ kind: 'node-form', node })}
+              onDeleteNode={(node) => setDialog({ kind: 'node-delete', node })}
+              onEditStep={(nodeKey, milestone) => setDialog({ kind: 'ms-form', nodeKey, milestone })}
+              onDeleteStep={(milestone) => setDialog({ kind: 'ms-delete', milestone })}
+              onReorderSteps={(nodeKey, milestoneKeys) =>
+                run(
+                  () =>
+                    bp().rpc('reorder_node_steps', {
+                      p_node_key: nodeKey,
+                      p_milestone_keys: milestoneKeys,
+                    }),
+                  false
+                )
+              }
+            />
           )}
 
           {/* ── Constructor ───────────────────────────────────────────────── */}

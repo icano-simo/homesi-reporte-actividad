@@ -71,7 +71,7 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
    * del mismo dato pueden diferir, y esta es la que autoriza un borrado.
    */
   const { plan: current } = useEnrollment(employeeKey);
-  const doneCount = current ? current.nodes.reduce((a, n) => a + n.milestones.filter((m) => m.status === 'done').length, 0) : 0;
+  const doneCount = current ? current.nodes.reduce((a, n) => a + n.milestones.filter((m) => m.status === 'completed').length, 0) : 0;
   /*
    * ⚠ EL ENLACE PUEDE ESTAR VIEJO. Si la clave de la URL no es la del plan
    * activo, no se cambia nada: alguien pudo cancelar o cambiar el plan en otra

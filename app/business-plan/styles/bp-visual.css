@@ -4695,3 +4695,431 @@ table.piv tr.metric.is-picked td.lbl {
   color: var(--navy);
   font-variant-numeric: tabular-nums;
 }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   BIBLIOTECA DE NODOS Y BÚSQUEDA GLOBAL — etapa BP41
+   ════════════════════════════════════════════════════════════════════════════
+
+   Todo con tokens: cero hexadecimales. Misma densidad que el resto del módulo
+   —bordes finos, esquinas de 12px, tabular-nums— y coral sólo en la acción
+   principal, que en esta pantalla es el Save del diálogo de funnels. */
+
+/* ── La barra de búsqueda ─────────────────────────────────────────────────── */
+
+.bp-searchbar {
+  position: relative;
+  min-width: 320px;
+}
+.bp-searchbar__input {
+  width: 100%;
+}
+/* El panel FLOTA sobre la pantalla en vez de empujarla: apareciendo en el flujo,
+   escribir movía la lista de nodos hacia abajo y se perdía el lugar. */
+.bp-searchbar__panel {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 6px);
+  right: 0;
+  width: min(560px, 92vw);
+  max-height: 420px;
+  overflow-y: auto;
+  padding: 8px;
+  background: var(--canvas);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+.bp-searchbar__count {
+  padding: 2px 6px 8px;
+  font-size: 11px;
+  color: var(--slate-500);
+  border-bottom: 1px solid var(--slate-100);
+  margin-bottom: 4px;
+}
+.bp-hit {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  padding: 7px 8px;
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: var(--navy);
+}
+.bp-hit:hover {
+  background: var(--slate-50);
+}
+.bp-hit__kind {
+  grid-row: span 2;
+  align-self: start;
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  background: var(--slate-100);
+  color: var(--slate-600);
+}
+/* Cada tipo con su tinte, para poder barrer la lista sin leer la etiqueta. */
+.bp-hit__kind--funnel {
+  background: var(--navy);
+  color: var(--canvas);
+}
+.bp-hit__kind--node {
+  background: var(--slate-200);
+  color: var(--slate-800);
+}
+.bp-hit__kind--step {
+  background: var(--slate-50);
+  color: var(--slate-600);
+}
+.bp-hit__kind--owner {
+  background: var(--amber-50);
+  color: var(--amber-800);
+}
+/* El motivo del match, en minúsculas dentro de la etiqueta: es una aclaración,
+   no una categoría más. */
+.bp-hit__why {
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  opacity: 0.85;
+}
+.bp-hit__title {
+  font-weight: 600;
+  font-size: 12.5px;
+}
+.bp-hit__where {
+  grid-column: 2;
+  font-size: 11px;
+  color: var(--slate-500);
+}
+
+/* ── El filtro por área, con sus conteos ──────────────────────────────────── */
+
+.bp-area-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 18px;
+}
+.bp-area-filter__btn {
+  font-family: inherit;
+  font-size: 11.5px;
+  padding: 5px 11px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-full);
+  background: var(--canvas);
+  color: var(--slate-600);
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.bp-area-filter__btn b {
+  color: var(--navy);
+  margin-left: 3px;
+}
+.bp-area-filter__btn.is-on {
+  border-color: var(--navy);
+  background: var(--navy);
+  color: var(--canvas);
+}
+.bp-area-filter__btn.is-on b {
+  color: var(--canvas);
+}
+/* Los sin área en ámbar: es la familia del candado y de lo que falta decidir. */
+.bp-area-filter__btn--none {
+  border-color: var(--amber-200);
+  background: var(--amber-50);
+  color: var(--amber-800);
+}
+.bp-area-filter__btn--none b {
+  color: var(--amber-800);
+}
+.bp-area-filter__btn--none.is-on {
+  border-color: var(--amber-700);
+  background: var(--amber-700);
+  color: var(--canvas);
+}
+.bp-area-filter__btn--none.is-on b {
+  color: var(--canvas);
+}
+
+/* ── Los grupos ───────────────────────────────────────────────────────────── */
+
+.bp-area-group {
+  margin-bottom: 26px;
+}
+.bp-area-group__head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 10px;
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--slate-500);
+  border-bottom: 1px solid var(--slate-100);
+  padding-bottom: 6px;
+}
+.bp-area-group__head--none {
+  color: var(--amber-800);
+  border-bottom-color: var(--amber-200);
+}
+.bp-area-group__n {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+.bp-area-group__todo {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--amber-700);
+}
+
+/* ── La tarjeta de un nodo ────────────────────────────────────────────────── */
+
+.bp-node-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.bp-nodecard {
+  background: var(--canvas);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+}
+.bp-nodecard__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  /* wrap y no nowrap: NADA CORTADO. Un nombre largo empuja la metadata a la
+     línea siguiente y la tarjeta crece, en vez de recortar el nombre. */
+  flex-wrap: wrap;
+}
+.bp-nodecard__toggle {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex: 1 1 260px;
+  min-width: 0;
+  font-family: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.bp-nodecard__caret {
+  color: var(--slate-400);
+  font-size: 10px;
+}
+.bp-nodecard__name {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--navy);
+  /* Sin text-overflow: el nombre entra entero, aunque ocupe dos líneas. */
+  overflow-wrap: anywhere;
+}
+.bp-nodecard__meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.bp-nodecard__stat {
+  font-size: 11.5px;
+  color: var(--slate-500);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* Lo que falta decidir, en ámbar: sin owner, sin funnel. */
+.bp-nodecard__stat--warn {
+  color: var(--amber-700);
+}
+.bp-nodecard__owners {
+  display: inline-flex;
+  gap: 3px;
+}
+.bp-initials {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-full);
+  background: var(--navy);
+  color: var(--canvas);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: default;
+}
+.bp-nodecard__body {
+  padding: 4px 14px 14px;
+  border-top: 1px solid var(--slate-100);
+}
+.bp-nodecard__desc {
+  margin: 10px 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--slate-600);
+  white-space: pre-line;
+}
+.bp-nodecard__actions {
+  margin-top: 10px;
+}
+/* La regla de la plantilla: se lee, no se grita. */
+.bp-nodecard__rule {
+  margin: 12px 0 0;
+  padding: 8px 10px;
+  border-left: 2px solid var(--sky);
+  background: var(--slate-50);
+  border-radius: var(--radius-sm);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--slate-600);
+}
+.bp-legend {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--slate-400);
+}
+
+/* ── Los steps, arrastrables ──────────────────────────────────────────────── */
+
+.bp-steps-table {
+  margin-top: 10px;
+}
+.bp-grip {
+  width: 22px;
+  color: var(--slate-300);
+  cursor: grab;
+  user-select: none;
+}
+.bp-steps-table tr.is-dragging {
+  opacity: 0.45;
+}
+
+/* ── El diálogo de funnels ────────────────────────────────────────────────── */
+
+.bp-check-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+.bp-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  color: var(--navy);
+  cursor: pointer;
+}
+.bp-check:hover {
+  background: var(--slate-50);
+}
+.bp-plain-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--navy);
+}
+
+/* ── La tabla de steps NO es una tabla de pivote ──────────────────────────────
+
+   ⚠ ENCONTRADO MIRANDO LA CAPTURA, no midiendo. La medición leía el SLA y el
+   Day y los dos coincidían con la base; los TÍTULOS salían cortados
+   —`Budget Allocation - Ca...`— y alineados a la derecha, y eso ningún número
+   lo delata.
+
+   Sale de `table.piv`, que existe para los pivotes de Commercial Activity:
+   `table-layout: fixed` (los anchos vienen de un `<colgroup>` que esta tabla no
+   tiene, así que quedan todos iguales), `text-align: right` porque sus celdas
+   son números, y `overflow: hidden` + `text-overflow: ellipsis` para recortar
+   lo que no entra.
+
+   Para una tabla de nombres eso es exactamente lo contrario de lo que hace
+   falta. El punto 5 del brief dice NADA CORTADO, y vale igual acá que en las
+   tarjetas: si el título no entra, la fila crece.
+
+   La especificidad está calculada: `table.piv td` es (0,1,2) y
+   `table.piv.bp-steps-table td` es (0,2,2), así que gana sin `!important`. Y
+   `.bp-center` se REAFIRMA con (0,3,2) porque si no, esta regla —que viene
+   después en el archivo— le ganaría a la de (0,2,2) y centraría de más. */
+
+table.piv.bp-steps-table {
+  table-layout: auto;
+}
+table.piv.bp-steps-table th,
+table.piv.bp-steps-table td {
+  text-align: left;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+}
+table.piv.bp-steps-table th.bp-center,
+table.piv.bp-steps-table td.bp-center {
+  text-align: center;
+  /* Los números no se parten: son cortos y partirlos los haría ilegibles. */
+  white-space: nowrap;
+}
+table.piv.bp-steps-table th.bp-right,
+table.piv.bp-steps-table td.bp-right {
+  text-align: right;
+  white-space: nowrap;
+}
+/* El título ocupa lo que sobra; las columnas de días, lo mínimo. */
+table.piv.bp-steps-table td.bp-strong:first-of-type,
+table.piv.bp-steps-table th:nth-child(2) {
+  width: 45%;
+}
+
+/* ── El circulo de un step es el boton que parece ── etapa BP42 ─────────────
+
+   Era un `<span aria-hidden>` con `cursor: auto`: la forma del control de
+   completar, sin ser el control. Ahora hay dos variantes -- `<button>` cuando
+   se puede completar, `<span>` cuando ya esta hecho -- y el CSS tiene que
+   dejarlas identicas salvo en lo que cambia: el cursor y el foco.
+
+   `all: unset` no sirve acá: se llevaría el `border-radius` y el tamaño que
+   `.bp-ms__dot` ya define. Se apagan solo los estilos propios del boton. */
+
+button.bp-ms__dot--btn {
+  font: inherit;
+  padding: 0;
+  border: 1px solid var(--slate-300);
+  cursor: pointer;
+}
+button.bp-ms__dot--btn:hover:not(:disabled) {
+  border-color: var(--navy);
+  background: var(--sky);
+}
+button.bp-ms__dot--btn:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 2px;
+}
+button.bp-ms__dot--btn:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+/* El check de un completado no es un boton, asi que no invita a clickear. */
+span.bp-ms__dot {
+  cursor: default;
+}

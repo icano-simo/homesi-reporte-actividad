@@ -159,7 +159,7 @@ export default function PlanEditor({
             resource_url: m.resource_url,
             due_date: m.due_date,
             sla_days: m.sla_days,
-            status: 'pending',
+            status: 'planned',
             position: m.position,
           }))
         );
@@ -229,7 +229,7 @@ export default function PlanEditor({
 
               <ul className="bp-editor__ms">
                 {n.milestones.map((m) => {
-                  const locked = m.status === 'done';
+                  const locked = m.status === 'completed';
                   return (
                     <li key={m.enrollment_milestone_key} className={locked ? 'is-locked' : ''}>
                       <span className="bp-editor__ms-title">{m.title}</span>
@@ -384,7 +384,7 @@ export default function PlanEditor({
               }
               /* Un milestone nuevo arranca sin fecha si no tiene SLA; con SLA,
                  se calcula igual que los demás en el próximo reordenamiento. */
-              return bp().from('enrollment_milestone').insert({ ...row, status: 'pending', due_date: null });
+              return bp().from('enrollment_milestone').insert({ ...row, status: 'planned', due_date: null });
             });
           }}
         />
@@ -395,7 +395,7 @@ export default function PlanEditor({
           what={'milestone "' + dialog.milestone.title + '"'}
           busy={busy}
           warning="Only this person's plan changes."
-          blockedReason={dialog.milestone.status === 'done' ? 'Completed milestones are history and cannot be deleted.' : null}
+          blockedReason={dialog.milestone.status === 'completed' ? 'Completed steps are history and cannot be deleted.' : null}
           onClose={() => setDialog(null)}
           onConfirm={() =>
             run(() =>
