@@ -236,6 +236,39 @@ export function exactoDe(
     const suma = bs.realtors.reduce((a, r) => a + r.benchmark, 0);
     remainingMonths.forEach((m) => (out[m] = suma));
   }
+
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * ⚠ Y LA GENTE EN CONTRATACIÓN, QUE FALTABA — arreglado en OL22
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * Va FUERA del `if`, y a propósito: un recluta puede estar en Recruitment o en
+   * NPPM, así que sumarlo dentro de una rama lo dejaría afuera de la otra.
+   *
+   * ⚠ EL BUG QUE ARREGLA, que ningún número mostraba: `projectBranch` YA sumaba
+   * los reclutas al total del branch, y este peso no los incluía. Como
+   * `apportionByWeight` garantiza que las partes sumen el total pase lo que
+   * pase, ese excedente no desaparecía: se repartía entre las OTRAS estrategias,
+   * y la del recluta quedaba corta. En silencio, porque la columna seguía
+   * sumando bien.
+   *
+   * ⚠ ERA INVISIBLE Y ESTABA ESPERANDO: los 15 reclutas de hoy tienen
+   * `monthlyBenchmark` en null, así que ninguno proyecta y el excedente es cero.
+   * Es el patrón de `AGENTS.md` -- el código no cambió, lo que iba a cambiar es
+   * el conjunto de entradas que lo alcanza, en cuanto alguien fije el primer
+   * benchmark.
+   *
+   * ⚠ CÓMO RE-COMPROBARLO sin escribir en la base --las tablas de OL20 no tienen
+   * policy de DELETE, así que una fila de prueba se queda para siempre--:
+   *
+   *     npx tsx scripts/check-recruit-weight.ts
+   *
+   * Arma un branch sintético con un recluta que proyecta 1/2/4 y compara
+   * `projectBranch` contra `exactoDe`. Los dos tienen que dar 7.
+   */
+  for (const r of bs.recruits) {
+    for (const m of remainingMonths) out[m] = (out[m] ?? 0) + (r.byMonth[m] ?? 0);
+  }
   return out;
 }
 
@@ -302,7 +335,14 @@ export function strategyRowsOf(
       bs.opensBy === 'loanOfficer' ||
       (esDelBranch(bs) && branchHasBudget(bs)) ||
       bs.opensBy === 'owner' ||
-      (bs.opensBy === 'realtor' && bs.realtors.length > 0);
+      (bs.opensBy === 'realtor' && bs.realtors.length > 0) ||
+      /*
+       * ⚠ O TIENE GENTE EN CONTRATACIÓN — OL22. Sin esto, un branch cuyo NPPM
+       * todavía no tiene realtors pero sí un recluta asignado mostraría su fila
+       * de presupuesto VACÍA mientras el total del branch ya lo cuenta: el
+       * descuadre sin explicación que el módulo evita en todos lados.
+       */
+      bs.recruits.length > 0;
     return {
       bs,
       strategy: bs.strategy,

@@ -2,7 +2,6 @@
 
 import { Fragment, use, useState } from 'react';
 import Link from 'next/link';
-import { addMonths } from '@/lib/business-plan/impact';
 import { apportionByWeight } from '@/lib/pipeline/aggregate';
 import {
   composeYear,
@@ -21,6 +20,7 @@ import {
   type OutlookStrategy,
   type ProjectionMode,
 } from '@/lib/outlook/project';
+import { remainingMonthsFor } from '@/lib/outlook/horizon';
 import { fmt, sumOfShown } from '@/lib/outlook/format';
 import { useOutlookDataContext } from '@/lib/outlook/useOutlookData';
 import StrategyEditor, { type OutlookEditable } from '@/app/outlook/components/StrategyEditor';
@@ -425,7 +425,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * Un error de la recarga llega por `error` del contexto: no hace falta un
    * segundo estado de error acá.
    */
-  const { data, error, reload } = useOutlookDataContext();
+  const { data, error, reload, horizonMonths } = useOutlookDataContext();
   /*
    * Qué está abierto, con claves de TEXTO: el bloque 2 tiene dos niveles
    * plegables --la estrategia y, dentro de NPPM, la persona con sus realtors--
@@ -440,10 +440,11 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * escribir. Se vuelve a buscar en cada render -- ver el bloque de los editores.
    */
   /*
-   * Cuántos meses hacia adelante. Arranca en "hasta diciembre", que es lo que
-   * había, así que quien no lo toca ve exactamente lo de antes.
+   * ⚠ EL HORIZONTE YA NO VIVE ACÁ — etapa OL22. Lo elige la barra del módulo y
+   * viaja por el contexto: un horizonte distinto por branch no significa nada,
+   * el presupuesto es de la división, y obligaba a repetir la selección trece
+   * veces. Ver `OutlookTopBar` y `lib/outlook/horizon.ts`.
    */
-  const [horizonte, setHorizonte] = useState<number | null>(null);
   const [editing, setEditing] = useState<
     { kind: 'employee'; employeeKey: number; strategy: OutlookStrategy } | { kind: 'branch'; strategy: OutlookStrategy } | null
   >(null);
@@ -509,30 +510,18 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * recargar todo --y a esperar los siete segundos de las lecturas-- cada vez que
    * alguien mira un año más.
    */
-  const horizonteHastaDic = data.remainingMonths.length;
   /*
-   * Los diciembres de los años siguientes, DERIVADOS del mes en curso: en enero
-   * `horizonteHastaDic` da 11 y estas opciones se corren solas. Nada de años
-   * escritos a mano, que es lo que obliga a volver cada 1 de enero.
+   * Las opciones y la lista de meses las deriva `lib/outlook/horizon.ts`, que es
+   * el mismo modulo que usa la barra. Antes estaban acá, y con el selector
+   * arriba habria dos derivaciones del mismo horizonte que pueden diferir.
    */
-  const finesDeAnio = [1, 2].map((suma) => {
-    const anio = Number(year) + suma;
-    /* Meses desde el mes en curso hasta diciembre de ese año. */
-    const meses = (anio - Number(year)) * 12 + (12 - Number(currentMonth.slice(5, 7)));
-    return { anio, meses };
-  });
-  const meses = horizonte ?? horizonteHastaDic;
+  const remainingMonths = remainingMonthsFor(currentMonth, horizonMonths);
   /*
    * ⚠ Sin `useMemo`, y no por descuido: esto vive DESPUÉS de los early returns
    * --`if (!data)`, `if (!branch)`-- así que un hook acá se saltearía en los
    * renders que salen antes y React rompe la pantalla entera. Medido: la tabla
    * no llegaba a dibujarse.
-   *
-   * Y no hace falta: son 24 sumas de meses por render, contra las lecturas de
-   * varios segundos que ya hace el módulo.
    */
-  const remainingMonths: string[] = [];
-  for (let i = 1; i <= meses; i++) remainingMonths.push(addMonths(currentMonth, i));
   const monthsOfYear = [...actualMonths, currentMonth, ...remainingMonths];
   /* El rótulo de la columna del total: deja de ser un año cuando pasa de uno. */
   const totalLabel = (() => {
@@ -721,7 +710,38 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * y nada mas, asi que la lista que entra tiene que ser LA MISMA que se dibuja.
    * De ahi que `filasBase` salga de la misma funcion y no de un filtro aparte.
    */
-  const sRows = strategyRowsOf(data, branch, monthsOfYear, remainingMonths);
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * ⚠ AFFINITY NO MUESTRA OWN PRODUCTION — etapa OL22
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * Su producción la abren dos Account Executives --Shirley Camargo y David
+   * Álvarez-- y una sección de Own Production que casi siempre está en cero
+   * compite con la que sí tiene algo que decir.
+   *
+   * ⚠ EL CASO QUE NO ES CERO, Y QUÉ PASA CON ÉL. Medido: AFFINITY cerró 32 en
+   * 2026, y son 31 de estrategia `Affinity` + 1 de `Own Production` -- un
+   * préstamo de enero de Nathan Martinez (`n.martinez`), cuyo `opportunity_owner`
+   * ES Shirley Camargo pero que BigQuery clasifica como Own Production.
+   *
+   * Al sacar la sección ese cierre no desaparece: el total del branch sigue en
+   * 32 --sale de `actualByBranch`, por préstamo-- y la diferencia cae en la fila
+   * de reconciliación, que desde OL22 se llama `LO out of branch`. Y la etiqueta
+   * es literal acá: AFFINITY no tiene NI UNA fila en `org.roster_current`, así
+   * que todo lo que cierra ahí es de alguien de otro branch.
+   *
+   * ⚠ SE FILTRA DESPUÉS DE `strategyRowsOf` Y NO ANTES, y la diferencia importa:
+   * los pesos que entran al reparto tienen que ser los de TODAS las estrategias
+   * del branch. Filtrando antes, `apportionByWeight` repartiría el entero del
+   * branch entre las que quedan y les daría de más -- el cierre de enero no
+   * desaparecería, se disolvería adentro de Affinity, que es peor que dejarlo
+   * afuera con nombre.
+   */
+  const sRowsTodas = strategyRowsOf(data, branch, monthsOfYear, remainingMonths);
+  const sRows =
+    branch.branchCode === 'AFFINITY'
+      ? sRowsTodas.filter((r) => r.strategy !== 'Own Production')
+      : sRowsTodas;
   /*
    * `filasBase` y `agostoDe` desaparecieron con la migración: sus dos
    * consumidores --el `map` de las filas y `sYear`-- ahora salen de `sRows`
@@ -985,17 +1005,31 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               a los outsiders de OL16 -- el 741 tiene un cierre de alguien de
               otro branch, así que contestaba distinto que la vista 1.
             */}
+            {/*
+              ⚠ LA MISMA ETIQUETA QUE LA VISTA 1, y hace falta decirlo: en OL22
+              la lista pasó a distinguir tres estados donde `isInactive` sólo
+              contesta uno --dejó de producir, nunca tuvo gente propia, cola de
+              espera-- y esta pantalla se quedó diciendo `Inactive` para los
+              tres. Es exactamente el defecto de la etiqueta doble que OL22
+              arregló en la otra dirección: la misma cosa nombrada de dos
+              maneras en dos pantallas.
+            */}
             {branch.isInactive && branch.ytd > 0 && (
               <span
                 className="bp-muted ol-tag"
                 title={
-                  `No active producer on the roster has this branch. Its ${branch.ytd} closings this year are real ` +
-                  `and count in the division total, but there is nobody to give a budget to — the projection is ` +
-                  `charged to each person's roster branch, because it is one number per person, not per loan. ` +
-                  `Who owns this budget is still to be decided.`
+                  branch.branchCode === 'AFFINITY'
+                    ? `Its ${branch.ytd} closings this year are real and count in the division total, but nobody ` +
+                      `has this branch on their roster: its production is opened by the Account Executives who own ` +
+                      `the opportunity, and they belong to other branches. That is why there is no Own Production ` +
+                      `section here.`
+                    : `No active producer on the roster has this branch. Its ${branch.ytd} closings this year are ` +
+                      `real and count in the division total, but there is nobody to give a budget to — the ` +
+                      `projection is charged to each person's roster branch, because it is one number per person, ` +
+                      `not per loan. Who owns this budget is still to be decided.`
                 }
               >
-                Inactive
+                {branch.branchCode === 'AFFINITY' ? 'opens by account executive' : 'Inactive'}
               </span>
             )}
           </h1>
@@ -1060,39 +1094,12 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
       */}
       <div className="ol-block__head">
         <h2 className="ol-block__title">Budget by strategy</h2>
-        <label className="ol-horizon">
-          <span>Project through</span>
-          <select
-            className="field"
-            value={meses}
-            onChange={(e) => setHorizonte(Number(e.target.value))}
-            title="How many months forward the budget columns go. The growth rules already know how to reach any future month; this only decides how many are drawn."
-          >
-            <option value={horizonteHastaDic}>Dec {year}</option>
-            {/*
-              ⚠ DOS FORMAS DE PENSAR EL MISMO HORIZONTE, y las dos sirven: "seis
-              meses más" es una pregunta de planificación y "hasta diciembre del
-              año que viene" es una de presupuesto anual. Ninguna reemplaza a la
-              otra, así que están las dos.
-
-              La etiqueta dice SIEMPRE hasta dónde llega -- `12 months (Sep 2027)`
-              y `Dec 2027 (16 months)` -- para que las dos listas se puedan
-              comparar entre sí sin contar meses a mano.
-            */}
-            {[6, 12, 18, 24]
-              .filter((n) => n !== horizonteHastaDic)
-              .map((n) => (
-                <option key={n} value={n}>
-                  {n} months ({monthLabel(addMonths(currentMonth, n))} {addMonths(currentMonth, n).slice(0, 4)})
-                </option>
-              ))}
-            {finesDeAnio.map(({ anio, meses }) => (
-              <option key={'y' + anio} value={meses}>
-                Dec {anio} ({meses} months)
-              </option>
-            ))}
-          </select>
-        </label>
+        {/*
+          ⚠ ACA ESTABA `Project through` Y SE FUE A LA BARRA DEL MODULO — OL22.
+          Elegirlo en el 747 no cambiaba nada en el 733, asi que habia que
+          repetir la seleccion trece veces para mirar la division con el mismo
+          horizonte. Ahora es uno solo y aplica a todas.
+        */}
       </div>
 
       <div className="tbl-scroll">
@@ -1768,14 +1775,34 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                     ? currentAboveForecast
                       ? `${monthLabel(currentMonth)} already above forecast`
                       : `${monthLabel(currentMonth)} pipeline, no strategy yet`
-                    : 'Counted for a realtor, not for the branch'}
+                    : /*
+                       * ⚠ DECÍA `Counted for a realtor, not for the branch` — OL22.
+                       *
+                       * Nombraba una CAUSA particular --NPPM-- que en la mayoría de
+                       * los casos no aplica. Verificado en el 747, enero 2026: no
+                       * hay ni un NPPM. El residuo son cierres de gente ajena al
+                       * branch -- Frank Rodriguez, que ni siquiera resuelve contra
+                       * el roster, y José Zamora, que es del 716.
+                       *
+                       * `LO out of branch` describe lo que efectivamente hay, sin
+                       * asumir por qué. La causa, cuando importa, está en el
+                       * tooltip y en la línea de outsiders del pie.
+                       */
+                      'LO out of branch'}
                   <span
                     className="bp-muted ol-tag"
                     title={
                       Math.abs(residual[currentMonth]) <= 0.001
-                        ? `Closings counted for an NPPM realtor but not for the branch, because the loan officer who ` +
-                          `originated them is outside the division. The row carries the difference so the total ` +
-                          `matches the branch list.`
+                        ? /*
+                           * ⚠ LA EXPLICACIÓN GENERAL, NO LA CAUSA ASUMIDA — OL22. La
+                           * versión vieja afirmaba que eran cierres de un realtor
+                           * NPPM, que es UNA de las formas de llegar acá y casi
+                           * nunca la que aplica.
+                           */
+                          `The branch total counts by LOAN --whatever closed here-- and the strategies open by ` +
+                          `the people on this branch's roster. Closings by loan officers who are not on it land ` +
+                          `in this row: they are real and they count in the total, but no strategy can claim ` +
+                          `them. The row carries the difference so the total matches the list.`
                         : currentAboveForecast
                         ? `This branch has already closed more this month than its forecast expected: ` +
                           `${fmt(strategiesByMonth[currentMonth])} closed against a forecast of ` +

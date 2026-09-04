@@ -2,9 +2,7 @@
 
 import { Fragment, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import RecruitEditor, { RECRUITMENT_BRANCH, branchOptions } from '@/app/outlook/components/RecruitEditor';
-import RecruitRampEditor from '@/app/outlook/components/RecruitRampEditor';
-import type { Ramp } from '@/lib/outlook/recruitment';
+import { RECRUITMENT_BRANCH } from '@/app/outlook/components/RecruitEditor';
 import {
   composeYear,
   currentMonthByBranch,
@@ -15,6 +13,7 @@ import {
 } from '@/lib/outlook/loadData';
 import { personasDe, strategyRowsOf } from '@/lib/outlook/strategyRows';
 import { OUTLOOK_STRATEGIES, type OutlookStrategy } from '@/lib/outlook/project';
+import { remainingMonthsFor } from '@/lib/outlook/horizon';
 import { fmt, sumOfShown } from '@/lib/outlook/format';
 import { useOutlookDataContext } from '@/lib/outlook/useOutlookData';
 
@@ -62,18 +61,7 @@ function bandOf(month: string, currentMonth: string): 'actual' | 'forecast' | 'b
   return month < currentMonth ? 'actual' : month === currentMonth ? 'forecast' : 'budget';
 }
 
-/**
- * La rampa, en el botón que la abre: `25% · 50% · 100%`.
- *
- * ⚠ SE LEE DE `data.recruitRamp` y no se escribe a mano. Es la revisión vigente
- * de `outlook.recruitment_ramp`, así que el botón muestra lo que el motor está
- * usando de verdad -- un `25% · 50% · 100%` literal seguiría diciendo eso
- * después de que alguien la cambie.
- */
-function rampaTexto(r: Ramp): string {
-  const p = (v: number) => Math.round(v * 100) + '%';
-  return `${p(r.month1)} · ${p(r.month2)} · ${p(r.month3Plus)}`;
-}
+/* `rampaTexto` se fue con la barra, a `OutlookTopBar` -- etapa OL22. */
 
 /** Una persona en el desglose de un branch filtrado por estrategia — OL21. */
 interface PersonaFila {
@@ -90,7 +78,6 @@ export default function OutlookPage() {
    * ⚠ El hook va ANTES de los early returns. React exige el mismo orden de
    * hooks en cada render, y abajo hay dos `return` que salen antes de la tabla.
    */
-  const [panel, setPanel] = useState<'ramp' | 'new' | null>(null);
   /*
    * ══════════════════════════════════════════════════════════════════════════
    * ⚠ EL FILTRO DE ESTRATEGIA — etapa OL21
@@ -112,7 +99,7 @@ export default function OutlookPage() {
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
   /* Los datos vienen del contexto del layout: una sola carga para las dos
      vistas. Ver `lib/outlook/useOutlookData.tsx`. */
-  const { data, error, reload } = useOutlookDataContext();
+  const { data, error, horizonMonths } = useOutlookDataContext();
 
   if (error) {
     return (
@@ -129,7 +116,20 @@ export default function OutlookPage() {
     );
   }
 
-  const { monthsOfYear, actualMonths, currentMonth, remainingMonths } = data;
+  /*
+   * ⚠ LOS MESES SALEN DEL HORIZONTE DEL MODULO — etapa OL22, no de `data`.
+   *
+   * `data.monthsOfYear` es siempre el ano calendario. Con el selector arriba,
+   * esta tabla tiene que estirarse igual que la de un branch: si no, el control
+   * estaria ahi sin hacer nada en la mitad del modulo -- el "lapiz que no hacia
+   * nada" otra vez.
+   *
+   * Por defecto (`horizonMonths === null`) da exactamente los doce meses del
+   * ano, asi que quien no lo toca ve lo de antes.
+   */
+  const { actualMonths, currentMonth } = data;
+  const remainingMonths = remainingMonthsFor(currentMonth, horizonMonths);
+  const monthsOfYear = [...actualMonths, currentMonth, ...remainingMonths];
   const year = currentMonth.split('-')[0];
 
   /*
@@ -271,8 +271,30 @@ export default function OutlookPage() {
    * sí se quedó sin nadie-- y las dos filas se leían como lo mismo.
    */
   const esMarcador = (code: string) => code === RECRUITMENT_BRANCH;
-  const rowsActivos = rows.filter((r) => !r.branch.isInactive && !esMarcador(r.branch.branchCode));
-  const rowsInactivos = rows.filter((r) => r.branch.isInactive && !esMarcador(r.branch.branchCode));
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * ⚠ AFFINITY OPERA, ASÍ QUE VA CON LOS ACTIVOS — etapa OL22
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * Cumple `isInactive` --no tiene ni una fila en `org.roster_current`-- y aun
+   * así llamarlo inactivo es falso: cerró 32 préstamos en ocho meses del año,
+   * de enero a agosto, más que nueve de los branches que sí tienen gente. Lo
+   * que no tiene es gente PROPIA: su producción la abren dos Account Executives
+   * --Shirley Camargo y David Álvarez-- que pertenecen al roster de otros
+   * branches.
+   *
+   * ⚠ ESO LO DISTINGUE DEL 741 Y DEL 771, que también cumplen `isInactive`: esos
+   * produjeron y se quedaron sin nadie. AFFINITY nunca tuvo gente propia y sigue
+   * produciendo. La regla del roster no alcanza para separarlos, así que la
+   * excepción se escribe -- y se escribe con su motivo, no con su nombre.
+   */
+  const operaSinRoster = (code: string) => code === 'AFFINITY';
+  const rowsActivos = rows.filter(
+    (r) => (!r.branch.isInactive || operaSinRoster(r.branch.branchCode)) && !esMarcador(r.branch.branchCode)
+  );
+  const rowsInactivos = rows.filter(
+    (r) => r.branch.isInactive && !operaSinRoster(r.branch.branchCode) && !esMarcador(r.branch.branchCode)
+  );
   const rowsMarcador = rows.filter((r) => esMarcador(r.branch.branchCode));
 
   /**
@@ -415,15 +437,22 @@ export default function OutlookPage() {
           <tbody>
             {[
               { titulo: null, nota: null, lista: rowsActivos },
-              {
-                titulo: 'Inactive',
-                nota: 'no active producer on the roster · counts in the division total · nothing to set here',
-                lista: rowsInactivos,
-              },
+              /*
+                ⚠ RECRUITMENT VA ANTES QUE LOS INACTIVOS — etapa OL22.
+                Estaba al final y se leia como si fuera del mismo grupo. Es lo
+                contrario: los inactivos dejaron de producir y esta es gente que
+                todavia no empezo. El orden dice de que lado del tiempo esta
+                cada bloque.
+              */
               {
                 titulo: 'Not assigned yet',
                 nota: 'people in hiring with no branch decided · they project here until someone assigns them',
                 lista: rowsMarcador,
+              },
+              {
+                titulo: 'Inactive',
+                nota: 'no active producer on the roster · counts in the division total · nothing to set here',
+                lista: rowsInactivos,
               },
             ].map(({ titulo, nota, lista }) => (
               <Fragment key={titulo ?? 'active'}>
@@ -552,8 +581,17 @@ export default function OutlookPage() {
                     estando, en el tooltip de la celda y en el bloque en el que
                     la fila vive.
                   */}
+                  {/*
+                    ⚠ TRES ESTADOS Y NO DOS — etapa OL22. `isInactive` es una
+                    sola pregunta al roster, pero contesta lo mismo para cosas
+                    distintas: el 741 se quedo sin nadie, AFFINITY nunca tuvo
+                    gente propia y sigue produciendo, y Recruitment es una cola
+                    de espera. Una etiqueta unica los nombraria igual.
+                  */}
                   {isInactive(b.branchCode) && !esMarcador(b.branchCode) && (
-                    <span className="bp-muted ol-tag">Inactive</span>
+                    <span className="bp-muted ol-tag">
+                      {operaSinRoster(b.branchCode) ? 'opens by account executive' : 'Inactive'}
+                    </span>
                   )}
                 </td>
               </tr>
@@ -625,69 +663,13 @@ export default function OutlookPage() {
       </div>
 
       {/*
-        ══════════════════════════════════════════════════════════════════════
-        LAS HERRAMIENTAS DE RECLUTAMIENTO DEL MÓDULO — etapa OL21
-        ══════════════════════════════════════════════════════════════════════
-
-        La rampa y el alta a mano. Estaban dentro de la vista de un branch, y
-        sólo en los que ya tenían gente en proceso: en el 747 sí y en el 724 no.
-        Las dos son decisiones del MÓDULO --la rampa rige para los diecisiete
-        branches, y un alta todavía no tiene branch-- así que vivían en el lugar
-        que las hacía parecer de un branch y las escondía en los demás.
-
-        Acá se dibujan siempre, al lado de la tabla de la división, que es donde
-        una decisión de toda la división corresponde.
-
-        ⚠ SÓLO SI HAY DÓNDE GUARDAR. Igual que `monthlyModeAvailable` con el modo
-        mes a mes: sin las tres tablas de OL20 aplicadas, alguien llenaría el
-        formulario para descubrir al apretar Guardar que no hay tabla.
+        ⚠ LA BARRA DE RECLUTAMIENTO SE FUE A LA BARRA DEL MODULO — etapa OL22.
+        En OL21 subio del branch a esta vista; ahora sube un escalon mas, al
+        layout, para que este tambien dentro de un branch. Y el boton dice el
+        estado --cuantos hay en proceso y cuantos con benchmark-- porque esas
+        quince personas viven repartidas en cuatro branches y no habia forma de
+        saber que existian sin recorrerlos.
       */}
-      {data.diagnostics.recruitTablesAvailable && (
-        <p className="ol-recbar">
-          <span className="ol-recbar__lbl">In hiring</span>
-          <span>
-            {data.diagnostics.recruitsRead} in the hiring process · ramp
-          </span>
-          <button type="button" className="ol-pill" onClick={() => setPanel('ramp')}>
-            {rampaTexto(data.recruitRamp)}
-          </button>
-          <button type="button" className="ol-pill ol-pill--empty" onClick={() => setPanel('new')}>
-            + Add someone
-          </button>
-          <span>the same ramp for everyone, in every branch</span>
-        </p>
-      )}
-
-      {panel === 'ramp' && (
-        <RecruitRampEditor
-          ramp={data.recruitRamp}
-          onClose={() => setPanel(null)}
-          onSaved={() => {
-            setPanel(null);
-            void reload();
-          }}
-        />
-      )}
-
-      {panel === 'new' && (
-        <RecruitEditor
-          recruit={null}
-          /*
-            ⚠ TODOS, Y `Recruitment` PRIMERO. Es el valor por defecto del
-            formulario, asi que tiene que estar entre las opciones -- excluirlo
-            era la mitad del bug del desplegable que OL21 arregla.
-          */
-          branches={branchOptions(data.branches.map((b) => b.branchCode))}
-          /* En un alta no hay a quien vincular todavia: la fila no existe. */
-          roster={[]}
-          currentMonth={currentMonth}
-          onClose={() => setPanel(null)}
-          onSaved={() => {
-            setPanel(null);
-            void reload();
-          }}
-        />
-      )}
 
       {/*
         ⚠ ACÁ HABÍA UN PÁRRAFO LARGO, Y SE FUE A PROPÓSITO — etapa OL6.
@@ -706,77 +688,38 @@ export default function OutlookPage() {
         está en la tabla.
       */}
 
-      <div className="bp-diagnostics">
-        <div>
-          Bands: <code>{actualMonths.length}</code> actual · <code>{monthLabel(currentMonth)}</code> forecast ·{' '}
-          <code>{remainingMonths.length}</code> budgeted · edits apply from <code>{data.effectiveFrom}</code>
-        </div>
-        <div>
-          YTD rows counted: <code>{data.diagnostics.ytdRowsCounted.toLocaleString('en-US')}</code> of{' '}
-          <code>{data.diagnostics.activityRowsRead.toLocaleString('en-US')}</code> read ·{' '}
-          <code>{data.diagnostics.strategyBenchmarkRows}</code> strategy benchmarks ·{' '}
-          <code>{data.diagnostics.growthRuleRows}</code> growth rules
-        </div>
-        {/*
-          Las dos lecturas de "cuánto cerró este mes". No es un chequeo interno:
-          si difieren, el tooltip del mes en curso y la banda real cuentan cosas
-          distintas, y eso hay que verlo acá antes de que aparezca como un
-          descuadre en una reunión.
-        */}
-        <div>
-          {monthLabel(currentMonth)} closed —{' '}
-          <code>{data.diagnostics.currentMonthClosedRecords}</code> per activity ·{' '}
-          <code>{data.diagnostics.currentMonthClosedForecast}</code> per forecast (inside the forecast column)
-          {data.diagnostics.currentMonthClosedRecords !== data.diagnostics.currentMonthClosedForecast && (
-            <>
-              {' '}
-              — <b>they differ</b>: two systems count the month&apos;s closings, like July&apos;s 57 against 59 in Commercial
-              Activity. The month column uses Forecast&apos;s.
-            </>
-          )}
-        </div>
-        {/*
-          De donde sale la LISTA de gente, que desde OL7 la decide el roster y no
-          `org.employee_branch`. Los tres numeros son cotejables contra la base y
-          explican por que la lista cambio de 34 personas a 37.
+      {/*
+        ══════════════════════════════════════════════════════════════════════
+        ⚠ ACÁ HABÍA CINCO RENGLONES DE DIAGNÓSTICO Y SE FUERON — etapa OL22
+        ══════════════════════════════════════════════════════════════════════
 
-          ⚠ Y son la senal de que el roster se esta leyendo. Habia un aviso
-          dedicado para eso, que se quito al aplicarse las policies; si algun dia
-          la tabla vuelve a devolver vacio, "0 active producers" es lo que lo
-          dice. Vale mirar el claim de su policy antes que el codigo: la RLS no
-          rechaza, filtra.
-        */}
-        <div>
-          <code>{data.diagnostics.activeProducers}</code> active producers in the roster ·{' '}
-          <code>{data.diagnostics.producersWithoutIdentity}</code> without internal identity ·{' '}
-          <code>{data.diagnostics.closedButNotProducing}</code> shown only because they closed
-        </div>
-        {/*
-          ⚠ CERO BENCHMARKS DE ESTRATEGIA NO ES UN CONTEO, ES UN AVISO.
-          El numero ya estaba en la linea de arriba, entre otros dos, y ahi se
-          lee como estadistica. Pero con cero cargados TODO el presupuesto por
-          estrategia proyecta cero salvo Own Production --que lee su benchmark de
-          `org.employee_benchmark`, no de `outlook`-- y eso se ve igual que si el
-          negocio no esperara nada de B2B ni de NPPM.
+        Decían las bandas, las filas leídas contra las contadas, los benchmarks
+        y reglas cargados, las dos lecturas del mes en curso, los productores
+        del roster y los cierres sin resolver. Cinco líneas debajo de la tabla,
+        que sólo se leen la primera vez.
 
-          Las 185 reglas de crecimiento no lo tapan: una regla multiplica un
-          benchmark, y sobre cero da cero. Estan guardadas y no proyectan nada.
+        Es el criterio de RPT4 y el mismo que ya vació este pie en OL6 y OL12:
+        si algo necesita cinco renglones para explicarse, no va en la pantalla.
 
-          Mismo criterio que el aviso del roster: la pantalla dice lo que no se
-          puede deducir mirandola.
-        */}
-        {/*
-          El aviso sobre el presupuesto de estrategias se fue en OL12: ahora se
-          edita en la tabla del branch, y el lápiz es más claro que un párrafo.
-          Los conteos de arriba siguen siendo la señal de si hay algo cargado.
-        */}
-        {data.diagnostics.unresolvedOfficers > 0 && (
-          <div className="bp-diagnostics__warn">
-            <code>{data.diagnostics.unresolvedOfficers.toLocaleString('en-US')}</code> closed loans whose loan officer
-            did not resolve against the roster — they are not counted in any branch.
-          </div>
-        )}
-      </div>
+        ⚠ DÓNDE VIVE AHORA CADA COSA, porque no se perdió ninguna:
+
+          las bandas            en la fila de cabecera de la tabla, que las
+                                rotula y las separa con una línea
+          desde cuándo rigen    en el editor, que lo dice al guardar
+          los dos conteos del   en el tooltip de la celda del mes en curso, que
+          mes en curso          dice siempre las dos lecturas
+          los sin resolver      en la fila `LO out of branch` de cada branch y en
+                                `outOfDivision`, CON NOMBRE -- que es más útil
+                                que el conteo, y desde OL21 además ya no son "no
+                                contados": suman al total de la división
+          los productores y     en `data.diagnostics`, para quien lo mire desde
+          las filas leídas      el código; ninguna decisión de la pantalla
+                                depende de esos números
+
+        ⚠ Lo único que NO se puede mirar en un tooltip es el estado del
+        reclutamiento, así que ese subió al botón de la barra:
+        `15 in process · 0 with target`.
+      */}
     </div>
   );
 }

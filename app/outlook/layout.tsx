@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { OutlookDataProvider } from '@/lib/outlook/useOutlookData';
+import OutlookTopBar from './components/OutlookTopBar';
 /*
  * ⚠ Se importa la hoja del Business Plan, no una nueva.
  *
@@ -44,6 +45,20 @@ import './styles/ol-year.css';
  * de módulo -- eso es lo que hace que el doble montaje de efectos de React en
  * desarrollo no duplique la carga.
  */
+/*
+ * ⚠ LA BARRA DEL MODULO VA ACA — etapa OL22.
+ *
+ * Dos controles que son de todo Outlook --el horizonte y el simulador de
+ * reclutamiento-- vivian dentro de una pantalla. Puestos en el layout, que
+ * envuelve a las dos rutas y NO se desmonta al navegar entre ellas, la seleccion
+ * del horizonte sobrevive a ir de la lista a un branch. Si la barra viviera en
+ * cada pagina, volveria al valor por defecto en cada navegacion.
+ */
 export default function OutlookLayout({ children }: { children: ReactNode }) {
-  return <OutlookDataProvider>{children}</OutlookDataProvider>;
+  return (
+    <OutlookDataProvider>
+      <OutlookTopBar />
+      {children}
+    </OutlookDataProvider>
+  );
 }

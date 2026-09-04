@@ -782,6 +782,20 @@ export interface OutlookData {
     /** Gente en contratación leída de la fuente. Hoy 15. */
     recruitsRead: number;
     /**
+     * De esos, a cuántos alguien les fijó una producción mensual — etapa OL22.
+     *
+     * ⚠ HOY ES 0 DE 15, y eso es un estado correcto y no un bug: el presupuesto
+     * de reclutamiento vale cero porque nadie decidió cuánto se espera de nadie.
+     * Va al botón de la barra para que se vea sin entrar a ningún branch --
+     * las quince personas están repartidas en cuatro, y hasta OL22 no había
+     * forma de saber que existían sin recorrerlos.
+     *
+     * ⚠ Y CUENTA `!== null`, NO `> 0`: un 0 escrito a mano es una decisión
+     * --no se espera que produzca-- y cuenta como fijado. Vacío es que nadie
+     * decidió. Es la distinción que sostiene toda la etapa OL20.
+     */
+    recruitsWithBenchmark: number;
+    /**
      * Proyecciones vencidas y sin vincular — ver el aviso de la pantalla.
      *
      * Su mes de producción ya llegó y nadie dijo con quién del roster se
@@ -2147,11 +2161,30 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
         targets: targetsByKey.get(bk) ?? {},
         targetRevision: targetRevisionByKey.get(bk) ?? 0,
         /*
-         * ⚠ SÓLO RECRUITMENT LLEVA RECLUTAS — etapa OL20. Decisión del negocio:
-         * cualquiera que venga del proceso de contratación se proyecta bajo esta
-         * estrategia sin importar a qué branch se lo asigne.
+         * ⚠ RECRUITMENT O NPPM, SEGÚN EL `role` — etapa OL22.
+         *
+         * En OL20 todo recluta iba a Recruitment: decisión del negocio de que
+         * cualquiera que venga del proceso se proyecte ahí sin importar el
+         * branch. Sigue siendo el caso por defecto y el de los 15 de hoy.
+         *
+         * Lo nuevo es que una persona pueda entrar como NPPM. El `role` ya
+         * existía en `outlook.recruitment_projection` --con su check de
+         * `('loan_officer','nppm')`-- así que no hizo falta tocar el esquema; lo
+         * que faltaba era que alguien pudiera fijarlo y que esto lo leyera.
+         *
+         * ⚠ `role` ES LA ESTRATEGIA, no un adorno. En OL20 se sacó el campo del
+         * formulario justamente porque nada lo leía --"un desplegable que no
+         * cambia ningún número es peor que un campo que falta"--. Ahora lo lee
+         * esto, así que el campo vuelve.
+         *
+         * ⚠ Y `exactoDe` TIENE QUE SUMARLOS EN LAS DOS. Lo hace desde OL22, y no
+         * lo hacía antes: ver la nota de esa función. Sin eso, un recluta con
+         * benchmark le sumaba al total del branch y no al peso de su estrategia,
+         * y el reparto le daba ese excedente a las otras.
          */
-        recruits: strategy === 'Recruitment' ? (recruitsPorBranch.get(branchCode) ?? []) : [],
+        recruits: (recruitsPorBranch.get(branchCode) ?? []).filter(
+          (r) => (r.role === 'nppm' ? 'NPPM' : 'Recruitment') === strategy
+        ),
         /*
          * ⚠ RECRUITMENT SE ABRE POR PERSONA — cambio de OL12.
          *
@@ -2281,6 +2314,7 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       monthlyModeAvailable,
       recruitTablesAvailable: recruitTables.editado !== null,
       recruitsRead: todosLosReclutas.length,
+      recruitsWithBenchmark: todosLosReclutas.filter((r) => r.monthlyBenchmark !== null).length,
       recruitsExpiredUnlinked: todosLosReclutas.filter(
         (r) => r.notProjecting === 'expired' && r.linkedEmployeeKey === null
       ).length,

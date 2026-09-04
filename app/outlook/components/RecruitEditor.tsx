@@ -41,11 +41,13 @@ import { saveRecruitLink, saveRecruitProjection } from '@/lib/outlook/save';
  * sabe", no un lugar: cuando se sepa a dónde va alguien, se corrige acá sin
  * esperar a que la fuente lo traiga.
  *
- * ⚠ NO HAY CAMPO `Role`, Y ES A PROPÓSITO. El brief lo pedía, pero hoy nada lo
- * lee: un recluta NPPM tendría que proyectar bajo NPPM --que se abre por
- * realtor y no por persona-- y eso no existe. Un desplegable que no cambia
- * ningún número es peor que un campo que falta: se ve, se usa, y no pasa nada.
- * Toda alta a mano se guarda como `loan_officer`.
+ * ⚠ EL CAMPO `Strategy` VOLVIÓ EN OL22, y la historia vale porque es la misma
+ * regla aplicada dos veces con resultados opuestos. En OL20 y OL21 se dejó
+ * afuera porque NPPM se abre por realtor y no por persona: elegirlo no habría
+ * cambiado ningún número, y un desplegable que no cambia ningún número es peor
+ * que un campo que falta. En OL22 se agregaron las tres piezas que hacen que sí
+ * cambie --el loader lo lee, `exactoDe` lo pesa y `proyecta` lo contempla-- así
+ * que el campo entra. La regla no cambió; cambió lo que el modelo puede hacer.
  *
  * Usa el mismo `Modal` y las mismas clases que `StrategyEditor` -- `ol-editor`,
  * `bp-form__label`, `bp-btn` -- porque es el mismo tipo de decisión y tiene que
@@ -117,6 +119,13 @@ export default function RecruitEditor({
   const esAlta = recruit === null;
   const [name, setName] = useState(recruit?.personName ?? '');
   const [branch, setBranch] = useState(recruit?.branchCodeActual ?? RECRUITMENT_BRANCH);
+  /*
+   * ⚠ LA ESTRATEGIA SE GUARDA EN `role` — etapa OL22, y no hizo falta SQL:
+   * `outlook.recruitment_projection.role` ya existía con
+   * `check (role in ('loan_officer','nppm'))`. Lo que faltaba era que alguien
+   * pudiera fijarlo y que el loader lo leyera.
+   */
+  const [role, setRole] = useState<'loan_officer' | 'nppm'>(recruit?.role ?? 'loan_officer');
   const [startDate, setStartDate] = useState(recruit?.startDate ?? '');
   const [producingFrom, setProducingFrom] = useState(recruit?.producingFrom ?? mesSiguiente(currentMonth));
   /*
@@ -156,7 +165,7 @@ export default function RecruitEditor({
         identity,
         source: identity.startsWith('manual:') ? 'manual' : 'future_loan_officer',
         personName: name,
-        role: recruit?.role ?? 'loan_officer',
+        role,
         branchCode: branch,
         startDate: startDate.trim() === '' ? null : startDate,
         producingFrom,
@@ -261,6 +270,45 @@ export default function RecruitEditor({
         </div>
 
         <div className="ol-editor__row">
+          {/*
+            ══════════════════════════════════════════════════════════════════
+            ⚠ LA ESTRATEGIA BAJO LA QUE PROYECTA — etapa OL22
+            ══════════════════════════════════════════════════════════════════
+
+            Se dejó afuera dos veces --OL20 y OL21-- con el criterio correcto de
+            entonces: NPPM se abre por realtor y no por persona, así que elegirlo
+            no habría cambiado ningún número y un desplegable que no cambia
+            ningún número es peor que un campo que falta.
+
+            Ahora sí cambia números, y por tres piezas que se agregaron juntas:
+
+              1. el loader cuelga al recluta de la estrategia que dice `role`,
+                 en vez de mandarlos a todos a Recruitment
+              2. `exactoDe` suma los reclutas en las DOS, así que el peso de la
+                 estrategia incluye lo que el total del branch ya contaba
+              3. `proyecta` mira `recruits.length`, así que un NPPM sin realtors
+                 pero con una persona muestra su presupuesto en vez de vacío
+
+            ⚠ LA 2 ARREGLA UN BUG QUE YA ESTABA. `projectBranch` sumaba los
+            reclutas al total y `exactoDe` no los pesaba, así que el reparto le
+            daba ese excedente a las otras estrategias, en silencio. Invisible
+            hasta hoy porque los 15 tienen benchmark en null -- y elegir NPPM
+            habría sido justo lo que lo despertaba.
+          */}
+          <div className="bp-form__field">
+            <label className="bp-form__label" htmlFor="rec-strategy">
+              Strategy
+            </label>
+            <select
+              id="rec-strategy"
+              className="field"
+              value={role}
+              onChange={(e) => setRole(e.target.value as 'loan_officer' | 'nppm')}
+            >
+              <option value="loan_officer">Recruitment</option>
+              <option value="nppm">NPPM</option>
+            </select>
+          </div>
           <div className="bp-form__field">
             <label className="bp-form__label" htmlFor="rec-start">
               Start date
