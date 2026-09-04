@@ -97,6 +97,16 @@ export interface FunnelNodeLink {
   funnel_key: number;
   node_key: number;
   position: number;
+  /**
+   * El nodo de ESTE funnel que hay que terminar antes -- etapa BP41/BP46.
+   *
+   * `null` = no espera a nada, que es el default y no un valor de respaldo.
+   *
+   * Vive en el VINCULO y no en el nodo porque 16 de los 32 nodos estan en mas
+   * de un funnel --uno en cinco-- asi que puesta en el nodo viajaria a funnels
+   * donde el antecesor no existe.
+   */
+  depends_on_node_key?: number | null;
 }
 
 export interface NodeMilestone {
@@ -132,6 +142,19 @@ export type MilestoneStatus = 'planned' | 'in_progress' | 'completed';
 
 export interface EnrollmentNodeDraft {
   source_node_key: number;
+  /**
+   * La dependencia, TODAVIA en claves de plantilla -- etapa BP46.
+   *
+   * El cliente no puede resolverla: las claves de la copia no existen hasta que
+   * `activate_funnel` inserta las filas. Asi que viaja como el
+   * `source_node_key` del antecesor y la funcion la traduce, en una SEGUNDA
+   * pasada, contra las copias recien creadas.
+   *
+   * Se OMITE cuando el nodo no espera a nada, en vez de mandar `null`: asi la
+   * funcion distingue "no hay dependencia" de "hay una y no se pudo resolver",
+   * que es justo lo que su guarda comprueba.
+   */
+  depends_on_source_node_key?: number;
   name: string;
   description: string | null;
   icon: string | null;
@@ -313,7 +336,18 @@ export function buildEnrollmentPlan(
   orderedNodeKeys: number[],
   nodes: FunnelNode[],
   milestones: NodeMilestone[],
-  activationDate: string
+  activationDate: string,
+  /**
+   * Las dependencias declaradas, `node_key` -> `node_key` del antecesor.
+   *
+   * Va como MAPA y no como la lista de `funnel_node` a proposito: esta funcion
+   * recibe `orderedNodeKeys` y no sabe de funnels, y pasarle los vinculos la
+   * obligaria a filtrar por uno -- o sea, a saber cual. El que llama ya lo sabe.
+   *
+   * Omitirlo produce un plan sin dependencias, que es exactamente lo que hacia
+   * antes de BP46: los dos callers que no lo pasan siguen funcionando igual.
+   */
+  dependsOn?: Map<number, number | null>
 ): EnrollmentNodeDraft[] {
   const byKey = new Map(nodes.map((n) => [n.node_key, n]));
   const ranges = nodeDayRanges(orderedNodeKeys, milestones);
@@ -329,9 +363,22 @@ export function buildEnrollmentPlan(
        función que la tabla, el editor y `nodeDayRanges`. */
     const diaEnElNodo = cumulativeDays(mine.map((m) => m.sla_days));
 
+    /*
+     * La dependencia se incluye SOLO si el antecesor esta entre los nodos que
+     * se estan copiando. Declarada contra uno que no viaja, mandarla haria
+     * fallar la guarda de `activate_funnel` -- y con razon, porque el plan
+     * quedaria con una dependencia imposible.
+     *
+     * Esto pasa de verdad al copiar UN nodo suelto, como hace el editor del
+     * plan: ahi `orderedNodeKeys` tiene un elemento y su antecesor no esta.
+     */
+    const antecesor = dependsOn?.get(node_key) ?? null;
+    const viaja = antecesor !== null && orderedNodeKeys.includes(antecesor);
+
     return [
       {
         source_node_key: node_key,
+        ...(viaja ? { depends_on_source_node_key: antecesor } : {}),
         name: node.name,
         description: node.description,
         icon: node.icon,

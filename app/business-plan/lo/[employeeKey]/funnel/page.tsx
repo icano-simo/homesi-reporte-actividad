@@ -213,7 +213,19 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
         .map((l) => l.node_key);
 
       const today = new Date().toISOString().slice(0, 10);
-      const draft = buildEnrollmentPlan(ordered, lib.nodes, lib.milestones, today);
+      /*
+       * LAS DEPENDENCIAS DECLARADAS DEL FUNNEL -- etapa BP46.
+       *
+       * Se arma el mapa aca porque es el que sabe DE QUE FUNNEL se trata: un
+       * nodo puede estar en cinco, y su antecesor es distinto en cada uno.
+       * `buildEnrollmentPlan` recibe claves de nodo y no sabe de funnels.
+       */
+      const dependsOn = new Map<number, number | null>(
+        lib.links
+          .filter((l) => l.funnel_key === funnelKey)
+          .map((l) => [l.node_key, l.depends_on_node_key ?? null])
+      );
+      const draft = buildEnrollmentPlan(ordered, lib.nodes, lib.milestones, today, dependsOn);
 
       /*
        * ═══════════════════════════════════════════════════════════════════════

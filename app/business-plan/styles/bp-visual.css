@@ -5567,3 +5567,13 @@ button.bp-metapill--area:disabled {
   color: var(--slate-500);
   font-variant-numeric: tabular-nums;
 }
+
+/* La dependencia declarada: ambar tenue como lo que espera, no como lo que
+   falta. Es un HECHO del funnel, no algo a resolver -- por eso no comparte el
+   tono de "sin area" ni el de una accion. */
+.bp-metapill--waits {
+  background: var(--sky);
+  border-color: var(--sky);
+  color: var(--navy);
+  font-weight: 700;
+}

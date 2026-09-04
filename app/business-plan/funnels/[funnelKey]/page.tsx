@@ -54,6 +54,7 @@ export default function FunnelPage({ params }: { params: Promise<{ funnelKey: st
     | { kind: 'add-existing' }
     | { kind: 'new-node' }
     | { kind: 'remove'; node: FunnelNode }
+    | { kind: 'depends'; node: FunnelNode; posicion: number }
     | { kind: 'ms-form'; nodeKey: number; milestone: NodeMilestone | null }
     | { kind: 'ms-delete'; milestone: NodeMilestone }
     | null
@@ -192,6 +193,14 @@ export default function FunnelPage({ params }: { params: Promise<{ funnelKey: st
           const st = nodeStats(nodeKey, data as SearchInput);
           const rango = rangos[i];
           const abierto = abiertos.has(nodeKey);
+          /*
+           * El antecesor, resuelto a su NODO. El vínculo guarda una clave; la
+           * pantalla necesita el nombre, y resolverlo acá --y no en el badge--
+           * es lo que permite que el diálogo y el badge digan lo mismo.
+           */
+          const depKey = data.links.find((l) => l.funnel_key === funnelKey && l.node_key === nodeKey)
+            ?.depends_on_node_key ?? null;
+          const antecesor = depKey === null ? null : data.nodes.find((x) => x.node_key === depKey) ?? null;
           const steps = stepsDe(nodeKey);
           const dias = cumulativeDays(steps.map((m) => m.sla_days));
 
@@ -270,6 +279,31 @@ export default function FunnelPage({ params }: { params: Promise<{ funnelKey: st
                       ))
                     )}
                   </span>
+                  {/*
+                    ═════════════════════════════════════════════════
+                    LA DEPENDENCIA DICE EL NOMBRE, NO EL NÚMERO — etapa BP46
+                    ═════════════════════════════════════════════════
+
+                    `Waits for Social media set up`, nunca
+                    `needs node 1` -- nadie debería tener que ir a contar. El
+                    número de orden está al lado y cambia al arrastrar; el nombre
+                    no.
+
+                    Y SE DECLARA, NO SE DIBUJA: no hay diagrama. La relación se
+                    elige de una lista y se lee como una frase.
+                  */}
+                  {antecesor !== null && (
+                    <span className="bp-metapill bp-metapill--waits" title={'Waits for ' + antecesor.name}>
+                      Waits for {antecesor.name}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    className="bp-metapill bp-metapill--link"
+                    onClick={() => setDialog({ kind: 'depends', node: n, posicion: i })}
+                  >
+                    {antecesor === null ? 'Waits for…' : 'Change'}
+                  </button>
                   <button
                     type="button"
                     className="bp-metapill bp-metapill--link"
@@ -446,6 +480,83 @@ export default function FunnelPage({ params }: { params: Promise<{ funnelKey: st
                 cancel
               </button>
             </div>
+          </div>
+        </Modal>
+      )}
+
+      {dialog?.kind === 'depends' && (
+        <Modal title={'What does ' + dialog.node.name + ' wait for?'} onClose={() => setDialog(null)}>
+          <div className="bp-form">
+            {/*
+              ⚠ SOLO SE OFRECEN LOS NODOS DE ARRIBA.
+              El trigger `funnel_node_dep_order` exige que el antecesor tenga
+              posición menor -- es lo que hace imposibles los ciclos. Ofrecer uno
+              de abajo sería ofrecer algo que la base va a rechazar, y un control
+              que falla al usarse es peor que uno que no ofrece la opción.
+            */}
+            {dialog.posicion === 0 ? (
+              <p className="bp-modal__lead">
+                This is the first node of the funnel, so there is nothing before it to wait for.
+              </p>
+            ) : (
+              <>
+                <p className="bp-modal__lead">
+                  Only the {dialog.posicion} node{dialog.posicion === 1 ? '' : 's'} above it can be chosen: a node
+                  cannot wait for one that comes later.
+                </p>
+                <div className="bp-check-list">
+                  <button
+                    type="button"
+                    className="bp-pickrow"
+                    disabled={busy}
+                    onClick={() =>
+                      run(() =>
+                        bp()
+                          .from('funnel_node')
+                          .update({ depends_on_node_key: null })
+                          .eq('funnel_key', funnelKey)
+                          .eq('node_key', dialog.node.node_key)
+                      )
+                    }
+                  >
+                    <span className="bp-pickrow__name">Nothing — it can start right away</span>
+                    <span className="bp-pickrow__meta">the default</span>
+                  </button>
+                  {secuencia.slice(0, dialog.posicion).map((k, j) => {
+                    const prev = data.nodes.find((x) => x.node_key === k);
+                    if (!prev) return null;
+                    return (
+                      <button
+                        key={k}
+                        type="button"
+                        className="bp-pickrow"
+                        disabled={busy}
+                        onClick={() =>
+                          run(() =>
+                            bp()
+                              .from('funnel_node')
+                              .update({ depends_on_node_key: k })
+                              .eq('funnel_key', funnelKey)
+                              .eq('node_key', dialog.node.node_key)
+                          )
+                        }
+                      >
+                        <span className="bp-pickrow__name">
+                          {j + 1}. {prev.name}
+                        </span>
+                        <span className="bp-pickrow__meta">
+                          {rangos[j] ? 'ends day ' + rangos[j].toDay : ''}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="bp-legend">
+                  A node that waits for another cannot be dragged above it — the database refuses it, so the worst
+                  that can happen is that the list snaps back.
+                </p>
+              </>
+            )}
           </div>
         </Modal>
       )}
