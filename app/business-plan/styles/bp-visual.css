@@ -5598,3 +5598,19 @@ button.bp-metapill--area:disabled {
   line-height: 1.5;
   color: var(--amber-800);
 }
+
+/*
+ * El punto de trabado del stepper. Se AGREGA al boton, no reemplaza su
+ * contorno: pendiente, en curso y completado ya se distinguen ahi, y un nodo
+ * trabado puede estar en cualquiera de los tres.
+ *
+ * `flex: none` es necesario: el boton es un inline-flex y sin eso el punto se
+ * comprime a un ovalo cuando el nombre del nodo es largo.
+ */
+.bp-step__blocked {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--amber-500);
+}

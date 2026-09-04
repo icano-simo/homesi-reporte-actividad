@@ -413,6 +413,38 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
               const p = nodeProgress(n);
               const complete = p.total > 0 && p.done === p.total;
               const isCurrent = n.enrollment_node_key === currentNodeKey;
+              /*
+               * ═══════════════════════════════════════════════════════════════
+               * TRABADO, TAMBIÉN EN EL STEPPER — etapa BP46
+               * ═══════════════════════════════════════════════════════════════
+               *
+               * La tarjeta muestra UN nodo a la vez. Con los once nodos de
+               * `Recruitment - DYS` en pantalla, saber cuáles esperan a otro
+               * costaba once clics -- que es exactamente el valor que se gana al
+               * derivarlo, gastado en navegar.
+               *
+               * ⚠ NO es un cuarto estado del botón. Pendiente, en curso y
+               * completado se distinguen por el CONTORNO y comparten fondo
+               * (sección 23, BP24); un borde ámbar competiría con el coral del
+               * actual y el emerald del completado, y un nodo trabado puede
+               * estar en cualquiera de los tres. Así que se AGREGA un punto,
+               * no se cambia el que ya hay.
+               *
+               * ⚠ Y NO ES SÓLO COLOR. El punto lo ve quien mira; el `title` y
+               * el texto para lectores de pantalla dicen a quién espera, con
+               * nombre. Un punto ámbar solo sería una señal que hay que
+               * aprender.
+               */
+              const trabado = isBlocked(n, nodosPorKey);
+              const esperaA =
+                !trabado || n.depends_on_enrollment_node_key === null
+                  ? null
+                  : nodosPorKey.get(n.depends_on_enrollment_node_key)?.name ?? null;
+              const porQue = !trabado
+                ? undefined
+                : esperaA === null
+                  ? 'Blocked — it waits for a node that is no longer in this plan'
+                  : 'Blocked — waits for ' + esperaA;
               return (
                 <button
                   key={n.enrollment_node_key}
@@ -420,10 +452,17 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                   className={
                     'bp-step' + (complete ? ' is-done' : '') + (isCurrent ? ' is-current' : '')
                   }
+                  title={porQue}
                   onClick={() => setActiveNode(n.enrollment_node_key)}
                 >
                   <span className="bp-step__n">{i + 1}</span>
                   <span className="bp-step__name">{n.name}</span>
+                  {trabado && (
+                    <>
+                      <span className="bp-step__blocked" aria-hidden="true" />
+                      <span className="bp-sr-only">{porQue}</span>
+                    </>
+                  )}
                   <span className="bp-step__count">
                     {p.done}/{p.total}
                   </span>
