@@ -112,6 +112,7 @@ export interface LoanDetailModalLoan {
   branch: string;
   strategyRaw: string;
   opportunityOwnerTitle: string;
+  opportunityOwner: string;
   nppmRealtor: string;
   referredBy: string;
 }
@@ -420,20 +421,24 @@ export default function LoanDetailModal({
             ⚠ OWNER PARA B2B Y DEMÁS ESTRATEGIAS — etapa F7, Parte 4.
             Extiende el mismo patrón de arriba (sub-label debajo del prestatario,
             misma clase `.nppm-realtor`/`.nppm-realtor__label`) a cualquier
-            préstamo que NO sea NPPM: acá el dato es `opportunityOwnerTitle` (el
-            TITLE crudo -- "Business Developer", etc. -- que hoy no se muestra en
-            ningún otro lugar de este modal), no el realtor. Se omite si viene
-            vacío (mismo criterio que arriba, sin placeholder) o si por alguna
-            razón coincide exactamente con `loanOfficer` (columna ya visible más
-            abajo en esta misma fila) -- para no duplicar el mismo valor dos
-            veces. Se muestra tal cual viene, sin filtrar valores de sistema.
+            préstamo que NO sea NPPM. Etapa ANALYTICS-OWNER-1: el dato mostrado
+            pasa a ser `opportunityOwner` (el NOMBRE real de la persona), no
+            `opportunityOwnerTitle` (el rol -- "Business Developer", etc.) --
+            ese título sigue usándose solo para decidir SI se muestra este
+            bloque (misma condición de gate de siempre), nunca como el valor
+            mostrado. Si `opportunityOwner` viene vacío se muestra
+            `NOT_AVAILABLE_TEXT` -- NUNCA cae de vuelta al rol. Se omite el
+            bloque entero si el título viene vacío (mismo criterio que arriba,
+            sin placeholder) o si por alguna razón coincide exactamente con
+            `loanOfficer` (columna ya visible más abajo en esta misma fila) --
+            para no duplicar el mismo valor dos veces.
           */}
           {classifyStrategy(loan) !== 'NPPM' &&
             loan.opportunityOwnerTitle.trim() !== '' &&
             loan.opportunityOwnerTitle.trim() !== loan.loanOfficer.trim() && (
-              <span className="nppm-realtor" title={'Owner: ' + loan.opportunityOwnerTitle.trim()}>
+              <span className="nppm-realtor" title={'Owner: ' + (loan.opportunityOwner.trim() || NOT_AVAILABLE_TEXT)}>
                 <span className="nppm-realtor__label">Owner</span>
-                {loan.opportunityOwnerTitle.trim()}
+                {loan.opportunityOwner.trim() || NOT_AVAILABLE_TEXT}
               </span>
             )}
         </td>
