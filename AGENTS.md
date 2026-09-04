@@ -24,9 +24,10 @@ que se parecía a un bug del código:
 | «el forecast de Brokered no coincide» | mi script de comparación leía la columna equivocada del Excel |
 | «julio no muestra el aviso de integridad» | mi timeout era de 3,5s y la ruta tardaba más |
 | «la ventana de 12 meses aceleró la ruta 3×» | la ventana no descartaba **ni un** snapshot; los 7,9s eran el compile en frío |
+| «la fila anclada tiene fondo navy y texto blanco» | medí `td:first`; en cuatro de las doce celdas el texto quedaba ilegible |
 
-Los cinco fallaron de modos **distintos**, así que no hay un chequeo general
-que los cubra. Lo único que funcionó las cinco veces fue medir de nuevo por un
+Los seis fallaron de modos **distintos**, así que no hay un chequeo general
+que los cubra. Lo único que funcionó las seis veces fue medir de nuevo por un
 camino que no compartiera el error con el primero.
 
 **El quinto es el difícil**, y por eso está: los otros cuatro parecían bugs del
@@ -42,6 +43,26 @@ Que es el corolario de abajo en la dirección contraria, y vale igual:
 Y una regla operativa que sale sólo de este caso: **medir una ruta de Next en
 dev necesita una corrida de calentamiento antes de la primera que cuenta**, o el
 compile se cobra en la primera medición y se lo atribuye al cambio.
+
+**El sexto es de otra clase**, y por eso vale distinguirlo. Los cinco anteriores
+son mediciones MAL ESCRITAS: el elemento equivocado, el contenedor en vez del
+texto, la columna equivocada, el timeout corto, el compile en frío. Ésta estaba
+bien escrita — `getComputedStyle` sobre una celda de la fila devolvió
+exactamente lo que había que verificar, fondo `--navy` y texto blanco. El
+problema es que **midió una muestra que no representaba al conjunto**: era
+`td:first`, la celda del rótulo, y las otras once no tenían por qué comportarse
+igual. Cuatro de ellas —las de pronóstico y presupuesto— conservaban el tinte
+de su banda, que le ganaba en especificidad, y sus números quedaban en azul
+pálido sobre azul pálido.
+
+> **Una celda no dice nada de las otras once.**
+
+La regla operativa: **cuando se verifica un estilo que aplica a varias celdas,
+medir una no alcanza.** O se miden todas, o se mira la captura.
+
+Y de nuevo lo encontró la captura y no el número — igual que los seis hallazgos
+del módulo Outlook que salieron de ver una imagen. Un `getComputedStyle` verde
+sobre una celda y una fila ilegible conviven sin contradecirse.
 
 ## El corolario
 
