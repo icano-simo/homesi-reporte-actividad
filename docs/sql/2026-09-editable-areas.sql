@@ -207,24 +207,54 @@ end $chk$;
 alter table business_plan.node
   drop constraint if exists node_area_check;
 
-create or replace function business_plan.node_area_text_sync()
+-- ⚠ UN SOLO TRIGGER, Y EN LAS DOS DIRECCIONES.
+--
+-- La primera version de este archivo sincronizaba solo `area_key -> area`, y
+-- eso dejaba un hueco: el codigo desplegado HOY escribe el TEXTO
+-- --`update node set area = 'Marketing'`, comprobado en
+-- `library/page.tsx:466`-- asi que cada asignacion de area desde la pantalla
+-- habria dejado `area_key` sin actualizar. La lectura seguia funcionando,
+-- porque la app lee el texto, y la divergencia no se habria notado hasta la
+-- fase B: al borrar la columna de texto, todos esos nodos habrian aparecido
+-- sin area.
+--
+-- Es justo lo que el puente venia a evitar, asi que va completo.
+--
+-- Y va en UN trigger y no en dos: dos triggers BEFORE sobre la misma tabla se
+-- ejecutan en orden alfabetico de nombre y se pisarian el uno al otro -- el
+-- segundo veria el `new` ya modificado por el primero y volveria a resolver
+-- sobre un valor derivado. Con uno solo, la prioridad es explicita.
+create or replace function business_plan.node_area_bridge()
 returns trigger
 language plpgsql
 security invoker
 set search_path = ''
 as $$
 begin
-  select a.name into new.area
-  from business_plan.area a
-  where a.area_key = new.area_key;
+  if tg_op = 'INSERT' then
+    -- La CLAVE manda si vino: es la representacion nueva.
+    if new.area_key is not null then
+      select a.name into new.area from business_plan.area a where a.area_key = new.area_key;
+    elsif new.area is not null then
+      select a.area_key into new.area_key from business_plan.area a where a.name = new.area;
+    end if;
+    return new;
+  end if;
+
+  -- En UPDATE se mira QUE COLUMNA cambio, y la clave tiene prioridad.
+  if new.area_key is distinct from old.area_key then
+    select a.name into new.area from business_plan.area a where a.area_key = new.area_key;
+  elsif new.area is distinct from old.area then
+    select a.area_key into new.area_key from business_plan.area a where a.name = new.area;
+  end if;
   return new;
 end;
 $$;
 
-create trigger node_area_text_sync
-  before insert or update of area_key on business_plan.node
+create trigger node_area_bridge
+  before insert or update on business_plan.node
   for each row
-  execute function business_plan.node_area_text_sync();
+  execute function business_plan.node_area_bridge();
 
 -- Y si se renombra un área, el texto de sus nodos también se actualiza.
 create or replace function business_plan.area_rename_sync()
@@ -254,9 +284,9 @@ create trigger area_rename_sync
 -- No se ejecuta con lo de arriba. Se ejecuta cuando la app ya lee `area_key` y
 -- nadie lee `node.area`.
 --
---   drop trigger if exists node_area_text_sync on business_plan.node;
+--   drop trigger if exists node_area_bridge on business_plan.node;
 --   drop trigger if exists area_rename_sync on business_plan.area;
---   drop function if exists business_plan.node_area_text_sync();
+--   drop function if exists business_plan.node_area_bridge();
 --   drop function if exists business_plan.area_rename_sync();
 --   alter table business_plan.node drop column area;
 --
@@ -285,8 +315,14 @@ create trigger area_rename_sync
 --     left join business_plan.area a on a.area_key = n.area_key
 --    group by 1 order by 2 desc;
 --
---   -- y que el puente funciona: texto y clave dicen lo mismo
+--   -- y que el puente funciona EN LAS DOS DIRECCIONES: texto y clave dicen lo
+--   -- mismo, sin importar cual se haya escrito
 --   select count(*) from business_plan.node n
 --     join business_plan.area a on a.area_key = n.area_key
 --    where n.area is distinct from a.name;
 --   -- debe dar 0
+--
+--   -- la via texto -> clave, que es la que usa el codigo desplegado hoy:
+--   update business_plan.node set area = 'IT' where node_key = <uno de prueba>;
+--   select area, area_key from business_plan.node where node_key = <el mismo>;
+--   -- area_key tiene que haber quedado con la clave de IT, no en null

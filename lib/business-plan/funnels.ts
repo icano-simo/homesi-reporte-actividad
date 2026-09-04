@@ -38,6 +38,38 @@ export interface Funnel {
  * inutil: el desplegable necesita saber que ofrecer y la base necesita rechazar
  * lo que llegue por otra via. Si algun dia hay una quinta, van las dos.
  */
+/**
+ * ============================================================================
+ * LAS AREAS, Y DONDE VIVE LA RED QUE ESTO DA -- leer antes de tocar
+ * ============================================================================
+ *
+ * Estos cuatro nombres son HOY la unica definicion literal de las areas en todo
+ * el codigo: cero comparaciones tipo `=== 'Marketing'` en la app, y las demas
+ * apariciones iteran esta constante o usan el tipo que sale de ella.
+ *
+ * ⚠ Y ESO ES UNA RED QUE SE VA A PERDER, a proposito.
+ *
+ * `NodeArea` es un tipo UNION derivado de la constante, asi que hoy un area mal
+ * escrita --`'Marketng'`-- es un error de COMPILACION. Cuando las areas pasen a
+ * ser editables (BP44, fase B), esto se reemplaza por una clave numerica contra
+ * `business_plan.area`, y el compilador deja de poder saber que areas existen:
+ *
+ *   · ANTES: `'Marketng'` no compila.
+ *   · DESPUES: `area_key = 99` compila, y falla al guardar con un 400 de la FK
+ *     `node_area_fk`.
+ *
+ * La red no desaparece, se MUEVE: de `tsc` a la base. Es el precio de que sean
+ * editables y no hay forma de tener las dos -- un tipo union no puede conocer
+ * filas que alguien va a crear manana.
+ *
+ * Quien venga buscando "donde se validan las areas": ya no es aca. Es la FK.
+ *
+ * ESTADO DE LA MIGRACION: la fase A esta aplicada. `business_plan.area` existe
+ * con las cuatro filas, `node.area_key` esta poblada (25 de 32) y un trigger
+ * bidireccional mantiene `node.area` en sincronia en las dos direcciones. Esta
+ * constante sigue siendo la que dibuja la pantalla hasta que el codigo lea la
+ * tabla; ver `docs/sql/2026-09-editable-areas.sql`.
+ */
 export const NODE_AREAS = ['Marketing', 'Sales Coaching', 'Performance', 'IT'] as const;
 export type NodeArea = (typeof NODE_AREAS)[number];
 

@@ -211,6 +211,33 @@ No alcanza con verificar que el caso nuevo **aparezca**. Hay que usarlo:
 El costo es un clic. Lo que evita es entregar una etapa correcta con una puerta
 que da a una pared, y que la encuentre quien la use.
 
+## Y el caso hermano: redefinir un nombre que ya existía
+
+Antes de definir una clase de CSS, **verificar que el nombre no exista**. Un
+`git grep` cuesta segundos.
+
+`.bp-pill` estaba definida desde antes, con `--radius-sm`, padding `2px 7px`,
+10px y peso 700, y la usaba `FunnelExplorer` con sus variantes `--sky`, `--day`
+y `--late`. La redefiní para las tarjetas de nodo, y como la mía venía después
+en el archivo, **le ganó**: las píldoras del explorador cambiaron de forma,
+padding, tamaño y peso sin que nadie lo pidiera.
+
+Lo que lo hizo invisible: las variantes sobreescriben **color y borde**, que es
+lo que se mira primero, así que seguían viéndose bien. Y ninguna medición de esa
+etapa tocaba el explorador — se estaba verificando la pantalla nueva.
+
+> **Una clase redefinida no rompe donde la escribís, rompe donde ya estaba.**
+
+Y una vuelta de tuerca que lo empeora en vez de mejorarlo: el contexto ajeno era
+**mío**, de dos etapas antes. Dos etapas propias también colisionan, así que la
+familiaridad con el archivo no sustituye al grep.
+
+La regla operativa: **al agregar CSS, `git grep` del selector primero.** Si ya
+existe, elegir otro nombre — no "mejorar" el existente de paso, porque quien lo
+usa no está en la pantalla que se está mirando. Y al medir un cambio de estilo,
+medir **la cascada** y no sólo el elemento nuevo: un elemento inyectado con la
+clase ajena dice si le pegaste, sin tener que navegar hasta ahí.
+
 # Lo que compensa una ausencia hace que la ausencia no se note
 
 > Tercera sección aparte, y sale de haberlo visto **tres veces**. Un patrón se
