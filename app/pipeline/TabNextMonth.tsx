@@ -197,23 +197,33 @@ export default function TabNextMonth({ estClosingNextMonth, outOfScope, combined
         </div>
       </div>
 
-      {/* Mismo patrón visual/de estado que el toggle "By branch"/"By strategy" de PivotTable.tsx (`.seg`, clase `on` en el botón activo). */}
-      <div className="seg">
-        <button type="button" className={view === 'branch' ? 'on' : ''} onClick={() => setView('branch')}>
-          By branch
-        </button>
-        <button type="button" className={view === 'strategy' ? 'on' : ''} onClick={() => setView('strategy')}>
-          By strategy
-        </button>
-      </div>
-
-      {/* Etapa NEXTMONTH-7: mismo patrón visual/de estado que el toggle de arriba (`.seg`, clase `on` en el botón activo), fila propia debajo. */}
-      <div className="seg" style={{ marginTop: '8px' }}>
-        {POPULATION_OPTIONS.map((opt) => (
-          <button key={opt.key} type="button" className={population === opt.key ? 'on' : ''} onClick={() => setPopulation(opt.key)}>
-            {opt.label}
+      {/*
+        Etapa NEXTMONTH-7, fix de layout: `.seg` es `display: inline-flex`
+        (components.css) -- 2 `<div className="seg">` hermanos flotan en la
+        misma línea, como texto en línea, en vez de apilarse. Se envuelven
+        acá en un contenedor propio (flex column) para forzar 2 filas
+        separadas, sin tocar `.seg` en sí (comparte esa clase con
+        PivotTable.tsx, no se toca su definición global).
+      */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        {/* Mismo patrón visual/de estado que el toggle "By branch"/"By strategy" de PivotTable.tsx (`.seg`, clase `on` en el botón activo). */}
+        <div className="seg">
+          <button type="button" className={view === 'branch' ? 'on' : ''} onClick={() => setView('branch')}>
+            By branch
           </button>
-        ))}
+          <button type="button" className={view === 'strategy' ? 'on' : ''} onClick={() => setView('strategy')}>
+            By strategy
+          </button>
+        </div>
+
+        {/* Mismo patrón visual/de estado que el toggle de arriba (`.seg`, clase `on` en el botón activo). */}
+        <div className="seg">
+          {POPULATION_OPTIONS.map((opt) => (
+            <button key={opt.key} type="button" className={population === opt.key ? 'on' : ''} onClick={() => setPopulation(opt.key)}>
+              {opt.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="tbl-card" style={{ marginTop: '12px' }}>
