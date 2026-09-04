@@ -4,7 +4,8 @@ import { useState } from 'react';
 import Modal from '@/app/business-plan/components/Modal';
 import type { BranchRecruit } from '@/lib/outlook/loadData';
 import { STAGE_LABEL } from '@/lib/outlook/recruitment';
-import { saveRecruitLink, saveRecruitProjection } from '@/lib/outlook/save';
+import { saveRecruitLink, saveRecruitProjection, saveRecruitRamp } from '@/lib/outlook/save';
+import type { Ramp } from '@/lib/outlook/recruitment';
 
 /**
  * ============================================================================
@@ -95,6 +96,8 @@ export default function RecruitEditor({
   branches,
   roster,
   currentMonth,
+  ramp,
+  recruitCount,
   onClose,
   onSaved,
 }: {
@@ -113,6 +116,20 @@ export default function RecruitEditor({
   roster: { employeeKey: number; name: string; branchCode: string }[];
   /** Para precargar el mes de producción de un alta a mano: el que viene. */
   currentMonth: string;
+  /**
+   * ⚠ LA RAMPA VIGENTE, PARA EDITARLA ACA DENTRO — etapa OL24.
+   *
+   * Tenia su propio boton y su propio modal. Se muda adentro de este porque
+   * es la otra mitad de la misma decision: cuanto se espera de alguien y con
+   * que curva llega a eso.
+   *
+   * ⚠ PERO NO ES DE ESTA PERSONA, Y ESO HAY QUE DECIRLO DONDE SE EDITA. Es
+   * una sola curva para los quince, en los diecisiete branches; puesta dentro
+   * del formulario de UN alta, lo natural es leerla como suya.
+   */
+  ramp: Ramp;
+  /** Cuanta gente en contratacion afecta la rampa. Para el aviso, no para el calculo. */
+  recruitCount: number;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -138,6 +155,16 @@ export default function RecruitEditor({
   const [benchmark, setBenchmark] = useState(
     recruit && recruit.monthlyBenchmark !== null ? String(recruit.monthlyBenchmark) : ''
   );
+  /*
+   * Los tres tramos, como TEXTO y en por ciento: el formulario habla en 25
+   * porque el negocio habla en 25. La conversion a 0.25 pasa una sola vez, al
+   * guardar. Y `null` en `rampaTocada` distingue "no la abri" de "la abri y la
+   * deje igual": sin eso, todo guardado escribiria una revision nueva de la
+   * rampa global aunque nadie la hubiera cambiado.
+   */
+  const [m1, setM1] = useState(pct(ramp.month1));
+  const [m2, setM2] = useState(pct(ramp.month2));
+  const [m3, setM3] = useState(pct(ramp.month3Plus));
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -173,6 +200,23 @@ export default function RecruitEditor({
         nmls: recruit?.nmls ?? null,
         note: note.trim() === '' ? null : note.trim(),
       });
+      /*
+       * ⚠ LA RAMPA SE GUARDA SOLO SI CAMBIO, y por eso se compara contra la
+       * vigente en vez de escribir siempre. `recruitment_ramp` es append-only:
+       * escribir en cada alta dejaria una revision nueva por persona, todas
+       * identicas, y el historial dejaria de decir cuando cambio de verdad.
+       */
+      const nums = [m1, m2, m3].map((t) => Number(t) / 100);
+      const cambio =
+        nums[0] !== ramp.month1 || nums[1] !== ramp.month2 || nums[2] !== ramp.month3Plus;
+      if (cambio) {
+        if (nums.some((n) => !Number.isFinite(n) || n < 0 || n > 1)) {
+          setError('Each ramp percentage has to be a number between 0 and 100.');
+          setBusy(false);
+          return;
+        }
+        await saveRecruitRamp({ month1: nums[0], month2: nums[1], month3Plus: nums[2], note: null });
+      }
       onSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -355,9 +399,54 @@ export default function RecruitEditor({
         */}
         <p className="ol-editor__hint">
           Leave <b>Monthly production</b> empty if nobody has decided yet — the row shows no projection and says why. A
-          zero means something different: that no production is expected. And a new hire ramps up — 25% of this the
-          first month, 50% the second, 100% from the third.
+          zero means something different: that no production is expected. And a new hire ramps up by the curve below.
         </p>
+
+        {/*
+          ══════════════════════════════════════════════════════════════════
+          ⚠ LA RAMPA, ADENTRO DEL ALTA — etapa OL24
+          ══════════════════════════════════════════════════════════════════
+
+          Tenia boton y modal propios. Vive aca porque es la otra mitad de la
+          misma decision: cuanto se espera de alguien, y con que curva llega.
+
+          ⚠ Y NO ES DE ESTA PERSONA. Es UNA curva para los quince, en los
+          diecisiete branches. Puesta dentro del formulario de un alta, lo
+          natural es leerla como suya, asi que el aviso va aca y no en un
+          tooltip: cambiarla mueve el presupuesto de todos.
+        */}
+        <div className="ol-editor__ramp">
+          <div className="ol-editor__row">
+            <span className="bp-form__label">Ramp-up curve</span>
+            <span className="ol-editor__pct">% of the monthly production, by month on the job</span>
+          </div>
+          <div className="ol-editor__row">
+            {([
+              ['ramp-1', 'First month', m1, setM1] as const,
+              ['ramp-2', 'Second month', m2, setM2] as const,
+              ['ramp-3', 'Third onwards', m3, setM3] as const,
+            ]).map(([id, etiqueta, valor, set]) => (
+              <div className="bp-form__field" key={id}>
+                <label className="bp-form__label" htmlFor={id}>
+                  {etiqueta}
+                </label>
+                <input
+                  id={id}
+                  type="text"
+                  inputMode="decimal"
+                  className="field ol-editor__num"
+                  value={valor}
+                  onChange={(e) => set(e.target.value)}
+                />
+              </div>
+            ))}
+          </div>
+          <p className="bp-notice bp-notice--warn ol-editor__msg">
+            This curve is <b>the same for everyone in hiring, in every branch</b>{' '}
+            — it is not this person&apos;s. Changing it moves the budget of all {recruitCount} of them, and it
+            is only saved if you actually change one of the three numbers.
+          </p>
+        </div>
 
         {/*
           ══════════════════════════════════════════════════════════════════
@@ -458,4 +547,10 @@ export default function RecruitEditor({
 function mesSiguiente(month: string): string {
   const [y, m] = month.split('-').map(Number);
   return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
+}
+
+/** 0.25 -> "25". Sin decimales cuando no hacen falta, que es siempre hoy. */
+function pct(v: number): string {
+  const n = v * 100;
+  return String(Number.isInteger(n) ? n : Number(n.toFixed(2)));
 }

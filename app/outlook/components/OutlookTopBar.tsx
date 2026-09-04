@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { useOutlookDataContext } from '@/lib/outlook/useOutlookData';
 import RecruitEditor, { branchOptions } from '@/app/outlook/components/RecruitEditor';
-import RecruitRampEditor from '@/app/outlook/components/RecruitRampEditor';
 import { horizonOptions } from '@/lib/outlook/horizon';
 
 /**
@@ -40,7 +39,7 @@ import { horizonOptions } from '@/lib/outlook/horizon';
  */
 export default function OutlookTopBar() {
   const { data, horizonMonths, setHorizonMonths, reload } = useOutlookDataContext();
-  const [panel, setPanel] = useState<'ramp' | 'new' | null>(null);
+  const [panel, setPanel] = useState<'new' | null>(null);
 
   /* Sin datos no hay nada que rotular: la barra no se dibuja hasta que cargan. */
   if (!data) return null;
@@ -69,77 +68,45 @@ export default function OutlookTopBar() {
 
       {/*
         ══════════════════════════════════════════════════════════════════════
-        LA BARRA DE RECLUTAMIENTO — etapa OL23
+        UN SOLO BOTON — etapa OL24
         ══════════════════════════════════════════════════════════════════════
 
-        Eran dos botones sueltos al lado del selector de horizonte y se leían
-        como tres controles del mismo rango. Son dos cosas distintas: a la
-        izquierda el PIPELINE --cuánta gente hay y cómo agregar-- y a la derecha
-        la CURVA con la que arranca cada uno.
+        OL23 puso una barra con cuatro cosas: dos insignias, el boton y la
+        pildora de la rampa. Eran cuatro controles del mismo rango para una sola
+        decision, y la rampa --que es global a la division-- competia con el alta
+        de UNA persona como si fueran del mismo nivel.
 
-        ⚠ SÓLO SI HAY DÓNDE GUARDAR. Igual que `monthlyModeAvailable` con el
-        modo mes a mes: sin las tres tablas de OL20 aplicadas, alguien llenaría
-        el formulario para descubrir al apretar Guardar que no hay tabla.
+        Queda un boton, y se lleva el contador: `15 in process` no se pierde
+        porque es lo unico que dice que esas quince personas existen sin entrar a
+        recorrer los cuatro branches donde viven.
+
+        La rampa se fue ADENTRO del modal. Ver la advertencia que la acompania
+        alla: sigue siendo global, y eso hay que decirlo donde se la edita.
       */}
       {data.diagnostics.recruitTablesAvailable && (
-        <div className="ol-recruitbar">
-          <div className="ol-recruitbar__side">
-            <span
-              className="ol-badge"
-              title={
-                `${enProceso} people are in the hiring process across every branch, and ${conBenchmark} of them ` +
-                `have a monthly production set. Without a target a person adds nothing to the budget — empty is ` +
-                `not zero: it means nobody has decided yet.`
-              }
-            >
-              {enProceso} in process
-            </span>
-            {/*
-              ⚠ EL SEGUNDO NÚMERO ES EL QUE IMPORTA. `15 in process` dice que
-              existen; `0 with target` dice que el presupuesto de reclutamiento
-              vale cero, que es un estado correcto y no un bug -- pero hay que
-              poder verlo sin entrar a ningún branch.
-            */}
-            <span className="ol-badge ol-badge--quiet">{conBenchmark} with target</span>
-            <button type="button" className="ol-btn-coral" onClick={() => setPanel('new')}>
-              + Add hiring projection
-            </button>
-          </div>
-
-          <div className="ol-recruitbar__side">
-            <span className="ol-recruitbar__lbl">Ramp curve:</span>
-            {/*
-              ⚠ LOS TRES TRAMOS SALEN DE LA REVISIÓN VIGENTE de
-              `outlook.recruitment_ramp`, no de un literal. Un `25 · 50 · 100`
-              escrito a mano seguiría diciendo eso después de que alguien la
-              cambie, que es la clase de mentira que nadie revisa.
-            */}
-            <button
-              type="button"
-              className="ol-ramp"
-              onClick={() => setPanel('ramp')}
-              title="The ramp-up curve for a new hire: one curve for everyone, in every branch. Click to edit."
-            >
-              {[data.recruitRamp.month1, data.recruitRamp.month2, data.recruitRamp.month3Plus].map((v, i) => (
-                <span key={i} className="ol-ramp__seg">
-                  {Math.round(v * 100)}%
-                </span>
-              ))}
-            </button>
-          </div>
-        </div>
+        <button
+          type="button"
+          className="ol-btn-coral"
+          onClick={() => setPanel('new')}
+          title={
+            `${enProceso} people are in the hiring process across every branch, and ${conBenchmark} of them ` +
+            `have a monthly production set. Without a target a person adds nothing to the budget — empty is ` +
+            `not zero: it means nobody has decided yet. Opens the simulator, where the ramp-up curve is set too.`
+          }
+        >
+          + Add hiring projection
+          <span className="ol-btn-coral__count">
+            {' · '}
+            {enProceso} in process
+          </span>
+        </button>
       )}
 
-      {panel === 'ramp' && (
-        <RecruitRampEditor
-          ramp={data.recruitRamp}
-          onClose={() => setPanel(null)}
-          onSaved={() => {
-            setPanel(null);
-            void reload();
-          }}
-        />
-      )}
+      {/*
+        El editor de rampa suelto se fue: la rampa se configura dentro del alta
+        -- etapa OL24. Un panel menos que abrir para una decision que casi
+        siempre se toma junto con la otra.
+      */}
 
       {panel === 'new' && (
         <RecruitEditor
@@ -148,6 +115,8 @@ export default function OutlookTopBar() {
           /* En un alta no hay a quien vincular todavia: la fila no existe. */
           roster={[]}
           currentMonth={data.currentMonth}
+          ramp={data.recruitRamp}
+          recruitCount={enProceso}
           onClose={() => setPanel(null)}
           onSaved={() => {
             setPanel(null);

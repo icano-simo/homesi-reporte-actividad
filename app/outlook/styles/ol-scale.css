@@ -47,7 +47,21 @@
  * Business Plan sin que nadie lo pidiera.
  */
 
+/*
+ * ⚠ `.ol-topbar` SE AGREGÓ EN OL24, Y NO ES COSMÉTICO.
+ *
+ * La barra del módulo vive en el `layout.tsx`, o sea FUERA de `.ol-page`, así
+ * que no heredaba estos tokens: `font-size: var(--ol-text)` era una variable
+ * indefinida, la declaración se ignoraba, y toda la barra venía en los 14px del
+ * documento en vez de los 12 del módulo. Desde OL22 y sin que se notara.
+ *
+ * Es el mismo mecanismo que `--white`: una variable que no existe no rompe
+ * ruidosamente, se cae a lo que había. Cuando una regla de este archivo no
+ * parece aplicar, lo primero a mirar es si el elemento está dentro de alguno de
+ * estos tres selectores.
+ */
 .ol-page,
+.ol-topbar,
 .ol-editor {
   --ol-text: 12px;
   --ol-lg: 14px;
