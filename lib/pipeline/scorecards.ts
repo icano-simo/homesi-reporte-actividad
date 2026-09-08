@@ -220,6 +220,15 @@ export function buildLoanOfficerScorecard(
   return buildPersonScorecard(loans, (loan) => loan.loanOfficer, 'salesforce', aliasIndex, excludedIndex, employeeNameByKey, 'Unknown Loan Officer');
 }
 
+export function buildLoanProcessorScorecard(
+  loans: ResolvedLoan[],
+  aliasIndex: AliasIndex,
+  excludedIndex: { has(source: SourceSystem, nameRaw: string | null | undefined): boolean },
+  employeeNameByKey: Map<number, string>
+): PersonScorecardResult {
+  return buildPersonScorecard(loans, (loan) => loan.loanProcessor, 'salesforce', aliasIndex, excludedIndex, employeeNameByKey, 'Unknown Loan Processor');
+}
+
 /**
  * Business Developer: población = `classifyStrategy(loan) === 'B2B'`, NO
  * el filtro de título crudo que tenía antes.

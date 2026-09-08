@@ -16,6 +16,7 @@ import {
   buildBranchScorecard,
   buildBusinessDeveloperScorecard,
   buildLoanOfficerScorecard,
+  buildLoanProcessorScorecard,
   buildNppmRealtorScorecard,
   UNKNOWN_PERSON_KEY,
   type PersonScorecardResult,
@@ -1301,13 +1302,16 @@ function loansForMonthAndType(loans: ResolvedLoan[], month: string, typeLabel: s
  */
 function loansForScorecardCut(
   loans: ResolvedLoan[],
-  cut: 'branch' | 'loanOfficer' | 'businessDeveloper',
+  cut: 'branch' | 'loanOfficer' | 'loanProcessor' | 'businessDeveloper',
   key: string,
   aliasIndex: OrgRoster['aliasIndex']
 ): ResolvedLoan[] {
   if (cut === 'branch') return loans.filter((l) => l.branch === key);
   if (cut === 'loanOfficer') {
     return loans.filter((l) => loanResolvesToEmployeeKey(l, (loan) => loan.loanOfficer, aliasIndex, key));
+  }
+  if (cut === 'loanProcessor') {
+    return loans.filter((l) => loanResolvesToEmployeeKey(l, (loan) => loan.loanProcessor, aliasIndex, key));
   }
   // FIX-BD-B2B-POPULATION: mismo fix de correctness que buildBusinessDeveloperScorecard
   // (lib/pipeline/scorecards.ts) -- classifyStrategy() como fuente de verdad de
@@ -2305,6 +2309,12 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
     orgRoster.excludedIndex,
     orgRoster.employeeNameByKey
   );
+  const loanProcessorScorecard = buildLoanProcessorScorecard(
+    fundedInRange,
+    orgRoster.aliasIndex,
+    orgRoster.excludedIndex,
+    orgRoster.employeeNameByKey
+  );
   const businessDeveloperScorecard = buildBusinessDeveloperScorecard(
     fundedInRange,
     orgRoster.aliasIndex,
@@ -2889,6 +2899,25 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
               diagnostic={personDiagnosticsNote(loanOfficerScorecard)}
             />
             <ScorecardPodiumPanel rows={loanOfficerScorecard.rows} />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2.1fr) minmax(0, 1fr)', gap: '20px', marginBottom: '20px' }}>
+            <ScorecardTable
+              title="Loan Processor"
+              columnLabel="Loan Processor"
+              rows={loanProcessorScorecard.rows}
+              totalCount={loanProcessorScorecard.diagnostics.resolvedCount + loanProcessorScorecard.diagnostics.blankCount}
+              onRowClick={(row) =>
+                setDrillDown({
+                  metric: 'Loan Processor',
+                  context: row.label,
+                  loans: loansForScorecardCut(fundedInRange, 'loanProcessor', row.key, orgRoster.aliasIndex).map(closedLoanToModalLoan),
+                  hiddenColumns: ['loanOfficer', 'milestone', 'status'],
+                })
+              }
+              diagnostic={personDiagnosticsNote(loanProcessorScorecard)}
+            />
+            <ScorecardPodiumPanel rows={loanProcessorScorecard.rows} />
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2.1fr) minmax(0, 1fr)', gap: '20px', marginBottom: '24px' }}>
