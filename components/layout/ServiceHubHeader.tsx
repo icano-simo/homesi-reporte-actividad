@@ -42,7 +42,6 @@ interface NavTab {
 const NAV_TABS: NavTab[] = [
   { href: '/', label: 'Commercial Activity', icon: <BarChartIcon /> },
   { href: '/pipeline', label: 'Forecast & Pipeline', icon: <TrendingUpIcon /> },
-  { href: '/business-plan', label: 'Business Plan', icon: <TargetIcon /> },
   /*
    * Etapa ANALYTICS-TAB-1: antes un sub-tab de Forecast & Pipeline (F7), ahora
    * ruta propia -- ver app/analytics/page.tsx y la nota en docs/ARQUITECTURA.md.
@@ -58,6 +57,7 @@ const NAV_TABS: NavTab[] = [
    * es quitar el claim, sin desplegar.
    */
   { href: ANALYTICS_PATH, label: 'Analytics', icon: <PieChartIcon />, claim: ANALYTICS_CLAIM },
+  { href: '/business-plan', label: 'Business Plan', icon: <TargetIcon /> },
   /*
    * Etapa OL1 — Outlook: la proyección del resto del año. Es la primera
    * pestaña con claim propio; hoy la ven cuatro personas.

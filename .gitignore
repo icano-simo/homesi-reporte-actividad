@@ -55,3 +55,9 @@ next-env.d.ts
 
 # claude code -- config local del agente, no es parte del proyecto
 .claude/
+
+# playwright mcp -- artefactos de sesion (screenshots, snapshots, logs)
+.playwright-mcp/
+
+# mcp -- config local de servidores MCP, no es parte del proyecto
+.mcp.json
