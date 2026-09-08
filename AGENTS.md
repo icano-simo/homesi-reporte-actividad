@@ -143,6 +143,44 @@ borra y recrea al usuario de la primera. Y los dos caminos respondieron distinto
 confianza. Es la novena de la familia: la respuesta estaba a la vista y la
 pregunta era otra.
 
+## Una herramienta puede contestar de menos sin decir que contestó de menos
+
+Los casos de arriba son mediciones que midieron mal, un arnés que no midió, y
+una conclusión construida a partir de verdades. Éste es otro mecanismo: la
+herramienta **contestó**, contestó bien lo que contestó, y contestó **menos de
+lo que hay** — sin ninguna señal de que la respuesta estaba recortada.
+
+Busqué si este repo tenía un despliegue en Vercel, por tres vías:
+
+| vía | qué dijo |
+|---|---|
+| `.vercel/project.json` en el repo | no existe |
+| `list_projects` del conector MCP | **un** proyecto del equipo, y no es éste |
+| una URL `.vercel.app` en el código | ninguna |
+
+Y reporté que el repo no estaba conectado a Vercel. Era falso: el proyecto se
+llama `homesi-performance` —otro nombre que el repo— y la app está publicada en
+internet desde hace semanas. `npx vercel project ls` lista **cinco** proyectos
+del mismo equipo; el MCP listó uno.
+
+> **Cuando una búsqueda por varias vías da un negativo, eso puede significar que
+> ninguna de las vías podía verlo. La herramienta no falló — devolvió menos de
+> lo que hay, que es peor.**
+
+Peor porque un fallo se ve. Tres vías coincidiendo en «no» se siente como
+evidencia, y era una sola fuente incompleta y dos que nunca podían responder
+— no hay `.vercel/` en este repo y la URL no está en el código, así que esas dos
+dan «no» también cuando la respuesta es «sí».
+
+Las dos reglas operativas:
+
+- **Un negativo sobre la existencia de algo externo vale menos que un negativo
+  sobre su contenido.** «No hay proyecto» hay que confirmarlo con la
+  herramienta que ENUMERA, no con las que consultan por clave.
+- Y cuando dos de las tres vías sólo pueden decir «no», **no son vías**: son la
+  misma vía contada tres veces. Es el problema de la celda que no dice nada de
+  las otras once, en la dirección contraria.
+
 ## Un comentario correcto para su caso puede engañar en el siguiente
 
 Cinco archivos de `docs/sql/` dicen alguna versión de:
