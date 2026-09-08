@@ -8088,3 +8088,66 @@ en cero para el período que se está mirando.
 `app/pipeline/page.tsx` (`hideZeroBranches()` reusada tal cual, aplicada
 a `loanOfficerRows.banked`/`.brokered` en `handleExportPdf()` -- ningún
 cambio en `lib/pipeline/loanOfficerForecast.ts`).
+
+## Loan Processor / LOA2 / LOA-2 en el reporte diario, solo lectura, no en el mensual
+
+Tres columnas nuevas de punta a punta -- `loan_processor`, `loa2` y
+`loa_2` (`pipeline_forecast.pipeline_loans`/`pipeline_resolved_loans`) --
+autorizadas para "Export today's forecast" (el reporte del día,
+`/api/pipeline/day-report`). `loa2` y `loa_2` son personas DISTINTAS
+(confirmado: ~85% de solapamiento, no la misma columna) -- se muestran
+como 2 columnas separadas en el Excel ("LOA2"/"LOA-2"), nunca combinadas
+ni con `COALESCE`.
+
+Encadenado igual que el resto de los crudos opcionales del módulo: tipo
+(`lib/pipeline/types.ts`), lectura del snapshot activo (SELECT explícito
+en `app/api/pipeline/latest/route.ts`), mapeo al insert manual
+(`app/api/pipeline/parse/route.ts` -- camino ya retirado en la práctica,
+ver la nota de esa etapa sobre `save_pipeline_snapshot()`), y columnas
+nuevas en la hoja "Pipeline" del Excel diario
+(`app/api/pipeline/day-report/route.ts`).
+
+### Por qué el reporte mensual NO las trae
+
+`app/api/pipeline/monthly-report/route.ts` fija los 3 campos en `''` en
+sus 2 mappers (`toOpen()`/`toResolved()`) -- **a propósito, no por
+olvido**. Mismo criterio que ya usa ese archivo para
+`nppmRealtor`/`referredBy`/`affinityProgram`/`opportunityOwner`/
+`propertyState`: son campos que ese reporte nunca consume, y por eso
+quedaron fuera de `OPEN_COLS`/`RESOLVED_COLS` (las listas explícitas de
+columnas que ese archivo sí selecciona). Nadie pidió esta columna para el
+reporte mensual -- agregarla ahí habría sido alcance nuevo, no parte de
+esta etapa.
+
+### La asimetría de snapshots (por qué un histórico puede mostrarlas vacías)
+
+El reporte diario y el mensual leen de fuentes distintas:
+
+- **Diario**: siempre el snapshot **activo** (el más reciente), nunca uno
+  histórico.
+- **Mensual**: lee **3 snapshots** -- el del corte, el de fin de mes y el
+  activo -- pudiendo ir bastante atrás en el tiempo.
+
+Estas 3 columnas solo existen desde el **snapshot 153** (2026-09-08) en
+adelante -- confirmado con datos reales de ese snapshot (`loan_processor`
+poblado en 99/112 `pipeline_loans` y 780/917 `pipeline_resolved_loans`;
+`loa2`/`loa_2` en proporciones menores pero no vacías). Un snapshot
+**anterior** al 153 va a devolver estas 3 columnas vacías si algún día se
+necesitaran en el mensual -- no porque la columna falte o el mapeo esté
+roto, sino porque **nadie las escribía todavía** en ese momento (mismo
+criterio que ya distingue este proyecto entre "vacío por diseño" y
+"vacío por un fallo silencioso" para el resto de los crudos opcionales,
+ver Etapa F6/EXCEL-5 más arriba en este documento).
+
+### Archivos
+
+`lib/pipeline/types.ts` (3 campos nuevos en `PipelineLoan`/
+`ResolvedLoan`), `app/api/pipeline/latest/route.ts` (SELECT + mappers),
+`app/api/pipeline/parse/route.ts` (mappers del insert manual, con
+advertencia sobre `save_pipeline_snapshot()`), `lib/pipeline/dayReport.ts`
++ `app/api/pipeline/day-report/route.ts` (3 columnas nuevas en la hoja
+"Pipeline"), `app/api/pipeline/monthly-report/route.ts` (comentario que
+explica la omisión a propósito), `lib/pipeline/sources/salesforce-file.ts`
++ `fixtures/pipeline-demo.ts` + `scripts/test-aggregate.ts` (`''` fijo,
+requerido mecánicamente por el tipo, sin dato real disponible en esos
+caminos).
