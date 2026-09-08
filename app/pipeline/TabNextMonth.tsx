@@ -83,6 +83,7 @@ function openLoanToModalLoan(loan: PipelineLoan): LoanDetailModalLoan {
     branch: loan.branch,
     strategyRaw: loan.strategyRaw,
     opportunityOwnerTitle: loan.opportunityOwnerTitle,
+    opportunityOwner: loan.opportunityOwner,
     nppmRealtor: loan.nppmRealtor,
     referredBy: loan.referredBy,
     borrowerName: loan.borrowerName,
