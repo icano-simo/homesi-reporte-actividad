@@ -50,11 +50,21 @@ export function hasAppAccess(user: UserLike): boolean {
  * `hasAppAccess` responde "¿puede abrir esta app?". Hasta OL1 esa era la única
  * pregunta: quien tenía `commercial_activity` veía los cuatro módulos.
  *
- * Outlook es el primero con su propio permiso. Los cuatro que lo tienen
- * (Jorge Campodónico, Pier Laino, Fernando Orduz, Isabella Cano) tienen TAMBIÉN
- * `commercial_activity`, así que el gate de la app entera sigue siendo el
- * primero en aplicarse y este claim se suma; no lo reemplaza. Verificado contra
- * `auth.users` antes de escribir esto.
+ * Outlook es el primero con su propio permiso. Los DOS que lo tienen
+ * (Fernando Orduz, Isabella Cano) tienen TAMBIÉN `commercial_activity`, así que
+ * el gate de la app entera sigue siendo el primero en aplicarse y este claim se
+ * suma; no lo reemplaza.
+ *
+ * ⚠ NO SE LISTAN LOS NOMBRES DE NUEVO SIN LA FECHA. Este comentario decía
+ * cuatro --Jorge Campodónico y Pier Laino incluidos-- y era verdad en OL1;
+ * después se les quitó y el comentario siguió afirmándolo. Un comentario que
+ * enumera un dato que vive en `auth.users` envejece sin que nada falle, y en el
+ * medio se usa para decidir. Verificado en `auth.users` el 2026-09-08: son dos.
+ *
+ * Si hace falta saberlo con certeza, la respuesta está en la base y no acá:
+ *
+ *     select u.email from auth.users u
+ *     where u.raw_app_meta_data -> 'allowed_apps' ? 'outlook';
  *
  * El nombre tiene que coincidir exactamente con lo que revisa
  * `outlook.has_access()` en la base. Si divergen, la UI y RLS dirían cosas

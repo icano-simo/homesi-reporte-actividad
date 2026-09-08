@@ -125,6 +125,21 @@ export interface InterventionRow {
   id: number;
   employee_key: number;
   status: InterventionStatus;
+  /**
+   * ⚠ OBSOLETA — NO LEER. Decisión de RV1/BP39.
+   *
+   * La intervención es de la PERSONA --su estado de acompañamiento-- y no del
+   * plan. Con varios planes activos por Loan Officer, esta columna no puede
+   * nombrar "el" funnel: el primero sería arbitrario, igual que el `[0]` que
+   * `useEnrollment` toma hoy de una consulta sin `order by`.
+   *
+   * El funnel de cada plan está en `business_plan.enrollment.funnel_key`, que
+   * es donde corresponde. Acá quedan 5 filas con valor y se conservan --
+   * borrarlas no gana nada--, pero nada nuevo debe leerla.
+   *
+   * Sigue en el tipo a propósito: quitarla del tipo la volvería invisible, y
+   * entonces el próximo que la vea en la base no tendría dónde enterarse.
+   */
   funnel_key: number | null;
   reviewed_at: string | null;
   reviewed_by: string | null;
