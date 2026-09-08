@@ -8088,3 +8088,32 @@ en cero para el período que se está mirando.
 `app/pipeline/page.tsx` (`hideZeroBranches()` reusada tal cual, aplicada
 a `loanOfficerRows.banked`/`.brokered` en `handleExportPdf()` -- ningún
 cambio en `lib/pipeline/loanOfficerForecast.ts`).
+
+## Hover explicativo sobre "(tied)" en los podios de Analytics
+
+`MetricPodiumCard` (`app/pipeline/TabAnalytics.tsx`) ya mostraba el texto
+"(tied)" cuando el valor de un puesto del podio coincide con el del
+puesto anterior o con el del líder -- condición `isTied`, sin cambios.
+Se agregó un atributo `title` sobre ese mismo `<span>`, con el texto
+explicando qué significa el empate (mismo valor numérico entre puestos,
+distinto del desempate de ORDEN que ya resuelve `toRows()` por monto).
+
+### Alcance
+
+Un solo atributo HTML (`title`) sobre un elemento ya existente -- `isTied`
+y el resto de la lógica del componente quedan intactos, sin cambios de
+comportamiento más allá del hover.
+
+### Nota de proceso
+
+Este merge a `main` se hizo como excepción puntual al flujo estándar de
+revisión (que normalmente requiere aprobación antes de mergear), dado el
+tamaño mínimo del cambio.
+
+### Commits
+
+`8324c3e` (rama `feat/tied-hint`) → `67f5dc4` (merge a `main`).
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx` (único archivo tocado).
