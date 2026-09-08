@@ -137,6 +137,26 @@ function toPipelineLoanRow(loan: PipelineLoan) {
      * la columna del otro lado haga la limpieza sola.
      */
     property_state: loan.propertyState.trim() || null,
+    /*
+     * Etapa LOA-COLUMNS-1: columnas nuevas, autorizadas por Isa -- mismo
+     * patrón '' vs NULL que los cinco crudos de estrategia (F6) de arriba.
+     *
+     * ⚠ SIN VERIFICAR CONTRA LA BASE, a diferencia del resto de este
+     * archivo -- no se pudo confirmar (por esta vía, solo lectura) que
+     * `pipeline_forecast.save_pipeline_snapshot()` ya tenga estas tres
+     * claves en su `jsonb_to_recordset`. Si la RPC no fue ampliada
+     * todavía, esto se descarta en silencio (mismo riesgo documentado
+     * arriba para loan_type/loan_program/production_support_note_history
+     * la primera vez que pasó). Además, esta ruta ya no la llama ninguna
+     * pantalla desde el 2026-08-28 (ver docs/sql/2026-09-snapshot-warnings.sql)
+     * -- los snapshots reales hoy los arma un job de BigQuery externo a
+     * este repo, así que este cambio es solo por completitud/red de
+     * seguridad, no el camino real por el que estas 3 columnas llegan a
+     * producción hoy.
+     */
+    loan_processor: loan.loanProcessor,
+    loa2: loan.loa2,
+    loa_2: loan.loa_2,
   };
 }
 
@@ -205,6 +225,11 @@ function toResolvedLoanRow(loan: ResolvedLoan) {
     // toPipelineLoanRow -- normalización explícita del lado del cliente,
     // pedida por Isa, además de la red de seguridad de la base.
     property_state: loan.propertyState.trim() || null,
+    // Etapa LOA-COLUMNS-1: mismo motivo y misma advertencia que en
+    // toPipelineLoanRow arriba -- ver ese comentario.
+    loan_processor: loan.loanProcessor,
+    loa2: loan.loa2,
+    loa_2: loan.loa_2,
   };
 }
 
