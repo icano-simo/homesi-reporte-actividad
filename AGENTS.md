@@ -107,6 +107,67 @@ mecanismo completamente distinto**. Confiar en que el número cuadraba habría
 escondido la causa real. La coincidencia de dos números no es evidencia de que
 el razonamiento sea el mismo.
 
+## Cuando la medición falla y no se entiende por qué: volcar, no reintentar
+
+Las secciones de arriba son sobre mediciones que dieron un resultado falso.
+Ésta es sobre qué hacer cuando la medición **no da ningún resultado** y no se
+sabe por qué — el caso en que la tentación es probar otro selector.
+
+> **Cuando una medición falla y no se entiende por qué, volcar lo que hay antes
+> de intentar un quinto selector. El DOM dice qué pasó; el selector sólo dice
+> si encontró lo que buscabas.**
+
+El caso que la fija costó cuatro intentos. Una espera por el aviso de una
+pantalla vencía a los 120s, y el mismo aviso apareciía perfecto en un script
+suelto. Pasé por cuatro hipótesis —el predicado, el `arg`, la cookie, el
+claim— y ninguna era. Al volcar el DOM, el `body` decía:
+
+    Email
+    Password
+    Sign In
+
+La sesión de la sonda no valía. **La pantalla decía la respuesta y la medición
+no preguntaba eso**: ningún selector mío miraba el formulario de login, así que
+todos daban «no está».
+
+Y la causa tenía una asimetría que la hacía peor que un fallo: dos sondas del
+mismo repo comparten email —el sufijo es un hash de la ruta— así que la segunda
+borra y recrea al usuario de la primera. Y los dos caminos respondieron distinto:
+
+| | qué verifica | qué dijo |
+|---|---|---|
+| `rest()` | sólo la **firma** del JWT | 200 |
+| el navegador | `getUser()` pregunta al servidor de auth | `/login` |
+
+**La sonda «funcionaba» por el camino que no comprueba**, y el 200 daba
+confianza. Es la novena de la familia: la respuesta estaba a la vista y la
+pregunta era otra.
+
+## Un comentario correcto para su caso puede engañar en el siguiente
+
+Cinco archivos de `docs/sql/` dicen alguna versión de:
+
+> `business_plan` ya está expuesto en PostgREST desde BP6. Esta migración **no
+> necesita** tocar `pgrst.db_schemas`.
+
+Los cinco dicen la verdad — los cinco agregan tablas a un esquema que ya estaba
+expuesto. Pero leídos juntos construyen una conclusión que ninguno afirma: que
+nunca hace falta tocar esa lista. Y el sexto archivo fue el primero que **crea**
+un esquema, así que la frase repetida es lo que hizo que no me lo preguntara.
+Resultado: el modelo aplicado, las policies correctas, y la app viendo un 406.
+
+> **Una nota que dice «esto no hace falta acá» envejece distinto que una que
+> dice «esto no hace falta nunca», y se leen igual.**
+
+La regla operativa: al escribir una nota de la forma «no hace falta X», decir
+**por qué** no hace falta en este caso. `business_plan ya está expuesto, así que
+esta migración no toca la lista` se sigue leyendo bien desde un archivo que crea
+un esquema nuevo; `esta migración no necesita tocar la lista` no.
+
+Es primo del caso del claim `outlook` —un comentario que enumeraba cuatro
+personas cuando eran dos— pero el mecanismo es otro: ahí la nota se volvió
+falsa, acá las cinco siguen siendo ciertas.
+
 ## Qué cuenta como «otra vía»
 
 - Un `.xlsx` generado: abrirlo con **openpyxl en `data_only=True`**, no sólo con
