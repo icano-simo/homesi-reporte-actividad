@@ -267,3 +267,70 @@ export function exigirSinChoques(cssExistente, cssNuevo) {
     );
   }
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   6. exigirAusente — comprobar una ausencia sobre el CODIGO, no sobre el archivo
+   ═══════════════════════════════════════════════════════════════════════
+
+   Seis veces en una sola serie una guarda mia busco un nombre prohibido sobre
+   el archivo y lo encontro EN EL COMENTARIO QUE EXPLICA POR QUE ESTA PROHIBIDO.
+   Las seis veces el archivo estaba bien y la guarda dijo que no:
+
+     `max-width: 46%`     en la nota que explica por que se saco
+     `bp-field__label`    en la nota que dice que estaba inventada
+     `a.ck(true,`         en la nota que dice que era una tautologia
+     `useMemo`            en la nota que dice que no memoizaba nada
+     y dos mas, buscando un texto retipeado de memoria en vez de leido.
+
+   > Una guarda que comprueba una AUSENCIA tiene que mirar el codigo, no el
+   > archivo: los comentarios son justamente donde el nombre prohibido aparece
+   > a proposito.
+
+   ⚠ Y ESTA EN EL REPO Y NO EN UN SCRATCHPAD por una razon concreta: el helper
+   existia desde la tercera vez, escrito, y no lo agarre hasta la sexta. La
+   regla existia; el habito no. Una herramienta que hay que recordar que existe
+   se usa igual que una nota. */
+
+/** Saca comentarios de bloque, de linea y de JSX segun el lenguaje. */
+export function sinComentarios(texto, lenguaje = 'ts') {
+  let s = texto;
+  if (lenguaje === 'sql') {
+    s = s.replace(/\/\*[\s\S]*?\*\//g, '');
+    return s.replace(/--[^\n]*/g, '');
+  }
+  if (lenguaje === 'py') return s.replace(/#[^\n]*/g, '');
+  /* JSX primero: `{/* ... *\/}` envuelve un comentario de bloque, y sacar el
+     bloque antes dejaria las llaves sueltas. */
+  s = s.replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
+  s = s.replace(/\/\*[\s\S]*?\*\//g, '');
+  if (lenguaje !== 'css') s = s.replace(/\/\/[^\n]*/g, '');
+  return s;
+}
+
+/**
+ * Falla si alguno de `prohibidos` aparece en el CODIGO de `texto`.
+ *
+ * @param {string} texto      el contenido del archivo
+ * @param {string[]} prohibidos
+ * @param {{ lenguaje?: string, donde?: string }} [opts]
+ * @returns {number} cuantos se comprobaron, para poder contarlo en el arnes
+ */
+export function exigirAusente(texto, prohibidos, opts = {}) {
+  const { lenguaje = 'ts', donde = 'el archivo' } = opts;
+  if (!Array.isArray(prohibidos) || prohibidos.length === 0) {
+    throw new Error(
+      'exigirAusente: la lista de prohibidos esta vacia. Una guarda sin nada que buscar pasa ' +
+        'siempre, que es el problema que `crearArnes` existe para detectar.'
+    );
+  }
+  const codigo = sinComentarios(texto, lenguaje);
+  const malos = prohibidos.filter((p) => codigo.includes(p));
+  if (malos.length) {
+    throw new Error(
+      'exigirAusente: en ' + donde + ' quedaron en el CODIGO: ' + malos.join(', ') +
+        '. (Si aparecen solo en un comentario, esta funcion no los cuenta -- por eso existe.)'
+    );
+  }
+  return prohibidos.length;
+}

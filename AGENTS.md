@@ -262,7 +262,7 @@ Y el corolario que duele: el número que lo delató —69 de 75— se podía hab
 calculado en cualquier momento con una consulta de treinta segundos. No hacía
 falta descubrirlo, hacía falta preguntarlo.
 
-## Cinco de estas lecciones son código, no nota
+## Seis de estas lecciones son código, no nota
 
 `scripts/verificacion/guardas.mjs`. Se importan desde cualquier script de
 verificación y no tocan la base — reciben el `page` o el `locator` por
@@ -276,6 +276,7 @@ fuera del repo.
 | `medirRuta` | atribuirle al cambio el compile en frío | 1, casi público |
 | `crearArnes` | un resumen que dice verde sin haber corrido | 1 |
 | `exigirSinChoques` | redefinir una clase de CSS que ya existía | 1 |
+| `exigirAusente` | comprobar una ausencia sobre el archivo y no sobre el código | **6** |
 
 **Por qué están en el repo y no en el scratchpad de una sesión:** una guarda que
 se muere con la sesión es *peor* que una nota acá, porque la nota al menos
@@ -303,6 +304,35 @@ válida eligió el nodo trabado para que quedara en curso y completó su step co
 el antecesor sin terminar: el botón quedó `is-done is-current` con el punto
 puesto, que es lo que un cuarto estado no podría representar. Así la prueba
 justifica la decisión de diseño además de verificarla.
+
+## Y la sexta, que es sobre por qué no basta con saberlo
+
+`exigirAusente` mordió **seis veces en una sola serie**, y las seis del mismo
+modo: una guarda mía buscaba un nombre prohibido sobre el ARCHIVO y lo
+encontraba **en el comentario que explica por qué está prohibido**. Las seis
+veces el archivo estaba bien y la guarda dijo que no.
+
+> **Una guarda que comprueba una AUSENCIA tiene que mirar el código, no el
+> archivo: los comentarios son justamente donde el nombre prohibido aparece a
+> propósito.**
+
+Pero la parte que la hace distinta de las nueve lecciones anteriores es otra:
+**el helper existía escrito desde la tercera vez**, en el scratchpad, y no lo
+agarré hasta la sexta. No faltó saber algo. Saberlo no bastó.
+
+> **Una herramienta que hay que recordar que existe se usa igual que una nota.**
+
+De ahí que esté en `guardas.mjs` y no en un scratchpad: al lado de las otras
+cinco, que es donde se la va a agarrar. Y si el patrón se repite igual, la
+respuesta no es otra nota tampoco -- es que la comprobación corra sola, en el
+lint o en un `pretest`, sin que nadie tenga que acordarse.
+
+Y hay un primo más chico del mismo error, que apareció cuatro veces en el mismo
+turno: **retipear de memoria la cadena que se va a buscar**, en vez de leerla
+del archivo. El import de un test, un `MINIMO` que era 14 y no 17, un `.message`
+sobre algo que ya era una cadena, y un `**negrita**` que en el archivo era un
+`##`. Las cuatro las atrapó el `assert` --que para eso está-- pero las cuatro
+eran evitables leyendo tres líneas.
 
 **Las otras cuatro se quedan como nota, y por buenas razones.** El timeout corto
 no tiene un número correcto general — depende de la ruta. La columna equivocada

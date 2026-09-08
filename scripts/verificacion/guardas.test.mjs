@@ -17,7 +17,13 @@
  * dependencia de 300MB para cinco funciones. Su prueba vive en
  * `guardas.browser.test.mjs`, que se corre con la sonda.
  */
-import { crearArnes, chequearChoqueDeClases, exigirSinChoques } from './guardas.mjs';
+import {
+  crearArnes,
+  chequearChoqueDeClases,
+  exigirAusente,
+  exigirSinChoques,
+  sinComentarios,
+} from './guardas.mjs';
 
 let fallas = 0;
 let corridas = 0;
@@ -27,7 +33,7 @@ const ck = (c, m) => {
   console.log((c ? '  OK   ' : '  ** FALLA ** ') + m);
 };
 /* Escrito a mano, como pide la propia guarda que estamos probando. */
-const MINIMO = 14;
+const MINIMO = 24;
 
 /** Corre `fn` y devuelve el mensaje del error, o `null` si no lanzó. */
 function atrapa(fn) {
@@ -130,6 +136,42 @@ console.log('\n=== chequearChoqueDeClases: el caso real de .bp-pill ===');
   const nuevo = '.c {\n}\n.a {\n}\n.z {\n}';
   ck(JSON.stringify(chequearChoqueDeClases(existente, nuevo)) === '["a","c"]',
      'lista todas las que chocan, ordenadas');
+}
+
+/* ── 6. exigirAusente ── */
+console.log('\n=== exigirAusente: el comentario no cuenta ===');
+{
+  /* El caso de las seis veces: el nombre prohibido SOLO en un comentario. */
+  const soloEnComentario = [
+    '/* Se saco `max-width: 46%` porque dejaba un huerfano. */',
+    '.bp-fnrow__meta { flex: 0 0 auto; }',
+  ].join('\n');
+  ck(exigirAusente(soloEnComentario, ['max-width: 46%'], { lenguaje: 'css' }) === 1,
+     'un prohibido que aparece SOLO en un comentario no cuenta: es donde tiene que aparecer');
+
+  const deVerdad = '.bp-fnrow__meta { max-width: 46%; }';
+  ck(atrapa(() => exigirAusente(deVerdad, ['max-width: 46%'], { lenguaje: 'css' })) !== null,
+     'y cuando esta en el CODIGO, falla');
+  /* `atrapa` devuelve el MENSAJE, no el Error -- lo dice su propia
+     implementacion, arriba en este archivo. */
+  ck(/quedaron en el CODIGO/.test(
+       atrapa(() => exigirAusente(deVerdad, ['max-width: 46%'], { lenguaje: 'css' }))),
+     'con un mensaje que dice que estaba en el codigo y no en un comentario');
+
+  /* Los tres lenguajes que hicieron falta en la serie. */
+  ck(exigirAusente('{/* usa useMemo */}\nconst x = 1;', ['useMemo'], { lenguaje: 'tsx' }) === 1,
+     'un comentario JSX tampoco cuenta');
+  ck(exigirAusente('// a.ck(true, ...) era una tautologia\na.ck(x, "m");', ['a.ck(true,'],
+     { lenguaje: 'ts' }) === 1, 'ni un comentario de linea');
+  ck(exigirAusente('-- no hace falta tocar pgrst.db_schemas\nselect 1;',
+     ['pgrst.db_schemas'], { lenguaje: 'sql' }) === 1, 'ni uno de SQL');
+
+  ck(atrapa(() => exigirAusente('x', [])) !== null,
+     'una lista de prohibidos VACIA se rechaza: pasaria siempre, que es el problema del arnes');
+
+  /* Y que `sinComentarios` no se lleve el codigo de al lado. */
+  ck(sinComentarios('const a = 1; /* nota */ const b = 2;', 'ts').includes('const b = 2;'),
+     'sacar el comentario deja el codigo que lo rodea: no parte la linea');
 }
 
 if (corridas < MINIMO) {
