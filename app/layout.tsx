@@ -18,6 +18,7 @@ import { APP_NAME } from '@/lib/auth/appAccess';
  * en las cuatro pantallas del portal, no sólo en `/review`.
  */
 import ReviewMaskHost from '@/components/review/ReviewMaskHost';
+import ReviewProvider from '@/components/review/ReviewProvider';
 import './review/styles/review.css';
 
 /*
@@ -83,21 +84,32 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang="en" className={`${inter.variable} ${barlow.variable}`}>
       <body>
         {/*
+          ⚠ EL PROVEEDOR ENVUELVE AL ANFITRIÓN **Y** A LAS PÁGINAS, y ese orden
+          es el arreglo de un defecto real: así comparten UNA lectura, y
+          `recargar()` desde la pantalla que crea la sesión alcanza a la barra.
+
+          Antes el anfitrión tenía su propio `useMyReviews`. El layout raíz no se
+          desmonta al navegar --que era el punto de ponerlo acá-- así que
+          consultaba una vez por carga completa y nunca más: una sesión creada
+          después le era invisible, y la máscara no aparecía.
+          Medido: cero consultas nuevas al navegar de cliente.
+
           `puedeRevisar` se resuelve en el SERVIDOR con el claim que ya se leyó
           para el header. Sin ese corte, cada carga de cualquier página del
-          portal dispararía cuatro consultas a `review` para las 97 personas que
-          no son del BP Team -- y las cuatro devolverían cero filas por RLS, que
-          es la forma más caras de no hacer nada.
+          portal dispararía cinco consultas a `review` para las 97 personas que
+          no son del BP Team -- y todas devolverían cero filas por RLS, que es la
+          forma más cara de no hacer nada.
 
-          El anfitrión no dibuja NADA si no hay una sesión en curso: ni la
-          barra, ni el borde, ni un contenedor vacío. La app normal queda
-          idéntica.
+          Y el anfitrión no dibuja NADA sin sesión en curso: ni la barra, ni el
+          borde, ni un contenedor vacío. La app normal queda idéntica.
         */}
-        <ReviewMaskHost puedeRevisar={allowedApps.includes(APP_NAME)} />
-        <div className="app">
-          <ServiceHubHeader allowedApps={allowedApps} />
-          <main className="hub-canvas">{children}</main>
-        </div>
+        <ReviewProvider puedeRevisar={allowedApps.includes(APP_NAME)}>
+          <ReviewMaskHost />
+          <div className="app">
+            <ServiceHubHeader allowedApps={allowedApps} />
+            <main className="hub-canvas">{children}</main>
+          </div>
+        </ReviewProvider>
       </body>
     </html>
   );

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
-import { BuildingIcon, GridIcon, HandshakeIcon, TargetIcon } from '@/components/ui/icons';
+import { BuildingIcon, GridIcon, HandshakeIcon, SignedDocIcon, TargetIcon } from '@/components/ui/icons';
 
 /**
  * ============================================================================
@@ -43,6 +43,32 @@ const ITEMS: SidebarItem[] = [
    * todo lo que tenía pendiente alguien había que abrir los planes uno por uno.
    */
   { href: '/business-plan/team', label: 'BP Team', icon: <HandshakeIcon size={16} /> },
+  /*
+   * ═══════════════════════════════════════════════════════════════
+   * EL MODO REVISIÓN — etapa RV1
+   * ═══════════════════════════════════════════════════════════════
+   *
+   * Sin esto las dos pantallas sólo se alcanzaban escribiendo la URL. Isabella
+   * las vio porque le pasaron el link -- nadie más las habría encontrado.
+   *
+   * ⚠ APUNTA A `/review` Y NO A LA CONFIGURACIÓN, y es deliberado: son dos
+   * permisos distintos. `/review` la ve el BP Team entero con
+   * `commercial_activity`; `/review/settings` exige `review_admin`, que hoy
+   * tienen cuatro personas.
+   *
+   * Y la configuración NO es otra entrada del sidebar: es un enlace DENTRO de
+   * `/review`, visible sólo para quien puede asignar. Una entrada de menú que
+   * rebota al landing para 93 de las 97 personas es peor que ninguna -- promete
+   * una sección que para ellas no existe. Mismo criterio que hace que
+   * `ServiceHubHeader` no dibuje la pestaña de Outlook sin su claim.
+   *
+   * ⚠ Y NO LLEVA CLAIM PROPIO. Se dibuja para todos los que ya están en la app,
+   * y quien no tenga nada asignado ve la lista vacía con su motivo -- que
+   * distingue "no te asignaron" de "no estás en el roster". Un claim `review`
+   * aparte habría que otorgarlo a las diez personas del BP Team y mantenerlo,
+   * para no decir nada que RLS no diga mejor.
+   */
+  { href: '/review', label: 'Review', icon: <SignedDocIcon size={16} /> },
   { href: '/business-plan/settings', label: 'Settings', icon: <TargetIcon size={16} /> },
 ];
 

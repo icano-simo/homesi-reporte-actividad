@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import ModuleSidebar from '../business-plan/components/ModuleSidebar';
 /*
  * Se reusa la hoja del Business Plan --`.bp-btn`, `.bp-pending`, `.bp-hint`,
  * `.page-head`-- por el mismo motivo que Admin y Outlook: el lenguaje visual del
@@ -36,9 +37,30 @@ export default function ReviewLayout({ children }: { children: ReactNode }) {
    * Lo encontró la captura: las 24 aserciones medían el texto del aviso y
    * ninguna medía dónde empezaba.
    *
-   * Y NO se reusa `BusinessPlanShell`: trae el sidebar del módulo y su
-   * proveedor de datos, que acá no corresponden -- la revisión no es una
-   * sección de Business Plan.
+   * ---------------------------------------------------------------------------
+   * ⚠ Y EL SIDEBAR, PORQUE SI NO LA ENTRADA DESAPARECE AL USARLA
+   * ---------------------------------------------------------------------------
+   * `ModuleSidebar` lo monta `BusinessPlanShell`, que vive en el layout de
+   * Business Plan. Al agregarle una entrada `Review` --que SALE del módulo--
+   * quedó un camino donde el menú no está: medido, `/review` tenía CERO
+   * elementos `.bp-nav-item`, así que desde acá no había cómo volver salvo por
+   * las migas.
+   *
+   * Es el patrón de `Branch Out of Division`: el código no cambió, cambió el
+   * conjunto de rutas que lo alcanza. Y bastaba con recorrer el link.
+   *
+   * ⚠ SE MONTA SÓLO `ModuleSidebar`, NO `BusinessPlanShell`. El shell trae
+   * además el proveedor de datos del módulo, el botón de refrescar y el
+   * mecanismo de migas por contexto --que acá fue un no-op silencioso-- y
+   * ninguna de las tres corresponde: la revisión no es una sección de Business
+   * Plan, sólo se llega desde ahí.
    */
-  return <div className="hub-container">{children}</div>;
+  return (
+    <div className="hub-container">
+      <div className="bp-columns">
+        <ModuleSidebar />
+        <div className="bp-workspace">{children}</div>
+      </div>
+    </div>
+  );
 }

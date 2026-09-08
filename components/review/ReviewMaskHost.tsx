@@ -33,22 +33,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { cerrarSesion, guardarPaso, moverCursor } from '@/lib/review/actions';
-import { useMyReviews, useReviewScript } from '@/lib/review/useReviewData';
+import { useReview } from './ReviewProvider';
 import ReviewMask from './ReviewMask';
 import ReviewStepPanel from './ReviewStepPanel';
 
-export interface ReviewMaskHostProps {
-  /**
-   * `true` si la sesión pertenece a la app. Es el gate barato: quien no tiene
-   * `commercial_activity` no puede tener una revisión, y RLS lo confirmaría
-   * igual — esto sólo evita preguntarlo.
-   */
-  puedeRevisar: boolean;
-}
-
-export default function ReviewMaskHost({ puedeRevisar }: ReviewMaskHostProps) {
-  const script = useReviewScript();
-  const reviews = useMyReviews();
+/*
+ * ⚠ SIN PROPS. `puedeRevisar` se movió al proveedor, que es quién consulta:
+ * dejarlo acá también habría sido la misma decisión en dos lugares.
+ */
+export default function ReviewMaskHost() {
+  const { script, reviews, recargar, habilitado } = useReview();
   const pathname = usePathname();
   const router = useRouter();
 
@@ -97,7 +91,7 @@ export default function ReviewMaskHost({ puedeRevisar }: ReviewMaskHostProps) {
    */
   const [funnelActual, setFunnelActual] = useState<string | null>(null);
   const loEnCurso =
-    (reviews.data ?? []).find((r) => r.session?.status === 'in_progress')?.session
+    (reviews ?? []).find((r) => r.session?.status === 'in_progress')?.session
       ?.lo_employee_key ?? null;
 
   useEffect(() => {
@@ -137,21 +131,20 @@ export default function ReviewMaskHost({ puedeRevisar }: ReviewMaskHostProps) {
   const onSaveAndExit = useCallback(() => {
     /*
      * No escribe nada: cada paso ya se guardó al completarse, así que salir no
-     * tiene que confirmar nada. Lo único que hace falta es que la lista vuelva
-     * a leerse cuando la persona llegue, y de eso se encarga su propia página.
+     * tiene que confirmar nada. Sólo hace falta releer, y ahora el proveedor es
+     * uno solo -- así que esto también actualiza la lista de la otra pantalla.
      */
-    reviews.reload();
-  }, [reviews]);
+    recargar();
+  }, [recargar]);
 
-  if (!puedeRevisar) return null;
+  if (!habilitado) return null;
 
-  const activo =
-    (reviews.data ?? []).find((r) => r.session?.status === 'in_progress') ?? null;
+  const activo = (reviews ?? []).find((r) => r.session?.status === 'in_progress') ?? null;
 
   return (
     <>
       <ReviewMask
-        script={script.data}
+        script={script}
         activo={activo}
         cargandoModulo={cargandoModulo}
         onSaveAndExit={onSaveAndExit}
@@ -162,7 +155,7 @@ export default function ReviewMaskHost({ puedeRevisar }: ReviewMaskHostProps) {
         cruce de modulo. Y no se dibuja sin sesion -- ni el, ni su campo de
         comentario, que es el unico del portal.
       */}
-      {script.data && activo?.session && (
+      {script && activo?.session && (
         <ReviewStepPanel
           /*
            * ⚠ EL `key` ES EL PASO, y no es cosmetico: hace que React remonte el
@@ -170,7 +163,7 @@ export default function ReviewMaskHost({ puedeRevisar }: ReviewMaskHostProps) {
            * efecto que llame setState. Ver la nota del panel.
            */
           key={activo.session.current_phase + ':' + activo.session.current_step_in_phase}
-          script={script.data}
+          script={script}
           session={activo.session}
           responses={activo.responses}
           loName={activo.loName}
@@ -178,15 +171,15 @@ export default function ReviewMaskHost({ puedeRevisar }: ReviewMaskHostProps) {
           onGuardar={async (paso, revision, comment, gate) => {
             const r = await guardarPaso(activo.session!.session_key, paso, revision, comment, gate);
             if (!r.ok) return r.error;
-            reviews.reload();
+            recargar();
             return null;
           }}
           onContinuar={async (destino) => {
             const r = await moverCursor(activo.session!.session_key, destino);
             if (!r.ok) return r.error;
-            reviews.reload();
+            recargar();
             /* La fase puede cambiar de modulo: se navega al del destino. */
-            const fase = script.data!.phases.find((f) => f.phase_no === destino.phase_no);
+            const fase = script!.phases.find((f) => f.phase_no === destino.phase_no);
             if (fase && fase.module !== moduloActual(pathname)) {
               router.push(rutaDelModulo(fase.module, activo.session!.lo_employee_key));
             }
@@ -195,7 +188,7 @@ export default function ReviewMaskHost({ puedeRevisar }: ReviewMaskHostProps) {
           onCerrar={async () => {
             const r = await cerrarSesion(activo.session!.session_key);
             if (!r.ok) return r.error;
-            reviews.reload();
+            recargar();
             router.push('/review');
             return null;
           }}

@@ -21,7 +21,8 @@ import { getSupabaseClient } from '@/lib/supabase/client';
 import { AlertTriangleIcon } from '@/components/ui/icons';
 import Link from 'next/link';
 import { ErrorState, LoadingState } from '../../business-plan/components/shared';
-import { useMyReviews, type ReviewUnavailable } from '@/lib/review/useReviewData';
+import { useReview } from '@/components/review/ReviewProvider';
+import type { ReviewUnavailable } from '@/lib/review/useReviewData';
 import { daysUntilDue } from '@/lib/review/progress';
 
 interface Persona {
@@ -40,7 +41,10 @@ function hoyLocal(): string {
 }
 
 export default function ReviewSettingsPage() {
-  const reviews = useMyReviews();
+  /* Del proveedor: `recargar()` tras asignar actualiza tambien la lista de la
+     otra pantalla y la barra, si hubiera una sesion en curso. */
+  const { reviews: filasCrudas, isLoading, reviewsError, reviewsUnavailable,
+    myEmployeeKey, recargar } = useReview();
 
   const [gente, setGente] = useState<{ soporte: Persona[]; los: Persona[] } | null>(null);
   const [cargandoGente, setCargandoGente] = useState(true);
@@ -126,7 +130,7 @@ export default function ReviewSettingsPage() {
       setRevisor('');
       setLo('');
       setVence('');
-      reviews.reload();
+      recargar();
     } catch (err) {
       setErrOp(err instanceof Error ? err.message : String(err));
     } finally {
@@ -158,7 +162,7 @@ export default function ReviewSettingsPage() {
           'Nothing was saved. The database did not accept the change — you may not have the review_admin claim.'
         );
       }
-      reviews.reload();
+      recargar();
     } catch (err) {
       setErrOp(err instanceof Error ? err.message : String(err));
     } finally {
@@ -166,8 +170,8 @@ export default function ReviewSettingsPage() {
     }
   }
 
-  const pendiente: ReviewUnavailable = reviews.unavailable;
-  const filas = reviews.data ?? [];
+  const pendiente: ReviewUnavailable = reviewsUnavailable;
+  const filas = filasCrudas ?? [];
 
   return (
     <>
@@ -210,7 +214,7 @@ export default function ReviewSettingsPage() {
       )}
 
       {errGente && <ErrorState message={errGente} />}
-      {reviews.error && <ErrorState message={reviews.error} />}
+      {reviewsError && <ErrorState message={reviewsError} />}
       {errOp && (
         <div className="bp-pending" role="alert">
           <AlertTriangleIcon size={14} />
@@ -218,7 +222,7 @@ export default function ReviewSettingsPage() {
         </div>
       )}
 
-      {(cargandoGente || reviews.isLoading) && <LoadingState />}
+      {(cargandoGente || isLoading) && <LoadingState />}
 
       {/*
         Acá el vacío tiene una tercera causa: `review_admin` abre la pantalla
@@ -227,7 +231,7 @@ export default function ReviewSettingsPage() {
         empleado en el roster, vería el formulario y ninguna asignación. Se dice,
         porque asignar y no ver lo asignado se lee como que no se guardó.
       */}
-      {reviews.myEmployeeKey === null && !pendiente && (
+      {myEmployeeKey === null && !pendiente && (
         <p className="bp-hint bp-hint--warn">
           Your sign-in email is not on the active roster. You can still assign reviews, but you will
           not appear as a reviewer in any of them.

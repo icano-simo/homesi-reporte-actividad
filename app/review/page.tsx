@@ -30,7 +30,8 @@ import { useMemo, useState } from 'react';
  */
 import { AlertTriangleIcon, CalendarIcon } from '@/components/ui/icons';
 import { ErrorState, LoadingState } from '../business-plan/components/shared';
-import { useMyReviews, useReviewScript, type ReviewUnavailable } from '@/lib/review/useReviewData';
+import { useReview } from '@/components/review/ReviewProvider';
+import type { ReviewUnavailable } from '@/lib/review/useReviewData';
 import {
   daysUntilDue,
   isAbandoned,
@@ -106,8 +107,13 @@ function slaDe(dueOn: string, ahora: Date): { clase: string; texto: string } {
 }
 
 export default function MyReviewsPage() {
-  const script = useReviewScript();
-  const reviews = useMyReviews();
+  /*
+   * ⚠ DEL PROVEEDOR y no de un hook propio. Dos instancias del mismo hook
+   * fueron el defecto que dejo la mascara invisible: la de esta pantalla creaba
+   * la sesion y recargaba, y la del anfitrion nunca se enteraba.
+   */
+  const { script: guion, reviews: filasCrudas, isLoading, scriptError, reviewsError,
+    scriptUnavailable, reviewsUnavailable, myEmployeeKey, canAssign } = useReview();
 
   /*
    * `now` se congela al montar y NO se recalcula en cada render.
@@ -120,13 +126,13 @@ export default function MyReviewsPage() {
   const [ahora] = useState(() => new Date());
 
   const filas = useMemo(() => {
-    const xs = reviews.data ?? [];
+    const xs = filasCrudas ?? [];
     /* Las que hay que hacer primero arriba: por fecha de SLA, y las vencidas
        antes que las de hoy porque ya se pasaron. `due_on` ordena las dos. */
     return [...xs].sort((a, b) => a.assignment.due_on.localeCompare(b.assignment.due_on));
-  }, [reviews.data]);
+  }, [filasCrudas]);
 
-  const pendiente = reviews.unavailable ?? script.unavailable;
+  const pendiente = reviewsUnavailable ?? scriptUnavailable;
 
   return (
     <>
@@ -150,11 +156,29 @@ export default function MyReviewsPage() {
             The Loan Officers assigned to you, with the date each review is due.
           </p>
         </div>
+
+        {/*
+          ⚠ LA CONFIGURACIÓN ES UN ENLACE ACÁ, NO OTRA ENTRADA DEL SIDEBAR.
+          `/review` la ve el BP Team entero; `/review/settings` exige
+          `review_admin`, que hoy tienen cuatro personas. Una entrada de menú
+          que rebota al landing para las otras 93 promete una sección que para
+          ellas no existe.
+
+          Y `canAssign` sale de `review.can_assign()` — la MISMA función que
+          protege las escrituras, así que el enlace y el permiso no pueden
+          divergir. Mientras la respuesta viaja no se dibuja nada: `undefined`
+          no es `false`.
+        */}
+        {canAssign === true && (
+          <Link className="bp-btn bp-btn--small" href="/review/settings">
+            Review settings
+          </Link>
+        )}
       </div>
 
-      {(reviews.isLoading || script.isLoading) && <LoadingState />}
-      {reviews.error && <ErrorState message={reviews.error} />}
-      {script.error && <ErrorState message={script.error} />}
+      {isLoading && <LoadingState />}
+      {reviewsError && <ErrorState message={reviewsError} />}
+      {scriptError && <ErrorState message={scriptError} />}
       {pendiente && <Pendiente que={pendiente} />}
 
       {/*
@@ -180,8 +204,8 @@ export default function MyReviewsPage() {
         es que nadie reportó, vacío es que se buscó y no había -- aplicada a la
         identidad en vez de a los datos.
       */}
-      {!pendiente && !reviews.isLoading && !reviews.error && filas.length === 0 &&
-        reviews.myEmployeeKey === null && (
+      {!pendiente && !isLoading && !reviewsError && filas.length === 0 &&
+        myEmployeeKey === null && (
           <div className="bp-pending" role="status">
             <AlertTriangleIcon size={14} />
             <span>
@@ -192,10 +216,10 @@ export default function MyReviewsPage() {
           </div>
         )}
 
-      {!pendiente && !reviews.isLoading && !reviews.error && filas.length === 0 &&
-        reviews.myEmployeeKey !== null && (
+      {!pendiente && !isLoading && !reviewsError && filas.length === 0 &&
+        myEmployeeKey !== null && (
           <p className="bp-hint">
-            {reviews.myEmployeeKey === undefined
+            {myEmployeeKey === undefined
               ? 'Checking who you are…'
               : 'Nothing assigned to you yet. Assignments are set in Review settings by the Business Plan leads.'}
           </p>
@@ -204,9 +228,9 @@ export default function MyReviewsPage() {
       {filas.length > 0 && (
         <div className="rv-list">
           {filas.map((fila) => {
-            const est = estadoDe(fila, script.data, ahora);
+            const est = estadoDe(fila, guion, ahora);
             const sla = slaDe(fila.assignment.due_on, ahora);
-            const fases = script.data ? phaseProgress(script.data, fila.responses) : [];
+            const fases = guion ? phaseProgress(guion, fila.responses) : [];
             const enCurso = fila.session?.status === 'in_progress';
             return (
               <article key={fila.assignment.assignment_key} className="rv-row">

@@ -87,7 +87,13 @@ function queFalta(e: { code?: string } | null): ReviewUnavailable {
  * filas en total; el día que haya cinco revisiones de cada uno serán cuarenta,
  * que sigue siendo una consulta.
  */
-export function useReviewScript(): Estado<ReviewScript> & { reload: () => void } {
+export function useReviewScript(
+  /**
+   * `false` = no consultar. El corte va ADENTRO del hook y no en la llamada:
+   * llamar un hook condicionalmente rompe el orden de hooks de React.
+   */
+  habilitado = true
+): Estado<ReviewScript> & { reload: () => void } {
   const [estado, setEstado] = useState<Estado<ReviewScript>>({
     data: null,
     isLoading: true,
@@ -98,6 +104,7 @@ export function useReviewScript(): Estado<ReviewScript> & { reload: () => void }
   const reload = useCallback(() => setTick((t) => t + 1), []);
 
   useEffect(() => {
+    if (!habilitado) return;
     let cancelado = false;
     (async () => {
       try {
@@ -148,7 +155,7 @@ export function useReviewScript(): Estado<ReviewScript> & { reload: () => void }
     return () => {
       cancelado = true;
     };
-  }, [tick]);
+  }, [tick, habilitado]);
 
   return { ...estado, reload };
 }
@@ -170,7 +177,10 @@ export function useReviewScript(): Estado<ReviewScript> & { reload: () => void }
  * asignación guarda la clave, no el nombre, para que renombrar a alguien no
  * deje asignaciones diciendo el nombre viejo.
  */
-export function useMyReviews(): Estado<MyReview[]> & {
+export function useMyReviews(
+  /** `false` = no consultar. Ver la nota de `useReviewScript`. */
+  habilitado = true
+): Estado<MyReview[]> & {
   reload: () => void;
   /**
    * Quién es quien mira, para `review`. `null` = su email no está en el roster
@@ -185,6 +195,19 @@ export function useMyReviews(): Estado<MyReview[]> & {
    * `undefined` mientras la pregunta viaja, que tampoco es lo mismo que `null`.
    */
   myEmployeeKey: number | null | undefined;
+  /**
+   * `true` si esta sesión puede ASIGNAR. Sale de `review.can_assign()`, o sea
+   * de la MISMA función que protege las escrituras.
+   *
+   * ⚠ SE PREGUNTA A LA BASE Y NO SE LEE EL CLAIM EN EL CLIENTE, por dos
+   * razones: el cliente de navegador devuelve el usuario SIN
+   * `app_metadata.allowed_apps` --verificado, y es por eso que el layout raíz
+   * lee los claims en el servidor-- y porque preguntando no hay dos criterios
+   * que puedan divergir.
+   *
+   * `undefined` mientras viaja, que no es lo mismo que `false`.
+   */
+  canAssign: boolean | undefined;
 } {
   const [estado, setEstado] = useState<Estado<MyReview[]>>({
     data: null,
@@ -193,19 +216,25 @@ export function useMyReviews(): Estado<MyReview[]> & {
     error: null,
   });
   const [yo, setYo] = useState<number | null | undefined>(undefined);
+  const [puedeAsignar, setPuedeAsignar] = useState<boolean | undefined>(undefined);
   const [tick, setTick] = useState(0);
   const reload = useCallback(() => setTick((t) => t + 1), []);
 
   useEffect(() => {
+    if (!habilitado) return;
     let cancelado = false;
     (async () => {
       try {
         const supabase = getSupabaseClient();
         /* Se pregunta ANTES de la lista: si la respuesta es `null`, la lista
            vacia que venga despues ya se puede explicar. */
-        const quienSoy = await rv().rpc('my_employee_key');
+        const [quienSoy, asigna] = await Promise.all([
+          rv().rpc('my_employee_key'),
+          rv().rpc('can_assign'),
+        ]);
         if (cancelado) return;
         if (!quienSoy.error) setYo(typeof quienSoy.data === 'number' ? quienSoy.data : null);
+        if (!asigna.error) setPuedeAsignar(asigna.data === true);
 
         const asigRes = await rv()
           .from('assignment')
@@ -302,7 +331,7 @@ export function useMyReviews(): Estado<MyReview[]> & {
     return () => {
       cancelado = true;
     };
-  }, [tick]);
+  }, [tick, habilitado]);
 
-  return { ...estado, reload, myEmployeeKey: yo };
+  return { ...estado, reload, myEmployeeKey: yo, canAssign: puedeAsignar };
 }
