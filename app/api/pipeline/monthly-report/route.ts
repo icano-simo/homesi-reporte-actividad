@@ -124,6 +124,11 @@ function toOpen(r: OpenRow): PipelineLoan {
     affinityProgram: '',
     opportunityOwner: '',
     propertyState: '',
+    // Etapa LOA-COLUMNS-1: no consumidas por monthlyReport.ts -- mismo
+    // criterio que nppmRealtor/referredBy/etc. arriba, fuera de OPEN_COLS.
+    loanProcessor: '',
+    loa2: '',
+    loa_2: '',
   };
 }
 
@@ -160,6 +165,10 @@ function toResolved(r: ResolvedRow): ResolvedLoan {
     affinityProgram: '',
     opportunityOwner: '',
     propertyState: '',
+    // Etapa LOA-COLUMNS-1: mismo motivo que en toOpen arriba.
+    loanProcessor: '',
+    loa2: '',
+    loa_2: '',
   };
 }
 

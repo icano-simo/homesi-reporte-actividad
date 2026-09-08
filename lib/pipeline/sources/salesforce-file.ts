@@ -509,6 +509,17 @@ function classifyRow(
        * esta columna no decida nada: la estrategia Affinity la da el branch.
        */
       affinityProgram: parseBranchTransfer(row.affinityProgramRaw) ? 'true' : '',
+      /*
+       * Etapa LOA-COLUMNS-1: este parser NO lee ninguna columna cruda de
+       * Loan Processor/LOA2/LOA-2 del export de Salesforce -- ese dato hoy
+       * llega solo vía el job de BigQuery (ver docs/sql/2026-09-snapshot-
+       * warnings.sql), no vía este camino de carga manual. `''` es el
+       * mismo criterio que el resto de los campos opcionales cuando "el
+       * archivo no trae la columna", no un valor inventado.
+       */
+      loanProcessor: '',
+      loa2: '',
+      loa_2: '',
     };
     return { openLoan };
   }
@@ -586,6 +597,10 @@ function classifyRow(
        * esta columna no decida nada: la estrategia Affinity la da el branch.
        */
       affinityProgram: parseBranchTransfer(row.affinityProgramRaw) ? 'true' : '',
+      // Etapa LOA-COLUMNS-1: mismo motivo que en openLoan arriba.
+      loanProcessor: '',
+      loa2: '',
+      loa_2: '',
     };
     return { resolvedLoan };
   }

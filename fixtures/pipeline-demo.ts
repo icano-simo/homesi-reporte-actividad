@@ -48,6 +48,10 @@ function makeLoan(
     opportunityOwner: '',
     // Etapa PROPERTY-STATE-1: mismo criterio -- vacio en el fixture.
     propertyState: '',
+    // Etapa LOA-COLUMNS-1: mismo criterio -- vacio en el fixture.
+    loanProcessor: '',
+    loa2: '',
+    loa_2: '',
   };
 }
 
