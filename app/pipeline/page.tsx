@@ -1640,6 +1640,7 @@ export default function PipelinePage() {
               combined={summarizeCountAmount(nextMonthPopulations.combined)}
               byBranchRows={buildNextMonthByBranch(nextMonthPopulations)}
               byStrategyRows={buildNextMonthByStrategy(nextMonthPopulations)}
+              branchManagers={branchManagers}
             />
           )}
 

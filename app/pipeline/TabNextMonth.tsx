@@ -17,7 +17,12 @@ export interface TabNextMonthProps {
   combined: CountAmount;
   byBranchRows: NextMonthByBranchRow[];
   byStrategyRows: NextMonthByStrategyRow[];
+  /** Etapa NEXTMONTH-8: branch -> nombre del Branch Manager (pipeline_forecast.branch_managers) -- mismo Map que ya recibe PivotTable.tsx, cargado una sola vez en page.tsx. Vacío si no cargó. */
+  branchManagers: Map<string, string>;
 }
+
+/** Mismo fallback que PivotTable.tsx:209 -- UNASSIGNED_MANAGER no está exportada desde ahí, se redefine acá tal cual. */
+const UNASSIGNED_MANAGER = '(unassigned)';
 
 /**
  * Etapa NEXTMONTH-7: selector de población tipo píldora -- reemplaza los 3
@@ -120,17 +125,26 @@ function sumPopulation<T>(rows: T[], pick: (row: T) => NextMonthCell): CountAmou
  * línea divisoria se vea continua hasta el total. Sin CountCell/onClick --
  * el total no es clickeable, es una suma, no una lista de préstamos propia.
  */
-function TotalRow({ value }: { value: CountAmount }) {
+function TotalRow({ value, labelColSpan = 1 }: { value: CountAmount; labelColSpan?: number }) {
   return (
     <tr className="grp total">
-      <td className="lbl">Total</td>
+      <td className="lbl" colSpan={labelColSpan}>
+        Total
+      </td>
       <td className="val group-start">{fmtInt(value.count)}</td>
       <td className="val">${fmtAmount(value.amount)}</td>
     </tr>
   );
 }
 
-export default function TabNextMonth({ estClosingNextMonth, outOfScope, combined, byBranchRows, byStrategyRows }: TabNextMonthProps) {
+export default function TabNextMonth({
+  estClosingNextMonth,
+  outOfScope,
+  combined,
+  byBranchRows,
+  byStrategyRows,
+  branchManagers,
+}: TabNextMonthProps) {
   const [view, setView] = useState<'branch' | 'strategy'>('branch');
   const [population, setPopulation] = useState<PopulationKey>('combined');
   const [modal, setModal] = useState<ModalState | null>(null);
@@ -252,14 +266,37 @@ export default function TabNextMonth({ estClosingNextMonth, outOfScope, combined
             como línea divisoria entre el label y los valores.
           */}
           <table className="piv piv--nextmonth">
-            <colgroup>
-              <col style={{ width: '40%' }} />
-              <col style={{ width: '30%' }} />
-              <col style={{ width: '30%' }} />
-            </colgroup>
+            {/*
+              Etapa NEXTMONTH-8: colgroup/thead/tbody se ramifican por `view` --
+              "By branch" gana una columna extra (Branch Manager, mismo Map que
+              ya usa PivotTable.tsx) entre Branch y el par Loans/Amount; "By
+              strategy" queda exactamente igual que antes (3 columnas, sin
+              tocar).
+            */}
+            {view === 'branch' ? (
+              <colgroup>
+                <col style={{ width: '20%' }} />
+                <col style={{ width: '20%' }} />
+                <col style={{ width: '30%' }} />
+                <col style={{ width: '30%' }} />
+              </colgroup>
+            ) : (
+              <colgroup>
+                <col style={{ width: '40%' }} />
+                <col style={{ width: '30%' }} />
+                <col style={{ width: '30%' }} />
+              </colgroup>
+            )}
             <thead>
               <tr className="mo-row">
-                <th className="lbl">{view === 'branch' ? 'Branch' : 'Strategy'}</th>
+                {view === 'branch' ? (
+                  <>
+                    <th className="lbl">Branch</th>
+                    <th style={{ textAlign: 'left' }}>Branch Manager</th>
+                  </>
+                ) : (
+                  <th className="lbl">Strategy</th>
+                )}
                 <th className="group-start">{activePopulation.label}</th>
                 <th>Amount</th>
               </tr>
@@ -270,6 +307,9 @@ export default function TabNextMonth({ estClosingNextMonth, outOfScope, combined
                     <tr className="metric" key={row.branch}>
                       <td className="lbl" style={{ textAlign: 'left' }}>
                         {row.branch}
+                      </td>
+                      <td style={{ textAlign: 'left' }} title={branchManagers.get(row.branch) ?? UNASSIGNED_MANAGER}>
+                        {branchManagers.get(row.branch) ?? UNASSIGNED_MANAGER}
                       </td>
                       <td className="val group-start">
                         <CountCell
@@ -296,7 +336,7 @@ export default function TabNextMonth({ estClosingNextMonth, outOfScope, combined
                   ))}
               {view === 'branch' && !byBranchRows.length && (
                 <tr>
-                  <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={3}>
+                  <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={4}>
                     No data.
                   </td>
                 </tr>
@@ -309,7 +349,7 @@ export default function TabNextMonth({ estClosingNextMonth, outOfScope, combined
                 </tr>
               )}
               {view === 'branch' ? (
-                <TotalRow value={byBranchTotals[population]} />
+                <TotalRow value={byBranchTotals[population]} labelColSpan={2} />
               ) : (
                 <TotalRow value={byStrategyTotals[population]} />
               )}
