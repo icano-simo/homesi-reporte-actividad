@@ -170,13 +170,29 @@ export function useReviewScript(): Estado<ReviewScript> & { reload: () => void }
  * asignación guarda la clave, no el nombre, para que renombrar a alguien no
  * deje asignaciones diciendo el nombre viejo.
  */
-export function useMyReviews(): Estado<MyReview[]> & { reload: () => void } {
+export function useMyReviews(): Estado<MyReview[]> & {
+  reload: () => void;
+  /**
+   * Quién es quien mira, para `review`. `null` = su email no está en el roster
+   * activo, y entonces NUNCA va a ver una asignación: las policies comparan
+   * contra `review.my_employee_key()`.
+   *
+   * ⚠ SIN ESTO, «no tengo nada asignado» y «no estoy en el roster» son la
+   * misma pantalla: cero filas con `error: null` en los dos casos. Y las
+   * respuestas son opuestas -- la primera se arregla asignando, la segunda no se
+   * arregla desde esta app.
+   *
+   * `undefined` mientras la pregunta viaja, que tampoco es lo mismo que `null`.
+   */
+  myEmployeeKey: number | null | undefined;
+} {
   const [estado, setEstado] = useState<Estado<MyReview[]>>({
     data: null,
     isLoading: true,
     unavailable: null,
     error: null,
   });
+  const [yo, setYo] = useState<number | null | undefined>(undefined);
   const [tick, setTick] = useState(0);
   const reload = useCallback(() => setTick((t) => t + 1), []);
 
@@ -185,6 +201,12 @@ export function useMyReviews(): Estado<MyReview[]> & { reload: () => void } {
     (async () => {
       try {
         const supabase = getSupabaseClient();
+        /* Se pregunta ANTES de la lista: si la respuesta es `null`, la lista
+           vacia que venga despues ya se puede explicar. */
+        const quienSoy = await rv().rpc('my_employee_key');
+        if (cancelado) return;
+        if (!quienSoy.error) setYo(typeof quienSoy.data === 'number' ? quienSoy.data : null);
+
         const asigRes = await rv()
           .from('assignment')
           .select('*')
@@ -282,5 +304,5 @@ export function useMyReviews(): Estado<MyReview[]> & { reload: () => void } {
     };
   }, [tick]);
 
-  return { ...estado, reload };
+  return { ...estado, reload, myEmployeeKey: yo };
 }

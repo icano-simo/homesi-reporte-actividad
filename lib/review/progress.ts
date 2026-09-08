@@ -21,13 +21,16 @@
  * es otra pregunta — dónde está la persona, no cuánto hizo.
  */
 
-import type { ReviewResponse, ReviewScript, ReviewSession, ReviewStep } from './types';
+import type {
+  ReviewResponse,
+  ReviewScript,
+  ReviewSession,
+  ReviewStep,
+  StepRef,
+} from './types';
 
-/** La posición de un paso en el guion. */
-export interface StepRef {
-  phase_no: number;
-  step_in_phase: number;
-}
+/* `StepRef` se re-exporta para no romper a quien ya lo importaba de acá. */
+export type { StepRef };
 
 /** Avance de una fase, para la lista de la máscara. */
 export interface PhaseProgress {

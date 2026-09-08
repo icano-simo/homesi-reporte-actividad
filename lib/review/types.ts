@@ -10,6 +10,16 @@
  * necesita para no usar mal un campo.
  */
 
+/**
+ * La posición de un paso en el guion. Vive acá y no en `progress.ts` porque la
+ * necesitan los tres archivos --tipos, lógica y escrituras-- y `progress.ts` es
+ * lógica, no el lugar donde se declaran las formas.
+ */
+export interface StepRef {
+  phase_no: number;
+  step_in_phase: number;
+}
+
 /** Lo que hace falta ADEMÁS del comentario para cerrar un paso. */
 export type GateKind = 'comment' | 'number' | 'clicks' | 'budget';
 

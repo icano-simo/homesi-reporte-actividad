@@ -221,6 +221,20 @@ export default function ReviewSettingsPage() {
       {(cargandoGente || reviews.isLoading) && <LoadingState />}
 
       {/*
+        Acá el vacío tiene una tercera causa: `review_admin` abre la pantalla
+        --lo decide `proxy.ts`-- pero `assignment_select` deja ver todas SOLO a
+        quien tiene el claim. Si alguien llegara con el claim en el JWT y sin
+        empleado en el roster, vería el formulario y ninguna asignación. Se dice,
+        porque asignar y no ver lo asignado se lee como que no se guardó.
+      */}
+      {reviews.myEmployeeKey === null && !pendiente && (
+        <p className="bp-hint bp-hint--warn">
+          Your sign-in email is not on the active roster. You can still assign reviews, but you will
+          not appear as a reviewer in any of them.
+        </p>
+      )}
+
+      {/*
         Las clases del formulario son las del módulo y no unas nuevas:
         `bp-form__field`, `bp-form__label` y `field`, leídas de
         `LibraryForms.tsx`. Había escrito cuatro inventadas y las cuatro habrían

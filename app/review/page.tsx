@@ -157,12 +157,49 @@ export default function MyReviewsPage() {
       {script.error && <ErrorState message={script.error} />}
       {pendiente && <Pendiente que={pendiente} />}
 
-      {!pendiente && !reviews.isLoading && !reviews.error && filas.length === 0 && (
-        <p className="bp-hint">
-          Nothing assigned to you yet. Assignments are set in Review settings by the Business Plan
-          leads.
-        </p>
-      )}
+      {/*
+        ═══════════════════════════════════════════════════════════════════
+        DOS VACÍOS QUE NO SON EL MISMO — etapa RV1
+        ═══════════════════════════════════════════════════════════════════
+
+        Las policies comparan contra `review.my_employee_key()`, que busca al
+        empleado ACTIVO con el email de la sesión. Si no lo encuentra devuelve
+        `null`, y entonces todas las consultas vuelven vacías con `error: null`.
+
+        Así que cero filas tiene dos causas con la misma forma:
+
+          · estás en el roster y nadie te asignó nada → se arregla asignando;
+          · tu email no está en el roster → no se arregla desde esta app, y no
+            vas a ver una asignación nunca.
+
+        Medido con el usuario de prueba: `my_employee_key` devuelve `null` y la
+        lista vuelve `[]` sin un solo error. Sin esta distinción, alguien con el
+        email mal cargado esperaría para siempre una asignación que ya existe.
+
+        Es la misma distinción que sostiene `outlook.snapshot.warnings` -- NULL
+        es que nadie reportó, vacío es que se buscó y no había -- aplicada a la
+        identidad en vez de a los datos.
+      */}
+      {!pendiente && !reviews.isLoading && !reviews.error && filas.length === 0 &&
+        reviews.myEmployeeKey === null && (
+          <div className="bp-pending" role="status">
+            <AlertTriangleIcon size={14} />
+            <span>
+              Your sign-in email is not on the active roster, so no review can be assigned to you —
+              and this list will stay empty until that is fixed. This is not something you can
+              change from here: ask the Business Plan leads to check the email on your roster row.
+            </span>
+          </div>
+        )}
+
+      {!pendiente && !reviews.isLoading && !reviews.error && filas.length === 0 &&
+        reviews.myEmployeeKey !== null && (
+          <p className="bp-hint">
+            {reviews.myEmployeeKey === undefined
+              ? 'Checking who you are…'
+              : 'Nothing assigned to you yet. Assignments are set in Review settings by the Business Plan leads.'}
+          </p>
+        )}
 
       {filas.length > 0 && (
         <div className="rv-list">
