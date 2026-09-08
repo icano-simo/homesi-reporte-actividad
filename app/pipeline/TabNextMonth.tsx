@@ -11,12 +11,24 @@ import LoanDetailModal, { type LoanDetailModalLoan } from './LoanDetailModal';
 // ninguna función de lib/pipeline/nextMonth.ts acá adentro. Recibe todo ya
 // calculado, mismo patrón que PivotTable/AdverseTable.
 
+/**
+ * Etapa NEXTMONTH-9: un array por canal, ya filtrado y agregado en page.tsx
+ * (buildNextMonthByBranch()/buildNextMonthByStrategy() sobre una población
+ * filtrada por channel vía filterPopulationsByChannel(), lib/pipeline/
+ * nextMonth.ts) -- mismo shape {banked, brokered} que ya usa page.tsx para
+ * strategyPages en el export de PDF, no un mecanismo nuevo.
+ */
+interface ByChannel<T> {
+  banked: T[];
+  brokered: T[];
+}
+
 export interface TabNextMonthProps {
   estClosingNextMonth: CountAmount;
   outOfScope: CountAmount;
   combined: CountAmount;
-  byBranchRows: NextMonthByBranchRow[];
-  byStrategyRows: NextMonthByStrategyRow[];
+  byBranchRows: ByChannel<NextMonthByBranchRow>;
+  byStrategyRows: ByChannel<NextMonthByStrategyRow>;
   /** Etapa NEXTMONTH-8: branch -> nombre del Branch Manager (pipeline_forecast.branch_managers) -- mismo Map que ya recibe PivotTable.tsx, cargado una sola vez en page.tsx. Vacío si no cargó. */
   branchManagers: Map<string, string>;
 }
@@ -125,15 +137,147 @@ function sumPopulation<T>(rows: T[], pick: (row: T) => NextMonthCell): CountAmou
  * línea divisoria se vea continua hasta el total. Sin CountCell/onClick --
  * el total no es clickeable, es una suma, no una lista de préstamos propia.
  */
-function TotalRow({ value, labelColSpan = 1 }: { value: CountAmount; labelColSpan?: number }) {
+function TotalRow({ label, value, labelColSpan = 1 }: { label: string; value: CountAmount; labelColSpan?: number }) {
   return (
     <tr className="grp total">
       <td className="lbl" colSpan={labelColSpan}>
-        Total
+        {label}
       </td>
       <td className="val group-start">{fmtInt(value.count)}</td>
       <td className="val">${fmtAmount(value.amount)}</td>
     </tr>
+  );
+}
+
+/**
+ * Etapa NEXTMONTH-9: mismo orden/etiquetas que CHANNEL_ORDER de
+ * PivotTable.tsx (`['Banked - Retail', 'Brokered']`) -- `key` es solo el
+ * nombre de la mitad de `ByChannel<T>` que le corresponde a cada bloque.
+ */
+const CHANNEL_BLOCKS: { key: 'banked' | 'brokered'; label: string }[] = [
+  { key: 'banked', label: 'Banked - Retail' },
+  { key: 'brokered', label: 'Brokered' },
+];
+
+/**
+ * Etapa NEXTMONTH-9: un bloque de canal -- mismo patrón visual que
+ * buildChannelBlocks()/`.tbl-card` de PivotTable.tsx (líneas 1616-1694):
+ * título = nombre del canal, tabla propia, `TotalRow` propio ("Subtotal
+ * {canal}"). Los controles (view/population, arriba en TabNextMonth) son
+ * compartidos entre los 2 bloques -- este componente solo recibe las rows
+ * YA filtradas por canal y por view, no decide ninguno de los 2.
+ */
+function ChannelBlock({
+  label,
+  view,
+  population,
+  populationLabel,
+  branchRows,
+  strategyRows,
+  branchManagers,
+  openCell,
+  contextForBranch,
+}: {
+  label: string;
+  view: 'branch' | 'strategy';
+  population: PopulationKey;
+  populationLabel: string;
+  branchRows: NextMonthByBranchRow[];
+  strategyRows: NextMonthByStrategyRow[];
+  branchManagers: Map<string, string>;
+  openCell: (context: string, metric: string, loans: PipelineLoan[]) => void;
+  contextForBranch: (branch: string) => string;
+}) {
+  const total =
+    view === 'branch' ? sumPopulation(branchRows, (r) => r[population]) : sumPopulation(strategyRows, (r) => r[population]);
+
+  return (
+    <div className="tbl-card" style={{ marginTop: '12px' }}>
+      <div className="tbl-card__head">
+        <span className="tbl-card__title">{label}</span>
+      </div>
+      <div className="tbl-scroll">
+        <table className="piv piv--nextmonth">
+          {view === 'branch' ? (
+            <colgroup>
+              <col style={{ width: '20%' }} />
+              <col style={{ width: '20%' }} />
+              <col style={{ width: '30%' }} />
+              <col style={{ width: '30%' }} />
+            </colgroup>
+          ) : (
+            <colgroup>
+              <col style={{ width: '40%' }} />
+              <col style={{ width: '30%' }} />
+              <col style={{ width: '30%' }} />
+            </colgroup>
+          )}
+          <thead>
+            <tr className="mo-row">
+              {view === 'branch' ? (
+                <>
+                  <th className="lbl">Branch</th>
+                  <th style={{ textAlign: 'left' }}>Branch Manager</th>
+                </>
+              ) : (
+                <th className="lbl">Strategy</th>
+              )}
+              <th className="group-start">{populationLabel}</th>
+              <th>Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {view === 'branch'
+              ? branchRows.map((row) => (
+                  <tr className="metric" key={row.branch}>
+                    <td className="lbl" style={{ textAlign: 'left' }}>
+                      {row.branch}
+                    </td>
+                    <td style={{ textAlign: 'left' }} title={branchManagers.get(row.branch) ?? UNASSIGNED_MANAGER}>
+                      {branchManagers.get(row.branch) ?? UNASSIGNED_MANAGER}
+                    </td>
+                    <td className="val group-start">
+                      <CountCell
+                        cell={row[population]}
+                        onClick={() => openCell(contextForBranch(row.branch), populationLabel, row[population].loans)}
+                      />
+                    </td>
+                    <td className="val">${fmtAmount(row[population].amount)}</td>
+                  </tr>
+                ))
+              : strategyRows.map((row) => (
+                  <tr className="metric" key={row.strategy}>
+                    <td className="lbl" style={{ textAlign: 'left' }}>
+                      {row.strategy}
+                    </td>
+                    <td className="val group-start">
+                      <CountCell
+                        cell={row[population]}
+                        onClick={() => openCell(row.strategy, populationLabel, row[population].loans)}
+                      />
+                    </td>
+                    <td className="val">${fmtAmount(row[population].amount)}</td>
+                  </tr>
+                ))}
+            {view === 'branch' && !branchRows.length && (
+              <tr>
+                <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={4}>
+                  No data.
+                </td>
+              </tr>
+            )}
+            {view === 'strategy' && !strategyRows.length && (
+              <tr>
+                <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={3}>
+                  No data.
+                </td>
+              </tr>
+            )}
+            <TotalRow label={'Subtotal ' + label} value={total} labelColSpan={view === 'branch' ? 2 : 1} />
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 
@@ -159,25 +303,49 @@ export default function TabNextMonth({
     setModal({ context, metric, loans: loans.map(openLoanToModalLoan) });
   }
 
+  /** Suma un CountAmount de cada canal -- para el chequeo de abajo, que compara contra las tarjetas KPI (combinadas, nunca separadas por canal -- ver alcance de esta etapa). */
+  const addCA = (a: CountAmount, b: CountAmount): CountAmount => ({ count: a.count + b.count, amount: a.amount + b.amount });
+
   const byBranchTotals = {
-    estClosingNextMonth: sumPopulation(byBranchRows, (r) => r.estClosingNextMonth),
-    outOfScope: sumPopulation(byBranchRows, (r) => r.outOfScope),
-    combined: sumPopulation(byBranchRows, (r) => r.combined),
+    estClosingNextMonth: addCA(
+      sumPopulation(byBranchRows.banked, (r) => r.estClosingNextMonth),
+      sumPopulation(byBranchRows.brokered, (r) => r.estClosingNextMonth)
+    ),
+    outOfScope: addCA(
+      sumPopulation(byBranchRows.banked, (r) => r.outOfScope),
+      sumPopulation(byBranchRows.brokered, (r) => r.outOfScope)
+    ),
+    combined: addCA(
+      sumPopulation(byBranchRows.banked, (r) => r.combined),
+      sumPopulation(byBranchRows.brokered, (r) => r.combined)
+    ),
   };
   const byStrategyTotals = {
-    estClosingNextMonth: sumPopulation(byStrategyRows, (r) => r.estClosingNextMonth),
-    outOfScope: sumPopulation(byStrategyRows, (r) => r.outOfScope),
-    combined: sumPopulation(byStrategyRows, (r) => r.combined),
+    estClosingNextMonth: addCA(
+      sumPopulation(byStrategyRows.banked, (r) => r.estClosingNextMonth),
+      sumPopulation(byStrategyRows.brokered, (r) => r.estClosingNextMonth)
+    ),
+    outOfScope: addCA(
+      sumPopulation(byStrategyRows.banked, (r) => r.outOfScope),
+      sumPopulation(byStrategyRows.brokered, (r) => r.outOfScope)
+    ),
+    combined: addCA(
+      sumPopulation(byStrategyRows.banked, (r) => r.combined),
+      sumPopulation(byStrategyRows.brokered, (r) => r.combined)
+    ),
   };
 
   /**
-   * Etapa NEXTMONTH-4: verificación de desarrollo, mismo estilo que el
-   * `console.warn` de CTC+Closing en page.tsx -- el total de cada columna
-   * (suma de byBranchRows/byStrategyRows) tiene que coincidir EXACTO con
-   * summarizeCountAmount() de esa población (la misma fuente que ya
-   * alimenta las 3 tarjetas KPI, recibida acá por prop). No debería fallar
-   * nunca -- es la misma fuente sumada de dos formas distintas -- pero si
-   * algún día no cuadra, mejor un aviso en consola que un número mudo.
+   * Etapa NEXTMONTH-4, extendida en NEXTMONTH-9: verificación de desarrollo,
+   * mismo estilo que el `console.warn` de CTC+Closing en page.tsx -- el total
+   * de cada columna (suma de byBranchRows/byStrategyRows, AHORA sumando
+   * banked+brokered porque el split de canal no cambia el total combinado)
+   * tiene que coincidir EXACTO con summarizeCountAmount() de esa población
+   * (la misma fuente que ya alimenta las 3 tarjetas KPI, recibida acá por
+   * prop -- las tarjetas KPI siguen combinadas, sin split, ver alcance). No
+   * debería fallar nunca -- es la misma fuente sumada de formas distintas --
+   * pero si algún día no cuadra, mejor un aviso en consola que un número
+   * mudo.
    */
   if (process.env.NODE_ENV !== 'production') {
     const checks: [string, CountAmount, CountAmount][] = [
@@ -244,119 +412,30 @@ export default function TabNextMonth({
         </div>
       </div>
 
-      <div className="tbl-card" style={{ marginTop: '12px' }}>
-        <div className="tbl-card__head">
-          <span className="tbl-card__title">{view === 'branch' ? 'By Branch' : 'By Strategy'}</span>
-        </div>
-        <div className="tbl-scroll">
-          {/*
-            Etapa NEXTMONTH-2b: mismo criterio de PivotTable.tsx (.col-pipeline/
-            .col-forecast) -- un par de columnas (Loans/Amount), en vez de una
-            celda combinada "N ($monto)". Valores crudos (count/$), no
-            badges -- se conserva la alineación a la derecha de `table.piv
-            td.val` (mismo criterio que Commercial Activity/la cascada), sin
-            el centrado que sí tiene sentido en .piv--exec para sus
-            badges/píldoras.
-
-            Etapa NEXTMONTH-7: antes eran 3 pares fijos (uno por población,
-            cada uno con su propio tinte de color); ahora es un solo par, el
-            de la población elegida en la píldora de arriba
-            (`POPULATION_OPTIONS`/`activePopulation`) -- sin tinte de color
-            (ya no aplica con una sola población visible), solo `group-start`
-            como línea divisoria entre el label y los valores.
-          */}
-          <table className="piv piv--nextmonth">
-            {/*
-              Etapa NEXTMONTH-8: colgroup/thead/tbody se ramifican por `view` --
-              "By branch" gana una columna extra (Branch Manager, mismo Map que
-              ya usa PivotTable.tsx) entre Branch y el par Loans/Amount; "By
-              strategy" queda exactamente igual que antes (3 columnas, sin
-              tocar).
-            */}
-            {view === 'branch' ? (
-              <colgroup>
-                <col style={{ width: '20%' }} />
-                <col style={{ width: '20%' }} />
-                <col style={{ width: '30%' }} />
-                <col style={{ width: '30%' }} />
-              </colgroup>
-            ) : (
-              <colgroup>
-                <col style={{ width: '40%' }} />
-                <col style={{ width: '30%' }} />
-                <col style={{ width: '30%' }} />
-              </colgroup>
-            )}
-            <thead>
-              <tr className="mo-row">
-                {view === 'branch' ? (
-                  <>
-                    <th className="lbl">Branch</th>
-                    <th style={{ textAlign: 'left' }}>Branch Manager</th>
-                  </>
-                ) : (
-                  <th className="lbl">Strategy</th>
-                )}
-                <th className="group-start">{activePopulation.label}</th>
-                <th>Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {view === 'branch'
-                ? byBranchRows.map((row) => (
-                    <tr className="metric" key={row.branch}>
-                      <td className="lbl" style={{ textAlign: 'left' }}>
-                        {row.branch}
-                      </td>
-                      <td style={{ textAlign: 'left' }} title={branchManagers.get(row.branch) ?? UNASSIGNED_MANAGER}>
-                        {branchManagers.get(row.branch) ?? UNASSIGNED_MANAGER}
-                      </td>
-                      <td className="val group-start">
-                        <CountCell
-                          cell={row[population]}
-                          onClick={() => openCell(contextForBranch(row.branch), activePopulation.label, row[population].loans)}
-                        />
-                      </td>
-                      <td className="val">${fmtAmount(row[population].amount)}</td>
-                    </tr>
-                  ))
-                : byStrategyRows.map((row) => (
-                    <tr className="metric" key={row.strategy}>
-                      <td className="lbl" style={{ textAlign: 'left' }}>
-                        {row.strategy}
-                      </td>
-                      <td className="val group-start">
-                        <CountCell
-                          cell={row[population]}
-                          onClick={() => openCell(row.strategy, activePopulation.label, row[population].loans)}
-                        />
-                      </td>
-                      <td className="val">${fmtAmount(row[population].amount)}</td>
-                    </tr>
-                  ))}
-              {view === 'branch' && !byBranchRows.length && (
-                <tr>
-                  <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={4}>
-                    No data.
-                  </td>
-                </tr>
-              )}
-              {view === 'strategy' && !byStrategyRows.length && (
-                <tr>
-                  <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={3}>
-                    No data.
-                  </td>
-                </tr>
-              )}
-              {view === 'branch' ? (
-                <TotalRow value={byBranchTotals[population]} labelColSpan={2} />
-              ) : (
-                <TotalRow value={byStrategyTotals[population]} />
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      {/*
+        Etapa NEXTMONTH-9: la única tabla ("By Branch"/"By Strategy", ambos
+        canales mezclados) se reemplaza por 2 bloques `.tbl-card`, uno por
+        canal -- mismo patrón visual que buildChannelBlocks()/las 2 tablas
+        Banked/Brokered de PivotTable.tsx (líneas 1616-1694). Los controles de
+        arriba (view, población) son compartidos: los 2 bloques muestran
+        siempre el mismo view/population a la vez, mismo criterio ya usado
+        por PivotTable.tsx para su propio toggle By branch/By strategy ("un
+        solo control para las dos tablas... se conmutan juntas").
+      */}
+      {CHANNEL_BLOCKS.map(({ key, label }) => (
+        <ChannelBlock
+          key={key}
+          label={label}
+          view={view}
+          population={population}
+          populationLabel={activePopulation.label}
+          branchRows={byBranchRows[key]}
+          strategyRows={byStrategyRows[key]}
+          branchManagers={branchManagers}
+          openCell={openCell}
+          contextForBranch={contextForBranch}
+        />
+      ))}
 
       <LoanDetailModal
         isOpen={modal !== null}

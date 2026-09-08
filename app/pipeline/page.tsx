@@ -29,7 +29,13 @@ import {
 } from '@/lib/pipeline/branchForecast';
 import { buildLoanOfficerForecastRows } from '@/lib/pipeline/loanOfficerForecast';
 import { buildStrategyBranchRows } from '@/lib/pipeline/strategyBranchRows';
-import { buildNextMonthPopulations, summarizeCountAmount, buildNextMonthByBranch, buildNextMonthByStrategy } from '@/lib/pipeline/nextMonth';
+import {
+  buildNextMonthPopulations,
+  summarizeCountAmount,
+  buildNextMonthByBranch,
+  buildNextMonthByStrategy,
+  filterPopulationsByChannel,
+} from '@/lib/pipeline/nextMonth';
 import AdverseTable, { type ChannelFilter } from './AdverseTable';
 import Topbar from './Topbar';
 import TabNavigation, { type TabType } from './TabNavigation';
@@ -1638,8 +1644,14 @@ export default function PipelinePage() {
               estClosingNextMonth={summarizeCountAmount(nextMonthPopulations.estClosingNextMonth)}
               outOfScope={summarizeCountAmount(nextMonthPopulations.outOfScope)}
               combined={summarizeCountAmount(nextMonthPopulations.combined)}
-              byBranchRows={buildNextMonthByBranch(nextMonthPopulations)}
-              byStrategyRows={buildNextMonthByStrategy(nextMonthPopulations)}
+              byBranchRows={{
+                banked: buildNextMonthByBranch(filterPopulationsByChannel(nextMonthPopulations, 'Banked - Retail')),
+                brokered: buildNextMonthByBranch(filterPopulationsByChannel(nextMonthPopulations, 'Brokered')),
+              }}
+              byStrategyRows={{
+                banked: buildNextMonthByStrategy(filterPopulationsByChannel(nextMonthPopulations, 'Banked - Retail')),
+                brokered: buildNextMonthByStrategy(filterPopulationsByChannel(nextMonthPopulations, 'Brokered')),
+              }}
               branchManagers={branchManagers}
             />
           )}

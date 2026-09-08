@@ -65,6 +65,28 @@ export function buildNextMonthPopulations(loans: PipelineLoan[], forecastMonth: 
   return { estClosingNextMonth, outOfScope, combined: [...byId.values()] };
 }
 
+/**
+ * Etapa NEXTMONTH-9: filtra las 3 poblaciones por canal, ANTES de pasarlas a
+ * buildNextMonthByBranch()/buildNextMonthByStrategy() -- mismo campo
+ * (`loan.channel`) que ya usa branchForecast.ts/aggregate.ts para separar
+ * Banked de Brokered en Forecast & Pipeline. Sin tocar la firma de esas 2
+ * funciones ni de buildNextMonthPopulations(): quien llame arma 2
+ * NextMonthPopulations (uno por canal) con esta función y llama cada builder
+ * 2 veces, una por canal -- mismo patrón que buildChannelBlocks() de
+ * PivotTable.tsx (CHANNEL_ORDER.map + filter por channel), pero acá filtrando
+ * la población de origen en vez de un array de rows ya agregado.
+ */
+export function filterPopulationsByChannel(
+  populations: NextMonthPopulations,
+  channel: PipelineLoan['channel']
+): NextMonthPopulations {
+  return {
+    estClosingNextMonth: populations.estClosingNextMonth.filter((loan) => loan.channel === channel),
+    outOfScope: populations.outOfScope.filter((loan) => loan.channel === channel),
+    combined: populations.combined.filter((loan) => loan.channel === channel),
+  };
+}
+
 export interface CountAmount {
   count: number;
   amount: number;
