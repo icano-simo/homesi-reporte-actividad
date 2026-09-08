@@ -600,7 +600,14 @@ function MetricPodiumCard({
               <span className="podium-card__badge">
                 <AwardIcon size={badgeSize[rank]} />
               </span>
-              {isTied && <span className="podium-card__tied">(tied)</span>}
+              {isTied && (
+                <span
+                  className="podium-card__tied"
+                  title="Mismo valor que el puesto anterior o el líder -- el orden del podio ya está resuelto por un criterio de desempate secundario (monto)."
+                >
+                  (tied)
+                </span>
+              )}
               <div className="podium-card__row-body">
                 <div className="podium-card__name" title={row.label}>
                   {row.label}
