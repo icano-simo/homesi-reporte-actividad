@@ -27,7 +27,7 @@ import {
   buildBranchForecastRows,
   type BranchForecastRow,
 } from '@/lib/pipeline/branchForecast';
-import { buildLoanOfficerForecastRows } from '@/lib/pipeline/loanOfficerForecast';
+import { buildLoanOfficerForecastRows, buildLoanOfficerForecastByPerson } from '@/lib/pipeline/loanOfficerForecast';
 import { buildStrategyBranchRows } from '@/lib/pipeline/strategyBranchRows';
 import {
   buildNextMonthPopulations,
@@ -41,6 +41,7 @@ import Topbar from './Topbar';
 import TabNavigation, { type TabType } from './TabNavigation';
 import TabMilestoneMatrix from './TabMilestoneMatrix';
 import TabNextMonth from './TabNextMonth';
+import LoanOfficerForecastTable from './LoanOfficerForecastTable';
 import { getForecastDb, isSupabaseConfigured } from '@/lib/supabase/client';
 import { DownloadIcon, FileSheetIcon } from '@/components/ui/icons';
 
@@ -959,6 +960,14 @@ export default function PipelinePage() {
     : [];
 
   /**
+   * Etapa PDF-INVESTIGACIÓN, ahora con UI: mismo `loanOfficerForecastRows`
+   * de arriba, colapsado por Loan Officer solo (un Loan Officer con filas
+   * en varios branches/canales queda en una sola fila) -- ver
+   * `buildLoanOfficerForecastByPerson()` (lib/pipeline/loanOfficerForecast.ts).
+   */
+  const loanOfficerForecastByPerson = buildLoanOfficerForecastByPerson(loanOfficerForecastRows);
+
+  /**
    * Etapa PDF-INVESTIGACIÓN -- mismo resumen por estrategia de arriba,
    * pero acotado a un solo canal por vez. Misma lógica de reduce,
    * extraída a una función local para no repetirla 2 veces a mano.
@@ -1617,6 +1626,8 @@ export default function PipelinePage() {
               onActiveStrategyFilterChange={setActiveStrategyFilter}
             />
           )}
+
+          {activeTab === 'executive' && <LoanOfficerForecastTable rows={loanOfficerForecastByPerson} />}
 
           {activeTab === 'matrix' && (
             <TabMilestoneMatrix

@@ -153,3 +153,70 @@ export function buildLoanOfficerForecastRows(
 
   return result.sort((a, b) => a.branch.localeCompare(b.branch) || a.loanOfficer.localeCompare(b.loanOfficer));
 }
+
+export interface LoanOfficerForecastByPerson {
+  loanOfficer: string;
+  totalCount: number;
+  healthyCount: number;
+  closedCount: number;
+  projectedToClose: number;
+  totalForecast: number;
+}
+
+/**
+ * Agrupa `LoanOfficerForecastRow[]` (una fila por branch+channel+Loan
+ * Officer) por Loan Officer solo -- un mismo Loan Officer con filas en
+ * varios branches/canales queda en UNA sola fila acá, con los 5 campos
+ * numéricos sumados. NO recalcula ningún forecast ni vuelve a redondear
+ * nada -- suma directa de lo que ya devolvió `buildLoanOfficerForecastRows()`,
+ * mismo criterio de "aporcionar, no recalcular" documentado arriba.
+ */
+export function buildLoanOfficerForecastByPerson(rows: LoanOfficerForecastRow[]): LoanOfficerForecastByPerson[] {
+  const byOfficer = new Map<string, LoanOfficerForecastByPerson>();
+  for (const row of rows) {
+    const cur = byOfficer.get(row.loanOfficer) ?? {
+      loanOfficer: row.loanOfficer,
+      totalCount: 0,
+      healthyCount: 0,
+      closedCount: 0,
+      projectedToClose: 0,
+      totalForecast: 0,
+    };
+    cur.totalCount += row.totalCount;
+    cur.healthyCount += row.healthyCount;
+    cur.closedCount += row.closedCount;
+    cur.projectedToClose += row.projectedToClose;
+    cur.totalForecast += row.totalForecast;
+    byOfficer.set(row.loanOfficer, cur);
+  }
+
+  const result = [...byOfficer.values()].sort((a, b) => a.loanOfficer.localeCompare(b.loanOfficer));
+
+  /*
+   * Mismo chequeo de desarrollo que buildLoanOfficerForecastRows() arriba
+   * -- agrupar por persona no debe cambiar ninguna suma total, solo
+   * colapsar filas. Si no cuadra, algún Loan Officer quedó contado dos
+   * veces o se perdió una fila al agrupar.
+   */
+  if (process.env.NODE_ENV !== 'production') {
+    const sumRows = (pick: (r: LoanOfficerForecastRow) => number) => rows.reduce((a, r) => a + pick(r), 0);
+    const sumResult = (pick: (r: LoanOfficerForecastByPerson) => number) => result.reduce((a, r) => a + pick(r), 0);
+    const checks: [string, number, number][] = [
+      ['totalCount', sumResult((r) => r.totalCount), sumRows((r) => r.totalCount)],
+      ['healthyCount', sumResult((r) => r.healthyCount), sumRows((r) => r.healthyCount)],
+      ['closedCount', sumResult((r) => r.closedCount), sumRows((r) => r.closedCount)],
+      ['projectedToClose', sumResult((r) => r.projectedToClose), sumRows((r) => r.projectedToClose)],
+    ];
+    for (const [name, got, want] of checks) {
+      if (got !== want) {
+        console.warn('PDF-INVESTIGACIÓN: el agrupado por persona no cuadra contra las filas sin agrupar', {
+          field: name,
+          groupedSum: got,
+          rowsSum: want,
+        });
+      }
+    }
+  }
+
+  return result;
+}
