@@ -233,6 +233,13 @@ function ChannelBlock({
                     <td className="lbl" style={{ textAlign: 'left' }}>
                       {row.branch}
                     </td>
+                    {/*
+                      El valor sale de pipeline_forecast.branch_managers --
+                      texto suelto, SIN foreign key a dim_employee. No se
+                      sincroniza con org.roster_override. Si un nombre queda
+                      desactualizado (ya pasó con branch 703), la corrección
+                      es manual en Supabase, no en código.
+                    */}
                     <td style={{ textAlign: 'left' }} title={branchManagers.get(row.branch) ?? UNASSIGNED_MANAGER}>
                       {branchManagers.get(row.branch) ?? UNASSIGNED_MANAGER}
                     </td>
