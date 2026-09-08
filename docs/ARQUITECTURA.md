@@ -8257,3 +8257,34 @@ explica la omisión a propósito), `lib/pipeline/sources/salesforce-file.ts`
 + `fixtures/pipeline-demo.ts` + `scripts/test-aggregate.ts` (`''` fijo,
 requerido mecánicamente por el tipo, sin dato real disponible en esos
 caminos).
+
+## Merge de fix/analytics-batch-2 a main, y un fix mecánico aparte
+
+Merge de `fix/analytics-batch-2` a `main` (commit `3d2ae48`) -- trae el
+foot-note de período redundante en Analytics, el nombre real del Owner
+en el drill-down, y el reorden de pestañas (Analytics antes de Business
+Plan), cada uno ya documentado en su propia sección más arriba en este
+documento.
+
+### Fix aparte, requerido después del merge (commit 6ba4262)
+
+`TabNextMonth.tsx` -- que había llegado a `main` por el merge previo de
+`feat/next-month-populations` -- construía `LoanDetailModalLoan` sin el
+campo `opportunityOwner`. Mismo campo ya agregado 3 veces antes por el
+mismo motivo: una colisión mecánica entre 2 ramas que evolucionaron en
+paralelo sin verse -- `fix/analytics-batch-2` agregó `opportunityOwner`
+a la interface y corrigió los 3 constructores que existían en ese
+momento, pero `TabNextMonth.tsx` (con su propio 4to constructor) llegó a
+`main` después, por otra rama, sin ese campo. `tsc` lo señaló al mergear
+las 2 ramas juntas. Agregado mínimo (`opportunityOwner:
+loan.opportunityOwner,`), sin lógica nueva.
+
+`main` queda en `6ba4262`.
+
+### Archivos
+
+`app/pipeline/LoanDetailModal.tsx`, `app/pipeline/PeriodSelector.tsx`,
+`app/pipeline/PivotTable.tsx`, `app/pipeline/TabMilestoneMatrix.tsx`,
+`components/layout/ServiceHubHeader.tsx` (merge de
+`fix/analytics-batch-2`); `app/pipeline/TabNextMonth.tsx` (fix aparte,
+commit `6ba4262`).
