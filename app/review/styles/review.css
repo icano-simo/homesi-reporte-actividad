@@ -1,0 +1,287 @@
+/* ============================================================================
+   MODO REVISIÓN — etapa RV1
+   ============================================================================
+
+   ⚠ ESTE ARCHIVO SE IMPORTA DESDE EL LAYOUT RAÍZ, no desde el del módulo.
+
+   La máscara vive en el layout raíz porque tiene que sobrevivir al cruce de
+   Business Plan a Outlook, así que su CSS tiene que estar cargado en las cuatro
+   pantallas del portal — no sólo en `/review`. Es la única hoja del repo con
+   ese alcance además de las cuatro de `globals.css`.
+
+   Y no se metió EN `globals.css`: ese archivo documenta un orden intencional
+   --tokens, reset, shell, componentes-- y esto no es ninguno de los cuatro.
+
+   Cero hexadecimales: todo sale de `tokens.css`. El prefijo es `rv-`, y se
+   verificó con `git grep` que no existía antes de escribirlo.
+   ============================================================================ */
+
+/* ── El borde que dice que hay un modo activo ─────────────────────────────── */
+
+/*
+ * Un elemento propio y no un `border` en el `<body>`: un borde en el body
+ * empuja el contenido y recalcula el layout de las cuatro pantallas. Así el
+ * modo se enciende y se apaga sin mover un pixel de lo que hay debajo.
+ *
+ * `pointer-events: none` es necesario, no decorativo: cubre la ventana entera,
+ * y sin eso se comería todos los clics de la app.
+ */
+.rv-edge {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  border: 3px solid var(--coral);
+  /* El coral en un borde de 3px sobre el canvas claro es suficiente contraste;
+     la sombra hacia adentro lo separa del contenido sin taparlo. */
+  box-shadow: inset 0 0 0 1px var(--white);
+}
+
+/* ── La barra ─────────────────────────────────────────────────────────────── */
+
+.rv-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 61;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  padding: 9px 18px;
+  background: var(--navy);
+  color: var(--white);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.rv-bar__main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.rv-bar__tag {
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: var(--coral);
+  font-family: var(--font-display);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.rv-bar__who {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+}
+.rv-bar__sep {
+  opacity: 0.4;
+}
+.rv-bar__phase,
+.rv-bar__mod {
+  opacity: 0.85;
+}
+.rv-bar__pct {
+  font-weight: 700;
+}
+/* El aviso de carga, en la misma familia ámbar de lo que falta que pase. */
+.rv-bar__loading {
+  padding: 2px 9px;
+  border-radius: var(--radius-full);
+  background: var(--amber-500);
+  /* Texto navy sobre ambar: `--amber-900` no existe, y escribirlo con
+     fallback habria hecho que el fallback fuera lo unico que se usa. */
+  color: var(--navy);
+  font-weight: 600;
+}
+
+/* ── La lista de fases ────────────────────────────────────────────────────── */
+
+.rv-steps {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+.rv-steps__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  /* Las no empezadas atenuadas, pero la marca `○` las distingue igual: el
+     estado no es sólo opacidad. */
+  opacity: 0.55;
+}
+.rv-steps__item.is-done,
+.rv-steps__item.is-current {
+  opacity: 1;
+}
+.rv-steps__mark {
+  flex: none;
+  width: 14px;
+  text-align: center;
+}
+.rv-steps__item.is-done .rv-steps__mark {
+  color: var(--emerald-200);
+}
+.rv-steps__item.is-current .rv-steps__mark {
+  color: var(--coral);
+}
+.rv-steps__item.is-current .rv-steps__label {
+  font-weight: 700;
+}
+.rv-steps__count {
+  opacity: 0.75;
+}
+
+.rv-bar__exit {
+  margin-left: auto;
+  flex: none;
+  padding: 5px 13px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--white);
+  color: var(--white);
+  font-weight: 600;
+  text-decoration: none;
+}
+.rv-bar__exit:hover {
+  background: var(--white);
+  color: var(--navy);
+}
+
+/*
+ * ⚠ EL CONTENIDO SE CORRE HACIA ABAJO, y sólo cuando la barra existe.
+ *
+ * La barra es `fixed`, así que sin esto taparía el header del portal.
+ *
+ * El corrimiento lo dispara la PRESENCIA de la barra, con `:has()`, y no una
+ * clase que alguien tenga que poner en el `<body>`. Así aparece y desaparece
+ * con la barra sola: no hay dos estados que mantener de acuerdo, ni un
+ * `padding-top` que sobreviva a una máscara que ya se fue. Mismo criterio por
+ * el que el sidebar de Business Plan dejó de tener estado en BP4.
+ */
+body:has(.rv-bar) .app {
+  padding-top: 42px;
+}
+
+/* ── Las dos pantallas ────────────────────────────────────────────────────── */
+
+.rv-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.rv-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 18px;
+  background: var(--canvas);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+}
+.rv-row:hover {
+  border-color: var(--navy);
+}
+.rv-row__main {
+  min-width: 0;
+}
+.rv-row__who {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--navy);
+}
+.rv-row__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 5px;
+  font-size: 11.5px;
+  color: var(--slate-500);
+  font-variant-numeric: tabular-nums;
+}
+.rv-row__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+/* El SLA. Tres tonos y cada uno con su palabra al lado: nunca sólo color. */
+.rv-due {
+  padding: 2px 9px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--slate-200);
+  background: var(--slate-50);
+  color: var(--slate-600);
+  font-weight: 600;
+}
+.rv-due--soon {
+  background: var(--amber-50);
+  border-color: var(--amber-200);
+  color: var(--amber-800);
+}
+.rv-due--late {
+  /* `--coral-50` no existe. El ambar de fondo con borde y texto coral dice
+     "vencido" igual, y el borde es lo que lo separa del "vence pronto". */
+  background: var(--amber-50);
+  border-color: var(--coral);
+  color: var(--coral);
+}
+
+/* El estado de la sesión. `pending` incluye la abandonada, que se DERIVA. */
+.rv-state {
+  padding: 2px 9px;
+  border-radius: var(--radius-full);
+  font-weight: 600;
+}
+.rv-state--none {
+  background: var(--slate-100);
+  color: var(--slate-500);
+}
+.rv-state--progress {
+  background: var(--sky);
+  color: var(--navy);
+}
+.rv-state--stale {
+  background: var(--amber-50);
+  border: 1px solid var(--amber-500);
+  color: var(--amber-800);
+}
+.rv-state--done {
+  background: var(--navy);
+  color: var(--white);
+}
+
+/* Las migas, propias. Ver la nota del TSX: `Breadcrumbs` no pinta fuera del
+   shell de Business Plan, asi que estas pantallas dibujan las suyas. */
+.rv-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 14px;
+  font-size: 11.5px;
+  color: var(--slate-400);
+}
+.rv-crumbs a {
+  color: var(--slate-500);
+  text-decoration: none;
+}
+.rv-crumbs a:hover {
+  color: var(--navy);
+  text-decoration: underline;
+}
+.rv-crumbs [aria-current] {
+  font-weight: 600;
+  color: var(--navy);
+}

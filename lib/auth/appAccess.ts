@@ -98,6 +98,24 @@ export const ANALYTICS_CLAIM = 'analytics';
  */
 export const ADMIN_CLAIM = 'admin';
 
+/**
+ * Etapa RV1: quién puede ASIGNAR revisiones. Hoy tres personas — Isabella,
+ * Fernando y Ricardo.
+ *
+ * ⚠ NO ES el permiso para participar de una revisión. El BP Team entero ve
+ * `Mis revisiones` con `commercial_activity` y nada más: este claim sólo abre
+ * la pantalla de configuración, que decide quién revisa a quién.
+ *
+ * ⚠ Y NO SE REUSÓ `admin`. Ese claim está documentado arriba como el permiso
+ * para VER datos de personal, con la advertencia de que un permiso de
+ * administración de verdad necesitaría otro nombre. Éste es ese caso.
+ *
+ * Tiene que coincidir exactamente con lo que revisa `review.can_assign()` en la
+ * base. Si divergen, la UI y RLS dirían cosas distintas — y la que protege los
+ * datos es la de la base.
+ */
+export const REVIEW_ADMIN_CLAIM = 'review_admin';
+
 /** true si el usuario tiene ese claim entre sus `allowed_apps`. */
 export function hasClaim(user: UserLike, claim: string): boolean {
   const allowedApps = user?.app_metadata?.allowed_apps;

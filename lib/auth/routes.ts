@@ -48,6 +48,23 @@ export const ANALYTICS_PATH = '/analytics';
 export const ADMIN_PATH = '/admin';
 
 /**
+ * Etapa RV1 — el modo revisión.
+ *
+ * ⚠ SON DOS RUTAS CON DOS PERMISOS DISTINTOS, y por eso son dos constantes:
+ *
+ *   `/review`           `Mis revisiones`, para el BP Team entero. No lleva
+ *                       claim propio: alcanza con `commercial_activity`, y a
+ *                       quién ve cada uno lo decide RLS comparando el email.
+ *   `/review/settings`  la configuración, detrás de `review_admin`.
+ *
+ * El gate de `proxy.ts` compara por prefijo, así que la segunda queda cerrada
+ * sin cerrar la primera. Al revés --un claim sobre `/review`-- habría dejado al
+ * BP Team sin la pantalla que el modo existe para darles.
+ */
+export const REVIEW_PATH = '/review';
+export const REVIEW_SETTINGS_PATH = '/review/settings';
+
+/**
  * Rutas del flujo de autenticación. No forman parte de la app en sí, así que
  * no llevan el shell del Service Hub (header con tabs de módulo): mostrar la
  * navegación a alguien que todavía no entró no tiene sentido, y en /no-access

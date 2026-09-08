@@ -3,6 +3,22 @@ import { Inter, Barlow } from 'next/font/google';
 import './globals.css';
 import ServiceHubHeader from '@/components/layout/ServiceHubHeader';
 import { getServerClient } from '@/lib/supabase/server';
+import { APP_NAME } from '@/lib/auth/appAccess';
+/*
+ * ⚠ Etapa RV1 — LA MÁSCARA Y SU CSS VIVEN ACÁ, y no en el layout del módulo.
+ *
+ * La revisión cruza de Business Plan a Outlook y vuelve. En el layout de un
+ * módulo la barra se DESMONTARÍA al cruzar y la persona la vería desaparecer en
+ * medio de una conversación con el Loan Officer. La documentación de Next lo
+ * dice explícito -- «Layouts do not re-render on navigation»,
+ * `03-api-reference/03-file-conventions/layout.md` -- así que éste es el único
+ * lugar donde el requisito se cumple.
+ *
+ * Y por eso su hoja de estilos también se importa acá: tiene que estar cargada
+ * en las cuatro pantallas del portal, no sólo en `/review`.
+ */
+import ReviewMaskHost from '@/components/review/ReviewMaskHost';
+import './review/styles/review.css';
 
 /*
  * Etapa UX1 (overhaul Service Hub):
@@ -66,6 +82,18 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="en" className={`${inter.variable} ${barlow.variable}`}>
       <body>
+        {/*
+          `puedeRevisar` se resuelve en el SERVIDOR con el claim que ya se leyó
+          para el header. Sin ese corte, cada carga de cualquier página del
+          portal dispararía cuatro consultas a `review` para las 97 personas que
+          no son del BP Team -- y las cuatro devolverían cero filas por RLS, que
+          es la forma más caras de no hacer nada.
+
+          El anfitrión no dibuja NADA si no hay una sesión en curso: ni la
+          barra, ni el borde, ni un contenedor vacío. La app normal queda
+          idéntica.
+        */}
+        <ReviewMaskHost puedeRevisar={allowedApps.includes(APP_NAME)} />
         <div className="app">
           <ServiceHubHeader allowedApps={allowedApps} />
           <main className="hub-canvas">{children}</main>
