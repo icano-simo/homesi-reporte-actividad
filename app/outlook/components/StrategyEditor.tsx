@@ -114,6 +114,7 @@ export default function StrategyEditor({
   data,
   onClose,
   onSaved,
+  months: mesesDelHorizonte,
 }: {
   lo: OutlookEditable;
   strategy: OutlookStrategy;
@@ -127,8 +128,28 @@ export default function StrategyEditor({
    * la de más autoridad. Medido en la primera pasada de OL2.
    */
   onSaved: () => Promise<void> | void;
+  /**
+   * ══════════════════════════════════════════════════════════════════════════
+   * ⚠ LOS MESES QUE LA PANTALLA ESTÁ MOSTRANDO — etapa OL21
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * El bug que arregla: esto era `data.remainingMonths`, que es siempre "lo que
+   * queda del año en curso". Con el horizonte en `Dec 2028` la tabla dibujaba 36
+   * columnas de presupuesto y el modo mes a mes ofrecía tres --Oct, Nov, Dic--,
+   * así que los meses que se estaban mirando no se podían fijar. Medido: 36
+   * columnas contra 3 campos.
+   *
+   * ⚠ Y NO SE ARREGLA ADENTRO. El horizonte vive en el estado de la PANTALLA y
+   * no en `OutlookData` --meterlo en el loader obligaría a recargar todo cada
+   * vez que alguien mira un año más, que es la decisión de OL12-- así que el
+   * editor no tiene de dónde deducirlo: se lo pasa quien lo abre.
+   *
+   * `data.remainingMonths` sigue siendo el respaldo, para el llamador que no lo
+   * pase todavía.
+   */
+  months?: string[];
 }) {
-  const months = data.remainingMonths;
+  const months = mesesDelHorizonte ?? data.remainingMonths;
   const savedSchedule = lo.benchmarkSchedules[strategy] ?? [];
   const savedSegments = lo.rulesByStrategy[strategy] ?? [];
   const savedTargets = lo.targetsByStrategy[strategy] ?? {};

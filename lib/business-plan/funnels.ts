@@ -31,12 +31,66 @@ export interface Funnel {
   is_example: boolean;
 }
 
+/**
+ * Las cuatro areas de la division — etapa BP40.
+ *
+ * ⚠ ES UNA LISTA CERRADA, y el `check` de la base la repite. No es duplicacion
+ * inutil: el desplegable necesita saber que ofrecer y la base necesita rechazar
+ * lo que llegue por otra via. Si algun dia hay una quinta, van las dos.
+ */
+/**
+ * ============================================================================
+ * LAS AREAS, Y DONDE VIVE LA RED QUE ESTO DA -- leer antes de tocar
+ * ============================================================================
+ *
+ * Estos cuatro nombres son HOY la unica definicion literal de las areas en todo
+ * el codigo: cero comparaciones tipo `=== 'Marketing'` en la app, y las demas
+ * apariciones iteran esta constante o usan el tipo que sale de ella.
+ *
+ * ⚠ Y ESO ES UNA RED QUE SE VA A PERDER, a proposito.
+ *
+ * `NodeArea` es un tipo UNION derivado de la constante, asi que hoy un area mal
+ * escrita --`'Marketng'`-- es un error de COMPILACION. Cuando las areas pasen a
+ * ser editables (BP44, fase B), esto se reemplaza por una clave numerica contra
+ * `business_plan.area`, y el compilador deja de poder saber que areas existen:
+ *
+ *   · ANTES: `'Marketng'` no compila.
+ *   · DESPUES: `area_key = 99` compila, y falla al guardar con un 400 de la FK
+ *     `node_area_fk`.
+ *
+ * La red no desaparece, se MUEVE: de `tsc` a la base. Es el precio de que sean
+ * editables y no hay forma de tener las dos -- un tipo union no puede conocer
+ * filas que alguien va a crear manana.
+ *
+ * Quien venga buscando "donde se validan las areas": ya no es aca. Es la FK.
+ *
+ * ESTADO DE LA MIGRACION: la fase A esta aplicada. `business_plan.area` existe
+ * con las cuatro filas, `node.area_key` esta poblada (25 de 32) y un trigger
+ * bidireccional mantiene `node.area` en sincronia en las dos direcciones. Esta
+ * constante sigue siendo la que dibuja la pantalla hasta que el codigo lea la
+ * tabla; ver `docs/sql/2026-09-editable-areas.sql`.
+ */
+export const NODE_AREAS = ['Marketing', 'Sales Coaching', 'Performance', 'IT'] as const;
+export type NodeArea = (typeof NODE_AREAS)[number];
+
 export interface FunnelNode {
   node_key: number;
   name: string;
   description: string | null;
   icon: string | null;
   is_example: boolean;
+  /**
+   * ⚠ EL AREA, QUE ANTES ERA UN PREFIJO DE `description` — etapa BP40.
+   *
+   * Vivia como primeras palabras hasta el primer punto --`Marketing.`, `Sales
+   * Coaching.`-- y ya se habia roto: de 31 nodos, 4 no lo tenian y 2 guardaron
+   * un parrafo entero donde iba.
+   *
+   * `null` = nadie la asigno, NO "sin area". Un valor de relleno se vuelve
+   * indistinguible de una decision el dia que alguien lo elija a proposito. Hoy
+   * son 6 en null, y la biblioteca los agrupa aparte para que se vean.
+   */
+  area: NodeArea | null;
 }
 
 export interface FunnelNodeLink {
@@ -62,7 +116,19 @@ export interface NodeOwner {
 
 /* ─────────────────────────── Instancias ────────────────────────────────── */
 
-export type MilestoneStatus = 'pending' | 'in_progress' | 'done';
+/**
+ * Los TRES estados guardados de un step -- etapa BP42.
+ *
+ * `blocked` NO esta aca: se DERIVA de que la dependencia del nodo no este
+ * completa. Un step en progreso cuyo antecesor no termino tiene dos estados a
+ * la vez y una sola columna no los guarda -- al desbloquearlo habria que
+ * adivinar cual era. Ver `isBlocked` mas abajo.
+ *
+ * `in_progress` conserva el guion bajo aunque se MUESTRE "In progress": nadie
+ * ve el valor guardado, y un valor con espacio hace que la proxima comparacion
+ * mal escrita sea un bug silencioso.
+ */
+export type MilestoneStatus = 'planned' | 'in_progress' | 'completed';
 
 export interface EnrollmentNodeDraft {
   source_node_key: number;
@@ -130,15 +196,53 @@ export interface NodeDayRange {
 }
 
 /**
+ * ============================================================================
+ * EL DIA ACUMULADO DE CADA STEP -- etapa BP40
+ * ============================================================================
+ *
+ * `sla_days` paso a ser los dias DESDE EL STEP ANTERIOR, no el dia absoluto
+ * dentro del nodo. El dia en que cae un step es la suma corrida.
+ *
+ * POR QUE SE CAMBIO, y que costo: leido como absoluto, un numero menor que el
+ * anterior no molestaba --cada step decia su dia por su cuenta-- asi que se
+ * podia tener un plan donde el paso 4 caia ANTES que el paso 3. Los datos tenian
+ * dos casos asi, invisibles hasta que se miro el acumulado. Con esta lectura eso
+ * no es representable: un delta negativo no existe.
+ *
+ * Y LA CONSECUENCIA QUE HAY QUE MOSTRAR: correr un step corre a TODOS los que
+ * siguen en su nodo. La primera vez que alguien lo vea sin aviso va a parecer un
+ * bug, asi que el editor dibuja los dias resultantes mientras se escribe.
+ *
+ * Un step sin `sla_days` no aporta al acumulado y hereda el dia del anterior:
+ * son los de plantillas viejas, y darle un dia inventado seria peor.
+ */
+export function cumulativeDays(slaDays: (number | null)[]): number[] {
+  let acc = 0;
+  return slaDays.map((d) => {
+    acc += d ?? 0;
+    return acc;
+  });
+}
+
+/**
  * El rango "DAY 1-5" de cada nodo se CALCULA; no se escribe a mano.
  *
- * Un nodo dura lo que tarda su último milestone (el mayor `sla_days`, que se
- * cuenta desde el inicio DEL NODO). Los nodos van uno después del otro, así que
- * cada uno arranca donde terminó el anterior.
+ * Un nodo dura la SUMA de los `sla_days` de sus steps. Los nodos van uno
+ * después del otro, así que cada uno arranca donde terminó el anterior.
  *
- * La consecuencia práctica es la que importa: al reordenar la secuencia con el
- * drag and drop, los rangos se recalculan solos. Si estuvieran guardados,
- * reordenar dejaría todas las fechas mintiendo.
+ * ⚠ ANTES ERA `Math.max`, Y ESTABA MAL DESDE BP40.
+ *
+ * Hasta BP40 `sla_days` era el día ABSOLUTO dentro del nodo, así que el mayor
+ * era efectivamente la duración. BP40 lo convirtió en el DELTA contra el step
+ * anterior --con su migración de 12 `update`-- y esta función no se actualizó.
+ *
+ * El desfase medido en `Marketing Campaigns`, cuyos deltas son 5,1,3,5,30,0:
+ * `max` daba 30 y la suma da 44. La tarjeta de la biblioteca ya decía 44
+ * --sale de `cumulativeDays`-- así que dos pantallas mostraban dos duraciones
+ * distintas para el mismo nodo.
+ *
+ * Se usa `cumulativeDays` en vez de sumar acá: dos sumas del mismo número son
+ * dos números que pueden diferir, que es justo el error que esto vino a cerrar.
  *
  * Un nodo sin milestones, o con todos sin SLA, dura 1 día: no puede durar 0
  * porque entonces dos nodos empezarían el mismo día y el rango sería vacío.
@@ -150,8 +254,12 @@ export function nodeDayRanges(
   const out: NodeDayRange[] = [];
   let cursor = 1;
   orderedNodeKeys.forEach((node_key, i) => {
-    const mine = milestones.filter((m) => m.node_key === node_key);
-    const span = Math.max(1, ...mine.map((m) => m.sla_days ?? 0));
+    const mine = milestones
+      .filter((m) => m.node_key === node_key)
+      .sort((a, b) => a.position - b.position);
+    const acumulados = cumulativeDays(mine.map((m) => m.sla_days));
+    const total = acumulados.length ? acumulados[acumulados.length - 1] : 0;
+    const span = Math.max(1, total);
     out.push({ node_key, position: i + 1, fromDay: cursor, toDay: cursor + span - 1 });
     cursor += span;
   });
@@ -187,8 +295,19 @@ export function addDays(start: string, days: number): string {
  * plan en curso.
  *
  * LAS FECHAS LÍMITE se resuelven acá, al copiar: fecha de activación más los
- * SLA acumulados. El SLA de un milestone se cuenta desde el inicio de SU nodo,
- * y el nodo arranca donde terminó el anterior.
+ * SLA ACUMULADOS del nodo, y el nodo arranca donde terminó el anterior.
+ *
+ * ⚠ ACUMULADOS, Y NO EL VALOR CRUDO. Esto estaba mal desde BP40 y se corrigió
+ * midiendo los planes reales: 6 de 75 steps tenían una fecha límite ANTERIOR a
+ * la del step que los precede en su propio nodo.
+ *
+ * El caso más claro, del plan 66: `Report results` con `sla_days = 0` quedaba
+ * con fecha del día de activación, mientras el step anterior --`sla_days = 30`--
+ * vencía un mes después. Leído como delta, `0` significa "el mismo día que el
+ * anterior"; leído como absoluto, significa "el día de arranque".
+ *
+ * Las fechas YA GUARDADAS de los planes activados antes de esta corrección no
+ * se recalculan solas: son datos, y recalcularlas cambia lo que la gente ve.
  */
 export function buildEnrollmentPlan(
   orderedNodeKeys: number[],
@@ -206,6 +325,9 @@ export function buildEnrollmentPlan(
     const mine = milestones
       .filter((m) => m.node_key === node_key)
       .sort((a, b) => a.position - b.position);
+    /* El día de cada step DENTRO de su nodo, acumulando los deltas. Misma
+       función que la tabla, el editor y `nodeDayRanges`. */
+    const diaEnElNodo = cumulativeDays(mine.map((m) => m.sla_days));
 
     return [
       {
@@ -222,8 +344,11 @@ export function buildEnrollmentPlan(
           /*
            * `fromDay` es 1-based (el día 1 es el de activación), así que se
            * suma `fromDay - 1` para no correr todo el plan un día.
+           *
+           * Y el día dentro del nodo es el ACUMULADO, no `m.sla_days`: ver la
+           * nota del encabezado.
            */
-          due_date: addDays(activationDate, range.fromDay - 1 + (m.sla_days ?? 0)),
+          due_date: addDays(activationDate, range.fromDay - 1 + diaEnElNodo[j]),
           position: j + 1,
           sla_days: m.sla_days,
         })),
@@ -235,20 +360,34 @@ export function buildEnrollmentPlan(
 /* ───────────────────────────── Permisos ────────────────────────────────── */
 
 /**
- * Sólo el responsable de un milestone puede marcarlo como hecho.
+ * ============================================================================
+ * QUIÉN PUEDE COMPLETAR UN STEP — reescrito en BP42
+ * ============================================================================
  *
- * La comparación es por EMAIL contra el del `accountable_employee_key`, que es
- * el mismo criterio con el que la sesión identifica a la persona. Comparar por
- * nombre sería frágil -- el roster tiene "Ana Zegarra (Peña)" y "Ana Peña" para
- * la misma persona.
+ * CUALQUIERA con acceso al módulo. Antes era sólo el responsable nominal, y eso
+ * dejaba el módulo sin poder registrar avance: medido contra los cuatro planes
+ * activos, los 75 steps están repartidos entre nueve personas, así que **69 de
+ * 75 no ofrecían "completar" a quien estuviera mirando**. Cero steps completados
+ * en toda la historia del módulo.
  *
- * Sin responsable asignado no lo puede tocar nadie: dejar que cualquiera lo
- * marque sería peor que no poder marcarlo, porque el registro diría que alguien
- * responsable lo aprobó.
+ * Un plan de negocio es una herramienta de acompañamiento: el coach y el Loan
+ * Officer lo revisan juntos y marcan lo que se hizo. Que sólo el responsable
+ * pudiera cerrar un step lo convertía en un trámite.
+ *
+ * ⚠ NO SE PIERDE LA TRAZABILIDAD: `completed_by` guarda el email de quien lo
+ * marcó, que es un dato distinto del responsable y ahora sí sirve para algo --
+ * antes los dos eran siempre la misma persona por construcción.
+ *
+ * Se conserva la firma con `accountableEmail` a propósito, aunque ya no se use
+ * para decidir: es lo que hace que el cambio se lea como una decisión y no como
+ * un parámetro que alguien olvidó pasar. La vista sigue mostrando quién es el
+ * responsable; lo que cambió es que no es un permiso.
  */
-export function canToggleMilestone(sessionEmail: string | null, accountableEmail: string | null): boolean {
-  if (!sessionEmail || !accountableEmail) return false;
-  return sessionEmail.trim().toLowerCase() === accountableEmail.trim().toLowerCase();
+/* eslint-disable-next-line @typescript-eslint/no-unused-vars -- el parametro se
+   conserva a proposito: es lo que hace que el cambio de BP42 se lea como una
+   decision y no como un argumento que alguien olvido pasar. */
+export function canToggleMilestone(sessionEmail: string | null, _accountableEmail: string | null): boolean {
+  return Boolean(sessionEmail);
 }
 
 /**
@@ -260,14 +399,13 @@ export function canToggleMilestone(sessionEmail: string | null, accountableEmail
  * de tres. Eso multiplica los casos, así que la regla vive acá, en una función
  * pura que se puede leer entera, y no repartida por los `disabled` de la vista.
  *
- * Las dos reglas de siempre, sin cambios:
+ * Las dos reglas, y la primera cambió en BP42:
  *
- *   · Sólo el RESPONSABLE del paso puede llevarlo a Done. Nadie más, ni un
- *     manager. Lo respalda la app y no hace falta más: `done` no lleva
- *     restricción de autor en la base, así que si la vista lo permitiera, la
- *     base lo dejaría pasar.
+ *   · COMPLETAR ya no es exclusivo del responsable -- ver
+ *     `canToggleMilestone`. La base nunca lo restringió, así que esto era una
+ *     regla de la vista y nada más.
  *   · Un paso ya hecho NO SE REABRE. Esto sí lo respalda la base: el `using
- *     (status <> 'done')` de la policy de UPDATE hace invisible la fila, así
+ *     (status <> 'completed')` de la policy de UPDATE hace invisible la fila, así
  *     que aunque alguien forzara la llamada, no actualizaría nada.
  *
  * Lo nuevo es el estado intermedio. `in_progress` es planificación, no un
@@ -281,25 +419,67 @@ export function allowedStatuses(
   sessionEmail: string | null,
   accountableEmail: string | null
 ): MilestoneStatus[] {
-  if (current === 'done') return ['done'];
-  const base: MilestoneStatus[] = ['pending', 'in_progress'];
-  if (canToggleMilestone(sessionEmail, accountableEmail)) base.push('done');
+  /* Un completado no se reabre, y esto SÍ lo respalda la base: el
+     `using (status <> 'completed')` de la policy de UPDATE hace invisible la
+     fila. Devolver un solo estado es lo que deja el desplegable sin opciones
+     que la base rechazaría en silencio. */
+  if (current === 'completed') return ['completed'];
+  const base: MilestoneStatus[] = ['planned', 'in_progress'];
+  if (canToggleMilestone(sessionEmail, accountableEmail)) base.push('completed');
   return base;
 }
 
 /** Etiquetas de estado, en un solo lugar. */
 export const MILESTONE_STATUS_LABEL: Record<MilestoneStatus, string> = {
-  pending: 'Pending',
+  planned: 'Planned',
   in_progress: 'In progress',
-  done: 'Done',
+  completed: 'Completed',
 };
 
 /** Clase de la píldora de estado. Mismo lenguaje de color que el veredicto. */
 export const MILESTONE_STATUS_CLASS: Record<MilestoneStatus, string> = {
-  pending: 'badge badge--pill badge--neutral',
+  planned: 'badge badge--pill badge--neutral',
   in_progress: 'badge badge--pill badge--amber',
-  done: 'badge badge--pill badge--emerald',
+  completed: 'badge badge--pill badge--emerald',
 };
+
+/**
+ * ============================================================================
+ * `blocked` SE DERIVA, NO SE GUARDA -- etapa BP42
+ * ============================================================================
+ *
+ * Un step esta trabado cuando su nodo espera a otro que todavia no esta
+ * completo. Sale de `depends_on_enrollment_node_key`, que existe desde BP41.
+ *
+ * NO ES UN CUARTO VALOR DE `status`, y la razon que decide no es la
+ * sincronizacion sino esta: un step que esta EN PROGRESO y cuyo antecesor no
+ * termino tiene dos estados a la vez, y una sola columna no los guarda. Al
+ * desbloquearlo habria que adivinar cual era.
+ *
+ * Guardado tambien podria quedar rancio -- completar el ultimo step del
+ * antecesor tendria que dar vuelta cada dependiente, y cualquier camino que se
+ * olvide deja un `blocked` que se lee como autoridad.
+ *
+ * `blocked` NO impide completar: describe, no prohibe. Si alguien hizo el
+ * trabajo fuera de orden, el registro tiene que poder decirlo.
+ */
+export function isBlocked(
+  node: { depends_on_enrollment_node_key: number | null },
+  nodesById: Map<number, { milestones: { status: MilestoneStatus }[] }>
+): boolean {
+  const dep = node.depends_on_enrollment_node_key;
+  if (dep === null) return false;
+  const antecesor = nodesById.get(dep);
+  /*
+   * Un antecesor que no esta en el mapa NO se trata como completo: la
+   * dependencia se declaro contra algo que no se puede leer, y decir "listo"
+   * seria inventar. Se informa como trabado, que es lo que hace que se mire.
+   */
+  if (antecesor === undefined) return true;
+  /* Un nodo SIN steps no traba a nadie: no hay nada que completar en el. */
+  if (antecesor.milestones.length === 0) return false;
+  return antecesor.milestones.some((m) => m.status !== 'completed');
+}
 
 /**
  * ¿Está vencido? Pendiente o en curso, con fecha límite anterior a hoy.
@@ -310,7 +490,7 @@ export const MILESTONE_STATUS_CLASS: Record<MilestoneStatus, string> = {
  * imposible de probar y volvería impuro cualquier render que la llame.
  */
 export function isOverdue(status: MilestoneStatus, dueDate: string | null, today: string): boolean {
-  if (status === 'done' || dueDate === null) return false;
+  if (status === 'completed' || dueDate === null) return false;
   return dueDate < today;
 }
 
@@ -452,7 +632,7 @@ export interface RemoveNodeCheck {
 }
 
 export function canRemovePlanNode(node: PlanNodeLike): RemoveNodeCheck {
-  const doneCount = node.milestones.filter((m) => m.status === 'done').length;
+  const doneCount = node.milestones.filter((m) => m.status === 'completed').length;
   if (doneCount > 0) {
     return {
       ok: false,
@@ -494,7 +674,7 @@ export function recalcDueDates(orderedNodes: PlanNodeLike[], activationDate: str
   for (const node of orderedNodes) {
     const span = Math.max(1, ...node.milestones.map((m) => m.sla_days ?? 0));
     for (const m of node.milestones) {
-      if (m.status === 'done') continue;
+      if (m.status === 'completed') continue;
       if (m.sla_days === null) continue;
       const next = addDays(activationDate, cursor - 1 + m.sla_days);
       if (next !== m.due_date) out.push({ enrollment_milestone_key: m.enrollment_milestone_key, due_date: next });
@@ -506,7 +686,7 @@ export function recalcDueDates(orderedNodes: PlanNodeLike[], activationDate: str
 
 /** Un milestone ya hecho no se reabre ni se borra: marcarlo fue un hecho. */
 export function canEditMilestone(status: MilestoneStatus): boolean {
-  return status !== 'done';
+  return status !== 'completed';
 }
 
 /**

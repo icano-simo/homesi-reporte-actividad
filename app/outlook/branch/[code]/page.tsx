@@ -2,7 +2,6 @@
 
 import { Fragment, use, useState } from 'react';
 import Link from 'next/link';
-import { addMonths } from '@/lib/business-plan/impact';
 import { apportionByWeight } from '@/lib/pipeline/aggregate';
 import {
   composeYear,
@@ -11,7 +10,9 @@ import {
   projectBranch,
   type OutlookLoanOfficer,
   type BranchStrategy,
+  type BranchRecruit,
 } from '@/lib/outlook/loadData';
+import { STAGE_LABEL, type NotProjectingReason, type RecruitStage } from '@/lib/outlook/recruitment';
 import {
   cadenceLabel,
   projectPlan,
@@ -19,10 +20,24 @@ import {
   type OutlookStrategy,
   type ProjectionMode,
 } from '@/lib/outlook/project';
+import { remainingMonthsFor } from '@/lib/outlook/horizon';
 import { fmt, sumOfShown } from '@/lib/outlook/format';
 import { useOutlookDataContext } from '@/lib/outlook/useOutlookData';
 import StrategyEditor, { type OutlookEditable } from '@/app/outlook/components/StrategyEditor';
 import NppmEditor from '@/app/outlook/components/NppmEditor';
+import RecruitEditor, { branchOptions } from '@/app/outlook/components/RecruitEditor';
+import OutlookTopBar from '@/app/outlook/components/OutlookTopBar';
+/*
+ * ⚠ UNA SOLA IMPLEMENTACION del calculo por estrategia — etapa OL22. Esta
+ * pantalla tenia su propia copia y la vista 1 otra; ahora las dos leen de acá.
+ * Ver la nota de la migración donde estaban los helpers.
+ */
+import {
+  branchHasBudget,
+  esDelBranch,
+  personasDe as personasDeBranch,
+  strategyRowsOf,
+} from '@/lib/outlook/strategyRows';
 
 /**
  * ============================================================================
@@ -147,13 +162,76 @@ function ruleLabel(lo: OutlookLoanOfficer, strategy: OutlookStrategy, months: st
  * La distinción entre por quién se ABRE y de quién es el PRESUPUESTO sigue
  * haciendo falta: son dos preguntas, y `opensBy` sólo responde la primera.
  */
-function esDelBranch(bs: BranchStrategy): boolean {
-  return bs.opensBy === 'branch';
+/**
+ * ============================================================================
+ * LOS TEXTOS DE UNA FILA PROYECTADA — etapa OL20
+ * ============================================================================
+ *
+ * ⚠ CADA CERO TIENE QUE DECIR POR QUÉ. Son cuatro razones distintas y desde la
+ * celda no se distinguen: la etapa del proceso, que ya se vinculó al roster,
+ * que nadie fijó su benchmark, o que su fecha venció sin vincular. Un cero sin
+ * razón en una fila proyectada es indistinguible de un bug.
+ *
+ * La píldora dice cuál en dos palabras; el título dice la frase entera. Mismo
+ * reparto que las reglas de crecimiento.
+ */
+const NOT_PROJECTING_PILL: Record<NotProjectingReason, string> = {
+  stage: 'not budgeted',
+  linked: 'in roster',
+  no_benchmark: 'no benchmark',
+  expired: 'past due',
+};
+
+const RECRUIT_TITLE: Record<RecruitStage, (r: BranchRecruit) => string> = {
+  in_hiring: (r) =>
+    `In the hiring pipeline${r.startDate ? `, starting ${r.startDate}` : ''}. Counts from ${r.producingFrom}` +
+    `${r.monthlyBenchmark === null ? ', once someone sets how much is expected of them.' : '.'}`,
+  in_offering: (r) =>
+    `An offer is out${r.closeDate ? `, recruitment closed ${r.closeDate}` : ''}. Counts from ${r.producingFrom}` +
+    `${r.monthlyBenchmark === null ? ', once someone sets how much is expected of them.' : '.'}`,
+  /*
+   * ⚠ EL `close_date` A LA VISTA, y es el dato que explica la fila. Un
+   * reclutamiento cerrado hace más de 30 días que sigue sin fecha de inicio no
+   * es pipeline, es un caso sin resolver: proyectarlo sería inventar producción
+   * de alguien que quizás nunca entró. La regla es por fecha y no por lista, así
+   * que entra y sale solo.
+   */
+  stale: (r) =>
+    `Recruitment closed ${r.closeDate ?? '(no date)'} and there is still no start date, so this is an unresolved case ` +
+    'rather than a pipeline one. Not budgeted until someone sets a start date.',
+  tentative: (r) =>
+    `Nobody closed this recruitment${r.closeDate ? ` — last close date ${r.closeDate}` : ''}. Shown because the ` +
+    'candidate exists, not budgeted because the hire does not.',
+};
+
+/**
+ * Qué dice un mes futuro. Con proyección explica la rampa; sin ella, cuál de las
+ * cuatro razones lo dejó en cero.
+ */
+function RECRUIT_MONTH_TITLE(r: BranchRecruit, month: string): string {
+  if (r.notProjecting) return RECRUIT_TITLE[r.stage](r);
+  if (month < r.producingFrom) return `Not counted yet: this one starts counting in ${r.producingFrom}.`;
+  const n = monthsApart(r.producingFrom, month);
+  const pct = n === 0 ? '25%' : n === 1 ? '50%' : '100%';
+  return (
+    `Month ${n + 1} since ${r.producingFrom}, so ${pct} of the ${r.monthlyBenchmark} expected a month — ` +
+    'a new hire ramps up rather than producing their full benchmark from day one.'
+  );
 }
 
-function branchHasBudget(bs: BranchStrategy): boolean {
-  return bs.mode === 'monthly' ? bs.targetRevision > 0 : bs.benchmarkSchedule.length > 0;
+/* `rampaTexto` se fue a la vista 1 con la barra que lo usaba -- etapa OL21. */
+
+/** Cuántos meses hay entre dos 'YYYY-MM'. */
+function monthsApart(desde: string, hasta: string): number {
+  const [ya, ma] = desde.split('-').map(Number);
+  const [yb, mb] = hasta.split('-').map(Number);
+  return (yb - ya) * 12 + (mb - ma);
 }
+
+/*
+ * ⚠ `esDelBranch` Y `branchHasBudget` SE FUERON A `lib/outlook/strategyRows.ts`
+ * — etapa OL22. Se importan de ahí. Ver la nota de la migración más abajo.
+ */
 
 /**
  * ⚠ LA PÍLDORA: la regla en cuatro caracteres, no en una frase — etapa OL11.
@@ -306,7 +384,37 @@ function BenchTag({
 }
 
 export default function OutlookBranchPage({ params }: { params: Promise<{ code: string }> }) {
-  const { code } = use(params);
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * ⚠ EL SEGMENTO DE LA URL VIENE CODIFICADO — arreglado en OL22
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * Next entrega el segmento CRUDO, así que un branch con un espacio en el
+   * código llegaba como `Branch%20Out%20of%20Division` y no calzaba con ningún
+   * `branchCode`. La pantalla mostraba "Branch Branch%20Out%20of%20Division has
+   * no production or roster this year" -- un branch que sí tiene producción,
+   * diciendo que no la tiene, y filtrando el encoding en el texto.
+   *
+   * ⚠ EL DEFECTO EXISTÍA DESDE SIEMPRE Y ERA INALCANZABLE: hasta OL21 ningún
+   * código tenía espacios --`AFFINITY`, `Recruitment` y números-- así que nunca
+   * se manifestó. Lo destapó darle fila propia a `Branch Out of Division`, que
+   * es donde caen los cierres de branches que no están en el roster oficial.
+   *
+   * Es el mismo patrón que la etiqueta del mes: el bug no estaba en lo que se
+   * cambió, estaba esperando que algo lo alcanzara.
+   *
+   * `decodeURIComponent` puede tirar sobre una secuencia mal formada --un `%`
+   * suelto en una URL escrita a mano-- y ahí lo correcto es quedarse con el
+   * crudo: va a no encontrar el branch y mostrar el vacío, que es la verdad.
+   */
+  const { code: codeRaw } = use(params);
+  const code = (() => {
+    try {
+      return decodeURIComponent(codeRaw);
+    } catch {
+      return codeRaw;
+    }
+  })();
   /*
    * Del contexto del layout, igual que la vista 1 -- una sola carga.
    *
@@ -318,7 +426,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * Un error de la recarga llega por `error` del contexto: no hace falta un
    * segundo estado de error acá.
    */
-  const { data, error, reload } = useOutlookDataContext();
+  const { data, error, reload, horizonMonths } = useOutlookDataContext();
   /*
    * Qué está abierto, con claves de TEXTO: el bloque 2 tiene dos niveles
    * plegables --la estrategia y, dentro de NPPM, la persona con sus realtors--
@@ -333,14 +441,30 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * escribir. Se vuelve a buscar en cada render -- ver el bloque de los editores.
    */
   /*
-   * Cuántos meses hacia adelante. Arranca en "hasta diciembre", que es lo que
-   * había, así que quien no lo toca ve exactamente lo de antes.
+   * ⚠ EL HORIZONTE YA NO VIVE ACÁ — etapa OL22. Lo elige la barra del módulo y
+   * viaja por el contexto: un horizonte distinto por branch no significa nada,
+   * el presupuesto es de la división, y obligaba a repetir la selección trece
+   * veces. Ver `OutlookTopBar` y `lib/outlook/horizon.ts`.
    */
-  const [horizonte, setHorizonte] = useState<number | null>(null);
   const [editing, setEditing] = useState<
     { kind: 'employee'; employeeKey: number; strategy: OutlookStrategy } | { kind: 'branch'; strategy: OutlookStrategy } | null
   >(null);
   const [editingNppm, setEditingNppm] = useState<{ realtor: string; ytd: number } | null>(null);
+  /*
+   * Lo que se esta editando de reclutamiento -- etapa OL20.
+   *
+   * ⚠ SE GUARDA LA `identity`, NO LA FILA. Es la misma regla que el bloque de
+   * los editores mas abajo: `reload` reemplaza `data` entera despues de
+   * guardar, asi que un `BranchRecruit` guardado en el estado apuntaria a la
+   * version vieja y el panel seguiria mostrando el benchmark anterior al que se
+   * acaba de escribir. La fila se resuelve en cada render desde `data` fresca.
+   *
+   * ⚠ SÓLO UNA `identity` desde OL21. Antes admitía `'new'` y `'ramp'` para el
+   * alta y la rampa, que se fueron a la vista 1: son decisiones del módulo y no
+   * de este branch. Dejar los dos valores acá habría dejado dos ramas de render
+   * que nada puede alcanzar.
+   */
+  const [editingRecruit, setEditingRecruit] = useState<string | null>(null);
 
   if (error) return <div className="hub-container"><div className="bp-empty">Could not load Outlook: {error}</div></div>;
   if (!data) return <div className="hub-container"><div className="bp-empty">Loading…</div></div>;
@@ -360,6 +484,18 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
   const year = currentMonth.split('-')[0];
 
   /*
+   * La gente en contratacion de este branch, en una lista -- etapa OL20.
+   *
+   * Viene de `byStrategy`, que la trae sólo en Recruitment. Se aplana acá y no
+   * se recorre dos veces: la barra necesita saber si hay alguien y el aviso
+   * necesita a los vencidos.
+   */
+  const reclutas = branch.byStrategy.flatMap((bs) => bs.recruits);
+  const vencidasSinVincular = reclutas.filter(
+    (r) => r.notProjecting === 'expired' && r.linkedEmployeeKey === null
+  );
+
+  /*
    * ==========================================================================
    * HASTA DÓNDE SE PROYECTA — etapa OL12
    * ==========================================================================
@@ -375,30 +511,18 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * recargar todo --y a esperar los siete segundos de las lecturas-- cada vez que
    * alguien mira un año más.
    */
-  const horizonteHastaDic = data.remainingMonths.length;
   /*
-   * Los diciembres de los años siguientes, DERIVADOS del mes en curso: en enero
-   * `horizonteHastaDic` da 11 y estas opciones se corren solas. Nada de años
-   * escritos a mano, que es lo que obliga a volver cada 1 de enero.
+   * Las opciones y la lista de meses las deriva `lib/outlook/horizon.ts`, que es
+   * el mismo modulo que usa la barra. Antes estaban acá, y con el selector
+   * arriba habria dos derivaciones del mismo horizonte que pueden diferir.
    */
-  const finesDeAnio = [1, 2].map((suma) => {
-    const anio = Number(year) + suma;
-    /* Meses desde el mes en curso hasta diciembre de ese año. */
-    const meses = (anio - Number(year)) * 12 + (12 - Number(currentMonth.slice(5, 7)));
-    return { anio, meses };
-  });
-  const meses = horizonte ?? horizonteHastaDic;
+  const remainingMonths = remainingMonthsFor(currentMonth, horizonMonths);
   /*
    * ⚠ Sin `useMemo`, y no por descuido: esto vive DESPUÉS de los early returns
    * --`if (!data)`, `if (!branch)`-- así que un hook acá se saltearía en los
    * renders que salen antes y React rompe la pantalla entera. Medido: la tabla
    * no llegaba a dibujarse.
-   *
-   * Y no hace falta: son 24 sumas de meses por render, contra las lecturas de
-   * varios segundos que ya hace el módulo.
    */
-  const remainingMonths: string[] = [];
-  for (let i = 1; i <= meses; i++) remainingMonths.push(addMonths(currentMonth, i));
   const monthsOfYear = [...actualMonths, currentMonth, ...remainingMonths];
   /* El rótulo de la columna del total: deja de ser un año cuando pasa de uno. */
   const totalLabel = (() => {
@@ -406,8 +530,17 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
     const anioFin = ultimo.split('-')[0];
     return anioFin === year ? year : `${year}–${anioFin}`;
   })();
-  /* Nadie con este branch en su roster: tiene cerrados y no proyecta. Ver vista 1. */
-  const projectsNothing = !branch.loanOfficers.some((l) => l.primaryBranch === branch.branchCode);
+  /*
+   * ⚠ ACÁ HABÍA UN `projectsNothing` LOCAL Y SE FUE — etapa OL22.
+   *
+   * Era `!branch.loanOfficers.some(l => l.primaryBranch === branchCode)`, y no
+   * es la misma pregunta que `branch.isInactive`: `loanOfficers` incluye a los
+   * `outsiders` de OL16 --gente cuyo branch de roster es otro y que cerró acá--
+   * así que las dos pantallas podían contestar distinto sobre el mismo branch.
+   * Medido: el 741 tiene 2 cierres de Nathan Martinez, que no es del 741.
+   *
+   * Ahora las dos leen `isInactive`, que le pregunta al roster.
+   */
   /*
    * ⚠ El mes en curso: el pronóstico, o lo cerrado del mes cuando no hay ninguno.
    *
@@ -523,211 +656,102 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * de agosto de AFFINITY fueron producción propia. En ese caso los pesos son
    * los cierres REALES del mes por estrategia, que es lo que efectivamente pasó.
    */
-  /**
-   * ¿Tiene esta persona un presupuesto PROPIO en esta estrategia?
+  /*
+   * ==========================================================================
+   * LOS HELPERS DE ESTRATEGIA VIVEN EN `lib/outlook/strategyRows.ts` — OL22
+   * ==========================================================================
    *
-   * ⚠ UN BENCHMARK O UN MES FIJADO, NUNCA UNA REGLA. Es la trampa de OL8, que ya
-   * costó dos veces: la siembra dejó 185 reglas --las 37 personas × 5
-   * estrategias-- así que "tiene regla" es verdad para todo el mundo. Una regla
-   * sobre un benchmark en cero no proyecta nada: es una intención guardada, no un
-   * presupuesto.
+   * Estaban acá y se copiaron a ese modulo en OL21 para que la vista 1 pudiera
+   * filtrar por estrategia. Quedaron DOS implementaciones del mismo calculo, lo
+   * que este mismo archivo ya vio pasar con `fmt`, con 'Sin tipo' y con el tono
+   * del icono: empiezan iguales y se separan en el primer arreglo que se haga en
+   * una sola, sin que nada avise porque cada una suma bien por su cuenta.
    *
-   * Estaba escrito dos veces --acá y en el filtro de estrategias-- y ahora hay un
-   * tercer lugar que lo necesita, así que vive en uno solo.
+   * ⚠ QUE SE BORRO DE ACA, y donde esta ahora:
+   *
+   *   tienePresupuestoPropio  la trampa de OL8: un benchmark o un mes fijado,
+   *                           NUNCA una regla. Las 185 reglas de la siembra
+   *                           hacen que "tiene regla" sea verdad para todos.
+   *   participa               quien abre Recruitment -- OL19. Own Production es
+   *                           pertenencia por defecto; Recruitment es un
+   *                           programa en el que se participa.
+   *   personasDe             el conjunto UNICO que leen el presupuesto exacto,
+   *                           el benchmark sumado, el "N of M" y las filas hijas.
+   *   tieneAlgo              que estrategias muestra el branch -- OL12.
+   *   exactoDe               el presupuesto exacto, que es el peso del reparto.
+   *   esDelBranch, branchHasBudget
+   *
+   * ⚠ COMO SE VERIFICO LA MIGRACION, porque un refactor de esta pantalla no se
+   * declara equivalente, se mide: se volco la vista 2 ENTERA a JSON --los 19
+   * branches, todas las estrategias abiertas, 183 filas-- antes y despues, y se
+   * comparo con `diff`. La comparacion vive afuera del script que la genera, a
+   * proposito: si viviera adentro, un bug del script podria dar verde sobre dos
+   * salidas distintas.
+   *
+   * `personasDe` se queda como un cierre de una linea sobre `branch` porque lo
+   * llaman cuatro lugares de esta pantalla y cambiar la firma en todos no agrega
+   * nada -- la implementacion ya es una sola.
    */
-  const tienePresupuestoPropio = (lo: OutlookLoanOfficer, s: OutlookStrategy) =>
-    (lo.strategyBenchmarks[s] ?? 0) > 0 || Object.keys(lo.targetsByStrategy[s] ?? {}).length > 0;
+  const personasDe = (bs: BranchStrategy) => personasDeBranch(branch, bs);
 
   /*
    * ==========================================================================
-   * ⚠ QUIÉNES ABREN UNA ESTRATEGIA QUE SE ABRE POR PERSONA — etapa OL19
+   * LAS FILAS DE ESTRATEGIA, CON SUS DOS REPARTOS — una sola implementacion
    * ==========================================================================
    *
-   * No son siempre todos, y hasta acá lo eran. `opensBy: 'loanOfficer'` abría
-   * `branch.loanOfficers` entero, que es correcto para Own Production y falso
-   * para Recruitment. La diferencia no es de grado, es de qué significa cada una:
+   * ⚠ ACA HABIA 121 LINEAS y son las que la vista 1 necesitaba para su filtro.
+   * Las dos cascadas de redondeo --el mes en curso repartido entre estrategias, y
+   * el presupuesto entero de cada mes futuro-- viven en `strategyRowsOf`.
    *
-   *   Own Production  es la PERTENENCIA POR DEFECTO. Todo Loan Officer del branch
-   *                   está en ella por definición, haya cerrado o no; su fila en
-   *                   cero es la información --dice que no produjo--.
-   *   Recruitment     es un PROGRAMA EN EL QUE SE PARTICIPA. Quien no participa
-   *                   no tiene una fila en cero: no tiene fila.
-   *
-   * Medido en el 710 --el único branch con cierres de Recruitment-- abría 7 filas
-   * para 5 participantes. Johann Otiniano y José Arango no cerraron ni uno.
-   *
-   * ⚠ EL PRESUPUESTO CUENTA, NO SÓLO LOS CIERRES, y no es una licencia sobre el
-   * pedido: es la misma excepción que ya tiene el filtro de estrategias de OL12,
-   * por la misma razón. A quien se le fijó un número TIENE que vérsele, o el
-   * número no se puede revisar ni corregir, y su presupuesto seguiría entrando en
-   * la proyección de la estrategia sin una fila que lo explique. Ese es
-   * exactamente el caso que llega con RC1 --alguien entra al programa antes de
-   * cerrar su primer préstamo-- y la cláusula está para no tener que acordarse
-   * ese día.
-   *
-   * Hoy no cambia nada: medido, `outlook.strategy_benchmark` no tiene UNA SOLA
-   * fila de Recruitment y `outlook.monthly_target` tampoco, así que el filtro es
-   * literalmente "tiene cierres".
+   * ⚠ LO QUE LAS CASCADAS GARANTIZAN, y por lo que no se pueden hacer celda por
+   * celda: medio prestamo no existe, asi que ninguna celda muestra decimales;
+   * pero redondear cada una por separado rompe las dos sumas que la tabla
+   * promete --la de la columna, donde las estrategias dan el total del branch, y
+   * la de la fila--. `apportionByWeight` garantiza que las partes sumen el total
+   * y nada mas, asi que la lista que entra tiene que ser LA MISMA que se dibuja.
+   * De ahi que `filasBase` salga de la misma funcion y no de un filtro aparte.
    */
-  const participa = (lo: OutlookLoanOfficer, s: OutlookStrategy) =>
-    s !== 'Recruitment' ||
-    (lo.strategies.find((x) => x.strategy === s)?.ytd ?? 0) > 0 ||
-    tienePresupuestoPropio(lo, s);
-
-  /**
-   * Las personas que abren esta estrategia. UN SOLO LUGAR, y hace falta que lo
-   * sea: el mismo conjunto lo leen el presupuesto exacto, el benchmark sumado, el
-   * "N of M" de la regla y las filas hijas. Filtrar en cuatro lugares es dejar
-   * cuatro conjuntos que pueden diferir, y el que difiera rompe la suma sin que
-   * nada avise.
-   */
-  const personasDe = (bs: BranchStrategy) =>
-    bs.opensBy !== 'loanOfficer' ? [] : branch.loanOfficers.filter((lo) => participa(lo, bs.strategy));
-
   /*
-   * ==========================================================================
-   * ⚠ QUÉ ESTRATEGIAS MUESTRA ESTE BRANCH — etapa OL12
-   * ==========================================================================
+   * ══════════════════════════════════════════════════════════════════════════
+   * ⚠ AFFINITY NO MUESTRA OWN PRODUCTION — etapa OL22
+   * ══════════════════════════════════════════════════════════════════════════
    *
-   * Sólo las que tienen ALGO: producción en cualquier mes, pronóstico del mes en
-   * curso, o un presupuesto guardado. Nada de filas en cero permanente.
+   * Su producción la abren dos Account Executives --Shirley Camargo y David
+   * Álvarez-- y una sección de Own Production que casi siempre está en cero
+   * compite con la que sí tiene algo que decir.
    *
-   * Medido, y por eso hace falta: Affinity existe SÓLO en el branch Affinity --37
-   * cierres, todos ahí-- y Recruitment sólo en el 710. En los otros catorce
-   * branches eran dos filas de ceros ocupando lugar y compitiendo con las que sí
-   * tienen algo que decir.
+   * ⚠ EL CASO QUE NO ES CERO, Y QUÉ PASA CON ÉL. Medido: AFFINITY cerró 32 en
+   * 2026, y son 31 de estrategia `Affinity` + 1 de `Own Production` -- un
+   * préstamo de enero de Nathan Martinez (`n.martinez`), cuyo `opportunity_owner`
+   * ES Shirley Camargo pero que BigQuery clasifica como Own Production.
    *
-   * ⚠ El presupuesto cuenta aunque no haya producción: una estrategia a la que
-   * recién se le fijó un número TIENE que verse, o el número no se podría revisar
-   * ni corregir. Ese es el caso de B2B en el 747 hoy.
+   * Al sacar la sección ese cierre no desaparece: el total del branch sigue en
+   * 32 --sale de `actualByBranch`, por préstamo-- y la diferencia cae en la fila
+   * de reconciliación, que desde OL22 se llama `LO out of branch`. Y la etiqueta
+   * es literal acá: AFFINITY no tiene NI UNA fila en `org.roster_current`, así
+   * que todo lo que cierra ahí es de alguien de otro branch.
    *
-   * NPPM sale por la misma regla: sin realtors no tiene nada, y no hace falta la
-   * excepción que tenía escrita aparte.
+   * ⚠ SE FILTRA DESPUÉS DE `strategyRowsOf` Y NO ANTES, y la diferencia importa:
+   * los pesos que entran al reparto tienen que ser los de TODAS las estrategias
+   * del branch. Filtrando antes, `apportionByWeight` repartiría el entero del
+   * branch entre las que quedan y les daría de más -- el cierre de enero no
+   * desaparecería, se disolvería adentro de Affinity, que es peor que dejarlo
+   * afuera con nombre.
    */
-  const tieneAlgo = (bs: BranchStrategy) =>
-    bs.ytd > 0 ||
-    bs.currentMonthRaw > 0 ||
-    (bs.actualByMonth[currentMonth] ?? 0) > 0 ||
-    bs.benchmarkSchedule.length > 0 ||
-    bs.targetRevision > 0 ||
-    bs.realtors.length > 0 ||
-    /*
-     * Por persona: su presupuesto vive en la gente, no en el branch. Ver
-     * `tienePresupuestoPropio`, que es donde quedó escrita la trampa de OL8.
-     */
-    (bs.opensBy === 'loanOfficer' &&
-      branch.loanOfficers.some((lo) => tienePresupuestoPropio(lo, bs.strategy)));
-
-  const filasBase = branch.byStrategy.filter(tieneAlgo);
-  const proyectaAlgo = filasBase.some((bs) => bs.currentMonthRaw > 0);
-  const pesosAgosto = filasBase.map((bs) =>
-    proyectaAlgo ? bs.currentMonthRaw : (bs.actualByMonth[currentMonth] ?? 0)
-  );
-  const agostoPorEstrategia = apportionByWeight(branchCurrent, pesosAgosto);
-  const agostoDe = new Map(filasBase.map((bs, i) => [bs.strategy, agostoPorEstrategia[i]]));
-
+  const sRowsTodas = strategyRowsOf(data, branch, monthsOfYear, remainingMonths);
+  const sRows =
+    branch.branchCode === 'AFFINITY'
+      ? sRowsTodas.filter((r) => r.strategy !== 'Own Production')
+      : sRowsTodas;
   /*
-   * ==========================================================================
-   * ⚠ SIN DECIMALES, Y EN CASCADA — etapa OL13
-   * ==========================================================================
-   *
-   * Medio préstamo no existe, así que ninguna celda muestra decimales. Pero
-   * redondear cada celda por su cuenta rompe las dos sumas que la tabla
-   * garantiza: la de la columna (las estrategias dan el total del branch) y la de
-   * la fila (los meses dan el total del año).
-   *
-   * Por eso el reparto es en CASCADA, con `apportionByWeight` en cada nivel:
-   *
-   *   1. el presupuesto del BRANCH del mes se redondea a entero
-   *   2. ese entero se reparte entre las estrategias, en proporción a su
-   *      presupuesto exacto
-   *   3. el entero de cada estrategia se reparte entre sus filas hijas
-   *
-   * Cada nivel suma exactamente el de arriba porque `apportionByWeight` reparte un
-   * total entero sin perder ni inventar unidades -- es la misma función que usa el
-   * mes en curso y la barra apilada del Business Plan.
-   *
-   * ⚠ El benchmark SÍ puede tener decimales: el promedio de 3 meses de un realtor
-   * es 2,33 y ese es el dato. Lo que va en entero son las PROYECCIONES que salen
-   * de él, que son préstamos.
+   * `filasBase` y `agostoDe` desaparecieron con la migración: sus dos
+   * consumidores --el `map` de las filas y `sYear`-- ahora salen de `sRows`
+   * directamente. `presupuestoDe` se queda porque el reparto entre dueños lo
+   * necesita por estrategia.
    */
-  const exactoDe = (bs: BranchStrategy): Record<string, number> => {
-    const out: Record<string, number> = {};
-    if (bs.opensBy === 'loanOfficer') {
-      for (const lo of personasDe(bs)) {
-        const st = projectLoanOfficer(lo, remainingMonths).stepsByStrategy[bs.strategy] ?? [];
-        remainingMonths.forEach((m, i) => (out[m] = (out[m] ?? 0) + (st[i]?.value ?? 0)));
-      }
-    } else if (esDelBranch(bs) && branchHasBudget(bs)) {
-      const steps = projectPlan(remainingMonths, {
-        mode: bs.mode,
-        benchmarks: bs.benchmarkSchedule,
-        segments: bs.rules,
-        targets: bs.targets,
-      });
-      remainingMonths.forEach((m, i) => (out[m] = steps[i]?.value ?? 0));
-    } else if (bs.opensBy === 'owner') {
-      /*
-       * La suma de sus DUEÑOS, cada uno por la MISMA puerta que una persona --
-       * `projectPlan`. El usuario de sistema no aporta: no tiene presupuesto.
-       */
-      for (const o of bs.owners) {
-        if (!o.isPerson) continue;
-        const steps = projectPlan(remainingMonths, {
-          mode: o.mode,
-          benchmarks: o.benchmarkSchedule,
-          segments: o.rules,
-          targets: o.targets,
-        });
-        remainingMonths.forEach((m, i) => (out[m] = (out[m] ?? 0) + (steps[i]?.value ?? 0)));
-      }
-      /*
-       * ⚠ MÁS EL PRESUPUESTO DE BRANCH QUE QUEDÓ SIN DUEÑO.
-       *
-       * Ninguna estrategia se presupuesta a nivel branch desde OL15, pero hay dos
-       * filas guardadas antes del cambio --B2B en el 747 y en el 716-- que no se
-       * pueden reasignar: cada una cubre a dos o tres Business Developers y
-       * repartirlas es una decisión de negocio.
-       *
-       * Se siguen sumando para no borrar un presupuesto real, y la tabla las
-       * muestra como una FILA PROPIA en vez de mezclarlas con las personas. Así la
-       * ambigüedad es una línea visible con nombre y no un modo escondido -- misma
-       * lección que la fila de reconciliación.
-       */
-      if (branchHasBudget(bs)) {
-        const steps = projectPlan(remainingMonths, {
-          mode: bs.mode,
-          benchmarks: bs.benchmarkSchedule,
-          segments: bs.rules,
-          targets: bs.targets,
-        });
-        remainingMonths.forEach((m, i) => (out[m] = (out[m] ?? 0) + (steps[i]?.value ?? 0)));
-      }
-    } else if (bs.opensBy === 'realtor' && bs.realtors.length > 0) {
-      const suma = bs.realtors.reduce((a, r) => a + r.benchmark, 0);
-      remainingMonths.forEach((m) => (out[m] = suma));
-    }
-    return out;
-  };
-  const exactoPorEstrategia = filasBase.map(exactoDe);
-  /* El entero del branch por mes, y su reparto entre las estrategias. */
-  const presupuestoPorEstrategia: Record<string, number>[] = filasBase.map(() => ({}));
-  for (const m of remainingMonths) {
-    const pesos = exactoPorEstrategia.map((e) => e[m] ?? 0);
-    /*
-     * ⚠ El total a repartir sale de `branchYear`, que ya viene entero del loader
-     * --ver `projectBranch`--. Redondear acá la suma de los pesos daría el mismo
-     * número hoy, pero serían DOS redondeos del mismo valor: el día que difieran
-     * por un caso de medio punto, las filas dejarían de sumar el total y nada lo
-     * diría.
-     */
-    const totalMes = branchYear.byMonth[m] ?? 0;
-    const partes = apportionByWeight(totalMes, pesos);
-    partes.forEach((v, i) => (presupuestoPorEstrategia[i][m] = v));
-  }
-  const presupuestoDe = new Map(filasBase.map((bs, i) => [bs.strategy, presupuestoPorEstrategia[i]]));
+  const presupuestoDe = new Map(sRows.map((r) => [r.strategy, r.budget]));
 
-  const strategyRows = filasBase.map((bs) => {
+  const strategyRows = sRows.map(({ bs, year: sYearCompartido }) => {
       const s = bs.strategy;
       /*
         ⚠ EL PRESUPUESTO SOLO SE PROYECTA DONDE HAY DE DONDE.
@@ -737,8 +761,12 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
         dónde guardar su presupuesto todavía. Van en `null` --celda vacía-- y no
         en 0, que afirmaría que se decidió que no cierre nada.
       */
-      /* El entero que le tocó -- ver la cascada arriba. */
-      const proj: Record<string, number | null> = { ...(presupuestoDe.get(s) ?? {}) };
+      /*
+       * ⚠ ACÁ SE ARMABA `proj` Y SE FUE — etapa OL22. Era la copia local del
+       * presupuesto repartido, y su unico consumidor era `sYear`, que ahora viene
+       * de `strategyRowsOf`. `presupuestoDe` sigue usándose abajo, para el
+       * reparto entre los DUEÑOS.
+       */
       let steps: ReturnType<typeof projectPlan> = [];
       /*
        * Lo que le toca al presupuesto de branch sin dueño. Lo llena el bloque de
@@ -804,13 +832,23 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
         El mes en curso sale del REPARTO -- ver `agostoDe` arriba. Hasta OL12 era
         lo real cerrado, porque el pronóstico del mes no se abría por estrategia.
       */
-      const sYear = composeYear(
-        monthsOfYear,
-        currentMonth,
-        bs.actualByMonth,
-        agostoDe.get(s) ?? 0,
-        proj
-      );
+      /*
+       * ⚠ VIENE DE `strategyRowsOf`, no se recompone aca — etapa OL22.
+       *
+       * Era `composeYear(monthsOfYear, currentMonth, bs.actualByMonth,
+       * agostoDe.get(s), proj)`, que es exactamente lo que esa funcion ya hace
+       * con los mismos tres argumentos. La diferencia esta en el cuarto: aca
+       * `proj` salia de `presupuestoDe` SIEMPRE, asi que una estrategia sin de
+       * donde proyectar mostraba 0 -- y el comentario de arriba dice que tiene
+       * que mostrar vacio. La compartida lo pone en `null`.
+       *
+       * ⚠ HOY NO CAMBIA NINGUN NUMERO, medido: cero de las 33 estrategias
+       * visibles en los 19 branches tiene el presupuesto vacio, o sea que todas
+       * proyectan y las dos formas coinciden. El volcado completo antes/despues
+       * salio identico. Lo que se gana es que el dia que aparezca una que no
+       * proyecte, muestre vacio en las dos pantallas en vez de un 0 en una.
+       */
+      const sYear = sYearCompartido;
       const bench =
         bs.opensBy === 'loanOfficer'
           ? personasDe(bs).reduce((a, lo) => a + (lo.strategyBenchmarks[s] ?? 0), 0)
@@ -956,16 +994,49 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               lo mismo en dos palabras, y está donde se mira primero en vez de
               debajo de la tabla que viene a explicar.
             */}
-            {projectsNothing && branch.ytd > 0 && (
+            {/*
+              ⚠ DICE `Inactive`, LO MISMO QUE LA VISTA 1 — corregido en OL22.
+              Decía `does not project`, que describe la CONSECUENCIA; la vista 1
+              pasó a decir el ESTADO en OL21 y las dos pantallas quedaron
+              nombrando la misma cosa de dos maneras. El motivo sigue en el
+              tooltip, que es donde se busca.
+
+              ⚠ Y LA CONDICIÓN ES `branch.isInactive`, la del loader, no la
+              local: `projectsNothing` preguntaba a `loanOfficers`, que incluye
+              a los outsiders de OL16 -- el 741 tiene un cierre de alguien de
+              otro branch, así que contestaba distinto que la vista 1.
+            */}
+            {/*
+              ⚠ LA MISMA ETIQUETA QUE LA VISTA 1, y hace falta decirlo: en OL22
+              la lista pasó a distinguir tres estados donde `isInactive` sólo
+              contesta uno --dejó de producir, nunca tuvo gente propia, cola de
+              espera-- y esta pantalla se quedó diciendo `Inactive` para los
+              tres. Es exactamente el defecto de la etiqueta doble que OL22
+              arregló en la otra dirección: la misma cosa nombrada de dos
+              maneras en dos pantallas.
+            */}
+            {branch.isInactive && branch.ytd > 0 && (
               <span
                 className="bp-muted ol-tag"
                 title={
-                  `Its ${branch.ytd} closings this year are real, but no loan officer has this branch on their ` +
-                  `roster — the projection is charged to each person's roster branch, because it is one number per ` +
-                  `person, not per loan. Who owns this budget is still to be decided.`
+                  branch.branchCode === 'AFFINITY'
+                    ? `Its ${branch.ytd} closings this year are real and count in the division total, but nobody ` +
+                      `has this branch on their roster: its production is opened by the Account Executives who own ` +
+                      `the opportunity, and they belong to other branches. That is why there is no Own Production ` +
+                      `section here.`
+                    : `No active producer on the roster has this branch. Its ${branch.ytd} closings this year are ` +
+                      `real and count in the division total, but there is nobody to give a budget to — the ` +
+                      `projection is charged to each person's roster branch, because it is one number per person, ` +
+                      `not per loan. Who owns this budget is still to be decided.`
                 }
               >
-                does not project
+                {/*
+                  ⚠ AFFINITY YA NO LLEVA NOTA — etapa OL25. Decia `opens by
+                  account executive` y la tabla de abajo ya muestra a Shirley
+                  Camargo y David Alvarez: la nota repetia lo que se ve. El
+                  motivo completo sigue en el tooltip, que es donde se busca.
+                */}
+                {branch.branchCode === 'AFFINITY' ? '' : 'Inactive'}
               </span>
             )}
           </h1>
@@ -1005,6 +1076,13 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
       </div>
 
       {/*
+        ⚠ LA BARRA, DEBAJO DEL ENCABEZADO — etapa OL25. Ver la nota del layout:
+        vivia arriba del titulo y con su propia columna, 110px corrida respecto
+        del breadcrumb. Aca hereda la columna del contenido.
+      */}
+      <OutlookTopBar />
+
+      {/*
         ══════════════════════ UNA SOLA TABLA — etapa OL9 ═════════════════════
         Cada estrategia se abre por lo que corresponde a SU unidad de decision
         -- ver `BranchStrategy` en el loader:
@@ -1030,39 +1108,12 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
       */}
       <div className="ol-block__head">
         <h2 className="ol-block__title">Budget by strategy</h2>
-        <label className="ol-horizon">
-          <span>Project through</span>
-          <select
-            className="field"
-            value={meses}
-            onChange={(e) => setHorizonte(Number(e.target.value))}
-            title="How many months forward the budget columns go. The growth rules already know how to reach any future month; this only decides how many are drawn."
-          >
-            <option value={horizonteHastaDic}>Dec {year}</option>
-            {/*
-              ⚠ DOS FORMAS DE PENSAR EL MISMO HORIZONTE, y las dos sirven: "seis
-              meses más" es una pregunta de planificación y "hasta diciembre del
-              año que viene" es una de presupuesto anual. Ninguna reemplaza a la
-              otra, así que están las dos.
-
-              La etiqueta dice SIEMPRE hasta dónde llega -- `12 months (Sep 2027)`
-              y `Dec 2027 (16 months)` -- para que las dos listas se puedan
-              comparar entre sí sin contar meses a mano.
-            */}
-            {[6, 12, 18, 24]
-              .filter((n) => n !== horizonteHastaDic)
-              .map((n) => (
-                <option key={n} value={n}>
-                  {n} months ({monthLabel(addMonths(currentMonth, n))} {addMonths(currentMonth, n).slice(0, 4)})
-                </option>
-              ))}
-            {finesDeAnio.map(({ anio, meses }) => (
-              <option key={'y' + anio} value={meses}>
-                Dec {anio} ({meses} months)
-              </option>
-            ))}
-          </select>
-        </label>
+        {/*
+          ⚠ ACA ESTABA `Project through` Y SE FUE A LA BARRA DEL MODULO — OL22.
+          Elegirlo en el 747 no cambiaba nada en el 733, asi que habia que
+          repetir la seleccion trece veces para mirar la division con el mismo
+          horizonte. Ahora es uno solo y aplica a todas.
+        */}
       </div>
 
       <div className="tbl-scroll">
@@ -1118,7 +1169,10 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                * chevron prometía algo que al abrirse no mostraba nada.
                */
               const personas = personasDe(bs);
-              const plegable = bs.opensBy === 'loanOfficer' ? personas.length > 0 : bs.opensBy !== 'branch';
+              const plegable =
+                bs.opensBy === 'loanOfficer'
+                  ? personas.length + bs.recruits.length > 0
+                  : bs.opensBy !== 'branch';
 
               const conBenchmark = personas.filter((lo) => (lo.strategyBenchmarks[s] ?? 0) > 0).length;
               /*
@@ -1397,6 +1451,119 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                       });
                     })()}
 
+
+                  {/*
+                    ══════════════════════════════════════════════════════════
+                    LA GENTE EN PROCESO DE CONTRATACIÓN — etapa OL20
+                    ══════════════════════════════════════════════════════════
+
+                    Van como hijas de Recruitment, al mismo nivel que las
+                    personas reales, y lo que las distingue NO es sólo la
+                    píldora:
+
+                      una persona real      tiene meses cerrados
+                      una proyectada        los tiene VACÍOS
+
+                    Esa es la diferencia que se lee sin explicación, y es la
+                    misma distinción entre vacío y cero que el módulo usa en
+                    todos lados. La píldora dice por qué.
+
+                    ⚠ Y CADA CERO LLEVA SU MOTIVO en el tooltip. Un cero sin
+                    razón en una fila proyectada es indistinguible de un bug:
+                    puede ser la etapa, el vínculo, el benchmark que nadie fijó
+                    o el vencimiento, y son cuatro cosas distintas.
+                  */}
+                  {abierta &&
+                    bs.recruits.map((r) => {
+                      const suma = monthsOfYear.reduce((a, m) => a + (r.byMonth[m] ?? 0), 0);
+                      return (
+                        <tr key={'s-' + s + '-rec-' + r.identity} className="metric mrow ol-rec">
+                          <td className="lbl" style={{ paddingLeft: '30px' }}>
+                            {r.personName}
+                            {/*
+                              ⚠ SIN MODIFICADOR POR ETAPA. Habia un
+                              `ol-tag--<stage>` por fila y ninguna hoja de
+                              estilo lo definia: cinco clases que no hacian
+                              nada. La etiqueta ya dice la etapa con palabras,
+                              que es mas claro que un color que hay que
+                              aprender.
+                            */}
+                            <span className="bp-muted ol-tag" title={RECRUIT_TITLE[r.stage](r)}>
+                              {STAGE_LABEL[r.stage]}
+                            </span>
+                            {r.linkedEmployeeKey !== null && (
+                              <span
+                                className="bp-muted ol-tag"
+                                title={
+                                  r.linkedByNmls
+                                    ? 'Matched to a roster employee by NMLS, which is a national registry number and ' +
+                                      'therefore an exact match. From here on the roster projects them, so this row adds nothing.'
+                                    : 'Someone confirmed which roster employee this is. From here on the roster projects ' +
+                                      'them, so this row adds nothing.'
+                                }
+                              >
+                                {r.linkedByNmls ? 'in roster (NMLS)' : 'in roster'}
+                              </span>
+                            )}
+                            <BenchTag
+                              value={r.monthlyBenchmark}
+                              onEdit={() => setEditingRecruit(r.identity)}
+                              editLabel={`Edit ${r.personName}'s projection`}
+                              editTitle={
+                                r.monthlyBenchmark === null
+                                  ? 'Nobody has set how much they are expected to produce, so this row adds nothing. ' +
+                                    'Empty, not zero: zero would claim no production is expected.'
+                                  : `Expected ${r.monthlyBenchmark} a month once ramped up, from ${r.producingFrom}.`
+                              }
+                            />
+                          </td>
+                          {monthsOfYear.map((m) => (
+                            <td
+                              key={m}
+                              className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}
+                              title={
+                                m > currentMonth
+                                  ? RECRUIT_MONTH_TITLE(r, m)
+                                  : /*
+                                     * Los meses ya cerrados y el actual van VACÍOS y
+                                     * no en cero: esta persona no estaba, así que no
+                                     * hay producción que informar. Un cero diría que
+                                     * estuvo y no cerró nada.
+                                     */
+                                    'Not on the roster this month, so there is nothing to report — empty, not zero.'
+                              }
+                            >
+                              {/*
+                                ⚠ VACÍO CUANDO NO PROYECTA, no cero. Un `0` en un
+                                mes futuro afirmaría que se espera que esa persona
+                                no cierre nada; la verdad es que nadie fijó su
+                                benchmark, o que su etapa no entra al presupuesto.
+                                Es la misma distinción de siempre y acá es la que
+                                hace legible la fila: la píldora dice por qué está
+                                vacía.
+
+                                Cuando SÍ proyecta, el cero se muestra: un mes
+                                anterior a `producing_from` es un cero decidido --
+                                todavía no cuenta-- y no una ausencia.
+                              */}
+                              {m > currentMonth && !r.notProjecting ? fmt(r.byMonth[m] ?? null) : ''}
+                            </td>
+                          ))}
+                          <td className="bp-center totcol">{fmt(suma === 0 ? null : suma)}</td>
+                          <td className="ol-rulecol">
+                            <button
+                              type="button"
+                              className={'ol-pill' + (r.notProjecting ? ' ol-pill--empty' : '')}
+                              onClick={() => setEditingRecruit(r.identity)}
+                              title={RECRUIT_TITLE[r.stage](r)}
+                            >
+                              {r.notProjecting ? NOT_PROJECTING_PILL[r.notProjecting] : 'ramping up'}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+
                   {/* ── Affinity: se abre por Account Executive ─────────────── */}
                   {abierta &&
                     bs.opensBy === 'owner' &&
@@ -1622,14 +1789,34 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                     ? currentAboveForecast
                       ? `${monthLabel(currentMonth)} already above forecast`
                       : `${monthLabel(currentMonth)} pipeline, no strategy yet`
-                    : 'Counted for a realtor, not for the branch'}
+                    : /*
+                       * ⚠ DECÍA `Counted for a realtor, not for the branch` — OL22.
+                       *
+                       * Nombraba una CAUSA particular --NPPM-- que en la mayoría de
+                       * los casos no aplica. Verificado en el 747, enero 2026: no
+                       * hay ni un NPPM. El residuo son cierres de gente ajena al
+                       * branch -- Frank Rodriguez, que ni siquiera resuelve contra
+                       * el roster, y José Zamora, que es del 716.
+                       *
+                       * `LO out of branch` describe lo que efectivamente hay, sin
+                       * asumir por qué. La causa, cuando importa, está en el
+                       * tooltip y en la línea de outsiders del pie.
+                       */
+                      'LO out of branch'}
                   <span
                     className="bp-muted ol-tag"
                     title={
                       Math.abs(residual[currentMonth]) <= 0.001
-                        ? `Closings counted for an NPPM realtor but not for the branch, because the loan officer who ` +
-                          `originated them is outside the division. The row carries the difference so the total ` +
-                          `matches the branch list.`
+                        ? /*
+                           * ⚠ LA EXPLICACIÓN GENERAL, NO LA CAUSA ASUMIDA — OL22. La
+                           * versión vieja afirmaba que eran cierres de un realtor
+                           * NPPM, que es UNA de las formas de llegar acá y casi
+                           * nunca la que aplica.
+                           */
+                          `The branch total counts by LOAN --whatever closed here-- and the strategies open by ` +
+                          `the people on this branch's roster. Closings by loan officers who are not on it land ` +
+                          `in this row: they are real and they count in the total, but no strategy can claim ` +
+                          `them. The row carries the difference so the total matches the list.`
                         : currentAboveForecast
                         ? `This branch has already closed more this month than its forecast expected: ` +
                           `${fmt(strategiesByMonth[currentMonth])} closed against a forecast of ` +
@@ -1731,6 +1918,98 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
         descuadre se explica solo -- que es el criterio que reemplazó a los
         párrafos en OL6 y OL12.
       */}
+      {/*
+        ══════════════════════════════════════════════════════════════════════
+        LA BARRA DE RECLUTAMIENTO — etapa OL20
+        ══════════════════════════════════════════════════════════════════════
+
+        La rampa y el alta a mano. Va debajo de la tabla porque las dos son
+        decisiones del PROGRAMA y no de una fila: la rampa es una y es de los
+        diecisiete branches, y un alta a mano todavía no tiene fila.
+
+        ⚠ SE OFRECE SÓLO SI HAY DÓNDE GUARDAR. Es lo mismo que hace
+        `monthlyModeAvailable` con el modo mes a mes: sin las tres tablas de
+        OL20 aplicadas, alguien llenaría el formulario de quince personas para
+        descubrir al apretar Guardar que no hay tabla.
+      */}
+      {/*
+        ══════════════════════════════════════════════════════════════════════
+        ⚠ LA RAMPA Y EL ALTA SE FUERON DE ACÁ — etapa OL21
+        ══════════════════════════════════════════════════════════════════════
+
+        Estaban debajo de esta tabla, y sólo en los branches que ya tenían gente
+        en proceso: estaban en el 747 y no en el 724. Las dos son decisiones del
+        MÓDULO --la rampa rige para los diecisiete branches, y un alta todavía no
+        tiene branch-- así que vivir dentro de un branch las hacía parecer de ese
+        branch y las escondía en los demás.
+
+        Viven en la vista 1, al lado de la tabla de la división. Desde ahí se
+        elige el branch en el formulario y la persona se aloja donde corresponda.
+
+        Lo que SÍ se queda acá: el lápiz de cada fila proyectada, que edita a UNA
+        persona y por lo tanto sí es de este branch.
+      */}
+
+      {/*
+        ══════════════════════════════════════════════════════════════════════
+        ⚠ LAS PROYECCIONES VENCIDAS Y SIN VINCULAR — etapa OL20
+        ══════════════════════════════════════════════════════════════════════
+
+        Su mes de producción llegó y nadie dijo con quién del roster se
+        corresponden, así que dejaron de sumar. Es la única de las cuatro
+        razones para no sumar que hay que ARREGLAR: las otras tres son
+        decisiones --la etapa, el vínculo, el benchmark que nadie fijó-- y esta
+        es un olvido.
+
+        ⚠ Y EL FALLO ELEGIDO ES ESTE, a propósito: un presupuesto corto y
+        visible antes que uno inflado y callado. Si al vencer siguiera sumando,
+        el mes que la persona entra al roster su producción se contaría dos
+        veces y el número seguiría pareciendo plausible. Acá falta, y el aviso
+        dice cuánto y de quién.
+
+        ⚠ Y NO NOMBRA A QUIEN ADEMÁS NO TIENE BENCHMARK, porque
+        `notProjectingReason` mira el benchmark ANTES del vencimiento. Es el
+        orden correcto: sin benchmark no había proyección que perder, así que no
+        falta nada del presupuesto -- lo que falta es la decisión, y eso ya lo
+        dice la píldora `no benchmark` de su fila. Hoy los quince están así, así
+        que este aviso no aparece: se verificó cambiando el filtro a
+        `no_benchmark` --4 en el 710, con nombre y con el botón que abre el
+        editor-- y volviéndolo atrás. No se escribieron filas de prueba: las
+        tablas de OL20 no tienen policy de DELETE, así que una fila de prueba se
+        queda para siempre.
+
+        ⚠ NO PROPONE A NADIE. Medido contra los datos de hoy: `employee_alias`
+        propone 0 de 15 y el nombre exacto contra `dim_employee` propone 0 de
+        15; lo único que propone algo es el apellido, y sus tres propuestas son
+        de personas equivocadas. El editor abre una lista alfabética del roster
+        y decide una persona -- ver la nota del selector en `RecruitEditor`.
+      */}
+      {vencidasSinVincular.length > 0 && (
+        <p className="ol-notice">
+          <b>
+            {vencidasSinVincular.length === 1
+              ? 'One projection has expired'
+              : `${vencidasSinVincular.length} projections have expired`}
+          </b>{' '}
+          and nobody said who they are on the roster, so they stopped counting:{' '}
+          {vencidasSinVincular.map((r, i) => (
+            <span key={r.identity}>
+              {i > 0 ? ' · ' : ''}
+              <button
+                type="button"
+                className="ol-pill ol-pill--empty"
+                onClick={() => setEditingRecruit(r.identity)}
+                title={`Producing from ${r.producingFrom}, which has already arrived. Link them to a roster employee, or move the month.`}
+              >
+                {r.personName}
+              </button>
+            </span>
+          ))}
+          . The budget is <b>short</b> by what they were expected to produce, on purpose — counting them while they are
+          also on the roster would count the same production twice.
+        </p>
+      )}
+
       {branch.outsiders.length > 0 && (
         <p className="ol-outsiders">
           <span className="ol-outsiders__lbl">Closed here by loan officers from other branches:</span>{' '}
@@ -1826,8 +2105,75 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               lo={editable}
               strategy={editing.strategy}
               data={data}
+              /*
+                ⚠ LOS MESES QUE LA TABLA ESTA MOSTRANDO, no los del año — OL21.
+
+                `remainingMonths` de acá es la lista del HORIZONTE elegido, que
+                es estado de esta pantalla. Sin esto el editor caia en
+                `data.remainingMonths` y ofrecia tres meses mientras la tabla
+                dibujaba treinta y seis.
+              */
+              months={remainingMonths}
               onClose={() => setEditing(null)}
               onSaved={reload}
+            />
+          );
+        })()}
+
+      {editingRecruit !== null &&
+        (() => {
+          /*
+           * ⚠ LA FILA SE RESUELVE ACA, EN CADA RENDER, desde `data` fresca. Es
+           * la misma regla que el bloque de los otros editores: `reload`
+           * reemplaza `data` entera despues de guardar, asi que un
+           * `BranchRecruit` guardado en el estado dejaria el panel mostrando el
+           * benchmark anterior al que se acaba de escribir -- el bug que uno no
+           * revisa porque el guardado "funciono".
+           *
+           * ⚠ Y SE BUSCA EN TODOS LOS BRANCHES, no en este. Editar el branch de
+           * alguien lo MUEVE de lista: se guarda, `reload` lo pone en el 728, y
+           * buscarlo en el 710 no lo encontraria -- el panel se cerraria solo,
+           * sin error, justo despues de un guardado correcto.
+           */
+          const r = data.branches
+            .flatMap((b) => b.byStrategy.flatMap((bs) => bs.recruits))
+            .find((x) => x.identity === editingRecruit);
+          /* La fila se fue de la fuente entre el render y el clic. Nada que abrir. */
+          if (r === undefined) return null;
+          return (
+            <RecruitEditor
+              recruit={r}
+              /*
+                ⚠ TODOS, Y `Recruitment` PRIMERO — corregido en OL21.
+
+                Antes se lo filtraba de la lista "para no ofrecer no-se-sabe como
+                destino", y el campo nacia justamente en `Recruitment`: el valor
+                por defecto no estaba entre las opciones. Con un `datalist`, que
+                filtra por lo escrito, eso dejaba CERO opciones visibles --medido,
+                0 de 16-- y parecia que el desplegable solo ofrecia Recruitment.
+
+                La leccion es la del assert: un valor por defecto tiene que ser
+                un valor elegible. Si no lo es, algo lo va a ocultar.
+              */
+              branches={branchOptions(data.branches.map((b) => b.branchCode))}
+              /*
+                El roster para vincular a mano, de los diecisiete branches y
+                ordenado por nombre. La persona con la que hay que vincular a un
+                recluta casi nunca esta en el branch donde se lo esta mirando --
+                si ya se supiera, el branch estaria corregido.
+              */
+              roster={data.branches
+                .flatMap((b) => b.loanOfficers.map((lo) => ({ employeeKey: lo.employeeKey, name: lo.fullName, branchCode: b.branchCode })))
+                .filter((p, i, a) => a.findIndex((q) => q.employeeKey === p.employeeKey) === i)
+                .sort((a, b) => a.name.localeCompare(b.name))}
+              currentMonth={currentMonth}
+              ramp={data.recruitRamp}
+              recruitCount={data.diagnostics.recruitsRead}
+              onClose={() => setEditingRecruit(null)}
+              onSaved={() => {
+                setEditingRecruit(null);
+                reload();
+              }}
             />
           );
         })()}

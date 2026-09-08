@@ -44,6 +44,26 @@ import './styles/ol-year.css';
  * de módulo -- eso es lo que hace que el doble montaje de efectos de React en
  * desarrollo no duplique la carga.
  */
+/*
+ * ⚠ LA BARRA BAJO A LAS PAGINAS — etapa OL25.
+ *
+ * Estaba aca, arriba de `{children}`, y por eso quedaba ARRIBA del titulo del
+ * modulo y con su propia columna: `max-width: 1600px` contra los 1380 de
+ * `.hub-container`. Medido, la etiqueta `Project through` arrancaba 110px a la
+ * izquierda del breadcrumb. OL24 le habia corregido el tamanio de fuente, que
+ * no era la causa -- font-size, line-height y centrado vertical ya coincidian.
+ *
+ * Ahora la dibuja cada pagina debajo de su encabezado, asi que hereda la
+ * columna del contenido y se alinea sola. Es un componente en dos lugares, no
+ * dos implementaciones.
+ *
+ * ⚠ EL PROVIDER SE QUEDA ACA, y eso es lo que importa: el layout NO se desmonta
+ * al navegar, asi que el horizonte elegido sigue viajando de la lista a un
+ * branch. Si el estado hubiera bajado con la barra, volveria al valor por
+ * defecto en cada navegacion.
+ */
 export default function OutlookLayout({ children }: { children: ReactNode }) {
-  return <OutlookDataProvider>{children}</OutlookDataProvider>;
+  return (
+    <OutlookDataProvider>{children}</OutlookDataProvider>
+  );
 }

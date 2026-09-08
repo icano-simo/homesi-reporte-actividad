@@ -2,7 +2,7 @@
 
 import { useMemo, useState, use } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { useBusinessPlanData } from '@/lib/business-plan/useBusinessPlanData';
 import { useEnrollment, type PlanMilestone, type PlanNode } from '@/lib/business-plan/useEnrollment';
@@ -76,6 +76,7 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
    */
   const searchParams = useSearchParams();
   const justActivated = searchParams.get('activated') === '1';
+  const router = useRouter();
 
   /* La biblioteca sólo se usa para el editor: de ahí salen los nodos que se
      pueden agregar al plan. */
@@ -83,6 +84,8 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
   const [editing, setEditing] = useState(false);
   const [activeNode, setActiveNode] = useState<number | null>(null);
   const [showTeam, setShowTeam] = useState(false);
+  /* Etapa BP40: quitar el plan. `false` = ni preguntado. */
+  const [cancelling, setCancelling] = useState(false);
   const [openNotes, setOpenNotes] = useState<number | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
   const [opError, setOpError] = useState<string | null>(null);
@@ -96,14 +99,14 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
   const totals = useMemo(() => {
     if (!plan) return { done: 0, total: 0 };
     const all = plan.nodes.flatMap((n) => n.milestones);
-    return { done: all.filter((m) => m.status === 'done').length, total: all.length };
+    return { done: all.filter((m) => m.status === 'completed').length, total: all.length };
   }, [plan]);
 
   /** El nodo abierto: el elegido, o el primero que no esté completo. */
   const currentNodeKey = useMemo(() => {
     if (!plan) return null;
     if (activeNode !== null) return activeNode;
-    const pending = plan.nodes.find((n) => n.milestones.some((m) => m.status !== 'done'));
+    const pending = plan.nodes.find((n) => n.milestones.some((m) => m.status !== 'completed'));
     return (pending ?? plan.nodes[0])?.enrollment_node_key ?? null;
   }, [plan, activeNode]);
 
@@ -123,13 +126,86 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
     setBusy(m.enrollment_milestone_key);
     setOpError(null);
     try {
-      const { error: e } = await getSupabaseClient()
+      /*
+       * ═════════════════════════════════════════════════════════════════
+       * ⚠ CERO FILAS NO ES ÉXITO — etapa BP42
+       * ═════════════════════════════════════════════════════════════════
+       *
+       * El `.select()` no está por el dato: está para saber CUÁNTAS filas
+       * cambiaron. Sin él, un UPDATE que RLS filtra devuelve HTTP 200 con
+       * `error: null` y la app da el cambio por hecho.
+       *
+       * Medido contra la base: intentar volver un step completado a en curso
+       * devuelve `200`, `filas afectadas: 0`, `error: null`. La protección --el
+       * `using (status <> 'completed')` de la policy-- es correcta; el silencio
+       * no. La pantalla aceptaba el clic, no mostraba nada, y el valor no
+       * cambiaba.
+       *
+       * Es el mismo silencio de RLS que ya se documentó en AGENTS.md: filtra, no
+       * rechaza. Cero filas con `error: null` es una policy que no aplica.
+       */
+      const { data: filas, error: e } = await getSupabaseClient()
         .schema('business_plan')
         .from('enrollment_milestone')
         .update(patch)
-        .eq('enrollment_milestone_key', m.enrollment_milestone_key);
+        .eq('enrollment_milestone_key', m.enrollment_milestone_key)
+        .select('enrollment_milestone_key');
       if (e) throw new Error(e.message);
+      if ((filas ?? []).length === 0) {
+        /*
+         * El mensaje nombra la causa concreta y no "no se pudo guardar": con
+         * las policies de hoy, la única forma de que una fila visible no se
+         * actualice es que ya esté completada.
+         */
+        throw new Error(
+          'A completed step cannot be changed — not its status, not its date. Nothing was saved.'
+        );
+      }
       reload();
+    } catch (err) {
+      setOpError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /*
+   * ═══════════════════════════════════════════════════════════════════════
+   * QUITAR EL PLAN — etapa BP40
+   * ═══════════════════════════════════════════════════════════════════════
+   *
+   * Hasta acá no había forma de quitar un plan desde la interfaz: las veces que
+   * hizo falta se borró a mano desde el editor de SQL. Una sola llamada, porque
+   * son cinco tablas y un borrado repartido en varias llamadas deja estado
+   * parcial en cuanto una falle -- el mismo problema que `activate_funnel`.
+   *
+   * ⚠ `cancel_funnel` BORRA, no archiva. Es lo que se decidió: el registro de
+   * los steps hechos se va con el plan. La alternativa era guardarlos en una
+   * tabla histórica, y no se hizo porque nadie los iba a leer -- pero por eso
+   * la confirmación dice cuántos son antes de borrarlos.
+   */
+  async function cancelPlan() {
+    if (!plan) return;
+    /*
+     * `busy` guarda la clave del step en curso, y -1 es el centinela para "una
+     * operacion sobre el plan entero". Ninguna clave real es negativa. Un
+     * segundo estado booleano habria sido otro que puede desincronizarse.
+     */
+    setBusy(-1);
+    setOpError(null);
+    try {
+      const { error: e } = await getSupabaseClient()
+        .schema('business_plan')
+        .rpc('cancel_funnel', { p_enrollment_key: plan.enrollment_key });
+      if (e) throw new Error(e.message);
+      setCancelling(false);
+      /*
+       * Se va a la ficha de la persona y no se recarga esta pantalla: sin plan,
+       * esta ruta no tiene nada que mostrar. `push` y no `replace` para que el
+       * botón de atrás no vuelva a un plan que ya no existe... que igual
+       * mostraría el estado vacío, pero llegar ahí por accidente confunde.
+       */
+      router.push('/business-plan/lo/' + employeeKey);
     } catch (err) {
       setOpError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -143,8 +219,8 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
        inmutable: desde ese momento la policy de UPDATE ya no la ve. */
     patchMilestone(
       m,
-      next === 'done'
-        ? { status: 'done', completed_at: new Date().toISOString(), completed_by: sessionEmail }
+      next === 'completed'
+        ? { status: 'completed', completed_at: new Date().toISOString(), completed_by: sessionEmail }
         : { status: next }
     );
   }
@@ -191,7 +267,7 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
   }, [plan, lo, baseline, mountedAt]);
 
   const nodeProgress = (n: PlanNode) => ({
-    done: n.milestones.filter((m) => m.status === 'done').length,
+    done: n.milestones.filter((m) => m.status === 'completed').length,
     total: n.milestones.length,
   });
 
@@ -376,7 +452,7 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                         ))
                       )}
                     </span>
-                    <span className="bp-owners__hint">accountable for the stage moving forward</span>
+                    <span className="bp-owners__hint">accountable for the step moving forward</span>
                   </div>
                 </div>
 
@@ -399,7 +475,7 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                   */}
                   <li className="bp-ms bp-ms--head" aria-hidden="true">
                     <span />
-                    <span>Stage</span>
+                    <span>Step</span>
                     <span>Owner</span>
                     <span>Status</span>
                     <span>Target date</span>
@@ -410,7 +486,7 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                     const person = personOf(m.accountable_employee_key);
                     const mine = canToggleMilestone(sessionEmail, person?.email ?? null);
                     const options = allowedStatuses(m.status, sessionEmail, person?.email ?? null);
-                    const locked = m.status === 'done';
+                    const locked = m.status === 'completed';
                     const late = isOverdue(m.status, m.due_date, today);
                     const rowBusy = busy === m.enrollment_milestone_key;
                     return (
@@ -418,9 +494,44 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                         key={m.enrollment_milestone_key}
                         className={'bp-ms' + (locked ? ' is-done' : '') + (late ? ' is-late' : '')}
                       >
-                        <span className={'bp-ms__dot bp-ms__dot--' + m.status} aria-hidden="true">
-                          {m.status === 'done' ? '✓' : ''}
-                        </span>
+                        {/*
+                          ══════════════════════════════════════════════════════
+                          EL CÍRCULO ES EL BOTÓN QUE PARECE — etapa BP42
+                          ═══════════════════════════════════════════════════════
+
+                          Era un `<span aria-hidden>` de 18×15 con
+                          `border-radius: 50%` y un ✓ adentro: medido, sin
+                          `onClick`, sin `role`, sin `tabindex` y con
+                          `cursor: auto`. O sea, exactamente la forma del control
+                          de completar, sin ser el control. El clic no disparaba
+                          una sola llamada.
+
+                          Ahora completa. Y el control real seguía siendo el
+                          desplegable, que para 69 de los 75 steps no ofrecía la
+                          opción -- las dos cosas juntas se leían como "no
+                          funciona nada", que es lo que reportaron.
+
+                          Un completado NO se reabre, así que ahí el círculo deja
+                          de ser botón: un botón que no puede hacer nada es el
+                          problema que este cambio vino a arreglar.
+                        */}
+                        {locked ? (
+                          <span
+                            className={'bp-ms__dot bp-ms__dot--' + m.status}
+                            title={'Completed' + (m.completed_by ? ' by ' + m.completed_by : '')}
+                          >
+                            ✓
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            className={'bp-ms__dot bp-ms__dot--' + m.status + ' bp-ms__dot--btn'}
+                            disabled={rowBusy}
+                            aria-label={'Mark "' + m.title + '" as completed'}
+                            title={'Mark as completed' + (person ? ' · accountable: ' + person.full_name : '')}
+                            onClick={() => changeStatus(m, 'completed')}
+                          />
+                        )}
 
                         <span className="bp-ms__title">{m.title}</span>
 
@@ -436,26 +547,28 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                         </span>
 
                         {/*
-                          ⚠ QUIÉN PUEDE MARCAR DONE no cambió con el desplegable.
-                          `allowedStatuses` sólo incluye 'done' cuando el email de
-                          la sesión coincide con el del responsable; para el resto
-                          el desplegable ofrece dos opciones y el `title` dice
-                          quién puede cerrarlo -- ocultarlo sin explicación dejaba
-                          a la persona buscando por qué no le responde el control.
-                          Y una fila ya hecha se muestra como píldora, sin control:
+                          ⚠ COMPLETAR YA NO ES EXCLUSIVO DEL RESPONSABLE — BP42.
+                          Un plan es una herramienta de acompañamiento: el coach y
+                          el Loan Officer lo revisan juntos y marcan lo que se
+                          hizo. Con el permiso viejo, 69 de 75 steps no ofrecían
+                          la opción a quien estuviera mirando, y el módulo llevaba
+                          cero steps completados en toda su historia.
+                          Quien lo marcó queda en `completed_by`, que ahora es un
+                          dato distinto del responsable y sirve para algo.
+                          Una fila ya hecha se muestra como píldora, sin control:
                           no se reabre, y la base tampoco lo permitiría.
                         */}
                         {locked ? (
                           <span
-                            className={MILESTONE_STATUS_CLASS.done}
+                            className={MILESTONE_STATUS_CLASS.completed}
                             title={
                               'Completed on ' +
                               String(m.completed_at).slice(0, 10) +
                               (m.completed_by ? ' by ' + m.completed_by : '') +
-                              ' — done stages cannot be reopened'
+                              ' — completed steps cannot be reopened'
                             }
                           >
-                            {MILESTONE_STATUS_LABEL.done}
+                            {MILESTONE_STATUS_LABEL.completed}
                           </span>
                         ) : (
                           <select
@@ -464,11 +577,9 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                             disabled={rowBusy}
                             onChange={(e) => changeStatus(m, e.target.value as MilestoneStatus)}
                             title={
-                              mine
-                                ? 'You are accountable for this stage'
-                                : person
-                                  ? `Only ${person.full_name} can mark this one as done`
-                                  : 'No accountable person assigned — nobody can close it'
+                              person
+                                ? 'Accountable: ' + person.full_name + (mine ? ' (you)' : '')
+                                : 'No accountable person assigned'
                             }
                           >
                             {options.map((s) => (
@@ -501,7 +612,7 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                         <button
                           type="button"
                           className={'bp-icon-btn' + (openNotes === m.enrollment_milestone_key ? ' is-on' : '')}
-                          title="Stage notes"
+                          title="Step notes"
                           onClick={() =>
                             setOpenNotes((k) => (k === m.enrollment_milestone_key ? null : m.enrollment_milestone_key))
                           }
@@ -521,13 +632,13 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                       </li>
                     );
                   })}
-                  {node.milestones.length === 0 && <li className="bp-muted-line">No stages in this node.</li>}
+                  {node.milestones.length === 0 && <li className="bp-muted-line">No steps in this node.</li>}
                 </ul>
 
                 <NotesPanel
                   target={{ kind: 'node', key: node.enrollment_node_key }}
                   title={'Notes on ' + node.name}
-                  placeholder="What was discussed about this stage…"
+                  placeholder="What was discussed about this step…"
                 />
               </div>
             );
@@ -551,6 +662,28 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
             <button type="button" className="bp-btn bp-btn--small" onClick={() => setEditing((v) => !v)}>
               {editing ? 'Close editor' : 'Edit plan'}
             </button>
+            {/*
+              ════════════════════════════════════════════════════════════
+              CAMBIAR Y QUITAR EL PLAN — etapa BP40
+              ════════════════════════════════════════════════════════════
+
+              Las dos acciones que faltaban. Sin ellas, un funnel elegido por
+              error se arreglaba borrando filas desde el editor de SQL.
+
+              "Change funnel" es un enlace al CATÁLOGO, no un selector de acá:
+              elegir el funnel nuevo necesita las categorías, el explorador y
+              `checkActivation`, y todo eso ya existe allá. Lleva la clave del
+              enrolamiento para que la función sepa cuál cancela.
+
+              Van al final de la barra y sin `--primary`: lo que se hace todos
+              los días es marcar pasos.
+            */}
+            <Link className="bp-btn bp-btn--small" href={'/business-plan/lo/' + employeeKey + '/funnel?change=' + plan.enrollment_key}>
+              Change funnel
+            </Link>
+            <button type="button" className="bp-btn bp-btn--small" onClick={() => setCancelling(true)}>
+              Cancel plan
+            </button>
             {/* Etapa BP27: "See impact" se fue de acá a la cabecera. Abajo
                 quedan las dos acciones de gestión del plan. */}
             <div className="bp-team-bar__stack">
@@ -569,6 +702,52 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
               support={plan.support}
               onDone={reload}
             />
+          )}
+
+          {/*
+            LA CONFIRMACIÓN DICE EL NÚMERO — etapa BP40.
+
+            No "se va a borrar el plan", que es genérico y no se lee, sino
+            cuántos steps hechos se pierden. `totals.done` es el MISMO número que
+            el anillo de la cabecera, del mismo cálculo: si la confirmación
+            contara por su cuenta, podría decir otro que el que la persona
+            acababa de mirar.
+
+            Y se nombra el funnel. Con dos pestañas abiertas, "cancel this plan"
+            no dice cuál.
+          */}
+          {cancelling && (
+            <Modal title="Cancel this plan?" onClose={() => setCancelling(false)}>
+              <div className="bp-form">
+                <p className="bp-modal__lead">
+                  <strong>{lo?.fullName ?? 'This person'}</strong> is on{' '}
+                  <strong>{plan.funnel_name}</strong>, started {plan.activated_at.slice(0, 10)}.
+                  Cancelling removes the plan and puts them back to choosing a funnel.
+                </p>
+                <p className="bp-modal__lead bp-modal__lead--warn">
+                  {totals.done > 0 ? (
+                    <>
+                      This plan has{' '}
+                      <strong>
+                        {totals.done} completed step{totals.done === 1 ? '' : 's'}
+                      </strong>{' '}
+                      — they are deleted, not archived, along with the notes and the baseline.
+                    </>
+                  ) : (
+                    <>Nothing has been completed yet, so nothing is lost — but the notes go too.</>
+                  )}{' '}
+                  This cannot be undone.
+                </p>
+                <div className="bp-form__actions">
+                  <button type="button" className="bp-btn bp-btn--primary" disabled={busy !== null} onClick={cancelPlan}>
+                    {busy === -1 ? 'Cancelling…' : 'Cancel the plan'}
+                  </button>
+                  <button type="button" className="bp-linkish" onClick={() => setCancelling(false)}>
+                    keep it
+                  </button>
+                </div>
+              </div>
+            </Modal>
           )}
 
           {showTeam && (

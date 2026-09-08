@@ -8006,3 +8006,114 @@ no hizo falta recalcular nada, solo elegir cuál mostrar.
 ### Archivos
 
 `app/pipeline/TabNextMonth.tsx` (único archivo tocado).
+
+## KPIs de "Total Closed Volume" / "Closed Loans" / "Average Ticket" ahora abren drill-down
+
+Las 3 tarjetas del Hero KPI de Analytics ahora abren el mismo tipo de
+drill-down (`LoanDetailModal`) que ya usan las filas de scorecard/ranking
+de esta pestaña -- mismo mecanismo (`setDrillDown`), sin sumar nada
+nuevo. Las 3 apuntan al MISMO conjunto de préstamos (`fundedInRange`)
+porque Volume/Count/Avg Ticket son 3 lecturas del mismo grupo, no 3
+poblaciones distintas -- a diferencia de Strategy Mix (la 4ta tarjeta),
+que sigue con su propio drill-down por segmento de estrategia y no se
+tocó.
+
+Affordance visual: clase nueva `.mcard--clickable` (solo `cursor:
+pointer`) -- mismo criterio minimalista que ya usa `.metric--drill` en
+las filas de tabla; el hover de fondo/sombra de las tarjetas ya era
+global, no hizo falta tocarlo.
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx` (3 props nuevas en `HeroKpiCards`:
+`onVolumeClick`/`onCountClick`/`onAvgTicketClick`, wiring en la
+invocación), `app/pipeline/styles/forecast-visual.css`
+(`.mcard--clickable`).
+
+## Filtro de Channel (Banked - Retail / Brokered) en Analytics -- mismo punto único que Branch
+
+Se agregó la posibilidad de filtrar toda la pestaña Analytics por canal,
+igual que ya se podía por Branch. Se agregó sobre el MISMO punto único
+de filtrado que ya alimenta las 4 capas de la pestaña (Hero KPI, Monthly
+Trends, Product Mix, Scorecards/Pareto) -- la variable que antes se
+llamaba `branchFilteredLoans` se renombró a `filteredLoans` porque ya
+filtra por 2 criterios, no solo por branch; el nombre viejo habría
+quedado mintiendo sobre lo que hace. Los 2 filtros (Branch y Channel)
+son un AND, no un OR.
+
+A diferencia de Branch (opciones dinámicas desde
+`pipeline_forecast.branches` -- puede aparecer una sucursal nueva),
+Channel usa las 2 opciones fijas del negocio (`'Banked - Retail' |
+'Brokered'`, mismo union type de `ResolvedLoan['channel']`) -- mismo
+texto ya usado en el selector de Channel de `AdverseTable.tsx`, sin
+inventar copy nuevo.
+
+Verificado contra el export real de Salesforce: By channel para agosto
+2026 (Banked 39/$13,831,841, Brokered 6/$1,751,400) y YTD 2026 (Banked
+315/$110,350,560, Brokered 42/$13,527,839) -- ambos coinciden con lo que
+muestra la app.
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx` (único archivo tocado -- estado
+`selectedChannel`, rename de `branchFilteredLoans` a `filteredLoans`,
+`<select>` de Channel en `.control-bar__row`).
+
+## Página de detalle de Affinity removida del PDF por estrategia
+
+`STRATEGY_ORDER` se sigue usando igual en el resumen por estrategia, el
+Excel y los pills de `PivotTable` -- Affinity sigue apareciendo en todos
+esos lugares, sin cambios. Se excluye SOLO de `strategyBranchPages`
+(`page.tsx`), que alimenta las páginas de detalle por branch del PDF: una
+página menos, específicamente la de Affinity. Affinity sigue apareciendo
+como fila en el "Resumen por Estrategia" de la primera página del PDF --
+lo que se retira es únicamente su página de detalle por branch.
+
+### Archivos
+
+`app/pipeline/page.tsx` (`strategyBranchPages` filtra `STRATEGY_ORDER`
+antes de mapear, `STRATEGY_ORDER` en sí sin tocar).
+
+## Branches con las 5 columnas en cero ocultos en el PDF
+
+Criterio confirmado: se oculta un branch de una tabla del PDF solo si
+`totalCount`, `healthyCount`, `closedCount`, `projectedToClose` Y
+`totalForecast` están TODOS en cero -- no alcanza con que
+`totalCount`/`healthyCount`/`closedCount` sean cero. Ese es un criterio
+distinto (y más laxo) del que ya usa `visible` en `buildBranchRows()`,
+que sigue vivo ahí sin tocarse -- ese criterio sigue gobernando qué
+branch se muestra en pantalla y en el Excel, sin ningún cambio.
+
+El filtro nuevo (`hideZeroBranches()`) vive solo dentro de
+`handleExportPdf()`, aplicado a `branchRows` y a cada entrada de
+`strategyPages` antes de mandarlos al PDF -- no toca `buildBranchRows()`
+ni `strategyBranchPages` en sí (esa variable la siguen usando sin
+filtrar las verificaciones `cellsMatch5` más arriba en el mismo archivo).
+
+### Archivos
+
+`app/pipeline/page.tsx` (`hideZeroBranches()` nueva dentro de
+`handleExportPdf()`, aplicada a `branchRows.banked`/`.brokered` y a
+`page.banked`/`.brokered` de cada entrada de `strategyPages`).
+
+## Loan Officers inactivos ocultos del PDF
+
+Mismo criterio que branches (las 5 columnas en cero -- `totalCount`,
+`healthyCount`, `closedCount`, `projectedToClose` Y `totalForecast`),
+extendido a la tabla Por Loan Officer.
+
+Causa confirmada en `lib/pipeline/loanOfficerForecast.ts`
+(`buildLoanOfficerForecastRows()`): el conjunto de Loan Officers de un
+branch+canal se arma con TODOS los préstamos cerrados históricos de ese
+branch+canal (`closedLoansForBranch`, sin filtro de fecha) más los
+abiertos -- el `dateRange` del Forecast Month recién se aplica después,
+para calcular `closedCount` del período mostrado. Un LO entra a la lista
+con un solo préstamo cerrado en ese branch+canal alguna vez, sin importar
+si cae dentro del rango actual -- por eso podía quedar con las 5 columnas
+en cero para el período que se está mirando.
+
+### Archivos
+
+`app/pipeline/page.tsx` (`hideZeroBranches()` reusada tal cual, aplicada
+a `loanOfficerRows.banked`/`.brokered` en `handleExportPdf()` -- ningún
+cambio en `lib/pipeline/loanOfficerForecast.ts`).

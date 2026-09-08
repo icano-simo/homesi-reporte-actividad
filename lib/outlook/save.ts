@@ -374,3 +374,136 @@ export async function setProjectionMode(input: {
   });
   if (error) throw readable(error);
 }
+
+/**
+ * ============================================================================
+ * LA PROYECCIÓN DE UN RECLUTA — etapa OL20
+ * ============================================================================
+ *
+ * Una revisión nueva, nunca un UPDATE: `outlook.recruitment_projection` no tiene
+ * política de UPDATE ni de DELETE, así que corregir una fecha deja ver qué decía
+ * antes y quién lo cambió.
+ *
+ * ⚠ LA REVISIÓN SIGUIENTE SE LEE DE LA BASE, no de lo que la pantalla tenía
+ * cargado. Entre que se abrió el editor y que se apretó Guardar puede haber
+ * pasado la edición de otra persona, y escribir `revision + 1` sobre un número
+ * viejo tiraría dos revisiones con el mismo número. El UNIQUE
+ * (identity, revision) corta la carrera si aun así ocurre.
+ */
+export async function saveRecruitProjection(input: {
+  identity: string;
+  source: 'future_loan_officer' | 'manual';
+  personName: string;
+  role: 'loan_officer' | 'nppm';
+  branchCode: string;
+  startDate: string | null;
+  producingFrom: string;
+  /** `null` = nadie fijó cuánto se espera. Distinto de 0, que es "no produce". */
+  monthlyBenchmark: number | null;
+  nmls: string | null;
+  note: string | null;
+}): Promise<number> {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(input.producingFrom)) {
+    throw new Error('"Producing from" must be a month.');
+  }
+  if (!input.branchCode.trim()) throw new Error('A projection needs a branch.');
+  if (!input.personName.trim()) throw new Error('A projection needs a name.');
+
+  const set_by = await authorEmail();
+  const supabase = getSupabaseClient();
+  const { data: existing, error: readError } = await supabase
+    .schema('outlook')
+    .from('recruitment_projection')
+    .select('revision')
+    .eq('identity', input.identity)
+    .order('revision', { ascending: false })
+    .limit(1);
+  if (readError) throw readable(readError);
+  const revision = (existing?.[0]?.revision ?? 0) + 1;
+
+  const { error } = await supabase.schema('outlook').from('recruitment_projection').insert({
+    identity: input.identity,
+    revision,
+    source: input.source,
+    person_name: input.personName.trim(),
+    role: input.role,
+    branch_code: input.branchCode.trim(),
+    start_date: input.startDate,
+    producing_from: input.producingFrom,
+    monthly_benchmark: input.monthlyBenchmark,
+    nmls: input.nmls,
+    set_by,
+    note: input.note,
+  });
+  if (error) throw readable(error);
+  return revision;
+}
+
+/**
+ * La rampa de adaptación, global. Una revisión nueva por cambio.
+ *
+ * ⚠ LOS TRES PORCENTAJES VAN JUNTOS en una fila. Guardarlos por separado
+ * permitiría una rampa a medias --mes 1 al 40% y mes 2 todavía al 50%-- que
+ * nadie decidió.
+ */
+export async function saveRecruitRamp(input: {
+  month1: number;
+  month2: number;
+  month3Plus: number;
+  note: string | null;
+}): Promise<number> {
+  for (const [etiqueta, v] of [
+    ['month 1', input.month1],
+    ['month 2', input.month2],
+    ['month 3 onwards', input.month3Plus],
+  ] as const) {
+    if (!(v >= 0 && v <= 1)) throw new Error(`The ${etiqueta} percentage has to be between 0% and 100%.`);
+  }
+  const set_by = await authorEmail();
+  const supabase = getSupabaseClient();
+  const { data: existing, error: readError } = await supabase
+    .schema('outlook')
+    .from('recruitment_ramp')
+    .select('revision')
+    .order('revision', { ascending: false })
+    .limit(1);
+  if (readError) throw readable(readError);
+  const revision = (existing?.[0]?.revision ?? 0) + 1;
+  const { error } = await supabase.schema('outlook').from('recruitment_ramp').insert({
+    revision,
+    month_1_pct: input.month1,
+    month_2_pct: input.month2,
+    month_3_plus_pct: input.month3Plus,
+    set_by,
+    note: input.note,
+  });
+  if (error) throw readable(error);
+  return revision;
+}
+
+/**
+ * Vincular una proyección con alguien del roster, o desvincularla.
+ *
+ * ⚠ DESVINCULAR ES UNA FILA NUEVA CON `employeeKey` EN NULL, no un DELETE. La
+ * vigente es la más reciente, así que un vínculo equivocado se corrige sin
+ * perder el rastro de quién lo puso.
+ *
+ * ⚠ Y ESTO ES LO QUE EVITA EL DOBLE CONTEO: una proyección vinculada deja de
+ * aportar, porque de ahí en más la persona la proyecta el motor del roster, que
+ * es el que tiene su producción real.
+ */
+export async function saveRecruitLink(input: {
+  identity: string;
+  employeeKey: number | null;
+  note: string | null;
+}): Promise<void> {
+  const linked_by = await authorEmail();
+  const supabase = getSupabaseClient();
+  const { error } = await supabase.schema('outlook').from('recruitment_link').insert({
+    identity: input.identity,
+    employee_key: input.employeeKey,
+    linked_by,
+    note: input.note,
+  });
+  if (error) throw readable(error);
+}

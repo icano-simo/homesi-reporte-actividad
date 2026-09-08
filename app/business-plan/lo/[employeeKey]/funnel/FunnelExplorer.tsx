@@ -97,7 +97,7 @@ export default function FunnelExplorer({
           <h2 className="bp-fhead__name">{funnel.name}</h2>
           <div className="bp-fhead__meta">
             <span className="bp-pill bp-pill--sky">{ordered.length} nodes</span>
-            <span className="bp-pill bp-pill--sky">{total} stages</span>
+            <span className="bp-pill bp-pill--sky">{total} steps</span>
             {funnel.duration_weeks && <span className="bp-pill bp-pill--sky">~{funnel.duration_weeks} weeks</span>}
           </div>
         </div>
@@ -194,7 +194,7 @@ export default function FunnelExplorer({
           */}
           <ul className="bp-fdetail__steps">
             <li className="bp-fdetail__steps-head" aria-hidden="true">
-              <span>Stage</span>
+              <span>Step</span>
               <span>Accountable</span>
               <span>Due (day of node)</span>
             </li>
@@ -226,7 +226,7 @@ export default function FunnelExplorer({
                 </li>
               );
             })}
-            {activeSteps.length === 0 && <li className="bp-muted">This node has no stages yet.</li>}
+            {activeSteps.length === 0 && <li className="bp-muted">This node has no steps yet.</li>}
           </ul>
           <p className="bp-fdetail__note">
             Days are counted from the start of this node, not from the start of the plan — nothing is activated yet, so

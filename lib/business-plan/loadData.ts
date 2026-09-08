@@ -318,7 +318,7 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
           if (key === undefined) continue;
           const t = tally.get(key) ?? { done: 0, total: 0 };
           t.total += 1;
-          if (m.status === 'done') t.done += 1;
+          if (m.status === 'completed') t.done += 1;
           tally.set(key, t);
         }
         for (const e of enrollments) {

@@ -159,7 +159,7 @@ export default function PlanEditor({
             resource_url: m.resource_url,
             due_date: m.due_date,
             sla_days: m.sla_days,
-            status: 'pending',
+            status: 'planned',
             position: m.position,
           }))
         );
@@ -188,7 +188,7 @@ export default function PlanEditor({
             <li key={n.enrollment_node_key} className="bp-editor__node">
               <span className="bp-editor__pos">{i + 1}</span>
               <span className="bp-editor__name">{n.name}</span>
-              <span className="bp-editor__count">{n.milestones.length} stages</span>
+              <span className="bp-editor__count">{n.milestones.length} steps</span>
               <div className="bp-actions">
                 <button type="button" className="bp-icon-btn" disabled={busy || i === 0} title="Move earlier" onClick={() => reorder(n.enrollment_node_key, -1)}>
                   ↑
@@ -205,7 +205,7 @@ export default function PlanEditor({
                 <button
                   type="button"
                   className="bp-icon-btn"
-                  title="Add a stage to this node"
+                  title="Add a step to this node"
                   disabled={busy}
                   onClick={() => setDialog({ kind: 'ms-form', nodeKey: n.enrollment_node_key, milestone: null })}
                 >
@@ -229,7 +229,7 @@ export default function PlanEditor({
 
               <ul className="bp-editor__ms">
                 {n.milestones.map((m) => {
-                  const locked = m.status === 'done';
+                  const locked = m.status === 'completed';
                   return (
                     <li key={m.enrollment_milestone_key} className={locked ? 'is-locked' : ''}>
                       <span className="bp-editor__ms-title">{m.title}</span>
@@ -238,7 +238,7 @@ export default function PlanEditor({
                         className="bp-inline-input"
                         value={m.accountable_employee_key ?? ''}
                         disabled={busy || locked}
-                        title={locked ? 'Completed stages cannot be edited' : 'Change the accountable person'}
+                        title={locked ? 'Completed steps cannot be edited' : 'Change the accountable person'}
                         onChange={(e) =>
                           run(() =>
                             bp()
@@ -261,7 +261,7 @@ export default function PlanEditor({
                           type="button"
                           className="bp-icon-btn"
                           disabled={busy || locked}
-                          title={locked ? 'Completed stages cannot be edited' : 'Edit'}
+                          title={locked ? 'Completed steps cannot be edited' : 'Edit'}
                           onClick={() => setDialog({ kind: 'ms-form', nodeKey: n.enrollment_node_key, milestone: m })}
                         >
                           ✎
@@ -270,7 +270,7 @@ export default function PlanEditor({
                           type="button"
                           className="bp-icon-btn bp-icon-btn--danger"
                           disabled={busy || locked}
-                          title={locked ? 'Completed stages cannot be deleted' : 'Delete'}
+                          title={locked ? 'Completed steps cannot be deleted' : 'Delete'}
                           onClick={() => setDialog({ kind: 'ms-delete', milestone: m })}
                         >
                           <CloseIcon size={12} />
@@ -336,6 +336,19 @@ export default function PlanEditor({
 
       {dialog?.kind === 'ms-form' && (
         <MilestoneForm
+          /*
+            Los steps del MISMO nodo del plan, para que la vista previa diga en
+            que dia cae cada uno -- etapa BP40. Salen de la copia de la persona
+            y no de la plantilla: los dias que importan son los de su plan.
+          */
+          siblings={(plan.nodes.find((n) => n.enrollment_node_key === dialog.nodeKey)?.milestones ?? []).map(
+            (m) => ({
+              milestone_key: m.enrollment_milestone_key,
+              title: m.title,
+              sla_days: m.sla_days,
+              position: m.position,
+            })
+          )}
           initial={
             dialog.milestone
               ? {
@@ -360,7 +373,26 @@ export default function PlanEditor({
               accountable_employee_key: d.accountable_employee_key === '' ? null : Number(d.accountable_employee_key),
               sla_days: sla,
               resource_url: d.resource_url.trim() || null,
-              position: Number(d.position) || 1,
+              /*
+               * ⚠ LA POSICIÓN DE UN STEP NUEVO VA AL FINAL — BP44.
+               *
+               * El campo `Position` se fue del editor compartido, y el borrador
+               * lo iniciaba en `1`. Acá el efecto es peor que en la plantilla:
+               * `enrollment_milestone` NO tiene unicidad sobre
+               * `(enrollment_node_key, position)` --comprobado contra la base--
+               * así que en vez de fallar, quedaban dos steps del plan en la
+               * posición 1 y el orden lo decidía el recorrido.
+               *
+               * Al editar se conserva la que ya tenía.
+               */
+              position: dialog.milestone
+                ? dialog.milestone.position
+                : Math.max(
+                    0,
+                    ...(plan.nodes.find((n) => n.enrollment_node_key === dialog.nodeKey)?.milestones ?? []).map(
+                      (m) => m.position
+                    )
+                  ) + 1,
             };
             run(async () => {
               if (dialog.milestone) {
@@ -371,7 +403,7 @@ export default function PlanEditor({
               }
               /* Un milestone nuevo arranca sin fecha si no tiene SLA; con SLA,
                  se calcula igual que los demás en el próximo reordenamiento. */
-              return bp().from('enrollment_milestone').insert({ ...row, status: 'pending', due_date: null });
+              return bp().from('enrollment_milestone').insert({ ...row, status: 'planned', due_date: null });
             });
           }}
         />
@@ -382,7 +414,7 @@ export default function PlanEditor({
           what={'milestone "' + dialog.milestone.title + '"'}
           busy={busy}
           warning="Only this person's plan changes."
-          blockedReason={dialog.milestone.status === 'done' ? 'Completed milestones are history and cannot be deleted.' : null}
+          blockedReason={dialog.milestone.status === 'completed' ? 'Completed steps are history and cannot be deleted.' : null}
           onClose={() => setDialog(null)}
           onConfirm={() =>
             run(() =>
