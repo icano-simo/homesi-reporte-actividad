@@ -605,6 +605,20 @@ export default function ReviewStepPanel({
         sin funnel se elige. Ni se salta ni se cambia a la fuerza: cambiarlo
         llama a `cancel_funnel`, que BORRA el plan -- y hay planes con steps
         completados. Una revisión no puede destruir trabajo de costado.
+
+        ⚠ EL BRIEF DE RV1 PIDE OTRO ORDEN, Y ESE ORDEN NUNCA SE CONSTRUYÓ.
+
+        El brief dice «el comentario habilita `Select this funnel`»: el botón de
+        elegir viviría EN el panel, apagado hasta que hubiera comentario. Lo que
+        existe es lo contrario: elegir vive en `/business-plan/lo/[id]/funnel`,
+        se llega desde la barra de decisión del perfil, y el panel sólo CIERRA el
+        paso después. «Elegilo allá y cerrá el paso acá.» Este panel no tiene
+        --ni tuvo nunca-- un botón `Select this funnel`.
+
+        Son dos diseños distintos, y el segundo funciona: se midió en RV5 y el
+        paso se cierra. Queda escrito porque **el brief sigue diciendo el otro**,
+        así que quien lo lea y busque el botón en este archivo no lo va a
+        encontrar, y la ausencia parece un bug en vez de una decisión.
       */}
       {paso.phase_no === 3 && (
         <div className="rv-panel__funnel">

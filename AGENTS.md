@@ -206,6 +206,60 @@ Es primo del caso del claim `outlook` —un comentario que enumeraba cuatro
 personas cuando eran dos— pero el mecanismo es otro: ahí la nota se volvió
 falsa, acá las cinco siguen siendo ciertas.
 
+## El rol que no estaba en la cabeza al escribir la migración
+
+Tercer caso del mismo mecanismo, y el que lo nombra. Los otros dos son la lista
+`pgrst.db_schemas` de la sección de arriba y el GRANT de `business_plan.area`.
+Seis esquemas en este proyecto, y `service_role` tiene `usage` sobre exactamente
+la mitad:
+
+| esquema | quién lo creó | `service_role` tiene `usage` |
+|---|---|---|
+| `activity_report` | anterior a esta serie | sí |
+| `org` | anterior a esta serie | sí |
+| `pipeline_forecast` | anterior a esta serie | sí |
+| `business_plan` | esta serie | **no** |
+| `outlook` | esta serie | **no** |
+| `review` | esta serie | **no** |
+
+El corte no es por antigüedad ni por casualidad: **son los tres que creamos
+nosotros los que no lo tienen.** Y el diagnóstico, en las palabras del usuario:
+
+> al crear un esquema nuevo doy `usage` a `authenticated` y no a
+> `service_role`, porque `authenticated` es el que estoy pensando.
+
+Y se comprueba en los archivos, sin mirar la base: `docs/sql/` tiene **siete**
+`grant usage on schema … to …`, y los siete van a `authenticated`. Cero a
+`service_role`. Las únicas tres veces que ese rol aparece en todo `docs/sql/` es
+para decir que **no** se usa.
+
+> **Lo que uno tiene en la cabeza al escribir la migración se cubre, y lo demás
+> no.** El GRANT de `business_plan.area` y la lista `pgrst.db_schemas` son el
+> mismo hueco, y en los tres no se olvidó nada — nunca entró en la frase.
+
+### ⚠ Y ESTO ESTÁ ANOTADO, NO APLICADO
+
+Decisión del usuario, 2026-09-09: **no se otorga.** Nada usa `service_role`
+contra esos tres esquemas hoy, y el único archivo autorizado a tocar ese rol es
+el del cambio de contraseña. Cuando algo lo necesite, se otorga **con la razón
+escrita en la migración** — no «para que esté».
+
+Y la razón por la que un hueco conocido se puede dejar abierto, que es lo que
+distingue este caso de «Lo que compensa una ausencia hace que la ausencia no se
+note»: **esta ausencia no está
+compensada.** El día que algo pida `service_role` sobre uno de los tres, la base
+contesta `42501` y lo dice fuerte. Un `grant` de más, en cambio, es permiso
+permanente que nadie vuelve a revisar. Un respaldo silencioso sería el problema;
+un error ruidoso es la señal.
+
+Los tres síntomas no se parecen entre sí, y por eso conviene tenerlos juntos:
+
+| lo que contesta | qué falta |
+|---|---|
+| `403` / `42501` | el GRANT — el rol no tiene `usage` o `select` |
+| `406` / `PGRST106` | el esquema no está en `pgrst.db_schemas` |
+| cero filas con `error: null` | nada: es una policy de RLS que no aplica |
+
 ## Qué cuenta como «otra vía»
 
 - Un `.xlsx` generado: abrirlo con **openpyxl en `data_only=True`**, no sólo con
