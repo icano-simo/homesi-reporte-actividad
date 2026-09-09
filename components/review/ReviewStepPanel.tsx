@@ -6,32 +6,53 @@
  * ============================================================================
  *
  * Etapa RV1 — ARCHIVO NUEVO.
+ * Etapa RV2 — un solo botón, y el campo sólo en el lugar del paso.
  *
  * Va anclado abajo, encima de la pantalla del módulo que la fase visita. La
  * persona ve el gráfico de cierres real y el paso arriba: la máscara guía, no
  * reemplaza.
  *
  * ---------------------------------------------------------------------------
- * ⚠ LOS CAMPOS DE COMENTARIO SÓLO EXISTEN ACÁ
+ * ⚠ LOS CAMPOS DE COMENTARIO SÓLO EXISTEN ACÁ, Y SÓLO EN SU LUGAR
  * ---------------------------------------------------------------------------
- * No hay un campo de comentario en ninguna pantalla del portal: el único vive
- * en este componente, que sólo se monta con una sesión en curso. Así ningún
- * comentario puede quedar suelto sin sesión — no por una regla que alguien
- * tenga que respetar, sino porque el campo no está.
+ * No hay un campo de comentario de revisión en ninguna pantalla del portal: el
+ * único vive en este componente, que sólo se monta con una sesión en curso.
+ *
+ * Y desde RV2 tampoco alcanza con que haya sesión. El campo aparece cuando:
+ *
+ *   · el paso NO declara lugar (`gate_config.target` vacío) — no hay requisito;
+ *   · o el lugar del paso está en ESTA página.
+ *
+ * Estando en el perfil de otra persona, o en otra pantalla del módulo, el panel
+ * dice a dónde ir y NO ofrece dónde escribir. Un comentario contestado lejos de
+ * lo que se está mirando es un comentario sobre otra cosa.
  *
  * Lleva `data-review-comment` para que se pueda VERIFICAR desde afuera que no
  * aparece en la app normal. La aserción existe desde antes que el campo.
  *
+ * ⚠ Y HAY OTRO CAMPO EN EL PERFIL QUE NO ES ÉSTE: el de `NotesPanel`, las notas
+ * del Business Plan --«What was discussed with this loan officer»--, que existe
+ * desde BP20 y no tiene nada que ver con la revisión. Medido: sin sesión en
+ * curso hay CERO campos de revisión y ése sigue estando. Que los dos pregunten
+ * casi lo mismo es lo que confunde, y está reportado aparte.
+ *
  * ---------------------------------------------------------------------------
- * ⚠ `Continue` NO NAVEGA SOLO
+ * ⚠ UN SOLO BOTÓN: `OK` GUARDA Y AVANZA
  * ---------------------------------------------------------------------------
- * Guardar y avanzar son dos acciones. `OK` guarda el paso; `Continue` se
- * habilita después y la persona decide cuándo pasar. Un redirect automático
- * mientras están conversando con el Loan Officer les mueve la pantalla debajo
- * del cursor, y eso lo pide el brief con esas palabras.
+ * En RV1 eran dos acciones separadas y quedaba `Save again` junto a `Continue`
+ * -- dos botones donde va uno, y el de guardar permanente sobre un paso ya
+ * guardado. Probado por Isabella: escribió, dio `OK`, y se quedó en el paso.
+ *
+ * Ahora `OK` guarda y mueve el cursor en un gesto. Y si el comentario ya está
+ * guardado, editarlo es ENTRAR de nuevo --un `Edit` que trae el campo-- y no un
+ * botón de guardar que vive ahí para siempre.
+ *
+ * Lo que RV1 quería proteger sigue en pie: `Continue` no navega solo. Nada se
+ * mueve sin que alguien apriete algo; lo que cambió es que ese algo es uno.
  */
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { AlertTriangleIcon } from '@/components/ui/icons';
 import {
   allowsSecondFunnel,
@@ -53,11 +74,20 @@ export interface ReviewStepPanelProps {
   loName: string;
   /** El funnel activo del Loan Officer, para la fase 3. `null` = no tiene. */
   funnelActual: string | null;
+  /**
+   * Si estamos donde el paso apunta. Lo resuelve `useReviewTarget` en el
+   * anfitrión, que es quien puede mirar el DOM de la página entera.
+   *
+   * `null` = el paso no declara lugar, así que no hay requisito.
+   */
+  enSitio: boolean | null;
+  /** A dónde ir cuando el lugar del paso no está acá. */
+  rutaDelPaso: string;
   /** Guarda el paso. Devuelve el error, o `null` si salió bien. */
   onGuardar: (paso: StepRef, revision: number, comment: string, gate: Record<string, unknown> | null) => Promise<string | null>;
-  /** Mueve el cursor. La persona decide cuándo. */
+  /** Mueve el cursor. Lo dispara `OK`, en el mismo gesto que el guardado. */
   onContinuar: (destino: StepRef) => Promise<string | null>;
-  /** Cierra la revisión. Sólo se ofrece con el guion completo. */
+  /** Cierra la revisión. Sólo se ofrece en el último paso del guion. */
   onCerrar: () => Promise<string | null>;
 }
 
@@ -67,6 +97,8 @@ export default function ReviewStepPanel({
   responses,
   loName,
   funnelActual,
+  enSitio,
+  rutaDelPaso,
   onGuardar,
   onContinuar,
   onCerrar,
@@ -82,16 +114,15 @@ export default function ReviewStepPanel({
   /*
    * ⚠ EL BORRADOR SE REHACE REMONTANDO, NO CON UN EFECTO.
    *
-   * Arranca con lo YA CONTESTADO si el paso tiene respuesta: volver al paso 2
-   * desde el 5 tiene que mostrar lo que se escribió --el brief lo pide en el
-   * punto 4, "con lo hecho visible"-- y un campo vacío sobre un paso completo se
-   * lee como que se perdió.
+   * Arranca con lo YA CONTESTADO si el paso tiene respuesta: volver a un paso
+   * cerrado tiene que mostrar lo que se escribió, y un campo vacío sobre un paso
+   * completo se lee como que se perdió.
    *
-   * Al cambiar de paso hay que rehacer estos cuatro estados: sin eso, el
+   * Al cambiar de paso hay que rehacer estos cinco estados: sin eso, el
    * comentario del paso anterior queda escrito en el siguiente, que es la forma
    * más rápida de guardar la respuesta equivocada.
    *
-   * Lo escribí como un `useEffect` que llamaba a cuatro `setState`, y eslint lo
+   * Lo escribí como un `useEffect` que llamaba a cinco `setState`, y eslint lo
    * marcó con `react-hooks/set-state-in-effect`. Tenía razón, y el arreglo no
    * es callar la regla: el ANFITRIÓN le pasa un `key` con el paso, así que React
    * desmonta y vuelve a montar el panel y estos valores iniciales hacen el
@@ -108,6 +139,16 @@ export default function ReviewStepPanel({
   /* Un paso ya contestado tiene su presupuesto guardado: si no, no habría
      podido cerrarse. */
   const [budgetListo, setBudgetListo] = useState(yaContestado !== null);
+  /*
+   * ⚠ `editando` ES EL ESTADO QUE REEMPLAZA AL BOTÓN `Save again`.
+   *
+   * Un paso sin contestar entra editando: hay que escribir algo. Un paso ya
+   * contestado entra CERRADO --se lee lo que se dijo-- y volver a abrirlo es un
+   * gesto explícito. Así no queda un campo de comentario abierto sobre un paso
+   * que ya está guardado, que es lo que hacía que `Save again` pareciera
+   * obligatorio.
+   */
+  const [editando, setEditando] = useState(yaContestado === null);
   const [ocupado, setOcupado] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -124,8 +165,8 @@ export default function ReviewStepPanel({
    * este listener no se enteraría. Y no cancela nada: el clic sigue su camino y
    * abre lo que tenía que abrir.
    *
-   * ⚠ ESTO NO ESTÁ VERIFICADO. Necesita un navegador dentro de una sesión de
-   * revisión, y eso no se pudo montar todavía. Declarado como no medido.
+   * ⚠ ESTO SIGUE SIN VERIFICARSE. Necesita llegar al paso 4 dentro de una
+   * sesión, y eso espera al recorrido de Isabella. Declarado como no medido.
    */
   /*
    * ⚠ SIN `useMemo`. Lo había envuelto en uno con `[paso]` como dependencia, y
@@ -170,6 +211,46 @@ export default function ReviewStepPanel({
     );
   }
 
+  const orden = orderedSteps(script);
+  const i = orden.findIndex((s) => sameStep(s, cursor));
+  const siguiente = i >= 0 && i + 1 < orden.length ? orden[i + 1] : null;
+  const esUltimo = siguiente === null;
+
+  /*
+   * ═══════════════════════════════════════════════════════════════════════
+   * EL PASO NO SE CONTESTA DESDE ACÁ — punto 1 y 3 del brief de RV2
+   * ═══════════════════════════════════════════════════════════════════════
+   *
+   * `enSitio === false` es «el paso declara un lugar y no es esta página».
+   * Distinto de `null`, que es «no declara ninguno». Ver `stepTarget`.
+   *
+   * Se dibuja la cabecera y la pregunta --así sabe qué viene-- y nada donde
+   * escribir. El link lleva al módulo de la fase.
+   */
+  if (enSitio === false) {
+    return (
+      <div className="rv-panel rv-panel--lejos" role="region" aria-label="Review step">
+        <div className="rv-panel__head">
+          <span className="rv-panel__step">
+            Phase {paso.phase_no} · step {paso.step_in_phase}
+          </span>
+          <span className="rv-panel__label">{paso.label}</span>
+          {yaContestado && <span className="rv-panel__done">answered</span>}
+        </div>
+        <p className="rv-panel__prompt">{texto.prompt}</p>
+        <p className="rv-panel__gate">
+          This step is answered on the screen it points at, and that is not this one. The comment
+          box lives there.
+        </p>
+        <div className="rv-panel__actions">
+          <Link className="bp-btn bp-btn--primary bp-btn--small" href={rutaDelPaso}>
+            Go to the step →
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   const draft: StepDraft = {
     comment,
     numero: numero.trim() === '' ? null : Number(numero),
@@ -177,16 +258,29 @@ export default function ReviewStepPanel({
     budgetListo,
   };
   const estado = gateStatus(paso, draft);
-  const orden = orderedSteps(script);
-  const i = orden.findIndex((s) => sameStep(s, cursor));
-  const siguiente = i >= 0 && i + 1 < orden.length ? orden[i + 1] : null;
-  const esUltimo = siguiente === null;
   const link = gateLink(paso);
+  const rotuloSiguiente = siguiente
+    ? script.steps.find((s) => sameStep(s, siguiente))?.label ?? null
+    : null;
 
-  async function guardar() {
+  /**
+   * ⚠ GUARDAR Y AVANZAR, EN UN GESTO.
+   *
+   * Y en este orden, con corte: si el guardado falla no se mueve el cursor. Si
+   * el guardado sale y el movimiento falla, el paso QUEDA GUARDADO y el error
+   * habla del movimiento -- que es la verdad, y es recuperable apretando otra
+   * vez.
+   */
+  async function guardarYSeguir() {
     if (!estado.ok || ocupado) return;
     setOcupado(true);
-    setError(await onGuardar(cursor, texto!.revision, comment, gateEvidence(paso!, draft)));
+    const errGuardar = await onGuardar(cursor, texto!.revision, comment, gateEvidence(paso!, draft));
+    if (errGuardar) {
+      setError(errGuardar);
+      setOcupado(false);
+      return;
+    }
+    setError(await (esUltimo ? onCerrar() : onContinuar(siguiente!)));
     setOcupado(false);
   }
 
@@ -244,7 +338,7 @@ export default function ReviewStepPanel({
         </div>
       )}
 
-      {paso.gate_kind === 'number' && (
+      {paso.gate_kind === 'number' && editando && (
         <label className="rv-panel__field">
           <span className="rv-panel__fieldlabel">Benchmark</span>
           <input
@@ -269,7 +363,7 @@ export default function ReviewStepPanel({
         </ul>
       )}
 
-      {paso.gate_kind === 'budget' && (
+      {paso.gate_kind === 'budget' && editando && (
         <label className="rv-panel__check">
           <input
             type="checkbox"
@@ -280,17 +374,36 @@ export default function ReviewStepPanel({
         </label>
       )}
 
-      <label className="rv-panel__field">
-        <span className="rv-panel__fieldlabel">Comment</span>
-        <textarea
-          className="field rv-panel__text"
-          data-review-comment=""
-          rows={3}
-          value={comment}
-          onChange={(e) => setComment(e.target.value)}
-          placeholder="What did you discuss?"
-        />
-      </label>
+      {/*
+        ⚠ EL CAMPO SÓLO EXISTE EDITANDO. Un paso ya guardado muestra lo que se
+        dijo, y volver a abrirlo es el `Edit` de abajo. Es lo que reemplaza al
+        `Save again` permanente.
+      */}
+      {editando ? (
+        <label className="rv-panel__field">
+          <span className="rv-panel__fieldlabel">Comment</span>
+          <textarea
+            className="field rv-panel__text"
+            data-review-comment=""
+            rows={3}
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            placeholder="What did you discuss?"
+          />
+        </label>
+      ) : (
+        <div className="rv-panel__saved">
+          <p className="rv-panel__savedtext">{comment}</p>
+          <button
+            type="button"
+            className="rv-panel__edit"
+            onClick={() => setEditando(true)}
+            disabled={ocupado}
+          >
+            Edit this comment
+          </button>
+        </div>
+      )}
 
       {error && (
         <p className="rv-panel__gate" role="alert">
@@ -303,50 +416,41 @@ export default function ReviewStepPanel({
         deshabilitado sin explicación obliga a adivinar si falta algo o si la
         app está rota.
       */}
-      {!estado.ok && estado.falta && <p className="rv-panel__gate">{estado.falta}</p>}
+      {editando && !estado.ok && estado.falta && <p className="rv-panel__gate">{estado.falta}</p>}
 
       <div className="rv-panel__actions">
-        <button
-          type="button"
-          className="bp-btn bp-btn--primary bp-btn--small"
-          disabled={!estado.ok || ocupado}
-          onClick={guardar}
-        >
-          {yaContestado ? 'Save again' : 'OK'}
-        </button>
-
         {/*
-          `Continue` sólo cuando el paso YA está guardado, y separado del
-          guardado: la persona decide cuándo pasar.
+          UN SOLO BOTÓN, y dice lo que va a pasar. Editando guarda y avanza;
+          cerrado sólo avanza, porque no hay nada nuevo que guardar.
         */}
-        {yaContestado && !esUltimo && siguiente && (
+        {editando ? (
           <button
             type="button"
-            className="bp-btn bp-btn--small"
-            disabled={ocupado}
-            onClick={async () => {
-              setOcupado(true);
-              setError(await onContinuar(siguiente));
-              setOcupado(false);
-            }}
+            className="bp-btn bp-btn--primary bp-btn--small"
+            disabled={!estado.ok || ocupado}
+            onClick={guardarYSeguir}
           >
-            Continue →
+            {esUltimo ? 'OK and finish review' : 'OK'}
           </button>
-        )}
-
-        {yaContestado && esUltimo && (
+        ) : (
           <button
             type="button"
             className="bp-btn bp-btn--primary bp-btn--small"
             disabled={ocupado}
             onClick={async () => {
               setOcupado(true);
-              setError(await onCerrar());
+              setError(await (esUltimo ? onCerrar() : onContinuar(siguiente!)));
               setOcupado(false);
             }}
           >
-            Finish review
+            {esUltimo ? 'Finish review' : 'Continue →'}
           </button>
+        )}
+
+        {/* Qué sigue, en palabras. Un botón que mueve la pantalla tiene que
+            decir a dónde antes de que se aprete. */}
+        {!esUltimo && rotuloSiguiente && (
+          <span className="rv-panel__next">next: {rotuloSiguiente}</span>
         )}
       </div>
     </div>

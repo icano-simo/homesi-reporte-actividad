@@ -73,6 +73,36 @@ export function gateLink(step: ReviewStep): string | null {
 }
 
 /**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * A QUÉ ELEMENTO APUNTA EL PASO — etapa RV2
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * Un selector de CSS, en `gate_config.target`. La pantalla se desplaza hasta
+ * ahí y lo resalta mientras el paso está activo.
+ *
+ * ⚠ VA EN `gate_config` Y NO EN CÓDIGO porque agregar un paso tiene que seguir
+ * siendo una fila. Y como es un selector cualquiera, un paso nuevo puede apuntar
+ * a una clase QUE YA EXISTE sin tocar la pantalla: los dos pasos de Outlook
+ * apuntan a `.ol-topbar` y `.ol-editor`, que estaban desde OL22.
+ *
+ * ⚠ `null` Y «NO ENCONTRADO» SON DISTINTOS, y el panel los trata distinto:
+ *
+ *   · `null`  = el paso no declara lugar. No hay requisito: se contesta desde
+ *               donde sea. Es el estado de los pasos antes de esta etapa.
+ *   · un selector que no está en la página = el paso SÍ tiene lugar y no
+ *               estamos ahí. El panel no ofrece el campo y dice a dónde ir.
+ *
+ * Darles el mismo valor --por ejemplo tratar «no lo encuentro» como «no pide
+ * lugar»-- haría que un selector con un error de tipeo se comportara igual que
+ * un paso sin lugar, y nadie se enteraría nunca. Es el respaldo que hace que la
+ * ausencia no se note.
+ */
+export function stepTarget(step: ReviewStep): string | null {
+  const raw = step.gate_config?.target;
+  return typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : null;
+}
+
+/**
  * `true` si el paso permite dejar activo un segundo funnel.
  *
  * Hoy `false` en el guion, y es la mitad (b) de la fase 3 que espera a BP39: la

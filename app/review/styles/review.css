@@ -76,59 +76,22 @@
   font-size: 13px;
   font-weight: 700;
 }
-.rv-bar__sep {
-  opacity: 0.4;
-}
-.rv-bar__phase,
-.rv-bar__mod {
-  opacity: 0.85;
-}
-.rv-bar__pct {
-  font-weight: 700;
-}
 
 /* ── La lista de fases ────────────────────────────────────────────────────── */
 
-.rv-steps {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px 14px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  min-width: 0;
-}
-.rv-steps__item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  /* Las no empezadas atenuadas, pero la marca `○` las distingue igual: el
-     estado no es sólo opacidad. */
-  opacity: 0.55;
-}
-.rv-steps__item.is-done,
-.rv-steps__item.is-current {
-  opacity: 1;
-}
-.rv-steps__mark {
-  flex: none;
-  width: 14px;
-  text-align: center;
-}
-.rv-steps__item.is-done .rv-steps__mark {
-  color: var(--emerald-200);
-}
-.rv-steps__item.is-current .rv-steps__mark {
-  color: var(--coral);
-}
-.rv-steps__item.is-current .rv-steps__label {
-  font-weight: 700;
-}
-.rv-steps__count {
-  opacity: 0.75;
-}
-
+/*
+ * ⚠ ACÁ HABÍA ONCE REGLAS MÁS, y se fueron con lo que dibujaban: `rv-bar__sep`,
+ * `rv-bar__phase`, `rv-bar__mod`, `rv-bar__pct` y las cinco de `rv-steps`.
+ *
+ * En RV2 la barra dejó de decir la fase, el módulo, el porcentaje y las tres
+ * fases con su conteo -- eso vive en `rv-prog`, debajo del menú. Las reglas no
+ * rompían nada quedando, y es justamente el problema: una regla que nadie
+ * escribe es un nombre reservado para nadie, y `chequearChoqueDeClases` lo
+ * defendería igual que si estuviera vivo.
+ *
+ * Comprobado antes de borrarlas: las nueve clases no aparecen en ninguno de los
+ * cinco componentes de `review` ni en sus cuatro pantallas.
+ */
 .rv-bar__exit {
   margin-left: auto;
   flex: none;
@@ -625,4 +588,177 @@ body:has(.rv-bar) .app {
   font-size: 10.5px;
   color: var(--slate-400);
   font-variant-numeric: tabular-nums;
+}
+
+/* ── RV2: el lugar del paso, resaltado ────────────────────────────── */
+
+/*
+ * La clase la pone y la saca `useReviewTarget` sobre un elemento QUE NO ES DE
+ * LA REVISION: la tarjeta del grafico, el panel del GAP, la barra de Outlook.
+ *
+ * ⚠ POR ESO NO TOCA NI EL LAYOUT NI EL COLOR DE FONDO. Un `border` empujaria el
+ * contenido de la seccion y un fondo le ganaria al tinte de la banda que la
+ * tarjeta ya tenga --que es como cuatro celdas quedaron azul palido sobre azul
+ * palido en el reporte--. Solo `outline`, que se dibuja afuera y no ocupa
+ * espacio, y una sombra difusa.
+ */
+.rv-target {
+  outline: 2px solid var(--coral);
+  outline-offset: 4px;
+  border-radius: var(--radius-md);
+  box-shadow: 0 0 0 6px var(--amber-50);
+  /* La transicion es del resaltado, no del desplazamiento: el scroll lo hace
+     el navegador con `behavior: smooth`. */
+  transition: outline-color 160ms ease, box-shadow 160ms ease;
+}
+/* Quien pidio no animar tampoco quiere un halo que aparezca. Se queda el
+   contorno, que es la informacion; se va la transicion. */
+@media (prefers-reduced-motion: reduce) {
+  .rv-target {
+    transition: none;
+  }
+}
+
+/* ── RV2: el paso que no se contesta desde aca ──────────────────── */
+
+/* Mas angosto que el panel completo: no tiene campos, y a ancho completo
+   parecia que faltaba algo por cargar. */
+.rv-panel--lejos {
+  max-width: 420px;
+}
+
+/* El comentario ya guardado, en lugar del campo. */
+.rv-panel__saved {
+  margin: 0 0 10px;
+  padding: 9px 11px;
+  border-radius: var(--radius-sm);
+  background: var(--slate-50);
+  border-left: 2px solid var(--slate-200);
+}
+.rv-panel__savedtext {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--navy);
+  /* Los saltos de linea que se escribieron se conservan, igual que en el
+     intake: el mismo texto tiene que leerse igual en los dos lugares. */
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+/* `Edit` es un enlace y no un boton con relleno, a proposito: la accion
+   principal del panel es una sola y tiene que verse una sola. */
+.rv-panel__edit {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--slate-500);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.rv-panel__edit:hover:not(:disabled) {
+  color: var(--navy);
+}
+.rv-panel__edit:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+/* Que sigue, al lado del boton. */
+.rv-panel__next {
+  font-size: 11px;
+  color: var(--slate-400);
+}
+
+/* ── RV2: el avance, debajo del menu ───────────────────────── */
+
+.rv-prog {
+  margin-top: 14px;
+  padding: 12px 11px;
+  background: var(--canvas);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+}
+.rv-prog__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-family: var(--font-display);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--slate-500);
+}
+.rv-prog__pct {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+}
+.rv-prog__bar {
+  height: 4px;
+  margin-bottom: 10px;
+  border-radius: var(--radius-full);
+  background: var(--slate-100);
+  overflow: hidden;
+}
+.rv-prog__fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: var(--coral);
+}
+.rv-prog__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.rv-prog__item {
+  display: grid;
+  /* Tres columnas y no `flex`: los conteos quedan alineados entre las tres
+     filas, que es la mitad de para que sirve verlos juntos. */
+  grid-template-columns: 12px 1fr auto;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 0;
+  font-size: 11px;
+  color: var(--slate-500);
+}
+.rv-prog__mark {
+  color: var(--slate-300);
+  font-size: 9px;
+  line-height: 1.6;
+}
+.rv-prog__item.is-done .rv-prog__mark {
+  color: var(--emerald-700);
+}
+.rv-prog__item.is-current .rv-prog__mark {
+  color: var(--coral);
+}
+.rv-prog__item.is-current {
+  color: var(--navy);
+  font-weight: 600;
+}
+.rv-prog__label {
+  overflow-wrap: anywhere;
+}
+.rv-prog__count {
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+/*
+ * Angosto, el sidebar se reduce a iconos y su rotulo se oculta --lo decide el
+ * CSS del modulo, sin estado--. La tarjeta hace lo mismo: sin ella el menu de
+ * 56px tendria una caja de texto de 200px colgando.
+ */
+@media (max-width: 900px) {
+  .rv-prog {
+    display: none;
+  }
 }

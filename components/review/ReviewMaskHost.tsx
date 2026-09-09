@@ -33,6 +33,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { cerrarSesion, guardarPaso, moverCursor } from '@/lib/review/actions';
+import { sameStep } from '@/lib/review/progress';
+import { stepTarget } from '@/lib/review/gates';
+import { useReviewTarget } from '@/lib/review/useReviewTarget';
 import { useReview } from './ReviewProvider';
 import ReviewMask from './ReviewMask';
 import ReviewStepPanel from './ReviewStepPanel';
@@ -45,6 +48,76 @@ export default function ReviewMaskHost() {
   const { script, myReviews, recargar, habilitado } = useReview();
   const pathname = usePathname();
   const router = useRouter();
+
+  /*
+   * ⚠ UNA SOLA LECTURA DE «CUÁL ES LA REVISIÓN EN CURSO».
+   *
+   * Había tres `find` idénticos --el lugar del paso, el funnel de la fase 3 y el
+   * render-- y son tres cálculos del mismo hecho, libres de divergir. Es el
+   * mismo criterio que hizo derivar el avance en vez de guardarlo.
+   *
+   * `myReviews` y no `reviews`: la sesión en curso que importa es LA PROPIA. Con
+   * la lista completa, quien tiene `review_admin` veía la barra de la revisión
+   * de otra persona.
+   */
+  const activo = (myReviews ?? []).find((r) => r.session?.status === 'in_progress') ?? null;
+
+  /*
+   * ══════════════════════════════════════════════════════════════════════
+   * EL LUGAR DEL PASO — etapa RV2, punto 3
+   * ══════════════════════════════════════════════════════════════════════
+   *
+   * El desplazamiento y el resaltado viven ACÁ y no en el panel, y por una
+   * razón concreta: el panel se REMONTA en cada cambio de paso --se lo pide su
+   * `key`-- y un efecto que se desmonta le saca el resaltado a la sección justo
+   * cuando la está poniendo. El anfitrión no se desmonta nunca; su efecto
+   * vuelve a correr porque el selector cambia, que es lo que hace falta.
+   *
+   * ⚠ Los hooks se llaman ANTES del corte por `habilitado`: llamarlos
+   * condicionalmente rompe el orden de hooks de React. Sin sesión el selector
+   * es `null` y el hook no hace nada.
+   */
+  const pasoActual =
+    script && activo?.session
+      ? script.steps.find((s) =>
+          sameStep(s, {
+            phase_no: activo.session!.current_phase,
+            step_in_phase: activo.session!.current_step_in_phase,
+          })
+        ) ?? null
+      : null;
+  const selectorDelPaso = pasoActual ? stepTarget(pasoActual) : null;
+
+  /*
+   * ⚠ EL LUGAR ES LA SECCIÓN *Y* LA PERSONA.
+   *
+   * `gate_config.target` es un selector de sección --`.bp-chart-card`-- y esa
+   * clase existe en el perfil de CUALQUIER Loan Officer: es la misma pantalla
+   * con otros datos. Medido: con sólo el selector, estando en el perfil de Jose
+   * Arango el panel ofrecía el campo de comentario del paso de Adriana.
+   *
+   * Así que el lugar es la sección, en la pantalla del módulo de la fase, de la
+   * persona que se revisa. Y `startsWith` para los sub-caminos del perfil
+   * --`/plan`, `/funnel`--, que son parte de la misma revisión.
+   */
+  const rutaDelPaso = activo?.session
+    ? rutaDelModulo(
+        script?.phases.find((f) => f.phase_no === activo.session!.current_phase)?.module ?? '',
+        activo.session.lo_employee_key
+      )
+    : '';
+  const enRuta =
+    rutaDelPaso !== '' && (pathname === rutaDelPaso || pathname.startsWith(rutaDelPaso + '/'));
+
+  /* Fuera de la ruta no se busca nada: sin esto el efecto resaltaría la sección
+     homónima del perfil de otra persona, que es peor que no resaltar. */
+  const { enSitio: enSitioDom } = useReviewTarget(enRuta ? selectorDelPaso : null, pathname);
+  /*
+   * `false` fuera de la ruta. `null` sólo cuando estamos en la ruta y el paso NO
+   * declara lugar -- que es «no hay requisito», y sigue siendo distinto de «hay
+   * lugar y no es acá».
+   */
+  const enSitio = enRuta ? enSitioDom : false;
 
   /*
    * ═══════════════════════════════════════════════════════════════
@@ -79,12 +152,7 @@ export default function ReviewMaskHost() {
    * la fase 3 tiene que distinguir.
    */
   const [funnelActual, setFunnelActual] = useState<string | null>(null);
-  /* `myReviews`: la sesion en curso que importa es LA PROPIA. Con `reviews`
-     --todas las visibles-- quien tiene `review_admin` veia la barra de la
-     revision de otra persona. */
-  const loEnCurso =
-    (myReviews ?? []).find((r) => r.session?.status === 'in_progress')?.session
-      ?.lo_employee_key ?? null;
+  const loEnCurso = activo?.session?.lo_employee_key ?? null;
 
   useEffect(() => {
     let cancelado = false;
@@ -131,11 +199,9 @@ export default function ReviewMaskHost() {
 
   if (!habilitado) return null;
 
-  const activo = (myReviews ?? []).find((r) => r.session?.status === 'in_progress') ?? null;
-
   return (
     <>
-      <ReviewMask script={script} activo={activo} onSaveAndExit={onSaveAndExit} />
+      <ReviewMask activo={activo} onSaveAndExit={onSaveAndExit} />
       {/*
         El panel del paso va JUNTO A LA BARRA y no en cada pantalla, por el
         mismo motivo: es lo unico que tiene la sesion en curso y sobrevive al
@@ -155,6 +221,10 @@ export default function ReviewMaskHost() {
           responses={activo.responses}
           loName={activo.loName}
           funnelActual={funnelActual}
+          enSitio={enSitio}
+          /* La misma ruta que decide `enRuta`, no una segunda cuenta: el botón
+             tiene que llevar exactamente a donde el panel se habilita. */
+          rutaDelPaso={rutaDelPaso}
           onGuardar={async (paso, revision, comment, gate) => {
             const r = await guardarPaso(activo.session!.session_key, paso, revision, comment, gate);
             if (!r.ok) return r.error;

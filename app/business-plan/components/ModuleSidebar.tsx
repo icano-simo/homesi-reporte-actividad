@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { BuildingIcon, GridIcon, HandshakeIcon, SignedDocIcon, TargetIcon } from '@/components/ui/icons';
+import ReviewProgress from '@/components/review/ReviewProgress';
 
 /**
  * ============================================================================
@@ -110,6 +111,27 @@ export default function ModuleSidebar() {
           </Link>
         );
       })}
+
+      {/*
+        ═══════════════════════════════════════════════════════════════
+        EL AVANCE DE LA REVISIÓN — etapa RV2, punto 4
+        ═══════════════════════════════════════════════════════════════
+
+        Debajo del menú, que es donde hay espacio libre. Estaba en la barra de
+        arriba y ahí se perdía entre el texto.
+
+        ⚠ Se dibuja SOLO con una revisión en curso: sin sesión el componente
+        devuelve `null` y el sidebar queda exactamente como estaba. No hay un
+        contenedor vacío ni un margen de más para las 97 personas que no
+        revisan a nadie.
+
+        ⚠ Y lo que esto NO cubre, dicho acá porque es donde se decide: la fase 2
+        visita Outlook, que no monta este sidebar. Ahí no hay tarjeta de avance
+        -- queda la barra de arriba y el panel del paso. Es una pérdida real, y
+        la alternativa era un segundo lugar donde dibujarlo con su propio
+        criterio de posición, para dos pasos de ocho.
+      */}
+      <ReviewProgress />
     </aside>
   );
 }

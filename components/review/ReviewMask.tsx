@@ -33,36 +33,32 @@
  */
 
 import Link from 'next/link';
-import { useMemo } from 'react';
 import { REVIEW_PATH } from '@/lib/auth/routes';
-import { overallPercent, phaseProgress } from '@/lib/review/progress';
-import type { MyReview, ReviewScript } from '@/lib/review/types';
+import type { MyReview } from '@/lib/review/types';
 
 export interface ReviewMaskProps {
-  /** El guion. `null` mientras no llegó, o si el esquema no está expuesto. */
-  script: ReviewScript | null;
   /** La revisión con sesión EN CURSO, o `null` si no hay ninguna. */
   activo: MyReview | null;
   onSaveAndExit: () => void;
 }
 
-export default function ReviewMask({ script, activo, onSaveAndExit }: ReviewMaskProps) {
-  const fases = useMemo(
-    () => (script && activo ? phaseProgress(script, activo.responses) : []),
-    [script, activo]
-  );
-
-  /*
-   * Sin sesión en curso no hay máscara. Y sin guion tampoco: dibujar la barra
-   * sin poder decir en qué fase va sería una barra que miente sobre el avance.
-   */
-  if (!activo || !activo.session || activo.session.status !== 'in_progress' || !script) {
+/*
+ * ⚠ YA NO RECIBE EL GUION, y no es una limpieza cosmética.
+ *
+ * RV1 lo exígia con este motivo, que era correcto entonces: «dibujar la barra
+ * sin poder decir en qué fase va sería una barra que miente sobre el avance».
+ * Desde RV2 la barra NO dice la fase ni el avance --se fueron a
+ * `ReviewProgress`, debajo del menú-- así que exigir el guion no protegía de
+ * nada: sólo escondía «hay una revisión activa» mientras el guion viajaba.
+ *
+ * Es una condición que sobrevivió a su motivo. Se borra con él.
+ */
+export default function ReviewMask({ activo, onSaveAndExit }: ReviewMaskProps) {
+  /* Sin sesión en curso no hay máscara: ni barra, ni borde, ni un contenedor
+     vacío. Lo que no está no puede quedar suelto. */
+  if (!activo || !activo.session || activo.session.status !== 'in_progress') {
     return null;
   }
-
-  const pct = overallPercent(script, activo.responses);
-  const faseActual = fases.find((f) => f.phase_no === activo.session!.current_phase) ?? null;
-  const total = fases.length;
 
   return (
     <>
@@ -74,56 +70,28 @@ export default function ReviewMask({ script, activo, onSaveAndExit }: ReviewMask
       <div className="rv-edge" aria-hidden="true" />
 
       <div className="rv-bar" role="status" aria-live="polite">
+        {/*
+          ════════════════════════════════════════════════════════════
+          LO MÍNIMO: QUE HAY UNA REVISIÓN Y DE QUIÉN — etapa RV2, punto 4
+          ════════════════════════════════════════════════════════════
+
+          Acá estaban la fase, el módulo, el porcentaje y las tres fases con su
+          conteo. Seis datos en una línea de 42px, y el avance se perdía entre el
+          texto: probado por Isabella.
+
+          Se fueron a `ReviewProgress`, debajo del menú, donde hay espacio y no
+          compiten con nada. Lo que queda acá es lo que tiene que estar en las
+          cuatro pantallas del portal: que la sesión está abierta, sobre quién, y
+          cómo salir.
+
+          ⚠ Y NADA SOBRE LA CARGA DEL MÓDULO. El módulo ya dice `Loading...` por
+          su cuenta; un segundo aviso acá sería una segunda fuente para el mismo
+          hecho. Ver la nota de `ReviewMaskHost`.
+        */}
         <div className="rv-bar__main">
           <span className="rv-bar__tag">Review mode</span>
           <span className="rv-bar__who">{activo.loName}</span>
-          {faseActual && (
-            <>
-              <span className="rv-bar__sep">·</span>
-              <span className="rv-bar__phase">
-                Phase {faseActual.phase_no} of {total}
-              </span>
-              <span className="rv-bar__sep">·</span>
-              <span className="rv-bar__mod">{faseActual.label}</span>
-            </>
-          )}
-          <span className="rv-bar__sep">·</span>
-          <span className="rv-bar__pct">{pct}%</span>
-          {/*
-            ⚠ Y NADA SOBRE LA CARGA DEL MÓDULO. El módulo ya dice `Loading...` por
-            su cuenta; un segundo aviso acá sería una segunda fuente para el
-            mismo hecho. Ver la nota de `ReviewMaskHost`.
-          */}
         </div>
-
-        {/*
-          La lista de fases, con su avance. Tres estados y ninguno es sólo color:
-          `✓` completa, `●` en curso, `○` sin abrir, y el conteo al lado.
-        */}
-        <ol className="rv-steps">
-          {fases.map((f) => {
-            const enCurso = f.phase_no === activo.session!.current_phase;
-            const marca = f.complete ? '✓' : enCurso ? '●' : '○';
-            return (
-              <li
-                key={f.phase_no}
-                className={
-                  'rv-steps__item' +
-                  (f.complete ? ' is-done' : '') +
-                  (enCurso ? ' is-current' : '')
-                }
-              >
-                <span className="rv-steps__mark" aria-hidden="true">
-                  {marca}
-                </span>
-                <span className="rv-steps__label">{f.label}</span>
-                <span className="rv-steps__count">
-                  {f.done} of {f.total}
-                </span>
-              </li>
-            );
-          })}
-        </ol>
 
         {/*
           `Save and exit` deja la sesión EN CURSO, no la cierra: el punto 4 del
