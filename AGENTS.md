@@ -482,6 +482,54 @@ del Excel se evita leyendo por nombre, que es una convención y no una función.
 la estimación propia usada como medición es un error de criterio: ninguna guarda
 impide que alguien confíe en su propio cálculo.
 
+## Y cómo se escribe el predicado: la forma del texto no es su significado
+
+Las guardas de arriba dicen QUÉ preguntar. Esta sección es sobre CÓMO se escribe
+la pregunta, y sale de cuatro intentos fallidos en una sola tarea — un renombre
+de rótulo que parecía mecánico.
+
+Cada vez que hubo que separar «texto que alguien lee» de «identificador», escribí
+una regla sobre cómo se ve la línea, y cada vez falló:
+
+| la regla que escribí | lo que se llevó puesto |
+|---|---|
+| «es texto si la línea tiene una cadena» | contó los `import` como texto visible |
+| «no es texto si la línea tiene `className=`» | descartó **la línea del rótulo**, que es la única que había que cambiar |
+| «es texto si está entre `>` y `<`» | no vio `Coach progress`, que va en su propia línea porque la etiqueta abre arriba |
+| «es identificador si `Coach` toca otra letra» | marcó `Coaching`, que es el nombre de un área del Business Plan |
+
+Las cuatro son la misma forma, y el usuario la nombró:
+
+> **Una regla sobre la FORMA del texto en vez de sobre su SIGNIFICADO.**
+
+«Está entre estos caracteres», «la línea contiene esta otra cosa», «empieza
+así»: todas describen cómo se ve, y ninguna dice qué ES. La pregunta que hay
+que contestar no es dónde está la cadena, es **qué papel cumple**: ¿es un
+rótulo que alguien lee, o un nombre que el programa resuelve?
+
+⚠ Y no es la primera vez: el usuario cuenta al menos una anterior de la misma
+familia — el caso del `current_step` con la coma — que no está en este archivo.
+Se anota la procedencia para que quien la busque sepa que existe y dónde
+preguntar.
+
+### Qué hacer en su lugar
+
+- **Buscar la FRASE EXACTA, no el patrón.** El inventario del rótulo por
+  heurística daba 374 líneas para clasificar; buscar `review mode` sobre el
+  código sin comentarios dio **dos**, y una sola en código. Un inventario de dos
+  líneas se decide a mano y no se equivoca; uno de 374 necesita una heurística, y
+  la heurística es el problema.
+- **Cuando haga falta una regla de forma igual, que sea sobre el TOKEN y no
+  sobre la posición.** «`Coach` pegado a otro carácter de palabra» sobrevive a
+  que la etiqueta abra en otra línea; «entre `>` y `<`» no.
+- **Y la excepción se escribe como palabra exacta, nunca como prefijo.**
+  `Coaching` se exime porque es esa palabra; `Coach` pegado a cualquier otra cosa
+  — `CoachMode`, `coachKey`, `rv-coach` — sigue prohibido. Un prefijo exento
+  habría dejado pasar justo lo que la guarda existe para atrapar.
+- **Y una exención se justifica con evidencia, no con molestia.** `Coaching` se
+  excluyó después de confirmar con `git show` que ya estaba dos commits antes del
+  renombre. Eso es lo que distingue eximir algo de silenciarlo.
+
 # Un caso nuevo activa bugs que nadie escribió hoy
 
 > Sección aparte de la tabla de arriba a propósito. Los cinco casos de esa tabla
