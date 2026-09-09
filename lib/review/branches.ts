@@ -34,7 +34,10 @@ import { getSupabaseClient } from '@/lib/supabase/client';
 export async function buscarBranches(loEmployeeKey: number): Promise<string[]> {
   const sb = getSupabaseClient().schema('org');
   const [asig, ramas] = await Promise.all([
-    sb.from('employee_branch').select('branch_key').eq('employee_key', loEmployeeKey),
+    sb
+      .from('employee_branch')
+      .select('branch_key, role_in_branch')
+      .eq('employee_key', loEmployeeKey),
     sb.from('dim_branch').select('branch_key, branch_code'),
   ]);
   const codigoDe = new Map(
@@ -43,9 +46,40 @@ export async function buscarBranches(loEmployeeKey: number): Promise<string[]> {
       b.branch_code,
     ])
   );
-  return ((asig.data ?? []) as { branch_key: number }[])
-    .map((a) => codigoDe.get(a.branch_key))
-    .filter((c): c is string => typeof c === 'string' && c !== '')
+  const filas = (asig.data ?? []) as { branch_key: number; role_in_branch: string }[];
+
+  /*
+   * ═════════════════════════════════════════════════════════════════
+   * ⚠ SE CUENTAN BRANCHES DISTINTOS, NO FILAS — etapa RV6, punto 3
+   * ═════════════════════════════════════════════════════════════════
+   *
+   * `employee_branch` tiene una fila POR ROL, así que un Producing Branch
+   * Manager tiene dos en el mismo branch --`BM` y `LO`-- y esto devolvía
+   * `['707', '707']`. El panel decía «Armando Tejeda is in 2 branches (707,
+   * 707)», que no es cierto ni útil.
+   *
+   * Medido en la base: **10 personas** tienen el doble rol en el mismo branch, y
+   * **una sola** está en dos branches de verdad. El aviso se equivocaba diez
+   * veces y acertaba una.
+   *
+   * ⚠ Y EL ROL `LO` ES UNA PREFERENCIA, NO UN FILTRO. El presupuesto se revisa
+   * por la producción de la persona, así que si tiene fila `LO` manda esa. Pero
+   * filtrar por `LO` a secas dejaría sin branch a **18 de las 57** personas --
+   * entre ellas Pier Laino, que es `BM` en 710 y 716 y es justamente la única
+   * multi-branch real. Es el caso de «probarlo como el PROPIO» de `AGENTS.md`:
+   * un filtro de más le apaga el branch a quien sí lo necesita.
+   *
+   * Así que: si hay filas `LO`, valen esas; si no hay ninguna, valen todas.
+   */
+  const conLo = filas.filter((f) => f.role_in_branch === 'LO');
+  const queCuentan = conLo.length > 0 ? conLo : filas;
+
+  const codigos = new Set<string>();
+  for (const f of queCuentan) {
+    const c = codigoDe.get(f.branch_key);
+    if (typeof c === 'string' && c !== '') codigos.add(c);
+  }
+  return Array.from(codigos)
     /* Ordenados, para que «el primero» sea siempre el mismo: sin `order` la
        respuesta de PostgREST no promete un orden. */
     .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));

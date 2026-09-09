@@ -66,6 +66,36 @@ const REINTENTO_MS = 250;
 const ALTO_BARRA = 42;
 const AIRE = 10;
 
+/**
+ * ══════════════════════════════════════════════════════════════════════════
+ * EL PASO PUEDE SEÑALAR VARIAS COSAS — etapa RV6, punto 1
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ * El paso 1 de la fase 2 pide mirar `Project through` Y la tabla del
+ * presupuesto, que son dos secciones distintas de la misma pantalla. Así que el
+ * lugar del paso es un CONJUNTO, y el desplazamiento tiene que dejar ver a
+ * todos: se centra el rectángulo que los abarca, no el primero.
+ *
+ * Si el conjunto no cabe en la banda libre --el caso normal cuando son dos
+ * secciones separadas-- gana la regla que ya existía para una sección alta: se
+ * le alinea el borde de arriba, porque lo primero es lo que se lee primero.
+ */
+function union(rs: readonly DOMRect[]): DOMRect | null {
+  if (rs.length === 0) return null;
+  let top = rs[0].top;
+  let bottom = rs[0].bottom;
+  for (const r of rs) {
+    if (r.top < top) top = r.top;
+    if (r.bottom > bottom) bottom = r.bottom;
+  }
+  /*
+   * Sin `new DOMRect`: sale de un `getBoundingClientRect` y lo único que el
+   * centrado mira es la vertical. Un objeto plano evita depender de un
+   * constructor global por una caja que no se dibuja.
+   */
+  return { top, bottom, height: bottom - top } as DOMRect;
+}
+
 /** El tramo de ventana que no tapa ni la barra ni el panel del paso. */
 function banda(): { arriba: number; abajo: number } {
   const panel = document.querySelector('.rv-panel');
@@ -82,9 +112,8 @@ function banda(): { arriba: number; abajo: number } {
  * la pantalla a alguien que ya está leyendo. Preguntando primero, la operación
  * es idempotente: si la sección ya se ve entera en la banda, no pasa nada.
  */
-function necesitaCentrado(el: Element): boolean {
+function necesitaCentrado(r: DOMRect): boolean {
   const b = banda();
-  const r = el.getBoundingClientRect();
   const alto = b.abajo - b.arriba;
   if (r.height > alto) {
     /* Más alta que la banda: alcanza con que EMPIECE dentro. */
@@ -93,11 +122,10 @@ function necesitaCentrado(el: Element): boolean {
   return r.top < b.arriba - 4 || r.bottom > b.abajo + 4;
 }
 
-function centrarEnLaBanda(el: Element): void {
-  if (!necesitaCentrado(el)) return;
+function centrarEnLaBanda(r: DOMRect): void {
+  if (!necesitaCentrado(r)) return;
   const b = banda();
   const alto = b.abajo - b.arriba;
-  const r = el.getBoundingClientRect();
 
   /*
    * Una sección más alta que la banda no se puede centrar sin que sobresalga
@@ -151,14 +179,22 @@ export function useReviewTarget(selector: string | null, ruta: string): ReviewTa
     if (selector === null) return;
 
     let vivo = true;
-    let marcado: Element | null = null;
+    /* Los que ya están resaltados. Un `Set` porque el reintento vuelve a
+       encontrar a los mismos y no hay que volver a marcarlos ni recentrar. */
+    const marcados = new Set<Element>();
     let timer: ReturnType<typeof setInterval> | null = null;
     let observador: ResizeObserver | null = null;
-    let cierre: ReturnType<typeof setTimeout> | null = null;
+    const clave = selector + '|' + ruta;
 
-    const buscar = (): Element | null => {
+    const buscar = (): Element[] => {
       try {
-        return document.querySelector(selector);
+        /*
+         * `querySelectorAll` y no `querySelector`: una lista de CSS separada por
+         * comas devuelve TODAS las coincidencias, y eso es lo que hace que
+         * `target` pueda señalar dos secciones sin que este archivo sepa
+         * cuántas son.
+         */
+        return Array.from(document.querySelectorAll(selector));
       } catch {
         /*
          * Un selector inválido tira. Se avisa por consola en vez de tratarlo
@@ -166,18 +202,28 @@ export function useReviewTarget(selector: string | null, ruta: string): ReviewTa
          * error de tipeo en una fila de la base que nadie más va a notar.
          */
         console.warn('[review] gate_config.target no es un selector válido: ' + selector);
-        return null;
+        return [];
       }
     };
 
-    const intentar = (): boolean => {
-      const el = buscar();
-      if (!el || !vivo) return false;
-      marcado = el;
-      el.classList.add('rv-target');
-      centrarEnLaBanda(el);
-      setHallado(selector + '|' + ruta);
+    const recentrar = (): void => {
+      const u = union(Array.from(marcados).map((el) => el.getBoundingClientRect()));
+      if (u) centrarEnLaBanda(u);
+    };
 
+    /* Marca lo nuevo que haya aparecido. Devuelve cuántos se agregaron. */
+    const revisar = (): number => {
+      if (!vivo) return 0;
+      let nuevos = 0;
+      for (const el of buscar()) {
+        if (marcados.has(el)) continue;
+        marcados.add(el);
+        el.classList.add('rv-target');
+        nuevos += 1;
+      }
+      if (nuevos === 0) return 0;
+      setHallado(clave);
+      recentrar();
       /*
        * ⚠ Y SE VUELVE A CENTRAR MIENTRAS EL DOCUMENTO CAMBIE DE ALTO.
        *
@@ -193,52 +239,61 @@ export function useReviewTarget(selector: string | null, ruta: string): ReviewTa
        * inventado. Y `centrarEnLaBanda` pregunta antes de mover, así que esto no
        * le arrebata la pantalla a nadie: si la sección ya se ve, no hace nada.
        */
-      if (typeof ResizeObserver !== 'undefined') {
+      if (observador === null && typeof ResizeObserver !== 'undefined') {
         observador = new ResizeObserver(() => {
-          if (vivo && marcado) centrarEnLaBanda(marcado);
+          if (vivo) recentrar();
         });
         observador.observe(document.body);
-        /* Con plazo: pasada la carga, el alto sólo cambia por lo que hace la
-           persona, y ahí la pantalla es suya. */
-        cierre = setTimeout(() => {
-          if (observador) observador.disconnect();
-          observador = null;
-        }, PLAZO_MS);
       }
-      return true;
+      return nuevos;
     };
 
-    if (!intentar()) {
-      const limite = Date.now() + PLAZO_MS;
-      timer = setInterval(() => {
-        if (!vivo) {
-          if (timer) clearInterval(timer);
-          timer = null;
-          return;
-        }
-        if (intentar()) {
-          if (timer) clearInterval(timer);
-          timer = null;
-          return;
-        }
-        if (Date.now() > limite) {
-          if (timer) clearInterval(timer);
-          timer = null;
-          /* Se deja de buscar, y se DICE. Sin esto, «todavía buscando» duraria
-             para siempre y el panel no ofrecería nunca el botón de ir al lugar. */
-          setVencido(selector + '|' + ruta);
-        }
-      }, REINTENTO_MS);
-    }
+    revisar();
+
+    /*
+     * ⚠ EL REINTENTO NO CORTA AL PRIMER HALLAZGO — esto es el punto 1.
+     *
+     * La versión anterior paraba en cuanto encontraba algo, y con dos selectores
+     * eso deja al segundo sin resaltar para siempre: `.ol-topbar` vive en el
+     * layout del módulo y está desde el primer cuadro, mientras la tabla del
+     * presupuesto llega con los datos, segundos después. «Encontré uno» no es
+     * «encontré los que el paso pide».
+     *
+     * Así que sigue mirando hasta el plazo, marcando lo que aparezca. Es la
+     * misma leccion del séptimo caso de `AGENTS.md` --esperar al dato antes de
+     * afirmar que no está-- aplicada a cada pieza y no a la primera.
+     *
+     * El plazo se cuenta en INTENTOS y no con `Date.now()`: es lo que
+     * `react-hooks/purity` pide, y ademas lo que se espera es «la pantalla
+     * termino de dibujar», que se cuenta en vueltas.
+     */
+    const MAX_INTENTOS = Math.ceil(PLAZO_MS / REINTENTO_MS);
+    let intentos = 0;
+    timer = setInterval(() => {
+      intentos += 1;
+      revisar();
+      if (!vivo || intentos < MAX_INTENTOS) return;
+      if (timer) clearInterval(timer);
+      timer = null;
+      /* Pasada la carga, el alto sólo cambia por lo que hace la persona, y ahí
+         la pantalla es suya. */
+      if (observador) observador.disconnect();
+      observador = null;
+      /*
+       * Se deja de buscar, y se DICE -- pero sólo si no se encontró NADA. Con
+       * uno de los dos resaltados el paso sí está en esta pantalla, y decir
+       * «vencido» ahí mandaría a irse de la pantalla correcta.
+       */
+      if (marcados.size === 0) setVencido(clave);
+    }, REINTENTO_MS);
 
     return () => {
       vivo = false;
       if (timer) clearInterval(timer);
-      if (cierre) clearTimeout(cierre);
       if (observador) observador.disconnect();
       /* El resaltado se saca al salir del paso o de la página. Sin esto queda
          una sección iluminada que ya no corresponde a nada. */
-      if (marcado) marcado.classList.remove('rv-target');
+      for (const el of marcados) el.classList.remove('rv-target');
     };
   }, [selector, ruta]);
 

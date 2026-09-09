@@ -53,6 +53,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { AlertTriangleIcon } from '@/components/ui/icons';
 import {
   allowsSecondFunnel,
@@ -60,6 +61,7 @@ import {
   gateLink,
   gateStatus,
   requiredClicks,
+  requiresFunnel,
   enPalabras,
   type StepDraft,
 } from '@/lib/review/gates';
@@ -149,6 +151,9 @@ export default function ReviewStepPanel({
   onContinuar,
   onResumen,
 }: ReviewStepPanelProps) {
+  /* Sólo para no ofrecer «andá al catálogo» estando en el catálogo. El resto de
+     la decisión de lugar la resuelve el anfitrión, que ve el DOM entero. */
+  const pathname = usePathname();
   const cursor: StepRef = {
     phase_no: session.current_phase,
     step_in_phase: session.current_step_in_phase,
@@ -409,6 +414,32 @@ export default function ReviewStepPanel({
 
   /*
    * ═══════════════════════════════════════════════════════════════════════
+   * ⚠ SIN FUNNEL NO SE CIERRA, Y EL PASO LLEVA AL CATÁLOGO — etapa RV6
+   * ═══════════════════════════════════════════════════════════════════════
+   *
+   * Isabella cerró la revisión de Armando Tejeda sin elegirle ningún funnel: la
+   * compuerta pedía sólo el comentario, y la fase 3 existe justamente para que
+   * se elija uno. `requiresFunnel` lo exige ahora, y esto es la mitad de la
+   * pantalla -- guiar a dónde se elige, y no dibujar el campo de comentario
+   * hasta que haya funnel.
+   *
+   * ⚠ `faltaFunnel` SE DERIVA de la prop, no se copia a un estado. `funnelActual`
+   * lo relee el anfitrión cada 4s mientras la fase 3 esté abierta (RV5), así que
+   * un estado local quedaría viejo justo en el momento que importa: el de
+   * volver del catálogo con el funnel ya activo.
+   */
+  const requiereFunnel = requiresFunnel(paso);
+  const faltaFunnel = requiereFunnel && funnelActual === null;
+  /*
+   * El catálogo es un sub-camino del perfil, así que `enRuta` del anfitrión ya
+   * lo cubre: llegar acá no saca a nadie del lugar del paso. Por eso alcanza con
+   * el link, sin tocar `rutaDelModulo`.
+   */
+  const rutaDelCatalogo = '/business-plan/lo/' + session.lo_employee_key + '/funnel';
+  const enElCatalogo = pathname === rutaDelCatalogo;
+
+  /*
+   * ═══════════════════════════════════════════════════════════════════════
    * EL PASO NO SE CONTESTA DESDE ACÁ — punto 1 y 3 del brief de RV2
    * ═══════════════════════════════════════════════════════════════════════
    *
@@ -467,6 +498,17 @@ export default function ReviewStepPanel({
             {loName} is on <strong>{funnelActual}</strong> — the funnel is chosen and nothing was
             lost. What is left is the comment, and that goes on the profile.
           </p>
+        ) : faltaFunnel ? (
+          /*
+            ⚠ Y SIN FUNNEL EL AVISO NOMBRA LA ACCIÓN — etapa RV6. El genérico
+            «esto se contesta en la pantalla que el paso señala» no dice que lo
+            que falta es ELEGIR, así que se lee como un problema de navegación y
+            no como el paso. Isabella terminó la revisión sin elegir ninguno.
+          */
+          <p className="rv-panel__gate">
+            <AlertTriangleIcon size={13} /> {loName} has no active funnel yet, and this step is
+            where one gets picked. Open the catalog and press <strong>Select this funnel</strong>.
+          </p>
         ) : (
           <p className="rv-panel__gate">
             This step is answered on the screen it points at, and that is not this one. The comment
@@ -493,7 +535,13 @@ export default function ReviewStepPanel({
             Un botón que lleva a la lista de los trece branches en vez del de
             Adriana es peor que ninguno, porque parece correcto.
           */}
-          {rutaDelPaso === '' ? (
+          {faltaFunnel ? (
+            /* Lo que falta es elegir, así que el botón lleva a donde se elige y
+               no al lugar donde después se escribe el comentario. */
+            <Link className="bp-btn bp-btn--primary bp-btn--small" href={rutaDelCatalogo}>
+              Open the funnel catalog →
+            </Link>
+          ) : rutaDelPaso === '' ? (
             <span className="rv-panel__next">working out which screen this step is on…</span>
           ) : (
             <Link className="bp-btn bp-btn--primary bp-btn--small" href={rutaDelPaso}>
@@ -510,6 +558,9 @@ export default function ReviewStepPanel({
     numero: numero.trim() === '' ? null : Number(numero),
     clicks,
     budgetListo,
+    /* De la base, vía el anfitrión: `business_plan.enrollment`. La pantalla no
+       lo puede poner en `true`, igual que el presupuesto. */
+    funnelListo: funnelActual !== null,
   };
   const estado = gateStatus(paso, draft);
   const link = gateLink(paso);
@@ -623,9 +674,25 @@ export default function ReviewStepPanel({
       {paso.phase_no === 3 && (
         <div className="rv-panel__funnel">
           {funnelActual === null ? (
-            <p className="rv-panel__helper">
-              {loName} has no active funnel. Pick one on the profile, then close this step.
-            </p>
+            /*
+              ⚠ ACÁ HABÍA UN MENSAJE: «Pick one on the profile, then close this
+              step.» Decía dónde ir y no llevaba, y el paso se podía cerrar
+              igual -- las dos mitades del punto 2 del brief de RV6.
+            */
+            <>
+              <p className="rv-panel__gate">
+                <AlertTriangleIcon size={13} /> {loName} has no active funnel, and this step is
+                where one gets picked. Open a funnel from the catalog and press{' '}
+                <strong>Select this funnel</strong>. The comment box shows up once it is active.
+              </p>
+              {!enElCatalogo && (
+                <div className="rv-panel__actions">
+                  <Link className="bp-btn bp-btn--primary bp-btn--small" href={rutaDelCatalogo}>
+                    Open the funnel catalog →
+                  </Link>
+                </div>
+              )}
+            </>
           ) : (
             <>
               <p className="rv-panel__helper">
@@ -715,7 +782,12 @@ export default function ReviewStepPanel({
         dijo, y volver a abrirlo es el `Edit` de abajo. Es lo que reemplaza al
         `Save again` permanente.
       */}
-      {editando ? (
+      {/*
+        ⚠ Y SIN FUNNEL NO HAY CAMPO. Es el orden del brief: primero se elige,
+        después se comenta. Un campo abierto sobre un paso cuya acción no se hizo
+        invita a cerrarlo escribiendo algo, que es exactamente lo que pasó.
+      */}
+      {faltaFunnel ? null : editando ? (
         <label className="rv-panel__field">
           <span className="rv-panel__fieldlabel">Comment</span>
           <textarea
@@ -767,7 +839,15 @@ export default function ReviewStepPanel({
         deshabilitado sin explicación obliga a adivinar si falta algo o si la
         app está rota.
       */}
-      {editando && !estado.ok && estado.falta && <p className="rv-panel__gate">{estado.falta}</p>}
+      {/*
+        ⚠ `editando || faltaFunnel` Y NO SÓLO `editando`: un paso YA CONTESTADO
+        no dibuja el campo, así que sin esto el botón quedaba apagado sin decir
+        por qué. Pasa de verdad -- una revisión retomada en 3.1 con el comentario
+        escrito y el funnel todavía sin elegir.
+      */}
+      {!estado.ok && estado.falta && (editando || faltaFunnel) && (
+        <p className="rv-panel__gate">{estado.falta}</p>
+      )}
 
       <div className="rv-panel__actions">
         {/*
@@ -787,7 +867,16 @@ export default function ReviewStepPanel({
           <button
             type="button"
             className="bp-btn bp-btn--primary bp-btn--small"
-            disabled={ocupado}
+            /*
+              ⚠ `faltaFunnel` ACÁ TAMBIÉN, Y ES LA MITAD QUE FALTABA.
+              Este botón --el de un paso ya contestado-- no pasa por
+              `gateStatus`: avanza sin más, porque no hay nada nuevo que
+              guardar. Sobre el último paso ese avance es `Review and finish`,
+              o sea CERRAR LA REVISIÓN. Con el comentario ya escrito y sin
+              funnel, era una salida limpia al agujero que el resto de esta
+              etapa cierra.
+            */
+            disabled={ocupado || faltaFunnel}
             onClick={async () => {
               if (esUltimo) {
                 onResumen();

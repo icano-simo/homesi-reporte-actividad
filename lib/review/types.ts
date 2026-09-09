@@ -20,8 +20,19 @@ export interface StepRef {
   step_in_phase: number;
 }
 
-/** Lo que hace falta ADEMÁS del comentario para cerrar un paso. */
-export type GateKind = 'comment' | 'number' | 'clicks' | 'budget';
+/**
+ * Lo que hace falta ADEMÁS del comentario para cerrar un paso.
+ *
+ * ⚠ `funnel` TODAVÍA NO EXISTE EN LA BASE. El `check` de `review.step` admite
+ * los otros cuatro, así que ninguna fila lo trae hoy: entra acá para que el
+ * código esté listo cuando se aplique `2026-09-review-rv6.sql`, y mientras tanto
+ * el requisito del funnel sale de la fase --ver `requiresFunnel`--.
+ *
+ * El orden importa: el código primero, el SQL después. Al revés, una fila con
+ * `gate_kind = 'funnel'` contra el código viejo cae en el `default` de
+ * `gateStatus`, que pide sólo el comentario -- el agujero que esta etapa cierra.
+ */
+export type GateKind = 'comment' | 'number' | 'clicks' | 'budget' | 'funnel';
 
 /** Los dos estados que se GUARDAN. `abandoned` se deriva — ver `progress.ts`. */
 export type SessionStatus = 'in_progress' | 'completed';

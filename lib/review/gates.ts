@@ -45,6 +45,14 @@ export interface StepDraft {
   clicks?: readonly string[];
   /** `true` si el presupuesto de la fase 2 quedó confirmado. */
   budgetListo?: boolean;
+  /**
+   * `true` si el Loan Officer tiene un funnel activo.
+   *
+   * ⚠ NO ES UNA DECLARACIÓN DE QUIEN REVISA, igual que `budgetListo`: sale de
+   * `business_plan.enrollment`, que es la tabla que el botón `Select this
+   * funnel` escribe. La pantalla no puede ponerlo en `true`.
+   */
+  funnelListo?: boolean;
 }
 
 export interface GateStatus {
@@ -99,7 +107,29 @@ export function gateLink(step: ReviewStep): string | null {
  */
 export function stepTarget(step: ReviewStep): string | null {
   const raw = step.gate_config?.target;
-  return typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : null;
+  /*
+   * Un solo selector: tal cual. Y CSS YA SABE DECIR «estos dos» -- una lista
+   * separada por comas es un selector válido, y `querySelectorAll` devuelve los
+   * dos. Así que un `target` con coma funciona sin que este archivo lo sepa.
+   */
+  if (typeof raw === 'string') return raw.trim() === '' ? null : raw.trim();
+  /*
+   * Y un ARRAY, que es la forma que se escribe en el SQL: `[".ol-topbar",
+   * ".ol-year"]` se lee de un tirón y no obliga a contar comas dentro de una
+   * cadena. Se junta en una sola lista de CSS, que es lo que el hook necesita.
+   *
+   * ⚠ DEVUELVE UNA CADENA Y NO UN ARRAY A PROPÓSITO. El hook usa este valor
+   * como dependencia de su efecto: un array nuevo en cada render cambia de
+   * identidad y el efecto correría para siempre. Una cadena es estable.
+   */
+  if (Array.isArray(raw)) {
+    const partes = raw
+      .filter((x): x is string => typeof x === 'string')
+      .map((x) => x.trim())
+      .filter((x) => x !== '');
+    return partes.length === 0 ? null : partes.join(', ');
+  }
+  return null;
 }
 
 /**
@@ -143,6 +173,33 @@ export function allowsSecondFunnel(step: ReviewStep): boolean {
 }
 
 /**
+ * ════════════════════════════════════════════════════════════════════════
+ * SI EL PASO EXIGE UN FUNNEL ACTIVO — etapa RV6, punto 2
+ * ════════════════════════════════════════════════════════════════════════
+ *
+ * ⚠ EL AGUJERO QUE ESTO CIERRA ES EL MÁS GRAVE DE LA SERIE. Isabella llegó al
+ * paso 3.1 con Armando Tejeda SIN plan activo, escribió el comentario y cerró
+ * la revisión entera. La fase 3 existe para que se elija un funnel, y se podía
+ * terminar sin elegir ninguno: la compuerta pedía sólo el comentario.
+ *
+ * Tres orígenes, en este orden:
+ *
+ *   1. `gate_kind = 'funnel'` — lo explícito, cuando el SQL de RV6 se aplique;
+ *   2. `gate_config.requires_funnel === false` — la salida deliberada, escrita;
+ *   3. la fase 3, que es la fase de la decisión del funnel.
+ *
+ * ⚠ Y LA AUSENCIA DE LA CLAVE EXIGE, no exime. Es el lado seguro y es al revés
+ * que `allow_second`: ahí lo restrictivo era no dejar un segundo plan, acá lo
+ * restrictivo es pedir el primero. Una clave que falta no puede volver a abrir
+ * el agujero -- para eso el punto 2 tiene que estar escrito.
+ */
+export function requiresFunnel(step: ReviewStep): boolean {
+  if (step.gate_kind === 'funnel') return true;
+  if (step.gate_config?.requires_funnel === false) return false;
+  return step.phase_no === 3;
+}
+
+/**
  * Si el paso se puede guardar, y qué falta si no.
  *
  * El comentario se pide SIEMPRE, en las cuatro compuertas: el brief lo dice de
@@ -150,6 +207,21 @@ export function allowsSecondFunnel(step: ReviewStep): boolean {
  * `check` de longitud. Así que se comprueba primero y una sola vez.
  */
 export function gateStatus(step: ReviewStep, draft: StepDraft): GateStatus {
+  /*
+   * ⚠ EL FUNNEL VA ANTES DEL COMENTARIO, Y EL ORDEN ES LA MITAD DEL ARREGLO.
+   *
+   * Sin funnel el panel NO dibuja el campo de comentario --elegir es lo primero
+   * que el paso pide-- así que pedirlo primero diría «escribí un comentario»
+   * al lado de una pantalla sin dónde escribirlo. El brief de RV6 lo pone en
+   * este orden por eso: guía al catálogo, y el comentario aparece después.
+   *
+   * Las dos condiciones son obligatorias: sin funnel no se cierra, y con funnel
+   * y sin comentario tampoco.
+   */
+  if (requiresFunnel(step) && draft.funnelListo !== true) {
+    return { ok: false, falta: 'Pick a funnel first — this step is where that gets decided.' };
+  }
+
   if (draft.comment.trim() === '') {
     return { ok: false, falta: 'Write a comment to close this step.' };
   }

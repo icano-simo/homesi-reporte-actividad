@@ -383,9 +383,22 @@ body:has(.rv-bar) .app {
  * algo o si la app esta rota. Ambar, que es la familia de lo que falta que pase.
  */
 .rv-panel__gate {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
+  /*
+   * ⚠ ERA `display: flex` CON `gap`, Y ESO PARTÍA EL TEXTO EN COLUMNAS.
+   *
+   * En flex cada trozo de texto suelto es un item anónimo, así que un aviso con
+   * un `<strong>` en el medio --el nombre del funnel, el nombre del botón-- se
+   * dibujaba en tres columnas angostas en vez de un párrafo.
+   *
+   * Y con UN solo hijo de texto se ve perfecto: icono más texto son dos items y
+   * el texto ocupa lo que queda. Por eso los diez avisos se veían bien y el
+   * primero con dos piezas --RV5, «{loName} is on <strong>{funnel}</strong>»--
+   * salió partido sin que nadie lo notara. Lo encontró la captura; la medición
+   * del texto estaba en verde, porque el texto estaba entero.
+   *
+   * `block`, y el icono se alinea solo: es lo que deja al `<strong>` inline.
+   */
+  display: block;
   margin: 0 0 8px;
   padding: 7px 10px;
   border-radius: var(--radius-sm);
@@ -394,6 +407,15 @@ body:has(.rv-bar) .app {
   font-size: 11.5px;
   line-height: 1.5;
   color: var(--amber-800);
+}
+
+/*
+ * El icono del aviso. Lo alineaba `align-items: flex-start`; sin flex se alinea
+ * con la primera línea del texto, que es donde estaba antes.
+ */
+.rv-panel__gate > svg {
+  vertical-align: -2px;
+  margin-right: 4px;
 }
 .rv-panel__actions {
   display: flex;
