@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, type ReactNode } from 'react';
 import type { BranchForecastRow } from '@/lib/pipeline/branchForecast';
 import type { PipelineLoan, ResolvedLoan } from '@/lib/pipeline/types';
 import {
@@ -67,6 +67,12 @@ export interface PivotTableProps {
    * este componente, solo expone el resultado ya calculado.
    */
   onActiveStrategyFilterChange?: (strategy: Strategy | null) => void;
+  /**
+   * Etapa LO-PILL: contenido a mostrar cuando view === 'loanOfficer' --
+   * se pasa ya armado desde page.tsx. Este componente no importa nada
+   * del módulo de Loan Officer, solo renderiza el nodo que le pasan.
+   */
+  loanOfficerContent?: ReactNode;
 }
 
 /**
@@ -1268,6 +1274,7 @@ export default function PivotTable({
   knownBranches,
   selectedBranch,
   onActiveStrategyFilterChange,
+  loanOfficerContent,
 }: PivotTableProps) {
   const [modal, setModal] = useState<ModalState | null>(null);
 
@@ -1279,7 +1286,7 @@ export default function PivotTable({
    * misma pregunta, y verlas en modos distintos al mismo tiempo no responde
    * ninguna.
    */
-  const [view, setView] = useState<'branch' | 'strategy'>('branch');
+  const [view, setView] = useState<'branch' | 'strategy' | 'loanOfficer'>('branch');
   const [pill, setPill] = useState<Strategy | 'All'>('All');
 
   const branchRows = buildBranchRows(rows, resolvedLoans, dateRange, knownBranches, rates);
@@ -1575,6 +1582,9 @@ export default function PivotTable({
       {showStrategyControls && (
         <div className="strat-bar">
           <div className="seg">
+            <button type="button" className={view === 'loanOfficer' ? 'on' : ''} onClick={() => setView('loanOfficer')}>
+              Loan Officer
+            </button>
             <button type="button" className={view === 'branch' ? 'on' : ''} onClick={() => setView('branch')}>
               By branch
             </button>
@@ -1602,6 +1612,8 @@ export default function PivotTable({
         </div>
       )}
 
+      {view !== 'loanOfficer' && (
+      <>
       {/*
         Sin datos de estrategia se dice, en vez de ofrecer un corte que
         clasificaría los préstamos como "Own production" por default.
@@ -1759,6 +1771,10 @@ export default function PivotTable({
           </table>
         </div>
       </div>
+      </>
+      )}
+
+      {view === 'loanOfficer' && loanOfficerContent}
 
       {/*
        * Fase urgente, punto 5: Isabella pidió explícitamente sacar de la UI

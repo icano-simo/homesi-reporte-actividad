@@ -8,7 +8,8 @@ import {
   type DateRange,
   type PullThroughRates,
 } from './aggregate';
-import type { ResolvedLoan } from './types';
+import type { AliasIndex } from '@/lib/business-plan/aliasIndex';
+import type { PipelineLoan, ResolvedLoan } from './types';
 
 /**
  * ============================================================================
@@ -59,20 +60,40 @@ export interface LoanOfficerForecastRow {
   branch: string;
   channel: BranchRow['channel'];
   loanOfficer: string;
+  loanOfficerKey: string;
   totalCount: number;
   healthyCount: number;
   closedCount: number;
   projectedToClose: number;
   totalForecast: number;
+  loans: PipelineLoan[];
+  closedLoans: ResolvedLoan[];
 }
 
 export function buildLoanOfficerForecastRows(
   branchRows: BranchRow[],
   resolvedLoans: ResolvedLoan[],
   dateRange: DateRange,
-  rates: PullThroughRates
+  rates: PullThroughRates,
+  aliasIndex: AliasIndex,
+  employeeNameByKey: Map<number, string>
 ): LoanOfficerForecastRow[] {
   const result: LoanOfficerForecastRow[] = [];
+
+  /**
+   * Resuelve un nombre crudo de "Loan Officers" (Salesforce) contra
+   * org.employee_alias -- mismo mecanismo que buildLoanOfficerScorecard()
+   * en scorecards.ts. Si no resuelve, NO se descarta ni se fusiona con
+   * nadie: queda como su propia identidad (key = 'raw:'+nombre), con su
+   * nombre crudo como display -- fidelidad del dato por sobre prolijidad
+   * del nombre (7 casos conocidos hoy, 8-sep, pendientes de que Isa los
+   * agregue a employee_alias).
+   */
+  function resolveOfficer(rawName: string): { key: string; displayName: string } {
+    const { employeeKey } = aliasIndex.lookup('salesforce', rawName);
+    if (employeeKey === null) return { key: 'raw:' + rawName, displayName: rawName };
+    return { key: 'emp:' + employeeKey, displayName: employeeNameByKey.get(employeeKey) ?? rawName };
+  }
 
   for (const branchRow of branchRows) {
     const isBanked = branchRow.channel === 'Banked - Retail';
@@ -83,15 +104,15 @@ export function buildLoanOfficerForecastRows(
       (loan) => loan.branch === branchRow.branch && loan.channel === branchRow.channel
     );
 
-    const loanOfficers = new Set<string>();
-    for (const l of openLoansForBranch) if (l.loanOfficer) loanOfficers.add(l.loanOfficer);
-    for (const l of closedLoansForBranch) if (l.loanOfficer) loanOfficers.add(l.loanOfficer);
-    if (loanOfficers.size === 0) continue;
+    const officersByKey = new Map<string, { key: string; displayName: string }>();
+    for (const l of openLoansForBranch) if (l.loanOfficer) officersByKey.set(resolveOfficer(l.loanOfficer).key, resolveOfficer(l.loanOfficer));
+    for (const l of closedLoansForBranch) if (l.loanOfficer) officersByKey.set(resolveOfficer(l.loanOfficer).key, resolveOfficer(l.loanOfficer));
+    if (officersByKey.size === 0) continue;
 
-    const perOfficer = [...loanOfficers].map((loanOfficer) => {
-      const loans = openLoansForBranch.filter((l) => l.loanOfficer === loanOfficer);
+    const perOfficer = [...officersByKey.values()].map(({ key, displayName }) => {
+      const loans = openLoansForBranch.filter((l) => l.loanOfficer && resolveOfficer(l.loanOfficer).key === key);
       const healthy = loans.filter((l) => l.healthy === true);
-      const closedLoans = closedLoansForBranch.filter((l) => l.loanOfficer === loanOfficer);
+      const closedLoans = closedLoansForBranch.filter((l) => l.loanOfficer && resolveOfficer(l.loanOfficer).key === key);
 
       /* Mismo criterio de fecha y de status que la fila del branch. */
       const { closedCount } = calculateTotalForecastWithClosed(closedLoans, 0, dateRange);
@@ -102,7 +123,7 @@ export function buildLoanOfficerForecastRows(
         ? calculateForecast(countByMilestoneBucket(healthy), rates).forecastTotal
         : loans.length * BROKERED_FLAT_PULL_THROUGH_RATE;
 
-      return { loanOfficer, totalCount: loans.length, healthyCount: healthy.length, closedCount, exactForecast };
+      return { loanOfficerKey: key, loanOfficer: displayName, loans, closedLoans, totalCount: loans.length, healthyCount: healthy.length, closedCount, exactForecast };
     });
 
     /* El entero del branch+channel, repartido. La suma de las partes ES el entero. */
@@ -115,6 +136,9 @@ export function buildLoanOfficerForecastRows(
       branch: branchRow.branch,
       channel: branchRow.channel,
       loanOfficer: r.loanOfficer,
+      loanOfficerKey: r.loanOfficerKey,
+      loans: r.loans,
+      closedLoans: r.closedLoans,
       totalCount: r.totalCount,
       healthyCount: r.healthyCount,
       closedCount: r.closedCount,
@@ -156,11 +180,14 @@ export function buildLoanOfficerForecastRows(
 
 export interface LoanOfficerForecastByPerson {
   loanOfficer: string;
+  loanOfficerKey: string;
   totalCount: number;
   healthyCount: number;
   closedCount: number;
   projectedToClose: number;
   totalForecast: number;
+  loans: PipelineLoan[];
+  closedLoans: ResolvedLoan[];
 }
 
 /**
@@ -174,20 +201,25 @@ export interface LoanOfficerForecastByPerson {
 export function buildLoanOfficerForecastByPerson(rows: LoanOfficerForecastRow[]): LoanOfficerForecastByPerson[] {
   const byOfficer = new Map<string, LoanOfficerForecastByPerson>();
   for (const row of rows) {
-    const cur = byOfficer.get(row.loanOfficer) ?? {
+    const cur = byOfficer.get(row.loanOfficerKey) ?? {
       loanOfficer: row.loanOfficer,
+      loanOfficerKey: row.loanOfficerKey,
       totalCount: 0,
       healthyCount: 0,
       closedCount: 0,
       projectedToClose: 0,
       totalForecast: 0,
+      loans: [],
+      closedLoans: [],
     };
     cur.totalCount += row.totalCount;
     cur.healthyCount += row.healthyCount;
     cur.closedCount += row.closedCount;
     cur.projectedToClose += row.projectedToClose;
     cur.totalForecast += row.totalForecast;
-    byOfficer.set(row.loanOfficer, cur);
+    cur.loans.push(...row.loans);
+    cur.closedLoans.push(...row.closedLoans);
+    byOfficer.set(row.loanOfficerKey, cur);
   }
 
   const result = [...byOfficer.values()].sort((a, b) => a.loanOfficer.localeCompare(b.loanOfficer));

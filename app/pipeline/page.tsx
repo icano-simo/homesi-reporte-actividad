@@ -44,6 +44,7 @@ import TabNextMonth from './TabNextMonth';
 import LoanOfficerForecastTable from './LoanOfficerForecastTable';
 import { getForecastDb, isSupabaseConfigured } from '@/lib/supabase/client';
 import { DownloadIcon, FileSheetIcon } from '@/components/ui/icons';
+import { useOrgRoster } from './useOrgRoster';
 
 /**
  * ⚠ Cuándo se actualizó el snapshot, en la zona de quien mira.
@@ -192,6 +193,7 @@ function parseSnapshotId(value: unknown): number | null {
  * sesión.
  */
 export default function PipelinePage() {
+  const orgRoster = useOrgRoster();
   const [data, setData] = useState<ParseApiResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   /*
@@ -956,7 +958,14 @@ export default function PipelinePage() {
    * armó con ese rango).
    */
   const loanOfficerForecastRows = data
-    ? buildLoanOfficerForecastRows(branchRowsForSummary, filteredResolvedLoans, forecastRange, PULL_THROUGH_RATES)
+    ? buildLoanOfficerForecastRows(
+        branchRowsForSummary,
+        filteredResolvedLoans,
+        forecastRange,
+        PULL_THROUGH_RATES,
+        orgRoster.aliasIndex,
+        orgRoster.employeeNameByKey
+      )
     : [];
 
   /**
@@ -1624,10 +1633,9 @@ export default function PipelinePage() {
               knownBranches={knownBranches}
               selectedBranch={selectedBranch}
               onActiveStrategyFilterChange={setActiveStrategyFilter}
+              loanOfficerContent={<LoanOfficerForecastTable rows={loanOfficerForecastByPerson} />}
             />
           )}
-
-          {activeTab === 'executive' && <LoanOfficerForecastTable rows={loanOfficerForecastByPerson} />}
 
           {activeTab === 'matrix' && (
             <TabMilestoneMatrix
