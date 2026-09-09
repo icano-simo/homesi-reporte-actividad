@@ -460,6 +460,17 @@ body:has(.rv-bar) .app {
 .rv-panel__actions {
   display: flex;
   align-items: center;
+  /*
+   * ⚠ ENVUELVE DESDE RV9, y no es cosmetica: la fila paso de dos cosas a
+   * TRES --avanzar, volver, y el `next:`-- y el panel mide 420px como mucho.
+   * El rótulo de volver dice a dónde lleva, así que es largo a propósito
+   * («← back to Current performance this month»); sin `wrap`, el `next:`
+   * quedaba partido en tres líneas contra el borde.
+   *
+   * Lo encontró la captura: las aserciones preguntaban por el TEXTO de los
+   * botones, y el texto estaba entero.
+   */
+  flex-wrap: wrap;
   gap: 8px;
 }
 

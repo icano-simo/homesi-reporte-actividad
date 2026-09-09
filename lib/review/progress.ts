@@ -55,6 +55,50 @@ export function sameStep(a: StepRef, b: StepRef): boolean {
   return a.phase_no === b.phase_no && a.step_in_phase === b.step_in_phase;
 }
 
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * EL PASO DE AL LADO, EN LAS DOS DIRECCIONES — etapa RV9
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * El panel calculaba el siguiente con `orden[i + 1]` en línea, y el anterior
+ * habría sido `orden[i - 1]` a su lado. Son la MISMA decisión --«cuál sigue en
+ * el orden del guion»-- espejada, así que viven juntas y en el archivo del que
+ * sale el orden.
+ *
+ * No se extrajeron por cantidad de llamadores: el día que el orden deje de ser
+ * (fase, paso) hay UN lugar que cambiar y no dos que pueden divergir.
+ *
+ * ⚠ CRUZAN DE FASE A PROPÓSITO. El anterior de 2.1 es 1.5, aunque sea otra fase
+ * y otro módulo: es el paso anterior. Quien navegue se ocupa de llevar a la
+ * pantalla donde ese paso vive.
+ */
+function alLado(script: ReviewScript, cursor: StepRef, salto: 1 | -1): ReviewStep | null {
+  const orden = orderedSteps(script);
+  const i = orden.findIndex((s) => sameStep(s, cursor));
+  if (i < 0) return null;
+  const j = i + salto;
+  return j >= 0 && j < orden.length ? orden[j] : null;
+}
+
+/** El paso siguiente en el orden del guion, o `null` si el cursor es el último. */
+export function pasoSiguiente(script: ReviewScript, cursor: StepRef): ReviewStep | null {
+  return alLado(script, cursor, 1);
+}
+
+/**
+ * El paso anterior en el orden del guion, o `null` si el cursor es el PRIMERO.
+ *
+ * ⚠ `null` EN EL PRIMER PASO, y eso es la regla y no un borde: sin él habría que
+ * decidir qué significa «antes del principio», y no significa nada. Quien dibuje
+ * el botón de volver no lo dibuja cuando esto es `null`.
+ *
+ * Y un cursor que no está en el guion también da `null`: no se puede decir cuál
+ * es el anterior de un paso que no existe.
+ */
+export function pasoAnterior(script: ReviewScript, cursor: StepRef): ReviewStep | null {
+  return alLado(script, cursor, -1);
+}
+
 const clave = (s: StepRef) => s.phase_no + ':' + s.step_in_phase;
 
 /**

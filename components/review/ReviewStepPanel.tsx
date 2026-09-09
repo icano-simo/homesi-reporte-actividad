@@ -65,7 +65,12 @@ import {
   enPalabras,
   type StepDraft,
 } from '@/lib/review/gates';
-import { latestResponse, orderedSteps, sameStep } from '@/lib/review/progress';
+import {
+  latestResponse,
+  pasoAnterior,
+  pasoSiguiente,
+  sameStep,
+} from '@/lib/review/progress';
 import { fijarBenchmark } from '@/lib/business-plan/benchmark';
 /* `useEffect` queda para el listener de clics, que SÍ es una suscripción. */
 import type { ReviewResponse, ReviewScript, ReviewSession, StepRef } from '@/lib/review/types';
@@ -130,7 +135,16 @@ export interface ReviewStepPanelProps {
   /** Guarda el paso. Devuelve el error, o `null` si salió bien. */
   onGuardar: (paso: StepRef, revision: number, comment: string, gate: Record<string, unknown> | null) => Promise<string | null>;
   /** Mueve el cursor. Lo dispara `OK`, en el mismo gesto que el guardado. */
-  onContinuar: (destino: StepRef) => Promise<string | null>;
+  /**
+   * Pone el cursor en un paso y lleva a la pantalla donde ese paso vive.
+   *
+   * ⚠ SIRVE PARA LAS DOS DIRECCIONES, y por eso ya no se llama `onContinuar`.
+   * Avanzar y volver son la misma decisión --mover el cursor y navegar-- y la
+   * navegación del anfitrión resuelve el branch esperándolo, que fue el arreglo
+   * de RV4. Con dos copias, el día que eso cambie hacia adelante la de atrás se
+   * queda vieja.
+   */
+  onIrAlPaso: (destino: StepRef) => Promise<string | null>;
   /**
    * ⚠ EL ÚLTIMO PASO NO CIERRA: PIDE EL RESUMEN — etapa RV4.
    *
@@ -156,7 +170,7 @@ export default function ReviewStepPanel({
   presupuestoGuardado,
   branchesDelLo,
   onGuardar,
-  onContinuar,
+  onIrAlPaso,
   onResumen,
 }: ReviewStepPanelProps) {
   /* Sólo para no ofrecer «andá al catálogo» estando en el catálogo. El resto de
@@ -415,10 +429,60 @@ export default function ReviewStepPanel({
     );
   }
 
-  const orden = orderedSteps(script);
-  const i = orden.findIndex((s) => sameStep(s, cursor));
-  const siguiente = i >= 0 && i + 1 < orden.length ? orden[i + 1] : null;
+  const siguiente = pasoSiguiente(script, cursor);
   const esUltimo = siguiente === null;
+
+  /*
+   * ══════════════════════════════════════════════════════════════════
+   * VOLVER UN PASO, Y SÓLO UNO — etapa RV9, punto 3
+   * ══════════════════════════════════════════════════════════════════
+   *
+   * Dos condiciones, y las dos son de la INTERFAZ:
+   *
+   *   · que el paso anterior exista -- `pasoAnterior` da `null` en el primero
+   *   · que esté CONTESTADO -- volver a uno vacío no es volver, es saltar atrás
+   *
+   * ⚠ Y EL LÍMITE NO PUEDE VIVIR EN LA BASE. `moverCursor` es un `update` y la
+   * policy acepta cualquier cursor: medido, un `PATCH` de 2.1 a 1.5 devuelve 200.
+   * Un `check` no puede saber cuál es el paso anterior sin recorrer la tabla, y
+   * ponerlo ahí haría vivir la regla en dos lugares. No es una frontera de
+   * seguridad y no debería fingirlo: quien tenga la base abierta puede mover el
+   * cursor a donde quiera, y eso ya era cierto antes de este botón.
+   *
+   * ⚠ VOLVER NO ESCRIBE NI BORRA NADA. Sólo mueve el cursor: `review.response`
+   * queda intacta, así que el avance --que se deriva de las respuestas-- no se
+   * toca y el paso que se abandona conserva la suya. Medido.
+   */
+  const anterior = pasoAnterior(script, cursor);
+  const anteriorContestado =
+    anterior !== null && latestResponse(responses, anterior) !== null;
+
+  /*
+   * ⚠ DICE A DÓNDE VA, como el `next:` de abajo. Un botón que mueve la pantalla
+   * tiene que decirlo antes de que se apriete -- y acá más, porque el paso
+   * anterior puede estar en OTRO MÓDULO: volver de 2.1 lleva de Outlook a
+   * Business Plan.
+   *
+   * Mueve el cursor y navega en un gesto, por `onIrAlPaso`, que es el mismo
+   * camino que usa avanzar. Y con corte: si el cursor no se movió, el error se
+   * muestra y no se navega -- eso lo garantiza el anfitrión, que corta antes de
+   * navegar si el `update` falló.
+   */
+  const botonVolver =
+    anterior !== null && anteriorContestado ? (
+      <button
+        type="button"
+        className="bp-btn bp-btn--small"
+        disabled={ocupado}
+        onClick={async () => {
+          setOcupado(true);
+          setError(await onIrAlPaso(anterior));
+          setOcupado(false);
+        }}
+      >
+        ← back to {anterior.label}
+      </button>
+    ) : null;
 
   /*
    * ═══════════════════════════════════════════════════════════════════════
@@ -543,6 +607,12 @@ export default function ReviewStepPanel({
             review comes back to the profile on its own, and the comment box will be there.
           </p>
         )}
+        {/*
+          ⚠ Y ACÁ TAMBIÉN EL BOTÓN DE VOLVER. Este panel no ofrece nada más --sin
+          funnel el paso no se cierra-- así que sin él sería un callejón: estar
+          trabado es justo cuando alguien puede querer retroceder un paso.
+        */}
+        {botonVolver && <div className="rv-panel__actions">{botonVolver}</div>}
       </div>
     );
   }
@@ -701,7 +771,7 @@ export default function ReviewStepPanel({
       onResumen();
       return;
     }
-    setError(await onContinuar(siguiente!));
+    setError(await onIrAlPaso(siguiente!));
     setOcupado(false);
   }
 
@@ -965,13 +1035,15 @@ export default function ReviewStepPanel({
                 return;
               }
               setOcupado(true);
-              setError(await onContinuar(siguiente!));
+              setError(await onIrAlPaso(siguiente!));
               setOcupado(false);
             }}
           >
             {esUltimo ? 'Review and finish' : 'Continue →'}
           </button>
         )}
+
+        {botonVolver}
 
         {/* Qué sigue, en palabras. Un botón que mueve la pantalla tiene que
             decir a dónde antes de que se aprete. */}

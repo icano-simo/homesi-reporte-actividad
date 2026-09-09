@@ -592,7 +592,7 @@ export default function ReviewMaskHost() {
             recargar();
             return null;
           }}
-          onContinuar={async (destino) => {
+          onIrAlPaso={async (destino) => {
             const r = await moverCursor(activo.session!.session_key, destino);
             if (!r.ok) return r.error;
             recargar();
