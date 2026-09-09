@@ -7,7 +7,8 @@
  *
  * Etapa RV2 — ARCHIVO NUEVO. Punto 4 del brief.
  *
- * Estaba en la barra de arriba y ahí se perdía entre el texto: `Review mode`,
+ * Estaba en la barra de arriba y ahí se perdía entre el texto: el rótulo del
+ * modo --`Review mode` entonces, `Coach mode` desde RV9--,
  * el nombre, la fase, el módulo, el porcentaje y las tres fases con su conteo,
  * todo en una línea de 42px. Debajo del sidebar hay espacio libre y no compite
  * con nada.

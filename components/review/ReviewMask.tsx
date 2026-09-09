@@ -89,7 +89,20 @@ export default function ReviewMask({ activo, onSaveAndExit }: ReviewMaskProps) {
           hecho. Ver la nota de `ReviewMaskHost`.
         */}
         <div className="rv-bar__main">
-          <span className="rv-bar__tag">Review mode</span>
+          {/*
+            ⚠ EL RÓTULO DICE `Coach mode` Y LA CLASE SIGUE SIENDO `rv-bar__tag`
+            — etapa RV9.
+
+            Se renombró lo que la persona LEE, y nada más: el esquema `review`,
+            las rutas `/review`, las clases `rv-*` y los componentes `Review*`
+            quedan como están. Es el método de BP40: de 50 apariciones de
+            `stage`, 27 eran texto y las otras 23 eran código -- y un reemplazo
+            global habría renombrado `nodeStages`.
+
+            Acá el inventario de la frase exacta sobre todo el repo dio DOS
+            apariciones y una sola en código, que es ésta.
+          */}
+          <span className="rv-bar__tag">Coach mode</span>
           <span className="rv-bar__who">{activo.loName}</span>
         </div>
 

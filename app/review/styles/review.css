@@ -44,10 +44,50 @@
    */
   z-index: 120;
   pointer-events: none;
-  border: 3px solid var(--coral);
-  /* El coral en un borde de 3px sobre el canvas claro es suficiente contraste;
-     la sombra hacia adentro lo separa del contenido sin taparlo. */
-  box-shadow: inset 0 0 0 1px var(--white);
+
+  /*
+   * ══════════════════════════════════════════════════════════════════
+   * ⚠ UN DEGRADADO HACIA ADENTRO, NO UNA LÍNEA PLANA — etapa RV9
+   * ══════════════════════════════════════════════════════════════════
+   *
+   * Era `border: 3px solid var(--coral)`: el token más saturado de la paleta, a
+   * pleno, rodeando la pantalla entera. Le competía al contenido -- y el
+   * contenido es lo que hay que mirar durante una revisión.
+   *
+   * El reparto es: LA BARRA DICE, EL BORDE REFUERZA. Arriba está escrito en
+   * palabras --«Coach mode» y el nombre de la persona-- así que acá alcanza
+   * con que el ojo registre que la pantalla tiene marco.
+   *
+   * ⚠ Y NO HAY ORILLA DE ARRIBA, que no es un olvido: `.rv-bar` es fija, va a
+   * todo el ancho y está en `z-index: 121` contra el 120 de acá, así que la
+   * taparía entera. Pintar ahí sería pintura que nadie ve.
+   *
+   * `color-mix` y no un hexadecimal nuevo: es el modismo que ya usa `ol-year.css`
+   * --nueve veces-- así que un cambio de paleta alcanza esto también.
+   */
+  background:
+    linear-gradient(
+        to top,
+        color-mix(in srgb, var(--coral) 20%, transparent),
+        transparent
+      )
+      bottom / 100% 16px no-repeat,
+    linear-gradient(
+        to right,
+        color-mix(in srgb, var(--coral) 20%, transparent),
+        transparent
+      )
+      left / 16px 100% no-repeat,
+    linear-gradient(
+        to left,
+        color-mix(in srgb, var(--coral) 20%, transparent),
+        transparent
+      )
+      right / 16px 100% no-repeat;
+
+  /* La línea que cierra el marco. Un píxel y muy diluida: sin ella el degradado
+     se desvanece contra el canvas claro y el borde deja de leerse como borde. */
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--coral) 40%, transparent);
 }
 
 /* ── La barra ─────────────────────────────────────────────────────────────── */
