@@ -111,13 +111,22 @@ export default function ReviewMaskHost() {
 
   /* Fuera de la ruta no se busca nada: sin esto el efecto resaltaría la sección
      homónima del perfil de otra persona, que es peor que no resaltar. */
-  const { enSitio: enSitioDom } = useReviewTarget(enRuta ? selectorDelPaso : null, pathname);
+  const { enSitio: enSitioDom, buscando: buscandoDom } = useReviewTarget(
+    enRuta ? selectorDelPaso : null,
+    pathname
+  );
   /*
    * `false` fuera de la ruta. `null` sólo cuando estamos en la ruta y el paso NO
    * declara lugar -- que es «no hay requisito», y sigue siendo distinto de «hay
    * lugar y no es acá».
    */
   const enSitio = enRuta ? enSitioDom : false;
+  /*
+   * Fuera de la ruta NO se busca nada, así que ahí no hay espera: el aviso de
+   * «andate al paso» sale enseguida, que es lo correcto -- en esa pantalla no
+   * hay nada que hacer. La espera existe sólo estando en la ruta.
+   */
+  const buscandoSitio = enRuta && buscandoDom;
 
   /*
    * ═══════════════════════════════════════════════════════════════
@@ -152,7 +161,55 @@ export default function ReviewMaskHost() {
    * la fase 3 tiene que distinguir.
    */
   const [funnelActual, setFunnelActual] = useState<string | null>(null);
+  /*
+   * ══════════════════════════════════════════════════════════════════
+   * EL BENCHMARK VIGENTE, PARA EL PASO 2 — etapa RV3
+   * ══════════════════════════════════════════════════════════════════
+   *
+   * El campo del paso 2 aparecía vacío, así que parecía que no había ninguno
+   * --Adriana tenía 1 desde el 21 de agosto--.
+   *
+   * ⚠ EL ORDEN ES EL MISMO QUE USA EL PERFIL, y eso es lo que importa más que
+   * ser teóricamente más correcto: `effective_from` ascendente con `set_at`
+   * como desempate, y gana la última. El panel se dibuja ENCIMA del perfil, al
+   * lado de ese número; si aplicara otra regla, los dos podrían mostrar
+   * distinto y ninguno estaría mal.
+   *
+   * (La subtileza que eso arrastra, y que es anterior a esta etapa: una fila con
+   * `effective_from` futuro gana igual, aunque todavía no esté en vigencia. Hoy
+   * no hay ninguna. Cambiarlo es cambiar el número del perfil también, y eso es
+   * otra etapa.)
+   */
+  const [benchmarkActual, setBenchmarkActual] = useState<number | null>(null);
+  /* Se relee cuando el panel escribe uno: sin esto, volver al paso 2 mostraria
+     el valor viejo, que es la misma clase de mentira que el campo vacio. */
+  const [tickBench, setTickBench] = useState(0);
   const loEnCurso = activo?.session?.lo_employee_key ?? null;
+
+  useEffect(() => {
+    let cancelado = false;
+    (async () => {
+      if (loEnCurso === null) {
+        if (!cancelado) setBenchmarkActual(null);
+        return;
+      }
+      const { data } = await getSupabaseClient()
+        .schema('org')
+        .from('employee_benchmark')
+        .select('monthly_benchmark, effective_from, set_at')
+        .eq('employee_key', loEnCurso)
+        .order('effective_from', { ascending: true })
+        .order('set_at', { ascending: true });
+      if (cancelado) return;
+      const filas = data ?? [];
+      const ultima = filas.length === 0 ? null : filas[filas.length - 1];
+      /* `null` si no hay ninguna: no tener benchmark es distinto de tener 0. */
+      setBenchmarkActual(ultima === null ? null : Number(ultima.monthly_benchmark));
+    })();
+    return () => {
+      cancelado = true;
+    };
+  }, [loEnCurso, tickBench]);
 
   useEffect(() => {
     let cancelado = false;
@@ -222,6 +279,9 @@ export default function ReviewMaskHost() {
           loName={activo.loName}
           funnelActual={funnelActual}
           enSitio={enSitio}
+          buscandoSitio={buscandoSitio}
+          benchmarkActual={benchmarkActual}
+          onBenchmarkGuardado={() => setTickBench((t) => t + 1)}
           /* La misma ruta que decide `enRuta`, no una segunda cuenta: el botón
              tiene que llevar exactamente a donde el panel se habilita. */
           rutaDelPaso={rutaDelPaso}

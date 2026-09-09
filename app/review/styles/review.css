@@ -762,3 +762,31 @@ body:has(.rv-bar) .app {
     display: none;
   }
 }
+
+/* ── RV3: el panel mientras busca su seccion ───────────────────── */
+
+/*
+ * Sin campos ni botones: solo el paso y su pregunta. Mas angosto y sin el borde
+ * de accion, para que se lea como "todavia no" y no como "esto es todo".
+ *
+ * ⚠ Y SIN NINGUN "cargando": el modulo ya dice el suyo. Un segundo aviso seria
+ * una segunda fuente para el mismo hecho -- la leccion del aviso que sacamos de
+ * la barra en RV1.
+ */
+.rv-panel--buscando {
+  max-width: 420px;
+  opacity: 0.72;
+}
+
+/* La linea que dice cual es el benchmark vigente, dentro del rotulo del campo.
+   `display: block` porque el rotulo es un `<span>` en linea. */
+.rv-panel__hintline {
+  display: block;
+  margin-top: 2px;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}

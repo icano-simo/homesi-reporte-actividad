@@ -47,6 +47,24 @@ export type ForensicTarget = 'closed' | 'pipeline' | 'healthy' | 'projected' | '
  *
  * Todos los números ENTEROS: un préstamo es discreto. El valor exacto de los
  * que son fraccionarios queda en el `title`.
+ *
+ * ---------------------------------------------------------------------------
+ * ⚠ `data-review-click`: LAS CINCO ESTAN MARCADAS — etapa RV3
+ * ---------------------------------------------------------------------------
+ * El modo revisión puede pedir que un paso no se cierre hasta haber ABIERTO
+ * ciertos números. Los identificadores viven en `gate_config.required_clicks`,
+ * en la base, y el panel escucha los clics en `document`: cualquier elemento con
+ * `data-review-click="id"` cuenta como abierto.
+ *
+ * ESTA PANTALLA NO SABE NADA DE LA REVISIÓN, y no tiene que saber: lo único que
+ * aporta es el nombre de cada número. Por eso están las cinco y no las dos que
+ * el guion pide hoy — pedir un clic nuevo tiene que ser una fila, no un cambio
+ * acá.
+ *
+ * ⚠ Y LOS IDENTIFICADORES TIENEN QUE COINCIDIR CON LOS DE LA BASE. Si no
+ * coinciden, el paso NO SE PUEDE CERRAR y nada falla: es exactamente lo que le
+ * pasó a Isabella cuando el atributo no estaba escrito en ninguna parte. El
+ * panel ahora lo dice en pantalla — ver `ReviewStepPanel`.
  */
 export function ForensicCards({
   lo,
@@ -67,14 +85,16 @@ export function ForensicCards({
         label={'Closings in ' + shortMonth(thisMonth) + ' so far'}
         value={lo.projection.closedToDate}
         onClick={() => onOpen('closed')}
+        reviewClick="closings_so_far"
       />
-      <ForensicItem label="Total Pipeline" value={lo.projection.totalPipeline} suffix="loans" onClick={() => onOpen('pipeline')} />
-      <ForensicItem label="Healthy" value={lo.projection.healthyPipeline} suffix="loans" onClick={() => onOpen('healthy')} />
+      <ForensicItem label="Total Pipeline" value={lo.projection.totalPipeline} suffix="loans" onClick={() => onOpen('pipeline')} reviewClick="total_pipeline" />
+      <ForensicItem label="Healthy" value={lo.projection.healthyPipeline} suffix="loans" onClick={() => onOpen('healthy')} reviewClick="healthy_loans" />
       <ForensicItem
         label="Projected to close after PT"
         value={fmtLoans(projectedFromPipeline)}
         title={exactTitle(projectedFromPipeline)}
         onClick={() => onOpen('projected')}
+        reviewClick="projected_after_pt"
       />
       {/*
         Forecast Total = proyectado + cerrado. Es el número que alimenta el GAP,
@@ -87,6 +107,7 @@ export function ForensicCards({
         title={exactTitle(lo.projection.projectedTotal)}
         strong
         onClick={() => onOpen('forecast')}
+        reviewClick="forecast_total"
         badge={
           ctcAndClosing > 0 ? (
             <span className="bp-ctc-mark" title={`${lo.projection.inCtc} in CTC · ${lo.projection.inClosing} in Closing`}>
@@ -108,6 +129,7 @@ function ForensicItem({
   title,
   onClick,
   badge,
+  reviewClick,
 }: {
   label: string;
   value: string | number;
@@ -116,9 +138,28 @@ function ForensicItem({
   title?: string;
   onClick?: () => void;
   badge?: ReactNode;
+  /**
+   * El identificador con el que el MODO REVISIÓN cuenta este número como
+   * abierto. Ver la nota de `ForensicCards`.
+   */
+  reviewClick?: string;
 }) {
   return (
-    <button type="button" className={'bp-forensic__item' + (strong ? ' is-strong' : '')} title={title} onClick={onClick}>
+    <button
+      type="button"
+      className={'bp-forensic__item' + (strong ? ' is-strong' : '')}
+      title={title}
+      onClick={onClick}
+      /*
+       * ⚠ EL ATRIBUTO VA EN EL <button>, que es el elemento que se clickea.
+       *
+       * El listener de la revisión hace `closest('[data-review-click]')` desde
+       * el objetivo del clic, así que la marca tiene que estar en el botón o en
+       * un ancestro suyo. Ponerla en el `<div>` del valor habría funcionado para
+       * el clic sobre el número y no para el clic sobre el rótulo.
+       */
+      data-review-click={reviewClick}
+    >
       <div className="bp-forensic__value">
         {value}
         {suffix && <span className="bp-forensic__suffix"> {suffix}</span>}

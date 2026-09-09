@@ -120,14 +120,31 @@ export interface ReviewTargetState {
   /**
    * `null`  = el paso no declara lugar; no hay requisito de estar en ninguno.
    * `true`  = el lugar del paso está en esta página, resaltado.
-   * `false` = el paso tiene lugar y no es acá.
+   * `false` = el paso tiene lugar y no está acá.
    */
   enSitio: boolean | null;
+  /**
+   * `true` mientras se lo está buscando y todavía no se cumplió el plazo.
+   *
+   * ⚠ ES EL TERCER ESTADO, y existe porque su falta producía una mentira. El
+   * perfil trae sus datos DESPUÉS de pintar la ruta, así que durante los
+   * primeros segundos la sección del paso no existe todavía -- y con sólo
+   * `enSitio` eso era `false`, o sea «el paso no se contesta desde esta
+   * pantalla», dicho EN la pantalla correcta.
+   *
+   * Es la misma confusión que la nota de `AGENTS.md`: una pantalla que todavía
+   * no cargó dice exactamente lo mismo que una que no tiene el dato. Acá se
+   * paga en la interfaz en vez de en una medición.
+   */
+  buscando: boolean;
 }
 
 export function useReviewTarget(selector: string | null, ruta: string): ReviewTargetState {
   /* La clave del sitio donde el elemento SE ENCONTRÓ, no un booleano. */
   const [hallado, setHallado] = useState<string | null>(null);
+  /* Y la clave del sitio donde se DEJÓ DE BUSCAR, por el mismo motivo: al
+     cambiar de paso o de ruta, el plazo del anterior no dice nada del nuevo. */
+  const [vencido, setVencido] = useState<string | null>(null);
   const claveActual = selector === null ? null : selector + '|' + ruta;
 
   useEffect(() => {
@@ -194,9 +211,22 @@ export function useReviewTarget(selector: string | null, ruta: string): ReviewTa
     if (!intentar()) {
       const limite = Date.now() + PLAZO_MS;
       timer = setInterval(() => {
-        if (!vivo || intentar() || Date.now() > limite) {
+        if (!vivo) {
           if (timer) clearInterval(timer);
           timer = null;
+          return;
+        }
+        if (intentar()) {
+          if (timer) clearInterval(timer);
+          timer = null;
+          return;
+        }
+        if (Date.now() > limite) {
+          if (timer) clearInterval(timer);
+          timer = null;
+          /* Se deja de buscar, y se DICE. Sin esto, «todavía buscando» duraria
+             para siempre y el panel no ofrecería nunca el botón de ir al lugar. */
+          setVencido(selector + '|' + ruta);
         }
       }, REINTENTO_MS);
     }
@@ -212,5 +242,10 @@ export function useReviewTarget(selector: string | null, ruta: string): ReviewTa
     };
   }, [selector, ruta]);
 
-  return { enSitio: selector === null ? null : hallado === claveActual };
+  const encontrado = hallado === claveActual;
+  return {
+    enSitio: selector === null ? null : encontrado,
+    /* Hay selector, no se encontró, y el plazo de ESTA ruta no venció. */
+    buscando: selector !== null && !encontrado && vencido !== claveActual,
+  };
 }

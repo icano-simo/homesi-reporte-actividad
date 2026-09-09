@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { getSupabaseClient } from '@/lib/supabase/client';
+import { fijarBenchmark } from '@/lib/business-plan/benchmark';
 import type { LoanOfficerRow } from '@/lib/business-plan/types';
 import Modal from './Modal';
 import { ProvisionalTag, PROVISIONAL_SET_BY, fmtAvg } from './shared';
@@ -43,29 +43,19 @@ export default function BenchmarkEditor({ lo, onSaved }: { lo: LoanOfficerRow; o
     setSaving(true);
     setError(null);
     try {
-      const supabase = getSupabaseClient();
-      const { data: userData } = await supabase.auth.getUser();
-      const email = userData.user?.email;
-      if (!email) throw new Error('No authenticated session.');
-
-      const { error: insertError } = await supabase.schema('org').from('employee_benchmark').insert({
-        employee_key: lo.employeeKey,
-        monthly_benchmark: parsed,
-        /*
-         * `effective_from` queda en el default de la base (hoy). Si ya existe
-         * una fila de hoy para esta persona, el INSERT choca con la clave
-         * primaria: es correcto, no hay dos benchmarks vigentes el mismo día.
-         */
-        set_by: email,
-        note: note.trim() === '' ? null : note.trim(),
-      });
-      if (insertError) {
-        throw new Error(
-          insertError.code === '23505'
-            ? 'This officer already has a benchmark set today. It takes effect from tomorrow onwards.'
-            : insertError.message
-        );
-      }
+      /*
+       * ⚠ EL `insert` SE MUDÓ A `lib/business-plan/benchmark.ts` — etapa RV3.
+       *
+       * Desde que el paso 2 de la revisión también fija el benchmark, hay dos
+       * pantallas escribiendo la misma tabla append-only. Dos `insert` con su
+       * propio criterio de autor y de error es la forma exacta en que se
+       * separan, así que hay uno.
+       *
+       * Y ahi se documenta lo que este archivo decía mal: el mensaje de
+       * «benchmark ya fijado hoy» describía una clave primaria que BP29 cambió.
+       */
+      const r = await fijarBenchmark(lo.employeeKey, parsed, note);
+      if (!r.ok) throw new Error(r.error ?? 'The benchmark was not saved.');
       setEditing(false);
       setNote('');
       onSaved();

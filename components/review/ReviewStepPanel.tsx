@@ -64,6 +64,7 @@ import {
   type StepDraft,
 } from '@/lib/review/gates';
 import { latestResponse, orderedSteps, sameStep } from '@/lib/review/progress';
+import { fijarBenchmark } from '@/lib/business-plan/benchmark';
 /* `useEffect` queda para el listener de clics, que SÍ es una suscripción. */
 import type { ReviewResponse, ReviewScript, ReviewSession, StepRef } from '@/lib/review/types';
 
@@ -81,8 +82,27 @@ export interface ReviewStepPanelProps {
    * `null` = el paso no declara lugar, así que no hay requisito.
    */
   enSitio: boolean | null;
+  /**
+   * `true` mientras la sección del paso se está buscando en esta página.
+   *
+   * ⚠ Sin este tercer estado el panel MIENTE durante los primeros segundos: el
+   * perfil trae sus datos después de pintar la ruta, así que la sección no
+   * existe todavía y `enSitio` es `false` -- «andate a la pantalla del paso»,
+   * dicho en la pantalla del paso.
+   */
+  buscandoSitio: boolean;
   /** A dónde ir cuando el lugar del paso no está acá. */
   rutaDelPaso: string;
+  /**
+   * El benchmark mensual vigente del Loan Officer, o `null` si no tiene.
+   *
+   * ⚠ `null` Y `0` NO SON LO MISMO: cero cierres por mes es una decisión, y
+   * `null` es que nadie decidió. Es la distinción que sostiene la tabla, y por
+   * eso el campo arranca vacío sólo en el segundo caso.
+   */
+  benchmarkActual: number | null;
+  /** Para que el anfitrión relea el vigente después de que este panel lo cambie. */
+  onBenchmarkGuardado: () => void;
   /** Guarda el paso. Devuelve el error, o `null` si salió bien. */
   onGuardar: (paso: StepRef, revision: number, comment: string, gate: Record<string, unknown> | null) => Promise<string | null>;
   /** Mueve el cursor. Lo dispara `OK`, en el mismo gesto que el guardado. */
@@ -98,7 +118,10 @@ export default function ReviewStepPanel({
   loName,
   funnelActual,
   enSitio,
+  buscandoSitio,
   rutaDelPaso,
+  benchmarkActual,
+  onBenchmarkGuardado,
   onGuardar,
   onContinuar,
   onCerrar,
@@ -132,10 +155,74 @@ export default function ReviewStepPanel({
    * del componente ya dice el estado, no hay nada que sincronizar.
    */
   const [comment, setComment] = useState(yaContestado?.comment ?? '');
-  const [numero, setNumero] = useState<string>('');
-  const [clicks, setClicks] = useState<string[]>(() =>
-    Array.isArray(yaContestado?.gate?.clicked) ? (yaContestado.gate.clicked as string[]) : []
-  );
+  /*
+   * ══════════════════════════════════════════════════════════════════
+   * EL CAMPO ARRANCA CON EL BENCHMARK QUE YA HAY — etapa RV3
+   * ══════════════════════════════════════════════════════════════════
+   *
+   * Venía vacío, así que parecía que no había ninguno --y Adriana tenía 1 desde
+   * el 21 de agosto--. Un campo vacío sobre un dato que existe es la misma clase
+   * de mentira que un `—` mientras la pantalla carga.
+   *
+   * El remonte por `key` hace el trabajo: al entrar al paso 2 este valor inicial
+   * ya es el vigente, sin un efecto que lo copie.
+   */
+  /*
+   * ⚠ Y SE DERIVA, NO SE COPIA. Escribirlo como valor inicial del estado no
+   * alcanzaba: el anfitrión lee el benchmark de la base y eso llega DESPUÉS de
+   * que el panel monta, así que el valor inicial era `''` y no se corregía nunca
+   * -- el remonte por `key` sólo ocurre al cambiar de paso.
+   *
+   * Medido: el campo quedaba vacío igual que antes del arreglo. La misma forma
+   * que el resto de esta etapa -- un estado capturado antes de que el dato
+   * llegue -- y la misma respuesta que el avance de la revisión: derivar.
+   *
+   * `null` = nadie lo tocó, así que manda el de la base. Un string --incluso
+   * vacío-- es una decisión de quien escribe y le gana.
+   */
+  const [numeroEscrito, setNumeroEscrito] = useState<string | null>(null);
+  const numero =
+    numeroEscrito ?? (benchmarkActual === null ? '' : String(benchmarkActual));
+  const setNumero = setNumeroEscrito;
+  /*
+   * ══════════════════════════════════════════════════════════════════
+   * LOS CLICS SOBREVIVEN A UNA RECARGA — etapa RV3
+   * ══════════════════════════════════════════════════════════════════
+   *
+   * Tres orígenes, en este orden:
+   *
+   *   1. la respuesta ya guardada -- `response.gate.clicked`, que es la fuente
+   *      definitiva y la única que cruza de máquina;
+   *   2. lo que quedó en ESTE navegador de un intento sin cerrar;
+   *   3. nada.
+   *
+   * ⚠ EL PASO 2 NO EXISTIA, y era un agujero real: el paso 4 pide abrir dos
+   * números, y hasta que el paso se cierra esa evidencia no tiene fila en
+   * ninguna tabla. Vivia sólo en memoria, así que una recarga --o cerrar el
+   * modal con F5, o que se caiga la conexión-- obligaba a volver a abrir los
+   * dos sin decir por qué.
+   *
+   * `sessionStorage` y no `localStorage` a propósito: es la evidencia de ESTA
+   * sentada. Si la persona vuelve dentro de una semana, que tenga que volver a
+   * mirar los números es lo correcto -- no son un trámite, son el paso.
+   *
+   * Y NO reemplaza a `response.gate`: eso sigue siendo lo que queda escrito.
+   * Esto es un borrador, con el alcance de un borrador.
+   */
+  const claveClics =
+    'rv-clicks:' + session.session_key + ':' + cursor.phase_no + ':' + cursor.step_in_phase;
+  const [clicks, setClicks] = useState<string[]>(() => {
+    if (Array.isArray(yaContestado?.gate?.clicked)) return yaContestado.gate.clicked as string[];
+    try {
+      const crudo = sessionStorage.getItem(claveClics);
+      const arr = crudo === null ? null : JSON.parse(crudo);
+      return Array.isArray(arr) ? arr.filter((x): x is string => typeof x === 'string') : [];
+    } catch {
+      /* Sin almacenamiento --modo privado, permisos-- se arranca vacío. Es una
+         pérdida de comodidad, no de corrección. */
+      return [];
+    }
+  });
   /* Un paso ya contestado tiene su presupuesto guardado: si no, no habría
      podido cerrarse. */
   const [budgetListo, setBudgetListo] = useState(yaContestado !== null);
@@ -179,6 +266,77 @@ export default function ReviewStepPanel({
    */
   const pedidos = paso ? requiredClicks(paso) : [];
   const pedidosClave = pedidos.join(',');
+
+  /* Guardar el borrador de clics. Es sincronizar con un sistema externo, que es
+     para lo que un efecto está: no calcula nada de la vista. */
+  useEffect(() => {
+    try {
+      if (clicks.length === 0) sessionStorage.removeItem(claveClics);
+      else sessionStorage.setItem(claveClics, JSON.stringify(clicks));
+    } catch {
+      /* Ver la nota del estado inicial. */
+    }
+  }, [claveClics, clicks]);
+
+  /*
+   * ══════════════════════════════════════════════════════════════════
+   * ⚠ UNA MARCA QUE NO EXISTE SE DICE EN PANTALLA — etapa RV3
+   * ══════════════════════════════════════════════════════════════════
+   *
+   * Este efecto existe por el defecto que lo hizo falta: `data-review-click` no
+   * estaba escrito en NINGUN elemento de la app. El listener de abajo escuchaba
+   * una marca que nadie llevaba, así que los clics de Isabella no se contaban y
+   * el paso 4 no se podía cerrar. Nada fallaba: el botón apagado y un aviso
+   * pidiendo los dos números que ella acababa de abrir.
+   *
+   * Lo que lo hacía invisible es que las dos mitades son correctas por separado
+   * --la pantalla dibuja sus tarjetas, el panel pide sus clics-- y nadie
+   * comprobaba que se conocieran. Ahora el panel lo comprueba y lo dice, con los
+   * identificadores exactos: es un error de cableado, y quien lo lea tiene que
+   * poder distinguirlo de algo que hizo mal.
+   *
+   * Se mira DESPUES del plazo y no en el primer cuadro, por la misma razon de
+   * siempre: una pantalla que no cargo no tiene las tarjetas todavia.
+   */
+  const [marcasAusentes, setMarcasAusentes] = useState<string[]>([]);
+  useEffect(() => {
+    if (pedidosClave === '') return;
+    const lista = pedidosClave.split(',');
+    let vivo = true;
+    /*
+     * El plazo se cuenta en INTENTOS y no con `Date.now()`: eslint marca la
+     * llamada impura con `react-hooks/purity`, y tenía razón en que no hacía
+     * falta — lo que se espera es «la pantalla terminó de dibujar sus
+     * tarjetas», y eso se cuenta en vueltas del reintento, no en reloj.
+     */
+    const MAX_INTENTOS = 20; /* × 500ms = 10s */
+    let intentos = 0;
+    const mirar = () => {
+      const faltan = lista.filter(
+        (id) => document.querySelector('[data-review-click="' + id + '"]') === null
+      );
+      if (!vivo) return true;
+      if (faltan.length === 0) {
+        setMarcasAusentes([]);
+        return true;
+      }
+      intentos += 1;
+      if (intentos >= MAX_INTENTOS) {
+        setMarcasAusentes(faltan);
+        return true;
+      }
+      return false;
+    };
+    if (mirar()) return;
+    const t = setInterval(() => {
+      if (mirar()) clearInterval(t);
+    }, 500);
+    return () => {
+      vivo = false;
+      clearInterval(t);
+    };
+  }, [pedidosClave]);
+
   useEffect(() => {
     const lista = pedidosClave === '' ? [] : pedidosClave.split(',');
     if (lista.length === 0) return;
@@ -227,6 +385,32 @@ export default function ReviewStepPanel({
    * Se dibuja la cabecera y la pregunta --así sabe qué viene-- y nada donde
    * escribir. El link lleva al módulo de la fase.
    */
+  /*
+   * ⚠ BUSCANDO: no se afirma nada todavía.
+   *
+   * Va ANTES del corte de `enSitio === false`, porque mientras se busca
+   * `enSitio` tambien es `false` -- y decir «esto se contesta en otra pantalla»
+   * estando en la correcta es la mentira que este estado vino a sacar.
+   *
+   * Se dibuja el paso y su pregunta, que ya son ciertos, y nada mas: ni el campo
+   * ni el aviso de irse. Sin un «cargando» propio, que seria una segunda fuente
+   * para lo que el modulo ya dice.
+   */
+  if (buscandoSitio) {
+    return (
+      <div className="rv-panel rv-panel--buscando" role="region" aria-label="Review step">
+        <div className="rv-panel__head">
+          <span className="rv-panel__step">
+            Phase {paso.phase_no} · step {paso.step_in_phase}
+          </span>
+          <span className="rv-panel__label">{paso.label}</span>
+          {yaContestado && <span className="rv-panel__done">answered</span>}
+        </div>
+        <p className="rv-panel__prompt">{texto.prompt}</p>
+      </div>
+    );
+  }
+
   if (enSitio === false) {
     return (
       <div className="rv-panel rv-panel--lejos" role="region" aria-label="Review step">
@@ -274,6 +458,39 @@ export default function ReviewStepPanel({
   async function guardarYSeguir() {
     if (!estado.ok || ocupado) return;
     setOcupado(true);
+
+    /*
+     * ═════════════════════════════════════════════════════════════════
+     * EL BENCHMARK SE ESCRIBE DE VERDAD — etapa RV3
+     * ═════════════════════════════════════════════════════════════════
+     *
+     * En RV1 el número del paso 2 no iba a ninguna parte: la compuerta pedia
+     * "escribi un número" y la evidencia guardaba `benchmark_set: true`. El
+     * número se escribía en el perfil, aparte. Con el campo ACÁ, eso es un paso
+     * de teatro -- se tipea un valor que no cambia nada.
+     *
+     * ⚠ Y SIGUE HABIENDO UNA SOLA FUENTE DEL NÚMERO: `org.employee_benchmark`.
+     * `response.gate` guarda que se fijó, no cuánto. Copiar el número ahí daría
+     * dos lugares libres de discrepar, que es lo que RV1 evitó a propósito.
+     *
+     * ⚠ Y EL ORDEN IMPORTA: primero el benchmark, después la respuesta. Si el
+     * benchmark falla, el paso NO se cierra -- cerrarlo diría que se fijó uno
+     * que no se fijó. Al revés, un paso cerrado sin su benchmark es una
+     * revisión que miente sobre lo que hizo.
+     */
+    /* `typeof` y no `!== null`: en `StepDraft` el número es opcional, así que
+       descartar sólo `null` deja pasar `undefined` -- lo dijo el typechecker. */
+    const nro = draft.numero;
+    if (paso!.gate_kind === 'number' && typeof nro === 'number' && nro !== benchmarkActual) {
+      const rb = await fijarBenchmark(session.lo_employee_key, nro, comment);
+      if (!rb.ok) {
+        setError(rb.error ?? 'The benchmark was not saved.');
+        setOcupado(false);
+        return;
+      }
+      onBenchmarkGuardado();
+    }
+
     const errGuardar = await onGuardar(cursor, texto!.revision, comment, gateEvidence(paso!, draft));
     if (errGuardar) {
       setError(errGuardar);
@@ -340,12 +557,26 @@ export default function ReviewStepPanel({
 
       {paso.gate_kind === 'number' && editando && (
         <label className="rv-panel__field">
-          <span className="rv-panel__fieldlabel">Benchmark</span>
+          <span className="rv-panel__fieldlabel">
+            Benchmark
+            {/*
+              Que el vigente se DIGA, y no sólo se precargue: un número en un
+              campo no dice si es el que hay o uno que alguien tipeó y no
+              guardó. Y que editarlo reemplaza, porque reemplaza.
+            */}
+            {benchmarkActual === null ? (
+              <span className="rv-panel__hintline">no benchmark set yet</span>
+            ) : (
+              <span className="rv-panel__hintline">
+                now {benchmarkActual} / month · saving a different number replaces it
+              </span>
+            )}
+          </span>
           <input
             className="field"
             type="number"
             min="0"
-            step="1"
+            step="0.5"
             value={numero}
             onChange={(e) => setNumero(e.target.value)}
             placeholder="closings per month"
@@ -403,6 +634,21 @@ export default function ReviewStepPanel({
             Edit this comment
           </button>
         </div>
+      )}
+
+      {/*
+        ⚠ EL CABLEADO ROTO, DICHO. Un paso que pide un clic cuya marca no existe
+        en la pantalla no se puede cerrar nunca, y sin esto no se puede saber por
+        que. Le pasó a Isabella con los dos números del paso 4.
+      */}
+      {marcasAusentes.length > 0 && (
+        <p className="rv-panel__gate" role="alert">
+          <AlertTriangleIcon size={13} /> This step waits for{' '}
+          {marcasAusentes.map(enPalabras).join(' and ')} to be opened, but{' '}
+          {marcasAusentes.length === 1 ? 'that number is' : 'those numbers are'} not marked on this
+          screen — so the step cannot register the click. That is a wiring bug between the script
+          and the page, not something you did. Report it with this step number.
+        </p>
       )}
 
       {error && (
