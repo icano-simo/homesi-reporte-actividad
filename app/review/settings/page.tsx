@@ -232,7 +232,7 @@ export default function ReviewSettingsPage() {
         porque asignar y no ver lo asignado se lee como que no se guardó.
       */}
       {myEmployeeKey === null && !pendiente && (
-        <p className="bp-hint bp-hint--warn">
+        <p className="rv-hint rv-hint--warn">
           Your sign-in email is not on the active roster. You can still assign reviews, but you will
           not appear as a reviewer in any of them.
         </p>
@@ -302,7 +302,7 @@ export default function ReviewSettingsPage() {
             />
           </label>
 
-          <p className="bp-hint">
+          <p className="rv-hint">
             The reviewer sees this Loan Officer in their own <strong>My reviews</strong> list. A Loan
             Officer can only have one review in progress at a time — the database refuses a second
             one, so the worst that can happen is that this says so.

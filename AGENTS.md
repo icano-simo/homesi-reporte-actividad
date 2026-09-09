@@ -291,6 +291,13 @@ Las dos reglas operativas que salen de acá:
   regla es «sólo el responsable puede», la prueba que importa es la de alguien
   que no lo es — y hay que mirar si le queda algún camino, no si el control
   respeta la regla.
+- **Y después de arreglarlo, como el PROPIO.** Es la mitad que falta y se olvida
+  porque el hallazgo ya se siente cerrado. La máscara de la revisión se prendía
+  con la sesión en curso de otra persona; el arreglo fue filtrar por «soy el
+  revisor», y **un filtro de más le apaga la barra justo a quien sí la
+  necesita** — que era la persona a punto de recorrer el flujo. Las nueve
+  aserciones del caso ajeno daban verde con la pantalla del propio en blanco:
+  «ya no la ve el que no debe» y «no la ve nadie» se miden igual.
 - **Al menos una verificación por pantalla tiene que salir del OBJETIVO y no de
   la implementación.** No «el desplegable ofrece los estados permitidos» sino
   «¿alguien puede registrar que esto se hizo?». La primera se contesta leyendo
@@ -487,7 +494,7 @@ Y de ahí lo que hay que mirar: **un respaldo que nunca se ejerció es sospechos
 O el original siempre estuvo, y el respaldo sobra; o el original nunca estuvo, y
 lo que se está usando es el respaldo sin saberlo.
 
-## Los tres casos
+## Los cuatro casos
 
 **1. `--white`, con su fallback.** El token no estaba definido en ninguna parte, y
 los cuatro usos del módulo Outlook lo pedían como `var(--white, #fff)` o
@@ -509,6 +516,23 @@ parser cae a cadena vacía y no a `null`, así que **«no vino la columna» y «
 vacía» se guardan igual** y no se pueden distinguir después. Está documentado en
 `docs/ARQUITECTURA.md` y no se cambió, porque tocar esa coerción afecta a otras
 etapas — pero saberlo es lo que evita leer un `''` como una decisión.
+
+**4. `bp-hint`, una clase que no existía.** Siete usos en cuatro archivos, y la
+regla no estaba definida en **ninguna** hoja del árbol. Nunca se vio: un párrafo
+sin regla no queda invisible, hereda los 14px del documento y se lee igual — sin
+el tamaño, el color ni el interlineado que le tocaban. Es el mecanismo del caso
+2 con otro disfraz, y por eso va acá y no en una sección propia.
+
+Lo que lo hizo durar: el comentario del layout **afirmaba** que la hoja del
+Business Plan la traía. Una nota correcta sobre las otras tres clases de la
+misma lista, falsa sobre la cuarta, y nadie vuelve a verificar una nota.
+
+Y la vuelta operativa que sale de acá, porque el `git grep` de la sección
+anterior no lo agarra: ese grep pregunta **«esta clase ya existe?»** para no
+pisarla, y éste pregunta lo contrario, **«las clases que escribo existen?»**. Se
+leen del JSX y se buscan en las hojas — al revés de como se escribieron. Son dos
+chequeos distintos sobre el mismo `grep`, y el segundo encontró un
+`rv-intake__body` sin regla en la primera corrida.
 
 ## El contraejemplo, que es el que enseña
 

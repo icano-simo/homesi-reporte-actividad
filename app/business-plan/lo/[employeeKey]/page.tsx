@@ -17,6 +17,8 @@ import {
   modalKindOfMetric,
 } from '../../components/performance';
 import NotesPanel from '../../components/NotesPanel';
+import ReviewIntake from '@/components/review/ReviewIntake';
+import { useReview } from '@/components/review/ReviewProvider';
 import { FunnelGlyph } from '../../components/funnelIcons';
 import {
   CalcNote,
@@ -46,6 +48,13 @@ import {
 
 
 export default function LoanOfficerDetailPage({ params }: { params: Promise<{ employeeKey: string }> }) {
+  /*
+   * `habilitado` del proveedor de la revisión: es el mismo corte que evita que
+   * las 97 personas que no son del BP Team consulten `review` en cada perfil
+   * que abren. Y si no hay proveedor --no debería pasar, vive en el layout
+   * raíz-- devuelve `false`, que es el lado seguro.
+   */
+  const { habilitado: puedeVerRevisiones } = useReview();
   const { employeeKey: rawKey } = use(params);
   /*
    * `org.dim_employee.employee_key` es `bigint` (etapa BP6). En JavaScript no
@@ -124,6 +133,27 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
             {/* El veredicto es lo primero que hay que leer, no una pill al margen. */}
             <VerdictPanel verdict={lo.verdict} />
           </div>
+
+          {/*
+            ═══════════════════════════════════════════════════════════════
+            EL INTAKE DE LAS REVISIONES — etapa RV1
+            ═══════════════════════════════════════════════════════════════
+
+            DEBAJO DEL NOMBRE, como pide el punto 5 del brief: lo que se dijo en
+            las revisiones de esta persona, por fase, con su fecha.
+
+            ⚠ Y NO SE DIBUJA NADA si no hay revisiones. Un encabezado
+            `Review intake` vacío en el perfil de las 30 personas sin revisar es
+            ruido en 30 pantallas.
+
+            El componente decide los tres vacíos --sin revisiones, sin permiso,
+            sin comentarios-- porque son la misma forma con respuestas distintas.
+          */}
+          <ReviewIntake
+            loEmployeeKey={lo.employeeKey}
+            loName={lo.fullName}
+            habilitado={puedeVerRevisiones}
+          />
 
           {/*
             Si ya tiene plan, se dice ARRIBA y visible. Sin esto el perfil se veía

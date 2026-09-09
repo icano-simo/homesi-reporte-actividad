@@ -52,7 +52,22 @@ export interface ReviewContextValue {
   script: ReviewScript | null;
   scriptUnavailable: ReviewUnavailable;
   scriptError: string | null;
+  /**
+   * TODAS las asignaciones activas que la sesion puede ver. Con `review_admin`
+   * son las de todo el mundo -- es lo que la pantalla de configuracion
+   * necesita, y por eso esta lista NO esta filtrada.
+   */
   reviews: MyReview[] | null;
+  /**
+   * Las que ESTA persona revisa. `null` mientras no se sepa quien es.
+   *
+   * ⚠ Existe porque `reviews` no sirve para esto y se estaba usando igual:
+   * con `review_admin`, /review listaba las revisiones de todos y la mascara
+   * se prendia con la sesion en curso de otra persona -- su nombre en la barra
+   * y un boton `OK` sobre su paso. Se deriva ACA, una sola vez, para que los
+   * dos lugares que quieren decir "las mias" no puedan divergir.
+   */
+  myReviews: MyReview[] | null;
   reviewsUnavailable: ReviewUnavailable;
   reviewsError: string | null;
   isLoading: boolean;
@@ -79,6 +94,7 @@ const SIN_PROVEEDOR: ReviewContextValue = {
   scriptUnavailable: null,
   scriptError: null,
   reviews: null,
+  myReviews: null,
   reviewsUnavailable: null,
   reviewsError: null,
   isLoading: false,
@@ -118,12 +134,28 @@ export default function ReviewProvider({ puedeRevisar, children }: ReviewProvide
   const script = useReviewScript(puedeRevisar);
   const reviews = useMyReviews(puedeRevisar);
 
+  /*
+   * Las mias. `undefined` en `myEmployeeKey` es "todavia no se sabe" y devuelve
+   * `null`; `null` es "el email no esta en el roster activo" y devuelve la
+   * lista vacia, que es correcta: esa persona no revisa a nadie.
+   *
+   * Los dos estados no se compensan a `[]`: una lista vacia diria "no te toca
+   * ninguna" cuando lo que pasa es que no se pregunto todavia.
+   */
+  const mias = useMemo<MyReview[] | null>(() => {
+    if (reviews.data === null || reviews.myEmployeeKey === undefined) return null;
+    return reviews.data.filter(
+      (r) => r.assignment.reviewer_employee_key === reviews.myEmployeeKey
+    );
+  }, [reviews.data, reviews.myEmployeeKey]);
+
   const valor = useMemo<ReviewContextValue>(
     () => ({
       script: script.data,
       scriptUnavailable: script.unavailable,
       scriptError: script.error,
       reviews: reviews.data,
+      myReviews: mias,
       reviewsUnavailable: reviews.unavailable,
       reviewsError: reviews.error,
       isLoading: script.isLoading || reviews.isLoading,
@@ -138,6 +170,7 @@ export default function ReviewProvider({ puedeRevisar, children }: ReviewProvide
       script.error,
       script.isLoading,
       reviews.data,
+      mias,
       reviews.unavailable,
       reviews.error,
       reviews.isLoading,

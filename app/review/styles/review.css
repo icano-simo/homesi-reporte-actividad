@@ -422,3 +422,207 @@ body:has(.rv-bar) .app {
   align-items: center;
   gap: 8px;
 }
+
+/* ── El aviso en prosa: `rv-hint` ──────────────────────────────────── */
+
+/*
+ * ⚠ ESTAS DOS REGLAS ARREGLAN UN DEFECTO, no agregan una pantalla.
+ *
+ * Las cuatro pantallas de la revision escribian `bp-hint` --siete usos-- y esa
+ * clase no esta definida en NINGUNA hoja del arbol. Nunca se vio porque un
+ * parrafo sin regla no queda invisible: hereda los 14px del documento y se lee
+ * igual, sin el tamano, el color ni el interlineado que le tocaban.
+ *
+ * Comprobado por dos vias: `grep` sobre las hojas del repo, y la hoja
+ * COMPILADA que Next sirve --`.rv-bar` diez veces, `bp-hint` cero-->.
+ *
+ * Es el mismo mecanismo que `--ol-text` fuera de su alcance: el respaldo no
+ * esta escrito, es la herencia del CSS, que siempre tiene algo que dar.
+ */
+.rv-hint {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--slate-500);
+}
+/* La variante de aviso, con la misma forma que la razon del gate: mismo tono
+   para el mismo significado --algo que hay que leer antes de seguir--. */
+.rv-hint--warn {
+  padding: 8px 11px;
+  border-radius: var(--radius-sm);
+  background: var(--amber-50);
+  border-left: 2px solid var(--amber-500);
+  color: var(--amber-800);
+}
+
+/* ── El intake, en el perfil del Loan Officer ─────────────────────── */
+
+/*
+ * Vive en esta hoja --que se carga en las cuatro pantallas del portal-- y no en
+ * `bp-visual.css`, por la misma razon que el resto de `rv-`: es de la revision,
+ * y Business Plan no tiene por que saber que existe. La hoja ya esta cargada
+ * ahi porque la mascara la necesita.
+ */
+.rv-intake {
+  margin-top: 20px;
+  padding: 16px 18px;
+  background: var(--canvas);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+}
+.rv-intake__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 10px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--slate-200);
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--navy);
+}
+.rv-intake__n {
+  padding: 2px 9px;
+  border-radius: var(--radius-full);
+  background: var(--slate-100);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--slate-500);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Las revisiones como pestanas. Mismo lenguaje que `bp-modtabs` pero clase
+   propia: redefinir esa habria cambiado las pestanas de Funnels & Nodes. */
+.rv-intake__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--slate-200);
+}
+.rv-intake__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 13px;
+  margin-bottom: -1px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--slate-500);
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.rv-intake__tab:hover {
+  color: var(--navy);
+}
+.rv-intake__tab.is-on {
+  color: var(--navy);
+  border-bottom-color: var(--coral);
+}
+/* `in progress` con su palabra, no un tinte: una revision a medias tiene
+   comentarios que valen y hay que poder distinguirla de una cerrada. */
+.rv-intake__wip {
+  padding: 1px 7px;
+  border-radius: var(--radius-full);
+  background: var(--amber-50);
+  border: 1px solid var(--amber-200);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--amber-800);
+}
+.rv-intake__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 12px;
+  font-size: 11.5px;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+.rv-intake__phase {
+  margin-bottom: 14px;
+}
+.rv-intake__phasehead {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin: 0 0 7px;
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--slate-500);
+}
+.rv-intake__phasen {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+/*
+ * Cada respuesta. El COMENTARIO manda sobre la pregunta: la pregunta esta para
+ * dar contexto y es la misma en todas las revisiones; lo que cambia --y lo que
+ * alguien viene a leer-- es lo que se dijo. De ahi los 13px del comentario
+ * contra los 11,5 de la pregunta, y el navy contra el slate.
+ */
+.rv-intake__answer {
+  padding: 10px 0;
+  border-top: 1px solid var(--slate-100);
+}
+.rv-intake__step {
+  margin: 0 0 3px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+}
+.rv-intake__prompt {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 5px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--slate-400);
+}
+/* La pregunta que ya no esta en el registro: se dice, no se esconde. */
+.rv-intake__prompt--gone {
+  color: var(--amber-800);
+}
+.rv-intake__old {
+  padding: 1px 7px;
+  border-radius: var(--radius-full);
+  background: var(--amber-50);
+  border: 1px solid var(--amber-200);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--amber-800);
+}
+.rv-intake__comment {
+  margin: 0 0 4px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--navy);
+  /* Los saltos de linea que la persona escribio se conservan: un comentario de
+     tres parrafos en un solo bloque no se lee. */
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.rv-intake__by {
+  margin: 0;
+  font-size: 10.5px;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}

@@ -59,7 +59,14 @@ export default function ArrancarRevisionPage() {
    * llamaba a `reload()` de SU instancia del hook, y el anfitrión de la máscara
    * tenía otra. Ahora es una sola, así que `recargar()` hace aparecer la barra.
    */
-  const { script: guion, reviews: filas, isLoading, scriptError, reviewsError, recargar } =
+  /*
+   * `myReviews` y no `reviews`: el aviso de abajo dice «no está en TU lista», y
+   * con la lista completa --la que ve quien tiene `review_admin`-- eso era
+   * falso: encontraba la asignación ajena e intentaba arrancarle una sesión.
+   * RLS lo paraba (`session_insert` pide `owns_session`), así que el resultado
+   * era un error crudo en vez del aviso que ya estaba escrito para este caso.
+   */
+  const { script: guion, myReviews: filas, isLoading, scriptError, reviewsError, recargar } =
     useReview();
   const [error, setError] = useState<string | null>(null);
   /* Que el efecto no corra dos veces: crear una sesión no es idempotente en el

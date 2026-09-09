@@ -1,10 +1,15 @@
 import type { ReactNode } from 'react';
 import ModuleSidebar from '../business-plan/components/ModuleSidebar';
 /*
- * Se reusa la hoja del Business Plan --`.bp-btn`, `.bp-pending`, `.bp-hint`,
- * `.page-head`-- por el mismo motivo que Admin y Outlook: el lenguaje visual del
- * portal ya existe, y duplicar sus reglas garantiza que las dos versiones se
- * separen con el primer ajuste.
+ * Se reusa la hoja del Business Plan --`.bp-btn`, `.bp-pending`, `.page-head`--
+ * por el mismo motivo que Admin y Outlook: el lenguaje visual del portal ya
+ * existe, y duplicar sus reglas garantiza que las dos versiones se separen con
+ * el primer ajuste.
+ *
+ * ⚠ Y lo que NO se reusa: esta nota decia `.bp-hint` y esa clase no existe en
+ * ninguna hoja del arbol. Se usaba en siete lugares y nunca fallo, porque un
+ * parrafo sin regla hereda el texto del documento -- el respaldo que siempre
+ * tiene algo que dar. Ahora es `.rv-hint`, definida en `review.css`.
  *
  * ⚠ `review.css` NO se importa acá, y es lo que hay que notar: la MÁSCARA vive
  * en el layout raíz para sobrevivir al cruce de módulo, así que su CSS tiene

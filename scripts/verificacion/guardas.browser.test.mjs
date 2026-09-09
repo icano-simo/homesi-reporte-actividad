@@ -39,7 +39,7 @@ const { chromium } = await import(
   /^file:\/\//.test(rutaPlaywright) ? rutaPlaywright : pathToFileURL(rutaPlaywright).href
 );
 
-const a = crearArnes({ minimo: 19 });
+const a = crearArnes({ minimo: 21 });
 const browser = await chromium.launch({
   executablePath: process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe',
   headless: true,
@@ -170,6 +170,29 @@ try {
     (x) => { window.__vio = String(x); return true; }, { timeout: 8000 });
   vio = await page.evaluate(() => window.__vio);
   a.ck(vio === 'undefined', 'sin `arg`, el predicado recibe undefined (recibio: ' + vio + ')');
+
+  /* ── esperarDato DEVUELVE el dato que espero ──
+     Sin esto, quien llama espera una cosa y despues la vuelve a buscar con otro
+     selector -- que es como se termina esperando una cosa y midiendo otra. La
+     vez que lo pedi devolvio `undefined` y por poco concluyo que el nombre no
+     estaba: la espera si se habia cumplido. */
+  console.log('\n=== esperarDato: devuelve lo que espero ===');
+  await page.setContent('<h1 id="d">Ada Lovelace</h1>');
+  const devuelto = await esperarDato(page, 'el titulo trae un nombre de verdad',
+    () => {
+      const t = document.getElementById('d').textContent.trim();
+      return t.length > 3 && t !== '\u2014' ? t : null;
+    }, { timeout: 8000 });
+  a.ck(devuelto === 'Ada Lovelace',
+     'devuelve el valor del predicado, no un booleano (devolvio: ' + JSON.stringify(devuelto) + ')');
+
+  /* Y lo que pasa con un valor que NO viaja, medido en vez de supuesto: yo
+     escribi que `jsonValue` tiraba. No tira -- devuelve un marcador, que se lee
+     como un dato y no lo es. Por eso el predicado tiene que devolver un plano. */
+  const nodo = await esperarDato(page, 'el nodo del titulo existe',
+    () => document.getElementById('d'), { timeout: 8000 });
+  a.ck(typeof nodo === 'string' && nodo.startsWith('ref:'),
+     'un nodo del DOM vuelve como marcador, NO como el nodo: ' + JSON.stringify(nodo));
 
 } finally {
   await browser.close();

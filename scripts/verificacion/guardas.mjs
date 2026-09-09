@@ -113,6 +113,15 @@ export async function diagnosticarTexto(locator) {
  *   espera correcta muchas veces es "el título ya dice ESTE nombre" -- que es un
  *   valor que está acá. Sin él la espera se degrada a "hay un título", que es
  *   justo la señal equivocada que esta función existe para evitar.
+ * @returns {Promise<any>} Lo que devolvió el predicado la vez que se cumplió.
+ *   Es la mitad que faltaba: la función existe para que se espere AL DATO QUE SE
+ *   VA A LEER, y devolverlo permite leer ESE y no volver a buscarlo con otro
+ *   selector -- que es como se vuelve a esperar una cosa y medir otra.
+ *
+ *   ⚠ EL PREDICADO TIENE QUE DEVOLVER UN VALOR PLANO. Un nodo del DOM no
+ *   viaja: Playwright NO falla, devuelve la cadena `'ref: <Node>'`, que se lee
+ *   como un dato y no lo es. Lo comprobado, no lo supuesto -- yo escribí que
+ *   tiraba y la aserción de `guardas.browser.test.mjs` dijo que no.
  */
 export async function esperarDato(page, descripcion, predicadoEnElNavegador, opts = {}) {
   const { timeout = 120000, arg = undefined } = opts;
@@ -123,14 +132,24 @@ export async function esperarDato(page, descripcion, predicadoEnElNavegador, opt
         'que lo llena otra carga da doce falsos negativos seguidos.'
     );
   }
+  let handle;
   try {
-    await page.waitForFunction(predicadoEnElNavegador, arg, { timeout });
+    handle = await page.waitForFunction(predicadoEnElNavegador, arg, { timeout });
   } catch {
     throw new Error(
       `esperarDato: "${descripcion}" no llegó en ${timeout}ms. ` +
         'Antes de concluir que el dato no existe: una pantalla que todavía no cargó dice ' +
         'exactamente lo mismo que una que no tiene el dato.'
     );
+  }
+  /* `jsonValue` no falla con un valor que no viaja: devuelve un marcador.
+     El `catch` queda igual porque el handle puede quedar huérfano si la página
+     navega entremedio, y en ese caso la espera YA se cumplió -- devolver
+     `undefined` es correcto y tirar no lo sería. */
+  try {
+    return await handle.jsonValue();
+  } catch {
+    return undefined;
   }
 }
 

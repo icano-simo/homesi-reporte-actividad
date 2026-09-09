@@ -112,7 +112,9 @@ export default function MyReviewsPage() {
    * fueron el defecto que dejo la mascara invisible: la de esta pantalla creaba
    * la sesion y recargaba, y la del anfitrion nunca se enteraba.
    */
-  const { script: guion, reviews: filasCrudas, isLoading, scriptError, reviewsError,
+  /* `myReviews` y no `reviews`: la segunda son TODAS las que la sesion puede
+     ver, y con `review_admin` eso es la lista de todo el mundo. */
+  const { script: guion, myReviews: filasCrudas, isLoading, scriptError, reviewsError,
     scriptUnavailable, reviewsUnavailable, myEmployeeKey, canAssign } = useReview();
 
   /*
@@ -218,7 +220,7 @@ export default function MyReviewsPage() {
 
       {!pendiente && !isLoading && !reviewsError && filas.length === 0 &&
         myEmployeeKey !== null && (
-          <p className="bp-hint">
+          <p className="rv-hint">
             {myEmployeeKey === undefined
               ? 'Checking who you are…'
               : 'Nothing assigned to you yet. Assignments are set in Review settings by the Business Plan leads.'}

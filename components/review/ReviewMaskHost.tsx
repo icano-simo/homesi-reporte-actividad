@@ -42,7 +42,7 @@ import ReviewStepPanel from './ReviewStepPanel';
  * dejarlo acá también habría sido la misma decisión en dos lugares.
  */
 export default function ReviewMaskHost() {
-  const { script, reviews, recargar, habilitado } = useReview();
+  const { script, myReviews, recargar, habilitado } = useReview();
   const pathname = usePathname();
   const router = useRouter();
 
@@ -79,8 +79,11 @@ export default function ReviewMaskHost() {
    * la fase 3 tiene que distinguir.
    */
   const [funnelActual, setFunnelActual] = useState<string | null>(null);
+  /* `myReviews`: la sesion en curso que importa es LA PROPIA. Con `reviews`
+     --todas las visibles-- quien tiene `review_admin` veia la barra de la
+     revision de otra persona. */
   const loEnCurso =
-    (reviews ?? []).find((r) => r.session?.status === 'in_progress')?.session
+    (myReviews ?? []).find((r) => r.session?.status === 'in_progress')?.session
       ?.lo_employee_key ?? null;
 
   useEffect(() => {
@@ -128,7 +131,7 @@ export default function ReviewMaskHost() {
 
   if (!habilitado) return null;
 
-  const activo = (reviews ?? []).find((r) => r.session?.status === 'in_progress') ?? null;
+  const activo = (myReviews ?? []).find((r) => r.session?.status === 'in_progress') ?? null;
 
   return (
     <>
