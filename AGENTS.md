@@ -494,6 +494,56 @@ La regla operativa afinada: la prueba de una entrada nueva **no es que esté**,
 es **usarla y mirar dónde quedás**. Y si lo nuevo saca a alguien del contexto
 donde vive el control, mirar también **cómo vuelve**.
 
+## El hermano mayor: dos copias de la misma decisión
+
+**Una copia no se extrae por cantidad de llamadores. Se extrae porque las dos
+son la misma decisión.**
+
+`rutaDelModulo` --a dónde manda cada módulo de una revisión-- estaba escrita dos
+veces, con esta nota puesta a propósito:
+
+> Duplicado a propósito: son dos momentos distintos --entrar y avanzar-- y
+> compartirlo obligaría a un archivo más para tres líneas. **Si aparece un tercer
+> llamador, se extrae.**
+
+No apareció un tercer llamador. **Apareció un cambio.** Una etapa le enseñó a una
+de las copias que Outlook tiene una pantalla por branch, y a la otra no. Desde
+ahí, AVANZAR a la fase 2 llevaba al branch de la persona y RETOMAR la misma
+revisión llevaba a la lista de los trece branches -- con el panel diciendo que
+esa no era la pantalla del paso.
+
+> **Las dos copias eran correctas cuando se escribieron. Lo que las separó fue
+> editar una.**
+
+Y por eso la condición de la nota vieja mira lo que no importa: **dos copias con
+un solo llamador cada una divergen igual.** El disparador no es el tercer
+llamador, es el primer `edit`.
+
+Van **ocho** de esta familia en el proyecto, y la lista deja ver que el número de
+llamadores nunca fue el problema:
+
+| las dos copias | qué las separó |
+|---|---|
+| `rutaDelModulo` en el anfitrión y en la pantalla de arranque | una aprendió del branch de Outlook |
+| el `insert` del benchmark en el perfil y en el paso 2 | el paso 2 necesitaba su propio manejo de error |
+| tres `find` de «la sesión en curso» en el mismo componente | uno pasó a `myReviews` y los otros no |
+| el conteo del avance guardado y derivado | se decidió derivarlo antes de que divergiera |
+| `enrollmentsByFunnel` contado dos veces | BP40, misma decisión en dos lugares |
+| `endsDay` sumado aparte de `nodeDayRanges` | idem |
+| el branch de la persona, leído en el efecto y en la navegación | la navegación tenía que esperarlo |
+| `.bp-pill` definida dos veces en el CSS | la segunda le ganó a la primera |
+
+La regla operativa: **al escribir la segunda copia de algo, la pregunta no es
+cuántos la llaman, es si las dos tienen que decidir lo mismo.** Si la respuesta
+es sí, se extrae ahora -- cuesta un archivo. Si es no, la nota tiene que decir
+**qué las hace distintas**, no cuántos llamadores hay: así la próxima persona
+puede comprobar si esa diferencia sigue siendo cierta.
+
+Y el corolario, que es el que hace falta cuando ya hay dos: **al editar una
+copia, la pregunta es si la otra necesita el mismo cambio.** Es la misma forma
+que la clase de CSS redefinida --el daño no aparece donde escribiste, aparece
+donde ya estaba-- y por eso este caso va justo antes.
+
 ## Y el caso hermano: redefinir un nombre que ya existía
 
 Antes de definir una clase de CSS, **verificar que el nombre no exista**. Un
