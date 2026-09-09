@@ -103,12 +103,33 @@ export interface ReviewStepPanelProps {
   benchmarkActual: number | null;
   /** Para que el anfitrión relea el vigente después de que este panel lo cambie. */
   onBenchmarkGuardado: () => void;
+  /**
+   * ⚠ SI EL PRESUPUESTO SE GUARDÓ DE VERDAD DURANTE ESTA SESIÓN.
+   *
+   * Lo mide el anfitrión contra las tres tablas de Outlook. Reemplaza a la
+   * casilla «I saved the budget for X in Outlook», que era una declaración de la
+   * propia persona: aparentaba ser una compuerta y no lo era.
+   */
+  presupuestoGuardado: boolean;
+  /**
+   * En qué branches está el Loan Officer. Con más de uno, la revisión manda al
+   * primero y el panel lo DICE -- elegir en silencio sería mandar a una pantalla
+   * que puede no ser la que hace falta.
+   */
+  branchesDelLo: readonly string[];
   /** Guarda el paso. Devuelve el error, o `null` si salió bien. */
   onGuardar: (paso: StepRef, revision: number, comment: string, gate: Record<string, unknown> | null) => Promise<string | null>;
   /** Mueve el cursor. Lo dispara `OK`, en el mismo gesto que el guardado. */
   onContinuar: (destino: StepRef) => Promise<string | null>;
-  /** Cierra la revisión. Sólo se ofrece en el último paso del guion. */
-  onCerrar: () => Promise<string | null>;
+  /**
+   * ⚠ EL ÚLTIMO PASO NO CIERRA: PIDE EL RESUMEN — etapa RV4.
+   *
+   * Cerrar era el último gesto y no había dónde mirar lo que se había escrito.
+   * Ahora el último `OK` guarda y muestra todo, con la sesión TODAVÍA abierta --
+   * que es la única forma de poder corregir: `response_insert` exige
+   * `status = 'in_progress'`.
+   */
+  onResumen: () => void;
 }
 
 export default function ReviewStepPanel({
@@ -122,9 +143,11 @@ export default function ReviewStepPanel({
   rutaDelPaso,
   benchmarkActual,
   onBenchmarkGuardado,
+  presupuestoGuardado,
+  branchesDelLo,
   onGuardar,
   onContinuar,
-  onCerrar,
+  onResumen,
 }: ReviewStepPanelProps) {
   const cursor: StepRef = {
     phase_no: session.current_phase,
@@ -223,9 +246,19 @@ export default function ReviewStepPanel({
       return [];
     }
   });
-  /* Un paso ya contestado tiene su presupuesto guardado: si no, no habría
-     podido cerrarse. */
-  const [budgetListo, setBudgetListo] = useState(yaContestado !== null);
+  /*
+   * ⚠ ACÁ HABÍA UN `useState` PARA LA CASILLA, y se fue con ella.
+   *
+   * `budgetListo` ya no es algo que la persona marque: es lo que el anfitrión
+   * MIDIÓ contra `outlook.strategy_benchmark`, `growth_rule` y `monthly_target`.
+   * Un paso ya contestado se da por bueno igual que antes -- si se cerró, la
+   * evidencia estaba.
+   *
+   * Que sea una prop y no un estado es la mitad que importa: un estado local se
+   * puede poner en `true` desde la pantalla, y eso es exactamente lo que la
+   * casilla permitía.
+   */
+  const budgetListo = presupuestoGuardado || yaContestado !== null;
   /*
    * ⚠ `editando` ES EL ESTADO QUE REEMPLAZA AL BOTÓN `Save again`.
    *
@@ -426,10 +459,33 @@ export default function ReviewStepPanel({
           This step is answered on the screen it points at, and that is not this one. The comment
           box lives there.
         </p>
+        {/*
+          ⚠ Y SI LA PERSONA ESTÁ EN VARIOS BRANCHES, SE DICE. La revisión manda
+          al primero por orden de código, y eso puede no ser el que hace falta:
+          decirlo es lo que permite corregir el rumbo a mano en vez de revisar
+          el presupuesto del branch equivocado sin enterarse.
+        */}
+        {branchesDelLo.length > 1 && (
+          <p className="rv-panel__helper">
+            {loName} is in {branchesDelLo.length} branches ({branchesDelLo.join(', ')}). This takes
+            you to {branchesDelLo[0]}; open another one yourself if the budget you need is there.
+          </p>
+        )}
         <div className="rv-panel__actions">
-          <Link className="bp-btn bp-btn--primary bp-btn--small" href={rutaDelPaso}>
-            Go to the step →
-          </Link>
+          {/*
+            ⚠ SIN RUTA NO HAY BOTÓN. `rutaDelPaso` viene en `''` mientras el
+            anfitrión no sabe a qué pantalla lleva el paso -- en la fase 2 eso
+            depende del branch de la persona, que tarda segundos en llegar.
+            Un botón que lleva a la lista de los trece branches en vez del de
+            Adriana es peor que ninguno, porque parece correcto.
+          */}
+          {rutaDelPaso === '' ? (
+            <span className="rv-panel__next">working out which screen this step is on…</span>
+          ) : (
+            <Link className="bp-btn bp-btn--primary bp-btn--small" href={rutaDelPaso}>
+              Go to the step →
+            </Link>
+          )}
         </div>
       </div>
     );
@@ -497,7 +553,13 @@ export default function ReviewStepPanel({
       setOcupado(false);
       return;
     }
-    setError(await (esUltimo ? onCerrar() : onContinuar(siguiente!)));
+    if (esUltimo) {
+      /* Guardado el último paso, se muestra todo antes de soltar la máscara. */
+      setOcupado(false);
+      onResumen();
+      return;
+    }
+    setError(await onContinuar(siguiente!));
     setOcupado(false);
   }
 
@@ -594,15 +656,30 @@ export default function ReviewStepPanel({
         </ul>
       )}
 
-      {paso.gate_kind === 'budget' && editando && (
-        <label className="rv-panel__check">
-          <input
-            type="checkbox"
-            checked={budgetListo}
-            onChange={(e) => setBudgetListo(e.target.checked)}
-          />
-          <span>I saved the budget for {loName} in Outlook</span>
-        </label>
+      {/*
+        ═══════════════════════════════════════════════════════════
+        ⚠ EL PRESUPUESTO, LEÍDO DE LA BASE — etapa RV4, punto 5
+        ═══════════════════════════════════════════════════════════
+
+        Acá estaba la casilla «I saved the budget for X in Outlook». No verificaba
+        nada: la persona se la marcaba a sí misma.
+
+        Ahora es un ESTADO que se lee, con las dos caras dichas: lo que falta
+        --guardar-- o lo que ya pasó. Y no es clicable, porque no hay nada que
+        clickear: se satisface guardando el presupuesto en el editor de al lado.
+      */}
+      {paso.gate_kind === 'budget' && (
+        <p
+          className={'rv-panel__evid' + (budgetListo ? ' is-done' : '')}
+          role="status"
+          data-review-budget={budgetListo ? 'saved' : 'pending'}
+        >
+          <span aria-hidden="true">{budgetListo ? '✓' : '○'}</span>{' '}
+          {budgetListo
+            ? "Budget saved for " + loName + " during this review."
+            : 'Save the budget for ' + loName + ' in the editor on this screen. This step waits ' +
+              'for the saved row, not for a tick box.'}
+        </p>
       )}
 
       {/*
@@ -676,7 +753,7 @@ export default function ReviewStepPanel({
             disabled={!estado.ok || ocupado}
             onClick={guardarYSeguir}
           >
-            {esUltimo ? 'OK and finish review' : 'OK'}
+            {esUltimo ? 'OK and review everything' : 'OK'}
           </button>
         ) : (
           <button
@@ -684,12 +761,16 @@ export default function ReviewStepPanel({
             className="bp-btn bp-btn--primary bp-btn--small"
             disabled={ocupado}
             onClick={async () => {
+              if (esUltimo) {
+                onResumen();
+                return;
+              }
               setOcupado(true);
-              setError(await (esUltimo ? onCerrar() : onContinuar(siguiente!)));
+              setError(await onContinuar(siguiente!));
               setOcupado(false);
             }}
           >
-            {esUltimo ? 'Finish review' : 'Continue →'}
+            {esUltimo ? 'Review and finish' : 'Continue →'}
           </button>
         )}
 

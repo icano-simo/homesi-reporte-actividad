@@ -1,6 +1,7 @@
 'use client';
 
 import { Fragment, use, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { apportionByWeight } from '@/lib/pipeline/aggregate';
 import {
@@ -16,6 +17,8 @@ import { STAGE_LABEL, type NotProjectingReason, type RecruitStage } from '@/lib/
 import {
   cadenceLabel,
   projectPlan,
+  /* La lista, para validar el `?rvOpen=` de la URL: ver el estado `editing`. */
+  OUTLOOK_STRATEGIES,
   type GrowthSegment,
   type OutlookStrategy,
   type ProjectionMode,
@@ -446,9 +449,73 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * el presupuesto es de la división, y obligaba a repetir la selección trece
    * veces. Ver `OutlookTopBar` y `lib/outlook/horizon.ts`.
    */
+  /*
+   * ══════════════════════════════════════════════════════════════════
+   * ⚠ EL EDITOR PUEDE VENIR PEDIDO POR LA URL — etapa RV4
+   * ══════════════════════════════════════════════════════════════════
+   *
+   *   ?rvOpen=Own%20Production&rvLo=24
+   *
+   * El modo revisión lleva a esta pantalla y necesita que el editor del
+   * presupuesto esté abierto: Isabella llegó al lugar correcto y el paso no
+   * decía qué hacer, y lo que había que revisar estaba detrás de un clic.
+   *
+   * ⚠ ESTA PANTALLA NO IMPORTA NADA DE LA REVISIÓN, y es la mitad que importa:
+   * lee dos parámetros de su propia URL, como cualquier pantalla. La misma
+   * dirección que la nota de `focus.ts` -- Outlook no tiene por qué saber que
+   * existe un modo que lo enfoca, sólo contesta lo que le preguntan.
+   *
+   * ⚠ Y SE VALIDA. `rvOpen` es texto de una URL: una estrategia que no está en
+   * `OUTLOOK_STRATEGIES` se ignora, y no se abre nada. Confiar en el parámetro
+   * daría un editor sobre una estrategia inexistente.
+   *
+   * `useState` con inicializador y no un efecto: el valor está disponible en el
+   * primer render, así que copiarlo con un efecto sería un render de más -- y es
+   * el error que ya costó dos veces en esta serie (el benchmark, los clics).
+   */
+  const searchParams = useSearchParams();
   const [editing, setEditing] = useState<
     { kind: 'employee'; employeeKey: number; strategy: OutlookStrategy } | { kind: 'branch'; strategy: OutlookStrategy } | null
   >(null);
+  /*
+   * ⚠ Y QUÉ CERRÓ LA PERSONA. Sin esto, cerrar el editor que la URL pide lo
+   * volvería a abrir en el render siguiente: el parámetro sigue ahí. Se guarda
+   * la CLAVE de lo descartado y no un booleano, así que si el paso siguiente
+   * pide otro editor, ese sí se abre.
+   */
+  const [rvDescartado, setRvDescartado] = useState<string | null>(null);
+
+  /*
+   * Lo que la URL pide, validado. `null` si no pide nada o pide algo que no
+   * existe: `rvOpen` es texto de una barra de direcciones.
+   */
+  const rvPedido = (() => {
+    const pedida = searchParams.get('rvOpen');
+    const dePersona = Number(searchParams.get('rvLo'));
+    if (
+      pedida === null ||
+      !(OUTLOOK_STRATEGIES as readonly string[]).includes(pedida) ||
+      !Number.isInteger(dePersona) ||
+      dePersona <= 0
+    ) {
+      return null;
+    }
+    return { kind: 'employee' as const, employeeKey: dePersona, strategy: pedida as OutlookStrategy };
+  })();
+  const rvClave = rvPedido === null ? null : rvPedido.strategy + ':' + rvPedido.employeeKey;
+
+  /*
+   * ⚠ SE DERIVA, NO SE COPIA AL MONTAR.
+   *
+   * Medido: con `useState(() => leerLaUrl())` el editor NO abría. El parámetro
+   * lo pone `router.replace` DESPUÉS de que esta página montó --replace cambia la
+   * URL, no remonta-- así que el inicializador ya había corrido con la URL vieja.
+   *
+   * Mismo mecanismo que el campo del benchmark en RV3, y misma respuesta. Y el
+   * estado local le GANA a la URL: lo que la persona abre a mano manda.
+   */
+  const editingActivo =
+    editing ?? (rvPedido !== null && rvClave !== rvDescartado ? rvPedido : null);
   const [editingNppm, setEditingNppm] = useState<{ realtor: string; ytd: number } | null>(null);
   /*
    * Lo que se esta editando de reclutamiento -- etapa OL20.
@@ -2029,7 +2096,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
         vieja -- el editor seguiría mostrando el benchmark anterior al que se
         acaba de escribir, que es exactamente el bug que uno no revisa.
       */}
-      {editing &&
+      {editingActivo &&
         (() => {
           /*
            * ⚠ El editable se ARMA en cada render, desde `data` fresca. Guardarlo
@@ -2038,7 +2105,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
            * "funcionó".
            */
           let editable: OutlookEditable | null = null;
-          if (editing.kind === 'employee') {
+          if (editingActivo.kind === 'employee') {
             /*
              * ⚠ NO TODA PERSONA ES UN LOAN OFFICER DEL BRANCH — etapa OL14.
              *
@@ -2050,10 +2117,10 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
              */
             const ae = branch.byStrategy
               .flatMap((bs) => (bs.opensBy === 'owner' ? bs.owners.map((o) => ({ bs, o })) : []))
-              .find(({ o }) => o.isPerson && o.employeeKey === editing.employeeKey);
+              .find(({ o }) => o.isPerson && o.employeeKey === editingActivo.employeeKey);
             if (ae) {
               editable = {
-                subject: { kind: 'employee', employeeKey: editing.employeeKey },
+                subject: { kind: 'employee', employeeKey: editingActivo.employeeKey },
                 label: ae.o.owner,
                 benchmarkSchedules: { [ae.bs.strategy]: ae.o.benchmarkSchedule },
                 rulesByStrategy: { [ae.bs.strategy]: ae.o.rules },
@@ -2064,7 +2131,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                 targetRevision: { [ae.bs.strategy]: ae.o.targetRevision },
               };
             }
-            const lo = !editable ? branch.loanOfficers.find((l) => l.employeeKey === editing.employeeKey) : null;
+            const lo = !editable ? branch.loanOfficers.find((l) => l.employeeKey === editingActivo.employeeKey) : null;
             if (lo) {
               editable = {
                 subject: { kind: 'employee', employeeKey: lo.employeeKey },
@@ -2079,7 +2146,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               };
             }
           } else {
-            const bs = branch.byStrategy.find((x) => x.strategy === editing.strategy);
+            const bs = branch.byStrategy.find((x) => x.strategy === editingActivo.strategy);
             if (bs) {
               /*
                * Un branch decide UNA estrategia por vez, así que los mapas llevan
@@ -2103,7 +2170,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
           return (
             <StrategyEditor
               lo={editable}
-              strategy={editing.strategy}
+              strategy={editingActivo.strategy}
               data={data}
               /*
                 ⚠ LOS MESES QUE LA TABLA ESTA MOSTRANDO, no los del año — OL21.
@@ -2114,7 +2181,12 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                 dibujaba treinta y seis.
               */
               months={remainingMonths}
-              onClose={() => setEditing(null)}
+              onClose={() => {
+                /* Cerrar tambien DESCARTA lo que la URL pide: si no, el
+                   parametro lo vuelve a abrir en el render siguiente. */
+                setEditing(null);
+                setRvDescartado(rvClave);
+              }}
               onSaved={reload}
             />
           );

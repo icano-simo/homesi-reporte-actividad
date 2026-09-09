@@ -577,17 +577,36 @@ export default function StrategyEditor({
           </p>
         )}
 
-        {/* ── Guardar. Una sola línea de texto, y es la que hace falta ── */}
-        <div className="ol-editor__row">
-          <div className="bp-form__field ol-editor__grow">
-            <label className="bp-form__label" htmlFor="ol-note">
-              Why (optional)
-            </label>
-            <input id="ol-note" type="text" className="field" value={note} onChange={(e) => setNote(e.target.value)} />
-          </div>
-          <button type="button" className="bp-btn bp-btn--small" onClick={save} disabled={busy}>
-            {busy ? '…' : 'Save'}
+        {/*
+          ═════════════════════════════════════════════════════════
+          ⚠ EL BOTÓN GUARDA TODO, Y AHORA LO DICE — etapa RV4, punto 4
+          ═════════════════════════════════════════════════════════
+
+          Estaba en la misma fila que «Why (optional)» y debajo de su rótulo, así
+          que se leía como «guardar el comentario». Isabella lo leyó así y
+          reportó que faltaba el Save del presupuesto.
+
+          No faltaba: `save()` escribe el benchmark, la regla y los meses en una
+          sola operación -- este archivo tiene la nota de cuando se podía
+          «guardar una y olvidarse de la otra». Lo que faltaba era que el botón
+          dijera lo que hace.
+
+          Cambia lo que promete, no lo que hace.
+        */}
+        <div className="bp-form__field">
+          <label className="bp-form__label" htmlFor="ol-note">
+            Why (optional)
+          </label>
+          <input id="ol-note" type="text" className="field" value={note} onChange={(e) => setNote(e.target.value)} />
+        </div>
+        <div className="ol-editor__save">
+          <button type="button" className="bp-btn bp-btn--primary" onClick={save} disabled={busy}>
+            {busy ? '…' : 'Save budget'}
           </button>
+          {/* Qué guarda, en palabras y en el orden en que está arriba. */}
+          <span className="ol-editor__savewhat">
+            benchmark, {modeLabel(mode).toLowerCase()} and the note — in one write
+          </span>
         </div>
         <p className="ol-editor__hint">
           Takes effect on <b>{data.effectiveFrom}</b>, the first day of next month.

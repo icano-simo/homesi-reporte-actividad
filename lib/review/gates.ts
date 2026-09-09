@@ -103,6 +103,31 @@ export function stepTarget(step: ReviewStep): string | null {
 }
 
 /**
+ * ══════════════════════════════════════════════════════════════════════
+ * QUÉ EDITOR TIENE QUE ABRIRSE SOLO — etapa RV4
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * `gate_config.open_editor` guarda el NOMBRE DE LA ESTRATEGIA cuyo editor de
+ * presupuesto tiene que estar abierto al llegar al paso: `Own Production`,
+ * `NPPM`, `B2B`, `Affinity`, `Recruitment`.
+ *
+ * Isabella llegó a la pantalla correcta y el paso no decía qué hacer ahí: no
+ * sabía que había que abrir el editor de la regla. Desplazarse y resaltar no
+ * alcanza cuando lo que hay que revisar está detrás de un clic.
+ *
+ * ⚠ Y ES UNA FILA, igual que `target`: el paso declara su lugar Y qué tiene que
+ * estar abierto en él. Cambiar de estrategia --o pedir que no se abra nada-- es
+ * un `update` de `gate_config`, no un despliegue.
+ *
+ * ⚠ La clave ausente se lee como «no abrir nada», que es el lado seguro: abrir
+ * un editor que nadie pidió tapa la pantalla que la persona vino a mirar.
+ */
+export function stepOpenEditor(step: ReviewStep): string | null {
+  const raw = step.gate_config?.open_editor;
+  return typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : null;
+}
+
+/**
  * `true` si el paso permite dejar activo un segundo funnel.
  *
  * Hoy `false` en el guion, y es la mitad (b) de la fase 3 que espera a BP39: la

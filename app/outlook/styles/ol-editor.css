@@ -298,3 +298,17 @@
   border-radius: var(--radius-md);
   background: var(--slate-50);
 }
+
+/* Guardar el presupuesto. Fila propia, para que no se lea como el Save del
+   comentario de al lado: era lo que pasaba cuando compartian la fila. */
+.ol-editor__save {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+.ol-editor__savewhat {
+  font-size: 11px;
+  color: var(--slate-400);
+}

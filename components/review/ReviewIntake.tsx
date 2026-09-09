@@ -29,7 +29,8 @@
  */
 
 import { useState } from 'react';
-import { AlertTriangleIcon, CalendarIcon } from '@/components/ui/icons';
+import Modal from '@/app/business-plan/components/Modal';
+import { AlertTriangleIcon, CalendarIcon, SignedDocIcon } from '@/components/ui/icons';
 import { useIntake } from '@/lib/review/useIntake';
 
 export interface ReviewIntakeProps {
@@ -56,6 +57,19 @@ export default function ReviewIntake({ loEmployeeKey, loName, habilitado }: Revi
    * `null` = ninguna elegida todavía, así que se abre la primera.
    */
   const [abierta, setAbierta] = useState<number | null>(null);
+  /*
+   * ⚠ EL CONTENIDO ARRANCA PLEGADO — etapa RV4.
+   *
+   * Desplegado ocupaba media pantalla del perfil y competía con los números,
+   * que son para lo que la gente entra. Ahora es una fila que dice cuántas
+   * revisiones hay y cuándo fue la última, y el detalle se abre.
+   *
+   * Va en el MODAL del módulo y no en un desplegable en su lugar porque es el
+   * criterio que `Modal.tsx` escribe para sí mismo: página si es un destino,
+   * modal si es «quiero ver esto un segundo y cerrar». Los comentarios de una
+   * revisión cerrada son lo segundo -- el destino es el perfil.
+   */
+  const [desplegado, setDesplegado] = useState(false);
 
   if (!habilitado || unavailable) return null;
   if (isLoading) return null;
@@ -111,15 +125,39 @@ export default function ReviewIntake({ loEmployeeKey, loName, habilitado }: Revi
   }
 
   const activa = abierta ?? conComentarios[0].session.session_key;
+  const ultima = conComentarios[0].session;
+  const cuantas = conComentarios.length;
 
-  return (
-    <section className="rv-intake">
-      <h2 className="rv-intake__head">
+  /* La fila. Dice lo que hace falta para decidir si abrirla: cuántas hay y
+     cuándo fue la última. */
+  const gatillo = (
+    <button
+      type="button"
+      className="rv-intake__open"
+      onClick={() => setDesplegado(true)}
+      aria-haspopup="dialog"
+    >
+      <SignedDocIcon size={15} />
+      <span className="rv-intake__opentxt">
         Review intake
         <span className="rv-intake__n">
-          {conComentarios.length} review{conComentarios.length === 1 ? '' : 's'}
+          {cuantas} review{cuantas === 1 ? '' : 's'}
         </span>
-      </h2>
+      </span>
+      <span className="rv-intake__openwhen">
+        last {dia(ultima.completed_at ?? ultima.started_at)}
+      </span>
+      <span className="rv-intake__opencta">Open →</span>
+    </button>
+  );
+
+  if (!desplegado) return gatillo;
+
+  return (
+    <>
+      {gatillo}
+      <Modal title={'Review intake for ' + loName} onClose={() => setDesplegado(false)}>
+      <section className="rv-intake rv-intake--modal">
 
       {/*
         Las revisiones como pestañas, la más nueva primero. Con una sola no se
@@ -208,6 +246,8 @@ export default function ReviewIntake({ loEmployeeKey, loName, habilitado }: Revi
             ))}
           </div>
         ))}
-    </section>
+      </section>
+      </Modal>
+    </>
   );
 }

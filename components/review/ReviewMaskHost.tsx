@@ -34,11 +34,12 @@ import { usePathname, useRouter } from 'next/navigation';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { cerrarSesion, guardarPaso, moverCursor } from '@/lib/review/actions';
 import { sameStep } from '@/lib/review/progress';
-import { stepTarget } from '@/lib/review/gates';
+import { stepOpenEditor, stepTarget } from '@/lib/review/gates';
 import { useReviewTarget } from '@/lib/review/useReviewTarget';
 import { useReview } from './ReviewProvider';
 import ReviewMask from './ReviewMask';
 import ReviewStepPanel from './ReviewStepPanel';
+import ReviewSummary from './ReviewSummary';
 
 /*
  * ⚠ SIN PROPS. `puedeRevisar` se movió al proveedor, que es quién consulta:
@@ -61,6 +62,25 @@ export default function ReviewMaskHost() {
    * de otra persona.
    */
   const activo = (myReviews ?? []).find((r) => r.session?.status === 'in_progress') ?? null;
+  /* A quién se revisa. Sale de la única lectura de arriba. */
+  const loEnCurso = activo?.session?.lo_employee_key ?? null;
+
+  const [branchesDelLo, setBranchesDelLo] = useState<string[]>([]);
+  useEffect(() => {
+    let cancelado = false;
+    (async () => {
+      if (loEnCurso === null) {
+        if (!cancelado) setBranchesDelLo([]);
+        return;
+      }
+      const codigos = await buscarBranches(loEnCurso);
+      if (!cancelado) setBranchesDelLo(codigos);
+    })();
+    return () => {
+      cancelado = true;
+    };
+  }, [loEnCurso]);
+
 
   /*
    * ══════════════════════════════════════════════════════════════════════
@@ -100,10 +120,22 @@ export default function ReviewMaskHost() {
    * persona que se revisa. Y `startsWith` para los sub-caminos del perfil
    * --`/plan`, `/funnel`--, que son parte de la misma revisión.
    */
-  const rutaDelPaso = activo?.session
+  const branchPrincipal = branchesDelLo.length > 0 ? branchesDelLo[0] : null;
+  /*
+   * ⚠ LA RUTA NO SE SABE TODAVÍA es distinto de «es /outlook». Mientras la fase
+   * apunte a Outlook y el branch no haya llegado, `rutaDelPaso` queda en `''` y
+   * el panel NO ofrece link: uno que lleva a la lista en vez del branch es peor
+   * que ninguno, porque parece correcto.
+   */
+  const faseDelPaso = activo?.session
+    ? script?.phases.find((f) => f.phase_no === activo.session!.current_phase)?.module ?? ''
+    : '';
+  const rutaSinResolver = faseDelPaso === 'outlook' && branchPrincipal === null;
+  const rutaDelPaso = activo?.session && !rutaSinResolver
     ? rutaDelModulo(
         script?.phases.find((f) => f.phase_no === activo.session!.current_phase)?.module ?? '',
-        activo.session.lo_employee_key
+        activo.session.lo_employee_key,
+        branchPrincipal
       )
     : '';
   const enRuta =
@@ -121,6 +153,93 @@ export default function ReviewMaskHost() {
    * lugar y no es acá».
    */
   const enSitio = enRuta ? enSitioDom : false;
+
+  /*
+   * ══════════════════════════════════════════════════════════════════
+   * EL EDITOR QUE EL PASO PIDE ABIERTO — etapa RV4, punto 3
+   * ══════════════════════════════════════════════════════════════════
+   *
+   * Viaja POR LA URL y no por un contexto compartido, y es deliberado:
+   *
+   *   · la pantalla de Outlook no tiene que importar nada de la revisión para
+   *     obedecerlo -- lee un parámetro, como cualquier pantalla;
+   *   · sobrevive a una recarga, que es donde se pierden los estados en memoria
+   *     (el agujero que tenían los clics del paso 4);
+   *   · y se puede verificar desde afuera mirando la barra de direcciones.
+   *
+   * `replace` y no `push`: agregar una entrada al historial por abrir un editor
+   * haría que el botón de atrás del navegador «cierre el editor» en vez de
+   * volver a la pantalla anterior.
+   */
+  const editorDelPaso = pasoActual ? stepOpenEditor(pasoActual) : null;
+  useEffect(() => {
+    if (!enRuta || editorDelPaso === null || loEnCurso === null) return;
+    const actual = new URLSearchParams(window.location.search);
+    if (actual.get('rvOpen') === editorDelPaso && actual.get('rvLo') === String(loEnCurso)) return;
+    actual.set('rvOpen', editorDelPaso);
+    actual.set('rvLo', String(loEnCurso));
+    router.replace(pathname + '?' + actual.toString());
+  }, [enRuta, editorDelPaso, loEnCurso, pathname, router]);
+
+  /*
+   * ══════════════════════════════════════════════════════════════════
+   * ⚠ EL PRESUPUESTO SE COMPRUEBA, NO SE DECLARA — etapa RV4, punto 5
+   * ══════════════════════════════════════════════════════════════════
+   *
+   * Había una casilla: «I saved the budget for X in Outlook». Una casilla que uno
+   * se marca a sí mismo no verifica nada -- aparenta ser una compuerta y no lo
+   * es, igual que el círculo que parecía un check.
+   *
+   * La evidencia es una FILA NUEVA en cualquiera de las tres tablas donde vive
+   * el presupuesto de una persona, escrita después de que arrancó la sesión:
+   *
+   *   outlook.strategy_benchmark    el benchmark de la estrategia
+   *   outlook.growth_rule           la regla de crecimiento
+   *   outlook.monthly_target        los meses uno por uno
+   *
+   * Las tres son append-only y tienen `created_at`, así que «durante esta
+   * sesión» es `created_at >= session.started_at`. Cualquiera de las tres
+   * alcanza: el editor guarda lo que cambió, y pedir las tres obligaría a tocar
+   * cosas que no hacía falta tocar.
+   *
+   * ⚠ SE RECONSULTA CADA 4s MIENTRAS EL PASO ESTÉ ABIERTO. El guardado ocurre en
+   * OTRO componente --el editor de Outlook-- y el botón del panel está apagado
+   * hasta que la fila aparece, así que sin reconsultar la persona guardaría y no
+   * pasaría nada. Se corta al salir del paso.
+   *
+   * ⚠ Y SI EL PRESUPUESTO YA ESTABA BIEN Y NO HAY QUE CAMBIARLO: guardarlo otra
+   * vez escribe una fila con autor y fecha, y ESO es la confirmación. Es más de
+   * lo que daba la casilla, no menos.
+   */
+  const [presupuestoGuardado, setPresupuestoGuardado] = useState(false);
+  const pidePresupuesto = pasoActual?.gate_kind === 'budget';
+  const arranco = activo?.session?.started_at ?? null;
+  useEffect(() => {
+    if (!pidePresupuesto || loEnCurso === null || arranco === null) return;
+    let vivo = true;
+    const mirar = async () => {
+      const ol = getSupabaseClient().schema('outlook');
+      const [b, g, t] = await Promise.all([
+        ol.from('strategy_benchmark').select('created_at')
+          .eq('employee_key', loEnCurso).gte('created_at', arranco).limit(1),
+        ol.from('growth_rule').select('created_at')
+          .eq('employee_key', loEnCurso).gte('created_at', arranco).limit(1),
+        ol.from('monthly_target').select('created_at')
+          .eq('employee_key', loEnCurso).gte('created_at', arranco).limit(1),
+      ]);
+      if (!vivo) return;
+      const hay =
+        (b.data?.length ?? 0) > 0 || (g.data?.length ?? 0) > 0 || (t.data?.length ?? 0) > 0;
+      setPresupuestoGuardado(hay);
+    };
+    mirar();
+    const timer = setInterval(mirar, 4000);
+    return () => {
+      vivo = false;
+      clearInterval(timer);
+    };
+  }, [pidePresupuesto, loEnCurso, arranco]);
+
   /*
    * Fuera de la ruta NO se busca nada, así que ahí no hay espera: el aviso de
    * «andate al paso» sale enseguida, que es lo correcto -- en esa pantalla no
@@ -180,11 +299,29 @@ export default function ReviewMaskHost() {
    * no hay ninguna. Cambiarlo es cambiar el número del perfil también, y eso es
    * otra etapa.)
    */
+  /*
+   * ══════════════════════════════════════════════════════════════════
+   * EL BRANCH DEL LOAN OFFICER — etapa RV4, punto 2
+   * ══════════════════════════════════════════════════════════════════
+   *
+   * La fase 2 visita Outlook, y Outlook no tiene una pantalla por persona: tiene
+   * una por BRANCH. Mandar a `/outlook` dejaba a Isabella en la lista de las
+   * trece, con los targets del paso --`.ol-topbar`, `.ol-editor`-- sin matchear
+   * y el panel diciendo «esto se contesta en otra pantalla» estando en Outlook.
+   *
+   * ⚠ SALE DE `org.employee_branch`, que es la misma fuente que usa el loader
+   * del Business Plan para decir «Branch 710» en el perfil. No de una tabla de
+   * Outlook: el branch de una persona es del roster, no del presupuesto.
+   *
+   * ⚠ Y UNA PERSONA PUEDE ESTAR EN VARIOS. `branchCodes` del loader es un array
+   * ordenado por eso mismo. Acá se guardan todos y se usa el primero, y el panel
+   * lo dice cuando hay más de uno: elegir en silencio sería mandar a una
+   * pantalla que puede no ser la que la revisión quiere.
+   */
   const [benchmarkActual, setBenchmarkActual] = useState<number | null>(null);
   /* Se relee cuando el panel escribe uno: sin esto, volver al paso 2 mostraria
      el valor viejo, que es la misma clase de mentira que el campo vacio. */
   const [tickBench, setTickBench] = useState(0);
-  const loEnCurso = activo?.session?.lo_employee_key ?? null;
 
   useEffect(() => {
     let cancelado = false;
@@ -245,6 +382,17 @@ export default function ReviewMaskHost() {
     };
   }, [loEnCurso]);
 
+  /*
+   * ⚠ EL RESUMEN ES UN ESTADO DE LA MÁSCARA, no una ruta.
+   *
+   * Aparece encima de la pantalla del módulo igual que el panel, y por el mismo
+   * motivo: la revisión guía sobre lo que se está mirando, no lo reemplaza. Una
+   * ruta propia dejaría el último paso lejos de los números que lo justifican.
+   */
+  const [enResumen, setEnResumen] = useState(false);
+  const [errorCierre, setErrorCierre] = useState<string | null>(null);
+  const [cerrando, setCerrando] = useState(false);
+
   const onSaveAndExit = useCallback(() => {
     /*
      * No escribe nada: cada paso ya se guardó al completarse, así que salir no
@@ -265,7 +413,7 @@ export default function ReviewMaskHost() {
         cruce de modulo. Y no se dibuja sin sesion -- ni el, ni su campo de
         comentario, que es el unico del portal.
       */}
-      {script && activo?.session && (
+      {script && activo?.session && !enResumen && (
         <ReviewStepPanel
           /*
            * ⚠ EL `key` ES EL PASO, y no es cosmetico: hace que React remonte el
@@ -281,10 +429,16 @@ export default function ReviewMaskHost() {
           enSitio={enSitio}
           buscandoSitio={buscandoSitio}
           benchmarkActual={benchmarkActual}
+          presupuestoGuardado={presupuestoGuardado}
+          branchesDelLo={branchesDelLo}
           onBenchmarkGuardado={() => setTickBench((t) => t + 1)}
           /* La misma ruta que decide `enRuta`, no una segunda cuenta: el botón
              tiene que llevar exactamente a donde el panel se habilita. */
           rutaDelPaso={rutaDelPaso}
+          onResumen={() => {
+            recargar();
+            setEnResumen(true);
+          }}
           onGuardar={async (paso, revision, comment, gate) => {
             const r = await guardarPaso(activo.session!.session_key, paso, revision, comment, gate);
             if (!r.ok) return r.error;
@@ -295,19 +449,87 @@ export default function ReviewMaskHost() {
             const r = await moverCursor(activo.session!.session_key, destino);
             if (!r.ok) return r.error;
             recargar();
-            /* La fase puede cambiar de modulo: se navega al del destino. */
+            /*
+             * La fase puede cambiar de modulo: se navega al del destino.
+             *
+             * ⚠ Y AHORA TAMBIÉN CUANDO EL MÓDULO NO CAMBIA. La comparación por
+             * módulo alcanzaba mientras Outlook era una sola pantalla; con la
+             * ruta del BRANCH, estar «en outlook» ya no significa estar donde el
+             * paso apunta -- Isabella quedó en la lista de los trece branches. Se
+             * compara la RUTA, que es lo que el paso declara.
+             *
+             * `rutaDelModulo` del destino y no `rutaDelPaso`: `rutaDelPaso` sale
+             * del cursor de ARRIBA, que en este momento todavía es el paso viejo.
+             */
             const fase = script!.phases.find((f) => f.phase_no === destino.phase_no);
-            if (fase && fase.module !== moduloActual(pathname)) {
-              router.push(rutaDelModulo(fase.module, activo.session!.lo_employee_key));
+            if (fase) {
+              /*
+               * ⚠ EL BRANCH SE RESUELVE ACÁ, ESPERÁNDOLO, y no se lee del estado.
+               *
+               * Medido: el estado tarda hasta OCHO SEGUNDOS en llegar, y hasta
+               * entonces `branchPrincipal` es `null` -- que cae al respaldo
+               * `/outlook`, la lista de los trece branches. Es exactamente la
+               * pantalla que Isabella vio en vez del branch de Adriana.
+               *
+               * Una acción de un solo disparo no tiene por qué depender de que un
+               * estado haya llegado: pide el dato y lo espera. El estado sigue
+               * existiendo para el LINK del panel, que se redibuja solo.
+               */
+              const codigos =
+                branchesDelLo.length > 0
+                  ? branchesDelLo
+                  : await buscarBranches(activo.session!.lo_employee_key);
+              const destinoRuta = rutaDelModulo(
+                fase.module,
+                activo.session!.lo_employee_key,
+                codigos.length > 0 ? codigos[0] : null
+              );
+              if (pathname !== destinoRuta && !pathname.startsWith(destinoRuta + '/')) {
+                router.push(destinoRuta);
+              }
             }
             return null;
           }}
+        />
+      )}
+
+      {/*
+        EL RESUMEN. Reemplaza al panel mientras está abierto: dos cajas ancladas
+        en la misma esquina compiten, y además el paso ya está contestado -- lo
+        que queda es leer y decidir.
+      */}
+      {script && activo?.session && enResumen && (
+        <ReviewSummary
+          script={script}
+          responses={activo.responses}
+          loName={activo.loName}
+          ocupado={cerrando}
+          error={errorCierre}
+          onCorregir={async (paso) => {
+            setErrorCierre(null);
+            setCerrando(true);
+            const r = await moverCursor(activo.session!.session_key, paso);
+            setCerrando(false);
+            if (!r.ok) {
+              setErrorCierre(r.error);
+              return;
+            }
+            recargar();
+            /* Se vuelve al panel, en el paso a corregir. */
+            setEnResumen(false);
+          }}
           onCerrar={async () => {
+            setErrorCierre(null);
+            setCerrando(true);
             const r = await cerrarSesion(activo.session!.session_key);
-            if (!r.ok) return r.error;
+            setCerrando(false);
+            if (!r.ok) {
+              setErrorCierre(r.error);
+              return;
+            }
+            setEnResumen(false);
             recargar();
             router.push('/review');
-            return null;
           }}
         />
       )}
@@ -315,18 +537,70 @@ export default function ReviewMaskHost() {
   );
 }
 
-/** El segmento de modulo de una ruta: `/business-plan/lo/5` -> `business-plan`. */
-function moduloActual(pathname: string): string {
-  return pathname.split('/')[1] ?? '';
-}
+/**
+ * ⚠ LA RUTA DE OUTLOOK ES LA DEL BRANCH, no la lista — etapa RV4.
+ *
+ * Con `branchCode` en `null` cae a `/outlook`, que es lo que hacía antes: es el
+ * respaldo de «todavía no sé en qué branch está» o «no está en ninguno». Y se
+ * ejerce de verdad --el branch llega de la base, unos cientos de ms después de
+ * montar-- así que no es un respaldo muerto.
+ */
+/*
+ * ⚠ ACÁ ESTABA `moduloActual`, y se fue con su único llamador.
+ *
+ * Comparaba el primer segmento de la ruta contra el módulo de la fase para
+ * decidir si navegar. Era correcto mientras Outlook fuera una sola pantalla;
+ * desde que la fase 2 apunta al branch de la persona, «ya estás en outlook» no
+ * dice nada sobre estar donde el paso apunta -- y eso es exactamente lo que
+ * dejó a Isabella en la lista de los trece branches con el panel diciendo que
+ * no era esa pantalla.
+ *
+ * Ahora se compara la RUTA completa. Una función que respondía la pregunta
+ * equivocada no se arregla: se saca.
+ */
 
 /**
  * A donde manda cada modulo. Duplicado a proposito con la pagina de arranque:
  * son dos momentos distintos --entrar y avanzar-- y compartirlo obligaria a un
  * archivo mas para tres lineas. Si aparece un tercer llamador, se extrae.
  */
-function rutaDelModulo(modulo: string, loEmployeeKey: number): string {
+/**
+ * ══════════════════════════════════════════════════════════════════════
+ * EN QUÉ BRANCHES ESTÁ UNA PERSONA — una sola definición
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * La usan DOS: el efecto que alimenta el link del panel, y la navegación al
+ * avanzar de fase. Dos consultas separadas del mismo hecho quedan libres de
+ * discrepar, y acá discrepar significa mandar a una pantalla y ofrecer otra.
+ *
+ * `dim_branch` completa y no filtrada por clave: son trece filas, y filtrar
+ * pidiendo `in` con las claves de la persona sería una segunda consulta
+ * dependiente de la primera. Trece filas se leen una vez.
+ */
+async function buscarBranches(loEmployeeKey: number): Promise<string[]> {
+  const sb = getSupabaseClient().schema('org');
+  const [asig, ramas] = await Promise.all([
+    sb.from('employee_branch').select('branch_key').eq('employee_key', loEmployeeKey),
+    sb.from('dim_branch').select('branch_key, branch_code'),
+  ]);
+  const codigoDe = new Map(
+    ((ramas.data ?? []) as { branch_key: number; branch_code: string }[]).map((b) => [
+      b.branch_key,
+      b.branch_code,
+    ])
+  );
+  return ((asig.data ?? []) as { branch_key: number }[])
+    .map((a) => codigoDe.get(a.branch_key))
+    .filter((c): c is string => typeof c === 'string' && c !== '')
+    /* Ordenados, para que «el primero» sea siempre el mismo: sin `order` la
+       respuesta de PostgREST no promete un orden. */
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+}
+
+function rutaDelModulo(modulo: string, loEmployeeKey: number, branchCode: string | null): string {
   if (modulo === 'business-plan') return '/business-plan/lo/' + loEmployeeKey;
-  if (modulo === 'outlook') return '/outlook';
+  if (modulo === 'outlook') {
+    return branchCode === null ? '/outlook' : '/outlook/branch/' + encodeURIComponent(branchCode);
+  }
   return '/review';
 }

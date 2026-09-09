@@ -29,7 +29,20 @@
 .rv-edge {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  /*
+   * ⚠ POR ENCIMA DE LOS MODALES — etapa RV4.
+   *
+   * Estaban en 60/61/62 y `.bp-modal-backdrop` esta en 100, asi que al abrir un
+   * modal la mascara entera quedaba debajo: el panel del paso no se podia
+   * clickear. Lo destapo el paso 2.2, que abre el editor del presupuesto solo
+   * --antes de esta etapa la revision nunca abria un modal, asi que el orden no
+   * se habia ejercido nunca--. Un caso nuevo activa un bug que nadie escribio.
+   *
+   * La mascara va arriba de todo porque ES el marco de la sesion, no contenido
+   * de la pantalla: si se puede tapar, se puede perder de vista en el medio de
+   * una conversacion.
+   */
+  z-index: 120;
   pointer-events: none;
   border: 3px solid var(--coral);
   /* El coral en un borde de 3px sobre el canvas claro es suficiente contraste;
@@ -44,7 +57,7 @@
   top: 0;
   left: 0;
   right: 0;
-  z-index: 61;
+  z-index: 121;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -253,7 +266,7 @@ body:has(.rv-bar) .app {
   position: fixed;
   right: 18px;
   bottom: 18px;
-  z-index: 62;
+  z-index: 122;
   width: min(420px, calc(100vw - 36px));
   max-height: min(70vh, 620px);
   overflow-y: auto;
@@ -334,14 +347,16 @@ body:has(.rv-bar) .app {
   resize: vertical;
   line-height: 1.5;
 }
-.rv-panel__check {
-  display: flex;
-  align-items: flex-start;
-  gap: 7px;
-  margin-bottom: 8px;
-  font-size: 11.5px;
-  line-height: 1.4;
-}
+/*
+ * ⚠ ACÁ ESTABA `.rv-panel__check`, la regla de la casilla del presupuesto.
+ *
+ * Se fue con la casilla: una casilla que uno se marca a sí mismo no verifica
+ * nada. Lo que la reemplaza es `.rv-panel__evid`, que DICE un estado leído de
+ * la base en vez de ofrecer un control que no controla.
+ *
+ * Comprobado antes de borrarla: la clase no aparece en ninguno de los cinco
+ * componentes de `review`.
+ */
 /* La lista de lo que hay que abrir. Marca y palabra: nunca solo color. */
 .rv-panel__clicks {
   margin: 0 0 8px;
@@ -826,4 +841,109 @@ body:has(.rv-bar) .app {
   text-transform: none;
   color: var(--slate-400);
   font-variant-numeric: tabular-nums;
+}
+
+/* ── RV4: la evidencia del presupuesto, y el intake plegado ────────── */
+
+/*
+ * Un ESTADO, no un control. Dice si el presupuesto se guardo durante la sesion,
+ * y eso lo mide el anfitrion contra las tres tablas de Outlook.
+ *
+ * ⚠ SIN `cursor: pointer` NI NADA QUE INVITE A CLICKEAR, a proposito: aparentar
+ * un control es exactamente el problema que la casilla tenia. Lo que lo satisface
+ * esta en el editor de al lado.
+ */
+.rv-panel__evid {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 0 0 10px;
+  padding: 8px 11px;
+  border-radius: var(--radius-sm);
+  background: var(--amber-50);
+  border-left: 2px solid var(--amber-500);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--amber-800);
+}
+/* Cumplido: el mismo verde que el resto del portal usa para lo hecho, y la
+   marca `✓` lo dice tambien -- el estado no es solo color. */
+.rv-panel__evid.is-done {
+  background: var(--emerald-50);
+  border-left-color: var(--emerald-700);
+  color: var(--emerald-800);
+}
+
+/* La fila que abre el intake en el perfil. */
+.rv-intake__open {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin-top: 20px;
+  padding: 11px 14px;
+  background: var(--canvas);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+  font-family: inherit;
+  font-size: 12.5px;
+  color: var(--slate-500);
+  cursor: pointer;
+  text-align: left;
+}
+.rv-intake__open:hover {
+  border-color: var(--coral);
+  color: var(--navy);
+}
+.rv-intake__opentxt {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--navy);
+}
+.rv-intake__openwhen {
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+/* La llamada a la accion va al final y empujada: la fila se lee de izquierda a
+   derecha y lo ultimo es lo que se aprieta. */
+.rv-intake__opencta {
+  margin-left: auto;
+  font-weight: 600;
+  color: var(--coral);
+}
+/* Dentro del modal la caja no repite su propio marco. */
+.rv-intake--modal {
+  margin-top: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  box-shadow: none;
+}
+
+/* ── RV4: el resumen antes de cerrar ───────────────────────────── */
+
+/*
+ * Mas ancho y mas alto que el panel de un paso: son ocho respuestas y hay que
+ * poder leerlas. Sigue anclado en la misma esquina --la revision guia sobre lo
+ * que se esta mirando-- pero con su propia altura maxima y scroll adentro, para
+ * no taparle la pantalla entera a quien todavia quiere mirar los numeros.
+ */
+.rv-panel--resumen {
+  width: min(560px, calc(100vw - 48px));
+  max-width: none;
+}
+.rv-panel__resumenlista {
+  /* La altura maxima se mide contra la ventana y no en pixeles fijos: el panel
+     tiene cabecera y acciones arriba y abajo, y en una pantalla baja un valor
+     fijo lo empuja fuera de la vista. */
+  max-height: min(52vh, 460px);
+  overflow-y: auto;
+  margin-bottom: 12px;
+  /* El borde de abajo dice que hay mas: una lista cortada sin senal se lee
+     como una lista completa. */
+  border-bottom: 1px solid var(--slate-100);
 }

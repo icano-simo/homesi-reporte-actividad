@@ -126,14 +126,24 @@ export function useIntake(loEmployeeKey: number | null, habilitado = true): Inta
          * --copiado y clavado por la FK compuesta-- así que no hace falta pasar
          * por la asignación para filtrar.
          *
-         * Las EN CURSO también: el brief pide comparar varias revisiones, y una
-         * a medias ya tiene comentarios que valen. Se marca cuál es cuál con su
-         * `status`.
+         * ⚠ SÓLO LAS CERRADAS — etapa RV4.
+         *
+         * RV1 traía también las en curso, con el argumento de que una revisión a
+         * medias ya tiene comentarios que valen. Probado por Isabella, el
+         * argumento estaba mal: el intake apareció en el perfil MIENTRAS ella
+         * revisaba, o sea que la pantalla mostraba como registro algo que
+         * todavía se estaba escribiendo, y encima al lado del panel donde se
+         * escribe.
+         *
+         * Un registro es de lo que YA PASÓ. Lo que está en curso se ve en la
+         * máscara, que es su lugar, y al cerrar hay un resumen completo antes de
+         * soltarla -- ver `ReviewSummary`.
          */
         const sesRes = await rv()
           .from('session')
           .select('*')
           .eq('lo_employee_key', loEmployeeKey)
+          .eq('status', 'completed')
           .order('started_at', { ascending: false });
         if (cancelado) return;
 
@@ -168,15 +178,15 @@ export function useIntake(loEmployeeKey: number | null, habilitado = true): Inta
         /*
          * ⚠ CERO RESPUESTAS CON SESIONES QUE EXISTEN = RLS FILTRÓ.
          *
-         * Se distingue de «no contestó nada» mirando si alguna sesión tiene un
-         * cursor más allá del primer paso, que es la señal de que algo se
-         * contestó. No es perfecta --alguien puede haber abierto y no contestado
-         * nada-- así que la pantalla dice las dos posibilidades en vez de elegir.
+         * Y desde RV4 la señal es limpia: acá sólo llegan sesiones CERRADAS, y
+         * una sesión cerrada tiene respuestas por construcción --no se puede
+         * cerrar sin contestar el último paso--. Así que cero respuestas sobre
+         * una sesión cerrada es RLS y no «no contestó nada».
+         *
+         * El heurístico anterior miraba el cursor porque había sesiones en curso
+         * en la lista; ya no las hay.
          */
-        const algunaAvanzo = sesiones.some(
-          (s) => s.status === 'completed' || s.current_phase > 1 || s.current_step_in_phase > 1
-        );
-        const visible = respuestas.length > 0 || !algunaAvanzo;
+        const visible = respuestas.length > 0 || sesiones.length === 0;
 
         /* El prompt de una revisión concreta. `null` si esa fila ya no está. */
         const promptDe = (r: ReviewResponse): ReviewStepPrompt | null =>
