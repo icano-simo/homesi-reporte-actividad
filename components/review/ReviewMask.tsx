@@ -43,17 +43,10 @@ export interface ReviewMaskProps {
   script: ReviewScript | null;
   /** La revisión con sesión EN CURSO, o `null` si no hay ninguna. */
   activo: MyReview | null;
-  /** Qué módulo está cargando, si alguno. Ver la nota del cruce. */
-  cargandoModulo: string | null;
   onSaveAndExit: () => void;
 }
 
-export default function ReviewMask({
-  script,
-  activo,
-  cargandoModulo,
-  onSaveAndExit,
-}: ReviewMaskProps) {
+export default function ReviewMask({ script, activo, onSaveAndExit }: ReviewMaskProps) {
   const fases = useMemo(
     () => (script && activo ? phaseProgress(script, activo.responses) : []),
     [script, activo]
@@ -96,17 +89,11 @@ export default function ReviewMask({
           )}
           <span className="rv-bar__sep">·</span>
           <span className="rv-bar__pct">{pct}%</span>
-
           {/*
-            ⚠ EL AVISO DE CARGA. Cruzar a Outlook tarda segundos porque el módulo
-            carga todo al entrar, y sin esto la pantalla queda en blanco: la
-            persona no sabe si la app se colgó o si está trabajando. Va en la
-            barra --que no se desmonta-- y no en la página, que es justamente la
-            que todavía no existe.
+            ⚠ Y NADA SOBRE LA CARGA DEL MÓDULO. El módulo ya dice `Loading...` por
+            su cuenta; un segundo aviso acá sería una segunda fuente para el
+            mismo hecho. Ver la nota de `ReviewMaskHost`.
           */}
-          {cargandoModulo !== null && (
-            <span className="rv-bar__loading">Loading {cargandoModulo}…</span>
-          )}
         </div>
 
         {/*

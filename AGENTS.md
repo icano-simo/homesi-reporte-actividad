@@ -425,6 +425,26 @@ No alcanza con verificar que el caso nuevo **aparezca**. Hay que usarlo:
 El costo es un clic. Lo que evita es entregar una etapa correcta con una puerta
 que da a una pared, y que la encuentre quien la use.
 
+> **Recorrerlo ES la prueba. Verificar que el caso nuevo aparezca no prueba
+> nada del camino que abre.**
+
+Y ya van **tres veces**, las tres con la misma forma — el código no cambió,
+cambió el conjunto de entradas que lo alcanza:
+
+| el caso nuevo | el camino que abrió |
+|---|---|
+| `Branch Out of Division` ganó fila | su link llevaba a `Branch%20Out%20of%20Division has no production` — faltaba `decodeURIComponent` desde siempre |
+| dos nodos declararon el mismo antecesor | el cuarto nodo arrancaba encima del segundo, que todavía corría |
+| `Review` entró al sidebar de Business Plan | la entrada **SALE** del módulo, y el sidebar lo monta el layout del módulo: `/review` quedó con cero `.bp-nav-item`, o sea sin menú para volver |
+
+Las tres se veían bien en la lista, y las tres rompían una línea después. En la
+tercera la fila del menú existía, decía `Review`, apuntaba a la ruta correcta y
+quedaba resaltada — cuatro cosas ciertas, y al hacer clic el menú desaparecía.
+
+La regla operativa afinada: la prueba de una entrada nueva **no es que esté**,
+es **usarla y mirar dónde quedás**. Y si lo nuevo saca a alguien del contexto
+donde vive el control, mirar también **cómo vuelve**.
+
 ## Y el caso hermano: redefinir un nombre que ya existía
 
 Antes de definir una clase de CSS, **verificar que el nombre no exista**. Un

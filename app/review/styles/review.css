@@ -86,16 +86,6 @@
 .rv-bar__pct {
   font-weight: 700;
 }
-/* El aviso de carga, en la misma familia ámbar de lo que falta que pase. */
-.rv-bar__loading {
-  padding: 2px 9px;
-  border-radius: var(--radius-full);
-  background: var(--amber-500);
-  /* Texto navy sobre ambar: `--amber-900` no existe, y escribirlo con
-     fallback habria hecho que el fallback fuera lo unico que se usa. */
-  color: var(--navy);
-  font-weight: 600;
-}
 
 /* ── La lista de fases ────────────────────────────────────────────────────── */
 

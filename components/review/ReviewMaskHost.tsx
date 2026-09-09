@@ -29,7 +29,7 @@
  * con el claim, que es el mismo dato que ya se lee para el header.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { cerrarSesion, guardarPaso, moverCursor } from '@/lib/review/actions';
@@ -47,39 +47,28 @@ export default function ReviewMaskHost() {
   const router = useRouter();
 
   /*
-   * ⚠ EL AVISO DE CARGA SE DERIVA DEL CAMBIO DE RUTA, no de un `setTimeout`.
+   * ═══════════════════════════════════════════════════════════════
+   * ⚠ LA BARRA NO AVISA QUE UN MÓDULO ESTÁ CARGANDO, Y ES DELIBERADO
+   * ═══════════════════════════════════════════════════════════════
    *
-   * Cruzar a Outlook tarda segundos y la pantalla queda en blanco. El aviso se
-   * enciende cuando el `pathname` cambia a otro módulo y se apaga cuando el
-   * navegador termina de pintar el siguiente cuadro después de esa ruta.
+   * Acá había un aviso, y se sacó: el módulo ya muestra su propio `Loading...`,
+   * así que un segundo aviso es UNA SEGUNDA FUENTE PARA EL MISMO HECHO. Y ya
+   * sabemos cómo termina eso -- las dos discrepan, y la de la barra miente
+   * porque mide otra cosa.
    *
-   * `requestAnimationFrame` doble y no un timeout fijo: un número inventado
-   * mentiría en las dos direcciones -- se apagaría antes de que cargue en una
-   * máquina lenta, y quedaría encendido después de cargar en una rápida. Es la
-   * misma razón por la que `medirRuta` no fija el timeout.
+   * Medído: el que estaba se encendía al cambiar la ruta y se apagaba en el
+   * cuadro siguiente, pero el módulo tarda SEGUNDOS en traer sus datos. En la
+   * captura el perfil decía `Loading...` y la barra no decía nada. Medía el
+   * pintado de la ruta, no la llegada de los datos.
+   *
+   * Y las dos formas de arreglarlo eran peores que no tenerlo: una duración
+   * mínima inventa un tiempo, y mirar el indicador propio de cada módulo acopla
+   * la máscara a los tres.
+   *
+   * Si la espera molesta, la respuesta no es avisarla mejor: es que Outlook no
+   * traiga 4.800 préstamos al entrar. Eso es una etapa aparte y ya está en la
+   * lista.
    */
-  const [cargandoModulo, setCargandoModulo] = useState<string | null>(null);
-  const rutaPrevia = useRef(pathname);
-
-  useEffect(() => {
-    const modulo = (p: string) => p.split('/')[1] ?? '';
-    const antes = modulo(rutaPrevia.current);
-    const ahora = modulo(pathname);
-    rutaPrevia.current = pathname;
-    if (antes === ahora || antes === '') return;
-
-    setCargandoModulo(ahora === 'outlook' ? 'Outlook' : ahora === 'business-plan' ? 'Business Plan' : ahora);
-    let vivo = true;
-    const id = requestAnimationFrame(() =>
-      requestAnimationFrame(() => {
-        if (vivo) setCargandoModulo(null);
-      })
-    );
-    return () => {
-      vivo = false;
-      cancelAnimationFrame(id);
-    };
-  }, [pathname]);
 
   /*
    * El funnel activo del Loan Officer revisado, para la fase 3.
@@ -143,12 +132,7 @@ export default function ReviewMaskHost() {
 
   return (
     <>
-      <ReviewMask
-        script={script}
-        activo={activo}
-        cargandoModulo={cargandoModulo}
-        onSaveAndExit={onSaveAndExit}
-      />
+      <ReviewMask script={script} activo={activo} onSaveAndExit={onSaveAndExit} />
       {/*
         El panel del paso va JUNTO A LA BARRA y no en cada pantalla, por el
         mismo motivo: es lo unico que tiene la sesion en curso y sobrevive al
