@@ -397,7 +397,25 @@ export default function ReviewMaskHost() {
        * pagaría todo el mundo.
        */
       if (loEnCurso === null) {
-        if (!cancelado) setFunnelActual(null);
+        /*
+         * ⚠ `undefined` Y NO `null` — ESTA LÍNEA TRABABA LA FASE 3.
+         *
+         * `loEnCurso === null` significa «todavía no sé a quién se revisa»: la
+         * lista de revisiones no llegó. Escribirlo como `null` lo hacía
+         * indistinguible de «se leyó y no tiene funnel», así que en CADA carga
+         * la secuencia era `undefined → null → valor` -- y ese `null → valor`
+         * es justo lo que el efecto de más abajo lee como «el funnel se acaba
+         * de activar», así que navegaba.
+         *
+         * En el catálogo sacaba a la persona de la pantalla donde tenía que
+         * elegir. Y en el perfil era un `replace` a la pantalla donde ya
+         * estaba: remonta el árbol, reinicia la carga del perfil y vuelve a
+         * arrancar la búsqueda de 12s, una vuelta encima de la otra. De ahi el
+         * panel diciendo «andate al perfil» DESDE el perfil.
+         *
+         * Le pasó a Adriana, a Armando y a Ana: tres veces el mismo paso.
+         */
+        if (!cancelado) setFunnelActual(undefined);
         return;
       }
       const { data } = await getSupabaseClient()
@@ -466,8 +484,42 @@ export default function ReviewMaskHost() {
     /* `undefined` es la primera lectura: no hubo transicion, hubo un arranque. */
     if (previo === undefined || previo !== null || funnelActual === null) return;
     if (!pideFunnel || !enRuta || enSitio !== false || rutaDelPaso === '') return;
-    router.replace(rutaDelPaso);
-  }, [funnelActual, pideFunnel, enRuta, enSitio, rutaDelPaso, router]);
+    /*
+     * ⚠ Y NO SE NAVEGA A DONDE YA ESTAMOS. `enRuta` es cierto también en los
+     * sub-caminos del perfil, y `enSitio === false` puede ser cierto estando en
+     * la ruta correcta --la sección todavía no apareció--. En esa combinación
+     * un `replace` a la misma URL no arregla nada: remonta el árbol, reinicia
+     * la carga de la pantalla y vuelve a arrancar la búsqueda que estaba a
+     * punto de encontrar la sección.
+     *
+     * Es redundante con el arreglo de arriba a propósito: la causa ya no
+     * produce esta transición, y esta guarda hace que si vuelve a producirse
+     * --por otro camino-- no se convierta en un bucle.
+     */
+    if (pathname === rutaDelPaso) return;
+    /*
+     * ⚠ NAVEGACIÓN DURA, Y NO `router.replace` — RV8.
+     *
+     * MEDIDO: con `replace`, la barra de decisión del perfil queda RANCIA. Los
+     * datos del módulo Business Plan viven en un contexto en memoria que no se
+     * relee al navegar del lado del cliente, así que el perfil seguía diciendo
+     * «Business Plan required» con el funnel ya activo -- a los 3s y a los 45s
+     * igual, y sólo una recarga completa lo corrigía.
+     *
+     * Y eso ROMPE EL PASO para quien está On Track: `DecisionBar` no dibuja
+     * nada cuando no hay plan y el veredicto es On Track, así que con los datos
+     * viejos `.bp-decision` no existe, el lugar del paso no aparece nunca y el
+     * panel queda en LEJOS diciendo «andate al perfil» desde el perfil. Le pasó
+     * a Ana Peña, que es On Track. A Nathan Martinez no, porque es On Risk y su
+     * barra se dibuja igual -- una persona no dice nada de la otra.
+     *
+     * Ocurre UNA vez por revisión --el momento en que el funnel se eligió-- y no
+     * se pierde nada: la sesión vive en la base y la salida de la máscara en el
+     * `localStorage`. Lo que se gana es que la pantalla del módulo y el panel
+     * digan lo mismo.
+     */
+    window.location.assign(rutaDelPaso);
+  }, [funnelActual, pideFunnel, enRuta, enSitio, rutaDelPaso, pathname, router]);
 
   /*
    * ⚠ EL RESUMEN ES UN ESTADO DE LA MÁSCARA, no una ruta.
