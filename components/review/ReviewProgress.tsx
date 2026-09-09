@@ -57,9 +57,9 @@ export default function ReviewProgress() {
   const faseActual = activo.session.current_phase;
 
   return (
-    <section className="rv-prog" aria-label="Review progress">
+    <section className="rv-prog" aria-label="Coach progress">
       <h2 className="rv-prog__head">
-        Review progress
+        Coach progress
         <span className="rv-prog__pct">{pct}%</span>
       </h2>
 
