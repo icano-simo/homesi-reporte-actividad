@@ -36,12 +36,11 @@ import { overallPercent, phaseProgress } from '@/lib/review/progress';
 import { useReview } from './ReviewProvider';
 
 export default function ReviewProgress() {
-  const { script, myReviews, habilitado } = useReview();
-
-  const activo = useMemo(
-    () => (myReviews ?? []).find((r) => r.session?.status === 'in_progress') ?? null,
-    [myReviews]
-  );
+  /* `recorriendo` y no la lista: salió de la máscara significa que el sidebar
+     tampoco muestra el avance. La sesión sigue abierta y se retoma desde
+     `/review`, que es donde se ve que sigue abierta. */
+  const { script, recorriendo, habilitado } = useReview();
+  const activo = recorriendo;
   const fases = useMemo(
     () => (script && activo ? phaseProgress(script, activo.responses) : []),
     [script, activo]

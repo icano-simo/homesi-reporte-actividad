@@ -44,8 +44,9 @@
  * compartido no tiene ninguno de los dos problemas.
  */
 
-import { createContext, useContext, useMemo, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useMemo, type ReactNode } from 'react';
 import { useMyReviews, useReviewScript, type ReviewUnavailable } from '@/lib/review/useReviewData';
+import { salirDeLaMascara, useSalidas } from '@/lib/review/maskExit';
 import type { MyReview, ReviewScript } from '@/lib/review/types';
 
 export interface ReviewContextValue {
@@ -68,6 +69,26 @@ export interface ReviewContextValue {
    * dos lugares que quieren decir "las mias" no puedan divergir.
    */
   myReviews: MyReview[] | null;
+  /**
+   * ═════════════════════════════════════════════════════════════════
+   * LA QUE SE ESTÁ RECORRIENDO AHORA — etapa RV5
+   * ═════════════════════════════════════════════════════════════════
+   *
+   * ⚠ NO ES LO MISMO QUE «hay una sesión `in_progress`», y confundirlas era el
+   * defecto: `Save and exit` llamaba a `recargar()`, la sesión seguía abierta --
+   * como debe-- y la barra se volvía a dibujar. El botón no hacía lo que decía.
+   *
+   * Son tres estados y ahora se distinguen:
+   *
+   *   recorriendo !== null                    la máscara está puesta
+   *   recorriendo === null, myReviews con una en curso   salió, y se retoma
+   *   recorriendo === null, ninguna en curso            no hay revisión
+   *
+   * `null` mientras `myReviews` no llegó: no se sabe todavía, que no es «no hay».
+   */
+  recorriendo: MyReview | null;
+  /** Suelta la máscara SIN cerrar la sesión. Sobrevive a una recarga. */
+  salirDeLaRevision: () => void;
   reviewsUnavailable: ReviewUnavailable;
   reviewsError: string | null;
   isLoading: boolean;
@@ -95,6 +116,8 @@ const SIN_PROVEEDOR: ReviewContextValue = {
   scriptError: null,
   reviews: null,
   myReviews: null,
+  recorriendo: null,
+  salirDeLaRevision: () => {},
   reviewsUnavailable: null,
   reviewsError: null,
   isLoading: false,
@@ -149,6 +172,29 @@ export default function ReviewProvider({ puedeRevisar, children }: ReviewProvide
     );
   }, [reviews.data, reviews.myEmployeeKey]);
 
+  /*
+   * La sesión que se está recorriendo: la en curso de la que NO se salió.
+   *
+   * ⚠ La salida se lee de `localStorage` con `useSyncExternalStore`, así que
+   * sobrevive a una recarga y se entera de lo que pasa en otra pestaña. Ver
+   * `lib/review/maskExit.ts`, que explica por qué no es estado de React ni una
+   * columna de la base.
+   */
+  const salio = useSalidas();
+  const recorriendo = useMemo<MyReview | null>(() => {
+    if (mias === null) return null;
+    return (
+      mias.find(
+        (r) => r.session?.status === 'in_progress' && !salio(r.session.session_key)
+      ) ?? null
+    );
+  }, [mias, salio]);
+
+  const salirDeLaRevision = useCallback(() => {
+    const k = recorriendo?.session?.session_key;
+    if (k !== undefined) salirDeLaMascara(k);
+  }, [recorriendo]);
+
   const valor = useMemo<ReviewContextValue>(
     () => ({
       script: script.data,
@@ -156,6 +202,8 @@ export default function ReviewProvider({ puedeRevisar, children }: ReviewProvide
       scriptError: script.error,
       reviews: reviews.data,
       myReviews: mias,
+      recorriendo,
+      salirDeLaRevision,
       reviewsUnavailable: reviews.unavailable,
       reviewsError: reviews.error,
       isLoading: script.isLoading || reviews.isLoading,
@@ -171,6 +219,8 @@ export default function ReviewProvider({ puedeRevisar, children }: ReviewProvide
       script.isLoading,
       reviews.data,
       mias,
+      recorriendo,
+      salirDeLaRevision,
       reviews.unavailable,
       reviews.error,
       reviews.isLoading,

@@ -29,25 +29,12 @@ import Link from 'next/link';
 import { AlertTriangleIcon } from '@/components/ui/icons';
 import { ErrorState, LoadingState } from '../../business-plan/components/shared';
 import { arrancarOSeguir } from '@/lib/review/actions';
+import { volverALaMascara } from '@/lib/review/maskExit';
+import { buscarBranches, rutaDelModulo } from '@/lib/review/branches';
 import { resumeCursor, orderedSteps } from '@/lib/review/progress';
 import { useReview } from '@/components/review/ReviewProvider';
 import { REVIEW_PATH } from '@/lib/auth/routes';
 
-/** A dónde manda cada módulo del guion. */
-function rutaDelModulo(modulo: string, loEmployeeKey: number): string {
-  /*
-   * ⚠ SE COMPARA CONTRA EL DATO DE LA BASE, que dice `business-plan` y
-   * `outlook` -- con guion, igual que el segmento de la URL. Isabella lo aplicó
-   * así y es mejor que lo que yo había sembrado (`business_plan`), justamente
-   * porque coincide con la ruta.
-   *
-   * Y un módulo que este código no conoce cae en la lista de revisiones y no en
-   * una ruta inventada: mandar a `/algo` daría un 404 en medio de una revisión.
-   */
-  if (modulo === 'business-plan') return '/business-plan/lo/' + loEmployeeKey;
-  if (modulo === 'outlook') return '/outlook';
-  return REVIEW_PATH;
-}
 
 export default function ArrancarRevisionPage() {
   const params = useParams<{ assignmentKey: string }>();
@@ -105,6 +92,17 @@ export default function ArrancarRevisionPage() {
        * dice 1 y ahí no hay nada que hacer. `resumeCursor` da el primero
        * incompleto, que es lo que la persona necesita al reentrar.
        */
+      /*
+       * ⚠ VOLVER A ENTRAR A LA MÁSCARA — etapa RV5.
+       *
+       * `Save and exit` deja una marca local de que se salió de esta sesión, y
+       * esa marca sobrevive a una recarga a propósito. Retomar es lo que la
+       * borra, y ESTE es el punto de retomar: sin esto, salir una vez dejaría la
+       * revisión sin máscara para siempre y `Continue` de `/review` no haría
+       * nada visible.
+       */
+      volverALaMascara(r.data.session_key);
+
       const seguir = resumeCursor(guion, fila.responses) ?? {
         phase_no: r.data.current_phase,
         step_in_phase: r.data.current_step_in_phase,
@@ -116,7 +114,22 @@ export default function ArrancarRevisionPage() {
        * aparece -- en vez de aparecer después, o no aparecer.
        */
       recargar();
-      router.push(rutaDelModulo(fase?.module ?? '', fila.assignment.lo_employee_key));
+      /*
+       * ⚠ EL BRANCH SE ESPERA, igual que al avanzar de fase. La copia de esta
+       * pantalla mandaba a `/outlook` y la del anfitrión al branch: retomar una
+       * revisión parada en la fase 2 llevaba a la lista de los trece. Las dos
+       * copias eran correctas cuando se escribieron; lo que las separó fue
+       * editar una sola.
+       */
+      const codigos =
+        fase?.module === 'outlook' ? await buscarBranches(fila.assignment.lo_employee_key) : [];
+      router.push(
+        rutaDelModulo(
+          fase?.module ?? '',
+          fila.assignment.lo_employee_key,
+          codigos.length > 0 ? codigos[0] : null
+        )
+      );
     })();
     /* `recargar` y `router` fuera: el efecto tiene que correr una sola vez, y lo
        garantiza `yaCorrio` más la guarda de datos de arriba. */

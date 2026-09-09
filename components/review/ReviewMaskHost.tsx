@@ -35,6 +35,7 @@ import { getSupabaseClient } from '@/lib/supabase/client';
 import { cerrarSesion, guardarPaso, moverCursor } from '@/lib/review/actions';
 import { sameStep } from '@/lib/review/progress';
 import { stepOpenEditor, stepTarget } from '@/lib/review/gates';
+import { buscarBranches, rutaDelModulo } from '@/lib/review/branches';
 import { useReviewTarget } from '@/lib/review/useReviewTarget';
 import { useReview } from './ReviewProvider';
 import ReviewMask from './ReviewMask';
@@ -46,7 +47,7 @@ import ReviewSummary from './ReviewSummary';
  * dejarlo acá también habría sido la misma decisión en dos lugares.
  */
 export default function ReviewMaskHost() {
-  const { script, myReviews, recargar, habilitado } = useReview();
+  const { script, recorriendo, recargar, salirDeLaRevision, habilitado } = useReview();
   const pathname = usePathname();
   const router = useRouter();
 
@@ -61,7 +62,14 @@ export default function ReviewMaskHost() {
    * la lista completa, quien tiene `review_admin` veía la barra de la revisión
    * de otra persona.
    */
-  const activo = (myReviews ?? []).find((r) => r.session?.status === 'in_progress') ?? null;
+  /*
+   * ⚠ `recorriendo` Y NO «la en curso de myReviews» — etapa RV5.
+   *
+   * La diferencia es `Save and exit`: la sesión sigue `in_progress` --como debe,
+   * cerrarla es `Finish`-- y aun así la máscara tiene que soltarse. Buscarla acá
+   * era lo que hacía que el botón no hiciera nada visible.
+   */
+  const activo = recorriendo;
   /* A quién se revisa. Sale de la única lectura de arriba. */
   const loEnCurso = activo?.session?.lo_employee_key ?? null;
 
@@ -395,12 +403,20 @@ export default function ReviewMaskHost() {
 
   const onSaveAndExit = useCallback(() => {
     /*
-     * No escribe nada: cada paso ya se guardó al completarse, así que salir no
-     * tiene que confirmar nada. Sólo hace falta releer, y ahora el proveedor es
-     * uno solo -- así que esto también actualiza la lista de la otra pantalla.
+     * No escribe NADA EN LA BASE: cada paso ya se guardó al completarse, así que
+     * salir no tiene que confirmar nada.
+     *
+     * ⚠ LO QUE SÍ HACE es soltar la máscara, y eso antes faltaba: llamaba sólo a
+     * `recargar()`, la sesión seguía abierta y la barra volvía a dibujarse con el
+     * panel del paso donde iba. El botón no hacía lo que decía.
+     *
+     * Y el resumen se cierra también: salir desde ahí dejaría el estado local
+     * abierto para la próxima entrada.
      */
+    salirDeLaRevision();
+    setEnResumen(false);
     recargar();
-  }, [recargar]);
+  }, [recargar, salirDeLaRevision]);
 
   if (!habilitado) return null;
 
@@ -559,48 +575,3 @@ export default function ReviewMaskHost() {
  * equivocada no se arregla: se saca.
  */
 
-/**
- * A donde manda cada modulo. Duplicado a proposito con la pagina de arranque:
- * son dos momentos distintos --entrar y avanzar-- y compartirlo obligaria a un
- * archivo mas para tres lineas. Si aparece un tercer llamador, se extrae.
- */
-/**
- * ══════════════════════════════════════════════════════════════════════
- * EN QUÉ BRANCHES ESTÁ UNA PERSONA — una sola definición
- * ══════════════════════════════════════════════════════════════════════
- *
- * La usan DOS: el efecto que alimenta el link del panel, y la navegación al
- * avanzar de fase. Dos consultas separadas del mismo hecho quedan libres de
- * discrepar, y acá discrepar significa mandar a una pantalla y ofrecer otra.
- *
- * `dim_branch` completa y no filtrada por clave: son trece filas, y filtrar
- * pidiendo `in` con las claves de la persona sería una segunda consulta
- * dependiente de la primera. Trece filas se leen una vez.
- */
-async function buscarBranches(loEmployeeKey: number): Promise<string[]> {
-  const sb = getSupabaseClient().schema('org');
-  const [asig, ramas] = await Promise.all([
-    sb.from('employee_branch').select('branch_key').eq('employee_key', loEmployeeKey),
-    sb.from('dim_branch').select('branch_key, branch_code'),
-  ]);
-  const codigoDe = new Map(
-    ((ramas.data ?? []) as { branch_key: number; branch_code: string }[]).map((b) => [
-      b.branch_key,
-      b.branch_code,
-    ])
-  );
-  return ((asig.data ?? []) as { branch_key: number }[])
-    .map((a) => codigoDe.get(a.branch_key))
-    .filter((c): c is string => typeof c === 'string' && c !== '')
-    /* Ordenados, para que «el primero» sea siempre el mismo: sin `order` la
-       respuesta de PostgREST no promete un orden. */
-    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-}
-
-function rutaDelModulo(modulo: string, loEmployeeKey: number, branchCode: string | null): string {
-  if (modulo === 'business-plan') return '/business-plan/lo/' + loEmployeeKey;
-  if (modulo === 'outlook') {
-    return branchCode === null ? '/outlook' : '/outlook/branch/' + encodeURIComponent(branchCode);
-  }
-  return '/review';
-}
