@@ -18,16 +18,23 @@
  * ----------------------------------------------------------------------------
  * ⚠ SIGUE SIENDO UNA FILA, NO CÓDIGO
  * ----------------------------------------------------------------------------
- * `gate_config.target` ahora acepta las DOS formas, y `stepTarget` las junta en
- * una sola lista de CSS:
+ * `gate_config.target` acepta tres escrituras, y `stepTarget` las junta en una
+ * sola lista de CSS:
  *
  *   "target": ".ol-topbar"                       un selector
- *   "target": [".ol-topbar", ".ol-year"]         varios
+ *   "target": [".ol-topbar", ".ol-year"]         varios, JUNTOS
  *   "target": ".ol-topbar, .ol-year"             lo mismo, en una cadena
  *
  * La forma de array es la que se escribe acá: se lee de un tirón y no obliga a
  * contar comas dentro de una cadena. Agregar una tercera sección al lugar de un
  * paso sigue siendo un `update`, no un despliegue.
+ *
+ * ⚠ Y UNA LISTA NO ES UNA CONDICIÓN. Una lista dice «estas dos cosas, juntas en
+ * la misma pantalla» -- el caso de la fase 2. Cuando el lugar DEPENDE DEL ESTADO
+ * hacen falta dos claves, y es el caso de la fase 3:
+ *
+ *   "target":         dónde se CONTESTA el paso
+ *   "target_pending": dónde se HACE su acción, mientras falte hacerla
  *
  * Y los cuatro selectores de este archivo apuntan a clases QUE YA EXISTÍAN —
  * ninguna pantalla se tocó para esta etapa:
@@ -62,21 +69,32 @@ update review.step
 
 /*
  * ────────────────────────────────────────────────────────────────────────────
- * 2. LA FASE 3 CUENTA EL CATÁLOGO COMO SU LUGAR — punto 2 del brief
+ * 2. LA FASE 3 TIENE UN LUGAR POR ESTADO — punto 2 del brief
  * ────────────────────────────────────────────────────────────────────────────
  *
  * El lugar del paso era sólo `.bp-decision`, que está en el PERFIL. Y la acción
- * que el paso pide --elegir un funnel-- se hace en el catálogo, donde esa clase
+ * que el paso pide --elegir un funnel-- se hace en el CATÁLOGO, donde esa clase
  * no existe: el panel pasaba a «esto se contesta en otra pantalla» justo en la
  * pantalla donde había que trabajar. Isabella vio ese aviso.
  *
- * Con las dos, el paso está «en sitio» en los dos lados: en el catálogo mientras
- * se elige, y en el perfil cuando se confirma y se comenta. El catálogo ya es un
- * sub-camino de la ruta del paso --`/business-plan/lo/2/funnel`-- así que esto
- * no cambia a dónde navega la máscara.
+ * Son dos pantallas y dos momentos, así que son dos claves:
+ *
+ *   sin funnel  →  `.bp-catalog`   en `/business-plan/lo/[id]/funnel`: se ELIGE
+ *   con funnel  →  `.bp-decision`  en el perfil: se CONFIRMA
+ *
+ * ⚠ Y NO UNA LISTA CON LAS DOS, que es lo que decía la primera versión de este
+ * archivo. `.bp-decision` la dibuja `DecisionBar.tsx`, que sólo usa el perfil
+ * --cero apariciones en la pantalla del catálogo-- así que la lista hacía que el
+ * panel se diera por «en sitio» en el catálogo y ofreciera CONFIRMAR ahí, donde
+ * no hay ningún funnel que confirmar.
+ *
+ * El catálogo ya es un sub-camino de la ruta del paso, así que esto no cambia a
+ * dónde navega la máscara: cambia qué se resalta y dónde el paso se da por
+ * contestable.
  */
 update review.step
-   set gate_config = gate_config || '{"target": [".bp-decision", ".bp-catalog"]}'::jsonb
+   set gate_config = gate_config
+       || '{"target": ".bp-decision", "target_pending": ".bp-catalog"}'::jsonb
  where phase_no = 3
    and step_in_phase = 1;
 
@@ -118,8 +136,10 @@ update review.step
  * ────────────────────────────────────────────────────────────────────────────
  * Tiene que devolver exactamente tres filas:
  *
- *   2 | 1 | comment | [".ol-topbar", ".ol-year"]
- *   3 | 1 | funnel   | [".bp-decision", ".bp-catalog"]   con allow_second: false
+ *   2 | 1 | comment | [".ol-topbar", ".ol-year"]  con target_pending en null
+ *   3 | 1 | funnel   | ".bp-decision"               con target_pending ".bp-catalog"
+ *
+ * y `allow_second: false` intacto en la 3.1
  *
  * ⚠ Y QUE `allow_second` SIGA ESTANDO en la 3.1: el `||` de jsonb reemplaza sólo
  * las claves que se le pasan, pero comprobarlo es lo que distingue «escribí un
@@ -129,8 +149,9 @@ update review.step
 select phase_no,
        step_in_phase,
        gate_kind,
-       gate_config -> 'target'       as lugar,
-       gate_config -> 'allow_second' as segundo
+       gate_config -> 'target'         as lugar,
+       gate_config -> 'target_pending' as lugar_pendiente,
+       gate_config -> 'allow_second'   as segundo
   from review.step
  where (phase_no, step_in_phase) in ((2, 1), (3, 1))
  order by phase_no, step_in_phase;

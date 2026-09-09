@@ -4,6 +4,8 @@ import { Fragment, use, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { apportionByWeight } from '@/lib/pipeline/aggregate';
+import { focusIndexed, focusIsAbsent, hiddenCount } from '@/lib/review/focus';
+import { useReview } from '@/components/review/ReviewProvider';
 import {
   composeYear,
   currentMonthByBranch,
@@ -532,6 +534,17 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * que nada puede alcanzar.
    */
   const [editingRecruit, setEditingRecruit] = useState<string | null>(null);
+  /*
+   * ⚠ ARRIBA DE LOS CORTES, PORQUE ES UN HOOK. Lo había puesto al lado de
+   * `personasDe`, que vive después de los tres `return` tempranos --sin datos,
+   * cargando, branch inexistente-- así que en esas tres ramas no corría y el
+   * orden de hooks cambiaba entre renders. Lo dijo `react-hooks/rules-of-hooks`.
+   *
+   * Lo que SÍ puede quedar abajo es todo lo derivado de esto: `focoKey`,
+   * `focoNombre` y `avisoDelFoco` no son hooks, y el último necesita
+   * `monthsOfYear`, que se calcula después de los cortes.
+   */
+  const { recorriendo } = useReview();
 
   if (error) return <div className="hub-container"><div className="bp-empty">Could not load Outlook: {error}</div></div>;
   if (!data) return <div className="hub-container"><div className="bp-empty">Loading…</div></div>;
@@ -760,6 +773,59 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * nada -- la implementacion ya es una sola.
    */
   const personasDe = (bs: BranchStrategy) => personasDeBranch(branch, bs);
+
+  /*
+   * ══════════════════════════════════════════════════════════════════
+   * EL FOCO DE LA REVISIÓN: UNA SOLA PERSONA A LA VISTA — etapa RV7
+   * ══════════════════════════════════════════════════════════════════
+   *
+   * `recorriendo` y no «hay una sesión abierta»: es la distinción de RV5, y con
+   * ella el foco SE APAGA SOLO al dar `Save and exit`, sin trabajo extra.
+   *
+   * `null` deja la app idéntica -- la nota de `focus.ts` lo dice: `null` no es
+   * «mostrar a nadie». Es el peor error posible acá, que una pantalla de Outlook
+   * se quede sin gente porque nadie arrancó una revisión.
+   *
+   * ⚠ Y EL FOCO NO ENTRA EN NINGÚN CÁLCULO. `personas` y `bs.owners` siguen
+   * completas en la suma del branch, en el `X of Y`, en si la estrategia se abre
+   * y en el reparto de `apportionByWeight`. La pregunta que lo gobierna es «esto
+   * es un número del branch, o una fila de una persona?» -- y sólo las filas se
+   * enfocan. El número del branch sigue siendo el del branch.
+   */
+  const focoKey = recorriendo?.session?.lo_employee_key ?? null;
+  const focoNombre = recorriendo?.loName ?? null;
+
+  /*
+   * ⚠ ENFOCAR SIN DECIRLO ES PEOR QUE NO ENFOCAR.
+   *
+   * Quien mire va a ver una fila donde había ocho y no va a saber si el branch
+   * se quedó sin gente o si la vista está filtrada. Dos casos, y son distintos:
+   *
+   *   · la persona ESTÁ y el resto se escondió  → cuántas, y por quién
+   *   · la persona NO participa de la estrategia → eso, con esas palabras. Una
+   *     tabla vacía se lee como un dato que falta, y acá el dato está: la
+   *     estrategia tiene presupuesto y nada de él es suyo. Es una conversación
+   *     válida de una revisión, así que la estrategia se muestra y se explica en
+   *     vez de esconderse.
+   *
+   * Sin clases nuevas: `lbl` y `bp-muted` ya existen.
+   */
+  const avisoDelFoco = (lista: readonly { employeeKey: number | null }[], s: string) => {
+    if (focoKey === null) return null;
+    const ausente = focusIsAbsent(lista, focoKey);
+    const ocultos = hiddenCount(lista, focoKey);
+    if (!ausente && ocultos === 0) return null;
+    const quien = focoNombre ?? 'the loan officer under review';
+    return (
+      <tr className="metric mrow" key={'s-' + s + '-foco'}>
+        <td className="lbl bp-muted" colSpan={monthsOfYear.length + 3} style={{ paddingLeft: '30px' }}>
+          {ausente
+            ? `${quien} takes no part in ${s} \u2014 this budget is the branch's, and none of it is theirs.`
+            : `${ocultos} more row${ocultos === 1 ? '' : 's'} hidden while reviewing ${quien}.`}
+        </td>
+      </tr>
+    );
+  };
 
   /*
    * ==========================================================================
@@ -1259,7 +1325,15 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                      */
                     personas.length === 0
                     ? 'nobody yet'
-                    : `${conBenchmark} of ${personas.length}`
+                    : /*
+                       * ⚠ ESTE CONTEO ES DEL BRANCH Y NO SE ENFOCA: dice cuántos
+                       * de los del branch tienen benchmark en la estrategia, y
+                       * eso no cambia porque la tabla esté filtrada. Que está
+                       * filtrada lo dice `avisoDelFoco`, abajo, en su propia
+                       * fila -- meterlo acá mezclaría un número del branch con
+                       * un estado de la vista.
+                       */
+                      `${conBenchmark} of ${personas.length}`
                   : bs.opensBy === 'owner'
                     ? `${conAE} of ${bs.owners.filter((o) => o.isPerson).length}`
                     : s === 'NPPM'
@@ -1424,7 +1498,20 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                         );
                         partes.forEach((v, i) => (enteros[i][m] = v));
                       }
-                      return personas.map((lo, idx) => {
+                      /*
+                       * ⚠ EL FOCO SE APLICA ACÁ Y NO ARRIBA. `exactos` y `enteros`
+                       * se calcularon sobre `personas` COMPLETA, y `enteros[idx]`
+                       * es el presupuesto de la persona `idx` de ESA lista.
+                       * Filtrar antes renumeraría las posiciones y cada fila
+                       * mostraría el presupuesto de otra -- sumando bien, que es
+                       * la peor forma de estar mal.
+                       *
+                       * Y recalcular el reparto sobre la lista enfocada es peor
+                       * todavía: `apportionByWeight` reparte el ENTERO de la
+                       * estrategia, así que con una sola persona el entero
+                       * completo cae en ella. Ver la nota de `focusIndexed`.
+                       */
+                      return focusIndexed(personas, focoKey).map(({ item: lo, idx }) => {
                       const cell = cellOf(lo, s, enteros[idx]);
                       const isMonthly = (lo.modeByStrategy[s] ?? 'growth') === 'monthly';
                       const b = lo.strategyBenchmarks[s] ?? 0;
@@ -1517,6 +1604,9 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                       );
                       });
                     })()}
+
+                  {/* Y si la vista está enfocada, la fila que lo dice. */}
+                  {abierta && bs.opensBy === 'loanOfficer' && avisoDelFoco(personas, s)}
 
 
                   {/*
@@ -1634,7 +1724,12 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                   {/* ── Affinity: se abre por Account Executive ─────────────── */}
                   {abierta &&
                     bs.opensBy === 'owner' &&
-                    bs.owners.map((o, idx) => {
+                    /* Mismo criterio: `porDueno` se repartió sobre
+                       `bs.owners` completa, así que el índice viaja con cada uno.
+                       El usuario de sistema tiene `employeeKey` en `null`, y con
+                       un foco puesto no coincide -- que es lo correcto, no es la
+                       persona revisada. */
+                    focusIndexed(bs.owners, focoKey).map(({ item: o, idx }) => {
                       /*
                         ⚠ El usuario de sistema muestra sus cierres reales y su
                         presupuesto queda VACÍO, no en cero: no hay a quién
@@ -1749,6 +1844,8 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                       <td className="ol-rulecol bp-muted">not assigned</td>
                     </tr>
                   )}
+
+                  {abierta && bs.opensBy === 'owner' && avisoDelFoco(bs.owners, s)}
 
                   {/* ── NPPM: se abre por realtor ──────────────────────────── */}
                   {abierta &&

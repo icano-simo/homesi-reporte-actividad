@@ -105,8 +105,29 @@ export function gateLink(step: ReviewStep): string | null {
  * un paso sin lugar, y nadie se enteraría nunca. Es el respaldo que hace que la
  * ausencia no se note.
  */
-export function stepTarget(step: ReviewStep): string | null {
-  const raw = step.gate_config?.target;
+export function stepTarget(step: ReviewStep, pendiente = false): string | null {
+  /*
+   * ═══════════════════════════════════════════════════════════════
+   * ⚠ EL LUGAR PUEDE DEPENDER DEL ESTADO — etapa RV7
+   * ═══════════════════════════════════════════════════════════════
+   *
+   * `target_pending` es dónde se HACE la acción del paso mientras no esté hecha;
+   * `target` es dónde se CONTESTA. En el paso 3.1 son dos pantallas distintas:
+   * sin funnel hay que ir al catálogo --`.bp-catalog`-- y con funnel se confirma
+   * en la barra de decisión del perfil --`.bp-decision`--.
+   *
+   * ⚠ Y ES UNA CONDICIÓN, NO UNA LISTA. Declarar los dos juntos parece
+   * equivalente y no lo es: `.bp-decision` sólo existe en el perfil, así que la
+   * lista hacía que el panel se diera por «en sitio» en el catálogo y ofreciera
+   * CONFIRMAR ahí, donde no hay nada que confirmar. Una lista dice «estas dos
+   * cosas, juntas» --el caso de la fase 2, las dos en la misma pantalla-- y una
+   * condición dice «esta o esta, según el estado».
+   *
+   * La clave ausente cae en `target`, que es el comportamiento de siempre.
+   */
+  const raw = pendiente && step.gate_config?.target_pending !== undefined
+    ? step.gate_config.target_pending
+    : step.gate_config?.target;
   /*
    * Un solo selector: tal cual. Y CSS YA SABE DECIR «estos dos» -- una lista
    * separada por comas es un selector válido, y `querySelectorAll` devuelve los

@@ -31,9 +31,16 @@
  * sin gente porque alguien no arrancó una revisión.
  */
 
-/** Lo mínimo que el foco necesita de una persona. */
+/**
+ * Lo mínimo que el foco necesita de una persona.
+ *
+ * ⚠ `null` ES UN VALOR LEGÍTIMO acá, y no una omisión: los dueños de Affinity
+ * incluyen al USUARIO DE SISTEMA, que no es una persona y no tiene clave. Con
+ * un foco puesto nunca coincide --que es lo correcto, no es la persona
+ * revisada-- y sin foco pasa entero como todos.
+ */
 export interface ConEmployeeKey {
-  employeeKey: number;
+  employeeKey: number | null;
 }
 
 /**
@@ -85,4 +92,50 @@ export function focusIsAbsent<T extends ConEmployeeKey>(
 ): boolean {
   if (focusEmployeeKey === null) return false;
   return personas.length > 0 && focusOn(personas, focusEmployeeKey).length === 0;
+}
+
+/**
+ * ═════════════════════════════════════════════════════════════════════════
+ * ENFOCAR SIN PERDER EL ÍNDICE — etapa RV7
+ * ═════════════════════════════════════════════════════════════════════════
+ *
+ * `focusOn` devuelve una lista nueva, y eso NO SIRVE donde el foco se aplica de
+ * verdad. La vista del branch reparte el entero de cada estrategia entre las
+ * personas ANTES de emitir filas:
+ *
+ *     const enteros = apportionByWeight(totalDeLaEstrategia, exactos);
+ *     personas.map((lo, idx) => … enteros[idx] …)
+ *
+ * `enteros[idx]` está atado a la posición en la lista COMPLETA. Filtrar antes
+ * del `map` renumera las posiciones, así que la persona visible se quedaría con
+ * el presupuesto de otra -- y sumando bien, que es la peor forma de estar mal.
+ *
+ * ⚠ Y RECALCULAR EL REPARTO SOBRE LA LISTA ENFOCADA ES PEOR: `apportionByWeight`
+ * reparte EL ENTERO DE LA ESTRATEGIA, así que con una sola persona el entero
+ * completo cae en ella. La pantalla mostraría a la persona revisada con el
+ * presupuesto de las ocho. Es el mismo mecanismo que ya documentó la vista del
+ * branch cuando los pesos daban todos cero y el entero se volcaba en una fila.
+ *
+ * De ahí la forma: el índice se ata ANTES de filtrar y viaja con cada elemento.
+ * Enfocar deja de poder cambiar un número, porque no toca el cálculo.
+ */
+export interface Enfocado<T> {
+  item: T;
+  /** La posición en la lista SIN enfocar, que es la que indexa el reparto. */
+  idx: number;
+}
+
+/**
+ * La lista con su índice original, enfocada.
+ *
+ * Con `focusEmployeeKey` en `null` devuelve todos --la app normal idéntica-- y
+ * con una clave, sólo esa persona, cada uno sabiendo de qué posición vino.
+ */
+export function focusIndexed<T extends ConEmployeeKey>(
+  personas: readonly T[],
+  focusEmployeeKey: number | null
+): readonly Enfocado<T>[] {
+  const conIndice = personas.map((item, idx) => ({ item, idx }));
+  if (focusEmployeeKey === null) return conIndice;
+  return conIndice.filter(({ item }) => item.employeeKey === focusEmployeeKey);
 }

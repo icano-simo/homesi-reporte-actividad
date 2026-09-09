@@ -34,7 +34,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { cerrarSesion, guardarPaso, moverCursor } from '@/lib/review/actions';
 import { sameStep } from '@/lib/review/progress';
-import { stepOpenEditor, stepTarget } from '@/lib/review/gates';
+import { requiresFunnel, stepOpenEditor, stepTarget } from '@/lib/review/gates';
 import { buscarBranches, rutaDelModulo } from '@/lib/review/branches';
 import { useReviewTarget } from '@/lib/review/useReviewTarget';
 import { useReview } from './ReviewProvider';
@@ -105,6 +105,23 @@ export default function ReviewMaskHost() {
    * condicionalmente rompe el orden de hooks de React. Sin sesión el selector
    * es `null` y el hook no hace nada.
    */
+  /*
+   * ⚠ TRES ESTADOS, Y EL TERCERO HACÍA FALTA — RV7.
+   *
+   * Arrancaba en `null`, que es exactamente lo que significa «no tiene funnel».
+   * Con el lugar del paso ahora atado a ese estado, la primera lectura mandaba
+   * al catálogo a alguien que ya tenía uno.
+   *
+   *   `undefined` = todavía no se leyó
+   *   `null`      = se leyó y no tiene
+   *   string      = el nombre del funnel activo
+   *
+   * Es la misma distinción de siempre --no vino no es vino vacío-- y la que
+   * `useReviewTarget` ya hace con `enSitio`.
+   */
+  const [funnelActual, setFunnelActual] = useState<string | null | undefined>(undefined);
+  const [tickFunnel, setTickFunnel] = useState(0);
+
   const pasoActual =
     script && activo?.session
       ? script.steps.find((s) =>
@@ -114,7 +131,16 @@ export default function ReviewMaskHost() {
           })
         ) ?? null
       : null;
-  const selectorDelPaso = pasoActual ? stepTarget(pasoActual) : null;
+  /*
+   * ⚠ EL LUGAR DEPENDE DE SI LA ACCIÓN ESTÁ HECHA. Sin funnel, el paso 3.1 se
+   * hace en el catálogo; con funnel, se confirma en el perfil. Ver `stepTarget`.
+   *
+   * Y `=== null` estricto: con `undefined` --todavía sin leer-- manda el lugar
+   * de siempre, que es donde la máscara deja a la persona.
+   */
+  const accionPendiente =
+    pasoActual !== null && requiresFunnel(pasoActual) && funnelActual === null;
+  const selectorDelPaso = pasoActual ? stepTarget(pasoActual, accionPendiente) : null;
 
   /*
    * ⚠ EL LUGAR ES LA SECCIÓN *Y* LA PERSONA.
@@ -288,8 +314,6 @@ export default function ReviewMaskHost() {
    * pregunta existe. `null` = no tiene funnel, que es uno de los dos casos que
    * la fase 3 tiene que distinguir.
    */
-  const [funnelActual, setFunnelActual] = useState<string | null>(null);
-  const [tickFunnel, setTickFunnel] = useState(0);
   /* La fase 3 es la que pregunta por el funnel. Fuera de ella no se consulta. */
   const pideFunnel = pasoActual?.phase_no === 3;
   /*

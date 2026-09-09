@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "verificar:clases": "node scripts/verificacion/clases-definidas.mjs",
-    "verificar:guardas": "node scripts/verificacion/guardas.test.mjs"
+    "verificar:guardas": "node scripts/verificacion/guardas.test.mjs",
+    "verificar:foco": "node scripts/verificacion/focus.test.mjs"
   },
   "dependencies": {
     "@react-pdf/renderer": "^4.9.0",

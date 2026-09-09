@@ -75,8 +75,16 @@ export interface ReviewStepPanelProps {
   session: ReviewSession;
   responses: ReviewResponse[];
   loName: string;
-  /** El funnel activo del Loan Officer, para la fase 3. `null` = no tiene. */
-  funnelActual: string | null;
+  /**
+   * El funnel activo del Loan Officer, para la fase 3.
+   *
+   * ⚠ TRES ESTADOS, y el tercero importa: `undefined` = el anfitrión todavía no
+   * lo leyó, `null` = lo leyó y no tiene, un string = el nombre del activo.
+   *
+   * Sin el tercero, la primera lectura de cualquiera se veía igual que «no
+   * tiene» y el panel mandaba a elegir un funnel a quien ya tenía uno.
+   */
+  funnelActual: string | null | undefined;
   /**
    * Si estamos donde el paso apunta. Lo resuelve `useReviewTarget` en el
    * anfitrión, que es quien puede mirar el DOM de la página entera.
@@ -429,7 +437,10 @@ export default function ReviewStepPanel({
    * volver del catálogo con el funnel ya activo.
    */
   const requiereFunnel = requiresFunnel(paso);
+  /* `=== null` estricto: `undefined` es «no lo leí» y no habilita ni bloquea. */
   const faltaFunnel = requiereFunnel && funnelActual === null;
+  /* Y mientras no se haya leído, el paso no afirma nada sobre el funnel. */
+  const funnelSinLeer = requiereFunnel && funnelActual === undefined;
   /*
    * El catálogo es un sub-camino del perfil, así que `enRuta` del anfitrión ya
    * lo cubre: llegar acá no saca a nadie del lugar del paso. Por eso alcanza con
@@ -460,6 +471,74 @@ export default function ReviewStepPanel({
    * ni el aviso de irse. Sin un «cargando» propio, que seria una segunda fuente
    * para lo que el modulo ya dice.
    */
+  /*
+   * ════════════════════════════════════════════════════════════════════
+   * ⚠ FALTA EL FUNNEL: SE DICE ANTES DE BUSCAR EL LUGAR — etapa RV7
+   * ════════════════════════════════════════════════════════════════════
+   *
+   * Sin funnel el lugar del paso es el CATÁLOGO --`.bp-catalog`--, que en el
+   * perfil no existe. Así que la búsqueda corre hasta el plazo de 12s, y en ese
+   * rato el panel de abajo sólo muestra la pregunta: doce segundos sin decir que
+   * hay que ir a elegir, en la pantalla donde la máscara deja a la persona.
+   *
+   * Lo que hay que hacer NO DEPENDE de estar en el lugar correcto, así que se
+   * dice acá y se termina. Y por eso este corte va antes que `buscandoSitio` y
+   * que `enSitio === false`: los dos hablan de dónde estamos, y esto habla de qué
+   * falta.
+   *
+   * ⚠ Sin campo de comentario y sin botón de avanzar: el paso no se puede
+   * cerrar, ni escribiendo ni continuando desde una respuesta vieja. Es el
+   * agujero de Armando Tejeda, cerrado por los dos lados.
+   */
+  if (funnelSinLeer) {
+    /* Nada que afirmar todavía: la cabecera y la pregunta, que ya son ciertas. */
+    return (
+      <div className="rv-panel rv-panel--buscando" role="region" aria-label="Review step">
+        <div className="rv-panel__head">
+          <span className="rv-panel__step">
+            Phase {paso.phase_no} · step {paso.step_in_phase}
+          </span>
+          <span className="rv-panel__label">{paso.label}</span>
+          {yaContestado && <span className="rv-panel__done">answered</span>}
+        </div>
+        <p className="rv-panel__prompt">{texto.prompt}</p>
+      </div>
+    );
+  }
+
+  if (faltaFunnel) {
+    return (
+      <div className="rv-panel" role="region" aria-label="Review step">
+        <div className="rv-panel__head">
+          <span className="rv-panel__step">
+            Phase {paso.phase_no} · step {paso.step_in_phase}
+          </span>
+          <span className="rv-panel__label">{paso.label}</span>
+          {yaContestado && <span className="rv-panel__done">answered</span>}
+        </div>
+        <p className="rv-panel__prompt">{texto.prompt}</p>
+        <p className="rv-panel__gate">
+          <AlertTriangleIcon size={13} /> {loName} has no active funnel, and this step is where
+          one gets picked. Open a funnel from the catalog and press{' '}
+          <strong>Select this funnel</strong>. The comment box shows up once it is active.
+        </p>
+        {!enElCatalogo && (
+          <div className="rv-panel__actions">
+            <Link className="bp-btn bp-btn--primary bp-btn--small" href={rutaDelCatalogo}>
+              Open the funnel catalog →
+            </Link>
+          </div>
+        )}
+        {enElCatalogo && (
+          <p className="rv-panel__helper">
+            You are on the catalog. Open one and press <strong>Select this funnel</strong>; the
+            review comes back to the profile on its own.
+          </p>
+        )}
+      </div>
+    );
+  }
+
   if (buscandoSitio) {
     return (
       <div className="rv-panel rv-panel--buscando" role="region" aria-label="Review step">
@@ -498,17 +577,6 @@ export default function ReviewStepPanel({
             {loName} is on <strong>{funnelActual}</strong> — the funnel is chosen and nothing was
             lost. What is left is the comment, and that goes on the profile.
           </p>
-        ) : faltaFunnel ? (
-          /*
-            ⚠ Y SIN FUNNEL EL AVISO NOMBRA LA ACCIÓN — etapa RV6. El genérico
-            «esto se contesta en la pantalla que el paso señala» no dice que lo
-            que falta es ELEGIR, así que se lee como un problema de navegación y
-            no como el paso. Isabella terminó la revisión sin elegir ninguno.
-          */
-          <p className="rv-panel__gate">
-            <AlertTriangleIcon size={13} /> {loName} has no active funnel yet, and this step is
-            where one gets picked. Open the catalog and press <strong>Select this funnel</strong>.
-          </p>
         ) : (
           <p className="rv-panel__gate">
             This step is answered on the screen it points at, and that is not this one. The comment
@@ -535,13 +603,7 @@ export default function ReviewStepPanel({
             Un botón que lleva a la lista de los trece branches en vez del de
             Adriana es peor que ninguno, porque parece correcto.
           */}
-          {faltaFunnel ? (
-            /* Lo que falta es elegir, así que el botón lleva a donde se elige y
-               no al lugar donde después se escribe el comentario. */
-            <Link className="bp-btn bp-btn--primary bp-btn--small" href={rutaDelCatalogo}>
-              Open the funnel catalog →
-            </Link>
-          ) : rutaDelPaso === '' ? (
+          {rutaDelPaso === '' ? (
             <span className="rv-panel__next">working out which screen this step is on…</span>
           ) : (
             <Link className="bp-btn bp-btn--primary bp-btn--small" href={rutaDelPaso}>
@@ -558,9 +620,16 @@ export default function ReviewStepPanel({
     numero: numero.trim() === '' ? null : Number(numero),
     clicks,
     budgetListo,
-    /* De la base, vía el anfitrión: `business_plan.enrollment`. La pantalla no
-       lo puede poner en `true`, igual que el presupuesto. */
-    funnelListo: funnelActual !== null,
+    /*
+     * De la base, vía el anfitrión: `business_plan.enrollment`. La pantalla no lo
+     * puede poner en `true`, igual que el presupuesto.
+     *
+     * ⚠ `typeof === 'string'` y no `!== null`: con tres estados, `undefined`
+     * --«no lo leí»-- pasaba como funnel presente. Acá no se alcanza, porque
+     * `funnelSinLeer` corta antes; pero una condición que miente cuando se la
+     * mueve es la clase de respaldo que hace que la ausencia no se note.
+     */
+    funnelListo: typeof funnelActual === 'string',
   };
   const estado = gateStatus(paso, draft);
   const link = gateLink(paso);
@@ -673,27 +742,14 @@ export default function ReviewStepPanel({
       */}
       {paso.phase_no === 3 && (
         <div className="rv-panel__funnel">
-          {funnelActual === null ? (
-            /*
-              ⚠ ACÁ HABÍA UN MENSAJE: «Pick one on the profile, then close this
-              step.» Decía dónde ir y no llevaba, y el paso se podía cerrar
-              igual -- las dos mitades del punto 2 del brief de RV6.
-            */
-            <>
-              <p className="rv-panel__gate">
-                <AlertTriangleIcon size={13} /> {loName} has no active funnel, and this step is
-                where one gets picked. Open a funnel from the catalog and press{' '}
-                <strong>Select this funnel</strong>. The comment box shows up once it is active.
-              </p>
-              {!enElCatalogo && (
-                <div className="rv-panel__actions">
-                  <Link className="bp-btn bp-btn--primary bp-btn--small" href={rutaDelCatalogo}>
-                    Open the funnel catalog →
-                  </Link>
-                </div>
-              )}
-            </>
-          ) : (
+          {/*
+            ⚠ ACÁ EL FUNNEL SIEMPRE EXISTE. El corte de `faltaFunnel` de arriba se
+            queda con el caso «sin funnel» y el de `funnelSinLeer` con «no leí»,
+            así que llegar hasta acá en la fase 3 ya significa que hay uno activo.
+            Antes esto tenía una rama para el caso vacío; quedó inalcanzable y se
+            borró, porque una rama muerta se lee como viva.
+          */}
+          {(
             <>
               <p className="rv-panel__helper">
                 {loName} is on <strong>{funnelActual}</strong>. Confirming keeps it — nothing is
@@ -783,11 +839,17 @@ export default function ReviewStepPanel({
         `Save again` permanente.
       */}
       {/*
-        ⚠ Y SIN FUNNEL NO HAY CAMPO. Es el orden del brief: primero se elige,
-        después se comenta. Un campo abierto sobre un paso cuya acción no se hizo
-        invita a cerrarlo escribiendo algo, que es exactamente lo que pasó.
+        ⚠ EL CAMPO SÓLO EXISTE EDITANDO. Un paso ya guardado muestra lo que se
+        dijo, y volver a abrirlo es el `Edit` de abajo. Es lo que reemplaza al
+        `Save again` permanente.
+
+        Y sin funnel no hay campo tampoco -- eso es el orden del brief: primero se
+        elige, después se comenta. Pero no se decide acá: el corte de
+        `faltaFunnel` de arriba se lleva ese caso con su propio panel, así que
+        este guard nunca se ejercía. Lo encontró un conteo de usos sobre el
+        código, no yo.
       */}
-      {faltaFunnel ? null : editando ? (
+      {editando ? (
         <label className="rv-panel__field">
           <span className="rv-panel__fieldlabel">Comment</span>
           <textarea
@@ -840,14 +902,17 @@ export default function ReviewStepPanel({
         app está rota.
       */}
       {/*
-        ⚠ `editando || faltaFunnel` Y NO SÓLO `editando`: un paso YA CONTESTADO
-        no dibuja el campo, así que sin esto el botón quedaba apagado sin decir
-        por qué. Pasa de verdad -- una revisión retomada en 3.1 con el comentario
-        escrito y el funnel todavía sin elegir.
+        ⚠ EL MOTIVO AL LADO DEL BOTÓN, no sólo el botón apagado. Un control
+        deshabilitado sin explicación obliga a adivinar si falta algo o si la app
+        está rota.
+
+        RV6 tenía acá `editando || faltaFunnel`, para que un paso ya contestado y
+        sin funnel dijera por qué no avanzaba. El corte de RV7 se queda con ese
+        caso completo --panel propio, con su guía y su botón al catálogo-- así
+        que acá `faltaFunnel` ya no puede ser true y la condición vuelve a ser la
+        simple.
       */}
-      {!estado.ok && estado.falta && (editando || faltaFunnel) && (
-        <p className="rv-panel__gate">{estado.falta}</p>
-      )}
+      {editando && !estado.ok && estado.falta && <p className="rv-panel__gate">{estado.falta}</p>}
 
       <div className="rv-panel__actions">
         {/*
@@ -868,15 +933,17 @@ export default function ReviewStepPanel({
             type="button"
             className="bp-btn bp-btn--primary bp-btn--small"
             /*
-              ⚠ `faltaFunnel` ACÁ TAMBIÉN, Y ES LA MITAD QUE FALTABA.
-              Este botón --el de un paso ya contestado-- no pasa por
-              `gateStatus`: avanza sin más, porque no hay nada nuevo que
-              guardar. Sobre el último paso ese avance es `Review and finish`,
-              o sea CERRAR LA REVISIÓN. Con el comentario ya escrito y sin
-              funnel, era una salida limpia al agujero que el resto de esta
-              etapa cierra.
+              ⚠ ESTE BOTÓN NO PASA POR `gateStatus`: avanza sin más, porque no hay
+              nada nuevo que guardar. Y sobre el último paso ese avance es
+              `Review and finish`, o sea CERRAR LA REVISIÓN -- con el comentario
+              ya escrito y sin funnel era una salida limpia al agujero de la
+              fase 3.
+              Lo tapa el corte de `faltaFunnel` de arriba, que se lleva ese caso
+              antes de llegar acá: sin funnel no se dibuja ningún botón de
+              avanzar. Se deja escrito porque el próximo que mueva ese corte
+              tiene que saber qué estaba protegiendo.
             */
-            disabled={ocupado || faltaFunnel}
+            disabled={ocupado}
             onClick={async () => {
               if (esUltimo) {
                 onResumen();
