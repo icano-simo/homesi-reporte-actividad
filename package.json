@@ -9,7 +9,8 @@
     "lint": "eslint",
     "verificar:clases": "node scripts/verificacion/clases-definidas.mjs",
     "verificar:guardas": "node scripts/verificacion/guardas.test.mjs",
-    "verificar:foco": "node scripts/verificacion/focus.test.mjs"
+    "verificar:foco": "node scripts/verificacion/focus.test.mjs",
+    "verificar:estados": "node scripts/verificacion/estados-ambiguos.mjs"
   },
   "dependencies": {
     "@react-pdf/renderer": "^4.9.0",

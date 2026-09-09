@@ -361,7 +361,7 @@ Y el corolario que duele: el número que lo delató —69 de 75— se podía hab
 calculado en cualquier momento con una consulta de treinta segundos. No hacía
 falta descubrirlo, hacía falta preguntarlo.
 
-## Siete de estas lecciones son código, no nota
+## Ocho de estas lecciones son código, no nota
 
 `scripts/verificacion/guardas.mjs`. Se importan desde cualquier script de
 verificación y no tocan la base — reciben el `page` o el `locator` por
@@ -377,6 +377,7 @@ fuera del repo.
 | `exigirSinChoques` | redefinir una clase de CSS que ya existía | 1 |
 | `exigirAusente` | comprobar una ausencia sobre el archivo y no sobre el código | **6** |
 | `exigirDefinidos` | probar una mitad de un contrato cuya otra mitad no existe | **3** |
+| `estados-ambiguos` | reescribir el valor «no lo sé» de un estado de tres | **1**, con 3 personas trabadas |
 
 **Por qué están en el repo y no en el scratchpad de una sesión:** una guarda que
 se muere con la sesión es *peor* que una nota acá, porque la nota al menos
@@ -627,7 +628,7 @@ clase ajena dice si le pegaste, sin tener que navegar hasta ahí.
 
 # Lo que compensa una ausencia hace que la ausencia no se note
 
-> Tercera sección aparte, y sale de haberlo visto **seis veces**. Un patrón se
+> Tercera sección aparte, y sale de haberlo visto **siete veces**. Un patrón se
 > reconoce por repetición, no por descripción: por eso van los casos con nombre
 > y no una definición general.
 
@@ -640,7 +641,7 @@ Y de ahí lo que hay que mirar: **un respaldo que nunca se ejerció es sospechos
 O el original siempre estuvo, y el respaldo sobra; o el original nunca estuvo, y
 lo que se está usando es el respaldo sin saberlo.
 
-## Los seis casos
+## Los siete casos
 
 **1. `--white`, con su fallback.** El token no estaba definido en ninguna parte, y
 los cuatro usos del módulo Outlook lo pedían como `var(--white, #fff)` o
@@ -673,6 +674,13 @@ Lo que lo hizo durar: el comentario del layout **afirmaba** que la hoja del
 Business Plan la traía. Una nota correcta sobre las otras tres clases de la
 misma lista, falsa sobre la cuarta, y nadie vuelve a verificar una nota.
 
+Y la vuelta operativa que sale de este caso, porque el `git grep` de la sección
+anterior no lo agarra: ese grep pregunta **«esta clase ya existe?»** para no
+pisarla, y éste pregunta lo contrario, **«las clases que escribo existen?»**. Se
+leen del JSX y se buscan en las hojas — al revés de como se escribieron. Son dos
+chequeos distintos sobre el mismo `grep`, y el segundo encontró un
+`rv-intake__body` sin regla en la primera corrida.
+
 **5. El estado inicial capturado antes de que el dato llegue.** El campo del
 benchmark arrancaba en `''` porque el valor vivía en un `useState` que se
 evaluaba antes de que el anfitrión lo leyera de la base -- y `''` es
@@ -687,7 +695,25 @@ paso se hace en el catálogo, con funnel se confirma en el perfil-- la primera
 lectura mandaba al catálogo a quien ya tenía uno. Se arregló con el tercer
 estado: `undefined` = todavía no se leyó.
 
-## La línea que une a los seis
+**7. Y el mismo `funnelActual`, otra vez -- por un camino que lo REESCRIBE.** El
+caso 6 arregló el valor inicial, y quedó esta línea en el efecto que lo lee:
+
+```ts
+if (loEnCurso === null) {
+  setFunnelActual(null);   // «todavía no sé a quién se revisa»
+  return;
+}
+```
+
+`loEnCurso === null` significa que la lista de revisiones no llegó, y se
+escribía con el mismo `null` que significa «no tiene funnel». Así que en CADA
+carga la secuencia real era `undefined → null → valor`, y otro efecto leía ese
+`null → valor` como «el funnel se acaba de activar»: en el catálogo sacaba a la
+persona de la pantalla donde tenía que elegir, y en el perfil navegaba a la
+pantalla donde ya estaba -- remontando el árbol y reiniciando la búsqueda en
+bucle. Tres personas se trabaron en el mismo paso antes de que se viera.
+
+## La línea que une a los siete
 
 Los cuatro primeros se leen como problemas de RESPALDO: un fallback, una
 herencia de CSS, una coerción a `''`. El quinto y el sexto no tienen respaldo
@@ -703,12 +729,27 @@ el valor de «no lo sé» es el que está durante el primer cuadro de CADA carga
 así que el error aparece siempre y se ve una sola vez -- justo antes de que el
 dato llegue y lo tape.
 
-Y la vuelta operativa que sale de acá, porque el `git grep` de la sección
-anterior no lo agarra: ese grep pregunta **«esta clase ya existe?»** para no
-pisarla, y éste pregunta lo contrario, **«las clases que escribo existen?»**. Se
-leen del JSX y se buscan en las hojas — al revés de como se escribieron. Son dos
-chequeos distintos sobre el mismo `grep`, y el segundo encontró un
-`rv-intake__body` sin regla en la primera corrida.
+### Y lo que agrega el séptimo: no alcanza con el valor inicial
+
+El caso 6 y el 7 son el MISMO estado, arreglado dos veces. La primera se le
+cambió el valor inicial --`undefined` en vez de `null`-- y el defecto siguió
+vivo, porque otro camino seguía escribiendo el `null` ambiguo. Un tercer estado
+que se introduce en la declaración y no en las asignaciones no existe: cualquier
+`set` que use el valor viejo lo reintroduce entero.
+
+> **Un estado que significa «no lo sé» no se arregla en su valor inicial. Se
+> arregla eliminando TODOS los lugares que pueden escribirlo.**
+
+La regla operativa, y es un `grep` de treinta segundos: al darle un tercer
+estado a algo, **buscar cada llamada a su `set` y decidir qué significa cada
+una**. `git grep 'setFunnelActual('` daba tres sitios; dos eran lecturas reales
+y el tercero era «todavía no sé» disfrazado de «no hay». Y después dejarlo
+comprobable: una aserción sobre el código --sin comentarios-- de que el valor
+ambiguo no se escribe en ninguna parte vale más que acordarse.
+
+Es primo del caso de la clase de CSS redefinida, en la otra dirección: aquel
+dice que el daño no aparece donde escribís, y éste que el arreglo no alcanza
+donde escribís.
 
 ## El contraejemplo, que es el que enseña
 
