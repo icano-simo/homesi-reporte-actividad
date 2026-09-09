@@ -5,6 +5,7 @@ import {
   calculateForecast,
   calculateTotalForecastWithClosed,
   countByMilestoneBucket,
+  isClosedInMonth,
   type DateRange,
   type PullThroughRates,
 } from './aggregate';
@@ -113,6 +114,7 @@ export function buildLoanOfficerForecastRows(
       const loans = openLoansForBranch.filter((l) => l.loanOfficer && resolveOfficer(l.loanOfficer).key === key);
       const healthy = loans.filter((l) => l.healthy === true);
       const closedLoans = closedLoansForBranch.filter((l) => l.loanOfficer && resolveOfficer(l.loanOfficer).key === key);
+      const closedLoansInMonth = closedLoans.filter((loan) => isClosedInMonth(loan, dateRange));
 
       /* Mismo criterio de fecha y de status que la fila del branch. */
       const { closedCount } = calculateTotalForecastWithClosed(closedLoans, 0, dateRange);
@@ -123,7 +125,7 @@ export function buildLoanOfficerForecastRows(
         ? calculateForecast(countByMilestoneBucket(healthy), rates).forecastTotal
         : loans.length * BROKERED_FLAT_PULL_THROUGH_RATE;
 
-      return { loanOfficerKey: key, loanOfficer: displayName, loans, closedLoans, totalCount: loans.length, healthyCount: healthy.length, closedCount, exactForecast };
+      return { loanOfficerKey: key, loanOfficer: displayName, loans, closedLoans: closedLoansInMonth, totalCount: loans.length, healthyCount: healthy.length, closedCount, exactForecast };
     });
 
     /* El entero del branch+channel, repartido. La suma de las partes ES el entero. */
@@ -167,6 +169,27 @@ export function buildLoanOfficerForecastRows(
             field: name,
             loanOfficersSum: got,
             branchValue: want,
+          });
+        }
+      }
+    }
+
+    /*
+     * Red de seguridad en desarrollo: `rows[i].closedLoans` (ahora
+     * `closedLoansInMonth`) tiene que tener EXACTAMENTE `closedCount`
+     * préstamos -- si no, el modal mostraría un conjunto de préstamos
+     * distinto del número que dice la celda. No debería dispararse nunca
+     * si el fix es correcto.
+     */
+    if (process.env.NODE_ENV !== 'production') {
+      for (const r of rows) {
+        if (r.closedLoans.length !== r.closedCount) {
+          console.warn('PDF-INVESTIGACIÓN: closedLoans del modal no coincide con closedCount de la celda', {
+            branch: r.branch,
+            channel: r.channel,
+            loanOfficer: r.loanOfficer,
+            closedLoansLength: r.closedLoans.length,
+            closedCount: r.closedCount,
           });
         }
       }

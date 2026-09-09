@@ -693,7 +693,7 @@ function buildCombinedByBranch(
   return { rows, grandTotal };
 }
 
-function openLoanToModalLoan(loan: PipelineLoan): LoanDetailModalLoan {
+export function openLoanToModalLoan(loan: PipelineLoan): LoanDetailModalLoan {
   return {
     sourceLoanId: loan.sourceLoanId,
     // Etapa F6: crudos para el realtor del NPPM. Ver LoanDetailModalLoan.

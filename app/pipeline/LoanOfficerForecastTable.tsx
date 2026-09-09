@@ -2,9 +2,17 @@
 
 import { useState } from 'react';
 import type { LoanOfficerForecastByPerson } from '@/lib/pipeline/loanOfficerForecast';
+import LoanDetailModal, { type LoanDetailModalLoan } from './LoanDetailModal';
+import { openLoanToModalLoan, closedLoanToModalLoan } from './PivotTable';
 
 export interface LoanOfficerForecastTableProps {
   rows: LoanOfficerForecastByPerson[];
+}
+
+interface ModalState {
+  context: string;
+  metric: string;
+  loans: LoanDetailModalLoan[];
 }
 
 /**
@@ -25,9 +33,50 @@ function fmtInt(n: number): string {
   return n.toLocaleString('en-US');
 }
 
+/**
+ * Duplicado deliberado de CountCell (PivotTable.tsx, no exportada) --
+ * mismo criterio que YearHeaderCells en components/report/LoanOfficerTable.tsx:
+ * se reusa el patrón visual (mismas clases CSS), no el código en sí.
+ */
+function CountCell({ value, onClick, variant }: { value: number; onClick: () => void; variant?: 'closed' }) {
+  const base = variant === 'closed' ? 'cell-trigger cell-trigger--closed' : 'cell-trigger';
+  if (value === 0) {
+    return <span className={base + ' is-zero'}>0</span>;
+  }
+  return (
+    <button type="button" className={base} onClick={onClick}>
+      {fmtInt(value)}
+    </button>
+  );
+}
+
 export default function LoanOfficerForecastTable({ rows }: LoanOfficerForecastTableProps) {
   const [search, setSearch] = useState('');
+  const [modal, setModal] = useState<ModalState | null>(null);
   const visibleRows = filterByName(rows, search);
+
+  /**
+   * Total/Healthy/Closed abren el modal con los loans reales detrás del
+   * número -- mismo criterio que "Combined Total by Branch" en
+   * PivotTable.tsx. Projected to Close y Total Forecast NO son clickeables:
+   * son valores calculados (apportionByWeight), no un conjunto de
+   * préstamos -- misma regla que ya aplica esa tabla.
+   */
+  function openTotal(row: LoanOfficerForecastByPerson) {
+    setModal({ context: 'Loan Officer — ' + row.loanOfficer, metric: 'Total Pipeline', loans: row.loans.map(openLoanToModalLoan) });
+  }
+
+  function openHealthy(row: LoanOfficerForecastByPerson) {
+    setModal({
+      context: 'Loan Officer — ' + row.loanOfficer,
+      metric: 'Healthy Pipeline',
+      loans: row.loans.filter((l) => l.healthy === true).map(openLoanToModalLoan),
+    });
+  }
+
+  function openClosed(row: LoanOfficerForecastByPerson) {
+    setModal({ context: 'Loan Officer — ' + row.loanOfficer, metric: 'Closed', loans: row.closedLoans.map(closedLoanToModalLoan) });
+  }
 
   return (
     <>
@@ -58,13 +107,11 @@ export default function LoanOfficerForecastTable({ rows }: LoanOfficerForecastTa
             </thead>
             <tbody>
               {visibleRows.map((row) => (
-                <tr className="metric" key={row.loanOfficer}>
-                  <td className="lbl" style={{ textAlign: 'left' }}>
-                    {row.loanOfficer}
-                  </td>
-                  <td className="val">{fmtInt(row.totalCount)}</td>
-                  <td className="val">{fmtInt(row.healthyCount)}</td>
-                  <td className="val">{fmtInt(row.closedCount)}</td>
+                <tr className="metric" key={row.loanOfficerKey}>
+                  <td className="lbl" style={{ textAlign: 'left' }}>{row.loanOfficer}</td>
+                  <td className="val"><CountCell value={row.totalCount} onClick={() => openTotal(row)} /></td>
+                  <td className="val"><CountCell value={row.healthyCount} onClick={() => openHealthy(row)} /></td>
+                  <td className="val"><CountCell value={row.closedCount} onClick={() => openClosed(row)} variant="closed" /></td>
                   <td className="val">{fmtInt(row.projectedToClose)}</td>
                   <td className="val">{fmtInt(row.totalForecast)}</td>
                 </tr>
@@ -80,6 +127,16 @@ export default function LoanOfficerForecastTable({ rows }: LoanOfficerForecastTa
           </table>
         </div>
       </div>
+
+      <LoanDetailModal
+        isOpen={modal !== null}
+        onClose={() => setModal(null)}
+        context={modal?.context ?? ''}
+        metric={modal?.metric ?? ''}
+        loans={modal?.loans ?? []}
+        showBranchColumn
+        hiddenColumns={['loanOfficer']}
+      />
     </>
   );
 }
