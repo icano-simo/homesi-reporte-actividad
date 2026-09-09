@@ -517,10 +517,18 @@ export default function ReviewStepPanel({
           {yaContestado && <span className="rv-panel__done">answered</span>}
         </div>
         <p className="rv-panel__prompt">{texto.prompt}</p>
+        {/*
+          ⚠ LOS DOS BOTÓNES SE NOMBRAN, Y EL DE LA TARJETA PRIMERO.
+          En el catálogo la tarjeta dice `Select` --y activa de una, sin
+          confirmación, cuando la persona no tiene plan--. `Select this funnel`
+          es el del EXPLORADOR, detrás de «click to explore». Nombrar sólo el
+          segundo manda a buscar un botón que no está a la vista.
+        */}
         <p className="rv-panel__gate">
           <AlertTriangleIcon size={13} /> {loName} has no active funnel, and this step is where
-          one gets picked. Open a funnel from the catalog and press{' '}
-          <strong>Select this funnel</strong>. The comment box shows up once it is active.
+          one gets picked. In the catalog, press <strong>Select</strong> on the funnel you agreed
+          on — or open it first and use <strong>Select this funnel</strong>. The comment box
+          shows up once it is active.
         </p>
         {!enElCatalogo && (
           <div className="rv-panel__actions">
@@ -531,8 +539,8 @@ export default function ReviewStepPanel({
         )}
         {enElCatalogo && (
           <p className="rv-panel__helper">
-            You are on the catalog. Open one and press <strong>Select this funnel</strong>; the
-            review comes back to the profile on its own.
+            You are on the catalog — press <strong>Select</strong> on the one you agreed on. The
+            review comes back to the profile on its own, and the comment box will be there.
           </p>
         )}
       </div>
@@ -734,6 +742,13 @@ export default function ReviewStepPanel({
         se llega desde la barra de decisión del perfil, y el panel sólo CIERRA el
         paso después. «Elegilo allá y cerrá el paso acá.» Este panel no tiene
         --ni tuvo nunca-- un botón `Select this funnel`.
+
+        ⚠ Y ESE NOMBRE TAMPOCO ES EL DEL CATÁLOGO. La tarjeta dice `Select`, y
+        activa de una cuando la persona no tiene plan; `Select this funnel` es
+        el del explorador, detrás de «click to explore»; y el modal de cambio
+        dice `Replace the plan`. Tres rótulos para el mismo acto, según el
+        camino -- así que un texto de guía que nombre uno solo manda a buscar un
+        botón que puede no estar a la vista.
 
         Son dos diseños distintos, y el segundo funciona: se midió en RV5 y el
         paso se cierra. Queda escrito porque **el brief sigue diciendo el otro**,

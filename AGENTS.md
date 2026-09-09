@@ -627,9 +627,9 @@ clase ajena dice si le pegaste, sin tener que navegar hasta ahí.
 
 # Lo que compensa una ausencia hace que la ausencia no se note
 
-> Tercera sección aparte, y sale de haberlo visto **tres veces**. Un patrón se
-> reconoce por repetición, no por descripción: por eso van los tres casos con
-> nombre y no una definición general.
+> Tercera sección aparte, y sale de haberlo visto **seis veces**. Un patrón se
+> reconoce por repetición, no por descripción: por eso van los casos con nombre
+> y no una definición general.
 
 ## La regla
 
@@ -640,7 +640,7 @@ Y de ahí lo que hay que mirar: **un respaldo que nunca se ejerció es sospechos
 O el original siempre estuvo, y el respaldo sobra; o el original nunca estuvo, y
 lo que se está usando es el respaldo sin saberlo.
 
-## Los cuatro casos
+## Los seis casos
 
 **1. `--white`, con su fallback.** El token no estaba definido en ninguna parte, y
 los cuatro usos del módulo Outlook lo pedían como `var(--white, #fff)` o
@@ -672,6 +672,36 @@ el tamaño, el color ni el interlineado que le tocaban. Es el mecanismo del caso
 Lo que lo hizo durar: el comentario del layout **afirmaba** que la hoja del
 Business Plan la traía. Una nota correcta sobre las otras tres clases de la
 misma lista, falsa sobre la cuarta, y nadie vuelve a verificar una nota.
+
+**5. El estado inicial capturado antes de que el dato llegue.** El campo del
+benchmark arrancaba en `''` porque el valor vivía en un `useState` que se
+evaluaba antes de que el anfitrión lo leyera de la base -- y `''` es
+exactamente lo que se ve cuando nadie fijó ninguno. Adriana tenía 1 desde el 21
+de agosto y el campo decía que no había. Mismo mecanismo en el aviso LEJOS del
+panel: mientras la sección del paso no había aparecido, `enSitio` era `false`,
+o sea «esto se contesta en otra pantalla» dicho EN la pantalla correcta.
+
+**6. `funnelActual` arrancando en `null`.** Y `null` es lo que significa «no
+tiene funnel activo». Al atar el LUGAR del paso a ese estado --sin funnel el
+paso se hace en el catálogo, con funnel se confirma en el perfil-- la primera
+lectura mandaba al catálogo a quien ya tenía uno. Se arregló con el tercer
+estado: `undefined` = todavía no se leyó.
+
+## La línea que une a los seis
+
+Los cuatro primeros se leen como problemas de RESPALDO: un fallback, una
+herencia de CSS, una coerción a `''`. El quinto y el sexto no tienen respaldo
+ninguno. Lo que comparten es otra cosa, y es la forma buscable:
+
+> **Un valor que significa «no lo sé» indistinguible de uno que significa «no
+> hay».**
+
+De ahí que la respuesta sea siempre la misma y siempre cueste un estado más:
+`undefined` contra `null`, `null` contra `0`, `NULL` contra array vacío,
+`buscando` contra `enSitio === false`. Y de ahí también por qué duelen tanto:
+el valor de «no lo sé» es el que está durante el primer cuadro de CADA carga,
+así que el error aparece siempre y se ve una sola vez -- justo antes de que el
+dato llegue y lo tape.
 
 Y la vuelta operativa que sale de acá, porque el `git grep` de la sección
 anterior no lo agarra: ese grep pregunta **«esta clase ya existe?»** para no
