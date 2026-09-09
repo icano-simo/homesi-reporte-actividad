@@ -29,7 +29,7 @@
  * con el claim, que es el mismo dato que ya se lee para el header.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { cerrarSesion, guardarPaso, moverCursor } from '@/lib/review/actions';
@@ -189,6 +189,7 @@ export default function ReviewMaskHost() {
     router.replace(pathname + '?' + actual.toString());
   }, [enRuta, editorDelPaso, loEnCurso, pathname, router]);
 
+
   /*
    * ══════════════════════════════════════════════════════════════════
    * ⚠ EL PRESUPUESTO SE COMPRUEBA, NO SE DECLARA — etapa RV4, punto 5
@@ -288,6 +289,9 @@ export default function ReviewMaskHost() {
    * la fase 3 tiene que distinguir.
    */
   const [funnelActual, setFunnelActual] = useState<string | null>(null);
+  const [tickFunnel, setTickFunnel] = useState(0);
+  /* La fase 3 es la que pregunta por el funnel. Fuera de ella no se consulta. */
+  const pideFunnel = pasoActual?.phase_no === 3;
   /*
    * ══════════════════════════════════════════════════════════════════
    * EL BENCHMARK VIGENTE, PARA EL PASO 2 — etapa RV3
@@ -388,7 +392,58 @@ export default function ReviewMaskHost() {
     return () => {
       cancelado = true;
     };
-  }, [loEnCurso]);
+    /*
+     * ⚠ `pideFunnel` EN LAS DEPENDENCIAS, Y UN TICK QUE LO REPITE.
+     *
+     * Con sólo `[loEnCurso]` esto se leía UNA vez, y `loEnCurso` no cambia al
+     * activar un funnel: después de elegirlo el panel seguía diciendo «no tiene
+     * funnel activo» hasta una recarga completa. La activación ocurre en OTRA
+     * pantalla --la del catálogo-- así que acá no hay evento que avise.
+     *
+     * Es el mismo caso que el presupuesto del paso 2.2, y la misma respuesta:
+     * mientras el paso que necesita el dato esté abierto, se vuelve a preguntar.
+     */
+  }, [loEnCurso, pideFunnel, tickFunnel]);
+
+  /*
+   * El tick, sólo mientras la fase 3 esté en curso. Fuera de ella no se
+   * pregunta nada: el dato no lo usa nadie.
+   */
+  useEffect(() => {
+    if (!pideFunnel) return;
+    const t = setInterval(() => setTickFunnel((n) => n + 1), 4000);
+    return () => clearInterval(t);
+  }, [pideFunnel]);
+
+  /*
+   * ⚠ ELEGIR EL FUNNEL TE SACA DEL LUGAR DEL PASO, Y HAY QUE VOLVER — RV5
+   *
+   * El paso 3.1 se contesta en `.bp-decision`, que vive en el PERFIL. Y la
+   * accion que el paso pide --elegir un funnel-- pasa por el catalogo y termina
+   * en `/plan?activated=1`, donde esa seccion no existe: el panel pasa a LEJOS
+   * y el campo del comentario desaparece.
+   *
+   * Medido: Isabella activo el funnel (enrolamiento 84, 04:40) y el octavo
+   * comentario nunca se escribio. Quedo en una pantalla sin donde escribirlo.
+   *
+   * ⚠ SE NAVEGA UNA SOLA VEZ, en la TRANSICION de «sin funnel» a «con funnel».
+   * No «siempre que no estemos en el lugar»: eso le arrebataria la pantalla a
+   * quien entra a `/plan` a mirar el plan a proposito. La transicion ocurre
+   * exactamente cuando la accion del paso se completo, y ahi volver ES completar
+   * la accion -- la misma razon por la que avanzar de fase navega.
+   *
+   * Es la leccion de «Branch Out of Division» una vez mas: el paso abrio un
+   * camino y el camino no volvia.
+   */
+  const funnelAnterior = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    const previo = funnelAnterior.current;
+    funnelAnterior.current = funnelActual;
+    /* `undefined` es la primera lectura: no hubo transicion, hubo un arranque. */
+    if (previo === undefined || previo !== null || funnelActual === null) return;
+    if (!pideFunnel || !enRuta || enSitio !== false || rutaDelPaso === '') return;
+    router.replace(rutaDelPaso);
+  }, [funnelActual, pideFunnel, enRuta, enSitio, rutaDelPaso, router]);
 
   /*
    * ⚠ EL RESUMEN ES UN ESTADO DE LA MÁSCARA, no una ruta.

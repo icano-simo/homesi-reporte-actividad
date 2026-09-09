@@ -455,10 +455,24 @@ export default function ReviewStepPanel({
           {yaContestado && <span className="rv-panel__done">answered</span>}
         </div>
         <p className="rv-panel__prompt">{texto.prompt}</p>
-        <p className="rv-panel__gate">
-          This step is answered on the screen it points at, and that is not this one. The comment
-          box lives there.
-        </p>
+        {/*
+          ⚠ EL AVISO GENÉRICO NO ALCANZABA EN LA FASE 3 — etapa RV5.
+          La acción de este paso --elegir un funnel-- termina en la pantalla del
+          plan, donde el lugar del paso no existe. Isabella quedó ahí y el octavo
+          comentario nunca se escribió. El aviso ahora dice qué pasó y qué falta,
+          en vez de sólo que ésta no es la pantalla.
+        */}
+        {paso.phase_no === 3 && funnelActual !== null ? (
+          <p className="rv-panel__gate">
+            {loName} is on <strong>{funnelActual}</strong> — the funnel is chosen and nothing was
+            lost. What is left is the comment, and that goes on the profile.
+          </p>
+        ) : (
+          <p className="rv-panel__gate">
+            This step is answered on the screen it points at, and that is not this one. The comment
+            box lives there.
+          </p>
+        )}
         {/*
           ⚠ Y SI LA PERSONA ESTÁ EN VARIOS BRANCHES, SE DICE. La revisión manda
           al primero por orden de código, y eso puede no ser el que hace falta:
