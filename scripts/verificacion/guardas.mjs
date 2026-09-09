@@ -353,3 +353,93 @@ export function exigirAusente(texto, prohibidos, opts = {}) {
   }
   return prohibidos.length;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   7. exigirDefinidos — lo que se PIDE tiene que existir
+   ═══════════════════════════════════════════════════════════════════════════
+
+   La quinta guarda pregunta «esto que defino, ¿pisa algo que ya existe?». Ésta
+   pregunta LO CONTRARIO, y hacían falta las dos:
+
+     «esto que pido, ¿existe?»
+
+   Sale de tres casos, y el tercero es el peor de toda la serie:
+
+     · `bp-hint`, escrita en siete lugares del JSX y definida en NINGUNA hoja.
+       No rompía: un párrafo sin regla hereda el texto del documento.
+     · `rv-intake__body`, lo mismo, encontrada por este chequeo en su primera
+       corrida.
+     · `data-review-click`, que un paso de la revisión exigía y que NO ESTABA
+       ESCRITO EN NINGÚN ELEMENTO de la app. El paso era incontestable POR
+       CONSTRUCCIÓN: no existía forma de satisfacerlo, nunca.
+
+   ⚠ Y LO QUE HACE QUE VALGA UNA GUARDA Y NO UNA NOTA es por qué las pruebas no
+   lo vieron. Las 38 aserciones de las compuertas estaban en verde, y eran
+   correctas: probaban LA LÓGICA del gate --que con dos clics abre, que con uno
+   pide el que falta-- no que existiera algo capaz de disparar el primer clic.
+
+   > **Un contrato tiene dos mitades. Cada mitad puede estar bien y no
+   > conocerse.** Probar una no dice nada de que la otra exista.
+
+   Es primo de la tautología y del OR sin contestar, pero un nivel más arriba:
+   ahí la aserción no podía fallar; acá la aserción sí podía fallar y medía una
+   mitad sola. */
+
+/**
+ * Devuelve los nombres de `pedidos` que NO aparecen definidos en `donde`.
+ *
+ * Deliberadamente tonta: compara texto. No parsea CSS ni JSX, porque la
+ * pregunta no es «está bien escrito» sino «existe en algún lado», y para eso un
+ * `includes` sobre la concatenación de los archivos alcanza y no se
+ * desactualiza con la sintaxis.
+ *
+ * @param {string[]} pedidos   lo que el código pide: clases, identificadores.
+ * @param {string} donde       el texto donde tendrían que estar definidos.
+ * @param {{ prefijo?: string }} [opts]  `prefijo` es lo que hay que ponerle
+ *   delante para buscarlo: `'.'` para una clase de CSS, `''` para un
+ *   identificador tal cual.
+ * @returns {string[]} los que faltan, ordenados.
+ */
+export function chequearDefinidos(pedidos, donde, opts = {}) {
+  const { prefijo = '' } = opts;
+  if (!Array.isArray(pedidos)) {
+    throw new TypeError('chequearDefinidos: `pedidos` tiene que ser un array');
+  }
+  return [...new Set(pedidos)].filter((p) => !donde.includes(prefijo + p)).sort();
+}
+
+/**
+ * La versión que falla, con el mensaje que dice qué hacer.
+ *
+ * ⚠ UNA LISTA VACÍA DE PEDIDOS TIRA, igual que en `exigirAusente`: una guarda
+ * sin nada que buscar pasa siempre, y eso es exactamente lo que `crearArnes`
+ * existe para detectar. Si de verdad no hay nada que pedir, no se llama.
+ *
+ * @param {string[]} pedidos
+ * @param {string} donde
+ * @param {{ prefijo?: string, que?: string, dondeDice?: string }} [opts]
+ * @returns {number} cuántos se comprobaron, para poder contarlo en el arnés.
+ */
+export function exigirDefinidos(pedidos, donde, opts = {}) {
+  const { prefijo = '', que = 'nombres', dondeDice = 'las fuentes dadas' } = opts;
+  if (!Array.isArray(pedidos) || pedidos.length === 0) {
+    throw new Error(
+      'exigirDefinidos: la lista de pedidos está vacía. Una guarda sin nada que buscar pasa ' +
+        'siempre, que es el problema que `crearArnes` existe para detectar.'
+    );
+  }
+  const faltan = chequearDefinidos(pedidos, donde, { prefijo });
+  if (faltan.length) {
+    throw new Error(
+      /* Sin artículo delante de `que`: el sustantivo lo pone quien llama y la
+         plantilla no puede concordar con él -- «estos clases» se leía mal. */
+      'exigirDefinidos: se PIDEN y no están definidos en ' + dondeDice +
+        ' (' + que + '): ' +
+        faltan.map((f) => prefijo + f).join(', ') +
+        '. No falla nada hoy --una clase sin regla hereda, un identificador que nadie lleva no ' +
+        'dispara-- y por eso hay que preguntarlo: probar una mitad del contrato no dice nada de ' +
+        'que la otra exista.'
+    );
+  }
+  return pedidos.length;
+}

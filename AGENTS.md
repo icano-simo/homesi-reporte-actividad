@@ -307,7 +307,7 @@ Y el corolario que duele: el número que lo delató —69 de 75— se podía hab
 calculado en cualquier momento con una consulta de treinta segundos. No hacía
 falta descubrirlo, hacía falta preguntarlo.
 
-## Seis de estas lecciones son código, no nota
+## Siete de estas lecciones son código, no nota
 
 `scripts/verificacion/guardas.mjs`. Se importan desde cualquier script de
 verificación y no tocan la base — reciben el `page` o el `locator` por
@@ -322,6 +322,7 @@ fuera del repo.
 | `crearArnes` | un resumen que dice verde sin haber corrido | 1 |
 | `exigirSinChoques` | redefinir una clase de CSS que ya existía | 1 |
 | `exigirAusente` | comprobar una ausencia sobre el archivo y no sobre el código | **6** |
+| `exigirDefinidos` | probar una mitad de un contrato cuya otra mitad no existe | **3** |
 
 **Por qué están en el repo y no en el scratchpad de una sesión:** una guarda que
 se muere con la sesión es *peor* que una nota acá, porque la nota al menos
@@ -378,6 +379,47 @@ del archivo. El import de un test, un `MINIMO` que era 14 y no 17, un `.message`
 sobre algo que ya era una cadena, y un `**negrita**` que en el archivo era un
 `##`. Las cuatro las atrapó el `assert` --que para eso está-- pero las cuatro
 eran evitables leyendo tres líneas.
+
+## Y la séptima: probar una mitad de un contrato
+
+Las siete de la tabla grande son mediciones que midieron mal. La del arnés es
+una que no midió. La del desplegable es una que **nadie escribió**. Ésta es de
+otra familia: la prueba **estaba, era correcta, y no podía ver el problema.**
+
+El paso 4 de la revisión no se podía cerrar. Pedía abrir dos números de la
+pantalla, y el panel los contaba escuchando los clics sobre cualquier elemento
+con `data-review-click`. **Ese atributo no estaba escrito en ningún elemento de
+la app** — cero en todo el árbol. El paso era insatisfacible POR CONSTRUCCIÓN:
+no existía forma de cerrarlo, nunca, para nadie.
+
+Y las 38 aserciones de las compuertas estaban en verde. No estaban mal: probában
+**la lógica** — que con los dos clics abre, que con uno pide el que falta, que un
+`gate_kind` desconocido cae en el caso seguro. Ninguna preguntaba si existía algo
+capaz de disparar el primer clic.
+
+> **Un contrato tiene dos mitades. Cada mitad puede estar bien y no conocerse.**
+> Probar una no dice nada de que la otra exista.
+
+El mismo mecanismo, en chico, dio otros dos: `bp-hint` con siete usos y ninguna
+regla de CSS, y `rv-intake__body` — que lo encontró este chequeo en su primera
+corrida. En los tres casos las dos mitades eran correctas por separado y nadie
+comprobaba que se conocieran.
+
+Y es primo de la tautología y del OR sin contestar, pero **un nivel más arriba**:
+ahí la aserción no podía fallar; acá la aserción sí podía fallar, y medía una
+mitad sola.
+
+Las dos reglas operativas:
+
+- **La quinta guarda pregunta «esto que defino, ¿pisa algo?»; la séptima pregunta
+  lo contrario, «esto que pido, ¿existe?».** Hacen falta las dos, y la segunda
+  se corre al revés de como se escribió: los nombres se leen del código que los
+  usa y se buscan donde deberían estar definidos.
+- **Y cuando el contrato cruza a otro módulo, que el producto lo diga.** El panel
+  ahora avisa en pantalla si un paso pide un clic cuya marca no está, con los
+  identificadores y aclarando que es un error de cableado y no algo que la
+  persona hizo. Sin eso, el próximo paso mal cableado vuelve a parecer que
+  alguien no abrió el número.
 
 **Las otras cuatro se quedan como nota, y por buenas razones.** El timeout corto
 no tiene un número correcto general — depende de la ruta. La columna equivocada

@@ -323,9 +323,20 @@ export default function ReviewSettingsPage() {
 
       {filas.length > 0 && (
         <>
-          <h2 className="bp-areahead">
-            <span className="bp-areahead__name">Active assignments</span>
-            <span className="bp-areahead__n">{filas.length}</span>
+          {/*
+            ⚠ ESTAS TRES CLASES NO EXISTÍAN. Se llamaban `bp-areahead*`, estaban
+            escritas desde RV1 y definidas en ninguna hoja -- el encabezado
+            salía con el texto del documento y nadie lo notó, porque un `<h2>`
+            sin regla se lee igual.
+
+            Y eran un casi-duplicado inventado de `.bp-area-group__head`, que
+            existe desde BP47. Ahora tienen nombre propio de la revisión y
+            regla en `review.css`. Lo encontró `clases-definidas.mjs` en su
+            primera corrida sobre la app entera.
+          */}
+          <h2 className="rv-sectionhead">
+            <span className="rv-sectionhead__name">Active assignments</span>
+            <span className="rv-sectionhead__n">{filas.length}</span>
           </h2>
           <div className="rv-list">
             {filas.map((f) => {

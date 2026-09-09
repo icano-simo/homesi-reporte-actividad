@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "verificar:clases": "node scripts/verificacion/clases-definidas.mjs",
+    "verificar:guardas": "node scripts/verificacion/guardas.test.mjs"
   },
   "dependencies": {
     "@react-pdf/renderer": "^4.9.0",
