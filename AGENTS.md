@@ -1160,3 +1160,40 @@ pesos, incluidos dos que no cambiaron nada: Galo y B2B.
   fix "da bien" hoy— son las que evitan que alguien deshaga el parámetro
   después sin saber por qué estaba ahí. Sin ellas, el bug vuelve en silencio
   la próxima vez que alguien lo toque.
+
+# Un agregado que cancela esconde que las partes están mal
+
+> Familia reconocida por repetición, con nombre puesto por Isabella: el
+> progreso promediado de dos planes, el forecast redondeado por branch, y
+> ahora OL26f. Los tres tienen la misma forma: un número que resume varios
+> se ve bien aunque las partes que lo componen NO estén bien, porque los
+> errores tienen signo opuesto y se cancelan antes de llegar a la pantalla.
+
+## La regla
+
+**Un promedio, una suma neta o un redondeo por conjunto puede dar bien
+aunque cada parte esté mal.** El agregado no es prueba de que las partes
+estén bien -- sólo prueba que, sumadas con signo, dan un número chico.
+
+## El caso que lo fija (OL26f)
+
+`Set budget` mostraba una fila `Difference` por mes, pero el botón resumía
+todos los meses en un solo número antes de decidir si avisar. La primera
+versión sumó el NETO: enero +5 (falta) y febrero −5 (sobra) daban 0, y el
+botón decía `Save budget`, sin avisar, con los dos meses mal.
+
+> **El neto esconde exactamente el caso que hay que ver.**
+
+La corrección: sumar el valor ABSOLUTO de cada mes, no el neto -- `Save with
+a difference of 10`, no `Save budget`. Ver `pendingDifference()` en
+`app/outlook/components/PersonBudgetEditor.tsx`.
+
+## Qué hacer
+
+- Antes de agregar varios números en uno para responder "¿está todo bien?",
+  preguntarse si dos errores de signo opuesto podrían cancelarse en el
+  camino. Si la respuesta es sí, el neto no sirve para esa pregunta.
+- Cuando el objetivo es AVISAR (¿hay algo mal?), usar el valor absoluto, el
+  máximo, o listar las partes -- nunca el neto. El neto sólo tiene sentido
+  cuando la pregunta es "¿cuánto sobra o falta en total", no "¿algo está
+  mal".
