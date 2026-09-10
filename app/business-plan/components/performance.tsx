@@ -265,82 +265,107 @@ export function Q1Panel({ lo, benchmarkSlot }: { lo: LoanOfficerRow; benchmarkSl
       </div>
 
       {/*
-        Los DOS promedios, y no para suavizar el veredicto: son diagnósticos
-        distintos y cambian el tipo de ayuda.
-          histórico bajo + proyección baja  = problema sostenido
-          histórico bueno + proyección baja = se le secó el pipeline
-          histórico bajo + proyección buena = ya está reaccionando
-        El GAP sale SIEMPRE del que incluye el mes actual.
-      */}
-      <div className="bp-stat">
-        <span className="bp-stat__label">Avg 3M (with current month)</span>
-        <span className="bp-stat__value" title={exactTitle(lo.q1.avgWithCurrent)}>
-          {fmtAvg(lo.q1.avgWithCurrent)}
-        </span>
-      </div>
-      <div className="bp-stat bp-stat--muted">
-        <span className="bp-stat__label">Avg 3M (closed months)</span>
-        <span className="bp-stat__value" title={exactTitle(lo.avgClosedMonths)}>
-          {fmtAvg(lo.avgClosedMonths)}
-        </span>
-      </div>
-      {/*
         ============================================================================
-        STARTING BENCHMARK — etapa BP49, simplificado en BP51
+        CUATRO BLOQUES, POR LA MATEMÁTICA DEL NEGOCIO — etapa BP52
         ============================================================================
-        Mismo campo de siempre (`org.employee_benchmark`, vigente) -- no hay
-        uno nuevo, sólo se lo llama por lo que es en esta pantalla: el PISO
-        contra el que cae el gap cuando el budget no se cumple o no está
-        fijado. Ver `gapAgainstOf` en qualifiers.ts.
-
-        Ya NO lleva sombreado ni badge propios -- BP51 sacó las dos cosas de
-        acá: si se cumple o no ahora lo dice `gapNote`, debajo del GAP, que es
-        donde se decide. Esta fila sólo muestra el número y su editor.
-
-        `data-rv-anchor="benchmark"` es un ANCLA ESTABLE para la flecha del
-        paso 1.2 -- ver `stepArrows` en `lib/review/gates.ts`. Se queda igual
-        que antes de BP49: el ancla es la fila, no el texto de su rótulo.
+        Antes las siete filas eran una lista plana, sin nada que dijera que
+        Starting benchmark y Budget son justamente los dos insumos del GAP, ni
+        que los dos promedios de arriba son otra cosa (contexto histórico, no
+        una decisión). Ahora son cuatro bloques en el orden en que se razona:
+        primero lo que YA PASÓ (los promedios), después lo que se le pide a
+        esta persona (benchmark y budget), la conclusión que sale de comparar
+        los dos (el GAP), y por separado el acumulado del año.
       */}
-      <div className="bp-stat" data-rv-anchor="benchmark">
-        <span className="bp-stat__label">Starting benchmark</span>
-        {benchmarkSlot}
+      <div className="bp-stats__group bp-stats__group--divided">
+        <span className="bp-stats__group-title">Historical averages</span>
+        {/*
+          Los DOS promedios, y no para suavizar el veredicto: son diagnósticos
+          distintos y cambian el tipo de ayuda.
+            histórico bajo + proyección baja  = problema sostenido
+            histórico bueno + proyección baja = se le secó el pipeline
+            histórico bajo + proyección buena = ya está reaccionando
+          El GAP sale SIEMPRE del que incluye el mes actual.
+        */}
+        <div className="bp-stat">
+          <span className="bp-stat__label">Avg 3M (with current month)</span>
+          <span className="bp-stat__value" title={exactTitle(lo.q1.avgWithCurrent)}>
+            {fmtAvg(lo.q1.avgWithCurrent)}
+          </span>
+        </div>
+        <div className="bp-stat bp-stat--muted">
+          <span className="bp-stat__label">Avg 3M (closed months)</span>
+          <span className="bp-stat__value" title={exactTitle(lo.avgClosedMonths)}>
+            {fmtAvg(lo.avgClosedMonths)}
+          </span>
+        </div>
       </div>
 
       {/*
         ============================================================================
-        BUDGET (THIS MONTH) — etapa BP49, ampliado en BP49b, simplificado en BP51
+        GOALS & BUDGET — los DOS insumos del GAP, etapa BP52
         ============================================================================
-        De Outlook (`outlook.person_budget_total`, mes en curso, última
-        revisión) -- y cuando nadie lo fijó a mano, la proyección de la regla
-        de crecimiento de Own Production, LEÍDA y no escrita (ver la cascada
-        en `loadData.ts`). `null` es un ESTADO -- ni total ni regla -- y no un
-        cero.
-
-        ⚠ `budgetSource` dice CUÁL DE LOS DOS ES. Un número leído de la regla
-        no es un total fijado aunque coincida en valor -- nadie lo confirmó, y
-        cambia si la regla cambia. Sin la nota "· from growth rule", alguien
-        va a ver un budget y creer que se decidió.
+        Starting benchmark y Budget van juntos, en una caja de fondo muy
+        tenue, justo arriba de la caja del GAP -- ver `.bp-stats__group--boxed`
+        en bp-visual.css para por qué esto no es volver a las cajas rosadas
+        que BP51 sacó.
       */}
-      <div className="bp-stat">
-        <span className="bp-stat__label">Budget (this month)</span>
-        {budget === null ? (
-          <span className="bp-muted" title="Nobody set a budget for this month, and there's no growth rule for Own Production to read either.">
-            Not set
-          </span>
-        ) : (
-          <span className="bp-stat__value">
-            {fmtDecimal(budget)}
-            {budgetSource === 'rule' && (
-              <span
-                className="bp-muted"
-                title="Nobody fixed a total for this month -- this reads today's growth-rule projection for Own Production, the same one Outlook shows. It moves if the rule changes."
-              >
-                {' '}
-                · from growth rule
-              </span>
-            )}
-          </span>
-        )}
+      <div className="bp-stats__group bp-stats__group--boxed">
+        <span className="bp-stats__group-title">Goals &amp; budget</span>
+        {/*
+          STARTING BENCHMARK — etapa BP49, simplificado en BP51.
+          Mismo campo de siempre (`org.employee_benchmark`, vigente) -- no hay
+          uno nuevo, sólo se lo llama por lo que es en esta pantalla: el PISO
+          contra el que cae el gap cuando el budget no se cumple o no está
+          fijado. Ver `gapAgainstOf` en qualifiers.ts.
+
+          Ya NO lleva sombreado ni badge propios -- BP51 sacó las dos cosas de
+          acá: si se cumple o no ahora lo dice `gapNote`, debajo del GAP, que
+          es donde se decide. Esta fila sólo muestra el número y su editor.
+
+          `data-rv-anchor="benchmark"` es un ANCLA ESTABLE para la flecha del
+          paso 1.2 -- ver `stepArrows` en `lib/review/gates.ts`. Se queda
+          igual que antes de BP49: el ancla es la fila, no el texto de su
+          rótulo.
+        */}
+        <div className="bp-stat" data-rv-anchor="benchmark">
+          <span className="bp-stat__label">Starting benchmark</span>
+          {benchmarkSlot}
+        </div>
+
+        {/*
+          BUDGET (THIS MONTH) — etapa BP49, ampliado en BP49b, simplificado en BP51.
+          De Outlook (`outlook.person_budget_total`, mes en curso, última
+          revisión) -- y cuando nadie lo fijó a mano, la proyección de la
+          regla de crecimiento de Own Production, LEÍDA y no escrita (ver la
+          cascada en `loadData.ts`). `null` es un ESTADO -- ni total ni regla
+          -- y no un cero.
+
+          ⚠ `budgetSource` dice CUÁL DE LOS DOS ES. Un número leído de la
+          regla no es un total fijado aunque coincida en valor -- nadie lo
+          confirmó, y cambia si la regla cambia. Sin la nota "· from growth
+          rule", alguien va a ver un budget y creer que se decidió.
+        */}
+        <div className="bp-stat">
+          <span className="bp-stat__label">Budget (this month)</span>
+          {budget === null ? (
+            <span className="bp-muted" title="Nobody set a budget for this month, and there's no growth rule for Own Production to read either.">
+              Not set
+            </span>
+          ) : (
+            <span className="bp-stat__value">
+              {fmtDecimal(budget)}
+              {budgetSource === 'rule' && (
+                <span
+                  className="bp-muted"
+                  title="Nobody fixed a total for this month -- this reads today's growth-rule projection for Own Production, the same one Outlook shows. It moves if the rule changes."
+                >
+                  {' '}
+                  · from growth rule
+                </span>
+              )}
+            </span>
+          )}
+        </div>
       </div>
 
       {/*
@@ -382,7 +407,13 @@ export function Q1Panel({ lo, benchmarkSlot }: { lo: LoanOfficerRow; benchmarkSl
         )}
       </div>
 
-      <div className="bp-stat">
+      {/*
+        YTD CLOSINGS — cuarto y último bloque, etapa BP52. Separado con un
+        borde superior (`.bp-stat--ytd`) y no con un `.bp-stats__group`
+        propio: es una sola fila, y un encabezado de grupo para una fila sola
+        agruparía algo que no tiene con qué agruparse.
+      */}
+      <div className="bp-stat bp-stat--ytd">
         <span className="bp-stat__label">YTD closings</span>
         <span className="bp-stat__value">{lo.ytdClosings}</span>
       </div>
