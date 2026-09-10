@@ -333,17 +333,25 @@ export function Q1Panel({ lo, benchmarkSlot }: { lo: LoanOfficerRow; benchmarkSl
         </div>
 
         {/*
-          BUDGET (THIS MONTH) — etapa BP49, ampliado en BP49b, simplificado en BP51.
+          BUDGET (THIS MONTH) — etapa BP49, ampliado en BP49b, marca en BP53.
           De Outlook (`outlook.person_budget_total`, mes en curso, última
           revisión) -- y cuando nadie lo fijó a mano, la proyección de la
           regla de crecimiento de Own Production, LEÍDA y no escrita (ver la
           cascada en `loadData.ts`). `null` es un ESTADO -- ni total ni regla
           -- y no un cero.
 
-          ⚠ `budgetSource` dice CUÁL DE LOS DOS ES. Un número leído de la
-          regla no es un total fijado aunque coincida en valor -- nadie lo
-          confirmó, y cambia si la regla cambia. Sin la nota "· from growth
-          rule", alguien va a ver un budget y creer que se decidió.
+          ⚠ `budgetSource` dice CUÁL DE LOS DOS ES, y `'rule'` lleva la MISMA
+          marca que "Starting benchmark" -- `.bp-provisional`, ámbar tenue --
+          para que las dos digan lo mismo con la misma forma: un número que
+          nadie confirmó. La condición es otra (`budgetSource === 'rule'`,
+          no `setBy === PROVISIONAL_SET_BY`), así que esto NO reusa el
+          componente `ProvisionalTag` -- reusa la CLASE, que es lo que hace
+          que se vean iguales.
+
+          ⚠ Chica y pegada al número, no en la cabecera. La del benchmark se
+          consolidó arriba porque se repetía tres veces en la misma tarjeta;
+          ésta es una sola marca, en un solo lugar, y va donde el número que
+          describe.
         */}
         <div className="bp-stat">
           <span className="bp-stat__label">Budget (this month)</span>
@@ -356,11 +364,10 @@ export function Q1Panel({ lo, benchmarkSlot }: { lo: LoanOfficerRow; benchmarkSl
               {fmtDecimal(budget)}
               {budgetSource === 'rule' && (
                 <span
-                  className="bp-muted"
+                  className="bp-provisional"
                   title="Nobody fixed a total for this month -- this reads today's growth-rule projection for Own Production, the same one Outlook shows. It moves if the rule changes."
                 >
-                  {' '}
-                  · from growth rule
+                  Provisional data
                 </span>
               )}
             </span>
