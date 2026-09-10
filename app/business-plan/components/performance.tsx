@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { GAP_STATE_LABEL } from '@/lib/business-plan/qualifiers';
 import { shortMonth } from '@/lib/business-plan/months';
 import type { LoanOfficerRow, Qualifier2Metric } from '@/lib/business-plan/types';
-import { exactTitle, fmtActivityAvg, fmtAvg, fmtDecimal, fmtGap, fmtLoans } from './shared';
+import { ProvisionalTag, exactTitle, fmtActivityAvg, fmtAvg, fmtDecimal, fmtGap, fmtLoans } from './shared';
 
 /**
  * ============================================================================
@@ -262,6 +262,18 @@ export function Q1Panel({ lo, benchmarkSlot }: { lo: LoanOfficerRow; benchmarkSl
         `data-rv-anchor="benchmark"` es un ANCLA ESTABLE para la flecha del
         paso 1.2 -- ver `stepArrows` en `lib/review/gates.ts`. Se queda igual
         que antes de BP49: el ancla es la fila, no el texto de su rótulo.
+
+        ⚠ Y EL RÓTULO DICE "PROVISIONAL" CUANDO LO ES -- 29 de 37 hoy. La
+        primera carga de `org.employee_benchmark` fue un seed derivado del
+        propio promedio de cada persona (`set_by = 'provisional-seed'`), no un
+        número que alguien fijó al contratarla -- ver `ProvisionalTag`. Llamar
+        a eso "Starting benchmark" sin decirlo sería engañoso, y cuando ES la
+        referencia activa del gap (`gapAgainst === 'benchmark'`) un gap contra
+        un número que nadie decidió se leería como un juicio de desempeño que
+        no es. `ProvisionalTag` ya se usa en `BenchmarkEditor` junto al valor;
+        acá va TAMBIÉN en el rótulo, y además al lado del GAP cuando este
+        benchmark es su referencia -- son los dos lugares donde el número se
+        usa para decidir algo, y los dos tienen que decir de dónde sale.
       */}
       <div
         className={
@@ -269,7 +281,9 @@ export function Q1Panel({ lo, benchmarkSlot }: { lo: LoanOfficerRow; benchmarkSl
         }
         data-rv-anchor="benchmark"
       >
-        <span className="bp-stat__label">Starting benchmark</span>
+        <span className="bp-stat__label">
+          Starting benchmark <ProvisionalTag setBy={lo.benchmarkSetBy} note={lo.benchmarkNote} />
+        </span>
         {/*
           `<div>`, no `<span>`: `benchmarkSlot` (el editor, en el perfil) trae
           un `<div>` propio, y un bloque dentro de un elemento en línea es HTML
@@ -321,7 +335,8 @@ export function Q1Panel({ lo, benchmarkSlot }: { lo: LoanOfficerRow; benchmarkSl
       */}
       <div className={'bp-gap-hero' + (lo.q1.state ? ' bp-gap-hero--' + lo.q1.state : '')}>
         <span className="bp-stat__label">
-          GAP{gapAgainst && ' — vs ' + (gapAgainst === 'budget' ? 'budget' : 'starting benchmark')}
+          GAP{gapAgainst && ' — vs ' + (gapAgainst === 'budget' ? 'budget' : 'starting benchmark')}{' '}
+          {gapAgainst === 'benchmark' && <ProvisionalTag setBy={lo.benchmarkSetBy} note={lo.benchmarkNote} />}
         </span>
         {lo.q1.gap === null ? (
           <span className="bp-muted">—</span>
