@@ -24,6 +24,34 @@
  *
  * Las pantallas 1 y 5 son vistas de la máscara, no rutas: no hay nada que
  * agregar acá para ellas.
+ *
+ * ----------------------------------------------------------------------------
+ * MEDIDO ANTES DE ENTREGARLO
+ * ----------------------------------------------------------------------------
+ * El flujo se recorrió completo con estas dos claves puestas, sobre dos sesiones
+ * desechables --y después se restauró este `gate_config` al valor que tenía--.
+ * 23 aserciones, los DOS desenlaces:
+ *
+ *   No por ahora   el botón de cerrar arranca APAGADO; con el motivo escrito la
+ *                  revisión cierra, el resumen aparece con los ocho pasos sin
+ *                  exigir un funnel que no hay, y la respuesta queda con
+ *                  `{"funnel_chosen": false}`. El intake dice «No funnel chosen
+ *                  — decided, not skipped» y muestra el motivo.
+ *
+ *   Con funnel     «See the funnels» va DIRECTO al catálogo --no al perfil-- con
+ *                  el campo y la pregunta de esa rama. Al aparecer el funnel, la
+ *                  confirmación lo nombra y NO vuelve a pedir el comentario. Al
+ *                  finalizar, la respuesta guarda `funnel_chosen: true` con el
+ *                  nombre, y el comentario escrito en el catálogo sobrevivió el
+ *                  recorrido entero.
+ *
+ * ⚠ Y LA ÚLTIMA PANTALLA ES EL PLAN, SIN MÁSCARA ENCIMA: medido, cero `.rv-bar`
+ * en `/business-plan/lo/N/plan` después de cerrar.
+ *
+ * ⚠ Lo que NO se ejerció: `activate_funnel`. El enrolamiento se sembró por REST,
+ * porque el RPC crea un plan con sus milestones y revertirlo pide
+ * `cancel_funnel`, que BORRA planes. Con él queda sin medir su `router.push` al
+ * plan -- que es la pantalla 6, y por eso el flujo no navega por su cuenta.
  */
 
 begin;
