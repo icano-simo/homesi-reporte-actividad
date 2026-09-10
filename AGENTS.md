@@ -403,6 +403,51 @@ Las dos reglas operativas:
   aviso nunca cambia». Es la misma sospecha que la sección del respaldo que
   nunca se ejerció, aplicada a una aserción.
 
+### Un criterio de aceptación que depende de la geometría de otra pantalla
+
+RV18 convirtió el panel de la revisión en una barra al pie, con un criterio de
+aceptación explícito: **la tarjeta de métricas visible al 100%, sin nada
+encima.** Se midió sobre los ocho pasos del guion y pasó: cruce 0px², 0 de 9
+puntos tapados.
+
+Y lo perdió sin que nadie tocara el código que lo cumplía. BP52 --otra rama,
+otra etapa, sobre la misma pantalla-- reagrupó esa tarjeta y la hizo más alta:
+**260x301 a 280x419**. Con 118px más, en el paso 1.5 dejó de existir una
+posición de scroll que muestre el objetivo del paso Y la tarjeta entera:
+
+    banda libre            747 - 54 = 693px
+    verdict panel (1.5)     67px
+    hueco hasta la tarjeta 424px
+    tarjeta                419px
+                           910px > 693
+
+> **Un criterio de aceptación que depende de la geometría de OTRA pantalla se
+> rompe sin que nadie toque el código que lo cumplía.**
+
+Ninguna de las dos etapas estaba mal, y ninguna prueba de las dos podía verlo:
+cada una pasaba sola. Sólo aparece **midiendo después del merge**, con la misma
+sonda que midió antes -- que es la razón por la que esa sonda se guarda con
+etiquetas (`antes`, `despues`, `mergeado`) en vez de correrse y tirarse.
+
+Las reglas operativas:
+
+- **Un criterio que se expresa en píxeles hay que volver a medirlo después de
+  cada merge que toque esa pantalla**, aunque el diff no toque una línea del
+  código que lo cumple.
+- Y cuando la aritmética dice que ya no entra --910 contra 693-- **no se busca
+  una posición mejor**: se elige qué se sacrifica. Acá la barra pasó a DECIRLO
+  («Part of the numbers is behind this bar», con el botón de minimizar al lado)
+  en vez de mover la pantalla para todos por un paso de ocho.
+
+Y una que salió de escribir ese aviso: **un aviso que aparece cuando no falta
+nada enseña a ignorarlo.** La primera condición era «hay algún bloque cortado
+por la barra», y medida se cumplía casi siempre --una página larga siempre sigue
+debajo-- así que el aviso salía también en un paso donde la tarjeta estaba
+entera a la vista. La condición pasó a nombrar el elemento que importa y a
+medirlo: cortada o no. Nombrar un ELEMENTO no es clavar un caso; clavar el
+paso 1.5 sí lo habría sido, y habría quedado viejo con el próximo cambio de
+alto.
+
 ### La tercera de la familia: un rectángulo que se cruza no es un botón tapado
 
 Misma forma, otro número. En RV17 reporté que el panel de la revisión tapaba el
@@ -1234,6 +1279,33 @@ existe, elegir otro nombre — no "mejorar" el existente de paso, porque quien l
 usa no está en la pantalla que se está mirando. Y al medir un cambio de estilo,
 medir **la cascada** y no sólo el elemento nuevo: un elemento inyectado con la
 clase ajena dice si le pegaste, sin tener que navegar hasta ahí.
+
+### La séptima vez, y la primera que se EVITÓ
+
+`.bp-pill`, `.bp-hint`, `table.piv`, `--ol-text`… van siete choques de nombre en
+este proyecto, y los seis primeros se descubrieron DESPUÉS, mirando por qué algo
+ajeno se había movido.
+
+El séptimo no: al escribir el perfil del Loan Officer (BP50) el `git grep`
+previo mostró que `.bp-profile` YA EXISTÍA --es la ficha del encabezado, con el
+avatar y el nombre, en esa misma pantalla-- y que `.bp-profile__meta` es su
+subtítulo. Con ese prefijo la sección nueva habría heredado un `display: flex`
+y le habría cambiado el subtítulo al nombre. El prefijo pasó a `bp-cv` antes de
+escribir una línea de CSS.
+
+> **El grep previo dejó de ser un chequeo y pasó a ser el primer paso.** Es la
+> diferencia entre una regla escrita y una costumbre.
+
+Y hay una segunda mitad, que la encontró la HERRAMIENTA y no yo: al mergear,
+`npm run verificar:clases` avisó que `.rv-panel__zona--ctx` y
+`.rv-panel__zona--in` las pedía el JSX y no existían en ninguna hoja. No fallaba
+nada --una clase sin regla hereda-- así que no había síntoma. Las dos se ganaron
+su regla, porque las dos eran necesidades reales: una medida para la prosa y un
+apilado para las entradas.
+
+**Las dos mitades juntas son la lección:** el grep evita el choque, y la guarda
+encuentra lo que el grep no busca. Una clase que no choca con nada puede igual
+no existir.
 
 ### Y el reverso, que sólo aparece con dos ramas vivas
 

@@ -135,6 +135,13 @@ export interface ReviewStepPanelProps {
    */
   presupuestoGuardado: boolean;
   /**
+   * ⚠ SI LA BARRA ESTÁ TAPANDO UN BLOQUE QUE MINIMIZAR MOSTRARÍA — etapa RV19.
+   *
+   * Lo MIDE el anfitrión, que ya mide el panel para el relleno: es geometría,
+   * no un caso especial de un paso. Acá sólo se dibuja el aviso.
+   */
+  tapaAlgo: boolean;
+  /**
    * En qué branches está el Loan Officer. Con más de uno, la revisión manda al
    * primero y el panel lo DICE -- elegir en silencio sería mandar a una pantalla
    * que puede no ser la que hace falta.
@@ -177,6 +184,7 @@ export default function ReviewStepPanel({
   benchmarkActual,
   onBenchmarkGuardado,
   presupuestoGuardado,
+  tapaAlgo,
   branchesDelLo,
   onGuardar,
   onIrAlPaso,
@@ -1285,6 +1293,27 @@ export default function ReviewStepPanel({
           no evidencia de nada. Un paso nuevo trae contenido nuevo que hay que
           leer, así que abrirse otra vez es lo correcto.
         */}
+        {/*
+          ⚠ EL AVISO, CUANDO LA CUENTA NO DA — etapa RV19.
+
+          Sale del merge de RV18 con BP52: la tarjeta de métricas creció y en un
+          paso dejó de haber posición de scroll que muestre el objetivo y la
+          tarjeta entera. En vez de mover la pantalla para todos, la barra lo
+          dice, y minimizar lo resuelve.
+
+          ⚠ DICE UN HECHO Y NO PROMETE UN RESULTADO: «parte de los números está
+          detrás de esta barra», con el botón de minimizar al lado. Medido, a
+          900px de ventana en el 1.5, minimizar deja la tarjeta al 91% --37px
+          de 419 siguen debajo-- así que un «minimize to see the full card»
+          prometería un 100% que no ocurre. El aviso informa; la acción está
+          pegada y se ve.
+
+          No se dibuja minimizada, y eso no es una condición aparte: la misma
+          cuenta que lo enciende se apaga con la barra en 41px.
+        */}
+        {tapaAlgo && !minimizado && (
+          <span className="rv-panel__oculto">Part of the numbers is behind this bar</span>
+        )}
         <button
           type="button"
           className="rv-panel__min"

@@ -387,6 +387,24 @@ body:has(.rv-bar) .app {
   padding: 8px 18px;
   border-bottom: 1px solid var(--slate-200);
 }
+/*
+ * El aviso de que la barra tapa algo -- etapa RV19. Tenue a proposito: es una
+ * ayuda, no una alarma, y va pegado al boton de minimizar porque ESA es la
+ * accion que propone.
+ *
+ * ⚠ El `margin-left: auto` se muda aca cuando el aviso existe: si lo dejara
+ * solo en el boton, el aviso quedaria pegado al rotulo del paso y el boton se
+ * iria al extremo, con el texto y su accion en las dos puntas de la barra.
+ */
+.rv-panel__oculto {
+  margin-left: auto;
+  flex: none;
+  font-size: 11px;
+  color: var(--slate-500);
+}
+.rv-panel__oculto + .rv-panel__min {
+  margin-left: 8px;
+}
 .rv-panel__min {
   margin-left: auto;
   flex: none;
