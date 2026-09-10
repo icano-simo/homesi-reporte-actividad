@@ -445,6 +445,13 @@ export interface LoanOfficerRow {
   attributionOverride: { forcedBranchCode: string; reason: string | null } | null;
   tier: string | null;
   rosterStatus: string | null;
+  /**
+   * El NMLS de `org.dim_employee`, o sea de la sincronización con BigQuery
+   * -- etapa BP50. `null` cuando la fuente no lo trae, y ese caso existe:
+   * medido, un LO activo (Lucio Romero) no tiene. El perfil editable guarda un
+   * OVERRIDE aparte y hereda éste cuando está en null; ver `lib/business-plan/perfil.ts`.
+   */
+  nmls: string | null;
   isBranchManager: boolean;
   isProducing: boolean;
 

@@ -935,6 +935,11 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
       attributionOverride: overrideDetail.get(employeeKey) ?? null,
       tier: employee.tier,
       rosterStatus: employee.roster_status,
+      /* ⚠ VIENE DE LA SINCRONIZACIÓN, y por eso NO se copia en `org.lo_profile`
+         -- etapa BP50. El perfil guarda un override y hereda cuando está en
+         null. La columna ya llegaba en el `select('*')` de arriba; lo único que
+         faltaba era propagarla. Medido: la traen 34 de 35 LO activos. */
+      nmls: employee.nmls,
       isBranchManager: employee.is_branch_manager,
       isProducing: employee.is_producing,
       activity,

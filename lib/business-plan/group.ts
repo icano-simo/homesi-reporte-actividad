@@ -251,6 +251,9 @@ export function aggregateGroup(
     branchCodes: [...new Set(members.flatMap((m) => m.branchCodes))].sort(),
     attributionOverride: null,
     tier: null,
+    /* Un grupo no tiene NMLS, y `null` acá significa eso: no es que falte el
+       dato de alguien, es que el sujeto no es una persona -- etapa BP50. */
+    nmls: null,
     rosterStatus: null,
     isBranchManager: false,
     isProducing: false,

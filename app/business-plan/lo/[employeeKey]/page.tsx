@@ -17,6 +17,7 @@ import {
   modalKindOfMetric,
 } from '../../components/performance';
 import NotesPanel from '../../components/NotesPanel';
+import LoProfile from '../../components/LoProfile';
 import ReviewIntake from '@/components/review/ReviewIntake';
 import { useReview } from '@/components/review/ReviewProvider';
 import { FunnelGlyph } from '../../components/funnelIcons';
@@ -132,6 +133,29 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
             {/* El veredicto es lo primero que hay que leer, no una pill al margen. */}
             <VerdictPanel verdict={lo.verdict} />
           </div>
+
+          {/*
+            ═══════════════════════════════════════════════════════════════
+            EL PERFIL EDITABLE — etapa BP50
+            ═══════════════════════════════════════════════════════════════
+
+            DEBAJO DEL NOMBRE y antes del intake: lo que hace que esta pantalla
+            se lea como un CV de la persona --dónde opera, licencias, NMLS,
+            fuente de leads, jornada, fecha de ingreso, intereses-- y no sólo
+            como un tablero de números.
+
+            ⚠ `nmlsDeLaBase` viaja desde `dim_employee` y NO se copia en la
+            tabla del perfil: el perfil guarda un override y hereda éste cuando
+            está en null. Ver `lib/business-plan/perfil.ts`.
+
+            ⚠ Y NO LLEVA UN `habilitado` COMO EL INTAKE, a propósito: el del
+            intake sale del proveedor de la revisión, o sea del claim `review`,
+            y este perfil no depende de eso -- vive en `org.lo_profile`, con el
+            claim del módulo. El corte ya lo hace esta pantalla, que no se
+            alcanza sin ese claim; pasarle una bandera que siempre es verdadera
+            sería una condición que nadie puede ejercer.
+          */}
+          <LoProfile employeeKey={lo.employeeKey} fullName={lo.fullName} nmlsDeLaBase={lo.nmls} />
 
           {/*
             ═══════════════════════════════════════════════════════════════

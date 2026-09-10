@@ -527,6 +527,188 @@ table.piv.bp-table--los th {
 }
 
 /* ---------------------------------------------------------------------------
+ * 7b. El perfil editable -- etapa BP50
+ * ---------------------------------------------------------------------------
+ *
+ * ⚠ EL PREFIJO ES `bp-cv` PORQUE `bp-profile` YA ESTA ARRIBA, en esta misma
+ * seccion: es la ficha del encabezado. Verificado con `git grep` antes de
+ * escribir esto -- `.bp-profile` y `.bp-profile__meta` se habrian llevado por
+ * delante al nombre y su subtitulo.
+ *
+ * Cerrado es una lista de definiciones y no un formulario: la pantalla se lee
+ * como un CV. Abierto es el formulario, con las dos zonas anchas --estados e
+ * intereses-- ocupando la fila entera.
+ * ------------------------------------------------------------------------ */
+
+.bp-cv {
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  background: var(--white);
+}
+.bp-cv__head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.bp-cv__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--navy);
+}
+.bp-cv__meta {
+  font-size: 11.5px;
+  color: var(--slate-500);
+}
+.bp-cv__toggle {
+  margin-left: auto;
+  padding: 4px 12px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-full);
+  background: var(--white);
+  color: var(--slate-600);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.bp-cv__toggle:hover {
+  border-color: var(--coral);
+  color: var(--navy);
+}
+
+/* Cerrado: pares dato/valor, y los vacios no se dibujan. */
+.bp-cv__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px 24px;
+  margin: 12px 0 0;
+}
+.bp-cv__pair--wide {
+  grid-column: 1 / -1;
+}
+.bp-cv__grid dt {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--slate-500);
+}
+.bp-cv__grid dd {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  color: var(--navy);
+}
+.bp-cv__tag {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  background: var(--slate-100);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--slate-600);
+}
+
+/* Abierto: el formulario. */
+.bp-cv__form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px 20px;
+  margin-top: 14px;
+}
+.bp-cv__field--wide {
+  grid-column: 1 / -1;
+}
+.bp-cv__chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-height: 26px;
+}
+.bp-cv__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 4px 2px 9px;
+  border-radius: var(--radius-full);
+  background: var(--navy);
+  color: var(--canvas);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.bp-cv__chip button {
+  display: inline-flex;
+  padding: 2px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--canvas);
+  cursor: pointer;
+}
+.bp-cv__chip button:hover {
+  background: var(--coral);
+}
+.bp-cv__addstate {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.bp-cv__stateinput {
+  width: 74px;
+  text-transform: uppercase;
+}
+.bp-cv__hint {
+  margin: 8px 0 0;
+  font-size: 11.5px;
+  color: var(--slate-500);
+  line-height: 1.7;
+}
+/* Cada sugerencia es un boton: se agrega de un clic, porque donde alguien
+   cerro no es donde tiene licencia. */
+.bp-cv__sugg {
+  margin-right: 5px;
+  padding: 2px 8px;
+  border: 1px dashed var(--slate-200);
+  border-radius: var(--radius-full);
+  background: var(--white);
+  color: var(--slate-600);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.bp-cv__sugg:hover {
+  border-style: solid;
+  border-color: var(--coral);
+  color: var(--navy);
+}
+.bp-cv__hintline {
+  display: block;
+  margin-top: 2px;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--slate-500);
+}
+.bp-cv__actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ---------------------------------------------------------------------------
  * 8. Pie de diagnóstico
  * ------------------------------------------------------------------------ */
 

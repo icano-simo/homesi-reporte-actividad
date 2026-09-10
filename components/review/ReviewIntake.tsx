@@ -30,8 +30,8 @@
 
 import { useState } from 'react';
 import Modal from '@/app/business-plan/components/Modal';
-import { AlertTriangleIcon, CalendarIcon, SignedDocIcon } from '@/components/ui/icons';
-import { useIntake } from '@/lib/review/useIntake';
+import { AlertTriangleIcon, CalendarIcon, DownloadIcon, SignedDocIcon } from '@/components/ui/icons';
+import { useIntake, type IntakeSession } from '@/lib/review/useIntake';
 
 export interface ReviewIntakeProps {
   /** De quién es el intake. */
@@ -57,6 +57,68 @@ export default function ReviewIntake({ loEmployeeKey, loName, habilitado }: Revi
    * `null` = ninguna elegida todavía, así que se abre la primera.
    */
   const [abierta, setAbierta] = useState<number | null>(null);
+  /* La descarga del PDF: cuál sesión se está preparando, y el error si la ruta
+     falla. `null` en las dos cosas es «nada en curso» y «nada que decir». */
+  const [bajando, setBajando] = useState<number | null>(null);
+  const [errorPdf, setErrorPdf] = useState<string | null>(null);
+
+  /*
+   * ⚠ EL NAVEGADOR DESCARGA, NOSOTROS NO ABRIMOS PESTAÑAS. La ruta contesta
+   * con `Content-Disposition: attachment`, así que alcanza con un blob y un
+   * `<a download>` sintético: sin popup que el navegador pueda bloquear.
+   */
+  async function descargar(s: IntakeSession) {
+    setBajando(s.session.session_key);
+    setErrorPdf(null);
+    try {
+      const cuerpo = {
+        loName,
+        reviewerEmail: s.reviewerEmail,
+        estado:
+          s.session.status === 'completed'
+            ? 'completed ' + dia(s.session.completed_at ?? '')
+            : 'started ' + dia(s.session.started_at) + ' · still in progress',
+        generadoEl: new Date().toISOString().slice(0, 10),
+        fases: s.fases.map((f) => ({
+          phase_no: f.phase_no,
+          label: f.label,
+          answers: f.answers.map((a) => ({
+            stepLabel: a.stepLabel,
+            phase_no: a.phase_no,
+            step_in_phase: a.step_in_phase,
+            prompt: a.prompt,
+            promptDesactualizado: a.promptDesactualizado,
+            comment: a.comment,
+            answeredAt: a.answeredAt,
+            answeredBy: a.answeredBy,
+          })),
+        })),
+      };
+      const r = await fetch('/api/business-plan/intake-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cuerpo),
+      });
+      if (!r.ok) {
+        /* El motivo del servidor, si lo mandó: «failed» a secas no dice nada. */
+        const detalle = await r.json().catch(() => null);
+        throw new Error(detalle?.error ?? 'The PDF could not be generated (' + r.status + ').');
+      }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'Coach_intake_' + loName.replace(/[^A-Za-z0-9]+/g, '_') + '.pdf';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setErrorPdf(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBajando(null);
+    }
+  }
   /*
    * ⚠ EL CONTENIDO ARRANCA PLEGADO — etapa RV4.
    *
@@ -198,7 +260,33 @@ export default function ReviewIntake({ loEmployeeKey, loName, habilitado }: Revi
               )}
               {' · '}
               coached by {s.reviewerEmail}
+              {/*
+                ══════════════════════════════════════════════════════════
+                EL PDF, DE LA REVISIÓN QUE ESTÁ ABIERTA — etapa BP50
+                ══════════════════════════════════════════════════════════
+
+                De ESTA revisión y no de todas: las pestañas de arriba existen
+                porque una revisión se compara con la anterior, no porque se
+                lean juntas. Un PDF con las cuatro sesiones pegadas no es un
+                intake, es un archivo.
+
+                ⚠ MANDA LO QUE YA TIENE, y no vuelve a consultar: `useIntake`
+                resolvió los prompts, marcó los desactualizados y pasó por RLS.
+                Una segunda lectura del lado del servidor sería otra fuente que
+                puede decir algo distinto -- ver la nota de la ruta.
+              */}
+              <button
+                type="button"
+                className="rv-intake__pdf"
+                data-rv-intake-pdf=""
+                disabled={bajando === s.session.session_key}
+                onClick={() => descargar(s)}
+              >
+                <DownloadIcon size={12} />
+                {bajando === s.session.session_key ? 'Preparing…' : 'PDF'}
+              </button>
             </p>
+            {errorPdf !== null && <p className="bp-notice bp-notice--warn">{errorPdf}</p>}
 
             {s.fases.map((f) => (
               <div key={f.phase_no} className="rv-intake__phase">

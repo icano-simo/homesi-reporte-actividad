@@ -748,6 +748,32 @@ body:has(.rv-bar) .app {
   color: var(--slate-400);
   font-variant-numeric: tabular-nums;
 }
+/*
+ * La descarga del intake -- etapa BP50. Va en la linea de la sesion abierta,
+ * empujada a la derecha: es una accion sobre ESA revision, no sobre el bloque.
+ */
+.rv-intake__pdf {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-full);
+  background: var(--white);
+  color: var(--slate-600);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.rv-intake__pdf:hover:not(:disabled) {
+  border-color: var(--coral);
+  color: var(--navy);
+}
+.rv-intake__pdf:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
 .rv-intake__phase {
   margin-bottom: 14px;
 }
