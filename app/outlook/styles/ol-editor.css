@@ -247,27 +247,6 @@
 }
 
 /*
- * ⚠ `.ol-editor__save` / `.ol-editor__savewhat` VIVEN ACÁ TODAVÍA porque
- * `StrategyEditor.tsx` --el editor por estrategia-- las sigue usando en este
- * punto de la historia. OL26d lo reemplaza por `PersonBudgetEditor` y borra
- * el componente; ahí es donde estas dos clases se vuelven muertas y se
- * eliminan (pedido explícito de Isabella al rebasar esta rama sobre main).
- */
-/* Guardar el presupuesto. Fila propia, para que no se lea como el Save del
-   comentario de al lado: era lo que pasaba cuando compartian la fila. */
-.ol-editor__save {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 12px;
-}
-.ol-editor__savewhat {
-  font-size: 11px;
-  color: var(--slate-400);
-}
-
-/*
  * ============================================================================
  * LA DIFERENCIA ENTRE EL DESGLOSE Y EL TOTAL — etapa OL26, punto 5
  * ============================================================================

@@ -684,10 +684,11 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    *
    * Sin clases nuevas: `lbl` y `bp-muted` ya existen.
    *
-   * ⚠ `colSpan` en `monthsOfYear.length + 5`, no `+3` -- esta etapa (OL26)
-   * agregó las columnas Position y Benchmark a la tabla (lbl, position, bench,
-   * N meses, total, rule); la vista por estrategia de la que viene este aviso
-   * no las tenía.
+   * ⚠ `colSpan` en `monthsOfYear.length + 4`, no `+3` -- esta etapa (OL26)
+   * agregó la columna Benchmark a la tabla (lbl, bench, N meses, total,
+   * rule); la vista por estrategia de la que viene este aviso no la tenía.
+   * (Hubo también una columna Position, agregada y sacada de nuevo dentro de
+   * la misma etapa -- ver OL26b -- así que el número final es +4 y no +5.)
    */
   const avisoDelFoco = (lista: readonly { employeeKey: number | null }[], s: string) => {
     if (focoKey === null) return null;
@@ -697,7 +698,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
     const quien = focoNombre ?? 'the coachee';
     return (
       <tr className="metric mrow" key={'s-' + s + '-foco'}>
-        <td className="lbl bp-muted" colSpan={monthsOfYear.length + 5} style={{ paddingLeft: '30px' }}>
+        <td className="lbl bp-muted" colSpan={monthsOfYear.length + 4} style={{ paddingLeft: '30px' }}>
           {ausente
             ? `${quien} takes no part in ${s} \u2014 this budget is the branch's, and none of it is theirs.`
             : `${ocultos} more row${ocultos === 1 ? '' : 's'} hidden while coaching ${quien}.`}
