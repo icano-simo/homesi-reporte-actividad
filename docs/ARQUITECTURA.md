@@ -8288,3 +8288,93 @@ loan.opportunityOwner,`), sin lógica nueva.
 `components/layout/ServiceHubHeader.tsx` (merge de
 `fix/analytics-batch-2`); `app/pipeline/TabNextMonth.tsx` (fix aparte,
 commit `6ba4262`).
+
+## HALLAZGO PENDIENTE — la biblioteca del Business Plan no tiene dueño
+
+**Esto no es una etapa hecha: es un hallazgo anotado.** Salió al decidir quién
+podía cambiar el video de un funnel en BP48, y la decisión de esa etapa fue
+NO tocar permisos. Se escribe acá porque merece su propia etapa y porque un
+parche sobre una columna habría sido peor que nada.
+
+### Lo que hay, medido
+
+Cinco tablas de la biblioteca tienen **una sola policy `for all`** cuyo único
+requisito es `business_plan.has_access()`:
+
+| tabla | filas hoy | policy |
+|---|---|---|
+| `funnel` | 9 | `funnel_all` — ALL |
+| `funnel_node` | 64 | `funnel_node_all` — ALL |
+| `node` | 33 | `node_all` — ALL |
+| `node_milestone` | 108 | `node_milestone_all` — ALL |
+| `node_owner` | 80 | `node_owner_all` — ALL |
+
+Son **294 filas**, toda la biblioteca. Y `has_access()` no distingue roles: es
+`allowed_apps ? 'commercial_activity'`, el mismo permiso que abre Commercial
+Activity. Hoy lo tienen **19 personas** de 28 usuarios.
+
+O sea: cualquiera de esas 19 puede borrar, sin pasar por ninguna pantalla que
+lo ofrezca, cualquier funnel, nodo, step o responsable de la biblioteca. En
+`business_plan` no existe ningún claim de administrador.
+
+### Y las cascadas lo agrandan
+
+El único freno que hay es la FK `enrollment.funnel_key → funnel ON DELETE
+RESTRICT`: un funnel con enrolamientos no se puede borrar (hoy hay 9 activos).
+Los NODOS no tienen ese freno, y de un nodo cuelgan tres cascadas:
+
+```
+funnel_node.node_key    → node  ON DELETE CASCADE
+node_milestone.node_key → node  ON DELETE CASCADE
+node_owner.node_key     → node  ON DELETE CASCADE
+```
+
+Así que borrar **un** nodo lo saca de todos los funnels que lo usan y se lleva
+sus steps y sus responsables. El caso peor de hoy es `CRM, MMI & for Network
+effects` (nodo 52): está en **5 de los 9 funnels**, y borrarlo cambia esos
+cinco planes de plantilla en un solo `delete`. `Value Proposition Presentation`
+está en 4, con 4 steps y 3 responsables.
+
+Los planes YA activos se salvan por diseño --se copian, no referencian-- y
+`enrollment_node.source_node_key` es `ON DELETE SET NULL`: pierden el rastro a
+la plantilla pero no el contenido. El daño es sobre la biblioteca y sobre todo
+plan que se active después.
+
+### Por qué no se arregló en BP48
+
+Porque proteger sólo `funnel.video_url` habría dejado **una puerta con llave al
+lado de cuatro abiertas**, y eso es peor que ninguna: da confianza falsa. Quien
+no pudiera cambiar el video podría igual borrar el funnel entero.
+
+> Una restricción parcial sobre un recurso compartido no protege el recurso:
+> protege la ilusión de que está protegido.
+
+### Qué tendría que hacer la etapa que lo tome
+
+- Un claim de administrador de biblioteca --el molde existe: `review_admin` /
+  `review.can_assign()` en el módulo de revisión-- y una función
+  `business_plan.can_edit_library()`.
+- Y que gobierne **las cinco tablas**, no una columna. Separar lectura
+  (`has_access()`) de escritura (`can_edit_library()`), que hoy son la misma.
+- Decidir qué pasa con quien ya venía editando: hoy son 19 y el número real de
+  personas que administran la biblioteca es mucho menor. Hay que preguntarlo,
+  no deducirlo.
+
+### Cómo volver a medirlo
+
+```sql
+-- las policies de un solo `for all`
+select tablename, policyname, cmd, qual::text
+  from pg_policies where schemaname = 'business_plan' and cmd = 'ALL'
+ order by tablename;
+
+-- cuántos tienen la llave
+select count(*) from auth.users
+ where (raw_app_meta_data -> 'allowed_apps') ? 'commercial_activity';
+
+-- el nodo más reusado, que es el que más cuesta perder
+select n.node_key, n.name, count(distinct fn.funnel_key) as funnels
+  from business_plan.node n
+  join business_plan.funnel_node fn on fn.node_key = n.node_key
+ group by 1, 2 order by 3 desc limit 5;
+```

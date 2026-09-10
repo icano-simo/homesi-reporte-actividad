@@ -3154,8 +3154,25 @@ table.piv th.bp-wrap {
   line-height: 1.5;
   color: var(--slate-600);
 }
-/* El aviso de SharePoint. Ámbar y no coral: es una advertencia sobre qué link
-   pegar, no un error de quien lo está pegando. */
+/*
+ * El aviso de SharePoint. Ámbar y no coral: es una advertencia sobre qué link
+ * pegar, no un error de quien lo está pegando.
+ *
+ * ⚠ `display: flex` CON EL TEXTO ENVUELTO EN UN SPAN, y no suelto.
+ *
+ * La primera versión ponía el flex sobre el párrafo entero, con el icono y la
+ * prosa como hijos directos. Cada nodo de texto suelto y cada `<strong>` se
+ * volvía un ítem flex, así que «not» y «Share → Embed» salieron como columnas
+ * separadas con huecos en el medio -- la frase quedaba partida en cinco.
+ *
+ * Es el mismo defecto que tuvo `.rv-panel__gate`, y las dos veces lo encontró
+ * LA CAPTURA con las aserciones de texto en verde: `innerText` de un párrafo
+ * roto en columnas dice exactamente lo mismo que uno bien armado.
+ *
+ * La regla que queda: un contenedor flex no puede tener prosa con marcado
+ * inline como hijo directo. O la prosa va envuelta, o el contenedor no es
+ * flex.
+ */
 .bp-video-hint--warn {
   display: flex;
   align-items: flex-start;
@@ -3169,6 +3186,11 @@ table.piv th.bp-wrap {
   flex: none;
   margin-top: 2px;
   color: var(--amber-500);
+}
+/* El único otro hijo: la frase entera, que adentro puede tener el marcado que
+   quiera porque ya no la toca el flex. */
+.bp-video-hint__txt {
+  min-width: 0;
 }
 .bp-video-list {
   margin: 0 0 10px;

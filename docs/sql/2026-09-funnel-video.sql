@@ -133,38 +133,64 @@ commit;
 -- CÓMO COMPROBARLO
 -- ---------------------------------------------------------------------------
 --
+-- ⚠ NINGUNA PRUEBA DE ABAJO USA UNA CLAVE ESCRITA A MANO, y no es manía.
+--
+-- La primera versión de este archivo probaba con `where funnel_key = 1`. Las
+-- claves reales de esta tabla son 13..21, así que ese UPDATE tocaba CERO filas
+-- -- y un UPDATE que no matchea nada NO FALLA: devuelve éxito, y el `check`
+-- ni siquiera se evalúa. Corriéndolo así, las tres restricciones parecían no
+-- rechazar nada. Parecían: en realidad nunca se las llamó.
+--
+-- Es el mismo mecanismo que «cero filas con error null es una policy de RLS
+-- que no aplica», corrido a la escritura. La forma de no volver a caer es no
+-- inventar la clave y mirar cuántas filas se tocaron.
+--
 -- 1. Las tres columnas están y ninguna fila quedó tocada:
 --
 --      select count(*) as funnels,
---             count(video_url) as con_video
+--             count(video_url) as con_video,
+--             min(funnel_key) as primera,
+--             max(funnel_key) as ultima
 --        from business_plan.funnel;
---      -- espera: 9 y 0
+--      -- espera: 9, 0, y el rango real de claves
 --
--- 2. El `check` rechaza una frase y acepta un enlace de inserción largo:
+-- 2. Las tres restricciones existen y están validadas:
 --
---      -- debe FALLAR con 23514
---      update business_plan.funnel
---         set video_url = 'LO & BD Accountable for this'
---       where funnel_key = 1;
---
---      -- debe PASAR
---      update business_plan.funnel
---         set video_url = 'https://supremelending-my.sharepoint.com/personal/x/_layouts/15/embed.aspx?UniqueId=00000000-0000-0000-0000-000000000000&embed=%7B%22ust%22%3Atrue%2C%22hv%22%3A%22CopyEmbedCode%22%7D&referrer=StreamWebApp'
---       where funnel_key = 1;
---
---      -- y dejarlo como estaba
---      update business_plan.funnel set video_url = null where funnel_key = 1;
---
--- 3. Título sin URL no entra:
---
---      -- debe FALLAR con 23514
---      update business_plan.funnel set video_title = 'Kickoff' where funnel_key = 1;
---
--- 4. Y las tres restricciones quedaron creadas:
---
---      select conname from pg_constraint
+--      select conname, pg_get_constraintdef(oid), convalidated
+--        from pg_constraint
 --       where conrelid = 'business_plan.funnel'::regclass
 --         and conname like 'funnel_video%'
 --       order by conname;
 --      -- espera: funnel_video_parts_together, funnel_video_seconds_pos,
---      --         funnel_video_url_http
+--      --         funnel_video_url_http -- las tres con convalidated = true
+--
+-- 3. El `check` rechaza una frase y acepta un enlace de inserción largo.
+--    `returning` para VER que tocó una fila:
+--
+--      -- debe FALLAR con 23514
+--      update business_plan.funnel
+--         set video_url = 'LO & BD Accountable for this'
+--       where funnel_key = (select min(funnel_key) from business_plan.funnel)
+--      returning funnel_key;
+--
+--      -- debe PASAR y devolver una fila
+--      update business_plan.funnel
+--         set video_url = 'https://supremelending-my.sharepoint.com/personal/x/_layouts/15/embed.aspx?UniqueId=00000000-0000-0000-0000-000000000000&embed=%7B%22ust%22%3Atrue%2C%22hv%22%3A%22CopyEmbedCode%22%7D&referrer=StreamWebApp'
+--       where funnel_key = (select min(funnel_key) from business_plan.funnel)
+--      returning funnel_key, length(video_url);
+--
+-- 4. Cero no es una duración, y título sin URL no entra:
+--
+--      -- las dos deben FALLAR con 23514
+--      update business_plan.funnel set video_seconds = 0
+--       where funnel_key = (select min(funnel_key) from business_plan.funnel);
+--      update business_plan.funnel set video_url = null, video_title = 'Kickoff'
+--       where funnel_key = (select min(funnel_key) from business_plan.funnel);
+--
+-- 5. Y dejarlo como estaba:
+--
+--      update business_plan.funnel
+--         set video_url = null, video_title = null, video_seconds = null
+--       where video_url is not null
+--      returning funnel_key;
+--      -- espera: cero filas si no se corrió el paso 3, una si sí

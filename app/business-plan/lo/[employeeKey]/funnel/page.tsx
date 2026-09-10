@@ -358,11 +358,21 @@ function ModalDeVideo({
                 frame, and the length has to be typed in.
               </li>
             </ul>
+            {/*
+              ⚠ LA FRASE VA ENVUELTA EN UN SPAN. El párrafo es `display: flex`
+              para apoyar el icono arriba a la izquierda, y en un contenedor
+              flex cada nodo de texto suelto es un ítem: sin el span, «not» y
+              «Share → Embed» salían como columnas con huecos y la frase
+              quedaba partida en cinco. Ver la nota en `bp-visual.css`.
+            */}
             <p className="bp-video-hint bp-video-hint--warn">
-              <AlertTriangleIcon size={13} /> For SharePoint and OneDrive, the address you copy from
-              the browser bar is <strong>not</strong> the one to paste — it opens a SharePoint page
-              and shows a sign-in frame instead of the video. Use <strong>Share → Embed</strong> and
-              copy the link from the code it gives you.
+              <AlertTriangleIcon size={13} />
+              <span className="bp-video-hint__txt">
+                For SharePoint and OneDrive, the address you copy from the browser bar is{' '}
+                <strong>not</strong> the one to paste — it opens a SharePoint page and shows a
+                sign-in frame instead of the video. Use <strong>Share → Embed</strong> and copy the
+                link from the code it gives you.
+              </span>
             </p>
 
             <label className="bp-form__field">
@@ -418,7 +428,8 @@ function ModalDeVideo({
             )}
             {error && (
               <p className="bp-video-hint bp-video-hint--warn">
-                <AlertTriangleIcon size={13} /> {error}
+                <AlertTriangleIcon size={13} />
+                <span className="bp-video-hint__txt">{error}</span>
               </p>
             )}
             <div className="bp-form__actions">
