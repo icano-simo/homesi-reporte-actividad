@@ -61,6 +61,10 @@ export interface DayReportRow {
   lastFinishedMilestone: string;
   loanProgram: string;
   loanType: string;
+  /** Etapa LOA-COLUMNS-1: 3 columnas nuevas, autorizadas por Isa -- ver lib/pipeline/types.ts. loa2/loa_2 son personas distintas, nunca combinadas. */
+  loanProcessor: string;
+  loa2: string;
+  loa_2: string;
   strategy: Strategy | '';
   estClosingDate: string | null;
   /** El valor crudo de Healthiness, informativo. */
@@ -148,6 +152,9 @@ export function buildDayReport(input: DayReportInput): DayReportModel {
         lastFinishedMilestone: l.rawMilestone,
         loanProgram: l.loanProgram ?? '',
         loanType: l.loanType ?? '',
+        loanProcessor: l.loanProcessor ?? '',
+        loa2: l.loa2 ?? '',
+        loa_2: l.loa_2 ?? '',
         strategy: strategyOf(l),
         estClosingDate: l.estClosingDate,
         healthiness: l.rawHealthiness ?? '',
@@ -184,6 +191,9 @@ export function buildDayReport(input: DayReportInput): DayReportModel {
       lastFinishedMilestone: 'Funded',
       loanProgram: r.loanProgram ?? '',
       loanType: r.loanType ?? '',
+      loanProcessor: r.loanProcessor ?? '',
+      loa2: r.loa2 ?? '',
+      loa_2: r.loa_2 ?? '',
       strategy: strategyOf(r),
       estClosingDate: r.estClosingDate,
       healthiness: 'Funded',

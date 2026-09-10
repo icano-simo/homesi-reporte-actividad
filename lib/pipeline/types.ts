@@ -85,6 +85,20 @@ export type PipelineLoan = {
    * primero.
    */
   propertyState: string;
+  /**
+   * Etapa LOA-COLUMNS-1: `loan_processor`, `loa2` y `loa_2` del export,
+   * confirmadas por Isa -- tres personas potencialmente distintas.
+   * `loa2` y `loa_2` se solapan ~85% pero NO son la misma columna --
+   * nunca combinar ni hacer COALESCE entre ellas, se muestran las 3 tal
+   * cual vienen. El nombre de campo `loa_2` preserva el guion bajo del
+   * nombre de columna real a propósito: convertir ambas a camelCase
+   * (`loa2`) las haría indistinguibles por nombre. '' si el export no
+   * trae la columna, o si el snapshot es anterior a esta etapa (ver
+   * mensaje "Not available for this snapshot" en la UI, nunca un guion).
+   */
+  loanProcessor: string;
+  loa2: string;
+  loa_2: string;
 };
 
 /**
@@ -171,4 +185,8 @@ export type ResolvedLoan = {
   opportunityOwner: string;
   /** Etapa PROPERTY-STATE-1: mismo significado que en `PipelineLoan` -- ver ese comentario. */
   propertyState: string;
+  /** Etapa LOA-COLUMNS-1: mismo significado que en `PipelineLoan` -- ver ese comentario. */
+  loanProcessor: string;
+  loa2: string;
+  loa_2: string;
 };
