@@ -219,7 +219,7 @@ export function ChannelBreakdown({ lo }: { lo: LoanOfficerRow }) {
  * el editor, el grupo pone la suma con su desglose. Todo lo demás es idéntico.
  */
 export function Q1Panel({ lo, benchmarkSlot }: { lo: LoanOfficerRow; benchmarkSlot: ReactNode }) {
-  const { budget, budgetMet, benchmarkMet, gapAgainst } = lo.q1;
+  const { budget, budgetMet, benchmarkMet, gapAgainst, budgetSource } = lo.q1;
   return (
     <div className="mcard bp-stats">
       {/*
@@ -299,22 +299,40 @@ export function Q1Panel({ lo, benchmarkSlot }: { lo: LoanOfficerRow; benchmarkSl
 
       {/*
         ============================================================================
-        BUDGET (THIS MONTH) — etapa BP49
+        BUDGET (THIS MONTH) — etapa BP49, ampliado en BP49b
         ============================================================================
         De Outlook (`outlook.person_budget_total`, mes en curso, última
-        revisión). `null` es un ESTADO -- "nadie lo fijó todavía" -- y no un
+        revisión) -- y cuando nadie lo fijó a mano, la proyección de la regla
+        de crecimiento de Own Production, LEÍDA y no escrita (ver la cascada
+        en `loadData.ts`). `null` es un ESTADO -- ni total ni regla -- y no un
         cero: por eso NO se sombrea en rojo cuando falta. Un rojo sobre un
         número que nadie fijó culpa a la persona por algo que no es suyo.
+
+        ⚠ `budgetSource` dice CUÁL DE LOS DOS ES. Un número leído de la regla
+        no es un total fijado aunque coincida en valor -- nadie lo confirmó, y
+        cambia si la regla cambia. Sin la etiqueta "· from growth rule",
+        alguien va a ver un budget y creer que se decidió.
       */}
       <div className={'bp-stat' + (budget === null ? '' : budgetMet ? ' bp-stat--met' : ' bp-stat--under')}>
         <span className="bp-stat__label">Budget (this month)</span>
         {budget === null ? (
-          <span className="bp-muted" title="Nobody has set a budget for this month in Outlook.">
+          <span className="bp-muted" title="Nobody set a budget for this month, and there's no growth rule for Own Production to read either.">
             Not set
           </span>
         ) : (
           <span className="bp-stat__row">
-            <span className="bp-stat__value">{fmtDecimal(budget)}</span>
+            <span className="bp-stat__value">
+              {fmtDecimal(budget)}
+              {budgetSource === 'rule' && (
+                <span
+                  className="bp-muted"
+                  title="Nobody fixed a total for this month -- this reads today's growth-rule projection for Own Production, the same one Outlook shows. It moves if the rule changes."
+                >
+                  {' '}
+                  · from growth rule
+                </span>
+              )}
+            </span>
             <span className="bp-stat__flag">{budgetMet ? 'Forecast meets it' : 'Forecast is below it'}</span>
           </span>
         )}

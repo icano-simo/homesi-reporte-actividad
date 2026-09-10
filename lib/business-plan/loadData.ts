@@ -6,6 +6,12 @@ import { lastCompleteMonths, currentWindowMonths, currentYearMonth } from './mon
 import { addMonths } from './impact';
 import { closesInMonth, closesInMonthOrOverdue, combineVerdict, evaluateQualifier1, evaluateQualifier2, projectCurrentMonth } from './qualifiers';
 import { DEFAULT_RATES, toRateSettings, type RateKey, type RateSettings } from './rates';
+/*
+ * `projectPlan` es LA cuenta de la regla de crecimiento -- etapa BP49b. Se
+ * importa de `lib/outlook/project.ts` y no se reimplementa acá: ver la nota
+ * en el bloque "EL BUDGET, CUANDO NADIE LO FIJÓ A MANO" más abajo.
+ */
+import { projectPlan, type Cadence, type GrowthSegment, type ProjectionMode, type StrategyPlan } from '@/lib/outlook/project';
 import { branchStatus } from './intervention';
 import type {
   ActivePlanSummary,
@@ -435,6 +441,141 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
   } catch {
     /* tabla ausente o sin acceso: nadie tiene budget este mes, que es el
        estado correcto -- no "cero para todos". */
+  }
+
+  /*
+   * ============================================================================
+   * EL BUDGET, CUANDO NADIE LO FIJÓ A MANO — etapa BP49b
+   * ============================================================================
+   *
+   * `outlook.person_budget_total` está vacía en producción hoy: nadie fija un
+   * total a mano salvo que lo esté revisando. Sin esto las 37 personas caían
+   * en "Not set" aunque Outlook YA proyecta un número para cada una, con su
+   * regla de crecimiento sobre Own Production -- lo mismo que la vista de
+   * Outlook le muestra al revisor.
+   *
+   * La cascada, y es LEÍDA, nunca escrita:
+   *
+   *   ¿hay un total fijado a mano este mes (bloque de arriba)?  SÍ → ese número
+   *   si no, ¿hay una regla de crecimiento (o un mes fijado, en modo mensual)
+   *   para Own Production?                                      SÍ → la proyecta
+   *   ninguno de los dos                                         → `null`, "Not set"
+   *
+   * ⚠ NO SE ESCRIBE NINGUNA FILA. Fijar un total por persona y por mes desde
+   * acá sería exactamente lo que `person_budget_total.confirmed_only` existe
+   * para evitar: transferir el gobierno de la regla al total sin que nadie lo
+   * haya decidido. El número se LEE en cada carga y se descarta -- si mañana
+   * cambia la regla o el benchmark, el budget de este mes cambia con ellos, y
+   * eso es lo correcto: sigue sin ser un total fijado.
+   *
+   * ⚠⚠ SE REUSA `projectPlan` DE `lib/outlook/project.ts` -- NO SE REIMPLEMENTA
+   * el cálculo. Es la misma "una sola puerta" que usan las tres vistas de
+   * Outlook (tabla, branch, editor): si esta etapa calculara la regla por su
+   * cuenta, el número del perfil y el de Outlook podrían divergir el día que
+   * alguien cambie una sola de las dos copias.
+   *
+   * ⚠ SÓLO Own Production, y sólo `employee_key` -- el perfil del Loan Officer
+   * no tiene ni las otras cuatro estrategias ni sujeto realtor.
+   *
+   * Para el mismo motivo que `planOf` en `lib/outlook/loadData.ts`: el
+   * benchmark de Own Production no usa la serie general de
+   * `strategy_benchmark` (esa tabla no se lee acá) sino el benchmark que este
+   * mismo módulo ya cargó arriba (`benchmarkByEmployee`) como un único punto
+   * -- es LA MISMA simplificación que hace Outlook para esta estrategia
+   * puntual, documentada en `lib/outlook/loadData.ts` junto a
+   * `benchmarkScheduleByKey`.
+   */
+  const ruleProjectionThisMonth = new Map<number, number>();
+  try {
+    const OWN_PRODUCTION = 'Own Production';
+    const [ruleRes, targetRes, modeRes] = await Promise.all([
+      outlook
+        .from('growth_rule')
+        .select('employee_key, revision, segment_order, from_month, cadence, growth_pct')
+        .eq('strategy', OWN_PRODUCTION)
+        .not('employee_key', 'is', null),
+      outlook
+        .from('monthly_target')
+        .select('employee_key, revision, target_month, target')
+        .eq('strategy', OWN_PRODUCTION)
+        .not('employee_key', 'is', null),
+      outlook
+        .from('projection_mode')
+        .select('employee_key, mode, projection_mode_key')
+        .eq('strategy', OWN_PRODUCTION)
+        .not('employee_key', 'is', null),
+    ]);
+    if (!ruleRes.error && !targetRes.error && !modeRes.error) {
+      /* El modo vigente: la fila de `projection_mode_key` más alto -- mismo criterio que `lib/outlook/loadData.ts`. */
+      const modeByEmployee = new Map<number, ProjectionMode>();
+      const modes = (modeRes.data ?? []) as { employee_key: number; mode: ProjectionMode; projection_mode_key: number }[];
+      for (const m of [...modes].sort((a, b) => a.projection_mode_key - b.projection_mode_key)) {
+        modeByEmployee.set(m.employee_key, m.mode);
+      }
+
+      /* Los tramos de la revisión vigente de cada persona -- sólo la más alta, igual que Outlook. */
+      const rules = (ruleRes.data ?? []) as {
+        employee_key: number;
+        revision: number;
+        segment_order: number;
+        from_month: string;
+        cadence: Cadence;
+        growth_pct: number | string;
+      }[];
+      const maxRuleRev = new Map<number, number>();
+      for (const r of rules) maxRuleRev.set(r.employee_key, Math.max(maxRuleRev.get(r.employee_key) ?? 0, r.revision));
+      const segmentsByEmployee = new Map<number, GrowthSegment[]>();
+      for (const r of [...rules].sort((a, b) => a.segment_order - b.segment_order)) {
+        if (r.revision !== maxRuleRev.get(r.employee_key)) continue;
+        const list = segmentsByEmployee.get(r.employee_key) ?? [];
+        list.push({ fromMonth: r.from_month.slice(0, 7), cadence: r.cadence, growthPct: Number(r.growth_pct) });
+        segmentsByEmployee.set(r.employee_key, list);
+      }
+
+      /* Modo mensual: los meses fijados de la revisión vigente. */
+      const targets = (targetRes.data ?? []) as { employee_key: number; revision: number; target_month: string; target: number | string }[];
+      const maxTargetRev = new Map<number, number>();
+      for (const t of targets) maxTargetRev.set(t.employee_key, Math.max(maxTargetRev.get(t.employee_key) ?? 0, t.revision));
+      const targetsByEmployee = new Map<number, Record<string, number>>();
+      for (const t of targets) {
+        if (t.revision !== maxTargetRev.get(t.employee_key)) continue;
+        const byMonth = targetsByEmployee.get(t.employee_key) ?? {};
+        byMonth[t.target_month.slice(0, 7)] = Number(t.target);
+        targetsByEmployee.set(t.employee_key, byMonth);
+      }
+
+      /*
+       * ⚠ SÓLO PERSONAS CON UNA REGLA O UN MES FIJADO DE VERDAD. Alguien sin
+       * ningún tramo en modo `growth` no tiene "una regla que proyecta" --
+       * `projectPlan` le devolvería el benchmark tal cual, que es el mismo
+       * número que ya se muestra como "Starting benchmark" y llamarlo "from
+       * growth rule" inventaría una fuente que no existe.
+       */
+      const employeesWithRule = new Set<number>([...segmentsByEmployee.keys(), ...targetsByEmployee.keys()]);
+      for (const employeeKey of employeesWithRule) {
+        const mode = modeByEmployee.get(employeeKey) ?? 'growth';
+        if (mode === 'monthly') {
+          const target = targetsByEmployee.get(employeeKey)?.[thisMonth];
+          if (target !== undefined) ruleProjectionThisMonth.set(employeeKey, target);
+          continue;
+        }
+        const segments = segmentsByEmployee.get(employeeKey);
+        if (!segments || segments.length === 0) continue;
+        const benchmarkRow = benchmarkByEmployee.get(employeeKey) ?? null;
+        const benchmarkValue = benchmarkRow === null ? 0 : Number(benchmarkRow.monthly_benchmark);
+        const plan: StrategyPlan = {
+          mode: 'growth',
+          benchmarks: [{ fromMonth: '0000-01', value: benchmarkValue }],
+          segments,
+          targets: {},
+        };
+        const [step] = projectPlan([thisMonth], plan);
+        ruleProjectionThisMonth.set(employeeKey, step.value);
+      }
+    }
+  } catch {
+    /* tablas ausentes o sin acceso: nadie tiene proyección de regla, y el
+       budget de esa persona sigue cayendo al estado "Not set" de siempre. */
   }
 
   // ── 3. Commercial Activity: estado actual ────────────────────────────────
@@ -888,8 +1029,15 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
     const benchmark = benchmarkRow === null ? null : Number(benchmarkRow.monthly_benchmark);
 
     const projection = projectCurrentMonth(closedThisMonthByEmployee.get(employeeKey) ?? 0, openLoanDetail, rates);
-    const budgetThisMonth = budgetThisMonthByEmployee.get(employeeKey) ?? null;
-    const q1 = evaluateQualifier1(activity.closingsByMonth, windowMonths, projection, benchmark, budgetThisMonth);
+    /*
+     * ⚠ CASCADA BP49b: fijado a mano > proyección de la regla > nada. Ver el
+     * bloque "EL BUDGET, CUANDO NADIE LO FIJÓ A MANO" más arriba -- el
+     * segundo nunca sobreescribe al primero, y ninguno de los dos se escribe.
+     */
+    const fixedBudget = budgetThisMonthByEmployee.get(employeeKey) ?? null;
+    const budgetThisMonth = fixedBudget ?? ruleProjectionThisMonth.get(employeeKey) ?? null;
+    const budgetSource: 'fixed' | 'rule' | null = fixedBudget !== null ? 'fixed' : budgetThisMonth !== null ? 'rule' : null;
+    const q1 = evaluateQualifier1(activity.closingsByMonth, windowMonths, projection, benchmark, budgetThisMonth, budgetSource);
 
     /*
      * El "actual" del Qualifier 2 es el MES EN CURSO, coherente con que el
