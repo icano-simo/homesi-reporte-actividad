@@ -1440,6 +1440,18 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
        * redundante: el CHECK de la base ya ata el nulo a `confirmed_only`.
        * Sin ella un nulo se leería como `Number(null)` = 0, que es un total
        * fijado en cero -- exactamente el error que esta etapa viene a evitar.
+       *
+       * ⚠⚠ DOS COPIAS DE LA MISMA DECISIÓN, EN ARCHIVOS DISTINTOS -- ver
+       * AGENTS.md, "el hermano mayor: dos copias de la misma decisión".
+       * `lib/business-plan/loadData.ts` define este MISMO `gobierna` --
+       * `t.confirmed_only !== true && t.total !== null`, con el mismo
+       * criterio de revisión más alta GOBERNANTE por sujeto, no por mes --
+       * porque el perfil del Loan Officer (BP49) también lee
+       * `outlook.person_budget_total` y tiene que coincidir en qué fila
+       * cuenta como "el budget del mes". Que hoy sean idénticas no las hace
+       * una sola: quien cambie el criterio acá (o allá) sin repetir el
+       * cambio en el otro archivo las separa, igual que pasó con
+       * `rutaDelModulo`.
        */
       const gobierna = (t: PersonBudgetTotalRow) => t.confirmed_only !== true && t.total !== null;
       /* Sólo la revisión más alta de cada sujeto, entera -- igual que los targets. */

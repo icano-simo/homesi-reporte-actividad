@@ -131,6 +131,7 @@ export interface OwnProductionRate {
 export default function PersonBudgetEditor({
   person,
   ownProductionRate,
+  ruleProjection,
   data,
   months: mesesDelHorizonte,
   onClose,
@@ -139,6 +140,21 @@ export default function PersonBudgetEditor({
   person: BudgetEditable;
   /** `null` para un realtor NPPM: no tiene regla de crecimiento que calcular. */
   ownProductionRate: OwnProductionRate | null;
+  /**
+   * ============================================================================
+   * EL PUNTO DE PARTIDA — pedido urgente de Isabella
+   * ============================================================================
+   * Lo que la regla de crecimiento proyecta HOY para Own Production, mes a
+   * mes -- de `projectLoanOfficer` en `page.tsx`, la MISMA función que arma
+   * la tabla del branch, no una copia. `null` para un realtor NPPM: no
+   * proyecta por esta regla.
+   *
+   * Si el presupuesto de un mes viene de la regla (`monthsByRule`, más
+   * abajo), TODO se coloca en Own Production al abrir la pantalla -- es el
+   * punto de partida. Durante la revisión se mira y, si hace falta, se mueve
+   * parte a los otros planes.
+   */
+  ruleProjection: Record<string, number> | null;
   data: OutlookData;
   /** Los meses que la pantalla está mostrando, no `data.remainingMonths` a secas -- mismo motivo de siempre. */
   months?: string[];
@@ -148,9 +164,9 @@ export default function PersonBudgetEditor({
   const months = mesesDelHorizonte ?? data.remainingMonths;
 
   /*
-   * ⚠ "HOY" ES `person.budgetTotal` TAL COMO LLEGÓ, no `totals` (el estado
-   * editable) -- el aviso tiene que decir de qué fuente viene la proyección
-   * ANTES de que alguien toque un input, no recalcularse mientras escribe.
+   * ⚠ "HOY" ES `person.budgetTotal` TAL COMO LLEGÓ -- el aviso tiene que
+   * decir de qué fuente viene la proyección ANTES de que alguien toque un
+   * input, no recalcularse mientras escribe.
    *
    * ⚠ SÓLO PARA UN LOAN OFFICER -- etapa OL26e. La precedencia nueva
    * ("person_budget_total manda cuando existe, la regla cuando no") se cableó
@@ -166,15 +182,38 @@ export default function PersonBudgetEditor({
   const monthsByBudget =
     person.subject.kind === 'employee' ? months.filter((m) => person.budgetTotal[m] !== undefined) : [];
 
-  const [totals, setTotals] = useState<Record<string, string>>(() =>
-    Object.fromEntries(months.map((m) => [m, person.budgetTotal[m] === undefined ? '' : String(person.budgetTotal[m])]))
-  );
+  /*
+   * ============================================================================
+   * EL TOTAL YA NO SE ESCRIBE — pedido urgente de Isabella
+   * ============================================================================
+   * Deja de ser editable y pasa a ser LA SUMA del desglose, de sólo lectura:
+   * ya no puede haber diferencia entre los dos, porque son el mismo número
+   * mirado de dos formas. `initialBucketOf` es la única fuente de verdad del
+   * valor con el que abre cada celda -- se usa para el estado inicial Y para
+   * saber qué cambió, así que las dos lecturas no pueden divergir.
+   */
+  function initialBucketOf(b: BudgetBucket, m: string): number {
+    const existing = person.budgetBreakdown[b]?.[m];
+    if (existing !== undefined) return existing;
+    /* El punto de partida: ver la nota de `ruleProjection` más arriba. */
+    if (b === 'own_production' && person.budgetTotal[m] === undefined && ruleProjection?.[m] !== undefined) {
+      return ruleProjection[m];
+    }
+    return 0;
+  }
+  /* Vacío cuenta como "no tocado" y no como 0 -- ver `breakdownSumOf`. */
+  function initialStringOf(b: BudgetBucket, m: string): string {
+    const existing = person.budgetBreakdown[b]?.[m];
+    if (existing !== undefined) return String(existing);
+    if (b === 'own_production' && person.budgetTotal[m] === undefined && ruleProjection?.[m] !== undefined) {
+      return String(ruleProjection[m]);
+    }
+    return '';
+  }
+
   const [breakdown, setBreakdown] = useState<Record<BudgetBucket, Record<string, string>>>(() =>
     Object.fromEntries(
-      person.buckets.map((b) => [
-        b,
-        Object.fromEntries(months.map((m) => [m, person.budgetBreakdown[b]?.[m] === undefined ? '' : String(person.budgetBreakdown[b]?.[m])])),
-      ])
+      person.buckets.map((b) => [b, Object.fromEntries(months.map((m) => [m, initialStringOf(b, m)]))])
     ) as Record<BudgetBucket, Record<string, string>>
   );
   const [note, setNote] = useState('');
@@ -191,21 +230,19 @@ export default function PersonBudgetEditor({
       : [{ fromMonth: months[0] ?? data.currentMonth, cadence: 'quarterly', growthPct: 0 }]
   );
 
-  function totalOf(m: string): number | null {
-    const raw = totals[m]?.trim();
-    return raw === '' || raw === undefined || !Number.isFinite(Number(raw)) ? null : Number(raw);
-  }
   function bucketOf(b: BudgetBucket, m: string): number {
     const raw = breakdown[b]?.[m]?.trim();
     return raw === '' || raw === undefined || !Number.isFinite(Number(raw)) ? 0 : Number(raw);
   }
-  function breakdownSumOf(m: string): number {
-    return person.buckets.reduce((a, b) => a + bucketOf(b, m), 0);
-  }
-  /** `null` = no hay total contra qué comparar. */
-  function deltaOf(m: string): number | null {
-    const t = totalOf(m);
-    return t === null ? null : t - breakdownSumOf(m);
+  /**
+   * `null` = ningún bucket tiene un valor este mes -- no hay total que
+   * mostrar ni que guardar todavía, y no es lo mismo que un total en cero:
+   * un cero afirmaría que se espera cero producción, y acá lo que pasa es
+   * que nadie cargó nada.
+   */
+  function breakdownSumOf(m: string): number | null {
+    const tocado = person.buckets.some((b) => (breakdown[b]?.[m]?.trim() ?? '') !== '');
+    return tocado ? person.buckets.reduce((a, b) => a + bucketOf(b, m), 0) : null;
   }
 
   /**
@@ -239,48 +276,18 @@ export default function PersonBudgetEditor({
     ]);
   }
 
-  const totalsChanged = months.some((m) => totalOf(m) !== (person.budgetTotal[m] ?? null));
-  const breakdownChanged = person.buckets.some((b) =>
-    months.some((m) => bucketOf(b, m) !== (person.budgetBreakdown[b]?.[m] ?? 0))
-  );
-  /* Lo que el botón de guardar tenía que mirar y no miraba. Ver su nota. */
-  const nadaQueGuardar = !totalsChanged && !breakdownChanged;
-
   /*
-   * ============================================================================
-   * GUARDAR CON DIFERENCIA — etapa OL26f
-   * ============================================================================
-   *
-   * "No forzar" (el desglose no tiene que sumar el total, y el CHECK de la
-   * base a propósito no lo exige) no es lo mismo que "guardar en silencio".
-   * Isabella probó la pantalla y guardó un desglose que no sumaba sin darse
-   * cuenta -- la fila `Difference` ya lo mostraba, pero nada en el botón lo
-   * decía.
-   *
-   * ⚠ EL BOTÓN, NO UNA CONFIRMACIÓN -- decisión de Isabella: "es un gesto
-   * menos que una confirmación, y el número queda a la vista mientras se
-   * decide". Un modal de confirmación exige una decisión ANTES de ver el
-   * número de nuevo (hay que recordarlo del paso anterior); el botón lo
-   * muestra en el mismo lugar donde se hace clic, así que se puede volver a
-   * mirar la fila de arriba sin cerrar nada.
-   *
-   * Suma el ABSOLUTO de la diferencia de cada mes, no el neto: enero +5 y
-   * febrero -5 no puede mostrar "sin diferencia" cuando los dos meses están
-   * mal, cada uno por su lado.
-   *
-   * Sólo cuenta si ALGO se va a guardar (`totalsChanged || breakdownChanged`)
-   * -- sin cambios el botón confirma la revisión, que no escribe ningún
-   * número, así que no hay diferencia contra la que advertir.
+   * ⚠ SÓLO `breakdownChanged` -- el total ya no es un estado propio, así que
+   * ya no hay un `totalsChanged` independiente que pueda divergir de éste.
+   * Comparado contra `initialBucketOf`, que es la MISMA fuente que usó el
+   * estado inicial (incluido el punto de partida prellenado) -- si comparara
+   * contra `person.budgetBreakdown` a secas, un mes prellenado por la regla
+   * se leería como "cambiado" apenas se abre la pantalla, sin que nadie haya
+   * tocado nada.
    */
-  function pendingDifference(): number {
-    if (!totalsChanged && !breakdownChanged) return 0;
-    return months.reduce((sum, m) => {
-      const d = deltaOf(m);
-      return sum + (d === null ? 0 : Math.abs(d));
-    }, 0);
-  }
-  const saveDiff = pendingDifference();
-  const saveLabel = saveDiff > 0.001 ? `Save with a difference of ${fmtNum(saveDiff)}` : 'Save budget';
+  const breakdownChanged = person.buckets.some((b) => months.some((m) => bucketOf(b, m) !== initialBucketOf(b, m)));
+  /* Lo que el botón de guardar tenía que mirar y no miraba. Ver su nota. */
+  const nadaQueGuardar = !breakdownChanged;
 
   /*
    * Quién guardó la revisión vigente de cada tabla, para la línea al pie. Por
@@ -313,18 +320,26 @@ export default function PersonBudgetEditor({
     setSaved(null);
     const done: string[] = [];
     try {
-      if (totalsChanged) {
+      /*
+       * ⚠ EL TOTAL Y EL DESGLOSE SE GUARDAN JUNTOS -- pedido urgente de
+       * Isabella. Ya no son dos ediciones independientes (`totalsChanged` /
+       * `breakdownChanged` por separado): el total es la suma del desglose,
+       * así que cambiar el desglose es la única forma de cambiar el total.
+       * El ORDEN se mantiene -- el total primero -- por el mismo motivo de
+       * siempre: si el desglose fallara después, el total ya escrito no se
+       * pierde.
+       */
+      if (breakdownChanged) {
         const targets: Record<string, number> = {};
         for (const m of months) {
-          const v = totalOf(m);
-          if (v !== null) targets[m] = v;
+          const sum = breakdownSumOf(m);
+          if (sum !== null) targets[m] = sum;
         }
         if (Object.keys(targets).length > 0) {
           const rev = await savePersonBudgetTotal({ subject: person.subject, targets, note: note.trim() === '' ? null : note.trim() });
           done.push(`total revision ${rev}`);
         }
-      }
-      if (breakdownChanged) {
+
         const draft: Partial<Record<BudgetBucket, Record<string, number>>> = {};
         for (const b of person.buckets) {
           const byMonth: Record<string, number> = {};
@@ -373,9 +388,10 @@ export default function PersonBudgetEditor({
       if (done.length === 0) {
         /*
          * ⚠ YA NO ES «no cambió nada»: con la confirmación de arriba, esta
-         * rama sólo se alcanza de UNA forma -- que alguien haya BORRADO todos
-         * los totales. Entonces `totalsChanged` es cierto y no hay ningún mes
-         * que escribir, y un total no se puede desfijar: el lector toma la
+         * rama sólo se alcanza de UNA forma -- que alguien haya BORRADO todas
+         * las celdas del desglose, de todos los meses. Entonces
+         * `breakdownChanged` es cierto y no hay ningún mes con un total que
+         * calcular, y un total no se puede desfijar: el lector toma la
          * revisión vigente entera, así que la única forma de soltar un mes es
          * escribir una revisión que lo omita, y para eso tiene que quedar
          * algún otro mes con número.
@@ -385,7 +401,7 @@ export default function PersonBudgetEditor({
          * tiene fila que escribir. El mensaje lo dice en vez de mentir que
          * nada cambió.
          */
-        setSaved('Clearing every Total is not supported: a Total cannot be un-fixed, so nothing was recorded.');
+        setSaved('Clearing every cell is not supported: a Total cannot be un-fixed, so nothing was recorded.');
       } else {
         await onSaved();
         /* Confirmar y guardar son actos distintos, y el cartel los distingue:
@@ -439,9 +455,8 @@ export default function PersonBudgetEditor({
             diciendo «Save budget» -- justo al lado del cartel «Saved: …». Las
             dos cosas juntas se leen como «guardó pero me lo vuelve a pedir».
 
-            `totalsChanged` y `breakdownChanged` ya sabían la respuesta: después
-            del `reload` los dos quedan en `false`. Faltaba que el botón los
-            mirara.
+            `breakdownChanged` ya sabía la respuesta: después del `reload`
+            queda en `false`. Faltaba que el botón la mirara.
 
             ═══════════════════════════════════════════════════════════════
             ⚠ Y NO SE APAGA: GUARDAR SIN CAMBIOS ES UN ACTO — corrección
@@ -459,7 +474,7 @@ export default function PersonBudgetEditor({
             Así que el botón queda SIEMPRE habilitado y lo que cambia es el
             rótulo, porque son dos actos distintos:
 
-                con cambios   `Save budget` / `Save with a difference of N`
+                con cambios   `Save budget`
                 sin cambios   `Confirm as reviewed`
 
             El problema que reportó Isabella era el rótulo -- «Save budget»
@@ -468,8 +483,14 @@ export default function PersonBudgetEditor({
 
             ⚠ ACLARACIÓN PARA QUIEN LEA ESTO DESDE OTRA RAMA: este `disabled`
             NO depende de `gate_config` ni del gap. Es sólo `busy`, y el rótulo
-            sale de `totalsChanged || breakdownChanged`. Nada de la rama del
-            budget gap lo afecta.
+            sale de `breakdownChanged`. Nada de la rama del budget gap lo
+            afecta.
+
+            ⚠ Y «Save with a difference of N» YA NO EXISTE -- pedido urgente
+            posterior de Isabella. El total dejó de ser un campo propio y pasó
+            a ser LA SUMA del desglose (de sólo lectura, más abajo): ya no
+            puede haber diferencia entre los dos, porque son el mismo número.
+            La fila `Difference` se sacó con el mismo motivo.
 
             ⚠ Y LA OTRA MITAD YA ESTÁ — etapa RV15. Faltaba, y era la que
             bloqueaba: el rótulo nombraba el acto pero `save()` seguía
@@ -493,14 +514,14 @@ export default function PersonBudgetEditor({
             onClick={save}
             disabled={busy}
           >
-            {busy ? '…' : nadaQueGuardar ? 'Confirm as reviewed' : saveLabel}
+            {busy ? '…' : nadaQueGuardar ? 'Confirm as reviewed' : 'Save budget'}
           </button>
         </div>
       }
     >
       <div className="ol-editor">
         <h2 className="ol-editor__h">BUDGET COMPOSITION</h2>
-        <p className="ol-editor__hint">Where the total is expected to come from. It does not have to add up.</p>
+        <p className="ol-editor__hint">The total is the sum of the plans below — it is calculated, not typed.</p>
 
         {monthsByRule.length > 0 && (
           <p className="bp-notice bp-notice--warn ol-editor__gov">
@@ -530,21 +551,24 @@ export default function PersonBudgetEditor({
                 </tr>
               </thead>
               <tbody>
-                <tr className="metric" style={{ fontWeight: 700 }}>
+                {/*
+                  ⚠ DE SÓLO LECTURA -- pedido urgente de Isabella. El total
+                  deja de ser editable y pasa a ser la suma de las celdas del
+                  desglose: gris, para que se vea que es calculado y no un
+                  número que alguien tipeó. `breakdownSumOf` es `null` cuando
+                  ningún bucket tiene valor este mes -- vacío, no "0": un cero
+                  afirmaría que se espera cero producción.
+                */}
+                <tr className="metric ol-editor__total" style={{ fontWeight: 700 }}>
                   <td className="lbl">Total</td>
-                  {months.map((m) => (
-                    <td key={m} className="bp-center">
-                      <input
-                        type="number"
-                        step="1"
-                        min="0"
-                        className="field ol-editor__num"
-                        value={totals[m] ?? ''}
-                        onChange={(e) => setTotals((prev) => ({ ...prev, [m]: e.target.value }))}
-                        aria-label={`Total for ${monthLabel(m)}`}
-                      />
-                    </td>
-                  ))}
+                  {months.map((m) => {
+                    const sum = breakdownSumOf(m);
+                    return (
+                      <td key={m} className="bp-center ol-editor__totalcell" title="Calculated: the sum of the plans below.">
+                        {sum === null ? <span className="bp-muted">—</span> : fmtNum(sum)}
+                      </td>
+                    );
+                  })}
                 </tr>
                 {person.buckets.map((b) => (
                   <tr key={b} className="metric">
@@ -573,28 +597,6 @@ export default function PersonBudgetEditor({
                     ))}
                   </tr>
                 ))}
-                <tr className="metric ol-residual">
-                  <td className="lbl">Difference</td>
-                  {months.map((m) => {
-                    const d = deltaOf(m);
-                    const off = d !== null && Math.abs(d) > 0.001;
-                    return (
-                      <td
-                        key={m}
-                        className={'bp-center' + (off ? ' ol-editor__delta--off' : '')}
-                        title={
-                          d === null
-                            ? 'No total set yet.'
-                            : !off
-                              ? 'Adds up to the total.'
-                              : `${d > 0 ? 'Short by' : 'Over by'} ${fmtNum(Math.abs(d))}.`
-                        }
-                      >
-                        {d === null ? '' : fmtNum(d)}
-                      </td>
-                    );
-                  })}
-                </tr>
               </tbody>
             </table>
           </div>

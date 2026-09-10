@@ -41,6 +41,24 @@
    * La mascara va arriba de todo porque ES el marco de la sesion, no contenido
    * de la pantalla: si se puede tapar, se puede perder de vista en el medio de
    * una conversacion.
+   *
+   * ⚠⚠ Y ESTE PRINCIPIO SE INVIRTIO PARA EL MODAL MISMO -- corrección urgente,
+   * OL26g. Subir la máscara acá arriba de `.bp-modal-backdrop` (100) resolvió
+   * RV4, pero le pasó el problema al revés al modal que el paso 2.2 abre
+   * DESDE ADENTRO: `.rv-panel` (más abajo en este archivo, hoy 122) tapaba el
+   * pie de `Set budget` --el botón de guardar-- y la revisión no se podía
+   * cerrar. `.bp-modal-backdrop`/`.bp-panel-backdrop`
+   * (`app/business-plan/styles/bp-visual.css`) subieron a 130 para volver a
+   * quedar arriba de la máscara **cuando el modal está abierto** -- el marco
+   * de la sesión sigue siendo el que manda cuando NO hay un modal en pantalla,
+   * pero un modal abierto es `aria-modal="true"`: mientras dura, es lo único
+   * con lo que se puede interactuar, sesión de revisión incluida.
+   *
+   * ⚠⚠ DOS COPIAS DE LA MISMA DECISIÓN, EN ARCHIVOS DISTINTOS -- ver
+   * AGENTS.md, "el hermano mayor: dos copias de la misma decisión", y la nota
+   * de `.bp-modal-backdrop`. Subir este 120 (o el 121 de `.rv-bar`, o el 122
+   * de `.rv-panel`, más abajo) por encima de 130 vuelve a tapar el modal.
+   * Revisar el otro archivo antes de tocar cualquiera de los dos.
    */
   z-index: 120;
   pointer-events: none;
@@ -301,6 +319,14 @@ body:has(.rv-bar) .app {
  *
  * `max-height` con scroll propio: el prompt de Isabella puede ser largo y el
  * panel no puede crecer hasta tapar la pantalla que la persona esta mirando.
+ *
+ * ⚠⚠ ESTE `z-index` ES UNA DE DOS COPIAS -- corrección urgente, OL26g. Es
+ * el que de verdad chocó: anclado abajo-derecha, tapaba el pie de `Set
+ * budget` (el botón `Save budget`/`Confirm as reviewed`) mientras el modal
+ * seguía en 100. Ver la nota completa en `.rv-edge` (arriba en este
+ * archivo) y en `.bp-modal-backdrop`
+ * (`app/business-plan/styles/bp-visual.css`) antes de subir este número --
+ * las dos partes tienen que seguir de acuerdo en que el modal gana.
  */
 .rv-panel {
   position: fixed;

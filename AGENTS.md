@@ -1106,6 +1106,7 @@ llamadores nunca fue el problema:
 | `endsDay` sumado aparte de `nodeDayRanges` | idem |
 | el branch de la persona, leído en el efecto y en la navegación | la navegación tenía que esperarlo |
 | `.bp-pill` definida dos veces en el CSS | la segunda le ganó a la primera |
+| el `z-index` del modal (`bp-visual.css`) y el de la máscara de la revisión (`review.css`) | RV4 subió la máscara sin saber que el modal dependía de estar por encima de ella |
 
 La regla operativa: **al escribir la segunda copia de algo, la pregunta no es
 cuántos la llaman, es si las dos tienen que decidir lo mismo.** Si la respuesta

@@ -9,6 +9,7 @@ import {
   composeYear,
   currentMonthByBranch,
   projectBranch,
+  projectLoanOfficer,
   type BranchRecruit,
   type YearRow,
 } from '@/lib/outlook/loadData';
@@ -1958,10 +1959,28 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               savedSchedule: lo.benchmarkSchedules['Own Production'] ?? [],
               savedSegments: lo.rulesByStrategy['Own Production'] ?? [],
             };
+            /*
+             * ⚠ LO QUE LA REGLA PROYECTA HOY, PARA PRELLENAR EL PUNTO DE
+             * PARTIDA — pedido urgente de Isabella. `projectLoanOfficer` es
+             * la MISMA función que arma la tabla del branch (`projectBranch`,
+             * `loanOfficerRowsOf`) -- no una copia -- así que lo que se
+             * prellena acá es exactamente lo que la fila de arriba muestra
+             * hoy, respetando el modo (`growth` o `monthly`) real de la
+             * persona. `ownProductionRate` no alcanza para esto: sólo trae
+             * el benchmark y la última regla para la calculadora de "apply a
+             * rate", que es un cálculo distinto y siempre en modo `growth`.
+             */
+            const ruleProjection = Object.fromEntries(
+              (projectLoanOfficer(lo, remainingMonths).stepsByStrategy['Own Production'] ?? []).map((s) => [
+                s.month,
+                s.value,
+              ])
+            );
             return (
               <PersonBudgetEditor
                 person={person}
                 ownProductionRate={ownProductionRate}
+                ruleProjection={ruleProjection}
                 data={data}
                 months={remainingMonths}
                 onClose={cerrar}
@@ -1986,6 +2005,9 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
             <PersonBudgetEditor
               person={person}
               ownProductionRate={null}
+              /* Un realtor no proyecta por la regla de crecimiento de Outlook
+                 -- ver la nota de `monthsByRule` en PersonBudgetEditor. */
+              ruleProjection={null}
               data={data}
               months={remainingMonths}
               onClose={cerrar}
