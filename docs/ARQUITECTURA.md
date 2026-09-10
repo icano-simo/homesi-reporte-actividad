@@ -8424,3 +8424,105 @@ Volver a comprobarlo antes de tocarlo:
 ```sql
 select count(*) from review.session where status = 'in_progress';
 ```
+
+## PENDIENTE — dos huecos de la compuerta del presupuesto, y lo que OL26g le hace a los datos que ya están
+
+Salieron al arreglar la compuerta del paso 2.2, que esperaba en tablas donde
+ya nadie escribe. El arreglo entró; **estos tres quedan abiertos**, y los tres
+se miden sin tocar nada.
+
+### 1. `strategy_benchmark` es un brazo que no puede dispararse
+
+La compuerta acepta una fila nueva en cinco tablas. Una de las cinco no puede
+cumplirse para una persona: `outlook.strategy_benchmark` tiene **2 filas y
+ninguna con `employee_key`**. Está escrita como cobertura y no lo es. Se dejó
+porque la columna existe y mañana puede llenarse, pero no se cuenta.
+
+```sql
+select count(*) as filas, count(employee_key) as con_persona
+  from outlook.strategy_benchmark;
+-- medido: 2 y 0
+```
+
+### 2. ⚠ Un realtor NPPM no puede abrir la compuerta, y no por OL26
+
+El benchmark de un realtor vive en `outlook.nppm_benchmark`, que se llavea por
+`realtor_code` y **no tiene `employee_key` ni `branch_code`**. La compuerta
+filtra por la persona revisada, así que esa tabla no se puede acotar a ella.
+
+Es un hueco anterior a OL26, no lo introdujo el arreglo. Y **no se tapó a
+propósito**: sin un alcance, la compuerta se abriría con el benchmark de un
+realtor de otro branch, y una compuerta que se abre por el trabajo de otro es
+peor que una que se traba.
+
+La etapa que lo tome tiene que decidir el alcance primero --¿el branch de la
+persona? ¿los realtors que aparecen en su vista?-- y para eso hace falta una
+columna que hoy no está.
+
+### 3. ⚠ OL26g no es neutral para las filas que ya existen
+
+Cuando el total pase a ser DERIVADO --la suma del desglose-- cambia qué gobierna
+la proyección de meses que ya tienen datos. Hoy, medido en el código:
+
+```ts
+byMonth[m] += lo.budgetTotal[m] ?? regla;      // loadData.ts
+projected[m] = lo.budgetTotal[m] ?? (own + rec); // strategyRows.ts
+```
+
+O sea: **si hay total, gobierna; si no hay, gobierna la regla de crecimiento.**
+
+Y así están las 8 filas de `person_budget_total`, comparando cada total de la
+última revisión contra la suma de su propio desglose de la última revisión:
+
+| sujeto | mes | total | suma del desglose | qué pasa con OL26g |
+|---|---|---|---|---|
+| Aileen Perez (29) | 2026-10 … 2027-03, seis meses | 1.00 cada uno | 1.00 cada uno | **nada: coinciden** |
+| Aimmee buendia (30) | 2026-10 | 10.00 | 9.00 (3 buckets) | el total pasa de 10 a **9** |
+| Aimmee buendia (30) | 2026-11 | *no hay* | 6.00 | pasa a **estar** gobernado |
+| Aimmee buendia (30) | 2026-12 | *no hay* | 8.00 | pasa a **estar** gobernado |
+
+Las seis de Aileen son de su sesión de revisión y **no se borran**: coinciden
+con su desglose, así que el cambio de modelo no las toca.
+
+Los tres casos de Aimmee sí son decisiones:
+
+- el de 2026-10 es un total escrito a mano que **no cuadra con su propio
+  desglose**, y derivarlo lo cambia en silencio;
+- los de 2026-11 y 2026-12 son meses que **hoy los proyecta la regla**, porque
+  no tienen total. Derivar el total se lo saca a la regla y se lo da al
+  desglose. Eso no es limpiar datos: es cambiar un pronóstico.
+
+La consulta que lo vuelve a medir, para correrla antes de decidir:
+
+```sql
+with t as (
+  select employee_key, nppm_realtor_code, target_month, revision, total,
+         row_number() over (partition by employee_key, nppm_realtor_code,
+           target_month order by revision desc) as rn
+    from outlook.person_budget_total
+), b as (
+  select employee_key, nppm_realtor_code, target_month, revision, value,
+         dense_rank() over (partition by employee_key, nppm_realtor_code,
+           target_month order by revision desc) as dr
+    from outlook.person_budget_breakdown
+)
+select t.employee_key, to_char(t.target_month,'YYYY-MM') as mes,
+       t.total, sum(b.value) as suma
+  from t left join b
+    on t.employee_key = b.employee_key and t.target_month = b.target_month
+   and b.dr = 1
+ where t.rn = 1
+ group by 1, 2, 3
+ order by 1, 2;
+```
+
+### 4. Y la fila de «Difference» no se saca, se redefine
+
+Con el total derivado, la diferencia **entre el total y el desglose** es una
+identidad y no una comprobación: hay que sacarla, y mostrar un cero permanente
+sería peor que no mostrarla.
+
+Pero la diferencia **contra la proyección de la regla de crecimiento** sí es un
+dato real, y se queda sin dónde aparecer: un desglose que suma bastante menos
+que lo que la regla proyecta es exactamente lo que alguien querría ver. Es otra
+fila, con otro rótulo y otro origen, y **hay que definirla, no heredarla**.
