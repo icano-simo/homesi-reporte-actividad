@@ -260,6 +260,49 @@ Los tres síntomas no se parecen entre sí, y por eso conviene tenerlos juntos:
 | `406` / `PGRST106` | el esquema no está en `pgrst.db_schemas` |
 | cero filas con `error: null` | nada: es una policy de RLS que no aplica |
 
+## El doceavo: una medición correcta sobre un momento equivocado
+
+Los anteriores son mediciones **mal escritas** —el elemento equivocado, la
+columna equivocada, el timeout corto— o un arnés que no corrió. Éste es un
+mecanismo que no estaba, y por eso va aparte: la medición estaba **bien
+escrita, sobre el elemento correcto, leyendo la propiedad correcta**. Lo que
+estaba mal era el instante.
+
+`.rv-target` declara `transition: outline-color 160ms, box-shadow 160ms`.
+Poniendo la clase y leyendo `getComputedStyle` en el mismo tick, el navegador
+devuelve el valor **en curso** de la transición, que al arrancar es el viejo.
+Así que reportaba `outlineColor` navy —que es `currentColor`, el color del
+texto— y la sombra que la tarjeta ya tenía, mientras el CSS decía coral.
+
+> **Una medición correcta sobre un momento equivocado.**
+
+Costó cuatro sondas persiguiendo a un culpable que no existía: busqué qué regla
+pisaba a `.rv-target`, si los tokens estaban definidos, qué decía el CSS
+servido, y llegué a inyectar `!important` — que tampoco «ganaba», porque no
+había ninguna pelea que ganar.
+
+**Y la firma que lo identifica es lo que vale**, porque es lo que habría
+ahorrado las cuatro:
+
+> **Dos propiedades «perdidas» y el resto puestas es una transición, no una
+> cascada.**
+
+Una cascada perdida se lleva la declaración entera: si otra regla gana, gana con
+todo lo que declara. Cuando `outline-width`, `outline-style`, `outline-offset` y
+`border-radius` ya muestran los valores nuevos y sólo `outline-color` y
+`box-shadow` muestran los viejos, la lista de las dos «perdidas» es exactamente
+la lista del `transition`. Eso la especificidad no lo puede producir.
+
+Y hay una señal de segundo orden que apunta al mismo lado: **`!important` que no
+cambia nada no es una cascada difícil, es que no hay cascada.** Si la
+declaración más fuerte del lenguaje no mueve el valor, el valor no lo está
+decidiendo el cascade.
+
+Las reglas operativas: **al medir un estilo que se anima, esperar más que la
+duración de la transición antes de leer**; y si aparece la firma —un
+subconjunto de propiedades que no cambia— **mirar el `transition` de la regla
+antes de buscar quién la pisa**.
+
 ## Qué cuenta como «otra vía»
 
 - Un `.xlsx` generado: abrirlo con **openpyxl en `data_only=True`**, no sólo con
@@ -530,6 +573,70 @@ preguntar.
   excluyó después de confirmar con `git show` que ya estaba dos commits antes del
   renombre. Eso es lo que distingue eximir algo de silenciarlo.
 
+### Y la guarda también se escribe mal — dos formas nuevas, las dos en la etapa que las cazaba
+
+La sección de arriba es sobre escribir el predicado. Estas dos son sobre
+escribir **la guarda que lo comprueba**, y salen de haberla roto de dos maneras
+distintas en la misma tarde, escribiéndola justamente contra estos errores.
+
+**1. La misma trampa de la forma, cometida en la guarda contra la trampa de la
+forma.** `verificar:coach` prohíbe que «coach» aparezca en una clase, y el
+primer patrón fue `/className\s*=\s*[^\n]{0,200}?[Cc]oach/`: «lo que hay
+después de `className` en la línea». Dio **dieciocho falsos**, todos de la
+misma forma:
+
+```
+<h1 className="page-head__title">My coachees</h1>
+```
+
+La palabra está en el TEXTO, no en la clase. El patrón que sirve entra a las
+comillas del atributo —`className\s*=\s*"[^"]*coach`— porque pregunta por el
+valor y no por la vecindad. Es exactamente la lección de arriba, y no alcanzó
+con haberla escrito: **una regla de posición se cuela también cuando uno está
+escribiendo la regla contra las reglas de posición.**
+
+**2. La guarda que marca el código ya arreglado.** `verificar:estados` prohíbe
+el valor ambiguo de `lo`, y la primera versión prohibía el fragmento
+`loanOfficers.find(...) ?? null`. Falló sobre el código **ya corregido**,
+porque el arreglo contiene ese mismo fragmento: lo que colapsaba los dos
+estados no era el `?? null` sino el `bpData?.` de adelante — con la población
+en viaje devuelve `undefined`, y el `??` lo pasa a `null` como si se hubiera
+leído. Sin la cadena opcional, ese `?? null` significa «se leyó y no está», que
+es justo lo que se quiere.
+
+> **Una guarda que no distingue el arreglo del defecto no sirve.**
+
+Y de ahí la comprobación que corresponde, que es barata y no la hacía:
+**probar la guarda con una violación inyectada.** Un archivo desechable con
+`className="coach-panel" href="/coaching/1" data-coach-step="1"`, correrla, ver
+que falla las tres, borrarlo. Una guarda que sólo se vio dar verde no está
+probada — es el mismo agujero que el arnés que imprimía `SIN FALLAS` sin
+ejecutar una aserción, un nivel más arriba.
+
+### Y el inventario de lo visible sale del DOM, no del grep
+
+La pregunta de un renombre de rótulos no es «¿dónde aparece la palabra?» sino
+**«¿qué ve la persona que usa esto?»**, y el código no la contesta: `review`
+aparece **381 veces** en el código sin comentarios de este repo, y casi todo es
+`import`, tipos como `ReviewStep`, rutas, clases `rv-*`… y `preview`, que la
+contiene adentro.
+
+Lo que la contesta es levantar la app, recorrer las pantallas y recoger los
+nodos de texto y los atributos que se leen —`title`, `aria-label`,
+`placeholder`, `alt`—. Eso dio **diez cadenas** en cuatro pantallas, cada una
+con su etiqueta y su clase para poder ir al código por la frase exacta. Diez se
+deciden a mano; 381 piden una heurística, y la heurística es el problema.
+
+Y sirve dos veces, porque el mismo volcado es la verificación del final:
+después del cambio, cero texto visible con la palabra vieja salvo el que se
+declaró que se quedaba.
+
+⚠ Con una limitación que hay que decir: **el DOM sólo muestra lo que está en
+pantalla en ese momento**. Los rótulos de la máscara en curso —`Finish
+coaching`, `Close coaching`— no salieron en el volcado porque no había sesión
+abierta, y se verificaron por conteo exacto sobre el código. Un inventario del
+DOM no exime de recorrer los estados que el DOM todavía no dibujó.
+
 # Un caso nuevo activa bugs que nadie escribió hoy
 
 > Sección aparte de la tabla de arriba a propósito. Los cinco casos de esa tabla
@@ -798,6 +905,25 @@ ambiguo no se escribe en ninguna parte vale más que acordarse.
 Es primo del caso de la clase de CSS redefinida, en la otra dirección: aquel
 dice que el daño no aparece donde escribís, y éste que el arreglo no alcanza
 donde escribís.
+
+### El octavo y el noveno no están escritos acá: viven como guardas
+
+El título dice siete porque siete se contaron a mano. Los dos siguientes se
+arreglaron y se dejaron **comprobables** en vez de narrados, que es lo que esta
+sección venía pidiendo:
+
+- **el octavo** — `funnelActual` y `pasosDelPlan` publicados en momentos
+  distintos desde una misma lectura, que dejó una evidencia con el nombre nuevo
+  y la clave de un enrolamiento ya borrado;
+- **el noveno** — `lo`, la persona de la población del módulo, con
+  `bpData?.…find(…) ?? null`: la pantalla contestaba «This person is not in the
+  Business Plan population… They need a branch assignment first» mientras la
+  población todavía viajaba. Una afirmación sobre el roster, con instrucción
+  accionable, dicha sin haber leído el roster.
+
+Los dos están en `scripts/verificacion/estados-ambiguos.mjs`, con su motivo
+escrito en la fila. Si hace falta la historia, está ahí; y si alguien la
+reintroduce, no hace falta que alguien se acuerde.
 
 ## El contraejemplo, que es el que enseña
 

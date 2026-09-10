@@ -143,6 +143,30 @@ export default function DecisionBar({
         <button type="button" className="bp-btn bp-btn--primary" onClick={onChooseFunnel}>
           Choose a funnel
         </button>
+        {/*
+          ══════════════════════════════════════════════════════════════════
+          ⚠ ESTE «reviewed» NO PASÓ A «coached», Y NO ES UN OLVIDO — RV13
+          ══════════════════════════════════════════════════════════════════
+
+          En RV13 toda la interfaz del modo pasó a coach / coaching / coachee,
+          y `verificar:coach` lo mantiene así. Este rótulo quedó, por dos
+          razones que conviene tener acá y no en el reporte de una etapa:
+
+          1. ES OTRO SENTIDO. Acá un lead marca la INTERVENCIÓN de una persona
+             que disparó el Business Plan; no hay sesión de coaching, no hay
+             asignación y no hay revisor. Que las dos cosas usaran la misma
+             palabra era la coincidencia, no el sistema.
+
+          2. EL RÓTULO Y EL VALOR TIENEN QUE DECIR LO MISMO. El botón escribe
+             `status: 'reviewed'` --el literal está diez líneas más arriba-- y
+             ese valor lo leen el Status del branch y los reportes. Cambiar el
+             rótulo sin cambiar el valor crea exactamente la discrepancia que
+             el renombre de estados de BP42 vino a cerrar: la pantalla diciendo
+             una palabra y la base guardando otra.
+
+          Si algún día se renombra, se renombran los dos juntos y con
+          migración, no sólo lo que se ve.
+        */}
         <button type="button" className="bp-btn bp-btn--ghost" onClick={markReviewed} disabled={saving || lo.intervention !== null}>
           {saving ? 'Saving…' : 'Mark as reviewed — funnel pending'}
         </button>
