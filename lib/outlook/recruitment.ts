@@ -104,11 +104,49 @@ export function classifyRecruit(row: RecruitSourceRow, today: string): RecruitSt
 }
 
 /** Días de `desde` a `hasta`, en UTC. Positivo si `hasta` es anterior. */
-function diffDays(hoy: string, fecha: string): number {
+export function diffDays(hoy: string, fecha: string): number {
   const a = Date.parse(hoy + 'T00:00:00Z');
   const b = Date.parse(fecha + 'T00:00:00Z');
   if (Number.isNaN(a) || Number.isNaN(b)) return 0;
   return Math.round((a - b) / 86400000);
+}
+
+/**
+ * ============================================================================
+ * QUIÉN SE MUESTRA EN LA VISTA DE UN BRANCH — etapa OL26
+ * ============================================================================
+ *
+ * Antes se mostraba a todos los que llegan con `producira = true` (el filtro
+ * de la fuente, sin cambios). Ahora, ADEMÁS, sólo se muestra a quien tiene una
+ * negociación reciente -- deducido y verificado contra los 16 registros
+ * reales de `activity_report.future_loan_officer` (2026-09-09): la regla que
+ * reproduce exactamente "9 probable + 1 ganado reciente, 3 tentative fuera"
+ * es "`close_date` no nulo y a 6 meses o menos de hoy", sin distinguir
+ * `confianza` -- los 9 `probable` de hoy ya caen todos dentro de esa ventana
+ * (algunos con `close_date` futura, que siempre pasa el filtro), y el único
+ * `ganado` que la pasa es el más reciente (8 días); el otro `ganado` (253
+ * días) y los 3 `tentative` (2024/2025) quedan fuera.
+ *
+ * ⚠ `in_hiring` NO PASA POR ESTE FILTRO -- confirmado con Isabella. Quien
+ * viene de `hr_pipeline` (o de un alta manual) ya tiene fecha de inicio
+ * confirmada, no está "negociando": es la etapa MÁS avanzada del proceso, y
+ * `close_date` es `null` para casi todos ellos (no hay nada que negociar).
+ * Aplicarles el mismo filtro los dejaría afuera de "Loan Officers — in
+ * hiring" pese a ser los únicos ahí con fecha de inicio real -- medido: hoy
+ * son 2 de 16 (Victoria Zambrano, Jose Flores) y los dos quedarían excluidos
+ * si el filtro no hiciera esta excepción. Se muestran siempre.
+ *
+ * ⚠ CONSECUENCIA MEDIDA, dicha para que no sea sorpresa: el número real de
+ * "cuántos se muestran" no es "10 de 16" -- es **12 de 16** (10 de Salesforce
+ * que pasan el filtro de 6 meses + los 2 de hr_pipeline, siempre visibles).
+ * El "10" del brief describía sólo el subconjunto de Salesforce.
+ */
+export const RECRUIT_VISIBLE_AFTER_DAYS = 180;
+
+export function shouldShowRecruit(r: { stage: RecruitStage; closeDate: string | null }, today: string): boolean {
+  if (r.stage === 'in_hiring') return true;
+  if (r.closeDate === null) return false;
+  return diffDays(today, r.closeDate) <= RECRUIT_VISIBLE_AFTER_DAYS;
 }
 
 export interface Ramp {

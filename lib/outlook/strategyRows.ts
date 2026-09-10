@@ -4,6 +4,7 @@ import {
   currentMonthByBranch,
   projectBranch,
   projectLoanOfficer,
+  type BranchRecruit,
   type BranchStrategy,
   type OutlookBranch,
   type OutlookData,
@@ -270,6 +271,192 @@ export function exactoDe(
     for (const m of remainingMonths) out[m] = (out[m] ?? 0) + (r.byMonth[m] ?? 0);
   }
   return out;
+}
+
+/**
+ * El presupuesto entero de UNA estrategia, repartido entre las personas que la
+ * abren -- etapa OL26. Extraído del `.map()` que armaba esto inline en
+ * `branch/[code]/page.tsx` (Own Production) para reusarlo también con
+ * Recruitment: la vista rehecha combina las dos por Loan Officer.
+ *
+ * ⚠ Mismo mecanismo de siempre: `apportionByWeight` sobre el presupuesto YA
+ * repartido de la estrategia (`budgetPorMes`, el mismo que muestra su fila),
+ * pesado por la proyección EXACTA de cada persona (`projectLoanOfficer`, la
+ * misma puerta que su total). Devuelve en el mismo orden que `personasDe`.
+ */
+export function personBudgetsOf(
+  branch: OutlookBranch,
+  bs: BranchStrategy,
+  remainingMonths: string[],
+  budgetPorMes: Record<string, number>
+): Record<string, number>[] {
+  const personas = personasDe(branch, bs);
+  const exactos = personas.map((lo) => {
+    const st = projectLoanOfficer(lo, remainingMonths).stepsByStrategy[bs.strategy] ?? [];
+    const out: Record<string, number> = {};
+    remainingMonths.forEach((m, i) => (out[m] = st[i]?.value ?? 0));
+    return out;
+  });
+  const enteros: Record<string, number>[] = personas.map(() => ({}));
+  for (const m of remainingMonths) {
+    const partes = apportionByWeight(budgetPorMes[m] ?? 0, exactos.map((e) => e[m] ?? 0));
+    partes.forEach((v, i) => (enteros[i][m] = v));
+  }
+  return enteros;
+}
+
+/** Una fila de Loan Officer en el nuevo agrupamiento por persona — etapa OL26. */
+export interface PersonBudgetRow {
+  lo: OutlookLoanOfficer;
+  /** `true` si esta persona participa de Recruitment (ver `participa`). */
+  participatesInRecruitment: boolean;
+  /** Own Production + Recruitment combinados: real, mes en curso, presupuesto futuro. */
+  year: YearRow;
+}
+
+/** Un recluta de Recruitment (`role === 'loan_officer'`), con su parte del presupuesto ya repartida junto con las personas -- etapa OL26. */
+export interface RecruitBudgetRow {
+  recruit: BranchRecruit;
+  year: YearRow;
+}
+
+export interface LoanOfficerSection {
+  personRows: PersonBudgetRow[];
+  /** Los reclutas de Recruitment (`role: 'loan_officer'`) -- filtrados por `shouldShowRecruit` NO se hace acá, eso es de la pantalla. */
+  recruitRows: RecruitBudgetRow[];
+}
+
+/**
+ * ============================================================================
+ * LOS LOAN OFFICERS DE UN BRANCH, UNA FILA POR PERSONA — etapa OL26
+ * ============================================================================
+ *
+ * Reemplaza la vista por estrategia (Own Production y Recruitment, cada una
+ * abierta por Loan Officer) por una vista por PERSONA: cada Loan Officer del
+ * roster es una sola fila con sus dos estrategias sumadas -- porque las dos
+ * se abren por la misma unidad de decisión (la persona) y preguntar "cuánto
+ * hace Fulano" no debería obligar a sumar dos filas a mano.
+ *
+ * ⚠ EL MES EN CURSO NO SE REPARTE ENTRE ESTRATEGIAS Y SE SUMA DESPUÉS -- se
+ * reparte DIRECTO entre personas, con el peso que cada una YA TIENE:
+ * `lo.currentMonth`, el pronóstico INDIVIDUAL que ya calcula el Business Plan
+ * (no una estimación armada acá). `branch.currentMonth` es, por construcción,
+ * la suma exacta de estos números (ver `loadData.ts`, donde se arma
+ * `OutlookBranch.currentMonth`) -- así que el peso correcto siempre estuvo
+ * disponible, entero, por persona. Los reclutas NUNCA participan de este
+ * reparto: su `byMonth` no cubre el mes en curso (`projectRecruit` proyecta
+ * sólo los meses que quedan del año), así que su mes en curso es siempre
+ * vacío -- lo mismo que ya hacía la pantalla anterior.
+ *
+ * ⚠ ESTO ES LO QUE ESTABA MAL EN EL 710 -- Recruitment. Cualquier reparto que
+ * use un peso DISTINTO de `lo.currentMonth` (el YTD acumulado, el benchmark, o
+ * repartir primero por estrategia y sumar después) le da al 710 una
+ * proporción que no es la de su pronóstico real: ahí Recruitment es la
+ * producción real de varias personas, no un programa marginal, y un peso que
+ * no lo refleja concentra el mes en una sola fila en vez de repartirlo entre
+ * quienes efectivamente lo producen.
+ *
+ * `apportionByWeight(branchCurrent, todos_los_currentMonth)` incluye a TODOS
+ * los `branch.loanOfficers` como peso -- no sólo a quien participa de
+ * Recruitment -- así que nadie con pronóstico real puede quedar fuera de los
+ * pesos: es exactamente el modo de falla que el brief pide vigilar.
+ *
+ * ⚠ Y EL PRESUPUESTO FUTURO DE RECRUITMENT SE REPARTE ENTRE PERSONAS **Y**
+ * RECLUTAS JUNTOS, no en dos pasos. `recRow.budget` (de `strategyRowsOf`) ya
+ * incluye el peso de los reclutas (`exactoDe` los suma al presupuesto exacto
+ * de la estrategia, fuera del `if` de personas -- ver esa función). Repartir
+ * ese mismo total SÓLO entre las personas --como haría `personBudgetsOf`
+ * genérica, que no sabe de reclutas-- les daría de más, absorbiendo en
+ * silencio lo que le toca a cada recluta: exactamente el modo de falla del
+ * brief, esta vez con los reclutas como la fuente que "queda fuera de los
+ * pesos". Por eso acá el reparto de Recruitment es uno solo, con las personas
+ * y los reclutas como pesos del mismo `apportionByWeight`.
+ */
+export function loanOfficerRowsOf(
+  data: OutlookData,
+  branch: OutlookBranch,
+  monthsOfYear: string[],
+  remainingMonths: string[]
+): LoanOfficerSection {
+  const { currentMonth } = data;
+  const branchCurrent = currentMonthByBranch(data).get(branch.branchCode) ?? 0;
+  const los = branch.loanOfficers;
+
+  const bsOwn = branch.byStrategy.find((b) => b.strategy === 'Own Production');
+  const bsRec = branch.byStrategy.find((b) => b.strategy === 'Recruitment');
+  const recruitsLO = (bsRec?.recruits ?? []).filter((r) => r.role === 'loan_officer');
+
+  /*
+   * El presupuesto entero de cada estrategia sale de `strategyRowsOf` -- el
+   * MISMO cálculo que ya muestra el resto de la vista, no uno nuevo. Si una
+   * estrategia no tiene nada que mostrar (`tieneAlgo` la excluyó), su
+   * presupuesto por persona es 0 en todos los meses: no hay de dónde repartir.
+   */
+  const sRows = strategyRowsOf(data, branch, monthsOfYear, remainingMonths);
+  const ownRow = sRows.find((r) => r.strategy === 'Own Production');
+  const recRow = sRows.find((r) => r.strategy === 'Recruitment');
+  const zeroBudget = Object.fromEntries(remainingMonths.map((m) => [m, 0]));
+
+  const ownPersonas = bsOwn ? personasDe(branch, bsOwn) : [];
+  const ownBudgets = bsOwn ? personBudgetsOf(branch, bsOwn, remainingMonths, ownRow?.budget ?? zeroBudget) : [];
+
+  /* Recruitment: personas Y reclutas, en un solo reparto -- ver la nota de arriba. */
+  const recPersonas = bsRec ? personasDe(branch, bsRec) : [];
+  const exactosPersonasRec = recPersonas.map((lo) => {
+    const st = projectLoanOfficer(lo, remainingMonths).stepsByStrategy['Recruitment'] ?? [];
+    const out: Record<string, number> = {};
+    remainingMonths.forEach((m, i) => (out[m] = st[i]?.value ?? 0));
+    return out;
+  });
+  const recBudget = recRow?.budget ?? zeroBudget;
+  const enterosRec: Record<string, number>[] = [...recPersonas, ...recruitsLO].map(() => ({}));
+  for (const m of remainingMonths) {
+    const pesos = [...exactosPersonasRec.map((e) => e[m] ?? 0), ...recruitsLO.map((r) => r.byMonth[m] ?? 0)];
+    const partes = apportionByWeight(recBudget[m] ?? 0, pesos);
+    partes.forEach((v, i) => (enterosRec[i][m] = v));
+  }
+  const recBudgetsPersonas = enterosRec.slice(0, recPersonas.length);
+  const recBudgetsReclutas = enterosRec.slice(recPersonas.length);
+
+  const partesCurrent = apportionByWeight(
+    branchCurrent,
+    los.map((lo) => lo.currentMonth)
+  );
+
+  const personRows: PersonBudgetRow[] = los.map((lo, idx) => {
+    const ownIdx = ownPersonas.findIndex((p) => p.employeeKey === lo.employeeKey);
+    const recIdx = recPersonas.findIndex((p) => p.employeeKey === lo.employeeKey);
+    const ownYtd = lo.strategies.find((s) => s.strategy === 'Own Production');
+    const recYtd = lo.strategies.find((s) => s.strategy === 'Recruitment');
+
+    const actualByMonth: Record<string, number> = {};
+    for (const m of monthsOfYear) {
+      actualByMonth[m] = (ownYtd?.actualByMonth[m] ?? 0) + (recYtd?.actualByMonth[m] ?? 0);
+    }
+    const projected: Record<string, number | null> = {};
+    for (const m of remainingMonths) {
+      const own = ownIdx >= 0 ? (ownBudgets[ownIdx]?.[m] ?? 0) : 0;
+      const rec = recIdx >= 0 ? (recBudgetsPersonas[recIdx]?.[m] ?? 0) : 0;
+      projected[m] = own + rec;
+    }
+
+    return {
+      lo,
+      participatesInRecruitment: recIdx >= 0,
+      year: composeYear(monthsOfYear, currentMonth, actualByMonth, partesCurrent[idx], projected),
+    };
+  });
+
+  const recruitRows: RecruitBudgetRow[] = recruitsLO.map((recruit, idx) => ({
+    recruit,
+    /*
+     * El recluta no tiene mes en curso (siempre vacío, `null`) ni meses
+     * cerrados (todavía no está): sólo su parte del presupuesto futuro.
+     */
+    year: composeYear(monthsOfYear, currentMonth, {}, null, recBudgetsReclutas[idx] ?? {}),
+  }));
+
+  return { personRows, recruitRows };
 }
 
 export interface StrategyRow {

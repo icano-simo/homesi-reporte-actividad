@@ -154,6 +154,12 @@ export interface RosterRow {
   branch_code: string | null;
   is_producer: boolean;
   is_active: boolean;
+  /**
+   * Etapa OL26: el cargo tal como lo trae el roster (`org.roster_current.position`,
+   * ej. "LOAN OFFICER", "Producing Branch Manager", "LO ASSISTANT"). Antes no se
+   * traía -- la vista no distinguía el cargo de cada persona.
+   */
+  position: string | null;
 }
 
 export interface MonthlyTargetRow {
@@ -318,6 +324,12 @@ export interface OutlookLoanOfficer {
    * vez de 34.
    */
   isBranchManager: boolean;
+  /**
+   * El cargo del roster (`org.roster_current.position`) — etapa OL26. `null`
+   * cuando la persona no tiene fila en el roster (viene sólo del Business Plan
+   * o es una producción sin identidad) o cuando el roster no lo trae.
+   */
+  position: string | null;
 }
 
 /**
@@ -787,6 +799,14 @@ export interface OutlookData {
   remainingMonths: string[];
   currentMonth: string;
   /**
+   * La fecha de hoy, 'YYYY-MM-DD' — etapa OL26. La MISMA que ya usa el loader
+   * para clasificar reclutas (`hoyISO`, más abajo): expuesta acá para que
+   * `shouldShowRecruit` se evalúe en la pantalla con la fecha del SERVIDOR, no
+   * con el reloj del navegador de quien mira -- que podría estar en otra zona
+   * horaria o simplemente mal puesto.
+   */
+  today: string;
+  /**
    * Los doce meses del año — etapa OL3.
    *
    * ⚠ Las tres bandas de la tabla son exactamente una partición de esta lista:
@@ -1126,7 +1146,7 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
     supabase
       .schema('org')
       .from('roster_current')
-      .select('person_code, display_name, branch_code, is_producer, is_active'),
+      .select('person_code, display_name, branch_code, is_producer, is_active, position'),
     /*
      * `dim_employee` sólo por el NOMBRE y el rol de quien cerró en un branch y
      * no está en la lista del Business Plan. El roster no siempre la tiene: las
@@ -2010,6 +2030,7 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       rosterState: rosterStateOf(lo.employeeKey),
       hasIdentity: true,
       isBranchManager: lo.isBranchManager,
+      position: rosterByKey.get(lo.employeeKey)?.position ?? null,
       /* Placeholder: se reemplaza por branch al armar el mapa, abajo. */
       strategies: [],
       rulesByStrategy,
@@ -2146,6 +2167,7 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
         rosterState: rosterStateOf(key),
         hasIdentity: true,
         isBranchManager: employeeByKey.get(key)?.is_branch_manager ?? false,
+        position: r?.position ?? null,
       });
       branchMap.set(code, list);
     }
@@ -2189,6 +2211,7 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       rosterState: 'producer',
       hasIdentity: false,
       isBranchManager: false,
+      position: r.position ?? null,
     });
     branchMap.set(r.branch_code, list);
   });
@@ -2442,6 +2465,7 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
   return {
     remainingMonths,
     currentMonth,
+    today: hoyISO,
     monthsOfYear,
     actualMonths: monthsOfYear.filter((m) => m < currentMonth),
     branches,

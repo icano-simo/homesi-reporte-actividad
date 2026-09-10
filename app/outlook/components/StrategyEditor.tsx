@@ -167,15 +167,52 @@ export default function StrategyEditor({
    */
   const benchmarkEditable = strategy !== 'Own Production';
 
-  const [mode, setMode] = useState<ProjectionMode>(savedMode);
+  /*
+   * ============================================================================
+   * ⚠ EL DEFAULT ES "MONTH BY MONTH", CON LOS NÚMEROS DE LA REGLA — etapa OL26
+   * ============================================================================
+   *
+   * Confirmado con Isabella: la tabla sigue decidiendo `by growth rate` para
+   * las 185 reglas sembradas -- eso no cambia acá, es del motor de proyección,
+   * no de este editor -- pero al ABRIR el editor conviene ver de entrada CUÁNTO
+   * es cada mes según esa regla, no la regla en abstracto. Por eso la vista
+   * arranca en `monthly`, con los campos ya llenos con lo que la regla vigente
+   * calcula (`monthlyDefaultBaseline`), y no vacíos.
+   *
+   * ⚠ Y ESO NO PUEDE GUARDAR SOLO. Si el guardado mirara únicamente `mode`, con
+   * el default ya en `monthly` CUALQUIER apertura+guardado sin tocar nada
+   * habría escrito una revisión mensual y cambiado el modo vigente de las 185
+   * reglas de crecimiento a la primera persona que abriera y cerrara el editor
+   * sin querer decidir nada. `modeTouched` distingue "está mirando por mes" de
+   * "eligió por mes": sólo se pone en `true` con un clic explícito en el
+   * selector, y el guardado usa `targetsChanged` (definido más abajo, contra
+   * `monthlyDefaultBaseline`) para la otra vía real de decidir -- editar un
+   * número sin tocar el selector, porque ya está mirando la vista mensual.
+   */
+  const [mode, setMode] = useState<ProjectionMode>(monthlyAvailable ? 'monthly' : savedMode);
+  const [modeTouched, setModeTouched] = useState(false);
   const [benchValue, setBenchValue] = useState('');
   const [segments, setSegments] = useState<GrowthSegment[]>(
     savedSegments.length > 0
       ? savedSegments
       : [{ fromMonth: months[0] ?? data.currentMonth, cadence: 'quarterly', growthPct: 0 }]
   );
+  /*
+   * Lo que la regla vigente calcula, mes por mes -- el mismo `projectPlan` que
+   * arma la tabla y la vista previa, no una copia. Sólo hace falta cuando el
+   * modo guardado es `growth`: si ya es `monthly`, lo que rige son los números
+   * guardados y el default sigue siendo ésos.
+   */
+  const monthlyDefaultBaseline: Record<string, number> =
+    savedMode === 'monthly'
+      ? savedTargets
+      : Object.fromEntries(
+          projectPlan(months, { mode: 'growth', benchmarks: savedSchedule, segments: savedSegments, targets: {} }).map(
+            (p) => [p.month, p.value]
+          )
+        );
   const [targets, setTargets] = useState<Record<string, string>>(() =>
-    Object.fromEntries(months.map((m) => [m, savedTargets[m] === undefined ? '' : String(savedTargets[m])]))
+    Object.fromEntries(months.map((m) => [m, monthlyDefaultBaseline[m] === undefined ? '' : String(monthlyDefaultBaseline[m])]))
   );
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
@@ -211,6 +248,32 @@ export default function StrategyEditor({
   const changes = preview.some((p, i) => p.value !== previewSaved[i].value);
   /* Sale cuando hay algo que mirar: en OL2 mostraba ceros contra ceros. */
   const showPreview = months.length > 0 && (changes || preview.some((p) => p.value !== 0));
+
+  /*
+   * ⚠ CONTRA `monthlyDefaultBaseline`, no contra `savedTargets` a secas -- etapa
+   * OL26. Con el default ya en `monthly`, comparar contra `savedTargets` (vacío
+   * para las 185 reglas de crecimiento) habría marcado "cambió" con sólo abrir:
+   * los campos llegan prellenados con lo que la regla calcula, y eso no es un
+   * cambio todavía.
+   *
+   * La segunda cláusula es la ÚNICA vía para guardar con los números tal cual
+   * los prellenó la regla: entrar a `monthly` A PROPÓSITO (`modeTouched`) desde
+   * `growth`, sin tocar ningún número. Sin ella, elegir "Month by month" y
+   * guardar dejaría el modo en `monthly` sin ninguna fila de números guardada
+   * -- exactamente el hueco que la versión anterior evitaba con
+   * `targetRevision === 0`, que acá ya no sirve de señal porque la vista
+   * mensual es ahora el default y no una elección.
+   */
+  const targetsChanged =
+    months.some((m) => (draftTargets[m] ?? 0) !== (monthlyDefaultBaseline[m] ?? 0)) ||
+    (modeTouched && mode === 'monthly' && savedMode !== 'monthly');
+  /*
+   * Si el guardado va a cambiar el modo vigente: un clic explícito en el
+   * selector, o un número realmente distinto del default -- las dos formas en
+   * que alguien puede decidir mes a mes sin haber tocado el selector, porque ya
+   * está mirando esa vista. Sólo mirar sin decidir nada no cuenta.
+   */
+  const willSwitchMode = mode !== savedMode && (modeTouched || targetsChanged);
 
   /* Qué hay guardado en el modo que NO está elegido ahora mismo. */
   const otherSaved =
@@ -313,27 +376,25 @@ export default function StrategyEditor({
           });
           done.push(`growth rule revision ${written}`);
         }
-      } else {
-        const targetsChanged =
-          months.some((m) => (draftTargets[m] ?? 0) !== (savedTargets[m] ?? 0)) || targetRevision === 0;
-        if (targetsChanged) {
-          const written = await saveMonthlyTargets({
-            subject: lo.subject,
-            strategy,
-            /* Los meses vacíos se guardan en 0: la revisión se lee entera. */
-            targets: Object.fromEntries(months.map((m) => [m, draftTargets[m] ?? 0])),
-            note: note.trim() === '' ? null : note.trim(),
-          });
-          done.push(`monthly numbers, revision ${written}`);
-        }
+      } else if (targetsChanged) {
+        const written = await saveMonthlyTargets({
+          subject: lo.subject,
+          strategy,
+          /* Los meses vacíos se guardan en 0: la revisión se lee entera. */
+          targets: Object.fromEntries(months.map((m) => [m, draftTargets[m] ?? 0])),
+          note: note.trim() === '' ? null : note.trim(),
+        });
+        done.push(`monthly numbers, revision ${written}`);
       }
 
       /*
-       * ⚠ El modo va ÚLTIMO, y sólo si cambió. Ver el bloque del orden en
-       * `save.ts`: si fallara, lo guardado queda sin aplicar y la proyección no
-       * se mueve, que es la mitad segura de fallar.
+       * ⚠ El modo va ÚLTIMO, y sólo si REALMENTE se decidió cambiarlo
+       * (`willSwitchMode`, no sólo `mode !== savedMode`) -- ver el bloque de
+       * arriba donde se define. Ver también el bloque del orden en `save.ts`:
+       * si fallara, lo guardado queda sin aplicar y la proyección no se mueve,
+       * que es la mitad segura de fallar.
        */
-      if (mode !== savedMode) {
+      if (willSwitchMode) {
         await setProjectionMode({
           subject: lo.subject,
           strategy,
@@ -390,7 +451,10 @@ export default function StrategyEditor({
               aria-checked={mode === m}
               disabled={m === 'monthly' && !monthlyAvailable}
               className={'ol-mode' + (mode === m ? ' is-on' : '')}
-              onClick={() => setMode(m)}
+              onClick={() => {
+                setMode(m);
+                setModeTouched(true);
+              }}
               title={
                 m === 'monthly' && !monthlyAvailable
                   ? 'docs/sql/2026-08-outlook-monthly-mode.sql has not been applied yet'
@@ -409,9 +473,22 @@ export default function StrategyEditor({
           ))}
         </div>
 
-        {mode !== savedMode && (
+        {willSwitchMode && (
           <p className="ol-editor__hint">
             <b>{modeLabel(savedMode)}</b> rules now. Saving switches it to <b>{modeLabel(mode)}</b>.
+          </p>
+        )}
+        {/*
+          ⚠ SÓLO MIRANDO, TODAVÍA -- etapa OL26. El default abre en `monthly`
+          con los números de la regla, y eso por sí solo no cambia nada: este
+          aviso es para el caso en que `mode !== savedMode` pero ni tocó el
+          selector ni un número (`!willSwitchMode`), o sea que está viendo la
+          traducción mes a mes de la regla vigente y nada más.
+        */}
+        {!willSwitchMode && mode !== savedMode && (
+          <p className="ol-editor__hint">
+            Shown here by month, from what <b>{modeLabel(savedMode)}</b> currently produces. It keeps ruling unless
+            you change a number or switch the mode above.
           </p>
         )}
         {mode === savedMode && modeSetBy && (
@@ -569,8 +646,16 @@ export default function StrategyEditor({
           </section>
         )}
 
-        {/* ── Lo que queda guardado del otro modo ─────────────────────── */}
-        {otherSaved && (
+        {/*
+          ── Lo que queda guardado del otro modo ───────────────────────
+          ⚠ SÓLO CUANDO REALMENTE SE VA A CAMBIAR — etapa OL26. Con el
+          default en `monthly`, `savedMode` sigue siendo `growth` para casi
+          todos; sin `willSwitchMode` este aviso diría "no se aplica mientras
+          monthly rige" estando `growth` vigente -- lo contrario de lo que
+          pasa. El hint de arriba ("Shown here by month...") ya cubre ese
+          caso; éste es para cuando `willSwitchMode` sí es cierto.
+        */}
+        {willSwitchMode && otherSaved && (
           <p className="ol-editor__hint">
             {otherSaved} It is not applied while <b>{modeLabel(mode)}</b> rules, and it is not deleted: switching
             back brings it into effect exactly as it is.
