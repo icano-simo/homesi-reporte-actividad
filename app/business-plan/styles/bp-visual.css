@@ -876,7 +876,28 @@ a.bp-btn {
 .bp-modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 100;
+  /*
+   * ⚠ 130, NO 100 — corrección urgente, OL26g.
+   *
+   * `.rv-panel` (el panel del paso de la revisión, `app/review/styles/review.css`)
+   * es `position: fixed; z-index: 122`, anclado abajo a la derecha. Con este
+   * modal en 100, el panel de la revisión quedaba SIEMPRE por encima -- y el
+   * pie del modal (`Save budget`/`Confirm as reviewed`, en `PersonBudgetEditor`
+   * vía el prop `footer`) vive justo ahí abajo. El síntoma no era que el pie
+   * no existiera --ya usa el mismo hermano-de-`.bp-modal__body` de siempre--
+   * sino que el panel de la revisión lo tapaba desde arriba.
+   *
+   * `aria-modal="true"` ya declara la intención: mientras un modal está
+   * abierto, es lo único con lo que se puede interactuar. Que un panel fijo
+   * de OTRO sistema quede por encima contradice esa semántica, no es sólo un
+   * problema visual. 130 deja margen sobre el 122 más alto que hay hoy en la
+   * app (`git grep -n z-index` en `app/` y `components/`) sin inventar un
+   * número mágico mayor "por las dudas".
+   *
+   * `.bp-panel-backdrop`, más abajo, se mantiene en el MISMO valor a
+   * propósito -- ver su propia nota.
+   */
+  z-index: 130;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -5555,7 +5576,7 @@ button.bp-metapill--area:disabled {
   position: fixed;
   inset: 0;
   /*
-   * ⚠ 100, EL MISMO QUE `.bp-modal-backdrop`, Y NO 40.
+   * ⚠ EL MISMO QUE `.bp-modal-backdrop`, Y NO 40.
    *
    * Con 40 la barra global --`.hub-header`, sticky en 50-- pintaba ENCIMA del
    * panel: el título del nodo y la × quedaban tapados. La medición leyó el
@@ -5564,9 +5585,12 @@ button.bp-metapill--area:disabled {
    * Y no se arregla bajando el panel: es `aria-modal`, y dejar la navegación
    * global visible y clicable sobre un modal es una trampa -- se puede saltar a
    * Outlook con el panel abierto. Se sigue el mismo z-index que el Modal del
-   * módulo, que ya resolvió esto.
+   * módulo, que ya resolvió esto -- y por la misma razón subió a 130 cuando
+   * `.bp-modal-backdrop` lo hizo (ver su nota): un panel fijo de otro sistema
+   * por encima de un `aria-modal="true"` es la misma trampa, sea cual sea el
+   * número que lo tape.
    */
-  z-index: 100;
+  z-index: 130;
   display: flex;
   justify-content: flex-end;
 }
