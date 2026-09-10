@@ -248,17 +248,20 @@
 
 /*
  * ============================================================================
- * LA DIFERENCIA ENTRE EL DESGLOSE Y EL TOTAL — etapa OL26, punto 5
+ * EL TOTAL, DE SÓLO LECTURA — pedido urgente de Isabella
  * ============================================================================
  *
- * No se fuerza a que sumen -- ver `docs/sql/2026-09-outlook-budget-composition.sql`
- * y el JSDoc de cabecera de `PersonBudgetEditor.tsx`. El color sólo aparece
- * cuando hay algo que mirar: una diferencia en cero se ve igual que el resto
- * de la fila, atenuada por `.ol-residual`.
+ * Ya no se puede escribir: es la suma de las celdas del desglose. Gris, para
+ * que se distinga de un número que alguien tipeó -- las filas de abajo sí
+ * son `<input>`, ésta ya no. Reemplaza a `.ol-editor__delta--off`, que
+ * pintaba la fila `Difference` -- esa fila ya no puede existir: el total y
+ * el desglose son el mismo número, nunca hay diferencia que mostrar.
  */
-.ol-editor__delta--off {
-  color: var(--coral);
-  font-weight: 700;
+.ol-editor__total .lbl {
+  color: var(--slate-500);
+}
+.ol-editor__totalcell {
+  color: var(--slate-500);
 }
 
 /*
