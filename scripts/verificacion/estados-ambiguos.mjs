@@ -61,8 +61,50 @@ const ESTADOS = [
   },
 ];
 
-const a = crearArnes({ minimo: ESTADOS.length });
+/**
+ * DOS ESTADOS QUE SALEN DE UNA MISMA LECTURA SE ESCRIBEN JUNTOS.
+ *
+ * Es el mismo mecanismo que el de arriba, corrido un lugar: allá el problema
+ * es un valor que miente; acá son dos valores que dicen la verdad en momentos
+ * distintos, y la ventana entre uno y otro es una mentira igual.
+ *
+ * El caso: `funnelActual` y `pasosDelPlan` salen de la misma consulta a
+ * `enrollment`, pero `setFunnelActual` estaba DOS consultas antes que
+ * `setPasosDelPlan`. Al ejercer «Change it» por primera vez, la evidencia
+ * quedó con el `funnel_name` del plan nuevo y el `enrollment_key` del viejo
+ * --el que `cancel_funnel` acababa de borrar-- o sea una referencia colgada
+ * dentro del registro que existe justamente para poder volver.
+ *
+ * La forma checkeable es contar los sitios: si los dos se publican siempre en
+ * el mismo lugar, hay tantas llamadas de uno como del otro. Antes del arreglo
+ * eran dos y tres, y eso alcanzaba para verlo.
+ *
+ * ⚠ No prueba que estén ADYACENTES, y no puede: eso pide leer el flujo. Prueba
+ * que no haya un camino que publique uno solo, que es como se abre la ventana.
+ */
+const PAREJAS = [
+  {
+    archivo: 'components/review/ReviewMaskHost.tsx',
+    setters: ['setFunnelActual(', 'setPasosDelPlan('],
+    porque:
+      'los dos describen al MISMO plan activo y salen de la misma lectura de ' +
+      'enrollment: publicar uno sin el otro deja al panel afirmando el nombre ' +
+      'nuevo con la clave vieja.',
+  },
+];
+
+const a = crearArnes({ minimo: ESTADOS.length + PAREJAS.length });
 try {
+  for (const p of PAREJAS) {
+    const texto = readFileSync(resolve(RAIZ, p.archivo), 'utf8');
+    const cuenta = p.setters.map((s) => texto.split(s).length - 1);
+    a.ck(
+      cuenta[0] > 0 && cuenta[0] === cuenta[1],
+      '`' + p.setters[0] + '` y `' + p.setters[1] + '` se escriben en los mismos ' +
+        'lugares de ' + p.archivo + ': ' + cuenta[0] + ' y ' + cuenta[1]
+    );
+    if (cuenta[0] === cuenta[1]) console.log('       por qué: ' + p.porque);
+  }
   for (const e of ESTADOS) {
     const texto = readFileSync(resolve(RAIZ, e.archivo), 'utf8');
     let error = null;

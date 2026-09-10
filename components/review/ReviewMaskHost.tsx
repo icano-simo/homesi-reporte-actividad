@@ -128,9 +128,17 @@ export default function ReviewMaskHost() {
    * «cero pasos hechos» dicho antes de leer sería una mentira tranquilizadora
    * justo en la pantalla que ofrece destruirlos.
    */
-  const [pasosDelPlan, setPasosDelPlan] = useState<{ hechos: number; total: number } | undefined>(
-    undefined
-  );
+  /*
+   * ⚠ Y LA CLAVE DEL ENROLAMIENTO VIAJA CON EL CONTEO, no aparte — RV12.
+   *
+   * El número que se dice --«borra 2 pasos hechos»-- y el plan que se va a
+   * cancelar tienen que salir de la MISMA lectura: dos consultas del mismo dato
+   * pueden diferir, y ésta es la que autoriza un borrado. Es la misma razón por
+   * la que el catálogo saca `doneCount` del mismo hook que muestra el plan.
+   */
+  const [pasosDelPlan, setPasosDelPlan] = useState<
+    { hechos: number; total: number; enrollmentKey: number } | undefined
+  >(undefined);
 
   const pasoActual =
     script && activo?.session
@@ -425,7 +433,13 @@ export default function ReviewMaskHost() {
          *
          * Le pasó a Adriana, a Armando y a Ana: tres veces el mismo paso.
          */
-        if (!cancelado) setFunnelActual(undefined);
+        /* Y el conteo se va con el nombre: los dos describen al mismo plan, y
+           dejar uno viejo mientras el otro dice «no lo sé» es la ventana que
+           esta etapa vino a cerrar. */
+        if (!cancelado) {
+          setFunnelActual(undefined);
+          setPasosDelPlan(undefined);
+        }
         return;
       }
       const bp = getSupabaseClient().schema('business_plan');
@@ -440,8 +454,38 @@ export default function ReviewMaskHost() {
         .order('activated_at', { ascending: false })
         .limit(1);
       const activo = (data ?? [])[0] ?? null;
-      if (!cancelado) setFunnelActual(activo?.funnel_name ?? null);
+      /*
+       * ⚠ UN SOLO LUGAR CALCULA EL NOMBRE, y sale de la lectura.
+       *
+       * Los tres caminos de abajo publican ESTA variable. Que no haya un
+       * `null` escrito a mano en ninguno no es estilo: `verificar:estados`
+       * prohíbe el literal justamente porque un `null` puesto a mano es una
+       * afirmación hecha sin haber leído --«no tiene funnel» dicho cuando lo
+       * que pasa es «no sé»--, y eso trabó la fase 3 a tres personas. Derivado
+       * de `activo`, el mismo valor significa lo único que puede significar:
+       * se leyó, y no hay.
+       */
+      const nombre = activo?.funnel_name ?? null;
 
+      /*
+       * ══════════════════════════════════════════════════════════════
+       * ⚠ EL NOMBRE SE PUBLICA JUNTO CON EL CONTEO, NO ANTES — RV12
+       * ══════════════════════════════════════════════════════════════
+       *
+       * Acá había un `setFunnelActual` suelto, dos consultas antes de
+       * `setPasosDelPlan`. Los dos salen de la MISMA lectura, pero llegaban a
+       * React en momentos distintos, así que entre uno y otro había una ventana
+       * en la que el nombre era el nuevo y la clave todavía la vieja.
+       *
+       * No es teórico: la evidencia del primer cambio ejercido quedó con
+       * `funnel_name` del funnel nuevo y `enrollment_key: 96`, que es el
+       * enrolamiento que `cancel_funnel` acababa de BORRAR. Una referencia
+       * colgada, y encima dentro del registro que existe para poder volver.
+       *
+       * Publicar los dos al final cuesta que el panel tarde dos consultas más
+       * en decir «Done — X is selected». Vale: antes de eso no sabe qué plan
+       * es, y decirlo era justamente el error.
+       */
       /*
        * ══════════════════════════════════════════════════════════════
        * ⚠ CUÁNTO SE PIERDE SI LO CAMBIAN — etapa RV11
@@ -460,7 +504,10 @@ export default function ReviewMaskHost() {
        * cambia, cambian los tres.
        */
       if (activo === null) {
-        if (!cancelado) setPasosDelPlan(undefined);
+        if (!cancelado) {
+          setFunnelActual(nombre);
+          setPasosDelPlan(undefined);
+        }
         return;
       }
       const { data: nodos } = await bp
@@ -471,7 +518,10 @@ export default function ReviewMaskHost() {
         (x) => x.enrollment_node_key
       );
       if (claves.length === 0) {
-        if (!cancelado) setPasosDelPlan({ hechos: 0, total: 0 });
+        if (!cancelado) {
+          setFunnelActual(nombre);
+          setPasosDelPlan({ hechos: 0, total: 0, enrollmentKey: activo.enrollment_key });
+        }
         return;
       }
       const { data: hitos } = await bp
@@ -480,9 +530,11 @@ export default function ReviewMaskHost() {
         .in('enrollment_node_key', claves);
       const filas = (hitos ?? []) as { status: string }[];
       if (!cancelado) {
+        setFunnelActual(nombre);
         setPasosDelPlan({
           hechos: filas.filter((m) => m.status === 'completed').length,
           total: filas.length,
+          enrollmentKey: activo.enrollment_key,
         });
       }
     })();

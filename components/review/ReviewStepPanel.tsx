@@ -97,7 +97,7 @@ export interface ReviewStepPanelProps {
    * no se ofrece: un `0` dicho antes de leer seria una mentira tranquilizadora
    * en la pantalla que ofrece destruirlos.
    */
-  pasosDelPlan?: { hechos: number; total: number };
+  pasosDelPlan?: { hechos: number; total: number; enrollmentKey: number };
   /**
    * Si estamos donde el paso apunta. Lo resuelve `useReviewTarget` en el
    * anfitrión, que es quien puede mirar el DOM de la página entera.
@@ -661,6 +661,14 @@ export default function ReviewStepPanel({
     funnelAnterior: desenlace?.antes ?? null,
     funnelNombre: typeof funnelActual === 'string' ? funnelActual : null,
     /*
+     * ⚠ Y LA CLAVE DEL ENROLAMIENTO, que estaba declarada en `StepDraft` desde
+     * RV10 y NUNCA SE LLENABA -- un respaldo que nadie ejerció. `gateEvidence`
+     * la escribe sólo si es un número, así que la evidencia salía sin ella y
+     * nada lo delataba. Es la que permite volver del `funnel_name` de la
+     * respuesta a la fila que lo produjo mientras el enrolamiento exista.
+     */
+    enrollmentKey: pasosDelPlan?.enrollmentKey ?? null,
+    /*
      * De la base, vía el anfitrión: `business_plan.enrollment`. La pantalla no lo
      * puede poner en `true`, igual que el presupuesto.
      *
@@ -948,6 +956,16 @@ export default function ReviewStepPanel({
     rama === null
   ) {
     const hechos = pasosDelPlan?.hechos ?? null;
+    /*
+     * ⚠ SIN LA CLAVE NO SE OFRECE CAMBIAR, aunque el conteo ya esté.
+     *
+     * Es una guarda redundante a propósito: hoy las dos salen de la misma
+     * lectura y no pueden faltar por separado. Si alguna vez se separan, esto
+     * apaga el botón en vez de mandar al catálogo un `?change=undefined`, que lo
+     * dejaría en modo alta -- y el modo alta sobre alguien que ya tiene plan es
+     * exactamente el defecto que esta línea vino a cerrar.
+     */
+    const claveDelPlan = pasosDelPlan?.enrollmentKey ?? null;
     return (
       <div className="rv-panel" role="region" aria-label="Review step">
         <div className="rv-panel__head">
@@ -976,10 +994,32 @@ export default function ReviewStepPanel({
           <button
             type="button"
             className="bp-btn bp-btn--small"
-            disabled={ocupado || hechos === null}
+            disabled={ocupado || hechos === null || claveDelPlan === null}
             onClick={() => {
               decidir('changed', funnelActual);
-              if (!enElCatalogo) router.push(rutaDelCatalogo);
+              /*
+               * ═══════════════════════════════════════════════════════════
+               * ⚠ CON `?change=<enrollment_key>` — RV12
+               * ═══════════════════════════════════════════════════════════
+               *
+               * Sin el parámetro esto era una puerta a una pared. El catálogo
+               * entra en modo cambio SÓLO por la URL, y sin él dibuja `Select`,
+               * que llama a `activate_funnel` -- que sobre alguien que ya tiene
+               * plan choca contra `enrollment_one_active_idx` y falla. O sea:
+               * el paso quedaba registrado como `changed` y el cambio no podía
+               * ocurrir por ninguna vía desde esta pantalla.
+               *
+               * No lo encontró ninguna aserción de RV11: se midió que el botón
+               * DIJERA lo que cuesta, y decía bien. Apareció al apretarlo.
+               *
+               * Y la condición mira la URL de verdad --no `enElCatalogo`-- porque
+               * estando YA en el catálogo en modo alta hay que navegar igual: el
+               * pathname es el mismo y el modo es el que cambia.
+               */
+              const destino = rutaDelCatalogo + '?change=' + claveDelPlan;
+              if (window.location.pathname + window.location.search !== destino) {
+                router.push(destino);
+              }
             }}
           >
             {hechos === null
