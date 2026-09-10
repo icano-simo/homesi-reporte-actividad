@@ -45,6 +45,7 @@ import LoanOfficerForecastTable from './LoanOfficerForecastTable';
 import { getForecastDb, isSupabaseConfigured } from '@/lib/supabase/client';
 import { DownloadIcon, FileSheetIcon } from '@/components/ui/icons';
 import { useOrgRoster } from './useOrgRoster';
+import { useLoanOfficerResolved } from './useLoanOfficerResolved';
 
 /**
  * ⚠ Cuándo se actualizó el snapshot, en la zona de quien mira.
@@ -194,6 +195,7 @@ function parseSnapshotId(value: unknown): number | null {
  */
 export default function PipelinePage() {
   const orgRoster = useOrgRoster();
+  const loanOfficerResolved = useLoanOfficerResolved();
   const [data, setData] = useState<ParseApiResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   /*
@@ -964,7 +966,8 @@ export default function PipelinePage() {
         forecastRange,
         PULL_THROUGH_RATES,
         orgRoster.aliasIndex,
-        orgRoster.employeeNameByKey
+        orgRoster.employeeNameByKey,
+        loanOfficerResolved.index
       )
     : [];
 
