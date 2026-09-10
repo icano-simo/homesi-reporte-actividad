@@ -191,30 +191,64 @@ function TiraDeVideo({
     onAbrir();
   };
 
+  /*
+   * ⚠ LOS DOS ESTADOS TIENEN LA MISMA ESTRUCTURA — etapa BP48b.
+   *
+   * Banda oscura, filete a la izquierda, icono, dos renglones y un botón. Lo
+   * único que cambia es qué dice cada pieza. Eso es lo que las hace pesar
+   * igual --que es lo que el brief pide-- y de paso lo que garantiza que midan
+   * igual, que es la condición que las tarjetas necesitan para no
+   * desnivelarse.
+   *
+   * ⚠ EL SEGUNDO RENGLÓN EXISTE SIEMPRE, aunque no se sepa la duración. Si
+   * desapareciera, la banda de un video sin duración mediría menos que las
+   * otras dos y volveríamos al problema del punto 1 de BP48. Y no se rellena
+   * con un «0:00»: cuando no se sabe, lo dice.
+   */
+  const segundoRenglon = hay ? (dur ?? 'Length not set') : 'No media attached yet';
+
+  /*
+   * ⚠ EL PREFIJO ES `bp-catalog__video`, NO `bp-video`. La banda vive en la
+   * tarjeta del catálogo; `bp-video-frame` y `bp-video-hint` son del MODAL,
+   * que es otra cosa. Dos familias con el mismo prefijo y sentidos distintos
+   * no chocan en CSS pero sí en la cabeza del que las lee después.
+   */
   return (
     <span
-      role="button"
-      tabIndex={0}
       data-bp-video-strip=""
       className={'bp-catalog__video' + (hay ? '' : ' bp-catalog__video--empty')}
-      onClick={abrir}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          abrir(e);
-        }
-      }}
     >
-      {hay ? <PlayIcon size={13} /> : <VideoOffIcon size={13} />}
-      <span className="bp-catalog__video-txt">
-        {hay ? (funnel.video_title?.trim() || 'Strategy video') : 'No video yet'}
+      <span className="bp-catalog__video-icon" aria-hidden="true">
+        {hay ? <PlayIcon size={15} /> : <VideoOffIcon size={15} />}
+      </span>
+      <span className="bp-catalog__video-body">
+        <span className="bp-catalog__video-title">
+          {hay ? funnel.video_title?.trim() || 'Strategy overview video' : 'Strategy overview video'}
+        </span>
+        <span className="bp-catalog__video-sub">{segundoRenglon}</span>
       </span>
       {/*
-        La duración sólo si se sabe. `null` no dibuja nada -- un «0:00» sería
-        una duración inventada, que es justo lo que el brief pedía evitar.
+        ⚠ EL BOTÓN ES UN `span role="button"` Y LA BANDA ENTERA NO ES
+        CLICKEABLE. Dos motivos: la tarjeta ya es un `<button>` --anidar otro
+        es HTML inválido, igual que con `Select` y «Show more»--, y con la
+        banda entera clickeable habría dos objetivos superpuestos para el mismo
+        acto, que es exactamente lo que obliga a mirar cuál ganó.
       */}
-      {hay && dur !== null && <span className="bp-catalog__video-dur">{dur}</span>}
-      {!hay && <span className="bp-catalog__video-dur">Add a link</span>}
+      <span
+        role="button"
+        tabIndex={0}
+        data-bp-video-action=""
+        className="bp-catalog__video-btn"
+        onClick={abrir}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            abrir(e);
+          }
+        }}
+      >
+        {hay ? 'Play' : 'Add video'}
+      </span>
     </span>
   );
 }
@@ -902,6 +936,15 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
                     abierta={descAbiertas.has(f.funnel_key)}
                     onToggle={() => alternarDesc(f.funnel_key)}
                   />
+                  {/*
+                    ⚠ EL ORDEN DE LA TARJETA — etapa BP48b:
+                      1. nombre y métricas   2. descripción   3. VIDEO
+                      4. secuencia de nodos  5. pie
+                    El video estaba al final, después de la secuencia. Sube
+                    acá: es lo que explica el funnel, y la secuencia es el
+                    detalle que se lee después.
+                  */}
+                  <TiraDeVideo funnel={f} onAbrir={() => setVideoDe(f.funnel_key)} />
                   <div className="bp-catalog__chain">
                     {chain.map((n, i) => (
                       <span key={n + i} className="bp-catalog__chip">
@@ -910,7 +953,6 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
                       </span>
                     ))}
                   </div>
-                  <TiraDeVideo funnel={f} onAbrir={() => setVideoDe(f.funnel_key)} />
                   {!check.ok && <div className="bp-catalog__blocked">{check.reason}</div>}
                   {/*
                     Elegir vive ACÁ, en la tarjeta, y explorar en el modal. Tener

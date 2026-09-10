@@ -3078,57 +3078,114 @@ table.piv th.bp-wrap {
  * vacío ocupara menos, las tarjetas volverían a diferir y el punto 1 se
  * caería por la puerta de atrás.
  */
+/*
+ * ══════════════════════════════════════════════════════════════════════
+ * LA BANDA DEL VIDEO — etapa BP48b
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * Antes era una tira clara, de una línea, con borde punteado cuando estaba
+ * vacía. Ahora es una banda oscura, y los DOS estados comparten la caja: mismo
+ * fondo, mismo filete, mismo icono, dos renglones y un botón. Sólo cambia lo
+ * que dice cada pieza.
+ *
+ * Que compartan la caja es lo que las hace pesar igual --que es lo que el
+ * brief pide-- y de paso lo que garantiza que midan igual, que es la condición
+ * del punto 1: si el estado vacío ocupara menos, las tarjetas volverían a
+ * desnivelarse.
+ *
+ * ⚠ `--slate-800` Y NO UN `--slate-900`: la escala del proyecto llega hasta
+ * 800. No se inventó un token nuevo para una sola banda; el que existe ya es
+ * oscuro.
+ */
 .bp-catalog__video {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
   margin-bottom: 10px;
-  padding: 6px 9px;
+  padding: 8px 10px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--slate-200);
-  background: var(--white);
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--navy);
-  cursor: pointer;
-  transition: border-color 0.14s ease, background 0.14s ease;
+  background: var(--slate-800);
+  /*
+   * ⚠ EL FILETE ES `--sky`, Y ESA DECISIÓN TIENE HISTORIA.
+   *
+   * La especificación lo pedía en `--coral`, y eso chocaba con lo que se
+   * decidió en BP48: un funnel sin video no es un problema. Con nueve funnels
+   * sin cargar, nueve franjas rojas se leen como nueve alertas.
+   *
+   * `--sky` es el tono informativo del sistema --así se usa en Outlook-- y
+   * dice «acá va a ir un video» en vez de «esto está mal». El coral queda para
+   * el botón, que sí es una acción.
+   *
+   * Va en los dos estados: el filete marca de qué habla la banda, no si le
+   * falta algo. Lo que dice que falta es el texto.
+   */
+  border-left: 3px solid var(--sky);
+  color: var(--white);
 }
-.bp-catalog__video:hover {
-  border-color: var(--coral);
+.bp-catalog__video-icon {
+  display: flex;
+  flex: none;
+  color: var(--sky);
 }
-.bp-catalog__video:focus-visible {
-  outline: 2px solid var(--sky);
-  outline-offset: 2px;
-}
-.bp-catalog__video-txt {
+.bp-catalog__video-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
   flex: 1;
   min-width: 0;
+}
+.bp-catalog__video-title {
+  font-size: 11px;
+  font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.bp-catalog__video-dur {
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
+/* El segundo renglón: la duración, o por qué no hay. Siempre presente, para
+   que la banda mida lo mismo en los dos estados. */
+.bp-catalog__video-sub {
+  font-size: 10px;
+  font-weight: 600;
   color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* El botón, que es lo único coral de la banda: es el acto. */
+.bp-catalog__video-btn {
+  flex: none;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--coral);
+  color: var(--white);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: filter 0.14s ease;
+}
+.bp-catalog__video-btn:hover {
+  filter: brightness(1.08);
+}
+.bp-catalog__video-btn:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bp-catalog__video-btn {
+    transition: none;
+  }
 }
 /*
- * ⚠ SIN VIDEO NO ES UN ERROR, y la pintura lo dice: borde punteado y gris, sin
- * `--coral` y sin triángulo de advertencia. Un funnel sin video es un estado
- * normal de la biblioteca. La diferencia con «todavía no lo leí» la hace el
- * componente, que no dibuja NADA mientras la columna no exista -- acá no hay
- * un tercer color porque ese estado no llega a pintarse.
+ * ⚠ SIN VIDEO NO ES UN ERROR, y sigue sin serlo con la banda oscura. El estado
+ * vacío no cambia de color respecto del cargado: cambia de icono, de segundo
+ * renglón y de botón. Lo que distingue a los dos es lo que DICEN, no una
+ * alarma. Por eso esta regla casi no declara nada -- y se deja escrita para
+ * que quede claro que la ausencia de reglas es la decisión.
  */
-.bp-catalog__video--empty {
-  border-style: dashed;
-  border-color: var(--slate-200);
-  background: transparent;
-  color: var(--slate-400);
-  font-weight: 600;
-}
-.bp-catalog__video--empty:hover {
-  border-color: var(--slate-400);
-  background: var(--white);
+.bp-catalog__video--empty .bp-catalog__video-title {
+  color: var(--slate-300);
 }
 
 /* El reproductor, dentro del modal. */
