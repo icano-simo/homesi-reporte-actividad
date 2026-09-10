@@ -1807,3 +1807,83 @@ dos columnas a una a los 900px (`@media (max-width: 900px)`) -- un desborde
 que sólo aparece apilado no lo ve nadie que mida sólo en desktop. Medido en
 1440, 1280, 1024 y 800px: los cuatro sin desborde, con el apilado del
 breakpoint incluido y no supuesto.
+
+# Un caveat que no se mide es una hipótesis con forma de hallazgo
+
+> Y la novena vez, en este proyecto, de "cero filas con `error: null` es una
+> policy de RLS que no aplica, no una tabla vacía" -- la tabla del corolario
+> ya tenía ocho.
+
+## El caso
+
+BP49b reportó que 34 de 37 personas iban a pasar de "Not set" a un budget
+real, leyendo la proyección de la regla de crecimiento cuando nadie fija un
+total a mano. El número salió de contar contra la base con acceso sin
+restricción -- correcto, para la pregunta que contestaba. Y el reporte
+llevaba un caveat, escrito y no verificado:
+
+> "si un viewer de Business Plan no tiene el claim `outlook`, esto devuelve
+> vacío, igual que ya pasa con `person_budget_total`"
+
+Isabella lo revisó en pantalla: **0 de 37**, no 34. El caveat parecía la
+explicación obvia -- BP49b nunca le había preguntado a la base qué ve una
+sesión de Business Plan, sólo qué hay en las tablas. Así que lo medí de
+verdad, simulando el claim exacto:
+
+```sql
+select set_config('request.jwt.claims',
+  '{"app_metadata":{"allowed_apps":["commercial_activity"]}}', true);
+select outlook.has_access();  -- false
+```
+
+Con `["outlook"]` en vez de `["commercial_activity"]`, la misma consulta da
+`true` y ve las 40 filas de `growth_rule`. El mecanismo cuadraba perfecto:
+`outlook.has_access()` en `false`, las cuatro tablas devolviendo cero filas
+con `error: null`, `employeesWithRule` vacío, budget `null` para las 37 --
+exactamente lo que Isabella veía. Reporté la causa con esa evidencia.
+
+**Y el caveat era falso.** El claim ya estaba otorgado -- Isabella se lo
+había dado a las 19 personas de `commercial_activity` esa misma mañana. La
+simulación no medía "nunca tuvo acceso": medía un JWT sin el claim, y ESE
+JWT sin el claim también es el que lleva cualquiera cuya sesión sea más
+vieja que el otorgamiento. Los claims viajan en el token, no se consultan en
+cada request -- un `grant` en la base no llega a una sesión ya abierta hasta
+que el token se renueva.
+
+> **Simular el mecanismo correctamente no es lo mismo que haber encontrado la
+> causa correcta.** Las dos versiones de la historia -- "nunca tuvo el
+> claim" y "lo tiene, pero su token es de antes"-- producen el mismo
+> `outlook.has_access() = false` en la misma sesión. La simulación no
+> distingue una de la otra; sólo confirma que ESE es el mecanismo que
+> bloquea, no CUÁNDO empezó a bloquear.
+
+## La regla
+
+**Un caveat escrito y no medido es una hipótesis con forma de hallazgo.**
+"Esto podría fallar si X" se lee como diligencia -- se dijo, quedó anotado,
+parece que se consideró el caso. Pero un caveat sin verificar tiene el mismo
+valor que no haberlo escrito: nadie volvió a mirar si X era cierto hasta que
+el síntoma obligó. Si BP49b hubiera corrido la misma simulación de JWT que
+corrió este reporte, habría sabido en ese momento que 19 personas SÍ tenían
+el claim y unas pocas no --y por qué-- en vez de reportar "34 de 37" sin
+esa letra chica y dejar que Isabella lo descubriera en pantalla.
+
+> Cita textual, porque es la que lo resume mejor: **"La dejé anotada como
+> caveat y seguí, en vez de probarla."**
+
+## Qué hacer
+
+- **Un caveat sobre acceso, permisos o disponibilidad no es opcional de
+  verificar.** Si se puede escribir la condición ("si no tiene el claim X"),
+  se puede simular -- `set_config('request.jwt.claims', …)` seguido de la
+  función de policy, en el mismo string de SQL. Cuesta una consulta.
+- **Y un `has_access() = false` medido así confirma el MECANISMO, no la
+  CAUSA.** Antes de reportar "nunca tuvo acceso", preguntar también si el
+  acceso se otorgó recientemente -- y si la sesión en cuestión es más vieja
+  que el otorgamiento. Un token viejo y un permiso nunca dado se ven
+  exactamente igual desde adentro de la sesión bloqueada.
+- Y agregar a las vías de verificación de Supabase: **simular el JWT exacto
+  de la sesión que importa, contra la función de `has_access()`, en vez de
+  inferir el acceso de una lista de personas autorizadas.** Es lo que faltó
+  en BP49b y lo que contestó esta vez -- con la salvedad de arriba, sobre qué
+  SÍ y qué NO contesta.
