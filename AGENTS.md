@@ -1476,10 +1476,10 @@ y su rama de fallo **nunca se ejerció**. Queda dicho así, porque por la regla
 de este repo un respaldo que nunca se ejerció es exactamente lo que hay que
 mirar con desconfianza.
 
-## Y lo que la guarda NO cubre
+## Y lo que ESA guarda no cubre: sólo mensajes de commit
 
-Sólo mensajes de commit. Todo lo demás sigue dependiendo de la regla, que se
-extiende así:
+`scripts/commit.mjs` cubre un caso, y lo cubre DESPUÉS de escribir. La regla
+general es ésta:
 
 > **Nada de `-e` ni de `-c` con texto. Nunca un heredoc. Si el texto tiene un
 > backtick, un `$`, una comilla o un salto de línea, va a un archivo con la
@@ -1487,6 +1487,64 @@ extiende así:
 
 El umbral no es la longitud. Las cuatro veces el texto era corto -- por eso
 pareció que no hacía falta.
+
+## La QUINTA vez, y la guarda que frena la mano
+
+Pasó una quinta vez: un `cat > archivo.mjs << 'XEOF'` en el mismo turno en que
+se estaba escribiendo esta sección. No rompió nada --creó un archivo vacío que
+después se reescribió con la herramienta-- pero el veredicto cierra el asunto:
+**«ya no es que falte saberlo».**
+
+Una regla que hay que acordarse funciona igual que una nota que nadie consulta.
+Así que ahora hay una guarda que **bloquea el comando antes de que corra**:
+
+    scripts/verificacion/sin-texto-al-shell.mjs        la lógica y el porqué
+    scripts/verificacion/sin-texto-al-shell.test.mjs   31 aserciones
+    npm run verificar:shell     corre la prueba
+    npm run guarda:instalar     la engancha, y dice si la copia estaba vieja
+
+Se engancha como hook `PreToolUse` de Bash: lee el comando por stdin y sale con
+código 2 --que el agente lee como «no se ejecutó, y por qué»-- con el motivo y
+qué hacer en su lugar. Verificado en vivo, no sólo con su prueba: un `node -e`
+**rebotó antes de correr**.
+
+| bloquea | por el caso que ya costó |
+|---|---|
+| heredoc y here-string | los backslashes, el segundo heredoc, los backticks que se ejecutan |
+| `node -e`, `python -c`, `bash -c`, `powershell -Command` | el código como argumento, que es el mismo mecanismo con otra cara |
+| `git commit -m` / `-am` | los cinco identificadores que se comió un mensaje |
+| `gh pr create --body` | igual, y un cuerpo de PR casi siempre tiene backticks |
+| `echo`/`printf` redirigido a un archivo | escribir un archivo con el shell de intermediario |
+| `sed -i` con backtick, `$` o `\` | una sustitución que llega distinta, y que al no matchear **no falla** |
+
+Y deja pasar lo que hay que dejar pasar, que es la mitad que decide si la guarda
+sobrevive: `cmd //c` --la única vía para borrar una junction--, `git commit -F`,
+`echo` sin redirección, `sed -n`, `grep -c`, los pipes y las sustituciones de
+comandos. **Una guarda que bloquea todo es la que alguien desengancha**, y ahí
+se pierde también lo que sí cubría; por eso su prueba tiene 17 casos de «esto
+tiene que pasar» y no sólo los 14 de «esto tiene que frenar».
+
+### ⚠ Vive en dos lugares, y eso es a propósito
+
+`.gitignore` ignora `.claude/` --«config local del agente»-- y el hook lo lee el
+agente desde `~/.claude`. Así que:
+
+    el repo      es la fuente: la lógica, su prueba y el porqué
+    ~/.claude    es la copia que corre, enganchada en `settings.json`
+
+`npm run guarda:instalar` es lo que las mantiene de acuerdo, y **avisa si la
+copia estaba distinta**: una copia vieja enganchada es peor que ninguna, porque
+frena con reglas que ya no son las de la fuente. Es «dos copias de la misma
+decisión» resuelto con un script en vez de con memoria.
+
+Dos cosas más antes de tocarla:
+
+- **Un cambio de hooks se toma al arrancar la sesión**, no en el momento --
+  salvo el primer enganche, que fue lo que permitió medirla en la misma sesión.
+- **Si no entiende su propia entrada, no bloquea**: el `catch` del JSON sale con
+  0. Una guarda que rompe todos los comandos cuando cambia el formato del hook
+  es peor que la falla que viene a evitar, porque la primera reacción de
+  cualquiera sería desengancharla.
 
 # Worktrees en Windows: la junction de `node_modules`
 
