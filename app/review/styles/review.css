@@ -437,6 +437,25 @@ body:has(.rv-bar) .app {
 .rv-panel__zona {
   min-width: 0;
 }
+/*
+ * ⚠ LAS TRES ZONAS TIENEN REGLA, y las dos de abajo no las tenian: las pedia el
+ * JSX y no existian en ninguna hoja. Lo dijo `npm run verificar:clases` al
+ * mergear -- una clase sin regla no falla, hereda, y por eso hay que
+ * preguntarlo. Asi que o se sacan del markup o se ganan el nombre; se ganan,
+ * porque las dos son necesidades reales de la barra.
+ */
+/* El contexto con MEDIDA: la pregunta del paso es prosa, y a todo el ancho de
+   su columna se lee peor que en una linea corta. */
+.rv-panel__zona--ctx {
+  max-width: 52ch;
+}
+/* Las entradas apiladas: el campo del paso arriba y el comentario abajo, con
+   aire entre los dos. */
+.rv-panel__zona--in {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 /* La de acciones apila sus cosas y queda pegada a la derecha. */
 .rv-panel__zona--act {
   display: flex;
