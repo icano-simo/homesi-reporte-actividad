@@ -364,6 +364,40 @@ manda a trabajar: «el rebase no sirvió» habría mandado a otra persona a reha
 un rebase que estaba perfecto. Un diagnóstico falso sobre trabajo ajeno cuesta
 el doble.
 
+### El diagnóstico falso sobre trabajo ajeno, que ya casi pasó dos veces
+
+Y es la parte que no es sobre medir. En una sola serie de trabajo estuvo a
+punto de salir dos veces, **desde los dos lados**, y los dos casos son
+distintos:
+
+| | de dónde salió | qué decía |
+|---|---|---|
+| el del rebase | **desde el código** — una medición sobre el objeto equivocado | «el rebase no sirvió» |
+| el de B | **desde afuera** — un reporte que le llegó y no era suyo | que había borrado un plan que no borró |
+
+Los dos **viajan igual**, y ahí está el problema: del otro lado no se
+distinguen de un reporte real. Quien lo recibe no tiene el objeto que se midió
+ni la sesión donde se midió; tiene una frase que suena a hallazgo.
+
+Pero el segundo agrega algo que el primero no tiene, y es lo que hay que
+copiar. **B lo resolvió pidiendo que se confirmara antes de actuar.** Si
+hubiera aceptado la acusación habría hecho las dos cosas peores a la vez:
+«arreglar» algo que estaba bien, y perder tiempo defendiéndose de algo que no
+hizo.
+
+> **Cuando un reporte de un problema no coincide con lo que uno hizo, pedir que
+> se confirme antes de actuar es más rápido que investigar el problema.**
+
+No es desconfianza y no es demorar: es el mismo movimiento que el resto de esta
+nota, del lado de quien recibe. El emisor contrasta el resultado con el
+mecanismo; el receptor contrasta el reporte con lo que efectivamente tocó. Si
+no coinciden, uno de los dos está midiendo otra cosa, y averiguar cuál cuesta
+una pregunta.
+
+Y del lado del que reporta, la obligación es la simétrica: **decir sobre qué
+objeto se midió** --qué rama, qué clave, qué archivo, qué sesión-- para que la
+pregunta se pueda contestar sin repetir el trabajo.
+
 Lo que lo delató, las cinco veces, fue lo mismo — y es la regla de la sección
 del `3×`, en la dirección contraria:
 
