@@ -327,6 +327,74 @@ Las reglas operativas: **al medir un estilo que se anima, esperar más que la
 duración de la transición antes de leer**; y si aparece la firma —un
 subconjunto de propiedades que no cambia— **mirar el `transition` de la regla
 antes de buscar quién la pisa**.
+## Dos estados que hoy dan el mismo número
+
+El doceavo es una medición correcta sobre el instante equivocado. Éste es sobre
+el **momento del que se lee la consecuencia**, y es más difícil de ver porque la
+medición puede estar perfecta y el número ser el correcto.
+
+En RV15 había que hacer que «Confirm as reviewed» escribiera una fila. Lo obvio
+—y lo que el pedido decía— era repetir los números que ya estaban: *una fila
+igual*. Medido, no había ninguno: `outlook.person_budget_total` estaba en **cero
+filas** y `growth_rule` tenía **190**, así que toda persona proyectaba por
+regla. El único número disponible era el que proyecta la regla, y fijarlo
+transfiere el gobierno de la proyección —«`person_budget_total` manda cuando
+existe, la regla cuando no»— con un botón que dice «lo revisé».
+
+Y acá está la trampa: **fijar hoy el número que proyecta la regla no cambia el
+número de hoy.** Los dos gobiernos dan exactamente el mismo valor en el
+instante en que se escribe. Difieren después, cuando el benchmark se mueva y uno
+lo siga y el otro no.
+
+> **Dos estados que hoy dan el mismo número no se distinguen midiendo el número
+> de hoy.**
+
+Así que la sonda que comparaba la proyección antes y después habría dado
+**verde sobre un gobierno transferido**, y con toda razón: el número no cambió.
+
+Lo que sí los distingue es de **dónde sale** el número, y eso la pantalla lo
+dice: el aviso de gobierno se calcula con lo que el lector considera vigente
+(`person.budgetTotal[m] === undefined`). Comparar ese texto antes y después
+mide el estado, no su valor de hoy.
+
+Las dos reglas operativas:
+
+- **Cuando dos estados difieren en el futuro, medir el estado y no su
+  consecuencia de hoy.** Casi siempre hay algo en la pantalla que ya nombra el
+  estado, porque a alguien le hizo falta explicárselo al usuario.
+- **Y un control que ejerza la otra rama**, o «no cambió» no dice nada: con una
+  fila que sí gobierna, el aviso pasó de «Every month» a «Nov, Dec». Sin eso,
+  «el aviso no cambió» no distingue «la confirmación no gobierna» de «este
+  aviso nunca cambia». Es la misma sospecha que la sección del respaldo que
+  nunca se ejerció, aplicada a una aserción.
+
+## Y en la misma sonda: una comparación entre dos ausencias da verde
+
+La primera versión de esa sonda comparaba la fila de la persona en la tabla del
+branch, leída con `[data-rv-lo="16"]`. La fila **no estaba en el DOM**: hay una
+asignación de coaching activa sobre otra persona y el foco filtra el roster, así
+que el grupo se abre con una sola fila explicativa y ninguna de LO.
+
+Las dos lecturas devolvieron `null`, y la comparación —`JSON.stringify(antes)
+=== JSON.stringify(después)`— dio **OK**. Segunda vez en la serie que una
+comparación entre dos ausencias sale verde.
+
+Lo que hace este caso peor que la tautología del `||` es que el arnés **ya
+tenía la aserción del ancla, y estaba en rojo**. El resumen dijo `1 FALLAS de
+11`, que se lee como «diez bien y una rota». Pero la que estaba rota era el
+ancla de otra, así que:
+
+> **Una aserción en rojo invalida a todas las que dependen de su ancla, no sólo
+> a sí misma.**
+
+Las reglas operativas:
+
+- **Comparar dos lecturas exige afirmar primero que cada una encontró algo.** No
+  `a === b`, sino `a !== null && a === b`.
+- Y al leer un resumen con fallas, **mirar de qué depende cada aserción antes de
+  creerle a las verdes**. Un contador no sabe que dos aserciones estaban
+  encadenadas.
+
 ## El peor de la familia: la medición que concluyó lo contrario de la verdad
 
 Los otros casos terminan en «no medí» o en «medí mal y no vi el bug». Éste
@@ -494,6 +562,64 @@ veces lo encontró la captura, no la medición.
   pensando: `business_plan.area` quedó como la única de nueve tablas sin grant,
   y eso rompió una pantalla que ni la menciona — un trigger `security invoker`
   la leía, así que asignar un área devolvía 403.
+
+## Una ausencia medida en el árbol equivocado, reportada como hallazgo
+
+Reporté dos cosas en RV15, las dos con la forma de un hallazgo y las dos
+**falsas**:
+
+| lo que reporté | lo que era |
+|---|---|
+| «`sqlFile` apunta a `docs/sql/2026-09-outlook-budget-composition.sql`, que no está en el repo» | está en `main`, con las dos tablas, sus policies y sus índices |
+| «no hay ningún índice único, dos escrituras concurrentes pueden compartir `revision`» | hay uno: `unique (employee_key, revision, target_month) where employee_key is not null` |
+
+**La primera: `ls` y `grep` corrieron en el worktree equivocado.** El directorio
+principal de la sesión está en `feat/outlook-realtor-code`, una rama anterior a
+los ocho merges, y ahí `docs/sql/` tiene 30 archivos. En `main` tiene 43, y el
+que buscaba es uno de los 13 que faltan. La rama del checkout contestó por el
+repo.
+
+Es la misma lección que «una clase es huérfana en un árbol y no en otro», en la
+dirección de la ausencia — y por eso duele: ya estaba escrita, con dos worktrees
+vivos, en esta misma serie.
+
+> **Un `ls` contesta sobre el checkout, no sobre el repo.**
+
+**La segunda: `pg_constraint` no ve un `create unique index`.** Pedí los
+`constraint` de la tabla, vi seis y ninguno único, y concluí que no había
+unicidad. Los índices únicos que no nacen de un `constraint` viven en
+`pg_indexes`, y estaban los cuatro.
+
+> **Un catálogo que no lista algo no dice que no exista: dice que eso no vive
+> ahí.**
+
+**Y la señal que no leí, que estaba en la salida.** Antes del `ls` corrí
+`grep -rln "person_budget_total" --include=*.sql .` y no devolvió **nada**, en
+un repo cuyas tablas se crean con archivos de SQL versionados. Cero menciones no
+se explica por el mecanismo, y esa regla ya está arriba: cuando el resultado no
+se explica por el mecanismo, tenía razón el mecanismo. Lo leí como «no está
+versionado» en vez de «estoy mirando donde no está».
+
+Las reglas operativas:
+
+- **Un hecho sobre el repo se mide contra una rama, nombrándola**:
+  `git cat-file -e main:<ruta>`, `git grep <patrón> main`, `git ls-tree`. Con
+  dos worktrees en ramas distintas, el `cwd` del shell no puede decidir la
+  respuesta.
+- **Para el catálogo de Postgres, `pg_constraint` y `pg_indexes` contestan cosas
+  distintas.** Un `check` y un `not null` están en el primero; un `create unique
+  index` sólo en el segundo.
+- Y la que salvó el reporte, que vale más que las dos: **verificar los números
+  propios antes de escribirlos**. Esto se cayó al comprobar un «31 archivos» que
+  yo mismo había puesto en la nota — el número obligó a medir de nuevo, y la
+  medición trajo el archivo que supuestamente no existía. Un número escrito es
+  una aserción que se puede correr; una afirmación en prosa, no.
+
+⚠ Y el costo: el usuario aceptó el hallazgo falso y pidió anotarlo. Es la misma
+forma que la nota del `service_role` del turno anterior --una conclusión falsa
+sobre nuestro propio registro, aceptada-- y van dos turnos seguidos. Un
+diagnóstico falso sobre trabajo ajeno cuesta el doble; uno sobre el propio
+registro cuesta la confianza en el registro.
 
 ## Antes que todo lo anterior: que el arnés haya corrido
 
