@@ -154,6 +154,13 @@ export interface StepArrow {
  * Todo lo que no sea un objeto con dos cadenas no vacías se descarta:
  * `gate_config` lo escribe una persona en SQL, y una fila mal cargada no puede
  * tumbar la máscara.
+ *
+ * ⚠ Y HOY DEVUELVE VACÍO PARA LOS OCHO PASOS — RV16 quitó `arrows` de las tres
+ * filas que lo tenían, porque los textos tapaban lo que señalaban. Esto no
+ * quedó sin uso: quedó **sin datos**, que es otra cosa. El por qué, lo que
+ * falta decidir y cómo se vuelve a encender están en el encabezado de
+ * `components/review/ReviewArrow.tsx` y en
+ * `docs/sql/2026-09-review-arrows-off.sql`.
  */
 export function stepArrows(step: ReviewStep, loEmployeeKey?: number | null): StepArrow[] {
   const crudo = (step.gate_config as { arrows?: unknown } | null | undefined)?.arrows;

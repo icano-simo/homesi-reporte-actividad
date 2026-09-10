@@ -27,6 +27,39 @@ import type { StepArrow } from '@/lib/review/gates';
  * una píldora, una fila de tabla-- que se mueve con la página. Una flecha
  * calculada una vez al montar queda apuntando al vacío en cuanto alguien
  * scrollea, y eso se ve peor que no tenerla.
+ *
+ * ============================================================================
+ * ⚠ HOY NO SE DIBUJA NINGUNA, Y NO ES QUE ESTO SOBRE — etapa RV16
+ * ============================================================================
+ *
+ * **Un camino que existe y por el que no pasa nadie.** Los textos quedaban
+ * ENCIMA de lo que la flecha señalaba --tapaban el título del branch y el
+ * rótulo «Project through», que era su propio objetivo-- así que las flechas
+ * se apagaron QUITANDO `arrows` de las tres filas de `review.step` (ver
+ * `docs/sql/2026-09-review-arrows-off.sql`). Sin ese arreglo `stepArrows`
+ * devuelve vacío y este componente no se monta nunca.
+ *
+ * Así que hoy un `git grep` lo encuentra sin nada en pantalla, y eso NO
+ * significa que se pueda borrar:
+ *
+ *   · el mecanismo está probado -- con `arrows` dibuja flecha, texto y el OK
+ *     intermedio; sin `arrows` no queda nada, ni un elemento de la familia
+ *     `rv-arrow`. Las dos cosas medidas en pantalla en RV16.
+ *   · volver a encenderlo es UN `update` -- la sección 4 de ese archivo, que se
+ *     corrió de verdad para restaurar el 2.1 y no quedó escrita sin ejercer.
+ *   · lo único que falta resolver es DÓNDE se posiciona para no tapar, y el
+ *     rótulo del OK: hoy dice «OK», igual que el botón de avanzar del panel, y
+ *     queda a centímetros. Al volverlas necesita otro.
+ *
+ * Es el espejo de `isBlocked`, que se definió en BP42 (`d362744`) y no tuvo
+ * ningún consumidor hasta BP46 (`9a11038`): cuatro etapas probado y sin
+ * cablear, esperando que hubiera dependencias cargadas. Allá el mecanismo
+ * esperaba a los datos; acá los datos están apagados y el mecanismo espera una
+ * decisión de diseño. En los dos casos, «no lo usa nadie» es un estado del
+ * dato y no un veredicto sobre el código.
+ *
+ * El CSS (`.rv-arrow*` en `app/review/styles/review.css`) se conserva por lo
+ * mismo: la geometría ya está hecha.
  */
 export default function ReviewArrow({
   flecha,

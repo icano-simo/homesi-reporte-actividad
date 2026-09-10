@@ -782,6 +782,37 @@ el antecesor sin terminar: el botón quedó `is-done is-current` con el punto
 puesto, que es lo que un cuarto estado no podría representar. Así la prueba
 justifica la decisión de diseño además de verificarla.
 
+### Y el mínimo de aserciones cazó el caso que más importa: la segunda corrida
+
+> **El estado que deja una medición es entrada de la siguiente.**
+>
+> Una sonda que corre dos veces no mide lo mismo la segunda vez: la primera
+> dejó una respuesta, un cursor movido, una fila. Y el resultado distinto se
+> lee como que el código cambió entre las dos corridas.
+
+El caso: en RV16 la misma sonda corrió dos veces sobre el paso 2.1 --con las
+flechas y sin ellas-- y lo único que tenía que cambiar era el dato. La corrida
+`sin` **no encontró el campo de comentario**, porque la corrida `con` ya había
+contestado el paso y el panel salió en modo «contestado», que no dibuja el
+campo.
+
+Lo cortó el mínimo de `crearArnes`: dijo **`RESUMEN INVALIDO, 4 de 6`** en vez
+de verde. Sin esa guarda las cuatro primeras aserciones --las que miran que no
+haya flecha, texto ni OK-- habrían dado verde midiendo un panel en un modo que
+no era el de la prueba, y el informe habría dicho «sin `arrows` no queda nada»
+con la mitad de la evidencia.
+
+Y es el caso que la guarda del mínimo vino a cubrir, no un caso raro: **una
+segunda corrida sobre un estado que dejó la primera.**
+
+La regla operativa, y las dos mitades sirven:
+
+- **o la sonda limpia lo que escribe antes de terminar**, y entonces empieza
+  igual siempre;
+- **o declara qué estado necesita encontrar** y falla ruidosamente si no está.
+
+Lo que no sirve es suponer que empieza limpia.
+
 ## Y la sexta, que es sobre por qué no basta con saberlo
 
 `exigirAusente` mordió **seis veces en una sola serie**, y las seis del mismo
