@@ -8526,3 +8526,51 @@ Pero la diferencia **contra la proyección de la regla de crecimiento** sí es u
 dato real, y se queda sin dónde aparecer: un desglose que suma bastante menos
 que lo que la regla proyecta es exactamente lo que alguien querría ver. Es otra
 fila, con otro rótulo y otro origen, y **hay que definirla, no heredarla**.
+
+### 5. El borrado está decidido y ESPERA A UN PASO ABIERTO
+
+Isabella confirmó que los desgloses de hoy son pruebas y hay que borrarlos:
+`person_budget_total` y `person_budget_breakdown` a cero. Con eso desaparece
+la decisión del punto 3 -- sin datos bajo el modelo viejo, el total derivado no
+le cambia el pronóstico a nadie y la proyección vuelve a las 190 reglas de
+crecimiento.
+
+⚠ **Pero no se puede borrar todavía**, y el motivo es la compuerta que se acaba
+de arreglar: se abre porque hay filas de presupuesto posteriores al arranque de
+la sesión. La sesión 43 --Aileen Perez-- tiene respuesta para los pasos 1.1 a
+2.1 y **no para 2.2**, así que ese paso está ABIERTO. Borrar las filas ahora
+cierra la compuerta y la vuelve a trabar.
+
+La condición se comprueba sin preguntarle a nadie, y por eso queda escrita:
+
+```sql
+-- 0 = el paso sigue abierto, NO borrar. 1 = contestado, se puede borrar.
+select count(*) from review.response
+ where session_key = 43 and phase_no = 2 and step_in_phase = 2;
+
+-- o, en general, que no quede ninguna sesión abierta apoyada en esas filas
+select s.session_key, s.lo_employee_key, s.current_phase, s.current_step_in_phase
+  from review.session s
+ where s.status = 'in_progress';
+```
+
+Y después del borrado hay que medir dos cosas, no una:
+
+```sql
+-- 1. las dos tablas en cero
+select (select count(*) from outlook.person_budget_total) as totales,
+       (select count(*) from outlook.person_budget_breakdown) as desgloses;
+
+-- 2. y que la proyección no se haya movido: sin totales, `budgetTotal[m] ??
+--    regla` cae SIEMPRE en la regla, así que tiene que quedar idéntica a la
+--    de las reglas de crecimiento. Se compara contra una captura tomada ANTES
+--    del borrado, no contra el recuerdo de lo que mostraba.
+select count(*) as reglas from outlook.growth_rule;   -- medido: 190
+```
+
+⚠ La captura de la proyección se toma **antes** de borrar. Comparar contra lo
+que uno se acuerda que mostraba la pantalla no es una comparación.
+
+Y la recomendación que además vuelve inocuo el borrado: **un desglose sin total
+sigue gobernado por la regla**, mismo criterio que «lo que ya pasó no se
+recalcula». Si se adopta, los dos meses de Aimmee dejan de ser una decisión.
