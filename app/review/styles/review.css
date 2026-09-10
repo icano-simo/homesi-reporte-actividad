@@ -318,6 +318,32 @@ body:has(.rv-bar) .app {
   font-size: 12px;
   color: var(--slate-600);
 }
+
+/*
+ * ============================================================================
+ * EL RELLENO AL PIE -- etapa RV17
+ * ============================================================================
+ *
+ * El panel es `fixed`, asi que tapa lo ultimo de la pagina y el documento se
+ * termina antes de que se pueda desplazar. Esto le agrega abajo, mientras la
+ * mascara este activa, el espacio que el panel ocupa.
+ *
+ * `--rv-relleno` la publica `ReviewMaskHost` MIDIENDO el panel, porque su alto
+ * depende del paso: el prompt, el aviso de la compuerta, el campo de
+ * comentario y la lista de clics del 1.4 lo hacen crecer. Ver su nota.
+ *
+ * ⚠ SIN SESION LA PROPERTY NO EXISTE y el respaldo de `var()` es `0px`, asi que
+ * la app normal no tiene un pixel de mas. Ese es el estado por defecto: el
+ * anfitrion la ESCRIBE cuando hay panel y la SACA cuando no.
+ *
+ * ⚠ Y VA SOBRE `.hub-canvas`, que es de `shell.css` -- se verifico con `grep`
+ * que nadie le fija `padding` ni `padding-bottom` en ninguna hoja, asi que esto
+ * agrega una declaracion y no pelea con otra. Es el `<main>` que envuelve las
+ * cuatro pantallas del portal, o sea el final del contenido en todas.
+ */
+.hub-canvas {
+  padding-bottom: var(--rv-relleno, 0px);
+}
 .rv-panel__head {
   display: flex;
   align-items: center;

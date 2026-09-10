@@ -713,6 +713,74 @@ export default function ReviewMaskHost() {
   const [errorCierre, setErrorCierre] = useState<string | null>(null);
   const [cerrando, setCerrando] = useState(false);
 
+  /*
+   * ══════════════════════════════════════════════════════════════════════
+   * EL RELLENO AL PIE — etapa RV17
+   * ══════════════════════════════════════════════════════════════════════
+   *
+   * El panel es `position: fixed` abajo a la derecha, así que tapa lo último de
+   * la página y no hay forma de desplazarse más: el documento se termina antes.
+   * Isabella pidió que la página deje ese espacio.
+   *
+   * Se resuelve AGREGANDO ESPACIO al final del contenido y no moviendo el
+   * panel: `--rv-relleno` se publica en el `<html>` y `review.css` la consume
+   * como `padding-bottom` de `.hub-canvas`. Con eso el scroll llega más abajo y
+   * lo último de la página puede quedar por encima del panel.
+   *
+   * ⚠ EL ALTO NO SE PUEDE CLAVAR. El panel crece con el prompt del paso, con el
+   * aviso de la compuerta, con el campo de comentario abierto o cerrado y con
+   * la lista de clics del 1.4. Un número fijo queda corto justo en los pasos
+   * que más dicen, que son los que más tapan. Así que se MIDE con un
+   * `ResizeObserver` sobre el propio panel.
+   *
+   * ⚠ Y SE MIDE LA BANDA, NO EL ALTO: `innerHeight - top` incluye los 18px de
+   * `bottom` que el panel tiene en CSS. Sumar el alto y volver a escribir el 18
+   * acá sería la misma constante en dos lugares, libre de divergir en cuanto
+   * alguien mueva el panel.
+   *
+   * ⚠ NO PASA POR ESTADO DE REACT, y no es por gusto: un `setState` en un
+   * efecto dispara renders en cascada --la regla que este archivo ya se comió
+   * una vez-- y acá el anfitrión vive en el layout raíz, así que ese costo lo
+   * paga todo el portal. La medida va directo a una custom property, que es
+   * justo lo que el CSS necesita.
+   *
+   * ⚠ Y SIN PANEL NO HAY RELLENO: la property se saca al desmontar, así que sin
+   * sesión el `padding-bottom` de `.hub-canvas` vuelve a `0px` por el valor de
+   * respaldo de `var()`. No queda un rastro que ocupe espacio en la app normal.
+   */
+  const hayPanel = Boolean(script && activo?.session && !enResumen);
+  useEffect(() => {
+    const raiz = document.documentElement;
+    if (!hayPanel) {
+      raiz.style.removeProperty('--rv-relleno');
+      return;
+    }
+    const panel = document.querySelector('.rv-panel');
+    if (panel === null) {
+      raiz.style.removeProperty('--rv-relleno');
+      return;
+    }
+    const AIRE = 12;
+    const medir = () => {
+      const banda = window.innerHeight - panel.getBoundingClientRect().top + AIRE;
+      raiz.style.setProperty('--rv-relleno', Math.max(0, Math.ceil(banda)) + 'px');
+    };
+    medir();
+    /* El observer cubre el resize de la ventana además del crecimiento del
+       panel: su `max-height` es `70vh`, así que la ventana lo cambia de alto y
+       eso llega como un cambio de tamaño del elemento. */
+    const ro = new ResizeObserver(medir);
+    ro.observe(panel);
+    return () => {
+      ro.disconnect();
+      raiz.style.removeProperty('--rv-relleno');
+    };
+    /* `claveDelPaso` está en las dependencias porque el panel se REMONTA en
+       cada paso --se lo pide su `key`-- y el elemento observado deja de existir:
+       sin esto el observer quedaría mirando un nodo huérfano y el relleno se
+       congelaría en el alto del paso anterior. */
+  }, [hayPanel, claveDelPaso]);
+
   const onSaveAndExit = useCallback(() => {
     /*
      * No escribe NADA EN LA BASE: cada paso ya se guardó al completarse, así que
