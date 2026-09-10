@@ -336,11 +336,9 @@
 }
 
 /*
- * El selector de estrategia arriba de todo, en `PersonBudgetEditor` -- un
- * botón por estrategia más "Budget composition". Reusa `.ol-modes`/`.ol-mode`
- * de OL4, que ya resuelve la misma pregunta ("¿cuál de estas cosas?") para el
- * modo growth/monthly -- ésta es la misma forma, un nivel más arriba.
+ * ⚠ SE FUE EL SELECTOR DE ESTRATEGIA -- etapa OL26c. `PersonBudgetEditor`
+ * apilaba Own Production, Recruitment y Budget composition detrás de un
+ * selector -- otra capa de pestañas encima de la de by month/by rate que ya
+ * existía. Ahora las tres van apiladas, una sola pantalla sin clics para
+ * cambiar de sección.
  */
-.ol-persontabs {
-  margin-bottom: 18px;
-}

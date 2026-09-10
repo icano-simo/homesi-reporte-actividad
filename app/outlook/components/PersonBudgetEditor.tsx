@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import Modal from '@/app/business-plan/components/Modal';
 import type { OutlookData } from '@/lib/outlook/loadData';
 import type { OutlookStrategy } from '@/lib/outlook/project';
@@ -9,30 +8,29 @@ import BudgetEditor, { type BudgetEditable } from './BudgetEditor';
 
 /**
  * ============================================================================
- * UN SOLO BOTÓN, UN SOLO EDITOR — etapa OL26
+ * UN SOLO BOTÓN, UNA SOLA PANTALLA — etapa OL26, corregido en OL26c
  * ============================================================================
  *
  * Hasta acá cada fila tenía hasta TRES controles que abrían tres cosas
- * distintas: la píldora de Own Production, la de Recruitment (si participaba)
- * y una tercera nueva para el presupuesto compuesto del punto 5. Uno solo
- * hacía lo que ya hacía otro -- las dos primeras son la MISMA decisión, "la
- * regla de esta persona en esta estrategia", con dos estrategias posibles-- y
- * el tercero era un control aparte para algo que en realidad es OTRA PESTAÑA
- * de la misma pregunta: cómo se le fija el presupuesto a esta persona.
+ * distintas -- la píldora de Own Production, la de Recruitment y una tercera
+ * para el presupuesto compuesto. Eso se unificó en un solo botón, "Set
+ * budget" -- pero la primera versión lo abría detrás de PESTAÑAS (un selector
+ * de estrategia arriba, cada una escondiendo a las demás), que es el mismo
+ * problema con un nivel más: dos capas de pestañas, la de adentro (by month /
+ * by rate, ya existía) y la de afuera, nueva.
  *
- * Un solo botón, rotulado "Set budget" siempre -- nunca el texto dinámico de
- * la regla vigente, que es lo que hacía que el mismo control dijera "25% /
- * qtr" en una fila y "by month" en la de al lado. Adentro, un selector de
- * ESTRATEGIA (Own Production, Recruitment si participa) más una pestaña de
- * Budget composition -- el punto 5. Cada pestaña es el contenido que ya
- * existía (`StrategyEditor`, `BudgetEditor`), sin cambios de comportamiento:
- * lo que cambia es que ahora comparten UN diálogo en vez de abrir cada uno el
- * suyo.
+ * ⚠ SIN PESTAÑAS, TODO JUNTO. Cada estrategia que aplica (Own Production,
+ * Recruitment si participa) se apila en su propia sección, seguida por el
+ * presupuesto compuesto -- todo visible en una sola pantalla que se recorre,
+ * no se navega. El contenido de cada sección es el mismo de siempre
+ * (`StrategyEditor`, `BudgetEditor`), sin cambios de comportamiento: lo único
+ * que cambia es que ya no compiten por el mismo espacio escondiéndose entre
+ * sí.
  *
  * ⚠ UN REALTOR NPPM NO TIENE ESTRATEGIAS -- no decide por regla de
  * crecimiento, sólo tiene el presupuesto compuesto. Para ese sujeto
- * `strategies` llega vacío y `strategyEditable` en `null`: no hay selector
- * que mostrar, se abre directo en Budget composition.
+ * `strategies` llega vacío y `strategyEditable` en `null`: la pantalla es
+ * directamente el presupuesto compuesto, sin secciones arriba.
  */
 export default function PersonBudgetEditor({
   label,
@@ -55,34 +53,22 @@ export default function PersonBudgetEditor({
   onClose: () => void;
   onSaved: () => Promise<void> | void;
 }) {
-  type Tab = OutlookStrategy | 'composition';
-  const [tab, setTab] = useState<Tab>(strategies[0] ?? 'composition');
-
   return (
     <Modal title={`${label} — Set budget`} onClose={onClose}>
-      {strategies.length > 0 && (
-        <div className="ol-persontabs">
-          <div className="ol-modes" role="radiogroup" aria-label="What to set">
-            {[...strategies, 'composition' as const].map((t) => (
-              <button
-                key={t}
-                type="button"
-                role="radio"
-                aria-checked={tab === t}
-                className={'ol-mode' + (tab === t ? ' is-on' : '')}
-                onClick={() => setTab(t)}
-              >
-                <span className="ol-mode__name">{t === 'composition' ? 'Budget composition' : t}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+      <div className="ol-editor">
+        {strategyEditable &&
+          strategies.map((s) => (
+            <section key={s} className="ol-editor__block">
+              <h3 className="ol-editor__h">{s}</h3>
+              <StrategyEditor lo={strategyEditable} strategy={s} data={data} months={months} onSaved={onSaved} />
+            </section>
+          ))}
 
-      {tab !== 'composition' && strategyEditable && (
-        <StrategyEditor lo={strategyEditable} strategy={tab} data={data} months={months} onSaved={onSaved} />
-      )}
-      {tab === 'composition' && <BudgetEditor person={budgetPerson} data={data} months={months} onSaved={onSaved} />}
+        <section className="ol-editor__block">
+          {strategies.length > 0 && <h3 className="ol-editor__h">Budget composition</h3>}
+          <BudgetEditor person={budgetPerson} data={data} months={months} onSaved={onSaved} />
+        </section>
+      </div>
     </Modal>
   );
 }

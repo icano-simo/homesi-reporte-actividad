@@ -781,23 +781,39 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
     : null;
 
   /*
-   * ⚠ B2B YA NO TIENE FILA, EN NINGÚN BRANCH -- confirmado con Isabella: "b2b no
-   * se muestra, ya viene en el total". `sRowsTodas` sigue completo -- adentro,
-   * `strategyRowsOf` todavía necesita el peso de B2B para repartir bien el
-   * entero del branch entre TODAS las estrategias -- lo que no pasa es que se
-   * RENDERICE una fila para B2B. Su presupuesto real (dos filas guardadas con
-   * `branch_code`, ver el comentario de `BranchStrategy`) sigue contando en
-   * `branchYear`, y al no tener fila propia cae entero en la reconciliación de
-   * abajo -- el mismo mecanismo que ya usaba AFFINITY para su Own Production.
+   * ══════════════════════════════════════════════════════════════════════════
+   * ⚠ B2B YA NO TIENE FILA, Y NO LE HACE FALTA -- corregido en OL26c
+   * ══════════════════════════════════════════════════════════════════════════
    *
-   * ⚠ Y LA FILA DE RECONCILIACIÓN TIENE QUE DECIRLO -- medido en el 747, que
-   * cerró 20 préstamos de B2B este año: antes de que la fila supiera de esto,
-   * decía "LO out of branch" y sumaba B2B junto con los 5 cierres reales de
-   * gente de otro branch (Nathan Martinez, Cristhian Ramirez, Jose Zamora),
-   * sin nombrarlo -- el número de la fila era más de quince y el detalle sólo
-   * explicaba cinco. `b2bRow` es lo que faltaba nombrar.
+   * EL MODELO ESTABA MAL PLANTEADO. B2B, NPPM, Affinity y Recruitment son
+   * estrategias de ORIGEN -- quién trajo el negocio -- pero el CIERRE siempre
+   * lo procesa un Loan Officer. Verificado: los 20 cierres de B2B del 747 este
+   * año tienen loan_officer -- 15 de Gian Laino y Galo Rizzo, que YA tienen
+   * fila en este branch como Own Production.
+   *
+   * Por eso `loanOfficerRowsOf` deja de sumar sólo Own Production + Recruitment
+   * para lo YA CERRADO: suma las CUATRO estrategias que puede cerrar un Loan
+   * Officer (Own Production, B2B, Recruitment, Affinity) -- todas menos NPPM,
+   * que se abre como detalle del realtor pero no suma a nadie, para no contar
+   * el mismo préstamo dos veces (una vez en la fila del realtor, otra en la
+   * del Loan Officer que lo cerró).
+   *
+   * ⚠ ESO ES LO QUE CIERRA EL 747 SIN RESIDUO DE B2B. Antes B2B no tenía dónde
+   * caer más que la reconciliación, que absorbía sus 20 cierres sin nombrarlos
+   * -- el número de esa fila no coincidía con los 5 cierres reales de gente de
+   * otro branch que el pie sí explica por nombre. Ahora los 15 de Gian y Galo
+   * están en SUS filas, y sólo quedan los 5 genuinos: Nathan Martinez (2, roster
+   * 716) y los no resueltos (Michael Tirio, Frank Rodriguez), que van donde
+   * siempre fueron -- `outsiders` y `unattributed`.
+   *
+   * `sRowsTodas` sigue completo -- adentro, `strategyRowsOf` todavía necesita
+   * el peso de B2B para repartir bien el presupuesto FUTURO entre todas las
+   * estrategias. Lo que no pasa es que se RENDERICE una fila para B2B: su
+   * presupuesto futuro (dos filas guardadas con `branch_code`, sin un Loan
+   * Officer al que atribuírselo) sigue sin tener dónde vivir y cae en la
+   * reconciliación -- pero sólo en los meses de presupuesto, nunca en los ya
+   * cerrados.
    */
-  const b2bRow = sRowsTodas.find((r) => r.strategy === 'B2B');
 
   /**
    * El total de un grupo, mes por mes: la suma de sus FILAS MOSTRADAS y nada
@@ -1534,12 +1550,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                 <td className="lbl">
                   <span className="chev chev--none" aria-hidden="true" />
                   Affinity
-                  <span
-                    className="bp-muted ol-tag"
-                    title="Opened by Account Executive until OL26. Shown here as one total: nobody asked to edit an AE's budget from this screen, and per-owner rows are what OL26 removed to simplify the table."
-                  >
-                    total only
-                  </span>
+                  <span className="bp-muted ol-tag">total only</span>
                 </td>
                 <td className="bp-center ol-bench">
                   <BenchTag value={affinityBench} />
@@ -1577,30 +1588,24 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                       ? `${monthLabel(currentMonth)} already above forecast`
                       : `${monthLabel(currentMonth)} pipeline, no strategy yet`
                     : /*
-                       * ⚠ EL RÓTULO TIENE QUE NOMBRAR B2B, Y NO LO HACÍA -- medido
-                       * en el 747: 20 cierres de B2B este año caen acá desde que
-                       * esa estrategia dejó de tener fila propia (OL26, "b2b no se
-                       * muestra"), y el rótulo seguía diciendo sólo `LO out of
-                       * branch` -- el número de la fila (~25) no coincidía con los
-                       * 5 cierres que el pie explica por nombre.
+                       * ⚠ B2B YA NO CAE ACÁ -- etapa OL26c. Hasta esta corrección,
+                       * este residuo absorbía toda la producción de B2B --el 747
+                       * cerró 20 este año-- porque esa estrategia no tenía fila
+                       * propia ni tampoco caía en la de nadie más. Ahora cada
+                       * cierre suma en la fila del Loan Officer que lo cerró, sea
+                       * cual sea su estrategia (ver `loanOfficerRowsOf`), así que
+                       * lo único que puede quedar acá es lo mismo de siempre:
+                       * cierres de gente que no está en el roster de este branch.
                        */
-                      b2bRow
-                      ? 'B2B + LO out of branch'
-                      : 'LO out of branch'}
+                      'LO out of branch'}
                   <span
                     className="bp-muted ol-tag"
                     title={
                       Math.abs(residual[currentMonth]) <= 0.001
                         ? `The branch total counts by LOAN --whatever closed here-- and the strategies open by ` +
-                          `the people on this branch's roster. What no strategy can claim lands here: closings by ` +
-                          `loan officers who are not on this branch's roster (named at the foot of the page), and` +
-                          (b2bRow
-                            ? ` B2B's real production -- ${fmt(sumOfShown(monthsOfYear.map((mm) => b2bRow.year.byMonth[mm] ?? null)))} ` +
-                              `this year -- which stopped having its own row so its numbers land here instead of ` +
-                              `disappearing.`
-                            : `.`) +
-                          ` They are real and they count in the total. The row carries the difference so the total ` +
-                          `matches the list.`
+                          `the people on this branch's roster. Closings by loan officers who are not on it land ` +
+                          `in this row: they are real and they count in the total, but no strategy can claim ` +
+                          `them. The row carries the difference so the total matches the list.`
                         : currentAboveForecast
                         ? `This branch has already closed more this month than its forecast expected: ` +
                           `${fmt(strategiesByMonth[currentMonth])} closed against a forecast of ` +
@@ -1625,16 +1630,14 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                         : m === currentMonth
                           ? `The branch list shows ${fmt(branchYear.byMonth[m])} for ${monthLabel(m)} and the groups ` +
                             `shown above add up to ${fmt(strategiesByMonth[m])}. This is the difference.`
-                          : `${monthLabel(m)} differs from the branch list by ${fmt(residual[m])}: B2B's production` +
-                            (b2bRow ? ` (${fmt(b2bRow.year.byMonth[m] ?? null)} this month)` : '') +
-                            `, plus any closing by a loan officer who is not on this branch's roster.`
+                          : `${monthLabel(m)} differs from the branch list by ${fmt(residual[m])}: a closing by a ` +
+                            `loan officer who is not on this branch's roster.`
                     }
                   >
                     {Math.abs(residual[m]) <= 0.001 ? '' : fmt(residual[m])}
                   </td>
                 ))}
                 <td className="bp-center totcol">{fmt(sumOfShown(monthsOfYear.map((m) => (Math.abs(residual[m]) <= 0.001 ? null : residual[m]))))}</td>
-                <td className="bp-center"></td>
                 <td className="ol-rulecol"></td>
               </tr>
             )}
@@ -1664,7 +1667,6 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               <td className="bp-center totcol" title="The sum of the rows shown above, column by column.">
                 {fmt(sumOfShown(monthsOfYear.map((m) => totalByMonth[m])))}
               </td>
-              <td className="bp-center"></td>
               <td className="ol-rulecol"></td>
             </tr>
           </tbody>

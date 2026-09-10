@@ -333,9 +333,24 @@ export interface LoanOfficerSection {
  *
  * Reemplaza la vista por estrategia (Own Production y Recruitment, cada una
  * abierta por Loan Officer) por una vista por PERSONA: cada Loan Officer del
- * roster es una sola fila con sus dos estrategias sumadas -- porque las dos
- * se abren por la misma unidad de decisión (la persona) y preguntar "cuánto
- * hace Fulano" no debería obligar a sumar dos filas a mano.
+ * roster es una sola fila con sus estrategias sumadas -- porque preguntar
+ * "cuánto hace Fulano" no debería obligar a sumar filas a mano.
+ *
+ * ⚠ LO YA CERRADO SUMA LAS CUATRO ESTRATEGIAS QUE UN LOAN OFFICER PUEDE
+ * CERRAR -- corregido en OL26c. El modelo original sólo sumaba Own Production
+ * + Recruitment para los meses reales, y eso estaba mal planteado: B2B y
+ * Affinity son de dónde viene el negocio (un Business Developer, un Account
+ * Executive), no de quién lo cierra -- eso siempre es un Loan Officer.
+ * `actualByMonth` de esta fila suma Own Production + B2B + Recruitment +
+ * Affinity, cada una ya escrita por branch en `lo.strategies` (ver
+ * `strategiesOf` en `loadData.ts`). NPPM queda afuera: ya se muestra como
+ * detalle del realtor en su propio grupo, y sumarla acá también la contaría
+ * dos veces.
+ *
+ * El presupuesto FUTURO (los meses que faltan) sigue siendo sólo Own
+ * Production + Recruitment: son las únicas dos con una regla de crecimiento
+ * por persona. B2B no tiene una -- su presupuesto es del branch, sin dueño --
+ * y por eso su parte futura sigue sin poder atribuirse a nadie.
  *
  * ⚠ EL MES EN CURSO NO SE REPARTE ENTRE ESTRATEGIAS Y SE SUMA DESPUÉS -- se
  * reparte DIRECTO entre personas, con el peso que cada una YA TIENE:
@@ -429,9 +444,41 @@ export function loanOfficerRowsOf(
     const ownYtd = lo.strategies.find((s) => s.strategy === 'Own Production');
     const recYtd = lo.strategies.find((s) => s.strategy === 'Recruitment');
 
+    /*
+     * ⚠ EL LOAN OFFICER ES QUIEN CIERRA, SIEMPRE -- corregido en OL26c.
+     *
+     * B2B y Affinity son estrategias de ORIGEN -- quién trajo el negocio,
+     * un Business Developer o un Account Executive -- pero el préstamo lo
+     * CIERRA un Loan Officer, y ese cierre es real sin importar de qué
+     * estrategia venga. Verificado contra la base: los 20 cierres de B2B
+     * del 747 este año tienen loan_officer, 15 de ellos ya en este branch
+     * (Gian Laino, Galo Rizzo) -- gente que YA tenía fila acá por su Own
+     * Production.
+     *
+     * Antes esta fila sólo sumaba Own Production + Recruitment, así que esos
+     * 15 cierres no aparecían en la fila de nadie: caían enteros en la
+     * reconciliación, sin nombre, junto con los cierres genuinos de gente de
+     * otro branch. Sumando las cuatro estrategias que un Loan Officer puede
+     * cerrar, cada una en la fila de quien efectivamente cerró, la
+     * reconciliación vuelve a ser sólo lo que de verdad no tiene dueño acá.
+     *
+     * ⚠ NPPM QUEDA AFUERA A PROPÓSITO. Un préstamo NPPM tiene realtor Y Loan
+     * Officer, y el realtor ya se muestra aparte (grupo "NPPM — existing").
+     * Sumarlo acá también lo contaría dos veces -- una por realtor, otra por
+     * quien lo cerró. Por eso el brief dice "NPPM se abre como detalle pero
+     * no suma al total": el total del branch es la suma de sus Loan Officers,
+     * y NPPM no es una de sus estrategias acá.
+     */
+    const b2bYtd = lo.strategies.find((s) => s.strategy === 'B2B');
+    const affinityYtd = lo.strategies.find((s) => s.strategy === 'Affinity');
+
     const actualByMonth: Record<string, number> = {};
     for (const m of monthsOfYear) {
-      actualByMonth[m] = (ownYtd?.actualByMonth[m] ?? 0) + (recYtd?.actualByMonth[m] ?? 0);
+      actualByMonth[m] =
+        (ownYtd?.actualByMonth[m] ?? 0) +
+        (recYtd?.actualByMonth[m] ?? 0) +
+        (b2bYtd?.actualByMonth[m] ?? 0) +
+        (affinityYtd?.actualByMonth[m] ?? 0);
     }
     const projected: Record<string, number | null> = {};
     for (const m of remainingMonths) {
