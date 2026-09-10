@@ -242,6 +242,8 @@ export default function PersonBudgetEditor({
   const breakdownChanged = person.buckets.some((b) =>
     months.some((m) => bucketOf(b, m) !== (person.budgetBreakdown[b]?.[m] ?? 0))
   );
+  /* Lo que el botón de guardar tenía que mirar y no miraba. Ver su nota. */
+  const nadaQueGuardar = !totalsChanged && !breakdownChanged;
 
   /*
    * ============================================================================
@@ -365,8 +367,41 @@ export default function PersonBudgetEditor({
               onChange={(e) => setNote(e.target.value)}
             />
           </div>
-          <button type="button" className="bp-btn bp-btn--small" onClick={save} disabled={busy}>
-            {busy ? '…' : saveLabel}
+          {/*
+            ═══════════════════════════════════════════════════════════════
+            ⚠ EL BOTÓN NO SABÍA SI HABÍA ALGO QUE GUARDAR — OL26g, punto 3
+            ═══════════════════════════════════════════════════════════════
+
+            El síntoma: Isabella guarda, dice que guardó, y le vuelve a
+            aparecer el botón de guardar.
+
+            No estaba guardando dos veces, y el estado SÍ se refrescaba. Medido
+            en sus propias filas: la revisión 1 se escribió 12:50:59 con UN mes
+            y la 2 a las 12:51:53 con SEIS. Cincuenta y cuatro segundos y
+            contenido distinto -- dos guardados deliberados. Un doble guardado
+            del mismo clic habría dejado dos filas del mismo instante con el
+            mismo contenido.
+
+            Era esto: `disabled={busy}` y nada más. Terminado el guardado,
+            `busy` vuelve a `false`, el botón se habilita otra vez y sigue
+            diciendo «Save budget» -- justo al lado del cartel «Saved: …». Las
+            dos cosas juntas se leen como «guardó pero me lo vuelve a pedir».
+
+            `totalsChanged` y `breakdownChanged` ya sabían la respuesta: después
+            del `reload` los dos quedan en `false`. Faltaba que el botón los
+            mirara.
+
+            ⚠ Y con esto la rama `done.length === 0` de `save()` --«Nothing had
+            changed.»-- queda inalcanzable desde este botón. Se deja igual: es
+            una guarda redundante a propósito.
+          */}
+          <button
+            type="button"
+            className="bp-btn bp-btn--small"
+            onClick={save}
+            disabled={busy || nadaQueGuardar}
+          >
+            {busy ? '…' : nadaQueGuardar ? 'Nothing to save' : saveLabel}
           </button>
         </div>
       }
