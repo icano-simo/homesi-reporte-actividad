@@ -853,6 +853,38 @@ usa no está en la pantalla que se está mirando. Y al medir un cambio de estilo
 medir **la cascada** y no sólo el elemento nuevo: un elemento inyectado con la
 clase ajena dice si le pegaste, sin tener que navegar hasta ahí.
 
+### Y el reverso, que sólo aparece con dos ramas vivas
+
+Lo de arriba dice cuándo un nombre YA está tomado. Esto es lo contrario:
+cuándo un nombre dejó de estar usado — y la respuesta no está en el código.
+
+El caso: resolviendo un merge, dos clases quedaron sin ningún consumidor,
+porque la rama que se traía había borrado el único archivo que las usaba. La
+conclusión parecía obvia --sin usos, se borran, es el caso `.bp-pill`-- y era
+falsa. En `main` ese archivo seguía vivo y las usaba en dos líneas. Borrarlas
+ahí habría deshecho un arreglo de dos etapas antes: el botón «Save» volvía a
+caer en la fila del comentario de al lado, que es exactamente el bug que había
+motivado ese arreglo.
+
+> **Una clase es huérfana en un árbol y no en otro, y la respuesta depende de
+> cuál se está mirando.**
+
+Todo lo demás de esta nota supone UN árbol. Con dos ramas vivas, «no tiene
+consumidores» deja de ser una propiedad del código y pasa a ser una propiedad
+de la rama, y hay tres respuestas en vez de dos: sin usos en las dos --se
+borra--, con usos en las dos --se queda--, y **sin usos en una y con usos en la
+otra**, que es la que engaña.
+
+La regla operativa: **antes de borrar algo por no tener usos, decir en qué
+árbol se contó.** Y si el conteo salió de un árbol de merge --uno que todavía
+no existe en ningún lado--, la baja no va en la rama de hoy: va **en el mismo
+commit que borra al consumidor**, para que las dos cosas lleguen juntas o no
+lleguen.
+
+Vale para clases de CSS y para todo lo que se dé de baja por desuso: una
+función exportada, un token, una columna. `git grep` contesta sobre el árbol
+que está en el disco, y con varias ramas en vuelo ése es uno de varios.
+
 # Lo que compensa una ausencia hace que la ausencia no se note
 
 > Tercera sección aparte, y sale de haberlo visto **siete veces**. Un patrón se
