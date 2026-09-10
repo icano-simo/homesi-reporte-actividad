@@ -8,7 +8,10 @@ import { useFunnelLibrary } from '@/lib/business-plan/useFunnelLibrary';
 import { useEnrollment } from '@/lib/business-plan/useEnrollment';
 import { buildEnrollmentPlan, checkActivation, funnelStats, type Funnel, type FunnelCategory } from '@/lib/business-plan/funnels';
 import { averageOver, monthOf, monthsBefore } from '@/lib/business-plan/impact';
-import { AlertTriangleIcon } from '@/components/ui/icons';
+/* `ChevronDownIcon` del set del módulo, girado por CSS para el estado abierto:
+   no hay chevron-up en `icons.tsx` y un SVG suelto nuevo rompería la coherencia
+   del set --mismo viewBox, mismo stroke-- que ese archivo existe para sostener. */
+import { AlertTriangleIcon, ChevronDownIcon } from '@/components/ui/icons';
 import Breadcrumbs from '../../../components/Breadcrumbs';
 import Modal from '../../../components/Modal';
 import { FunnelGlyph } from '../../../components/funnelIcons';
@@ -37,6 +40,106 @@ import FunnelExplorer from './FunnelExplorer';
  * La copia la arma `buildEnrollmentPlan` (función pura, probada aparte), que
  * también resuelve las fechas límite: activación + SLA acumulados.
  */
+
+/**
+ * ============================================================================
+ * LA DESCRIPCIÓN DE LA TARJETA, RECORTADA A DOS LÍNEAS — etapa BP48
+ * ============================================================================
+ *
+ * ⚠ NO ES UNA MEJORA COSMÉTICA: `Javier Growth Engine` guarda **1984
+ * caracteres** en `description` -- una sesión entera, con títulos y saltos de
+ * línea. Medido contra la base antes de escribir esto, junto con el resto:
+ *
+ *     funnels   máximo 1984   mediana 63   1 de 9 se pasa de dos líneas
+ *     nodos     máximo  891   mediana 56
+ *
+ * O sea que los funnels tienen el mismo problema que los nodos y peor. Esa
+ * sola descripción ocupaba 450px --25 líneas-- y estiraba su fila del grid a
+ * 652px contra los 270px de las demás. El recorte es lo que hace posible el
+ * punto 1; sin él, «todas las tarjetas de la misma altura» significaría
+ * estirar las nueve a la altura de la más larga.
+ *
+ * ⚠ Y EL TOGGLE SÓLO APARECE SI DE VERDAD DESBORDA, preguntándoselo al DOM
+ * --`scrollHeight > clientHeight`-- y no contando caracteres. Un umbral de
+ * caracteres es una regla sobre la forma del texto: no sabe el ancho de la
+ * columna ni el ancho de las letras, así que dibujaría «Show more» en
+ * descripciones que entran enteras y lo omitiría en las que no.
+ *
+ * El patrón es el de `NoteCell` en `app/pipeline/LoanDetailModal.tsx`, que ya
+ * resolvió esto para las notas de un préstamo: mismo `ref` de medición, misma
+ * condición. Las CLASES sí son propias: `.note-text` está afinada para una
+ * celda de tabla --su `font-size` y su `vertical-align`-- y reusarla acá
+ * ataría el catálogo a un cambio del modal de Pipeline.
+ *
+ * ⚠ Y ES UN `<span role="button">`, NO UN `<button>`. La tarjeta entera ya es
+ * un `<button>` --el clic abre el explorador-- y un botón dentro de otro es
+ * HTML inválido: el navegador desanida y el resultado no es clickeable. Es la
+ * misma razón por la que `Select` es un span, tres pantallas más abajo en este
+ * archivo.
+ */
+function DescripcionDeTarjeta({
+  texto,
+  abierta,
+  onToggle,
+}: {
+  texto: string;
+  abierta: boolean;
+  onToggle: () => void;
+}) {
+  const [desborda, setDesborda] = useState(false);
+
+  /* Ref callback y no `useEffect`: corre cuando el nodo ya está medido, y
+     vuelve a correr si React lo reemplaza. Igual que `NoteCell`. */
+  function medir(nodo: HTMLParagraphElement | null) {
+    if (!nodo) return;
+    const pasa = nodo.scrollHeight > nodo.clientHeight + 1;
+    setDesborda((previo) => (previo === pasa ? previo : pasa));
+  }
+
+  if (texto === '') return null;
+
+  const alternar = (e: React.MouseEvent | React.KeyboardEvent) => {
+    /* La tarjeta abre el explorador al clic. Sin esto, mostrar más texto
+       abriría además un modal encima de lo que se quería leer. */
+    e.stopPropagation();
+    onToggle();
+  };
+
+  return (
+    <>
+      <p
+        ref={abierta ? undefined : medir}
+        className={
+          'bp-catalog__desc' +
+          (abierta ? ' bp-catalog__desc--open' : ' bp-catalog__desc--clamped')
+        }
+      >
+        {texto}
+      </p>
+      {(desborda || abierta) && (
+        <span
+          role="button"
+          tabIndex={0}
+          data-bp-desc-toggle=""
+          className="bp-catalog__showmore"
+          onClick={alternar}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              alternar(e);
+            }
+          }}
+        >
+          {abierta ? 'Show less' : 'Show more'}
+          <ChevronDownIcon
+            size={13}
+            className={'bp-catalog__showmore-caret' + (abierta ? ' is-up' : '')}
+          />
+        </span>
+      )}
+    </>
+  );
+}
 
 export default function ChooseFunnelPage({ params }: { params: Promise<{ employeeKey: string }> }) {
   const { employeeKey: rawKey } = use(params);
@@ -88,6 +191,20 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
   const [exploring, setExploring] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [opError, setOpError] = useState<string | null>(null);
+  /*
+   * Qué descripciones están desplegadas. Un `Set` de claves y no un booleano
+   * por tarjeta: el estado vive acá --y no adentro de `DescripcionDeTarjeta`--
+   * porque cambiar de categoría remonta las tarjetas, y con el estado adentro
+   * volver a Core reabriría o cerraría al azar según cómo React reconcilie.
+   */
+  const [descAbiertas, setDescAbiertas] = useState<ReadonlySet<number>>(new Set());
+  const alternarDesc = (key: number) =>
+    setDescAbiertas((previo) => {
+      const siguiente = new Set(previo);
+      if (siguiente.has(key)) siguiente.delete(key);
+      else siguiente.add(key);
+      return siguiente;
+    });
 
   const lo = useMemo(
     () => bpData?.loanOfficers.find((x) => x.employeeKey === employeeKey) ?? null,
@@ -456,7 +573,11 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
                     <span className="bp-pill bp-pill--sky">{s.subMilestoneCount} steps</span>
                     {f.duration_weeks && <span className="bp-pill bp-pill--sky">~{f.duration_weeks} weeks</span>}
                   </div>
-                  <p className="bp-catalog__desc">{f.description ?? ''}</p>
+                  <DescripcionDeTarjeta
+                    texto={f.description ?? ''}
+                    abierta={descAbiertas.has(f.funnel_key)}
+                    onToggle={() => alternarDesc(f.funnel_key)}
+                  />
                   <div className="bp-catalog__chain">
                     {chain.map((n, i) => (
                       <span key={n + i} className="bp-catalog__chip">
@@ -485,8 +606,27 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
                     esta activando", que es lo que deja mostrar "Activating…" en
                     la tarjeta correcta y no en todas.
                   */}
+                  {/*
+                    ⚠ LOS AVATARES ENTRAN AL PIE — etapa BP48.
+                    Estaban DESPUÉS del pie, como último hijo de la tarjeta. Con
+                    eso el `margin-top: auto` del pie no alcanzaba para alinear
+                    los botones: el pie quedaba flotando encima de un bloque de
+                    avatares cuya altura cambia --y que no existe si el funnel no
+                    tiene equipo de soporte--. Adentro del pie, el pie es el
+                    último bloque y su borde inferior es el de la tarjeta.
+                  */}
                   <div className="bp-catalog__foot">
+                    <div className="bp-catalog__footleft">
                     <span className="bp-catalog__explore">Click to explore</span>
+                    {team.length > 0 && (
+                      <div className="bp-catalog__team" title={team.map((p) => p.full_name).join(', ')}>
+                        {team.slice(0, 4).map((p) => (
+                          <Avatar key={p.employee_key} name={p.full_name} />
+                        ))}
+                        {team.length > 4 && <span className="bp-catalog__more">+{team.length - 4}</span>}
+                      </div>
+                    )}
+                    </div>
                     {/*
                       ⚠ EL FUNNEL ACTUAL NO SE OFRECE COMO DESTINO — etapa BP40.
                       Encontrado mirando la captura, no midiendo nada: en modo
@@ -523,14 +663,6 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
                     </span>
                     )}
                   </div>
-                  {team.length > 0 && (
-                    <div className="bp-catalog__team" title={team.map((p) => p.full_name).join(', ')}>
-                      {team.slice(0, 4).map((p) => (
-                        <Avatar key={p.employee_key} name={p.full_name} />
-                      ))}
-                      {team.length > 4 && <span className="bp-catalog__more">+{team.length - 4}</span>}
-                    </div>
-                  )}
                 </button>
               );
             })}

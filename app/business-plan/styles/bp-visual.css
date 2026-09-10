@@ -1874,10 +1874,28 @@ a.bp-btn {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
+  /*
+   * ⚠ TODAS LAS FILAS DEL MISMO ALTO — etapa BP48.
+   *
+   * Sin esto cada fila se ajusta a su propio contenido: medido, las tarjetas
+   * quedaban en 270px, 652px y 294px. `1fr` reparte el alto de la más alta
+   * entre todas las filas, que es lo que el brief pide.
+   *
+   * Y sólo tiene sentido JUNTO al recorte de la descripción: con los 1984
+   * caracteres de `Javier Growth Engine` sin recortar, «todas iguales» habría
+   * significado estirar las nueve a 652px.
+   */
+  grid-auto-rows: 1fr;
 }
 @media (max-width: 900px) {
   .bp-catalog {
     grid-template-columns: minmax(0, 1fr);
+    /*
+     * En una sola columna «la misma línea horizontal» no existe --no hay dos
+     * tarjetas lado a lado-- y forzar el alto de la más alta dejaría un hueco
+     * debajo de cada una. Cada tarjeta vuelve a medir lo suyo.
+     */
+    grid-auto-rows: auto;
   }
 }
 .bp-catalog__card {
@@ -1891,6 +1909,19 @@ a.bp-btn {
   padding: 16px 18px;
   cursor: pointer;
   transition: box-shadow 0.14s ease, border-color 0.14s ease;
+  /*
+   * ⚠ COLUMNA FLEX, Y NO ES UN DETALLE: un `<button>` estirado CENTRA su
+   * contenido verticalmente. Con la fila a 652px, `Network Leverage` aparecía
+   * flotando en el medio con 220px de vacío arriba y otros tantos abajo -- se
+   * ve en la captura de antes, y ninguna medición de altos lo delataba porque
+   * el alto era el correcto.
+   *
+   * En columna el contenido arranca arriba, y el pie se va al fondo con el
+   * `margin-top: auto` de `.bp-catalog__foot`.
+   */
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
 }
 .bp-catalog__card:hover {
   box-shadow: var(--shadow-lg);
@@ -1936,6 +1967,97 @@ a.bp-btn {
   line-height: 1.5;
   color: var(--slate-600);
   margin: 0 0 10px;
+}
+/*
+ * ⚠ EL RECORTE A DOS LÍNEAS — etapa BP48.
+ *
+ * Es un recorte VISUAL: el texto completo sigue en el DOM y el navegador
+ * decide cuánto entra según el ancho real de la tarjeta. Recortar por cantidad
+ * de caracteres daría un largo distinto en cada ancho de pantalla y cortaría a
+ * mitad de palabra.
+ *
+ * Mismo modismo que `.note-text--clamped` en `app/styles/components.css`, que
+ * ya hace esto con las notas de un préstamo. Las clases van separadas a
+ * propósito: aquélla está afinada para una celda de tabla.
+ *
+ * `-webkit-line-clamp` sin prefijo estándar porque los tres motores actuales
+ * lo implementan con el prefijo y sólo con `display: -webkit-box`.
+ */
+.bp-catalog__desc--clamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  /* Sin esto, la última palabra visible se puede cortar al medio si sola no
+     entra en el ancho. */
+  overflow-wrap: anywhere;
+}
+/*
+ * ══════════════════════════════════════════════════════════════════════
+ * ⚠ Y DESPLEGADA TIENE TOPE — etapa BP48, y esto salió de apretar el botón
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * `grid-auto-rows: 1fr` hace que todas las filas midan lo mismo, que es el
+ * punto 1. La consecuencia, medida al ejercer «Show more» por primera vez: la
+ * descripción de 1984 caracteres pasaba de 36px a 450px y **las siete
+ * tarjetas** saltaban de 307px a 689px. Seis con 380px de vacío para que una
+ * muestre su texto.
+ *
+ * El tope acota ese salto y el sobrante se alcanza scrolleando dentro del
+ * párrafo. No es lo mismo que recortar: recortado es que el texto no está
+ * disponible; acotado es que está entero y hay que correrlo.
+ *
+ * ⚠ Y no se resuelve sacando `1fr`: sin él vuelven las tres alturas distintas
+ * del principio. Las dos cosas que el brief pide --misma altura y poder leer
+ * el texto largo-- se cruzan justo acá, y el tope es el punto donde se cruzan.
+ */
+.bp-catalog__desc--open {
+  max-height: 9em;
+  overflow-y: auto;
+  /* Con los saltos de línea del texto original, que colapsados hacen de esas
+     1984 caracteres un solo bloque ilegible. Sólo al desplegar: en dos líneas
+     un salto se comería la mitad del recorte. */
+  white-space: pre-line;
+  /* La barra que aparece no debe pegarse a las letras. */
+  padding-right: 6px;
+}
+/*
+ * El desplegable. `span` y no `button` --la tarjeta entera ya es un botón--
+ * pero con el aspecto y el foco de un control, porque lo es.
+ */
+.bp-catalog__showmore {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  align-self: flex-start;
+  margin: -6px 0 10px;
+  padding: 2px 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--coral);
+  cursor: pointer;
+  /* El subrayado aparece al pasar por encima: en reposo la tarjeta ya tiene
+     bastante tinta y esto es secundario al nombre y a los conteos. */
+  text-decoration: none;
+}
+.bp-catalog__showmore:hover {
+  text-decoration: underline;
+}
+.bp-catalog__showmore:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+.bp-catalog__showmore-caret {
+  transition: transform 0.14s ease;
+}
+.bp-catalog__showmore-caret.is-up {
+  transform: rotate(180deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .bp-catalog__showmore-caret {
+    transition: none;
+  }
 }
 .bp-catalog__chain {
   display: flex;
@@ -2922,11 +3044,37 @@ table.piv th.bp-wrap {
 
 /* Pie de la tarjeta del catálogo: explorar a la izquierda, elegir a la derecha. */
 .bp-catalog__foot {
+  /*
+   * ⚠ AL FONDO DE LA TARJETA — etapa BP48. Medido antes: los pies de una misma
+   * fila caían desfasados 25px, 13px y 191px, porque cada uno quedaba justo
+   * debajo de su contenido. El `auto` se come todo el espacio sobrante, así que
+   * el pie toca el borde inferior sin importar cuánto mida lo de arriba.
+   *
+   * ⚠ Y REEMPLAZA al `margin-top: 10px` que había en esta misma regla, no se
+   * suma. La primera versión dejó los dos y el de abajo ganaba --misma
+   * declaración, la última pisa-- así que el `auto` no hacía nada y los pies
+   * seguían desfasados 50px, 25px y 10px. El separador de 10px ahora lo pone
+   * el bloque de arriba, que es de donde tiene que salir.
+   */
+  margin-top: auto;
+  padding-top: 10px;
   display: flex;
-  align-items: center;
+  /*
+   * `flex-end` y no `center`: la columna izquierda del pie mide una o dos
+   * filas según el funnel tenga equipo de soporte o no. Centrado, el botón
+   * subía o bajaba con ella; apoyado abajo, su borde inferior es siempre el
+   * mismo -- que es la línea horizontal que pide el brief.
+   */
+  align-items: flex-end;
   justify-content: space-between;
   gap: 10px;
-  margin-top: 10px;
+}
+/* La columna izquierda del pie: el rótulo de explorar y, debajo, el equipo. */
+.bp-catalog__footleft {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
 }
 
 /* ── Tablas como tarjetas flotantes ─────────────────────────────────────── */
