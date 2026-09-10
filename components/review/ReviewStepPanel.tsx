@@ -57,15 +57,17 @@ import { usePathname, useRouter } from 'next/navigation';
 import { AlertTriangleIcon, CollapseIcon, ExpandIcon } from '@/components/ui/icons';
 import {
   /*
-   * Dos que se dejaron de importar en RV21, con su razón en `gates.ts`:
+   * `allowsSecondFunnel` se dejó de importar en RV21 y su razón está en
+   * `gates.ts`: su único consumidor era el párrafo del 3.1, que salió de la
+   * vista, pero `allow_second` sigue significando algo y espera a BP39.
    *
-   *   `allowsSecondFunnel`  su único consumidor era el párrafo del 3.1, que
-   *                         salió de la vista. `allow_second` sigue en el dato.
-   *   `gateLink`            el link de MMI pasó a ser el de la persona, así que
-   *                         `mmi_link` no tiene lector. El SQL de esta etapa lo
-   *                         saca del dato.
+   * ⚠ `gateLink` NO volvió: lo reemplaza `showsMmiLink`, que lee la PRESENCIA
+   * de `mmi_link` y no su valor. Ver su nota en `gates.ts` -- RV21 se llevó de
+   * paso la condición que esa clave llevaba adentro, y esto es lo que la
+   * devuelve.
    */
   gateEvidence,
+  showsMmiLink,
   gateStatus,
   requiredClicks,
   promptDeLaRama,
@@ -813,25 +815,26 @@ export default function ReviewStepPanel({
   };
   const estado = gateStatus(paso, draft);
   /*
-   * ⚠ EL LINK ES EL DE LA PERSONA, NO EL DEL PASO — etapa RV21.
+   * ⚠ EL LINK ES EL DE LA PERSONA, Y SÓLO EN EL PASO QUE LO PIDE.
    *
-   * `gateLink(paso)` devuelve `gate_config.mmi_link`, que es el MISMO para
-   * todos: abría MMI, no el perfil de quien se está revisando. Ahora se usa el
-   * que arma el anfitrión con el NMLS efectivo
-   * --`coalesce(lo_profile.nmls_override, dim_employee.nmls)`--, y el genérico
-   * queda sólo como respaldo.
+   * Dos condiciones, y cada una viene de una etapa distinta:
    *
-   * ⚠ Y NO HAY RESPALDO AL GENÉRICO, que fue mi primer intento y estaba mal:
-   * con `linkMmiDelLo ?? gateLink(paso)`, la ÚNICA persona sin NMLS --Lucio
-   * Romero, 1 de 35-- era justamente la que recibía el link genérico. O sea que
+   *   DÓNDE  `showsMmiLink(paso)` -- la presencia de `gate_config.mmi_link`,
+   *          que hoy sólo está en el 1.2. Esta parte se había perdido en RV21
+   *          y por eso el `Open MMI` salía en los ocho pasos: al dejar de leer
+   *          el dato, se fue con él la condición que el dato llevaba adentro.
+   *   A QUIÉN `linkMmiDelLo` -- lo arma el anfitrión con el NMLS efectivo,
+   *          `coalesce(lo_profile.nmls_override, dim_employee.nmls)`, porque el
+   *          valor de `mmi_link` era el MISMO para todos: abría MMI y no el
+   *          perfil de quien se está revisando.
+   *
+   * ⚠ Y NINGUNA DE LAS DOS TIENE RESPALDO, a propósito. Con
+   * `linkMmiDelLo ?? gateLink(paso)` --mi primer intento en RV21-- la ÚNICA
+   * persona sin NMLS era justamente la que recibía el link genérico, o sea que
    * el respaldo se activaba exactamente donde el brief dice que no debe haber
-   * link: «sin NMLS no hay link». Sin respaldo, no lo hay.
-   *
-   * Con eso `gate_config.mmi_link` queda sin ningún lector, y su lectura
-   * --`gateLink`-- también. Ver la nota de `gateLink` en `gates.ts` y el SQL de
-   * esta etapa, que lo saca del dato.
+   * link. Sin NMLS no hay link, y sin la clave en el paso tampoco.
    */
-  const link = linkMmiDelLo;
+  const link = showsMmiLink(paso) ? linkMmiDelLo : null;
   const rotuloSiguiente = siguiente
     ? script.steps.find((s) => sameStep(s, siguiente))?.label ?? null
     : null;
@@ -1466,7 +1469,11 @@ export default function ReviewStepPanel({
       <p className="rv-panel__prompt">{texto.prompt}</p>
       {texto.helper && <p className="rv-panel__helper">{texto.helper}</p>}
 
-      {/* El link del paso 2: se abre y se acuerda el número ahí mismo. */}
+      {/*
+        El link del 1.2 -- el paso que setea el benchmark: se abre y se acuerda
+        el número ahí mismo. En los otros siete `link` es `null`, porque
+        `gate_config` no trae `mmi_link`.
+      */}
       {link && (
         <p className="rv-panel__helper">
           <a href={link} target="_blank" rel="noreferrer">

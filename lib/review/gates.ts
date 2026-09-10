@@ -95,26 +95,52 @@ export function requiredClicks(step: ReviewStep): string[] {
 }
 
 /**
- * El link que el paso ofrece abrir, o `null`. Era `gate_config.mmi_link`.
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ¿ESTE PASO OFRECE EL ENLACE A MMI? — etapa RV22
+ * ═══════════════════════════════════════════════════════════════════════════
  *
- * ⚠ SIN LECTORES DESDE RV21, y por eso está marcada en vez de borrada: el
- * `Open MMI` del paso 1.2 pasó a usar el perfil de MMI de LA PERSONA
- * --`https://new.mmi.run/nmls/<nmls efectivo>`, la regla de BP50-- porque el
- * genérico abría MMI y no a quien se está revisando.
+ * La PRESENCIA de `gate_config.mmi_link` dice que acá va el enlace. **El valor
+ * ya no importa**: la URL se construye con el NMLS de la persona revisada
+ * --`https://new.mmi.run/nmls/<nmls efectivo>`, la regla de BP50-- y no con lo
+ * que diga el dato.
  *
- * Y no quedó como respaldo a propósito: con `linkMmiDelLo ?? gateLink(paso)`,
- * la única persona sin NMLS era justo la que recibía el link genérico, o sea lo
- * contrario de «sin NMLS no hay link».
+ * ---------------------------------------------------------------------------
+ * ⚠ POR QUÉ EXISTE: RV21 PERDIÓ UNA CONDICIÓN QUE VIVÍA EN EL DATO
+ * ---------------------------------------------------------------------------
+ * Antes esto leía la URL de `mmi_link` y devolvía `null` cuando la clave no
+ * estaba. Esa clave existe SÓLO en el paso 1.2, así que ese `null` ERA la
+ * condición: en los otros siete no había enlace porque no había dato.
  *
- * ⚠ ESTA SE VA CON EL DATO: a diferencia de `allowsSecondFunnel`
- * --donde `allow_second` sigue significando algo y espera a BP39--, `mmi_link`
- * ya no puede significar nada útil: un link igual para todos en una pantalla
- * que revisa a una persona. El SQL de RV21 lo saca de `gate_config`, y cuando
- * eso esté aplicado, esta función se borra.
+ * RV21 cambió el enlace por el del Loan Officer y con eso lo volvió
+ * INCONDICIONAL --hay link para cualquiera con NMLS-- así que el «Open MMI»
+ * apareció en los ocho pasos. Isabella lo vio en las tres fases.
+ *
+ * > Al quitar la fuente del dato se perdió la condición que el dato llevaba
+ * > adentro.
+ *
+ * La condición vuelve al dato, que es donde estaba: agregar el enlace a otro
+ * paso sigue siendo UNA FILA y no un cambio de código, el mismo criterio que
+ * `arrows` en RV14.
+ *
+ * ---------------------------------------------------------------------------
+ * ⚠ SE REUSA LA CLAVE EN VEZ DE INVENTAR OTRA
+ * ---------------------------------------------------------------------------
+ * Con una clave nueva --`show_mmi`-- habría que APLICAR un SQL para que el
+ * enlace volviera a aparecer, y hasta entonces el 1.2 se quedaría sin él, con
+ * el conector de la base caído. Reusando `mmi_link`, el dato de HOY ya lleva la
+ * condición correcta --está en el 1.2 y en ningún otro paso-- así que esto
+ * queda bien sin aplicar nada.
+ *
+ * Lo que sí queda pendiente es el VALOR: `"mmi_link": "https://mmi.io"` se lee
+ * como si esa URL se usara, y no se usa. El SQL de esta etapa lo reemplaza por
+ * `true`, que es lo que la clave significa ahora. Y el código NO depende de esa
+ * migración --lee la presencia, no el valor-- así que se comporta igual antes y
+ * después de aplicarla.
  */
-export function gateLink(step: ReviewStep): string | null {
-  const raw = step.gate_config?.mmi_link;
-  return typeof raw === 'string' && raw.trim() !== '' ? raw : null;
+export function showsMmiLink(step: ReviewStep): boolean {
+  const cfg = step.gate_config;
+  if (cfg === null || cfg === undefined) return false;
+  return Object.hasOwn(cfg, 'mmi_link');
 }
 
 /**

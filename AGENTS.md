@@ -1959,3 +1959,86 @@ esa letra chica y dejar que Isabella lo descubriera en pantalla.
   inferir el acceso de una lista de personas autorizadas.** Es lo que faltó
   en BP49b y lo que contestó esta vez -- con la salvedad de arriba, sobre qué
   SÍ y qué NO contesta.
+
+# Al quitar la fuente del dato se va la condición que el dato llevaba adentro
+
+> Sección aparte porque no es una medición mal hecha ni un caso nuevo que
+> aparece: acá **el cambio fue correcto en lo que se propuso** y se llevó de
+> paso algo que nadie había escrito como requisito, porque no estaba escrito en
+> ningún lado -- estaba en la forma del dato.
+
+## La regla
+
+**Antes de dejar de leer un dato, preguntar qué decía su AUSENCIA.** Una clave
+opcional dice dos cosas: su valor dice *qué*, y su presencia dice *dónde*. Al
+reemplazar el valor por algo mejor, la segunda se va sin aviso.
+
+## El caso que la fija (RV21 → RV22)
+
+El paso 1.2 ofrecía «Open MMI» con `gate_config.mmi_link`, un link genérico
+igual para todos. RV21 lo cambió por el perfil de MMI de la persona revisada
+--`https://new.mmi.run/nmls/<nmls efectivo>`-- que es estrictamente mejor: abre
+a quien se está revisando en vez de abrir MMI. El código quedó
+`const link = linkMmiDelLo;` y `gateLink` sin lectores.
+
+Y con eso el enlace pasó a aparecer **en los ocho pasos**. Isabella lo vio en
+las tres fases. La clave `mmi_link` existe en UNA sola fila --la del 1.2-- así
+que su ausencia en los otros siete ERA la condición «acá no va». Nadie la había
+escrito como condición porque no hacía falta: leer el dato ya la aplicaba.
+
+> **El valor decía a dónde ir; la presencia decía dónde ofrecerlo. Se reemplazó
+> el primero y se perdió la segunda.**
+
+## Qué hacer
+
+- Al reemplazar la fuente de un valor opcional, **listar las filas donde la
+  clave está y donde no**, y preguntar si esa diferencia significaba algo. Un
+  `select` de una línea lo contesta.
+- Si significaba algo, **reusar la clave como marca en vez de inventar otra**:
+  `Object.hasOwn(cfg, 'mmi_link')`. Con una clave nueva --`show_mmi`-- el
+  arreglo depende de aplicar un SQL, y hasta entonces la pantalla que sí lo
+  necesitaba se queda sin nada. Reusando la que está, **el dato de hoy ya lleva
+  la condición correcta** y el código se comporta igual antes y después de la
+  migración.
+- Y dejar dicho en el SQL que el valor pasó a dar igual, porque una URL guardada
+  que no se usa se lee como una URL que se usa.
+
+## Y la verificación que faltó las dos veces
+
+RV20 y RV21 midieron **el paso donde el enlace tiene que estar**. Un enlace
+incondicional pasa esa prueba igual de bien que uno condicionado.
+
+> **Una condición se verifica en los casos donde tiene que decir NO.**
+
+La sonda de RV22 recorre los ocho pasos, y la lista de los que deben ofrecerlo
+**sale de la base** y no de una lista escrita a mano: si mañana alguien agrega
+la clave a otro paso, la sonda espera el enlace ahí.
+
+# El mismo componente en tres formas: esperar el elemento que las tres dibujan
+
+> Octava vez de la familia «medí antes de que el dato estuviera», y la primera
+> con este mecanismo: no era que la pantalla no hubiera cargado, es que **había
+> cargado en otra de sus formas**.
+
+`ReviewStepPanel` tiene tres: `.rv-panel--buscando` --mientras busca la sección
+del paso, hasta 12s--, `.rv-panel--lejos`, y el panel completo. Las tres dibujan
+`.rv-panel__prompt`. La sonda esperaba el prompt, así que midió el panel
+reducido: **el 1.2 dio rojo estando bien, y los otros siete dieron verde por la
+razón equivocada**. Los ocho resultados eran del panel que no puede tener el
+enlace.
+
+> **Esperar «el componente apareció» no es esperar «el componente está en el
+> estado que se va a medir».**
+
+Y la corrección tuvo su propia trampa, que es la que vale anotar: el primer
+criterio nuevo fue `.rv-panel__zonas` --las tres zonas del panel completo-- y
+funcionó en siete pasos. El 3.1 abre completo por **otra rama**, la de la
+decisión de funnel, que no dibuja las zonas: quedó declarado indeterminado
+estando bien.
+
+> **Un criterio que vale para siete de ocho pasos no es el criterio.**
+
+El que vale es la ausencia de las dos clases de estado reducido, que es la
+distinción que el componente hace de verdad. Y el paso que no llega a abrirse se
+declara **INDETERMINADO**, no «sin enlace»: si no, la falta de carga vuelve a
+firmar como ausencia del dato.
