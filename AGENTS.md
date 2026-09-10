@@ -285,6 +285,41 @@ Los tres síntomas no se parecen entre sí, y por eso conviene tenerlos juntos:
 | `406` / `PGRST106` | el esquema no está en `pgrst.db_schemas` |
 | cero filas con `error: null` | nada: es una policy de RLS que no aplica |
 
+### Y el corolario operativo: el editor SQL es la única vía y no deja rastro
+
+De ese cierre sale algo que hay que tener escrito, porque **ya costó una
+pregunta**. Un día las tres tablas transaccionales de `review` --`session`,
+`assignment`, `response`-- aparecieron en **cero**, con una sesión completa de
+Isabella entre lo que faltaba. Reconstruirlo llevó cinco consultas:
+
+| lo que se preguntó | lo que contestó |
+|---|---|
+| ¿un `cascade` o un trigger? | los siete FK son planos y `review` no tiene ni un trigger |
+| ¿pasó por la API? | `edge_logs`: 4.543 filas en la ventana, **cero** con método `DELETE` |
+| ¿quién lo corrió? | `postgres_logs`: 38 filas en 90 minutos, sólo errores — **no hay log de sentencias** |
+| ¿se perdió algo más? | sólo esas tres: `step` 8, `growth_rule` 190, enrollments 5, empleados 127 |
+
+Era un borrado deliberado del usuario desde el **editor SQL**, después de que
+Isabella cerrara la revisión de prueba. Y ésa es justamente la conclusión que
+conviene dejar por escrito:
+
+> **El editor SQL es la única vía que puede borrar de `review` --no hay policy
+> de DELETE y `service_role` no tiene `usage`-- y es la única que no deja
+> rastro.**
+
+Las dos mitades importan. La primera es una buena noticia: un borrado ahí
+**no puede** venir de la app ni de un script con la clave de servicio, así que
+la lista de sospechosos es corta. La segunda es la que hay que recordar: no se
+enciende el log de sentencias --decisión del usuario, 2026-09-10-- así que
+**preguntar es más rápido que investigar**, y es el mismo movimiento que la
+regla de «cuando un reporte no coincide con lo que uno hizo, pedir que se
+confirme antes de actuar».
+
+Y una regla operativa para el que borra: **dejar el rastro en el repo si no lo
+deja la base.** Un `returning` en el `delete` y el número en el mensaje de
+commit o en el reporte cuesta un segundo; reconstruirlo después costó cinco
+consultas y una pregunta.
+
 ## El doceavo: una medición correcta sobre un momento equivocado
 
 Los anteriores son mediciones **mal escritas** —el elemento equivocado, la
@@ -367,6 +402,43 @@ Las dos reglas operativas:
   «el aviso no cambió» no distingue «la confirmación no gobierna» de «este
   aviso nunca cambia». Es la misma sospecha que la sección del respaldo que
   nunca se ejerció, aplicada a una aserción.
+
+### La tercera de la familia: un rectángulo que se cruza no es un botón tapado
+
+Misma forma, otro número. En RV17 reporté que el panel de la revisión tapaba el
+botón de guardar del modal de `Set budget`, y lo medí como **cruce de los
+rectángulos** del panel y del botón: 1680px².
+
+Estaba arreglado desde antes. La corrección urgente de OL26g había subido
+`.bp-modal-backdrop` a `z-index: 130` para que el modal quede arriba de la
+máscara mientras está abierto, y ese arreglo **no mueve nada de lugar**: cambia
+el apilado. Así que el cruce de rectángulos es **1680px² antes y 1680px²
+después**.
+
+> **Un rectángulo que se cruza no es un botón tapado.**
+
+Es la tercera de la familia, y la que la nombra mejor: un número que no cambia
+entre el defecto y el arreglo **no puede distinguirlos**, y leerlo como
+confirmación del defecto es afirmar lo contrario de la verdad.
+
+Lo que contesta la pregunta es **quién pinta en ese punto**:
+
+```js
+const b = btn.getBoundingClientRect();
+const en = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+en === btn || btn.contains(en)   // true = está arriba y se puede clickear
+```
+
+Cuarta vez que «está en el DOM y no se puede usar» se resuelve preguntando quién
+pinta ahí --antes en OL23 y en el panel del catálogo--. Y algo que explica por
+qué se redescubre: **`elementFromPoint` no aparece ni una vez en el repo**; las
+tres veces anteriores vivió en una sonda de scratchpad, que se muere con la
+sesión. Por eso está acá.
+
+Y el corolario que vale para cualquier defecto de apilado: **la geometría no
+distingue el z-index.** Si la pregunta es «¿se ve?» o «¿se puede clickear?», la
+medición es el punto, no el rectángulo — y la captura, que fue la que mostró el
+botón entero con el panel atenuado detrás.
 
 ## Y en la misma sonda: una comparación entre dos ausencias da verde
 
@@ -486,12 +558,16 @@ el doble.
 
 Y es la parte que no es sobre medir. En una sola serie de trabajo estuvo a
 punto de salir dos veces, **desde los dos lados**, y los dos casos son
-distintos:
+distintos — y una tercera vez SALIÓ, la de RV17: reporté como pendiente un
+defecto que OL26g ya había arreglado, midiendo sobre una base anterior a su
+merge. La regla que sale de ésa está arriba, en las operativas: antes de
+reportar algo de otra rama, traer `main`.
 
 | | de dónde salió | qué decía |
 |---|---|---|
 | el del rebase | **desde el código** — una medición sobre el objeto equivocado | «el rebase no sirvió» |
 | el de B | **desde afuera** — un reporte que le llegó y no era suyo | que había borrado un plan que no borró |
+| el del modal | **desde una base vieja** — la medición era correcta sobre un árbol que no tenía el arreglo | «el panel tapa el botón de guardar» |
 
 Los dos **viajan igual**, y ahí está el problema: del otro lado no se
 distinguen de un reporte real. Quien lo recibe no tiene el objeto que se midió
@@ -541,6 +617,19 @@ prueba de que eso no era la rama rebasada.
 - **Y pedirle a la operación que diga cuánto tocó**: `returning`, `Prefer:
   return=representation`, `Test-Path` después del `rmdir`. Un cero explícito se
   ve; un éxito silencioso no.
+- **Y la verificación va en OTRA sentencia.** Pedí los conteos junto al `delete`
+  en una sentencia con CTE --`with r as (delete … returning …) select (select
+  count(*) from review.session) …`-- y me dio `1` sobre una tabla que quedaba en
+  `0`: los `select` de la misma sentencia ven el snapshot **anterior**, porque
+  los efectos de un CTE que modifica no son visibles al resto de su propia
+  sentencia. Es la misma familia que el `UPDATE` sin `returning`: la operación
+  salió bien y el número que la acompaña habla de otro momento.
+- **Antes de reportar algo de otra rama, traer `main`.** Reporté como pendiente
+  un defecto que OL26g ya había arreglado, porque la medición corrió sobre una
+  base anterior a ese merge. Lo que se mide sobre una base vieja se reporta como
+  abierto aunque esté resuelto — y es la mitad de la sección de abajo que
+  faltaba escrita: no alcanza con no acusar, hay que medir sobre lo que la otra
+  persona ya entregó.
 
 ## Un párrafo roto en columnas dice lo mismo que uno bien armado
 
