@@ -8,9 +8,7 @@ import { useReview } from '@/components/review/ReviewProvider';
 import {
   composeYear,
   currentMonthByBranch,
-  projectLoanOfficer,
   projectBranch,
-  type OutlookLoanOfficer,
   type BranchRecruit,
   type YearRow,
 } from '@/lib/outlook/loadData';
@@ -21,20 +19,16 @@ import {
   type RecruitStage,
 } from '@/lib/outlook/recruitment';
 import {
-  cadenceLabel,
-  /* La lista, para validar el `?rvOpen=` de la URL: ver el estado `editing`. */
-  OUTLOOK_STRATEGIES,
-  type GrowthSegment,
   type OutlookStrategy,
-  type ProjectionMode,
 } from '@/lib/outlook/project';
 import { remainingMonthsFor } from '@/lib/outlook/horizon';
 import { fmt, sumOfShown } from '@/lib/outlook/format';
 import { useOutlookDataContext } from '@/lib/outlook/useOutlookData';
-import StrategyEditor, { type OutlookEditable } from '@/app/outlook/components/StrategyEditor';
+import { type OutlookEditable } from '@/app/outlook/components/StrategyEditor';
 import NppmEditor from '@/app/outlook/components/NppmEditor';
 import RecruitEditor, { branchOptions } from '@/app/outlook/components/RecruitEditor';
-import BudgetEditor, { type BudgetEditable } from '@/app/outlook/components/BudgetEditor';
+import { type BudgetEditable } from '@/app/outlook/components/BudgetEditor';
+import PersonBudgetEditor from '@/app/outlook/components/PersonBudgetEditor';
 import OutlookTopBar from '@/app/outlook/components/OutlookTopBar';
 import type { PersonSubject } from '@/lib/outlook/save';
 /*
@@ -113,35 +107,6 @@ const monthLabel = (ym: string) => MONTH_ABBR[Number(ym.split('-')[1]) - 1];
 
 function bandOf(month: string, currentMonth: string): 'actual' | 'forecast' | 'budget' {
   return month < currentMonth ? 'actual' : month === currentMonth ? 'forecast' : 'budget';
-}
-
-/**
- * Cómo se está fijando esta estrategia PARA ESTA PERSONA, en una línea.
- *
- * ⚠ Dice el MODO primero, porque es lo que decide si el resto de la línea
- * significa algo — etapa OL4. Una regla de crecimiento en una estrategia fijada
- * mes a mes está guardada y no se aplica, y mostrarla sin decirlo haría pensar
- * que los meses salieron de ella.
- *
- * En modo `growth` la línea lleva CUÁNDO cae el primer aumento: sin eso, "25%
- * trimestral desde septiembre" con Sep/Oct/Nov todos iguales al benchmark se lee
- * como un error de la tabla. El benchmark ES el objetivo de septiembre y el
- * primer aumento cae al cumplirse el trimestre -- en diciembre.
- */
-function ruleLabel(lo: OutlookLoanOfficer, strategy: OutlookStrategy, months: string[]): string {
-  if ((lo.modeByStrategy[strategy] ?? 'growth') === 'monthly') {
-    const rev = lo.targetRevision[strategy] ?? 0;
-    return rev === 0 ? 'month by month · no numbers set' : 'month by month · numbers set by hand';
-  }
-  const segments = lo.rulesByStrategy[strategy] ?? [];
-  if (segments.length === 0) return 'no rule';
-  const steps = projectLoanOfficer(lo, months).stepsByStrategy[strategy] ?? [];
-  const firstRaise = steps.find((s) => s.periods >= 1);
-  const s = segments[0];
-  const base = `${s.growthPct}% ${cadenceLabel(s.cadence)} from ${monthLabel(s.fromMonth)}`;
-  const extra = segments.length > 1 ? ` (+${segments.length - 1} segment${segments.length > 2 ? 's' : ''})` : '';
-  const raise = firstRaise ? ` · 1st raise in ${monthLabel(firstRaise.month)}` : ' · no raise this year';
-  return base + extra + raise;
 }
 
 /**
@@ -246,39 +211,6 @@ function monthsApart(desde: string, hasta: string): number {
  * ⚠ `esDelBranch` Y `branchHasBudget` SE FUERON A `lib/outlook/strategyRows.ts`
  * — etapa OL22. Se importan de ahí. Ver la nota de la migración más abajo.
  */
-
-/**
- * ⚠ LA PÍLDORA: la regla en cuatro caracteres, no en una frase — etapa OL11.
- *
- * La columna decía `25% quarterly from Sep · 1st raise in Dec` en cada fila, y
- * con diez filas era una pared de texto que había que leer entera para ver que
- * todas decían lo mismo. Lo que se compara de un vistazo es CUÁNTO y CADA CUÁNTO;
- * el resto --desde qué mes, cuándo cae el primer aumento, los meses proyectados--
- * vive en el tooltip, que es donde se busca cuando hace falta.
- */
-function pillOf(plan: {
-  mode: ProjectionMode;
-  rules: GrowthSegment[];
-  hasBenchmark: boolean;
-  targetRevision: number;
-}): string {
-  if (plan.mode === 'monthly') return plan.targetRevision === 0 ? 'set months' : 'by month';
-  if (plan.rules.length === 0) return plan.hasBenchmark ? 'no rule' : 'set budget';
-  const seg = plan.rules[0];
-  const cada = seg.cadence === 'monthly' ? 'mo' : seg.cadence === 'quarterly' ? 'qtr' : 'sem';
-  const extra = plan.rules.length > 1 ? ` +${plan.rules.length - 1}` : '';
-  return `${seg.growthPct}% / ${cada}${extra}`;
-}
-
-/** La píldora de una PERSONA en una estrategia. Mismo formato, otro sujeto. */
-function pillOfLo(lo: OutlookLoanOfficer, s: OutlookStrategy): string {
-  return pillOf({
-    mode: lo.modeByStrategy[s] ?? 'growth',
-    rules: lo.rulesByStrategy[s] ?? [],
-    hasBenchmark: (lo.benchmarkSchedules[s] ?? []).length > 0 || (lo.strategyBenchmarks[s] ?? 0) > 0,
-    targetRevision: lo.targetRevision[s] ?? 0,
-  });
-}
 
 /**
  * Qué dice el estado del roster, y por qué son cuatro rótulos y no dos.
@@ -446,10 +378,12 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    */
   /*
    * ══════════════════════════════════════════════════════════════════
-   * ⚠ EL EDITOR PUEDE VENIR PEDIDO POR LA URL — etapa RV4
+   * ⚠ EL EDITOR PUEDE VENIR PEDIDO POR LA URL — etapa RV4, re-cableada en
+   * OL26b cuando "Set budget" pasó a ser UNA pantalla por persona (antes
+   * era por estrategia -- ver el historial de este archivo antes de OL26b)
    * ══════════════════════════════════════════════════════════════════
    *
-   *   ?rvOpen=Own%20Production&rvLo=24
+   *   ?rvOpen=budget&rvLo=24
    *
    * El modo revisión lleva a esta pantalla y necesita que el editor del
    * presupuesto esté abierto: Isabella llegó al lugar correcto y el paso no
@@ -460,57 +394,44 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * dirección que la nota de `focus.ts` -- Outlook no tiene por qué saber que
    * existe un modo que lo enfoca, sólo contesta lo que le preguntan.
    *
-   * ⚠ Y SE VALIDA. `rvOpen` es texto de una URL: una estrategia que no está en
-   * `OUTLOOK_STRATEGIES` se ignora, y no se abre nada. Confiar en el parámetro
-   * daría un editor sobre una estrategia inexistente.
+   * ⚠ `rvOpen` YA NO ES UNA ESTRATEGIA. Antes validaba contra
+   * `OUTLOOK_STRATEGIES` porque el editor era por estrategia (`StrategyEditor`,
+   * uno por Own Production/B2B/NPPM/Recruitment/Affinity); ahora hay un único
+   * editor por persona (`PersonBudgetEditor`, ver más abajo), así que lo único
+   * que la URL necesita decir es "abrí el editor de presupuesto de esta
+   * persona" -- de ahí el string fijo `'budget'` en vez de un nombre de
+   * estrategia. `gate_config.open_editor` tiene que decir `'budget'` para esto
+   * (antes decía `'Own Production'`) -- ver
+   * `docs/sql/2026-09-review-open-editor-budget.sql`.
    *
    * `useState` con inicializador y no un efecto: el valor está disponible en el
    * primer render, así que copiarlo con un efecto sería un render de más -- y es
    * el error que ya costó dos veces en esta serie (el benchmark, los clics).
    */
   const searchParams = useSearchParams();
-  const [editing, setEditing] = useState<
-    { kind: 'employee'; employeeKey: number; strategy: OutlookStrategy } | { kind: 'branch'; strategy: OutlookStrategy } | null
-  >(null);
   /*
    * ⚠ Y QUÉ CERRÓ LA PERSONA. Sin esto, cerrar el editor que la URL pide lo
    * volvería a abrir en el render siguiente: el parámetro sigue ahí. Se guarda
-   * la CLAVE de lo descartado y no un booleano, así que si el paso siguiente
-   * pide otro editor, ese sí se abre.
+   * la CLAVE de lo descartado (acá, el `employeeKey` -- ya no hace falta
+   * componerla con la estrategia, porque el editor es uno solo por persona) y
+   * no un booleano, así que si el paso siguiente pide otro editor, ese sí se
+   * abre.
    */
-  const [rvDescartado, setRvDescartado] = useState<string | null>(null);
+  const [rvDescartado, setRvDescartado] = useState<number | null>(null);
 
   /*
    * Lo que la URL pide, validado. `null` si no pide nada o pide algo que no
-   * existe: `rvOpen` es texto de una barra de direcciones.
+   * existe: `rvOpen`/`rvLo` son texto de una barra de direcciones. Ya en la
+   * forma de `PersonSubject`, para poder compararse y combinarse directo con
+   * `editingBudget` más abajo.
    */
-  const rvPedido = (() => {
-    const pedida = searchParams.get('rvOpen');
+  const rvPedido: { kind: 'employee'; employeeKey: number } | null = (() => {
+    const abre = searchParams.get('rvOpen');
     const dePersona = Number(searchParams.get('rvLo'));
-    if (
-      pedida === null ||
-      !(OUTLOOK_STRATEGIES as readonly string[]).includes(pedida) ||
-      !Number.isInteger(dePersona) ||
-      dePersona <= 0
-    ) {
-      return null;
-    }
-    return { kind: 'employee' as const, employeeKey: dePersona, strategy: pedida as OutlookStrategy };
+    if (abre !== 'budget' || !Number.isInteger(dePersona) || dePersona <= 0) return null;
+    return { kind: 'employee', employeeKey: dePersona };
   })();
-  const rvClave = rvPedido === null ? null : rvPedido.strategy + ':' + rvPedido.employeeKey;
 
-  /*
-   * ⚠ SE DERIVA, NO SE COPIA AL MONTAR.
-   *
-   * Medido: con `useState(() => leerLaUrl())` el editor NO abría. El parámetro
-   * lo pone `router.replace` DESPUÉS de que esta página montó --replace cambia la
-   * URL, no remonta-- así que el inicializador ya había corrido con la URL vieja.
-   *
-   * Mismo mecanismo que el campo del benchmark en RV3, y misma respuesta. Y el
-   * estado local le GANA a la URL: lo que la persona abre a mano manda.
-   */
-  const editingActivo =
-    editing ?? (rvPedido !== null && rvClave !== rvDescartado ? rvPedido : null);
   /*
    * ⚠ CON LA LÓGICA DE ARRIBA --de la rama de revisión-- Y LA FORMA NUEVA
    * DE `editingNppm`, que vino con el `realtor_code`. Los dos cambios son de
@@ -555,6 +476,15 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * no la fila, y se resuelve fresco de `branch` en cada render.
    */
   const [editingBudget, setEditingBudget] = useState<PersonSubject | null>(null);
+  /*
+   * ⚠ SE DERIVA, NO SE COPIA AL MONTAR -- mismo mecanismo que tenía
+   * `editingActivo` en la versión por estrategia (ver la nota de `rvPedido`
+   * más arriba), re-cableado sobre `editingBudget`/`PersonSubject` en vez de
+   * `editing`/estrategia. Y el estado local le GANA a la URL: lo que la
+   * persona abre a mano manda.
+   */
+  const editingBudgetActivo: PersonSubject | null =
+    editingBudget ?? (rvPedido !== null && rvPedido.employeeKey !== rvDescartado ? rvPedido : null);
 
   if (error) return <div className="hub-container"><div className="bp-empty">Could not load Outlook: {error}</div></div>;
   if (!data) return <div className="hub-container"><div className="bp-empty">Loading…</div></div>;
@@ -859,7 +789,15 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * `branch_code`, ver el comentario de `BranchStrategy`) sigue contando en
    * `branchYear`, y al no tener fila propia cae entero en la reconciliación de
    * abajo -- el mismo mecanismo que ya usaba AFFINITY para su Own Production.
+   *
+   * ⚠ Y LA FILA DE RECONCILIACIÓN TIENE QUE DECIRLO -- medido en el 747, que
+   * cerró 20 préstamos de B2B este año: antes de que la fila supiera de esto,
+   * decía "LO out of branch" y sumaba B2B junto con los 5 cierres reales de
+   * gente de otro branch (Nathan Martinez, Cristhian Ramirez, Jose Zamora),
+   * sin nombrarlo -- el número de la fila era más de quince y el detalle sólo
+   * explicaba cinco. `b2bRow` es lo que faltaba nombrar.
    */
+  const b2bRow = sRowsTodas.find((r) => r.strategy === 'B2B');
 
   /**
    * El total de un grupo, mes por mes: la suma de sus FILAS MOSTRADAS y nada
@@ -1145,7 +1083,6 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
             */}
             <tr className="yr-row">
               <th className="lbl"></th>
-              <th className="ol-position"></th>
               <th className="bp-center ol-bench"></th>
               <th className="bp-center ol-band ol-band--actual" colSpan={actualMonths.length}>
                 Actual — closed
@@ -1167,7 +1104,6 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
             </tr>
             <tr className="mo-row">
               <th className="lbl">Name</th>
-              <th className="ol-position">Position</th>
               <th className="bp-center ol-bench">Benchmark</th>
               {monthsOfYear.map((m) => (
                 <th key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
@@ -1187,33 +1123,29 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               Own Production + Recruitment combinados por persona. Ver
               `loanOfficerRowsOf` y el JSDoc de cabecera del archivo.
             */}
-            {(() => {
-              const key = 'g:lo-existing';
-              const abierta = open.has(key);
-              const plegable = personRows.length > 0;
-              /*
-               * ⚠ `employeeKey` AL TOPE, PARA EL FOCO — re-cableado al
-               * rebasar sobre main. `focusIndexed`/`avisoDelFoco` (RV7) piden
-               * `{ employeeKey }` en el objeto mismo, y `PersonBudgetRow` sólo
-               * la tiene anidada en `.lo`. Se completa acá, una vez, para las
-               * dos llamadas de abajo -- no en `focus.ts` (rama ajena) ni en
-               * `PersonBudgetRow` (usado por media pantalla).
-               */
-              const focoRows = personRows.map((pr) => ({ ...pr, employeeKey: pr.lo.employeeKey }));
-              return (
+            {personRows.length > 0 &&
+              (() => {
+                const key = 'g:lo-existing';
+                const abierta = open.has(key);
+                /*
+                 * ⚠ `employeeKey` AL TOPE, PARA EL FOCO — re-cableado al
+                 * rebasar sobre main. `focusIndexed`/`avisoDelFoco` (RV7)
+                 * piden `{ employeeKey }` en el objeto mismo, y
+                 * `PersonBudgetRow` sólo la tiene anidada en `.lo`. Se
+                 * completa acá, una vez, para las dos llamadas de abajo -- no
+                 * en `focus.ts` (rama ajena) ni en `PersonBudgetRow` (usado
+                 * por media pantalla).
+                 */
+                const focoRows = personRows.map((pr) => ({ ...pr, employeeKey: pr.lo.employeeKey }));
+                return (
                 <Fragment key={key}>
-                  <tr className={'grp d1' + (plegable ? ' togg' : '')} onClick={plegable ? () => toggle(key) : undefined}>
+                  <tr className="grp d1 togg" onClick={() => toggle(key)}>
                     <td className="lbl">
-                      {plegable ? (
-                        <span className={'chev' + (abierta ? ' open' : '')} aria-hidden="true">
-                          ›
-                        </span>
-                      ) : (
-                        <span className="chev chev--none" aria-hidden="true" />
-                      )}
+                      <span className={'chev' + (abierta ? ' open' : '')} aria-hidden="true">
+                        ›
+                      </span>
                       Loan Officers — existing
                     </td>
-                    <td className="ol-position"></td>
                     <td className="bp-center ol-bench"></td>
                     {monthsOfYear.map((m) => (
                       <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
@@ -1224,9 +1156,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                       {fmt(sumOfShown(monthsOfYear.map((m) => sumYears(loExistingYears, m))))}
                     </td>
                     <td className="ol-rulecol bp-muted">
-                      {branch.loanOfficers.length === 0
-                        ? 'nobody yet'
-                        : `${branch.loanOfficers.length} loan officer${branch.loanOfficers.length === 1 ? '' : 's'}`}
+                      {branch.loanOfficers.length} loan officer{branch.loanOfficers.length === 1 ? '' : 's'}
                     </td>
                   </tr>
 
@@ -1247,63 +1177,21 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                         <tr key={'lo-' + pr.lo.employeeKey} className="metric mrow">
                           <td className="lbl">
                             {pr.lo.fullName}
+                            {pr.lo.position && <span className="bp-muted ol-tag">{pr.lo.position}</span>}
                             {STATE_TAG[pr.lo.rosterState] && (
-                              <span className="bp-muted ol-tag" title={STATE_TAG[pr.lo.rosterState].title}>
-                                {STATE_TAG[pr.lo.rosterState].text}
-                              </span>
+                              <span className="bp-muted ol-tag">{STATE_TAG[pr.lo.rosterState].text}</span>
                             )}
-                            {!pr.lo.hasIdentity && (
-                              <span
-                                className="bp-muted ol-tag"
-                                title={
-                                  'The roster says they produce, but there is no person_code alias tying them to an ' +
-                                  'internal identity, and benchmark and plan both hang off it. Shown with name and ' +
-                                  'branch so the branch total keeps adding up. Someone has to create the alias.'
-                                }
-                              >
-                                no internal identity
-                              </span>
-                            )}
-                            {pr.lo.isBranchManager && (
-                              <span className="bp-muted ol-tag" title="Manages the branch as well as producing.">
-                                BM
-                              </span>
-                            )}
+                            {!pr.lo.hasIdentity && <span className="bp-muted ol-tag">no internal identity</span>}
                           </td>
-                          {/*
-                            ⚠ EL CARGO, EN SU PROPIA COLUMNA — punto 2 del brief.
-                            `org.roster_current.position`, `null` cuando la
-                            persona no tiene fila de roster propia.
-                          */}
-                          <td className="ol-position">{pr.lo.position ?? '—'}</td>
                           <td className="bp-center ol-bench">
                             <BenchTag
                               value={isMonthly ? null : ownBenchmark}
-                              onEdit={() =>
-                                setEditing({ kind: 'employee', employeeKey: pr.lo.employeeKey, strategy: 'Own Production' })
-                              }
+                              onEdit={() => setEditingBudget({ kind: 'employee', employeeKey: pr.lo.employeeKey })}
                               editLabel={`Edit ${pr.lo.fullName}'s benchmark and rule in Own Production`}
-                              editTitle={
-                                isMonthly
-                                  ? 'Set month by month: the benchmark does not take part. It stays saved in case this goes back to growth rate.'
-                                  : `Its benchmark is edited in the Business Plan. What is edited here is ${pr.lo.fullName}'s growth rule.`
-                              }
                             />
                           </td>
                           {monthsOfYear.map((m) => (
-                            <td
-                              key={m}
-                              className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}
-                              title={
-                                m === currentMonth
-                                  ? pr.participatesInRecruitment
-                                    ? `This month's forecast for ${pr.lo.fullName}, Own Production and Recruitment combined.`
-                                    : `This month's forecast for ${pr.lo.fullName}.`
-                                  : pr.participatesInRecruitment
-                                    ? 'Own Production and Recruitment combined.'
-                                    : undefined
-                              }
-                            >
+                            <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
                               {fmt(pr.year.byMonth[m] ?? null)}
                             </td>
                           ))}
@@ -1311,68 +1199,27 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                             {fmt(sumOfShown(monthsOfYear.map((m) => pr.year.byMonth[m] ?? null)))}
                           </td>
                           {/*
-                            ⚠ DOS PÍLDORAS CUANDO PARTICIPA DE RECRUITMENT, una
-                            por estrategia -- el editor sigue guardando por
-                            estrategia, sin cambios, así que hacen falta dos
-                            controles y dos ediciones posibles por fila.
+                            ⚠ UN SOLO BOTÓN — etapa OL26. Abre `PersonBudgetEditor`,
+                            que trae adentro el selector de Own Production /
+                            Recruitment (si participa) / Budget composition. Antes
+                            había hasta tres controles acá; el mismo rótulo en
+                            todos lados evita que uno diga "25% / qtr" y otro
+                            "by month" para la misma acción.
                           */}
                           <td className="ol-rulecol" onClick={(e) => e.stopPropagation()}>
                             <button
                               type="button"
                               className={
                                 'ol-pill' +
-                                ((pr.lo.rulesByStrategy['Own Production'] ?? []).length || isMonthly ? '' : ' ol-pill--empty')
-                              }
-                              onClick={() =>
-                                setEditing({ kind: 'employee', employeeKey: pr.lo.employeeKey, strategy: 'Own Production' })
-                              }
-                              title={
-                                `${ruleLabel(pr.lo, 'Own Production', remainingMonths)} · revision ` +
-                                `${(isMonthly ? pr.lo.targetRevision['Own Production'] : pr.lo.ruleRevision['Own Production']) || 0}`
-                              }
-                            >
-                              {pillOfLo(pr.lo, 'Own Production')}
-                            </button>
-                            {pr.participatesInRecruitment &&
-                              (() => {
-                                const recMonthly = (pr.lo.modeByStrategy['Recruitment'] ?? 'growth') === 'monthly';
-                                return (
-                                  <button
-                                    type="button"
-                                    className={
-                                      'ol-pill' +
-                                      ((pr.lo.rulesByStrategy['Recruitment'] ?? []).length || recMonthly ? '' : ' ol-pill--empty')
-                                    }
-                                    onClick={() =>
-                                      setEditing({ kind: 'employee', employeeKey: pr.lo.employeeKey, strategy: 'Recruitment' })
-                                    }
-                                    title={
-                                      `Recruitment: ${ruleLabel(pr.lo, 'Recruitment', remainingMonths)} · revision ` +
-                                      `${(recMonthly ? pr.lo.targetRevision['Recruitment'] : pr.lo.ruleRevision['Recruitment']) || 0}`
-                                    }
-                                  >
-                                    Rec {pillOfLo(pr.lo, 'Recruitment')}
-                                  </button>
-                                );
-                              })()}
-                            {/*
-                              ⚠ EL PRESUPUESTO COMPUESTO, PUNTO 5 DE OL26 -- una
-                              decisión aparte de la regla de crecimiento: no
-                              reemplaza lo que proyectan las columnas de arriba,
-                              es una segunda forma de fijar y explicar un total.
-                              Ver `BudgetEditor`.
-                            */}
-                            <button
-                              type="button"
-                              className={'ol-pill' + (pr.lo.budgetTotalRevision > 0 ? '' : ' ol-pill--empty')}
-                              onClick={() => setEditingBudget({ kind: 'employee', employeeKey: pr.lo.employeeKey })}
-                              title={
+                                ((pr.lo.rulesByStrategy['Own Production'] ?? []).length ||
+                                isMonthly ||
                                 pr.lo.budgetTotalRevision > 0
-                                  ? 'This person has a composed budget set (a fixed total, with an informational breakdown by plan). Click to review or edit it.'
-                                  : 'No composed budget set yet for this person. Click to set one -- informational, separate from the projection above.'
+                                  ? ''
+                                  : ' ol-pill--empty')
                               }
+                              onClick={() => setEditingBudget({ kind: 'employee', employeeKey: pr.lo.employeeKey })}
                             >
-                              budget
+                              Set budget
                             </button>
                           </td>
                         </tr>
@@ -1399,24 +1246,19 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               Los realtors del branch. Mismo cálculo de siempre -- ver
               `nppmRows` más arriba --, sólo cambia dónde vive el benchmark.
             */}
-            {(() => {
-              const key = 'g:nppm-existing';
-              const abierta = open.has(key);
-              const plegable = nppmRows.length > 0;
-              return (
+            {nppmRows.length > 0 &&
+              (() => {
+                const key = 'g:nppm-existing';
+                const abierta = open.has(key);
+                return (
                 <Fragment key={key}>
-                  <tr className={'grp d1' + (plegable ? ' togg' : '')} onClick={plegable ? () => toggle(key) : undefined}>
+                  <tr className="grp d1 togg" onClick={() => toggle(key)}>
                     <td className="lbl">
-                      {plegable ? (
-                        <span className={'chev' + (abierta ? ' open' : '')} aria-hidden="true">
-                          ›
-                        </span>
-                      ) : (
-                        <span className="chev chev--none" aria-hidden="true" />
-                      )}
+                      <span className={'chev' + (abierta ? ' open' : '')} aria-hidden="true">
+                        ›
+                      </span>
                       NPPM — existing
                     </td>
-                    <td className="ol-position"></td>
                     <td className="bp-center ol-bench"></td>
                     {monthsOfYear.map((m) => (
                       <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
@@ -1427,7 +1269,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                       {fmt(sumOfShown(monthsOfYear.map((m) => sumYears(nppmExistingYears, m))))}
                     </td>
                     <td className="ol-rulecol bp-muted">
-                      {nppmRows.length === 0 ? 'no realtors yet' : `${nppmRows.length} realtor${nppmRows.length === 1 ? '' : 's'}`}
+                      {nppmRows.length} realtor{nppmRows.length === 1 ? '' : 's'}
                     </td>
                   </tr>
 
@@ -1435,7 +1277,6 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                     nppmRows.map(({ r, year: rYear }) => (
                       <tr key={'nppm-' + r.realtorCode} className="metric mrow">
                         <td className="lbl">{r.displayName}</td>
-                        <td className="ol-position"></td>
                         <td className="bp-center ol-bench">
                           {/*
                             ⚠ Dos decimales: el promedio de 3 meses de un realtor
@@ -1476,7 +1317,6 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                           >
                             {r.benchmarkIsDefault ? '3-mo avg' : 'by hand'}
                           </button>
-                          {/* Punto 5 de OL26 -- ver la nota en la fila de Loan Officer. */}
                           <button
                             type="button"
                             className={'ol-pill' + (r.budgetTotalRevision > 0 ? '' : ' ol-pill--empty')}
@@ -1487,7 +1327,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                                 : 'No composed budget set yet for this realtor. Click to set one -- informational, separate from the projection above.'
                             }
                           >
-                            budget
+                            Set budget
                           </button>
                         </td>
                       </tr>
@@ -1504,24 +1344,19 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               punto 6 del brief. Su presupuesto ya viene repartido en conjunto
               con las personas de Recruitment (ver `loanOfficerRowsOf`).
             */}
-            {(() => {
-              const key = 'g:lo-hiring';
-              const abierta = open.has(key);
-              const plegable = visibleRecruitRows.length > 0;
-              return (
+            {visibleRecruitRows.length > 0 &&
+              (() => {
+                const key = 'g:lo-hiring';
+                const abierta = open.has(key);
+                return (
                 <Fragment key={key}>
-                  <tr className={'grp d1' + (plegable ? ' togg' : '')} onClick={plegable ? () => toggle(key) : undefined}>
+                  <tr className="grp d1 togg" onClick={() => toggle(key)}>
                     <td className="lbl">
-                      {plegable ? (
-                        <span className={'chev' + (abierta ? ' open' : '')} aria-hidden="true">
-                          ›
-                        </span>
-                      ) : (
-                        <span className="chev chev--none" aria-hidden="true" />
-                      )}
+                      <span className={'chev' + (abierta ? ' open' : '')} aria-hidden="true">
+                        ›
+                      </span>
                       Loan Officers — in hiring
                     </td>
-                    <td className="ol-position"></td>
                     <td className="bp-center ol-bench"></td>
                     {monthsOfYear.map((m) => (
                       <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
@@ -1531,9 +1366,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                     <td className="bp-center totcol">
                       {fmt(sumOfShown(monthsOfYear.map((m) => sumYears(loHiringYears, m))))}
                     </td>
-                    <td className="ol-rulecol bp-muted">
-                      {visibleRecruitRows.length === 0 ? 'nobody in hiring' : `${visibleRecruitRows.length} in hiring`}
-                    </td>
+                    <td className="ol-rulecol bp-muted">{visibleRecruitRows.length} in hiring</td>
                   </tr>
 
                   {abierta &&
@@ -1559,8 +1392,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                             </span>
                           )}
                         </td>
-                        <td className="ol-position"></td>
-                        <td className="bp-center ol-bench">
+                            <td className="bp-center ol-bench">
                           <BenchTag
                             value={r.monthlyBenchmark}
                             onEdit={() => setEditingRecruit(r.identity)}
@@ -1613,24 +1445,19 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               `nppmHiringRows` más arriba: sin reparto conjunto todavía porque
               no hay ni un caso real contra el cual construirlo y verificarlo.
             */}
-            {(() => {
-              const key = 'g:nppm-hiring';
-              const abierta = open.has(key);
-              const plegable = nppmHiringRows.length > 0;
-              return (
+            {nppmHiringRows.length > 0 &&
+              (() => {
+                const key = 'g:nppm-hiring';
+                const abierta = open.has(key);
+                return (
                 <Fragment key={key}>
-                  <tr className={'grp d1' + (plegable ? ' togg' : '')} onClick={plegable ? () => toggle(key) : undefined}>
+                  <tr className="grp d1 togg" onClick={() => toggle(key)}>
                     <td className="lbl">
-                      {plegable ? (
-                        <span className={'chev' + (abierta ? ' open' : '')} aria-hidden="true">
-                          ›
-                        </span>
-                      ) : (
-                        <span className="chev chev--none" aria-hidden="true" />
-                      )}
+                      <span className={'chev' + (abierta ? ' open' : '')} aria-hidden="true">
+                        ›
+                      </span>
                       NPPM — in hiring
                     </td>
-                    <td className="ol-position"></td>
                     <td className="bp-center ol-bench"></td>
                     {monthsOfYear.map((m) => (
                       <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
@@ -1640,9 +1467,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                     <td className="bp-center totcol">
                       {fmt(sumOfShown(monthsOfYear.map((m) => sumYears(nppmHiringYears, m))))}
                     </td>
-                    <td className="ol-rulecol bp-muted">
-                      {nppmHiringRows.length === 0 ? 'nobody in hiring' : `${nppmHiringRows.length} in hiring`}
-                    </td>
+                    <td className="ol-rulecol bp-muted">{nppmHiringRows.length} in hiring</td>
                   </tr>
 
                   {abierta &&
@@ -1654,8 +1479,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                             {STAGE_LABEL[r.stage]}
                           </span>
                         </td>
-                        <td className="ol-position"></td>
-                        <td className="bp-center ol-bench">
+                            <td className="bp-center ol-bench">
                           <BenchTag
                             value={r.monthlyBenchmark}
                             onEdit={() => setEditingRecruit(r.identity)}
@@ -1717,7 +1541,6 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                     total only
                   </span>
                 </td>
-                <td className="ol-position"></td>
                 <td className="bp-center ol-bench">
                   <BenchTag value={affinityBench} />
                 </td>
@@ -1754,33 +1577,30 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                       ? `${monthLabel(currentMonth)} already above forecast`
                       : `${monthLabel(currentMonth)} pipeline, no strategy yet`
                     : /*
-                       * ⚠ DECÍA `Counted for a realtor, not for the branch` — OL22.
-                       *
-                       * Nombraba una CAUSA particular --NPPM-- que en la mayoría de
-                       * los casos no aplica. Verificado en el 747, enero 2026: no
-                       * hay ni un NPPM. El residuo son cierres de gente ajena al
-                       * branch -- Frank Rodriguez, que ni siquiera resuelve contra
-                       * el roster, y José Zamora, que es del 716.
-                       *
-                       * `LO out of branch` describe lo que efectivamente hay, sin
-                       * asumir por qué. La causa, cuando importa, está en el
-                       * tooltip y en la línea de outsiders del pie.
+                       * ⚠ EL RÓTULO TIENE QUE NOMBRAR B2B, Y NO LO HACÍA -- medido
+                       * en el 747: 20 cierres de B2B este año caen acá desde que
+                       * esa estrategia dejó de tener fila propia (OL26, "b2b no se
+                       * muestra"), y el rótulo seguía diciendo sólo `LO out of
+                       * branch` -- el número de la fila (~25) no coincidía con los
+                       * 5 cierres que el pie explica por nombre.
                        */
-                      'LO out of branch'}
+                      b2bRow
+                      ? 'B2B + LO out of branch'
+                      : 'LO out of branch'}
                   <span
                     className="bp-muted ol-tag"
                     title={
                       Math.abs(residual[currentMonth]) <= 0.001
-                        ? /*
-                           * ⚠ LA EXPLICACIÓN GENERAL, NO LA CAUSA ASUMIDA — OL22. La
-                           * versión vieja afirmaba que eran cierres de un realtor
-                           * NPPM, que es UNA de las formas de llegar acá y casi
-                           * nunca la que aplica.
-                           */
-                          `The branch total counts by LOAN --whatever closed here-- and the strategies open by ` +
-                          `the people on this branch's roster. Closings by loan officers who are not on it land ` +
-                          `in this row: they are real and they count in the total, but no strategy can claim ` +
-                          `them. The row carries the difference so the total matches the list.`
+                        ? `The branch total counts by LOAN --whatever closed here-- and the strategies open by ` +
+                          `the people on this branch's roster. What no strategy can claim lands here: closings by ` +
+                          `loan officers who are not on this branch's roster (named at the foot of the page), and` +
+                          (b2bRow
+                            ? ` B2B's real production -- ${fmt(sumOfShown(monthsOfYear.map((mm) => b2bRow.year.byMonth[mm] ?? null)))} ` +
+                              `this year -- which stopped having its own row so its numbers land here instead of ` +
+                              `disappearing.`
+                            : `.`) +
+                          ` They are real and they count in the total. The row carries the difference so the total ` +
+                          `matches the list.`
                         : currentAboveForecast
                         ? `This branch has already closed more this month than its forecast expected: ` +
                           `${fmt(strategiesByMonth[currentMonth])} closed against a forecast of ` +
@@ -1794,7 +1614,6 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                     not a strategy
                   </span>
                 </td>
-                <td className="ol-position"></td>
                 <td className="bp-center ol-bench"></td>
                 {monthsOfYear.map((m) => (
                   <td
@@ -1806,9 +1625,9 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                         : m === currentMonth
                           ? `The branch list shows ${fmt(branchYear.byMonth[m])} for ${monthLabel(m)} and the groups ` +
                             `shown above add up to ${fmt(strategiesByMonth[m])}. This is the difference.`
-                          : `${monthLabel(m)} differs from the branch list by ${fmt(residual[m])}: closings counted ` +
-                            `for a realtor but not for the branch, because the loan officer who originated them is ` +
-                            `outside the division. See the tag on the NPPM row.`
+                          : `${monthLabel(m)} differs from the branch list by ${fmt(residual[m])}: B2B's production` +
+                            (b2bRow ? ` (${fmt(b2bRow.year.byMonth[m] ?? null)} this month)` : '') +
+                            `, plus any closing by a loan officer who is not on this branch's roster.`
                     }
                   >
                     {Math.abs(residual[m]) <= 0.001 ? '' : fmt(residual[m])}
@@ -1827,7 +1646,6 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
             */}
             <tr className="metric ol-total">
               <td className="lbl">Branch {branch.branchCode}</td>
-              <td className="ol-position"></td>
               <td className="bp-center ol-bench"></td>
               {monthsOfYear.map((m) => (
                 <td
@@ -1997,102 +1815,6 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
         vieja -- el editor seguiría mostrando el benchmark anterior al que se
         acaba de escribir, que es exactamente el bug que uno no revisa.
       */}
-      {editingActivo &&
-        (() => {
-          /*
-           * ⚠ El editable se ARMA en cada render, desde `data` fresca. Guardarlo
-           * en el estado dejaría al editor mostrando la versión anterior a lo que
-           * se acaba de escribir -- el bug que uno no revisa porque el guardado
-           * "funcionó".
-           */
-          let editable: OutlookEditable | null = null;
-          if (editingActivo.kind === 'employee') {
-            /*
-             * ⚠ NO TODA PERSONA ES UN LOAN OFFICER DEL BRANCH — etapa OL14.
-             *
-             * Los Account Executives de Affinity son personas con `employee_key`
-             * y con presupuesto propio, pero NO están en `branch.loanOfficers`:
-             * su branch de roster es otro. Buscarlos sólo ahí dejaba el editor
-             * sin abrir --se hacía clic en el lápiz y no pasaba nada, sin error--
-             * que es la clase de falla que sólo se ve usando la pantalla.
-             */
-            const ae = branch.byStrategy
-              .flatMap((bs) => (bs.opensBy === 'owner' ? bs.owners.map((o) => ({ bs, o })) : []))
-              .find(({ o }) => o.isPerson && o.employeeKey === editingActivo.employeeKey);
-            if (ae) {
-              editable = {
-                subject: { kind: 'employee', employeeKey: editingActivo.employeeKey },
-                label: ae.o.owner,
-                benchmarkSchedules: { [ae.bs.strategy]: ae.o.benchmarkSchedule },
-                rulesByStrategy: { [ae.bs.strategy]: ae.o.rules },
-                targetsByStrategy: { [ae.bs.strategy]: ae.o.targets },
-                modeByStrategy: { [ae.bs.strategy]: ae.o.mode },
-                modeSetBy: { [ae.bs.strategy]: ae.o.modeSetBy },
-                ruleRevision: { [ae.bs.strategy]: ae.o.ruleRevision },
-                targetRevision: { [ae.bs.strategy]: ae.o.targetRevision },
-              };
-            }
-            const lo = !editable ? branch.loanOfficers.find((l) => l.employeeKey === editingActivo.employeeKey) : null;
-            if (lo) {
-              editable = {
-                subject: { kind: 'employee', employeeKey: lo.employeeKey },
-                label: lo.fullName,
-                benchmarkSchedules: lo.benchmarkSchedules,
-                rulesByStrategy: lo.rulesByStrategy,
-                targetsByStrategy: lo.targetsByStrategy,
-                modeByStrategy: lo.modeByStrategy,
-                modeSetBy: lo.modeSetBy,
-                ruleRevision: lo.ruleRevision,
-                targetRevision: lo.targetRevision,
-              };
-            }
-          } else {
-            const bs = branch.byStrategy.find((x) => x.strategy === editingActivo.strategy);
-            if (bs) {
-              /*
-               * Un branch decide UNA estrategia por vez, así que los mapas llevan
-               * sólo esa clave. El editor lee siempre `[strategy]`, y darle las
-               * cinco lo obligaría a que el loader las trajera todas para nada.
-               */
-              editable = {
-                subject: { kind: 'branch', branchCode: branch.branchCode },
-                label: `Branch ${branch.branchCode}`,
-                benchmarkSchedules: { [bs.strategy]: bs.benchmarkSchedule },
-                rulesByStrategy: { [bs.strategy]: bs.rules },
-                targetsByStrategy: { [bs.strategy]: bs.targets },
-                modeByStrategy: { [bs.strategy]: bs.mode },
-                modeSetBy: { [bs.strategy]: bs.modeSetBy },
-                ruleRevision: { [bs.strategy]: bs.ruleRevision },
-                targetRevision: { [bs.strategy]: bs.targetRevision },
-              };
-            }
-          }
-          if (!editable) return null;
-          return (
-            <StrategyEditor
-              lo={editable}
-              strategy={editingActivo.strategy}
-              data={data}
-              /*
-                ⚠ LOS MESES QUE LA TABLA ESTA MOSTRANDO, no los del año — OL21.
-
-                `remainingMonths` de acá es la lista del HORIZONTE elegido, que
-                es estado de esta pantalla. Sin esto el editor caia en
-                `data.remainingMonths` y ofrecia tres meses mientras la tabla
-                dibujaba treinta y seis.
-              */
-              months={remainingMonths}
-              onClose={() => {
-                /* Cerrar tambien DESCARTA lo que la URL pide: si no, el
-                   parametro lo vuelve a abrir en el render siguiente. */
-                setEditing(null);
-                setRvDescartado(rvClave);
-              }}
-              onSaved={reload}
-            />
-          );
-        })()}
-
       {editingRecruit !== null &&
         (() => {
           /*
@@ -2167,48 +1889,91 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
         demás editores: se resuelve la fila FRESCA de `branch` en cada render,
         nunca desde un objeto guardado en el estado (ver la nota de
         `editingBudget` más arriba).
+
+        ⚠ `editingBudgetActivo`, NO `editingBudget` -- re-cableado al rebasar
+        sobre main. Es lo que abre el editor, ya sea porque la persona hizo
+        clic o porque la URL de la revisión lo pidió (`rvOpen=budget`, ver la
+        nota de `rvPedido` más arriba); `editingBudget` sigue siendo sólo lo
+        que la persona abrió A MANO, para que `onClose` sepa si tiene que
+        cerrar un estado propio o descartar lo que pedía la URL.
       */}
-      {editingBudget &&
+      {editingBudgetActivo &&
         (() => {
-          const person: BudgetEditable | null =
-            editingBudget.kind === 'employee'
-              ? (() => {
-                  const lo = branch.loanOfficers.find((x) => x.employeeKey === editingBudget.employeeKey);
-                  return lo
-                    ? {
-                        subject: { kind: 'employee' as const, employeeKey: lo.employeeKey },
-                        label: lo.fullName,
-                        buckets: ['own_production', 'b2b', 'nppm', 'business_plan'] as const,
-                        budgetTotal: lo.budgetTotal,
-                        budgetTotalRevision: lo.budgetTotalRevision,
-                        budgetBreakdown: lo.budgetBreakdown,
-                        budgetBreakdownRevision: lo.budgetBreakdownRevision,
-                      }
-                    : null;
-                })()
-              : (() => {
-                  /* Por código, no por nombre normalizado -- ver la nota de
-                     `PersonSubject` en save.ts. */
-                  const r = bsNppm?.realtors.find((x) => x.realtorCode === editingBudget.realtorCode);
-                  return r
-                    ? {
-                        subject: { kind: 'realtor' as const, realtorCode: r.realtorCode },
-                        label: r.displayName,
-                        buckets: ['own_production', 'business_plan'] as const,
-                        budgetTotal: r.budgetTotal,
-                        budgetTotalRevision: r.budgetTotalRevision,
-                        budgetBreakdown: r.budgetBreakdown,
-                        budgetBreakdownRevision: r.budgetBreakdownRevision,
-                      }
-                    : null;
-                })();
-          if (!person) return null;
+          /*
+           * ⚠ CERRAR TIENE DOS CASOS -- mismo mecanismo que tenía
+           * `StrategyEditor` con `rvClave`, ahora sobre el `employeeKey` a
+           * secas (no hace falta componerlo con una estrategia: el editor es
+           * uno solo por persona). Si `editingBudget` estaba puesto, lo abrió
+           * la persona y hay que limpiarlo; si no, lo que se ve viene de la
+           * URL y hay que DESCARTARLO -- si no, el parámetro lo reabre en el
+           * render siguiente.
+           */
+          const cerrar = () => {
+            if (editingBudget !== null) setEditingBudget(null);
+            else if (rvPedido !== null) setRvDescartado(rvPedido.employeeKey);
+          };
+          if (editingBudgetActivo.kind === 'employee') {
+            const pr = personRows.find((x) => x.lo.employeeKey === editingBudgetActivo.employeeKey);
+            if (!pr) return null;
+            const lo = pr.lo;
+            const person: BudgetEditable = {
+              subject: { kind: 'employee', employeeKey: lo.employeeKey },
+              label: lo.fullName,
+              buckets: ['own_production', 'b2b', 'nppm', 'business_plan'],
+              budgetTotal: lo.budgetTotal,
+              budgetTotalRevision: lo.budgetTotalRevision,
+              budgetBreakdown: lo.budgetBreakdown,
+              budgetBreakdownRevision: lo.budgetBreakdownRevision,
+            };
+            const strategyEditable: OutlookEditable = {
+              subject: { kind: 'employee', employeeKey: lo.employeeKey },
+              label: lo.fullName,
+              benchmarkSchedules: lo.benchmarkSchedules,
+              rulesByStrategy: lo.rulesByStrategy,
+              targetsByStrategy: lo.targetsByStrategy,
+              modeByStrategy: lo.modeByStrategy,
+              modeSetBy: lo.modeSetBy,
+              ruleRevision: lo.ruleRevision,
+              targetRevision: lo.targetRevision,
+            };
+            const strategies: OutlookStrategy[] = pr.participatesInRecruitment
+              ? ['Own Production', 'Recruitment']
+              : ['Own Production'];
+            return (
+              <PersonBudgetEditor
+                label={lo.fullName}
+                strategies={strategies}
+                strategyEditable={strategyEditable}
+                budgetPerson={person}
+                data={data}
+                months={remainingMonths}
+                onClose={cerrar}
+                onSaved={reload}
+              />
+            );
+          }
+
+          /* Por código, no por nombre normalizado -- ver la nota de `PersonSubject` en save.ts. */
+          const r = bsNppm?.realtors.find((x) => x.realtorCode === editingBudgetActivo.realtorCode);
+          if (!r) return null;
+          const person: BudgetEditable = {
+            subject: { kind: 'realtor', realtorCode: r.realtorCode },
+            label: r.displayName,
+            buckets: ['own_production', 'business_plan'],
+            budgetTotal: r.budgetTotal,
+            budgetTotalRevision: r.budgetTotalRevision,
+            budgetBreakdown: r.budgetBreakdown,
+            budgetBreakdownRevision: r.budgetBreakdownRevision,
+          };
           return (
-            <BudgetEditor
-              person={person}
+            <PersonBudgetEditor
+              label={r.displayName}
+              strategies={[]}
+              strategyEditable={null}
+              budgetPerson={person}
               data={data}
               months={remainingMonths}
-              onClose={() => setEditingBudget(null)}
+              onClose={cerrar}
               onSaved={reload}
             />
           );

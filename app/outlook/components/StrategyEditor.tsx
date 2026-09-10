@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import Modal from '@/app/business-plan/components/Modal';
 import {
   benchmarkAt,
   cadenceLabel,
@@ -108,18 +107,29 @@ export interface OutlookEditable {
   targetRevision: OutlookLoanOfficer['targetRevision'];
 }
 
+/**
+ * ⚠ SIN `<Modal>` PROPIO — etapa OL26. Hasta acá cada pill (Own Production,
+ * Recruitment) abría ESTE componente como su propio modal, y el presupuesto
+ * compuesto (punto 5) abría OTRO modal aparte: dos botones por fila que
+ * abrían dos cosas distintas cuando el pedido es uno solo, con un selector de
+ * estrategia adentro. `PersonBudgetEditor` es ahora el único que pone
+ * `<Modal>`, y éste sólo pone el contenido -- así conviven las dos sin anidar
+ * dos diálogos, que se ve roto (dos fondos, dos botones de cerrar).
+ *
+ * Nada más usa esto como modal independiente -- se verificó antes de sacarlo:
+ * la vista 1 no lo importa, y la única otra pantalla de esta vista que lo
+ * llamaba con `kind: 'branch'` (B2B/Affinity por dueño) se fue con esa etapa.
+ */
 export default function StrategyEditor({
   lo,
   strategy,
   data,
-  onClose,
   onSaved,
   months: mesesDelHorizonte,
 }: {
   lo: OutlookEditable;
   strategy: OutlookStrategy;
   data: OutlookData;
-  onClose: () => void;
   /*
    * ⚠ Devuelve una promesa y se la ESPERA antes de anunciar el guardado. La
    * recarga tarda unos segundos, y sin esperarla la pantalla decía "guardada
@@ -433,7 +443,6 @@ export default function StrategyEditor({
   }
 
   return (
-    <Modal title={`${lo.label} — ${strategy}`} onClose={onClose}>
       <div className="ol-editor">
         {/* ── La pregunta ─────────────────────────────────────────────── */}
         <div className="ol-modes" role="radiogroup" aria-label="How the budget is set">
@@ -860,6 +869,5 @@ export default function StrategyEditor({
           </section>
         )}
       </div>
-    </Modal>
   );
 }

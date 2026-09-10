@@ -481,25 +481,17 @@ table.piv.ol-year thead .yr-row th.ol-band {
 }
 
 /*
- * ============================================================================
- * LA COLUMNA DE POSICIÓN -- etapa OL26
- * ============================================================================
- *
- * ⚠ NO USA `.lbl`. Esa clase trae `position: sticky; left: 0` y 260px de ancho
- * (`th.lbl`, más arriba) -- pensados para la PRIMERA columna, el nombre.
- * Repetirla acá pondría dos columnas fijas peleando por el mismo `left: 0`, y
- * un ancho pensado para un nombre en una columna que muestra "LOAN OFFICER".
+ * ⚠ LA COLUMNA DE POSICIÓN SE FUE -- OL26b. Ocupaba una columna entera para
+ * mostrar el cargo, y eso fue lo que rompió el ancho fijo de la página (con
+ * ella la tabla necesitaba scroll horizontal, cosa que no pasaba antes de
+ * OL26). El cargo ahora va como una etiqueta más al lado del nombre -- ver
+ * `pr.lo.position` en la fila de Loan Officer.
  */
-.ol-page table.piv.ol-year th.ol-position,
-.ol-page table.piv.ol-year td.ol-position {
-  text-align: left;
-  min-width: 140px;
-  color: var(--slate-500);
-}
 
 /*
- * Dos píldoras en la misma celda -- un Loan Officer que participa de
- * Recruitment tiene una por estrategia, ver el JSDoc de cabecera del archivo.
+ * Dos píldoras en la misma celda -- hoy sólo pasa en NPPM (la fuente del
+ * benchmark, y "Set budget" al lado). Antes también pasaba con Own Production
+ * + Recruitment, que se unificaron en un solo botón en la misma etapa.
  */
 .ol-page table.piv.ol-year td.ol-rulecol .ol-pill + .ol-pill {
   margin-left: 6px;

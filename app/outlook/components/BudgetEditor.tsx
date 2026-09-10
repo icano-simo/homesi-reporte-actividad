@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import Modal from '@/app/business-plan/components/Modal';
 import type { BudgetBucket, OutlookData } from '@/lib/outlook/loadData';
 import {
   savePersonBudgetBreakdown,
@@ -77,16 +76,20 @@ export interface BudgetEditable {
   budgetBreakdownRevision: number;
 }
 
+/**
+ * ⚠ SIN `<Modal>` PROPIO — etapa OL26. Ver la misma nota en `StrategyEditor`:
+ * `PersonBudgetEditor` es el único que abre el diálogo; esto es el contenido
+ * de UNA de sus pestañas ("Budget composition"), embebido junto a la de la
+ * regla de crecimiento.
+ */
 export default function BudgetEditor({
   person,
   data,
-  onClose,
   onSaved,
   months: mesesDelHorizonte,
 }: {
   person: BudgetEditable;
   data: OutlookData;
-  onClose: () => void;
   onSaved: () => Promise<void> | void;
   /** Mismo criterio que `StrategyEditor`: los meses que la pantalla muestra, no `data.remainingMonths` a secas. */
   months?: string[];
@@ -199,7 +202,6 @@ export default function BudgetEditor({
   }
 
   return (
-    <Modal title={`${person.label} — Budget composition`} onClose={onClose}>
       <div className="ol-editor">
         <p className="ol-editor__hint">
           The <b>total</b> is fixed first, month by month — it stops being the sum of the strategies shown above.
@@ -328,6 +330,5 @@ export default function BudgetEditor({
         {error && <div className="bp-notice bp-notice--warn ol-editor__msg">{error}</div>}
         {saved && !error && <div className="bp-notice ol-editor__msg">{saved}</div>}
       </div>
-    </Modal>
   );
 }
