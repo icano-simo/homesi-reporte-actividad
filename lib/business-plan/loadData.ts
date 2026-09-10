@@ -361,9 +361,9 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
    *
    * `outlook.person_budget_total` es la tabla de Set Budget (Outlook, punto 5
    * de OL26): append-only, versionada por `revision`, por `employee_key` y por
-   * `target_month`. Acá sólo hace falta el MES EN CURSO -- el gap de este
-   * perfil compara el forecast del mes contra lo que se fijó PARA ESE MES, no
-   * contra un total acumulado ni contra otro mes.
+   * `target_month`. Se lee la TABLA ENTERA de la persona (no filtrada por mes)
+   * porque la revisión vigente es por SUJETO, no por mes -- ver la nota de
+   * `gobierna` más abajo -- y de esa revisión se saca el mes en curso.
    *
    * ⚠ SÓLO `employee_key`, nunca `nppm_realtor_code` -- el perfil del Loan
    * Officer no tiene sujeto realtor. Traer las filas de realtor sería leer
@@ -379,17 +379,47 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
   try {
     const { data, error } = await outlook
       .from('person_budget_total')
-      .select('employee_key, target_month, total, revision')
-      .not('employee_key', 'is', null)
-      .eq('target_month', thisMonth + '-01');
+      .select('employee_key, target_month, total, revision, confirmed_only')
+      .not('employee_key', 'is', null);
     if (!error && data) {
       personBudgetTotalTableAvailable = true;
-      /* Última revisión por empleado -- ya viene filtrado a un solo mes, así
-         que no hace falta desambiguar por target_month también. */
+      const rows = data as {
+        employee_key: number;
+        target_month: string;
+        total: number | null;
+        revision: number;
+        confirmed_only?: boolean;
+      }[];
+      /*
+       * ⚠ UNA CONFIRMACIÓN NO ES UNA REVISIÓN VIGENTE — etapa RV15, mismo
+       * criterio que `lib/outlook/loadData.ts` (`gobierna`). Una fila con
+       * `confirmed_only` dice "alguien miró esto y lo aceptó", no "el total
+       * es éste" -- si contara como la revisión más alta, confirmar le
+       * quitaría el gobierno a un total ya fijado, y el mes caería a la
+       * regla de crecimiento por haber apretado un botón que dice "lo
+       * revisé". `total === null` es una guarda redundante -- el CHECK de
+       * la base ya ata el nulo a `confirmed_only` -- pero sin ella un nulo
+       * se leería como `Number(null)` = 0, un total fijado en cero que
+       * nadie fijó.
+       *
+       * ⚠ LA REVISIÓN VIGENTE ES POR SUJETO, NO POR MES. Un guardado cubre
+       * TODOS los meses que la pantalla tenía cargados en ese momento (ver
+       * `PersonBudgetEditor.tsx`): tomar la revisión más alta POR MES
+       * mezclaría meses de guardados distintos como si fueran uno. Se toma
+       * la revisión más alta por empleado, y de ESA revisión se leen sus
+       * meses -- si el mes en curso no está entre ellos, el budget de ese
+       * mes es `null`, aunque una revisión vieja lo hubiera tenido.
+       */
+      const gobierna = (t: (typeof rows)[number]) => t.confirmed_only !== true && t.total !== null;
       const bestRevision = new Map<number, number>();
-      for (const r of data as { employee_key: number; target_month: string; total: number; revision: number }[]) {
-        if ((bestRevision.get(r.employee_key) ?? -1) >= r.revision) continue;
-        bestRevision.set(r.employee_key, r.revision);
+      for (const r of rows) {
+        if (!gobierna(r)) continue;
+        bestRevision.set(r.employee_key, Math.max(bestRevision.get(r.employee_key) ?? 0, r.revision));
+      }
+      for (const r of rows) {
+        if (!gobierna(r)) continue;
+        if (r.revision !== bestRevision.get(r.employee_key)) continue;
+        if (r.target_month.slice(0, 7) !== thisMonth) continue;
         budgetThisMonthByEmployee.set(r.employee_key, Number(r.total));
       }
     }
