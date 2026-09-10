@@ -821,3 +821,80 @@ sin fijar se guarda como `null` y no como `0`.
 - Y cuando dos estados significan cosas distintas —no vino contra vino vacío, no
   se decidió contra se decidió cero— **no darles el mismo valor**, aunque cueste
   una columna nullable más.
+
+# Worktrees en Windows: la junction de `node_modules`
+
+> Sección aparte porque no es sobre el código de este repo sino sobre el entorno
+> donde se lo edita, y porque cualquiera que abra un worktree acá se va a topar
+> con lo mismo.
+
+## Por qué existe la junction
+
+Un worktree de este repo no puede correr nada sin `node_modules`, y volver a
+instalarlo por worktree cuesta minutos y gigas. La salida es un **enlace de
+directorio** (junction) que apunta al `node_modules` del checkout principal:
+
+```
+C:\Users\...\rv9\node_modules  ->  C:\Users\...\homesi-reporte-actividad\node_modules
+```
+
+Y hay una segunda restricción del entorno, no del repo: **el worktree tiene que
+vivir en una ruta corta** —`C:\Users\<usuario>\rv9` y no dentro del repo— o
+Turbopack falla por largo de ruta.
+
+## La regla
+
+**Un `node_modules` que es junction se borra con `cmd /c rmdir`, nunca con
+`rm -rf` ni con `Remove-Item -Recurse`.**
+
+`rmdir` borra el enlace. Las otras dos **entran por el enlace** y borran el
+`node_modules` del checkout principal, que es el entorno de trabajo de todos los
+worktrees y del checkout real.
+
+Y al desarmar un worktree, el orden es: sacar la junction, **confirmar que se
+fue**, y sólo entonces borrar el directorio.
+
+## El caso que la fija, y no es el que parece
+
+Al desarmar el worktree de RV12, el `cmd /c rmdir` **salió con éxito y no borró
+nada**. El `&& echo` de la línea imprimió su mensaje, así que la salida decía
+que había funcionado.
+
+Es la regla de siempre —que un comando salga con 0 no prueba que se aplicó— pero
+lo que la hace grave acá es lo de después: el paso siguiente era borrar el
+directorio, y **un `Remove-Item -Recurse` con la junction todavía puesta habría
+entrado al `node_modules` del repo real**. El falso éxito no era el daño; era el
+permiso para el daño.
+
+Lo que lo delató no fue un error sino una forma: `git worktree remove --force`
+dejó el directorio con **exactamente un hijo**, y ese hijo era la junction.
+
+> **Git no atraviesa un reparse point.** Así que un worktree que queda con un
+> solo hijo después de un `remove` está diciendo cuál es: el que git no pudo
+> tocar.
+
+Es el tipo de señal que sólo se lee si uno está mirando, y por eso no alcanza
+con recordarla. Lo que corresponde es la verificación explícita:
+
+```powershell
+$p = "C:\Users\<usuario>\rv9\node_modules"
+if (Test-Path $p) { cmd /c rmdir $p }
+Test-Path $p            # tiene que dar False ANTES de borrar el directorio
+```
+
+Y después de borrar, confirmar el destino y no el origen: que el
+`node_modules` del checkout principal sigue teniendo sus ~393 entradas. Es
+redundante a propósito, igual que la guarda de las columnas sensibles: cuando un
+paso puede destruir el entorno de trabajo, la comprobación va aunque «no haga
+falta».
+
+## El desarme completo, en orden
+
+1. `git status` en el worktree y `git log` contra el remoto: que **nada viva sólo
+   ahí**. Si hay commits sin subir, subirlos primero.
+2. `cmd /c rmdir <worktree>\node_modules`, y `Test-Path` en falso.
+3. `git worktree remove --force <worktree>` y `git worktree prune`.
+4. Borrar lo que haya quedado del directorio, **después** de verificar que no
+   queda ningún reparse point adentro.
+5. `git worktree list` para confirmar que sólo está el checkout del usuario, y
+   que su rama y su árbol quedaron sin tocar.
