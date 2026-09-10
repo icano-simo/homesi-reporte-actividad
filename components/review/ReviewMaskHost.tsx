@@ -243,17 +243,54 @@ export default function ReviewMaskHost() {
    * se marca a sí mismo no verifica nada -- aparenta ser una compuerta y no lo
    * es, igual que el círculo que parecía un check.
    *
-   * La evidencia es una FILA NUEVA en cualquiera de las tres tablas donde vive
-   * el presupuesto de una persona, escrita después de que arrancó la sesión:
+   * La evidencia es una FILA NUEVA en cualquiera de las tablas donde vive el
+   * presupuesto de una persona, escrita después de que arrancó la sesión.
+   * Todas son append-only y tienen `created_at`, así que «durante esta sesión»
+   * es `created_at >= session.started_at`. Cualquiera alcanza: el editor
+   * guarda lo que cambió, y pedir todas obligaría a tocar cosas que no hacía
+   * falta tocar.
    *
-   *   outlook.strategy_benchmark    el benchmark de la estrategia
-   *   outlook.growth_rule           la regla de crecimiento
-   *   outlook.monthly_target        los meses uno por uno
+   * ══════════════════════════════════════════════════════════════════
+   * ⚠ LA COMPUERTA ESPERABA EN TABLAS DONDE YA NADIE ESCRIBE
+   * ══════════════════════════════════════════════════════════════════
    *
-   * Las tres son append-only y tienen `created_at`, así que «durante esta
-   * sesión» es `created_at >= session.started_at`. Cualquiera de las tres
-   * alcanza: el editor guarda lo que cambió, y pedir las tres obligaría a tocar
-   * cosas que no hacía falta tocar.
+   * Isabella quedó trabada: guardaba el presupuesto, la compuerta no lo
+   * reconocía, y la revisión no avanzaba. Medido cuando pasó:
+   *
+   *   person_budget_breakdown   12 filas · la última, minutos antes
+   *   person_budget_total        8 filas · la última, minutos antes
+   *   growth_rule              190 filas · la última, del día anterior
+   *   monthly_target            19 filas · la última, del día anterior
+   *   strategy_benchmark         2 filas · la última, del 1 de septiembre
+   *
+   * OL26 movió el presupuesto a `person_budget_*` y la compuerta siguió
+   * mirando las tres viejas. El editor escribía, la fila aparecía, y la
+   * consulta la buscaba en otro lado. Nada falló: es el mismo patrón que
+   * `open_editor: 'Own Production'` -- el camino sigue existiendo y lo que
+   * cambia es dónde termina.
+   *
+   * ⚠ Y SE MIRA EL DESGLOSE, NO SÓLO EL TOTAL, y eso es a propósito: la etapa
+   * OL26g convierte el total en un valor DERIVADO --la suma de las celdas del
+   * desglose-- así que `person_budget_total` puede dejar de recibir filas.
+   * `person_budget_breakdown` se escribe en los dos modelos. Arreglar esto
+   * mirando sólo el total habría vuelto a romper la compuerta en la etapa
+   * siguiente, que es el defecto que vino a arreglar.
+   *
+   *   outlook.person_budget_breakdown   el desglose por bucket   ← OL26
+   *   outlook.person_budget_total       el total                 ← OL26
+   *   outlook.strategy_benchmark        el benchmark de la estrategia
+   *   outlook.growth_rule               la regla de crecimiento
+   *   outlook.monthly_target            los meses uno por uno
+   *
+   * Las tres viejas se quedan como respaldo y no se borran: siguen recibiendo
+   * escrituras --`growth_rule` tenía 190 filas, la última del día anterior--
+   * y alguien puede proyectar por regla de crecimiento sin tocar el desglose.
+   *
+   * ⚠ Y UN RESPALDO QUE NO PUEDE DISPARARSE NO ES UN RESPALDO:
+   * `strategy_benchmark` tiene 2 filas y NINGUNA con `employee_key`, así que
+   * ese brazo nunca se cumplió para una persona. Se deja porque la columna
+   * existe y mañana puede llenarse, pero queda dicho para que nadie lo cuente
+   * como cobertura.
    *
    * ⚠ SE RECONSULTA CADA 4s MIENTRAS EL PASO ESTÉ ABIERTO. El guardado ocurre en
    * OTRO componente --el editor de Outlook-- y el botón del panel está apagado
@@ -272,18 +309,42 @@ export default function ReviewMaskHost() {
     let vivo = true;
     const mirar = async () => {
       const ol = getSupabaseClient().schema('outlook');
-      const [b, g, t] = await Promise.all([
-        ol.from('strategy_benchmark').select('created_at')
-          .eq('employee_key', loEnCurso).gte('created_at', arranco).limit(1),
-        ol.from('growth_rule').select('created_at')
-          .eq('employee_key', loEnCurso).gte('created_at', arranco).limit(1),
-        ol.from('monthly_target').select('created_at')
-          .eq('employee_key', loEnCurso).gte('created_at', arranco).limit(1),
-      ]);
+      /* La misma consulta cinco veces: una fila, de esta persona, escrita
+         después de que arrancó la sesión. Lo único que cambia es la tabla. */
+      const enEstaSesion = (tabla: string) =>
+        ol
+          .from(tabla)
+          .select('created_at')
+          .eq('employee_key', loEnCurso)
+          .gte('created_at', arranco)
+          .limit(1);
+      const tablas = [
+        /* Primero las de OL26, que son donde escribe el editor de hoy. */
+        'person_budget_breakdown',
+        'person_budget_total',
+        /* Y las tres viejas, como respaldo. */
+        'strategy_benchmark',
+        'growth_rule',
+        'monthly_target',
+      ];
+      const res = await Promise.all(tablas.map(enEstaSesion));
       if (!vivo) return;
-      const hay =
-        (b.data?.length ?? 0) > 0 || (g.data?.length ?? 0) > 0 || (t.data?.length ?? 0) > 0;
-      setPresupuestoGuardado(hay);
+      /*
+       * ⚠ UN ERROR NO ES UN «NO HAY».
+       *
+       * Con `data?.length ?? 0` una consulta que falla --una tabla renombrada,
+       * una policy que cambió-- se lee igual que «la persona no guardó», y la
+       * compuerta se traba sin decir por qué. Es justo lo que acaba de pasar,
+       * pero por otra causa. Si alguna falla, se avisa en consola: la compuerta
+       * sigue cerrada, y queda el rastro de que fue un error y no una ausencia.
+       */
+      const fallidas = res
+        .map((r, i) => (r.error ? tablas[i] + ': ' + r.error.message : null))
+        .filter((x): x is string => x !== null);
+      if (fallidas.length > 0) {
+        console.warn('[review] la compuerta del presupuesto no pudo leer: ' + fallidas.join(' | '));
+      }
+      setPresupuestoGuardado(res.some((r) => (r.data?.length ?? 0) > 0));
     };
     mirar();
     const timer = setInterval(mirar, 4000);
