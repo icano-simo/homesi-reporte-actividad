@@ -22,6 +22,28 @@
  * Lo único que Outlook hace es preguntar.
  *
  * ---------------------------------------------------------------------------
+ * ⚠ EL FOCO YA NO CUBRE TODA LA VISTA — desde que OL26 rehizo el branch de
+ * Outlook por tipo de persona (rebase de `feat/ol26-vista-outlook` sobre esta
+ * rama, 2026-09-10)
+ * ---------------------------------------------------------------------------
+ * `focusIndexed` seguía enfocando dos grupos: "Own Production/Recruitment por
+ * persona" (`personasDe(bs)`/`bs.opensBy === 'loanOfficer'`) y "B2B/Affinity
+ * por dueño" (`bs.owners`/`bs.opensBy === 'owner'`). OL26 sacó el segundo: B2B
+ * ya no tiene fila propia (su presupuesto se resume en la reconciliación) y
+ * Affinity pasó a ser una fila total, sin abrirse por Account Executive. Hoy
+ * `focusIndexed` sólo tiene un llamador en la vista del branch, sobre
+ * `personRows` (Own Production + Recruitment combinados).
+ *
+ * ⚠ DÓNDE SE VA A NOTAR: fase 2 de la revisión, en la vista del branch. El
+ * foco cae bien sobre la fila de la persona en "Loan Officers — existing",
+ * pero las filas de B2B y Affinity (si el branch las muestra) se ven SIN
+ * filtrar -- no hay `bs.owners` que enfocar, porque esa forma de la tabla ya
+ * no existe. No es un bug de este archivo: es una pérdida real del rediseño,
+ * declarada en `app/outlook/branch/[code]/page.tsx` (la nota de `focoKey`) y
+ * repetida acá porque es donde alguien va a buscar por qué el foco no cubre
+ * todo.
+ *
+ * ---------------------------------------------------------------------------
  * ⚠ `null` NO ES «MOSTRAR A NADIE»
  * ---------------------------------------------------------------------------
  * `focusEmployeeKey === null` significa que no hay revisión en curso, y
