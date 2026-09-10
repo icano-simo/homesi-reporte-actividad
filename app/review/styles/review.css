@@ -714,6 +714,93 @@ body:has(.rv-bar) .app {
  * `color-mix` sobre el token y sin hexadecimales, como en `.rv-edge`: un cambio
  * de paleta alcanza los dos.
  */
+
+/*
+ * ══════════════════════════════════════════════════════════════════════
+ * LA FLECHA DEL PASO — etapa RV14
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * En la misma clave que el resaltado y el marco: `color-mix` sobre `--coral`,
+ * diluido, sin hexadecimales. Es una guía, no una alarma -- el brief lo pide y
+ * además el resaltado ya se difuminó en RV13 por la misma razón. Nueve pasos
+ * con una flecha roja plena serían nueve alertas.
+ *
+ * `z-index` 119: debajo de la máscara (120) y de su barra (121), porque la
+ * flecha señala CONTENIDO de la app y no puede taparle el panel del paso.
+ *
+ * `pointer-events` sólo en el OK: el resto no se come clics del contenido que
+ * está señalando.
+ */
+.rv-arrow {
+  position: fixed;
+  z-index: 119;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 240px;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--coral) 30%, transparent);
+  background: color-mix(in srgb, var(--coral) 7%, var(--white));
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--navy) 10%, transparent);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--navy);
+  pointer-events: none;
+}
+/* Arriba del ancla cuando no hay lugar a la izquierda: la punta cambia de lado. */
+.rv-arrow--arriba {
+  transform: none;
+}
+.rv-arrow__txt {
+  min-width: 0;
+}
+.rv-arrow__ok {
+  flex: none;
+  padding: 3px 9px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--coral);
+  color: var(--white);
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.rv-arrow__ok:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 2px;
+}
+/*
+ * La punta, con bordes y no con un carácter: «→» cambia de forma con la
+ * tipografía y no se puede alinear al medio del ancla. Y el brief prohíbe
+ * emojis.
+ */
+.rv-arrow__punta {
+  position: absolute;
+  top: 50%;
+  right: -7px;
+  width: 0;
+  height: 0;
+  transform: translateY(-50%);
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+  border-left: 7px solid color-mix(in srgb, var(--coral) 30%, transparent);
+}
+.rv-arrow--arriba .rv-arrow__punta {
+  top: auto;
+  right: auto;
+  bottom: -7px;
+  left: 16px;
+  transform: none;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 7px solid color-mix(in srgb, var(--coral) 30%, transparent);
+  border-bottom: 0;
+}
+
 .rv-target {
   border-radius: var(--radius-md);
   /*

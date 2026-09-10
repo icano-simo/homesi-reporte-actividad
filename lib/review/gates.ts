@@ -125,6 +125,52 @@ export function gateLink(step: ReviewStep): string | null {
  * un paso sin lugar, y nadie se enteraría nunca. Es el respaldo que hace que la
  * ausencia no se note.
  */
+
+/** Una flecha: dónde apunta y qué dice al lado. */
+export interface StepArrow {
+  target: string;
+  text: string;
+}
+
+/**
+ * LAS FLECHAS DE UN PASO — etapa RV14.
+ *
+ * `gate_config.arrows` es un ARREGLO, no un campo, y de esa forma sale el
+ * sub-paso: con dos elementos, el primero lleva un OK que mueve la flecha al
+ * segundo. No hay una regla que diga «esto es sólo para Outlook» -- hoy es el
+ * único paso con dos flechas, y mañana cualquiera puede tenerlas sin tocar
+ * código.
+ *
+ * ⚠ Y NO REUSA `target`, que es otra cosa: `target` dice DÓNDE ESTÁ EL PASO
+ * --y decide el «andate al lugar del paso»-- mientras la flecha dice DÓNDE
+ * MIRAR ADENTRO. Un paso puede estar en su sitio y la flecha señalar un número
+ * dentro de esa sección.
+ *
+ * ⚠ `{lo}` SE SUSTITUYE POR LA CLAVE DE LA PERSONA REVISADA. La segunda flecha
+ * del 2.1 apunta a la fila de ESA persona, y eso no se puede escribir en un
+ * selector fijo. Es la única sustitución que hay, y existe para que agregar una
+ * flecha siga siendo una fila y no una condición en el código.
+ *
+ * Todo lo que no sea un objeto con dos cadenas no vacías se descarta:
+ * `gate_config` lo escribe una persona en SQL, y una fila mal cargada no puede
+ * tumbar la máscara.
+ */
+export function stepArrows(step: ReviewStep, loEmployeeKey?: number | null): StepArrow[] {
+  const crudo = (step.gate_config as { arrows?: unknown } | null | undefined)?.arrows;
+  if (!Array.isArray(crudo)) return [];
+  return crudo.flatMap((x): StepArrow[] => {
+    if (typeof x !== 'object' || x === null) return [];
+    const { target, text } = x as { target?: unknown; text?: unknown };
+    if (typeof target !== 'string' || typeof text !== 'string') return [];
+    if (target.trim() === '' || text.trim() === '') return [];
+    const resuelto =
+      typeof loEmployeeKey === 'number' ? target.replaceAll('{lo}', String(loEmployeeKey)) : target;
+    /* Un `{lo}` sin clave para sustituir dejaría un selector que no matchea
+       nada, y eso se lee como «la flecha no aparece». Mejor no ofrecerla. */
+    return resuelto.includes('{lo}') ? [] : [{ target: resuelto, text }];
+  });
+}
+
 export function stepTarget(step: ReviewStep, pendiente = false): string | null {
   /*
    * ═══════════════════════════════════════════════════════════════

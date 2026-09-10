@@ -242,7 +242,14 @@ export function Q1Panel({ lo, benchmarkSlot }: { lo: LoanOfficerRow; benchmarkSl
         </span>
       </div>
       {/* Neutro a propósito: el benchmark es una referencia, no una alerta. */}
-      <div className="bp-stat">
+      {/*
+        `data-rv-anchor` es un ANCLA ESTABLE para la flecha del paso 1.2 -- ver
+        `stepArrows` en `lib/review/gates.ts`. Va acá porque este `.bp-stat` no
+        tiene selector propio: los cuatro comparten la clase, y distinguirlos
+        por `:nth-child` haría que agregar una estadística moviera la flecha a
+        otro número.
+      */}
+      <div className="bp-stat" data-rv-anchor="benchmark">
         <span className="bp-stat__label">Benchmark</span>
         {benchmarkSlot}
       </div>

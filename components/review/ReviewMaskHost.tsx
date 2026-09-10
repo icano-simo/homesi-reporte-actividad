@@ -34,7 +34,13 @@ import { usePathname, useRouter } from 'next/navigation';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { cerrarSesion, guardarPaso, moverCursor } from '@/lib/review/actions';
 import { sameStep } from '@/lib/review/progress';
-import { requiereDecisionDeFunnel, stepOpenEditor, stepTarget } from '@/lib/review/gates';
+import {
+  requiereDecisionDeFunnel,
+  stepArrows,
+  stepOpenEditor,
+  stepTarget,
+} from '@/lib/review/gates';
+import ReviewArrow from './ReviewArrow';
 import { buscarBranches, rutaDelModulo } from '@/lib/review/branches';
 import { useReviewTarget } from '@/lib/review/useReviewTarget';
 import { useReview } from './ReviewProvider';
@@ -149,6 +155,49 @@ export default function ReviewMaskHost() {
           })
         ) ?? null
       : null;
+
+  /*
+   * ══════════════════════════════════════════════════════════════════
+   * LAS FLECHAS DEL PASO, Y EL OK INTERMEDIO — etapa RV14
+   * ══════════════════════════════════════════════════════════════════
+   *
+   * `arrows` es un arreglo, así que el sub-paso no es un mecanismo aparte: es
+   * el índice dentro del arreglo. Con una sola flecha no hay OK y no hay nada
+   * que avanzar; con dos, la primera lo ofrece.
+   *
+   * ⚠ EL ÍNDICE NO SE GUARDA, y es deliberado. Un sub-paso persistido sería un
+   * cursor dentro de un cursor --hoy el cursor son dos columnas-- y tendría
+   * tres estados que mantener: «no llegué», «llegué y no confirmé»,
+   * «confirmé». Y sobre todo: el OK no es evidencia de nada. La evidencia del
+   * paso es el comentario y la fila del presupuesto; esto es un movimiento de
+   * atención, y al retomar la sesión que la flecha vuelva al primer ancla
+   * cuesta dos segundos de relectura y nunca está mal.
+   *
+   * ⚠ SE REINICIA AL CAMBIAR DE PASO, Y SE DERIVA -- no se copia con un
+   * efecto. El índice se guarda JUNTO A LA CLAVE DEL PASO en el que se avanzó,
+   * así que si la clave actual no es ésa, el índice vale 0 sin que nadie tenga
+   * que ponerlo en cero.
+   *
+   * La primera versión era `useEffect(() => setFlechaIdx(0), [clave])` y eslint
+   * la rechazó con la regla que este archivo ya documenta más arriba: un
+   * `setState` sincrónico en un efecto dispara renders en cascada, y este
+   * componente vive en el layout raíz -- ese costo lo paga todo el portal.
+   *
+   * Y el reinicio importa: entrar a un paso de una flecha después de haber
+   * avanzado en otro de dos dejaría el índice en 1 y no se dibujaría ninguna.
+   * La flecha desaparecería sin que nada falle, que es el defecto que este
+   * repo lleva persiguiendo toda la serie.
+   */
+  const flechas = pasoActual === null ? [] : stepArrows(pasoActual, activo?.session?.lo_employee_key);
+  const claveDelPaso =
+    pasoActual === null ? null : pasoActual.phase_no + ':' + pasoActual.step_in_phase;
+  const [avance, setAvance] = useState<{ clave: string | null; idx: number }>({
+    clave: null,
+    idx: 0,
+  });
+  const flechaIdx = avance.clave === claveDelPaso ? avance.idx : 0;
+  const flechaActual = flechas[Math.min(flechaIdx, Math.max(0, flechas.length - 1))] ?? null;
+
   /*
    * ⚠ EL LUGAR DEPENDE DE SI LA ACCIÓN ESTÁ HECHA. Sin funnel, el paso 3.1 se
    * hace en el catálogo; con funnel, se confirma en el perfil. Ver `stepTarget`.
@@ -682,6 +731,18 @@ export default function ReviewMaskHost() {
   return (
     <>
       <ReviewMask activo={activo} onSaveAndExit={onSaveAndExit} />
+      {/*
+        La flecha del paso. Se dibuja sólo con sesión y paso en curso, así que
+        al pasar al siguiente se desmonta -- no queda como adorno. Y si su
+        ancla no está en esta pantalla, el componente no dibuja nada.
+      */}
+      {activo?.session && flechaActual !== null && (
+        <ReviewArrow
+          flecha={flechaActual}
+          hayOtra={flechaIdx < flechas.length - 1}
+          onOk={() => setAvance({ clave: claveDelPaso, idx: flechaIdx + 1 })}
+        />
+      )}
       {/*
         El panel del paso va JUNTO A LA BARRA y no en cada pantalla, por el
         mismo motivo: es lo unico que tiene la sesion en curso y sobrevive al

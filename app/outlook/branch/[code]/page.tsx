@@ -1154,7 +1154,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                 const focoRows = personRows.map((pr) => ({ ...pr, employeeKey: pr.lo.employeeKey }));
                 return (
                 <Fragment key={key}>
-                  <tr className="grp d1 togg" onClick={() => toggle(key)}>
+                  <tr className="grp d1 togg" data-rv-grupo={key} onClick={() => toggle(key)}>
                     <td className="lbl">
                       <span className={'chev' + (abierta ? ' open' : '')} aria-hidden="true">
                         ›
@@ -1189,7 +1189,20 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                       const isMonthly = (pr.lo.modeByStrategy['Own Production'] ?? 'growth') === 'monthly';
                       const ownBenchmark = pr.lo.strategyBenchmarks['Own Production'] ?? 0;
                       return (
-                        <tr key={'lo-' + pr.lo.employeeKey} className="metric mrow">
+                        /*
+                          `data-rv-lo` es el ANCLA de la segunda flecha del paso
+                          2.1 -- la que señala la fila de la persona revisada.
+                          Lleva la clave porque el selector de la flecha no
+                          puede decir «la fila de quien se revisa»: `stepArrows`
+                          sustituye `{lo}` por esa clave. Sin el atributo habría
+                          que elegir la fila por posición, y la posición cambia
+                          con el orden del roster.
+                        */
+                        <tr
+                          key={'lo-' + pr.lo.employeeKey}
+                          className="metric mrow"
+                          data-rv-lo={pr.lo.employeeKey}
+                        >
                           <td className="lbl">
                             {pr.lo.fullName}
                             {pr.lo.position && <span className="bp-muted ol-tag">{pr.lo.position}</span>}
@@ -1267,7 +1280,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                 const abierta = open.has(key);
                 return (
                 <Fragment key={key}>
-                  <tr className="grp d1 togg" onClick={() => toggle(key)}>
+                  <tr className="grp d1 togg" data-rv-grupo={key} onClick={() => toggle(key)}>
                     <td className="lbl">
                       <span className={'chev' + (abierta ? ' open' : '')} aria-hidden="true">
                         ›
@@ -1365,7 +1378,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                 const abierta = open.has(key);
                 return (
                 <Fragment key={key}>
-                  <tr className="grp d1 togg" onClick={() => toggle(key)}>
+                  <tr className="grp d1 togg" data-rv-grupo={key} onClick={() => toggle(key)}>
                     <td className="lbl">
                       <span className={'chev' + (abierta ? ' open' : '')} aria-hidden="true">
                         ›
@@ -1466,7 +1479,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                 const abierta = open.has(key);
                 return (
                 <Fragment key={key}>
-                  <tr className="grp d1 togg" onClick={() => toggle(key)}>
+                  <tr className="grp d1 togg" data-rv-grupo={key} onClick={() => toggle(key)}>
                     <td className="lbl">
                       <span className={'chev' + (abierta ? ' open' : '')} aria-hidden="true">
                         ›
