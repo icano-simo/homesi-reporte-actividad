@@ -100,7 +100,20 @@ export interface StrategyBenchmarkRow {
 
 export interface NppmBenchmarkRow {
   nppm_benchmark_key: number;
+  /**
+   * ⚠ LA CLAVE ES `realtor_code`, NO ESTE CAMPO.
+   *
+   * `nppm_realtor` es el nombre tal como se guardó y sigue siendo NOT NULL en
+   * la tabla, pero está sólo para poder reconocer una fila si hay que auditar.
+   * Emparejar por él es lo que esta migración vino a eliminar: los nombres
+   * llegan crudos de Salesforce y 'FRED A GOMEZ' no se une con 'FRED GOMEZ'
+   * por más que se normalice la capitalización.
+   */
   nppm_realtor: string;
+  /** La clave estable, de `dim_nppm_realtor_v2`. Es por lo único que se une. */
+  realtor_code: string | null;
+  /** El nombre para mostrar, el de la dimensión y no el crudo de Salesforce. */
+  display_name: string | null;
   monthly_benchmark: number | string;
   effective_from: string;
   set_by: string;
@@ -174,7 +187,7 @@ export interface StrategyYtd {
   /** Cerrados por mes, 'YYYY-MM' → cuántos. Sólo meses con producción — OL3. */
   actualByMonth: Record<string, number>;
   /**
-   * Dentro de NPPM, los realtors por nombre. Vacío en las otras cuatro.
+   * Dentro de NPPM, los realtors. Vacío en las otras cuatro.
    *
    * ⚠ El benchmark es del REALTOR, no del par (realtor, Loan Officer): el mismo
    * realtor trabaja con varias personas y en varias branches -- Laura Delgado
@@ -183,7 +196,13 @@ export interface StrategyYtd {
    * los datos; el compromiso es del realtor.
    */
   byRealtor: {
-    realtor: string;
+    /**
+     * ⚠ LA IDENTIDAD, y va SIEMPRE en las claves y en los joins. Nunca en
+     * pantalla: es `nppm_a7cea027d81e`, no un nombre.
+     */
+    realtorCode: string;
+    /** Lo único que va en pantalla. */
+    displayName: string;
     ytd: number;
     /** Su producción mes a mes — etapa OL3. */
     actualByMonth: Record<string, number>;
@@ -332,8 +351,66 @@ export const UNASSIGNED_REALTOR = 'unassigned realtor';
 /** Ídem para el dueño de una oportunidad Affinity que no es una persona. */
 export const UNASSIGNED_OWNER = 'unassigned owner';
 
+/**
+ * ============================================================================
+ * LA IDENTIDAD DE UN REALTOR NPPM: `realtor_code`
+ * ============================================================================
+ *
+ * `nppm_realtor_code` viene resuelto de `dim_nppm_realtor_v2` a través de
+ * `loan_records_v2`, y NO CAMBIA NUNCA: ni cuando la persona entra al roster ni
+ * cuando alguien corrige la grafía en Salesforce. Es lo único por lo que se
+ * agrupa y se une.
+ *
+ * ⚠ ANTES SE EMPAREJABA POR NOMBRE NORMALIZADO, y eso se fue de acá. El
+ * criterio era trim + espacios colapsados + mayúsculas, que une 'fred gomez'
+ * con 'FRED GOMEZ' pero NO 'FRED A GOMEZ' con 'FRED GOMEZ': la inicial del
+ * medio sobrevive, y ése es exactamente el caso que hay en el dato. También
+ * había 'Jose Boggio' contra 'Jose A Boggio' en el mismo préstamo, y 'Ana
+ * Manjarrez' con Z contra 'Manjarres' con S.
+ *
+ * El normalizador NO quedó conviviendo con el código a propósito: dos reglas de
+ * identidad para lo mismo divergen, y ya pasó con `classifyLoan`, donde la
+ * vieja contradijo a la nueva durante semanas.
+ *
+ * ⚠ QUÉ HACER CUANDO NO HAY CÓDIGO -- y son dos casos, no uno:
+ *
+ *   hay nombre y no hay código   Walter Mena: 2 préstamos marcados NPPM y no
+ *                                está en la dimensión. Es un hueco de la
+ *                                fuente, no un dato ausente, así que CONSERVA
+ *                                SU NOMBRE en su propia fila. Se le arma una
+ *                                clave local con el prefijo de abajo, que no
+ *                                puede chocar con un `nppm_...` real.
+ *   no hay ninguno de los dos    ahí sí va `UNASSIGNED_REALTOR`.
+ *
+ * Colapsar los dos casos en 'unassigned realtor' perdería el nombre de Walter
+ * Mena, que es el dato que permite ir a arreglarlo arriba.
+ */
+const SIN_CODIGO_PREFIX = 'sin-codigo:';
+
+/** La identidad y el nombre visible de un realtor, a partir de una fila. */
+function realtorIdentity(row: {
+  nppm_realtor_code: string | null;
+  nppm_display_name: string | null;
+  nppm_realtor_efectivo: string | null;
+}): { code: string; displayName: string } {
+  const code = row.nppm_realtor_code?.trim();
+  if (code) {
+    return { code, displayName: row.nppm_display_name?.trim() || code };
+  }
+
+  const nombre = row.nppm_realtor_efectivo?.trim();
+  if (nombre) {
+    return { code: SIN_CODIGO_PREFIX + nombre, displayName: nombre };
+  }
+
+  return { code: UNASSIGNED_REALTOR, displayName: UNASSIGNED_REALTOR };
+}
+
 export interface BranchRealtor {
-  realtor: string;
+  /** La identidad. Va en las claves, nunca en pantalla. */
+  realtorCode: string;
+  /** Lo único que va en pantalla. */
+  displayName: string;
   ytd: number;
   actualByMonth: Record<string, number>;
   /**
@@ -816,10 +893,18 @@ export function remainingMonthsOf(currentMonth: string): string[] {
   return out;
 }
 
-/** Mismo criterio que `aliasIndex`: trim, espacios colapsados, mayúsculas. */
-function normName(name: string): string {
-  return name.trim().replace(/\s+/g, ' ').toUpperCase();
-}
+/*
+ * ⚠ ACÁ VIVÍA `normName`, Y SE FUE A PROPÓSITO.
+ *
+ * Normalizaba el nombre del realtor --trim, espacios colapsados, mayúsculas--
+ * para unir sus grafías. No alcanzaba: une 'fred gomez' con 'FRED GOMEZ' pero
+ * no 'FRED A GOMEZ' con 'FRED GOMEZ', y la inicial del medio es justo el caso
+ * que trae el dato. La identidad ahora es `nppm_realtor_code`, resuelto arriba;
+ * ver `realtorIdentity`.
+ *
+ * No quedó al lado del código nuevo porque dos reglas de identidad para lo
+ * mismo divergen -- y ya pasó con `classifyLoan`.
+ */
 
 /*
  * ============================================================================
@@ -879,9 +964,27 @@ interface ActivityYtdRow {
   loan_officer_person_code: string | null;
   branch: string | null;
   strategy: string | null;
-  nppm_realtor: string | null;
-  /* El respaldo del realtor NPPM cuando `nppm_realtor` viene vacío -- OL13. */
-  referred_by_realtor: string | null;
+  /*
+   * ⚠ `nppm_realtor` Y `referred_by_realtor` YA NO SE LEEN ACÁ, y por eso no
+   * están en este tipo ni en el `select`. La identidad sale de las tres de
+   * abajo, y el COALESCE entre esos dos campos ya viene resuelto de BigQuery.
+   * Pedirlos sería traer dos columnas de texto por cada préstamo del año para
+   * no usarlas.
+   *
+   * Siguen existiendo en `lib/supabase/loadCurrent.ts`, que es otro módulo y
+   * otra pregunta.
+   */
+  /** La clave estable. NULL sólo donde la dimensión no conoce al realtor. */
+  nppm_realtor_code: string | null;
+  /** El nombre de la dimensión, el que va en pantalla. */
+  nppm_display_name: string | null;
+  /**
+   * El nombre con el COALESCE de los dos campos de arriba YA APLICADO, resuelto
+   * en BigQuery. Es lo que se guarda como `nppm_realtor` al fijar un benchmark:
+   * usar `nppm_realtor` a secas dejaría vacías las tres filas del branch 733
+   * cuyo realtor viene en `referred_by_realtor`.
+   */
+  nppm_realtor_efectivo: string | null;
   /*
    * ⚠ EL DUEÑO DE LA OPORTUNIDAD, que en Affinity es un ACCOUNT EXECUTIVE y no
    * el Loan Officer. Es la unidad de decisión de esa estrategia -- etapa OL13.
@@ -942,7 +1045,7 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
     supabase
       .from('loan_records_v2')
       .select(
-        'loan_officer, loan_officer_person_code, branch, strategy, nppm_realtor, referred_by_realtor, opportunity_owner, closing_month'
+        'loan_officer, loan_officer_person_code, branch, strategy, nppm_realtor_code, nppm_display_name, nppm_realtor_efectivo, opportunity_owner, closing_month'
       )
       .eq('counts_for_division', true)
       .not('closing_month', 'is', null)
@@ -1146,12 +1249,33 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
     if (!nppmRes.error) {
       const nppmRows = (nppmRes.data ?? []) as NppmBenchmarkRow[];
       history.nppmBenchmarks = nppmRows;
-      /* Por nombre normalizado: los datos traen 'FRED A GOMEZ' y 'Fred A Gomez'
-         para la misma persona, y el benchmark es uno. */
+      /*
+       * POR `realtor_code`, que es la identidad. Antes iba por nombre
+       * normalizado y no alcanzaba -- ver la nota donde vivía `normName`.
+       *
+       * ⚠ UNA FILA SIN `realtor_code` NO SE PUEDE UBICAR, así que se cuenta y
+       * se avisa en vez de descartarse en silencio: sería un benchmark que
+       * alguien fijó y la pantalla no muestra, sin ningún síntoma. Hoy no puede
+       * haber ninguna --la tabla estaba VACÍA cuando se migró la clave, así que
+       * no hay filas viejas sin código-- y por eso el aviso es la señal de que
+       * algo escribió sin clave.
+       */
       const byRealtor = new Map<string, NppmBenchmarkRow[]>();
+      let sinCodigo = 0;
       for (const n of nppmRows) {
-        const k = normName(n.nppm_realtor);
+        const k = n.realtor_code?.trim();
+        if (!k) {
+          sinCodigo++;
+          continue;
+        }
         byRealtor.set(k, [...(byRealtor.get(k) ?? []), n]);
+      }
+      if (sinCodigo > 0) {
+        console.warn(
+          `[outlook] ${sinCodigo} benchmark(s) de NPPM sin realtor_code: no se ` +
+            'pueden ubicar y no se muestran. La tabla estaba vacía al migrar la ' +
+            'clave, así que esto significa que algo los escribió sin ella.'
+        );
       }
       for (const [k, rows2] of byRealtor) nppmScheduleByRealtor.set(k, scheduleFrom(rows2));
     }
@@ -1360,13 +1484,23 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
   const actualByLoStrategy: MonthCounter = new Map();
   const actualByLoStrategyRealtor: MonthCounter = new Map();
   /*
-   * Qué realtors tiene cada (branch, persona, NPPM). Se lleva aparte en vez de
-   * barrer las claves con `startsWith`, que es lo que hacía OL1: un nombre de
-   * realtor con una barra vertical rompía el corte de la clave y el realtor
-   * aparecía con el nombre mutilado. Enumerar desde un conjunto no depende de
-   * cómo esté escrito el nombre.
+   * Qué realtors tiene cada (branch, persona, NPPM), POR CÓDIGO. Se lleva
+   * aparte en vez de barrer las claves con `startsWith`, que es lo que hacía
+   * OL1: un nombre de realtor con una barra vertical rompía el corte de la
+   * clave y el realtor aparecía con el nombre mutilado. Enumerar desde un
+   * conjunto no depende de cómo esté escrito el nombre -- y ahora tampoco
+   * dependen las claves, que llevan el código.
    */
   const realtorsByStrategyKey = new Map<string, Set<string>>();
+  /**
+   * Código de realtor -> nombre para mostrar.
+   *
+   * Los conjuntos y las claves llevan el código, así que el nombre visible
+   * tiene que venir de algún lado a la hora de dibujar. Se llena en la misma
+   * pasada que los contadores: cada fila trae su `nppm_display_name`, y un
+   * código siempre trae el mismo nombre.
+   */
+  const nombrePorCodigo = new Map<string, string>();
   /*
    * A NIVEL BRANCH, sin la persona en la clave — etapa OL8.
    *
@@ -1481,27 +1615,34 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
 
     if (strategy === 'NPPM') {
       /*
-       * ⚠ EL REALTOR PUEDE VENIR EN DOS CAMPOS — etapa OL13.
+       * LA IDENTIDAD SALE DE `realtorIdentity`, no de los campos de nombre.
        *
-       * `nppm_realtor` es el principal y `referred_by_realtor` el respaldo: es la
-       * misma regla que Forecast ya usa en `nppmRealtors`. Medido: un préstamo del
-       * 733 tenía `nppm_realtor` vacío y `referred_by_realtor` con 'Santiago
-       * Jaraba Chacon', así que se mostraba como `unassigned realtor` teniendo
-       * nombre.
+       * ⚠ EL RESPALDO DE DOS CAMPOS SIGUE EXISTIENDO, PERO YA NO ESTÁ ACÁ
+       * --etapa OL13--. `nppm_realtor` es el principal y `referred_by_realtor`
+       * el respaldo, y ese COALESCE ahora se hace EN BIGQUERY: el código se
+       * resuelve del valor ya combinado y llega en `nppm_realtor_code`. Son tres
+       * préstamos del branch 733 --dos de Santiago Jaraba Chacon y uno de Ana
+       * Hardy-- que tienen el campo principal vacío y su realtor en el respaldo.
+       * Si el código se hubiera resuelto del principal a secas, esos tres
+       * volverían a `unassigned realtor` teniendo nombre, que es el bug que OL13
+       * arregló.
        *
-       * ⚠ Y NO LOS RESUELVE A TODOS: queda un préstamo del 776 --agosto-- con los
-       * DOS campos vacíos. Ese sigue como `unassigned realtor`, que es la verdad:
-       * su realtor no está en el dato de origen.
+       * ⚠ Y SIGUE HABIENDO UN PRÉSTAMO SIN NINGUNO DE LOS DOS: el del 776 de
+       * agosto. Ése es el único que va a `UNASSIGNED_REALTOR`, y es la verdad:
+       * su realtor no está en el dato de origen. No confundirlo con Walter Mena,
+       * que tiene nombre y no tiene código -- ver `realtorIdentity`.
        */
-      const realtor = row.nppm_realtor?.trim() || row.referred_by_realtor?.trim() || UNASSIGNED_REALTOR;
-      bump(actualByLoStrategyRealtor, sk + '|' + realtor, month);
+      const { code, displayName } = realtorIdentity(row);
+      nombrePorCodigo.set(code, displayName);
+
+      bump(actualByLoStrategyRealtor, sk + '|' + code, month);
       const set = realtorsByStrategyKey.get(sk) ?? new Set<string>();
-      set.add(realtor);
+      set.add(code);
       realtorsByStrategyKey.set(sk, set);
 
-      bump(actualByBranchRealtor, branch + '|' + realtor, month);
+      bump(actualByBranchRealtor, branch + '|' + code, month);
       const porBranch = realtorsByBranch.get(branch) ?? new Set<string>();
-      porBranch.add(realtor);
+      porBranch.add(code);
       realtorsByBranch.set(branch, porBranch);
     }
   }
@@ -1549,17 +1690,20 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       const byRealtor =
         s === 'NPPM'
           ? [...(realtorsByStrategyKey.get(sk) ?? [])]
-              .map((realtor) => {
-                const schedule = nppmScheduleByRealtor.get(normName(realtor)) ?? [];
+              .map((realtorCode) => {
+                /* Por código. Antes iba por nombre normalizado -- ver `normName`. */
+                const schedule = nppmScheduleByRealtor.get(realtorCode) ?? [];
                 const at = benchmarkAt(schedule, displayMonth);
                 return {
-                  realtor,
-                  ytd: totalOf(actualByLoStrategyRealtor, sk + '|' + realtor),
-                  actualByMonth: monthsOf(actualByLoStrategyRealtor, sk + '|' + realtor),
+                  realtorCode,
+                  displayName: nombrePorCodigo.get(realtorCode) ?? realtorCode,
+                  ytd: totalOf(actualByLoStrategyRealtor, sk + '|' + realtorCode),
+                  actualByMonth: monthsOf(actualByLoStrategyRealtor, sk + '|' + realtorCode),
                   benchmark: schedule.length === 0 ? null : at,
                 };
               })
-              .sort((a, b) => b.ytd - a.ytd || a.realtor.localeCompare(b.realtor))
+              /* Se ordena por el NOMBRE, no por el código: el código es opaco. */
+              .sort((a, b) => b.ytd - a.ytd || a.displayName.localeCompare(b.displayName))
           : [];
       return {
         strategy: s,
@@ -2070,8 +2214,8 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
         strategy !== 'NPPM'
           ? []
           : [...(realtorsByBranch.get(branchCode) ?? [])]
-              .map((realtor) => {
-                const rk = branchCode + '|' + realtor;
+              .map((realtorCode) => {
+                const rk = branchCode + '|' + realtorCode;
                 const meses = monthsOf(actualByBranchRealtor, rk);
                 /*
                  * ⚠ EL BENCHMARK POR DEFECTO ES EL PROMEDIO DE SUS 3 MESES
@@ -2085,10 +2229,13 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
                  * ventana.
                  */
                 const avg3m = ventanaCerrada.reduce((a, m) => a + (meses[m] ?? 0), 0) / NPPM_WINDOW;
-                const guardado = benchmarkAt(nppmScheduleByRealtor.get(normName(realtor)) ?? [], displayMonth);
-                const hayGuardado = (nppmScheduleByRealtor.get(normName(realtor)) ?? []).length > 0;
+                /* Por código, igual que en `strategiesOf`. */
+                const schedule = nppmScheduleByRealtor.get(realtorCode) ?? [];
+                const guardado = benchmarkAt(schedule, displayMonth);
+                const hayGuardado = schedule.length > 0;
                 return {
-                  realtor,
+                  realtorCode,
+                  displayName: nombrePorCodigo.get(realtorCode) ?? realtorCode,
                   ytd: totalOf(actualByBranchRealtor, rk),
                   actualByMonth: meses,
                   avg3m,
@@ -2096,7 +2243,8 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
                   benchmarkIsDefault: !hayGuardado,
                 };
               })
-              .sort((a, b) => b.ytd - a.ytd || a.realtor.localeCompare(b.realtor));
+              /* Por el NOMBRE y no por el código, que es opaco. */
+              .sort((a, b) => b.ytd - a.ytd || a.displayName.localeCompare(b.displayName));
       /*
        * Las dos mitades del mes en curso, sólo de quienes tienen ESTE branch como
        * primario -- mismo filtro que el total del branch, para que la suma cierre.
@@ -2251,9 +2399,27 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
        * sus filas. Contarlo aparte sería una segunda fórmula para el mismo
        * número, y podría no dar la diferencia que se ve en la pantalla -- que es
        * justo lo que este número viene a explicar.
+       *
+       * ⚠ SE RESTA LO QUE CADA PERSONA CERRÓ EN ESTE BRANCH, NO SU YTD GLOBAL.
+       * Decía `l.ytd`, que es `totalOf(actualByLo, employeeKey)` -- la suma de
+       * TODOS los branches donde esa persona cerró algo, no sólo éste. Alguien
+       * del roster de este branch que además cerró en otro --Gian Laino, roster
+       * 747, con cierres reales en el 710, el 716, el 760 y Affinity este año--
+       * restaba de más acá: su producción de OTROS branches se descontaba del
+       * total de ESTE, y el residuo le quedaba corto a `outsiders` por esa
+       * misma diferencia.
+       *
+       * Medido en el 747: `l.ytd` sumaba 28 (Galo Rizzo) + 24 (Gian Laino,
+       * global) = 52 sobre un total de 54, dando `closedByOutsiders = 2` --
+       * cuando los cierres reales de gente de otro branch (Nathan Martinez 3,
+       * Cristhian Ramirez 1, Jose Zamora 1) ya suman 5. `totalOf(actualByBranchLo,
+       * branchCode + '|' + l.employeeKey)` es lo que Gian cerró EN el 747 (17,
+       * no 24), y da `closedByOutsiders = 5` -- exactamente lo que `outsiders`
+       * ya nombraba, sin la diferencia.
        */
       closedByOutsiders:
-        totalOf(actualByBranch, branchCode) - los.reduce((a, l) => a + l.ytd, 0),
+        totalOf(actualByBranch, branchCode) -
+        los.reduce((a, l) => a + totalOf(actualByBranchLo, branchCode + '|' + l.employeeKey), 0),
       /*
        * Los mismos cierres que cuenta `closedByOutsiders`, con nombre. Se sacan
        * de `actualByBranchLo` --que tiene la producción de CADA persona en CADA

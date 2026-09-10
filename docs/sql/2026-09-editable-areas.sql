@@ -82,6 +82,25 @@ create policy area_insert on business_plan.area
   for insert with check (business_plan.has_access());
 create policy area_update on business_plan.area
   for update using (business_plan.has_access()) with check (business_plan.has_access());
+
+-- ⚠ EL GRANT, QUE FALTABA Y ROMPIO LA PANTALLA.
+--
+-- Las policies deciden QUE FILAS se ven; el grant decide si se puede tocar la
+-- tabla. Sin el, `authenticated` recibia `permission denied for table area` --y
+-- no cero filas, que es lo que hace RLS--.
+--
+-- Y el efecto no era solo no poder leer la tabla nueva: el trigger
+-- `node_area_bridge` es `security invoker` y LEE `business_plan.area`, asi que
+-- cualquier asignacion de area desde la biblioteca fallaba con 403. Reproducido
+-- con el camino exacto de la pantalla: el valor no cambiaba.
+--
+-- Fue la unica tabla del esquema sin grant: las otras ocho lo tenian. Un
+-- `create table` nuevo no lo hereda.
+--
+-- SIN DELETE, a proposito: `area` no tiene policy de delete porque un area se
+-- DESACTIVA. Dar el grant sin la policy dejaria un DELETE que devuelve cero
+-- filas en silencio -- comprobado que asi devuelve 403, que es lo que se quiere.
+grant select, insert, update on business_plan.area to authenticated;
 /*
  * ⚠ NO HAY POLICY DE DELETE, a propósito. Un área se DESACTIVA, no se borra: si
  * se borrara, habría que decidir qué pasa con sus nodos, y las dos respuestas

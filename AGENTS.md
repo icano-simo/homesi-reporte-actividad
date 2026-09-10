@@ -182,6 +182,17 @@ veces lo encontró la captura, no la medición.
   filas que no deberían existir suman perfectamente.
 - Una consulta a Supabase: **cero filas con `error: null` es una policy de RLS
   que no aplica**, no una tabla vacía. RLS filtra, no rechaza.
+- Y su complemento, que apunta a otro lado: **un `403 permission denied for
+  table X` no es RLS, es un `GRANT` que falta.** Las policies deciden QUÉ FILAS;
+  el grant decide si se puede tocar la tabla. Los dos fallos son distinguibles,
+  y conviene: cero filas manda a mirar las policies, un 403 manda a mirar los
+  grants.
+
+  Un `create table` nuevo **no hereda** el grant del esquema. Y es fácil
+  escribir las políticas y olvidarlo, porque las políticas son lo que uno está
+  pensando: `business_plan.area` quedó como la única de nueve tablas sin grant,
+  y eso rompió una pantalla que ni la menciona — un trigger `security invoker`
+  la leía, así que asignar un área devolvía 403.
 
 ## Antes que todo lo anterior: que el arnés haya corrido
 
@@ -262,6 +273,54 @@ Las dos reglas operativas que salen de acá:
 Y el corolario que duele: el número que lo delató —69 de 75— se podía haber
 calculado en cualquier momento con una consulta de treinta segundos. No hacía
 falta descubrirlo, hacía falta preguntarlo.
+
+## Cinco de estas lecciones son código, no nota
+
+`scripts/verificacion/guardas.mjs`. Se importan desde cualquier script de
+verificación y no tocan la base — reciben el `page` o el `locator` por
+argumento, así que la sonda que se autentica contra producción sigue viviendo
+fuera del repo.
+
+| Guarda | Qué impide | Veces que mordió |
+|---|---|---|
+| `leerTexto` | `innerText` con `text-transform`, y leer texto de un `<input>` | **4** |
+| `esperarDato` | medir antes de que el dato llegue, y esperar a la señal equivocada | 1, con 11 falsos |
+| `medirRuta` | atribuirle al cambio el compile en frío | 1, casi público |
+| `crearArnes` | un resumen que dice verde sin haber corrido | 1 |
+| `exigirSinChoques` | redefinir una clase de CSS que ya existía | 1 |
+
+**Por qué están en el repo y no en el scratchpad de una sesión:** una guarda que
+se muere con la sesión es *peor* que una nota acá, porque la nota al menos
+sobrevive para que alguien la lea.
+
+Y sus propias pruebas verifican que **atrapen**, no que pasen —
+`guardas.test.mjs` y `guardas.browser.test.mjs` construyen el error que cada una
+existe para detectar. Escribiendo esa prueba apareció una aserción mía que era
+una **tautología**: `!a.includes(b) || a.length === 3`, cuyo segundo término
+siempre era cierto. Una aserción que no puede fallar es peor que ninguna, porque
+ocupa el lugar de una que sí mide.
+
+Pasó **dos veces**, y las dos escribiendo la prueba de otra cosa. La segunda fue
+`/is-current/.test(...) || st.some((x) => x.punto !== null && !/is-current|is-done/.test(x.clases))`,
+para verificar que un punto de “trabado” convive con el contorno de estado del
+botón: el segundo término se cumplía solo, porque un nodo trabado y sin estado
+siempre hay. Las dos veces la forma fue la misma, y es buscable:
+
+> **Un OR en una aserción es una pregunta sin contestar; se contesta armando el
+> estado, no ampliando la condición.**
+
+Un `||` se escribe cuando no se sabe cuál de los dos casos va a venir — y esa
+incertidumbre es justo la señal de que hay que **construir** el caso. La versión
+válida eligió el nodo trabado para que quedara en curso y completó su step con
+el antecesor sin terminar: el botón quedó `is-done is-current` con el punto
+puesto, que es lo que un cuarto estado no podría representar. Así la prueba
+justifica la decisión de diseño además de verificarla.
+
+**Las otras cuatro se quedan como nota, y por buenas razones.** El timeout corto
+no tiene un número correcto general — depende de la ruta. La columna equivocada
+del Excel se evita leyendo por nombre, que es una convención y no una función. Y
+la estimación propia usada como medición es un error de criterio: ninguna guarda
+impide que alguien confíe en su propio cálculo.
 
 # Un caso nuevo activa bugs que nadie escribió hoy
 

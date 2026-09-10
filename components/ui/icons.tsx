@@ -396,6 +396,23 @@ export function CalendarIcon(props: IconProps) {
   );
 }
 
+/**
+ * lucide: clock — el `ends day N` de un funnel.
+ *
+ * ⚠ Y NO `CalendarIcon`, que ya estaba. Un calendario dice FECHA y `ends day
+ * 207` no es una fecha: es un contador de días desde que la persona se enrola,
+ * y la fecha real depende de cuándo se enroló. Los nueve funnels van de 8 a 207
+ * días, así que el mismo `day 89` cae en un mes distinto para cada uno.
+ */
+export function ClockIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 6v6l4 2" />
+    </Icon>
+  );
+}
+
 /** lucide: map-pin — Community Presence, territorio. */
 export function MapPinIcon(props: IconProps) {
   return (
