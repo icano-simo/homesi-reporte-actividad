@@ -244,6 +244,43 @@ export default function PersonBudgetEditor({
   );
 
   /*
+   * ============================================================================
+   * GUARDAR CON DIFERENCIA — etapa OL26f
+   * ============================================================================
+   *
+   * "No forzar" (el desglose no tiene que sumar el total, y el CHECK de la
+   * base a propósito no lo exige) no es lo mismo que "guardar en silencio".
+   * Isabella probó la pantalla y guardó un desglose que no sumaba sin darse
+   * cuenta -- la fila `Difference` ya lo mostraba, pero nada en el botón lo
+   * decía.
+   *
+   * ⚠ EL BOTÓN, NO UNA CONFIRMACIÓN -- decisión de Isabella: "es un gesto
+   * menos que una confirmación, y el número queda a la vista mientras se
+   * decide". Un modal de confirmación exige una decisión ANTES de ver el
+   * número de nuevo (hay que recordarlo del paso anterior); el botón lo
+   * muestra en el mismo lugar donde se hace clic, así que se puede volver a
+   * mirar la fila de arriba sin cerrar nada.
+   *
+   * Suma el ABSOLUTO de la diferencia de cada mes, no el neto: enero +5 y
+   * febrero -5 no puede mostrar "sin diferencia" cuando los dos meses están
+   * mal, cada uno por su lado.
+   *
+   * Sólo cuenta si ALGO se va a guardar (`totalsChanged || breakdownChanged`)
+   * -- si nadie tocó nada, `save()` no escribe ninguna tabla (ver más abajo,
+   * "Nothing had changed"), y el botón no puede advertir sobre un guardado
+   * que no va a pasar.
+   */
+  function pendingDifference(): number {
+    if (!totalsChanged && !breakdownChanged) return 0;
+    return months.reduce((sum, m) => {
+      const d = deltaOf(m);
+      return sum + (d === null ? 0 : Math.abs(d));
+    }, 0);
+  }
+  const saveDiff = pendingDifference();
+  const saveLabel = saveDiff > 0.001 ? `Save with a difference of ${fmtNum(saveDiff)}` : 'Save budget';
+
+  /*
    * Quién guardó la revisión vigente de cada tabla, para la línea al pie. Por
    * código, no por nombre normalizado -- ver la nota de `PersonSubject` en
    * save.ts.
@@ -329,7 +366,7 @@ export default function PersonBudgetEditor({
             />
           </div>
           <button type="button" className="bp-btn bp-btn--small" onClick={save} disabled={busy}>
-            {busy ? '…' : 'Save budget'}
+            {busy ? '…' : saveLabel}
           </button>
         </div>
       }
