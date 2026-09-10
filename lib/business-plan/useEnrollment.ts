@@ -39,6 +39,17 @@ export interface PlanNode {
   enrollment_node_key: number;
   /** Nodo de la plantilla del que salió esta copia. Nulo si lo borraron. */
   source_node_key: number | null;
+  /**
+   * El nodo DE ESTE PLAN que hay que terminar antes -- etapa BP46.
+   *
+   * Apunta a otro `enrollment_node` del mismo enrolamiento, nunca a la
+   * plantilla: `activate_funnel` lo resuelve en una segunda pasada. Si apuntara
+   * a la plantilla, desbloquear a una persona desbloquearia a todas las que
+   * comparten funnel -- y tres de los cinco planes activos comparten uno.
+   *
+   * `null` = no espera a nada. Llega solo con el `select('*')`.
+   */
+  depends_on_enrollment_node_key: number | null;
   name: string;
   description: string | null;
   icon: string | null;

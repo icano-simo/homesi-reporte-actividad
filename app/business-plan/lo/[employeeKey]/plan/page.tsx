@@ -12,6 +12,7 @@ import {
   MILESTONE_STATUS_LABEL,
   allowedStatuses,
   canToggleMilestone,
+  isBlocked,
   isOverdue,
   progressOf,
   type MilestoneStatus,
@@ -230,6 +231,24 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
    * dentro del render es impuro -- dos renders del mismo estado podrían dar
    * semanas distintas si el componente se re-renderiza al cruzar la medianoche.
    */
+  /*
+   * ═══════════════════════════════════════════════════════════════════════
+   * EL MAPA PARA `isBlocked` — etapa BP46
+   * ═══════════════════════════════════════════════════════════════════════
+   *
+   * `blocked` NO se guarda: se DERIVA de que la dependencia del nodo no esté
+   * completa. Un step en progreso cuyo antecesor no terminó tiene dos estados a
+   * la vez, y una sola columna no los guarda -- al desbloquearlo habría que
+   * adivinar cuál era.
+   *
+   * Se arma una vez por render y no por nodo: con doce nodos, hacerlo adentro
+   * del `map` serían doce recorridos del mismo array.
+   */
+  const nodosPorKey = useMemo(
+    () => new Map((plan?.nodes ?? []).map((n) => [n.enrollment_node_key, n])),
+    [plan]
+  );
+
   const [mountedAt] = useState(() => Date.now());
   const today = useMemo(() => new Date(mountedAt).toISOString().slice(0, 10), [mountedAt]);
 
@@ -360,7 +379,7 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                 <span className="bp-ring__pct">{progressOf(totals.done, totals.total)}%</span>
               </div>
               <div className="bp-ring__label">
-                {totals.done} of {totals.total} stages
+                {totals.done} of {totals.total} step{totals.total === 1 ? '' : 's'}
               </div>
             </div>
 
@@ -394,6 +413,38 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
               const p = nodeProgress(n);
               const complete = p.total > 0 && p.done === p.total;
               const isCurrent = n.enrollment_node_key === currentNodeKey;
+              /*
+               * ═══════════════════════════════════════════════════════════════
+               * TRABADO, TAMBIÉN EN EL STEPPER — etapa BP46
+               * ═══════════════════════════════════════════════════════════════
+               *
+               * La tarjeta muestra UN nodo a la vez. Con los once nodos de
+               * `Recruitment - DYS` en pantalla, saber cuáles esperan a otro
+               * costaba once clics -- que es exactamente el valor que se gana al
+               * derivarlo, gastado en navegar.
+               *
+               * ⚠ NO es un cuarto estado del botón. Pendiente, en curso y
+               * completado se distinguen por el CONTORNO y comparten fondo
+               * (sección 23, BP24); un borde ámbar competiría con el coral del
+               * actual y el emerald del completado, y un nodo trabado puede
+               * estar en cualquiera de los tres. Así que se AGREGA un punto,
+               * no se cambia el que ya hay.
+               *
+               * ⚠ Y NO ES SÓLO COLOR. El punto lo ve quien mira; el `title` y
+               * el texto para lectores de pantalla dicen a quién espera, con
+               * nombre. Un punto ámbar solo sería una señal que hay que
+               * aprender.
+               */
+              const trabado = isBlocked(n, nodosPorKey);
+              const esperaA =
+                !trabado || n.depends_on_enrollment_node_key === null
+                  ? null
+                  : nodosPorKey.get(n.depends_on_enrollment_node_key)?.name ?? null;
+              const porQue = !trabado
+                ? undefined
+                : esperaA === null
+                  ? 'Blocked — it waits for a node that is no longer in this plan'
+                  : 'Blocked — waits for ' + esperaA;
               return (
                 <button
                   key={n.enrollment_node_key}
@@ -401,10 +452,17 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                   className={
                     'bp-step' + (complete ? ' is-done' : '') + (isCurrent ? ' is-current' : '')
                   }
+                  title={porQue}
                   onClick={() => setActiveNode(n.enrollment_node_key)}
                 >
                   <span className="bp-step__n">{i + 1}</span>
                   <span className="bp-step__name">{n.name}</span>
+                  {trabado && (
+                    <>
+                      <span className="bp-step__blocked" aria-hidden="true" />
+                      <span className="bp-sr-only">{porQue}</span>
+                    </>
+                  )}
                   <span className="bp-step__count">
                     {p.done}/{p.total}
                   </span>
@@ -436,6 +494,45 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                       {node.name}
                     </h2>
                     {node.description && <p className="bp-plan-node__desc">{node.description}</p>}
+                    {/*
+                      ════════════════════════════════════════════════════
+                      TRABADO: SE DERIVA Y DESCRIBE, NO PROHÍBE — etapa BP46
+                      ════════════════════════════════════════════════════
+
+                      El badge dice qué falta y CUÁNTO falta, con el nombre del
+                      nodo que se espera -- nunca su posición, que cambia al
+                      reordenar.
+
+                      ⚠ Y NO DESHABILITA NADA. Si alguien hizo el trabajo fuera
+                      de orden, el registro tiene que poder decirlo: bloquear el
+                      control obligaría a mentir sobre el orden para poder
+                      registrar la verdad sobre el trabajo.
+                    */}
+                    {(() => {
+                      if (!isBlocked(node, nodosPorKey)) return null;
+                      const dep =
+                        node.depends_on_enrollment_node_key === null
+                          ? null
+                          : nodosPorKey.get(node.depends_on_enrollment_node_key) ?? null;
+                      /* Un antecesor que no se puede leer se informa igual:
+                         `isBlocked` lo trata como trabado, y decir "listo"
+                         sería inventar. */
+                      if (dep === null) {
+                        return (
+                          <p className="bp-plan-node__blocked">
+                            Blocked — it waits for a node that is no longer in this plan.
+                          </p>
+                        );
+                      }
+                      const faltan = dep.milestones.filter((m) => m.status !== 'completed').length;
+                      return (
+                        <p className="bp-plan-node__blocked">
+                          Blocked — waits for <strong>{dep.name}</strong>, which has {faltan} step
+                          {faltan === 1 ? '' : 's'} left. You can still mark steps here if the work was done out of
+                          order.
+                        </p>
+                      );
+                    })()}
                   </div>
 
                   <div className="bp-owners">
@@ -462,7 +559,7 @@ export default function ActivePlanPage({ params }: { params: Promise<{ employeeK
                     <span style={{ width: progressOf(p.done, p.total) + '%' }} />
                   </div>
                   <span className="bp-node-progress__label">
-                    {p.done} of {p.total} stages done
+                    {p.done} of {p.total} step{p.total === 1 ? '' : 's'} done
                   </span>
                 </div>
 
