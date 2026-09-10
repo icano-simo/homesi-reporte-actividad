@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { GAP_STATE_LABEL } from '@/lib/business-plan/qualifiers';
 import { shortMonth } from '@/lib/business-plan/months';
 import type { LoanOfficerRow, Qualifier2Metric } from '@/lib/business-plan/types';
-import { exactTitle, fmtActivityAvg, fmtAvg, fmtGap, fmtLoans } from './shared';
+import { exactTitle, fmtActivityAvg, fmtAvg, fmtDecimal, fmtGap, fmtLoans } from './shared';
 
 /**
  * ============================================================================
@@ -219,6 +219,7 @@ export function ChannelBreakdown({ lo }: { lo: LoanOfficerRow }) {
  * el editor, el grupo pone la suma con su desglose. Todo lo demás es idéntico.
  */
 export function Q1Panel({ lo, benchmarkSlot }: { lo: LoanOfficerRow; benchmarkSlot: ReactNode }) {
+  const { budget, budgetMet, benchmarkMet, gapAgainst } = lo.q1;
   return (
     <div className="mcard bp-stats">
       {/*
@@ -241,17 +242,68 @@ export function Q1Panel({ lo, benchmarkSlot }: { lo: LoanOfficerRow; benchmarkSl
           {fmtAvg(lo.avgClosedMonths)}
         </span>
       </div>
-      {/* Neutro a propósito: el benchmark es una referencia, no una alerta. */}
       {/*
-        `data-rv-anchor` es un ANCLA ESTABLE para la flecha del paso 1.2 -- ver
-        `stepArrows` en `lib/review/gates.ts`. Va acá porque este `.bp-stat` no
-        tiene selector propio: los cuatro comparten la clase, y distinguirlos
-        por `:nth-child` haría que agregar una estadística moviera la flecha a
-        otro número.
+        ============================================================================
+        STARTING BENCHMARK — etapa BP49
+        ============================================================================
+        Mismo campo de siempre (`org.employee_benchmark`, vigente) -- no hay
+        uno nuevo, sólo se lo llama por lo que es en esta pantalla: el PISO
+        contra el que cae el gap cuando el budget no se cumple o no está
+        fijado. Ver `gapAgainstOf` en qualifiers.ts.
+
+        Sombreado SÓLO cuando es la referencia ACTIVA del gap
+        (`gapAgainst === 'benchmark'`): si el gap se está midiendo contra el
+        budget, no hay nada que decir todavía de si el benchmark se cumple --
+        mostrar un rojo ahí culparía a alguien por un número que hoy no lo
+        rige. Y el texto ("Forecast meets it" / "...is below it") va SIEMPRE
+        al lado del color: alguien que no distingue verde de rojo tiene que
+        poder leer el mismo estado en palabras.
+
+        `data-rv-anchor="benchmark"` es un ANCLA ESTABLE para la flecha del
+        paso 1.2 -- ver `stepArrows` en `lib/review/gates.ts`. Se queda igual
+        que antes de BP49: el ancla es la fila, no el texto de su rótulo.
       */}
-      <div className="bp-stat" data-rv-anchor="benchmark">
-        <span className="bp-stat__label">Benchmark</span>
-        {benchmarkSlot}
+      <div
+        className={
+          'bp-stat' + (gapAgainst === 'benchmark' ? (benchmarkMet ? ' bp-stat--met' : ' bp-stat--under') : '')
+        }
+        data-rv-anchor="benchmark"
+      >
+        <span className="bp-stat__label">Starting benchmark</span>
+        {/*
+          `<div>`, no `<span>`: `benchmarkSlot` (el editor, en el perfil) trae
+          un `<div>` propio, y un bloque dentro de un elemento en línea es HTML
+          inválido.
+        */}
+        <div className="bp-stat__row">
+          {benchmarkSlot}
+          {gapAgainst === 'benchmark' && (
+            <span className="bp-stat__flag">{benchmarkMet ? 'Forecast meets it' : 'Forecast is below it'}</span>
+          )}
+        </div>
+      </div>
+
+      {/*
+        ============================================================================
+        BUDGET (THIS MONTH) — etapa BP49
+        ============================================================================
+        De Outlook (`outlook.person_budget_total`, mes en curso, última
+        revisión). `null` es un ESTADO -- "nadie lo fijó todavía" -- y no un
+        cero: por eso NO se sombrea en rojo cuando falta. Un rojo sobre un
+        número que nadie fijó culpa a la persona por algo que no es suyo.
+      */}
+      <div className={'bp-stat' + (budget === null ? '' : budgetMet ? ' bp-stat--met' : ' bp-stat--under')}>
+        <span className="bp-stat__label">Budget (this month)</span>
+        {budget === null ? (
+          <span className="bp-muted" title="Nobody has set a budget for this month in Outlook.">
+            Not set
+          </span>
+        ) : (
+          <span className="bp-stat__row">
+            <span className="bp-stat__value">{fmtDecimal(budget)}</span>
+            <span className="bp-stat__flag">{budgetMet ? 'Forecast meets it' : 'Forecast is below it'}</span>
+          </span>
+        )}
       </div>
 
       {/*
@@ -261,9 +313,16 @@ export function Q1Panel({ lo, benchmarkSlot }: { lo: LoanOfficerRow; benchmarkSl
 
         Un decimal siempre: redondear a entero convertiría un −0,5 en 0, o sea On
         Target, y eso cambia veredictos, no la presentación.
+
+        ⚠ ETAPA BP49: el rótulo dice CONTRA QUÉ se calculó -- "vs budget" o "vs
+        starting benchmark" -- porque desde esta etapa el gap ya no mide
+        siempre contra lo mismo, y un número sin esa aclaración se prestaría a
+        leerse contra el de siempre.
       */}
       <div className={'bp-gap-hero' + (lo.q1.state ? ' bp-gap-hero--' + lo.q1.state : '')}>
-        <span className="bp-stat__label">GAP</span>
+        <span className="bp-stat__label">
+          GAP{gapAgainst && ' — vs ' + (gapAgainst === 'budget' ? 'budget' : 'starting benchmark')}
+        </span>
         {lo.q1.gap === null ? (
           <span className="bp-muted">—</span>
         ) : (

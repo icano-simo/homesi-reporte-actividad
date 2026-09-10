@@ -169,6 +169,7 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
   const supabase = getSupabaseClient();
   const org = supabase.schema('org');
   const bp = supabase.schema('business_plan');
+  const outlook = supabase.schema('outlook');
 
   const windowMonths = currentWindowMonths(reference, WINDOW_MONTHS);
   const closedMonths = lastCompleteMonths(reference, WINDOW_MONTHS);
@@ -351,6 +352,50 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
     }
   } catch {
     /* tabla ausente: rige la regla general */
+  }
+
+  /*
+   * ============================================================================
+   * EL BUDGET DEL MES, DE OUTLOOK — etapa BP49
+   * ============================================================================
+   *
+   * `outlook.person_budget_total` es la tabla de Set Budget (Outlook, punto 5
+   * de OL26): append-only, versionada por `revision`, por `employee_key` y por
+   * `target_month`. Acá sólo hace falta el MES EN CURSO -- el gap de este
+   * perfil compara el forecast del mes contra lo que se fijó PARA ESE MES, no
+   * contra un total acumulado ni contra otro mes.
+   *
+   * ⚠ SÓLO `employee_key`, nunca `nppm_realtor_code` -- el perfil del Loan
+   * Officer no tiene sujeto realtor. Traer las filas de realtor sería leer
+   * datos que este módulo no puede usar.
+   *
+   * Mismo patrón que las demás tablas opcionales: si la migración de Outlook
+   * no corrió todavía, o si RLS no da acceso desde este módulo, el budget
+   * queda `null` para todos -- que es exactamente el estado "no se fijó", no
+   * un error que tumbe la pantalla.
+   */
+  const budgetThisMonthByEmployee = new Map<number, number>();
+  let personBudgetTotalTableAvailable = false;
+  try {
+    const { data, error } = await outlook
+      .from('person_budget_total')
+      .select('employee_key, target_month, total, revision')
+      .not('employee_key', 'is', null)
+      .eq('target_month', thisMonth + '-01');
+    if (!error && data) {
+      personBudgetTotalTableAvailable = true;
+      /* Última revisión por empleado -- ya viene filtrado a un solo mes, así
+         que no hace falta desambiguar por target_month también. */
+      const bestRevision = new Map<number, number>();
+      for (const r of data as { employee_key: number; target_month: string; total: number; revision: number }[]) {
+        if ((bestRevision.get(r.employee_key) ?? -1) >= r.revision) continue;
+        bestRevision.set(r.employee_key, r.revision);
+        budgetThisMonthByEmployee.set(r.employee_key, Number(r.total));
+      }
+    }
+  } catch {
+    /* tabla ausente o sin acceso: nadie tiene budget este mes, que es el
+       estado correcto -- no "cero para todos". */
   }
 
   // ── 3. Commercial Activity: estado actual ────────────────────────────────
@@ -804,7 +849,8 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
     const benchmark = benchmarkRow === null ? null : Number(benchmarkRow.monthly_benchmark);
 
     const projection = projectCurrentMonth(closedThisMonthByEmployee.get(employeeKey) ?? 0, openLoanDetail, rates);
-    const q1 = evaluateQualifier1(activity.closingsByMonth, windowMonths, projection, benchmark);
+    const budgetThisMonth = budgetThisMonthByEmployee.get(employeeKey) ?? null;
+    const q1 = evaluateQualifier1(activity.closingsByMonth, windowMonths, projection, benchmark, budgetThisMonth);
 
     /*
      * El "actual" del Qualifier 2 es el MES EN CURSO, coherente con que el
@@ -939,6 +985,7 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
       settingsTableAvailable,
       interventionTableAvailable,
       enrollmentTableAvailable,
+      personBudgetTotalTableAvailable,
       rates,
       inactiveExcluded,
     },

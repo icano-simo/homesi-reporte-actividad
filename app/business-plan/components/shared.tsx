@@ -87,8 +87,9 @@ export function CalcNote({ data }: { data: BusinessPlanData }) {
     <div className="bp-calc-note">
       <p>
         <strong>GAP</strong> = average of {win.slice(0, -1).join(', ')} and {win[win.length - 1]} projected, minus the
-        benchmark. The projection counts closings to date plus the loans due to close this month: those in CTC and
-        Closing whole, and the remaining healthy ones weighted by the pull-through of their milestone.
+        budget set in Outlook for this month if that average meets it — otherwise minus the starting benchmark. The
+        projection counts closings to date plus the loans due to close this month: those in CTC and Closing whole,
+        and the remaining healthy ones weighted by the pull-through of their milestone.
       </p>
       <p>
         <strong>Future performance</strong> requires <code>ceil(benchmark ÷ conversion rate)</code> units of each metric per month — with
@@ -120,6 +121,9 @@ export function Diagnostics({ data }: { data: BusinessPlanData }) {
     !d.benchmarkTableAvailable && 'org.employee_benchmark',
     !d.settingsTableAvailable && 'business_plan.settings',
     !d.interventionTableAvailable && 'business_plan.intervention',
+    /* Etapa BP49: sin esta tabla el gap cae al benchmark para todos, como si
+       nadie hubiera fijado un budget -- vale la pena que se note por qué. */
+    !d.personBudgetTotalTableAvailable && 'outlook.person_budget_total',
   ].filter(Boolean) as string[];
 
   return (
