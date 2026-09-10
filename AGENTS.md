@@ -1665,3 +1665,87 @@ a difference of 10`, no `Save budget`. Ver `pendingDifference()` en
   máximo, o listar las partes -- nunca el neto. El neto sólo tiene sentido
   cuando la pregunta es "¿cuánto sobra o falta en total", no "¿algo está
   mal".
+
+# El ancho de la página se mueve solo — tres veces, tres mecanismos
+
+> Tercera vez en pocos días que una pantalla termina más ancha que su
+> contenedor, sin que nadie haya tocado un `width` a mano. Van juntas porque
+> el síntoma se repite -- una tabla o una tarjeta que de golpe necesita
+> scroll horizontal, o columnas que dejan de alinear -- pero el MECANISMO no
+> es el mismo las tres veces, y por eso el título no promete uno solo.
+
+## Los tres casos
+
+| caso | mecanismo | cómo se notó |
+|---|---|---|
+| La columna Position (OL26b, Outlook) | Una columna nueva con `min-width: 140px` en una tabla cuyo ancho ya sumaba exacto contra la página fija -- nadie sumó ese ancho al presupuesto, y la tabla pasó a necesitar scroll horizontal, cosa que no pasaba antes | Isabella, en pantalla |
+| La columna fantasma (OL26c, Outlook) | Dos filas -- reconciliación y total -- tenían una celda `bp-center` vacía de más que el resto de las filas no tenía. El diff de anchos contra `main` ya daba cero: no era un ancho de más, era una CELDA de más | Isabella, en pantalla |
+| La tarjeta de Performance summary (BP51, Business Plan) | `white-space: nowrap` sobre contenido de ancho variable (badges, un botón, una frase) pegado a una columna fija de 260px | Medido con Chromium real -- `scrollWidth` 1467 contra un viewport de 1440 -- antes de reportar, no después |
+
+Ninguno de los tres tocaba un `width` fijo a propósito. El de Position
+agregó un `min-width` que nadie sumó al ancho total. El de la columna
+fantasma no tenía ningún ancho de más -- tenía una celda de más, que
+desalineó todo lo que venía después en esas dos filas. Y éste no fijaba
+ningún ancho: dejaba que el texto lo pidiera, sin techo.
+
+## La regla de éste, que es la que vale escribir
+
+**Un `white-space: nowrap` sobre contenido cuyo largo depende de los datos,
+puesto dentro de una columna de ancho fijo, no recorta el texto -- lo
+empuja.** `nowrap` no dice "no ocupes más lugar del que tenés": dice "no te
+partas en dos líneas", y si no entra en una, el elemento crece más allá de
+su contenedor. El navegador no avisa -- el elemento simplemente sale.
+
+Acá pasó en `.bp-stat__value` (la fila de Starting benchmark, con su badge
+de "provisional" y su enlace de "edit") y en `.bp-stat__flag` (el
+"Forecast is below it" que colgaba de esa misma fila): los dos podían
+crecer con los datos, los dos estaban fijados a una sola línea, y los dos
+vivían dentro de una columna de 260px. Medido antes del arreglo, contra el
+CSS real de esa etapa: `.bp-stats` entera con `scrollWidth` 348px contra
+258px de `clientWidth`; la fila de Starting benchmark, 340 contra 242. La
+página entera terminaba 27px más ancha que el viewport -- 1467 contra
+1440 -- por una sola fila de una tarjeta.
+
+> **Cualquier `nowrap` sobre algo que crece con los datos es un desborde
+> esperando el dato largo.**
+
+Ese día no rompía porque el dato de prueba era corto -- un badge, un
+número de un dígito. El mismo CSS con una regla de crecimiento con nombre
+más largo, o una segunda etiqueta, lo habría roto en cualquier carga
+futura, sin que nadie tocara esa línea.
+
+## Qué hacer
+
+- **Antes de escribir `white-space: nowrap`, preguntarse si el contenido
+  puede crecer con los datos** -- un badge condicional, una frase que
+  cambia de largo según el estado, un número con más dígitos de los que
+  hay en el caso que se está mirando. Si puede, `nowrap` no es una decisión
+  de estilo: es una apuesta a que el dato largo nunca va a llegar.
+- Si la fila tiene que quedarse de verdad en una sola línea -- un ancla, un
+  ticker, una columna angosta a propósito -- **medir el peor caso de
+  contenido, no el que está a la vista**, y dimensionar para ese peor caso
+  en vez de confiar en que el texto se va a achicar solo.
+- Verificar con `scrollWidth > clientWidth`, en el elemento Y en el
+  documento entero: un elemento puede desbordar su propia fila sin que la
+  fila desborde la tarjeta, pero cuando la tarjeta desborda, arrastra a la
+  página con ella.
+
+## Y las dos decisiones de método que valieron la pena
+
+**Medir "antes" contra el CSS de antes, no contra el archivo ya editado.**
+Con el CSS del módulo viviendo en un solo archivo, editarlo en el disco
+borra el "antes": cualquier medición posterior del DOM viejo, hecha contra
+ese mismo archivo, en realidad compara DOM viejo con CSS nuevo -- que no es
+ni el estado real de antes ni el de después, y puede dar cualquier cosa por
+casualidad. La salida fue simple: `git show HEAD:<ruta> > archivo-aparte`
+antes de tocar el original, y apuntar la medición "antes" a esa copia. Es
+la misma familia que "la operación tuvo éxito sobre el objeto equivocado" y
+"una ausencia medida en el árbol equivocado" -- acá el objeto que cambiaba
+de estado por debajo era el propio archivo contra el que se estaba
+comparando.
+
+**Medir en varios anchos, cruzando el breakpoint.** `.bp-q1-grid` pasa de
+dos columnas a una a los 900px (`@media (max-width: 900px)`) -- un desborde
+que sólo aparece apilado no lo ve nadie que mida sólo en desktop. Medido en
+1440, 1280, 1024 y 800px: los cuatro sin desborde, con el apilado del
+breakpoint incluido y no supuesto.
