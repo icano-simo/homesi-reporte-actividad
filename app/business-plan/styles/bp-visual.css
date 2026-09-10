@@ -840,6 +840,27 @@ a.bp-btn {
 .bp-decision--suggested {
   background: var(--slate-600);
 }
+/*
+ * ============================================================================
+ * TERCER TONO: DISPONIBLE -- etapa BP50
+ * ============================================================================
+ *
+ * On Track y no evaluable. Es el unico CLARO de los tres, y eso ES el mensaje:
+ * los dos oscuros piden algo --uno obliga, el otro sugiere-- y este solo dice
+ * que la puerta esta abierta. Un funnel es acompañamiento, no remediacion.
+ *
+ * ⚠ EL TEXTO SE REDEFINE ACA, y hace falta: `.bp-decision__why` va en `--sky`,
+ * que sobre un fondo claro no se lee. Mismo idioma que la tira de video de
+ * BP48b -- regla a la izquierda en `--sky` y contenido sobrio-- pero invertido.
+ */
+.bp-decision--available {
+  background: var(--slate-50);
+  color: var(--navy);
+  border-left: 3px solid var(--sky);
+}
+.bp-decision--available .bp-decision__why {
+  color: var(--slate-600);
+}
 .bp-decision__title {
   font-family: var(--font-display);
   font-size: 14px;

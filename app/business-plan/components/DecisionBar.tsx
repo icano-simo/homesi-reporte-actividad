@@ -11,7 +11,7 @@ import type { LoanOfficerRow } from '@/lib/business-plan/types';
  *
  * Etapa BP5 — ARCHIVO NUEVO.
  *
- * Aparece SÓLO cuando hay algo que decidir:
+ * Aparece SIEMPRE, y lo que cambia es el TONO:
  *
  *   con plan activo -> el resumen del plan y "See progress". NUNCA "Choose a
  *                      funnel": la base sólo permite un enrolamiento activo por
@@ -19,15 +19,39 @@ import type { LoanOfficerRow } from '@/lib/business-plan/types';
  *                      llevaría derecho a un error. Cambiar de funnel sería
  *                      cerrar el actual y activar otro, que es una acción
  *                      distinta y todavía no está pedida.
- *   On Risk  -> fondo navy, con el motivo y dos acciones. El Business Plan es
- *               obligatorio.
- *   Watch    -> la misma barra en tono de sugerencia. Falló un qualifier, no
- *               los dos.
- *   On Track -> no se muestra. Nada que hacer.
+ *   On Risk        -> fondo navy, con el motivo y dos acciones. El Business
+ *                     Plan es obligatorio.
+ *   Watch          -> la misma barra en tono de sugerencia. Falló un
+ *                     qualifier, no los dos.
+ *   On Track       -> tono disponible. No falló nada, y aun así se puede
+ *                     elegir un funnel.
+ *   not_evaluable  -> tono disponible, diciendo que no hay benchmark contra
+ *                     qué medir. No es «cumple»: es que no se puede saber.
+ *
+ * ============================================================================
+ * ⚠ ANTES ON TRACK NO LA VEÍA, Y ESO ERA UN BLOQUEO — etapa BP50
+ * ============================================================================
+ *
+ * La línea era `if (lo.verdict === 'on_track' || lo.verdict === 'not_evaluable')
+ * return null;`, con el comentario «nada que hacer». La consecuencia es que a
+ * alguien que cumple **no había forma de enrolarlo**: el único camino al
+ * catálogo sale de este botón.
+ *
+ * Ya costó una vez: en el modo coach sobre Haydee Tito-Pace --on_track-- el
+ * paso 3 se quedó sin pantalla, porque la fase 3 lleva al catálogo y la barra
+ * no dibujaba nada. Se resolvió del lado de la máscara, y el perfil siguió
+ * igual.
+ *
+ * Y la razón de fondo, que es la que decide: **un funnel es acompañamiento, no
+ * remediación.** Que alguien esté cumpliendo no significa que no le sirva un
+ * plan. El veredicto decide si el Business Plan es OBLIGATORIO; nunca si está
+ * PERMITIDO.
  *
  * La explicación del "por qué" no es decorativa: dice QUÉ qualifier falló y con
  * qué números. Sin eso, la barra le pide a alguien que actúe sin decirle sobre
- * qué -- y el Loan Officer que la reciba va a preguntar exactamente eso.
+ * qué -- y el Loan Officer que la reciba va a preguntar exactamente eso. Con
+ * los dos qualifiers en verde no hay nada que explicar, así que ahí el texto
+ * dice lo que la barra ES: una puerta abierta, no un reclamo.
  */
 export default function DecisionBar({
   lo,
@@ -68,8 +92,13 @@ export default function DecisionBar({
     );
   }
 
-  if (lo.verdict === 'on_track' || lo.verdict === 'not_evaluable') return null;
+  /*
+   * Tres tonos, y el tercero es el que faltaba. `disponible` cubre `on_track` y
+   * `not_evaluable`: en los dos casos no hay nada que reclamar, y en los dos se
+   * puede elegir un funnel.
+   */
   const mandatory = lo.verdict === 'on_risk';
+  const disponible = lo.verdict === 'on_track' || lo.verdict === 'not_evaluable';
 
   const reasons: string[] = [];
   if (lo.q1.passes === false) {
@@ -123,14 +152,49 @@ export default function DecisionBar({
   }
 
   return (
-    <div className={'bp-decision' + (mandatory ? '' : ' bp-decision--suggested')}>
+    <div
+      className={
+        'bp-decision' +
+        (mandatory ? '' : disponible ? ' bp-decision--available' : ' bp-decision--suggested')
+      }
+    >
       <div className="bp-decision__text">
         <div className="bp-decision__title">
-          {mandatory ? 'Business Plan required' : 'Business Plan suggested'}
+          {mandatory
+            ? 'Business Plan required'
+            : disponible
+              ? 'Business Plan available'
+              : 'Business Plan suggested'}
         </div>
+        {/*
+          ⚠ CON LOS DOS QUALIFIERS EN VERDE NO HAY MOTIVO QUE LISTAR, y `reasons`
+          queda vacío: el texto de `required`/`suggested` afirmaría que algo
+          falló seguido de una lista en blanco. Por eso el tono disponible tiene
+          su propia frase y no comparte la plantilla.
+
+          Y `not_evaluable` no dice «cumple»: dice que no hay contra qué medir,
+          que es la misma distinción de siempre --no vino no es vino vacío--. El
+          `passes` de los dos qualifiers es `null` cuando no hay benchmark ni
+          budget (ver `qualifiers.ts`), no `false`.
+        */}
         <p className="bp-decision__why">
-          {mandatory ? 'Current and future performance both failed — ' : 'One of the two failed — '}
-          {reasons.join('; ')}.
+          {mandatory ? (
+            <>Current and future performance both failed — {reasons.join('; ')}.</>
+          ) : disponible ? (
+            lo.verdict === 'on_track' ? (
+              <>
+                Both qualifiers pass, so nothing is required. A funnel here is accompaniment, not
+                remediation.
+              </>
+            ) : (
+              <>
+                There is no benchmark on record, so the verdict cannot be computed — which is not the
+                same as passing. A funnel can still be chosen.
+              </>
+            )
+          ) : (
+            <>One of the two failed — {reasons.join('; ')}.</>
+          )}
         </p>
         {lo.intervention && (
           <p className="bp-decision__why">
@@ -167,9 +231,25 @@ export default function DecisionBar({
           Si algún día se renombra, se renombran los dos juntos y con
           migración, no sólo lo que se ve.
         */}
-        <button type="button" className="bp-btn bp-btn--ghost" onClick={markReviewed} disabled={saving || lo.intervention !== null}>
-          {saving ? 'Saving…' : 'Mark as reviewed — funnel pending'}
-        </button>
+        {/*
+          ⚠ Y EN EL TONO DISPONIBLE ESTE BOTÓN NO VA — decisión de BP50, dicha
+          acá porque es una omisión y las omisiones no se ven en el diff.
+
+          «Mark as reviewed — funnel pending» escribe una fila en
+          `business_plan.intervention`, y esa tabla contesta UNA pregunta: qué
+          se hizo con un Business Plan que se disparó. Para alguien on_track no
+          se disparó ninguno, así que la fila no tendría lector -- `branchStatus`
+          sólo cuenta a los `atRisk`, o sea que ni ahí se sumaría. Sería un dato
+          que nadie interpreta, y de esos ya tuvimos.
+
+          Lo que sí queda para todos es «Choose a funnel», que es justamente el
+          camino que estaba cerrado.
+        */}
+        {!disponible && (
+          <button type="button" className="bp-btn bp-btn--ghost" onClick={markReviewed} disabled={saving || lo.intervention !== null}>
+            {saving ? 'Saving…' : 'Mark as reviewed — funnel pending'}
+          </button>
+        )}
       </div>
     </div>
   );

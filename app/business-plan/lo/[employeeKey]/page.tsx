@@ -21,7 +21,6 @@ import ReviewIntake from '@/components/review/ReviewIntake';
 import { useReview } from '@/components/review/ReviewProvider';
 import { FunnelGlyph } from '../../components/funnelIcons';
 import {
-  CalcNote,
   ErrorState,
   LoadingState,
   NotFoundState,
@@ -261,9 +260,26 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
             placeholder="What was discussed with this loan officer, what was agreed…"
           />
 
-          {/* Etapa BP16: el diagnóstico se mudó a Settings. Acá queda sólo la
-              nota de cálculo, que explica los números de ESTA pantalla. */}
-          <CalcNote data={data} />
+          {/*
+            ══════════════════════════════════════════════════════════════════
+            ⚠ ACÁ IBA `CalcNote`, Y SE FUE — etapa BP50
+            ══════════════════════════════════════════════════════════════════
+
+            Tres párrafos al pie: la definición del GAP, el
+            `ceil(benchmark ÷ conversion rate)` y las tasas de pull-through.
+            Mismo criterio que RP4: si algo necesita tres renglones para
+            explicarse, no va en la vista -- va en un tooltip o en la
+            documentación. Esta pantalla pasa a leerse como un CV de la persona,
+            y una nota de cálculo compite con eso.
+
+            ⚠ EL COMPONENTE NO SE BORRA, y no es olvido: `CalcNote` sigue vivo
+            en las otras TRES pantallas del módulo --portfolio, branch y
+            group-- y `.bp-calc-note` lo usa además Settings. Borrarlo acá y
+            dejarlo allá es deliberado; si el criterio vale para las tres, es
+            otra etapa y se saca de las tres juntas.
+
+            Las tasas siguen visibles donde se editan, que es Settings.
+          */}
 
           {/* ── Modales: detalle complementario, nunca navegación ─────────── */}
           {openModal !== null && (
