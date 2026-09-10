@@ -339,6 +339,53 @@ Y la guarda barata, que es la que faltaba: antes de las aserciones, **una sonda
 que confirme que la escritura de prueba alcanza una fila**. Si esa no pasa,
 todo lo de abajo mide el vacío.
 
+## La familia entera: la operación tuvo éxito sobre el objeto equivocado
+
+El caso de arriba no está solo. Ya van **cinco**, y conviene tenerlos juntos
+porque de lejos parecen cinco errores distintos y son uno:
+
+| la operación | el objeto equivocado | cómo se leyó el resultado |
+|---|---|---|
+| `update` sin `returning` | `where funnel_key = 1`, y las claves eran 13..21 | «los tres `check` no rechazan nada» |
+| `cmd /c rmdir` | dijo que sí y no borró el enlace | «la junction ya no está» |
+| `git diff` | contra la punta de la rama, no contra el `merge-base` | «ese cambio no está en la rama» |
+| lectura de un roster | una clave de persona que no existe | «el editor no abre» |
+| `git merge <rama>` | la ref **local**, vieja desde el rebase | «el rebase no sirvió» |
+
+En los cinco el comando **salió bien**. Nada falló, nada avisó. Lo que estaba
+mal era a qué se le aplicó, y el resultado siempre se pudo leer como un
+diagnóstico sobre el código.
+
+> **Una operación exitosa sobre el objeto equivocado no se distingue de una
+> fallida sobre el correcto — salvo por el mecanismo.**
+
+Y el quinto es el más caro de los cinco, no por el tiempo sino por a quién
+manda a trabajar: «el rebase no sirvió» habría mandado a otra persona a rehacer
+un rebase que estaba perfecto. Un diagnóstico falso sobre trabajo ajeno cuesta
+el doble.
+
+Lo que lo delató, las cinco veces, fue lo mismo — y es la regla de la sección
+del `3×`, en la dirección contraria:
+
+> **Cuando el resultado no se explica por el mecanismo, tenía razón el
+> mecanismo.**
+
+Una rama que ya contiene `main` **no puede** conflictuar con `main`. Tres
+conflictos y 58 errores de `tsc` no eran un dato sobre el rebase: eran la
+prueba de que eso no era la rama rebasada.
+
+### Las reglas operativas, una por caso
+
+- **Nombrar el objeto leyéndolo, no recordándolo.** Claves, ids y códigos de
+  branch salen de una consulta.
+- **Después de un `rebase --force-with-lease` hecho en otra máquina, la ref
+  local está vieja por definición.** Se mergea `origin/<rama>`, nunca
+  `<rama>` — y si hay duda, `git log --oneline -1` de las dos antes de tocar.
+- **Comparar contra el `merge-base`**, no contra la punta.
+- **Y pedirle a la operación que diga cuánto tocó**: `returning`, `Prefer:
+  return=representation`, `Test-Path` después del `rmdir`. Un cero explícito se
+  ve; un éxito silencioso no.
+
 ## Un párrafo roto en columnas dice lo mismo que uno bien armado
 
 Segunda vez con el mismo defecto, y las dos veces con las aserciones de texto
