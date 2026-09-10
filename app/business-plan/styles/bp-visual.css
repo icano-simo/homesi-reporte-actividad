@@ -3069,6 +3069,115 @@ table.piv th.bp-wrap {
   justify-content: space-between;
   gap: 10px;
 }
+/*
+ * ══════════════════════════════════════════════════════════════════════
+ * EL VIDEO DEL FUNNEL — etapa BP48
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * La tira de la tarjeta. Mide siempre lo mismo tenga video o no: si el estado
+ * vacío ocupara menos, las tarjetas volverían a diferir y el punto 1 se
+ * caería por la puerta de atrás.
+ */
+.bp-catalog__video {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding: 6px 9px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--slate-200);
+  background: var(--white);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--navy);
+  cursor: pointer;
+  transition: border-color 0.14s ease, background 0.14s ease;
+}
+.bp-catalog__video:hover {
+  border-color: var(--coral);
+}
+.bp-catalog__video:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 2px;
+}
+.bp-catalog__video-txt {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bp-catalog__video-dur {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--slate-400);
+}
+/*
+ * ⚠ SIN VIDEO NO ES UN ERROR, y la pintura lo dice: borde punteado y gris, sin
+ * `--coral` y sin triángulo de advertencia. Un funnel sin video es un estado
+ * normal de la biblioteca. La diferencia con «todavía no lo leí» la hace el
+ * componente, que no dibuja NADA mientras la columna no exista -- acá no hay
+ * un tercer color porque ese estado no llega a pintarse.
+ */
+.bp-catalog__video--empty {
+  border-style: dashed;
+  border-color: var(--slate-200);
+  background: transparent;
+  color: var(--slate-400);
+  font-weight: 600;
+}
+.bp-catalog__video--empty:hover {
+  border-color: var(--slate-400);
+  background: var(--white);
+}
+
+/* El reproductor, dentro del modal. */
+.bp-video-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--navy);
+}
+.bp-video-frame video,
+.bp-video-frame iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.bp-video-hint {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--slate-600);
+}
+/* El aviso de SharePoint. Ámbar y no coral: es una advertencia sobre qué link
+   pegar, no un error de quien lo está pegando. */
+.bp-video-hint--warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--amber-50);
+  color: var(--navy);
+}
+.bp-video-hint--warn svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--amber-500);
+}
+.bp-video-list {
+  margin: 0 0 10px;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--slate-600);
+}
+
 /* La columna izquierda del pie: el rótulo de explorar y, debajo, el equipo. */
 .bp-catalog__footleft {
   display: flex;

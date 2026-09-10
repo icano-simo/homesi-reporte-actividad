@@ -6,12 +6,20 @@ import { getSupabaseClient } from '@/lib/supabase/client';
 import { useBusinessPlanData } from '@/lib/business-plan/useBusinessPlanData';
 import { useFunnelLibrary } from '@/lib/business-plan/useFunnelLibrary';
 import { useEnrollment } from '@/lib/business-plan/useEnrollment';
-import { buildEnrollmentPlan, checkActivation, funnelStats, type Funnel, type FunnelCategory } from '@/lib/business-plan/funnels';
+import {
+  buildEnrollmentPlan,
+  checkActivation,
+  duracionLegible,
+  esArchivoDeVideo,
+  funnelStats,
+  type Funnel,
+  type FunnelCategory,
+} from '@/lib/business-plan/funnels';
 import { averageOver, monthOf, monthsBefore } from '@/lib/business-plan/impact';
 /* `ChevronDownIcon` del set del módulo, girado por CSS para el estado abierto:
    no hay chevron-up en `icons.tsx` y un SVG suelto nuevo rompería la coherencia
    del set --mismo viewBox, mismo stroke-- que ese archivo existe para sostener. */
-import { AlertTriangleIcon, ChevronDownIcon } from '@/components/ui/icons';
+import { AlertTriangleIcon, ChevronDownIcon, PlayIcon, VideoOffIcon } from '@/components/ui/icons';
 import Breadcrumbs from '../../../components/Breadcrumbs';
 import Modal from '../../../components/Modal';
 import { FunnelGlyph } from '../../../components/funnelIcons';
@@ -141,6 +149,308 @@ function DescripcionDeTarjeta({
   );
 }
 
+/**
+ * ============================================================================
+ * EL VIDEO DEL FUNNEL — etapa BP48
+ * ============================================================================
+ *
+ * ⚠ EL REPRODUCTOR NO VA DENTRO DE LA TARJETA, y no es una preferencia:
+ *
+ *   1. La tarjeta es un `<button>`. Un `<video controls>` o un `<iframe>`
+ *      adentro es contenido interactivo anidado -- HTML inválido, y el
+ *      navegador desanida. Es el mismo motivo por el que `Select` y
+ *      «Show more» son `<span role="button">`.
+ *   2. Son siete tarjetas a la vista. Siete iframes de SharePoint cargando a
+ *      la vez para que alguien mire uno.
+ *   3. Y el punto 1 del brief pide que todas midan lo mismo. Un reproductor
+ *      embebido mueve esa altura para todas.
+ *
+ * Así que la tarjeta lleva UNA TIRA --que dice si hay video, cómo se llama y
+ * cuánto dura-- y el reproductor vive en un modal, que es donde ya vive el
+ * explorador del funnel.
+ */
+function TiraDeVideo({
+  funnel,
+  onAbrir,
+}: {
+  funnel: Funnel;
+  onAbrir: () => void;
+}) {
+  /*
+   * ⚠ TRES ESTADOS. `undefined` es «la columna no existe todavía», porque el
+   * SQL de esta etapa se entrega sin ejecutar. Ahí no se dibuja NADA: ofrecer
+   * «pegar una URL» contra una base sin la columna termina en un 42703 que la
+   * persona lee como que hizo algo mal.
+   */
+  if (funnel.video_url === undefined) return null;
+
+  const hay = typeof funnel.video_url === 'string' && funnel.video_url !== '';
+  const dur = duracionLegible(funnel.video_seconds);
+  const abrir = (e: React.MouseEvent | React.KeyboardEvent) => {
+    e.stopPropagation();
+    onAbrir();
+  };
+
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      data-bp-video-strip=""
+      className={'bp-catalog__video' + (hay ? '' : ' bp-catalog__video--empty')}
+      onClick={abrir}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          abrir(e);
+        }
+      }}
+    >
+      {hay ? <PlayIcon size={13} /> : <VideoOffIcon size={13} />}
+      <span className="bp-catalog__video-txt">
+        {hay ? (funnel.video_title?.trim() || 'Strategy video') : 'No video yet'}
+      </span>
+      {/*
+        La duración sólo si se sabe. `null` no dibuja nada -- un «0:00» sería
+        una duración inventada, que es justo lo que el brief pedía evitar.
+      */}
+      {hay && dur !== null && <span className="bp-catalog__video-dur">{dur}</span>}
+      {!hay && <span className="bp-catalog__video-dur">Add a link</span>}
+    </span>
+  );
+}
+
+/** `1:33` -> 93. Devuelve `null` si no se entiende: no adivina. */
+function segundosDesdeTexto(t: string): number | null {
+  const limpio = t.trim();
+  if (limpio === '') return null;
+  const partes = limpio.split(':').map((x) => x.trim());
+  if (partes.some((x) => x === '' || !/^\d+$/.test(x))) return null;
+  const n = partes.map(Number);
+  const total =
+    n.length === 1 ? n[0] : n.length === 2 ? n[0] * 60 + n[1] : n.length === 3 ? n[0] * 3600 + n[1] * 60 + n[2] : null;
+  return total !== null && total > 0 ? total : null;
+}
+
+/**
+ * El modal: reproduce si hay video, y si no, la zona para pegar el enlace.
+ *
+ * ⚠ LA ZONA VACÍA NO ES UN ERROR y se nota en la pintura: sin `--coral`, sin
+ * `AlertTriangleIcon`. Un funnel sin video es un estado normal de la
+ * biblioteca, no algo roto.
+ */
+function ModalDeVideo({
+  funnel,
+  onCerrar,
+  onGuardado,
+}: {
+  funnel: Funnel;
+  onCerrar: () => void;
+  onGuardado: () => void;
+}) {
+  const [url, setUrl] = useState(funnel.video_url ?? '');
+  const [titulo, setTitulo] = useState(funnel.video_title ?? '');
+  const [largo, setLargo] = useState(duracionLegible(funnel.video_seconds) ?? '');
+  const [editando, setEditando] = useState(!funnel.video_url);
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const esArchivo = url.trim() !== '' && esArchivoDeVideo(url.trim());
+
+  async function guardar(limpiar: boolean) {
+    setGuardando(true);
+    setError(null);
+    try {
+      const u = url.trim();
+      if (!limpiar && u === '') throw new Error('Paste a link first.');
+      if (!limpiar && !/^https?:\/\//i.test(u)) {
+        throw new Error('That is not a link. It has to start with http:// or https://');
+      }
+      const bp = getSupabaseClient().schema('business_plan');
+      const { error: e } = await bp
+        .from('funnel')
+        .update(
+          limpiar
+            ? { video_url: null, video_title: null, video_seconds: null }
+            : {
+                video_url: u,
+                video_title: titulo.trim() === '' ? null : titulo.trim(),
+                video_seconds: segundosDesdeTexto(largo),
+              }
+        )
+        .eq('funnel_key', funnel.funnel_key);
+      if (e) {
+        /*
+         * ⚠ 42703 = la columna no existe: el SQL de BP48 no se aplicó. Se dice
+         * eso y no el mensaje crudo de Postgres, porque no es un error de
+         * quien está pegando el link.
+         */
+        throw new Error(
+          e.code === '42703'
+            ? 'The video columns are not in the database yet — apply docs/sql/2026-09-funnel-video.sql first.'
+            : e.message
+        );
+      }
+      onGuardado();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  return (
+    <Modal title={'Strategy video — ' + funnel.name} onClose={onCerrar}>
+      <div className="bp-form">
+        {!editando && typeof funnel.video_url === 'string' && (
+          <>
+            <div className="bp-video-frame">
+              {esArchivoDeVideo(funnel.video_url) ? (
+                /*
+                  Archivo directo: reproductor propio del navegador. `preload`
+                  en metadata para no bajar el archivo entero al abrir.
+                */
+                <video src={funnel.video_url} controls preload="metadata" />
+              ) : (
+                /*
+                  Enlace de inserción. `allowFullScreen` porque un video de una
+                  hora en un recuadro de 480px no se mira.
+                */
+                <iframe
+                  src={funnel.video_url}
+                  title={funnel.video_title?.trim() || funnel.name}
+                  allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+                  allowFullScreen
+                />
+              )}
+            </div>
+            <div className="bp-form__actions">
+              <button type="button" className="bp-linkish" onClick={() => setEditando(true)}>
+                Change the link
+              </button>
+            </div>
+          </>
+        )}
+
+        {editando && (
+          <>
+            {/*
+              ══════════════════════════════════════════════════════════════
+              ⚠ EL AVISO DE SHAREPOINT, QUE ES EL QUE EVITA LA CONSULTA
+              ══════════════════════════════════════════════════════════════
+
+              El link que se copia de la barra de direcciones abre una PÁGINA
+              de SharePoint; embebido no reproduce nada, muestra un marco de
+              login. El que sirve es el de inserción, que está en Share →
+              Embed. Decirlo acá cuesta dos líneas; no decirlo cuesta que
+              alguien pegue el normal, vea un recuadro pidiendo credenciales y
+              concluya que la función está rota.
+            */}
+            <p className="bp-video-hint">
+              Two kinds of link work here, and they behave differently.
+            </p>
+            <ul className="bp-video-list">
+              <li>
+                A <strong>direct file</strong> — a link ending in .mp4 or .webm. It plays in the
+                browser and the length is read automatically.
+              </li>
+              <li>
+                An <strong>embed link</strong> — SharePoint, OneDrive, Vimeo, YouTube. It plays in a
+                frame, and the length has to be typed in.
+              </li>
+            </ul>
+            <p className="bp-video-hint bp-video-hint--warn">
+              <AlertTriangleIcon size={13} /> For SharePoint and OneDrive, the address you copy from
+              the browser bar is <strong>not</strong> the one to paste — it opens a SharePoint page
+              and shows a sign-in frame instead of the video. Use <strong>Share → Embed</strong> and
+              copy the link from the code it gives you.
+            </p>
+
+            <label className="bp-form__field">
+              <span className="bp-form__label">Video link</span>
+              <input
+                className="field"
+                type="url"
+                value={url}
+                placeholder="https://…"
+                onChange={(e) => setUrl(e.target.value)}
+              />
+            </label>
+            <label className="bp-form__field">
+              <span className="bp-form__label">Title</span>
+              <input
+                className="field"
+                type="text"
+                value={titulo}
+                placeholder={funnel.name}
+                onChange={(e) => setTitulo(e.target.value)}
+              />
+            </label>
+            <label className="bp-form__field">
+              <span className="bp-form__label">
+                Length {esArchivo ? '(read from the file)' : '(mm:ss)'}
+              </span>
+              <input
+                className="field"
+                type="text"
+                value={largo}
+                placeholder="mm:ss"
+                disabled={esArchivo}
+                onChange={(e) => setLargo(e.target.value)}
+              />
+            </label>
+            {/*
+              ⚠ LA DURACIÓN SE LEE, NO SE PIDE, CUANDO SE PUEDE. Un `<video>`
+              oculto con `preload="metadata"` baja sólo la cabecera del archivo
+              y dispara `loadedmetadata` con la duración real. Sólo sirve para
+              archivos directos: de un embed no se puede leer sin la API del
+              proveedor, y por eso ahí el campo queda habilitado.
+            */}
+            {esArchivo && (
+              <video
+                src={url.trim()}
+                preload="metadata"
+                style={{ display: 'none' }}
+                onLoadedMetadata={(e) => {
+                  const d = e.currentTarget.duration;
+                  if (Number.isFinite(d) && d > 0) setLargo(duracionLegible(d) ?? '');
+                }}
+              />
+            )}
+            {error && (
+              <p className="bp-video-hint bp-video-hint--warn">
+                <AlertTriangleIcon size={13} /> {error}
+              </p>
+            )}
+            <div className="bp-form__actions">
+              <button
+                type="button"
+                className="bp-btn bp-btn--primary"
+                disabled={guardando || url.trim() === ''}
+                onClick={() => guardar(false)}
+              >
+                {guardando ? 'Saving…' : 'Save the link'}
+              </button>
+              {typeof funnel.video_url === 'string' && (
+                <button
+                  type="button"
+                  className="bp-linkish"
+                  disabled={guardando}
+                  onClick={() => guardar(true)}
+                >
+                  remove the video
+                </button>
+              )}
+              <button type="button" className="bp-linkish" onClick={onCerrar}>
+                cancel
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 export default function ChooseFunnelPage({ params }: { params: Promise<{ employeeKey: string }> }) {
   const { employeeKey: rawKey } = use(params);
   const employeeKey = Number(rawKey);
@@ -197,6 +507,9 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
    * porque cambiar de categoría remonta las tarjetas, y con el estado adentro
    * volver a Core reabriría o cerraría al azar según cómo React reconcilie.
    */
+  /* Qué funnel tiene el modal de video abierto. Una sola clave: no se pueden
+     mirar dos videos a la vez, y el modal es global a la pantalla. */
+  const [videoDe, setVideoDe] = useState<number | null>(null);
   const [descAbiertas, setDescAbiertas] = useState<ReadonlySet<number>>(new Set());
   const alternarDesc = (key: number) =>
     setDescAbiertas((previo) => {
@@ -586,6 +899,7 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
                       </span>
                     ))}
                   </div>
+                  <TiraDeVideo funnel={f} onAbrir={() => setVideoDe(f.funnel_key)} />
                   {!check.ok && <div className="bp-catalog__blocked">{check.reason}</div>}
                   {/*
                     Elegir vive ACÁ, en la tarjeta, y explorar en el modal. Tener
@@ -668,6 +982,24 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
             })}
             {shown.length === 0 && <p className="bp-muted-line">No active funnels in this category.</p>}
           </div>
+
+          {videoDe !== null && (() => {
+            const f = lib.funnels.find((x) => x.funnel_key === videoDe);
+            if (!f) return null;
+            return (
+              <ModalDeVideo
+                funnel={f}
+                onCerrar={() => setVideoDe(null)}
+                /* Se recarga la biblioteca y se cierra: el catálogo lee los
+                   funnels de `lib`, así que sin recargar la tira seguiría
+                   diciendo «No video yet» con el video ya guardado. */
+                onGuardado={() => {
+                  setVideoDe(null);
+                  reload();
+                }}
+              />
+            );
+          })()}
 
           {exploring !== null && (() => {
             const f = lib.funnels.find((x) => x.funnel_key === exploring);

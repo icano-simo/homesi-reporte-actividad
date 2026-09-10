@@ -425,6 +425,36 @@ export function AwardIcon(props: IconProps) {
   );
 }
 
+/**
+ * lucide: play — el video de estrategia de un funnel (BP48).
+ *
+ * `fill="currentColor"` en el path y no en el `<Icon>`: el envoltorio fija
+ * `fill="none"` para todo el set, y un triángulo de play hueco se lee como una
+ * flecha y no como reproducir. Es la única excepción del archivo y va con su
+ * motivo escrito.
+ */
+export function PlayIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path
+        d="M6.5 4.6a.7.7 0 0 1 1.06-.6l10.2 6.6a.7.7 0 0 1 0 1.2L7.56 19.4a.7.7 0 0 1-1.06-.6Z"
+        fill="currentColor"
+      />
+    </Icon>
+  );
+}
+
+/** lucide: video-off — el funnel todavía no tiene video (BP48). */
+export function VideoOffIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M10.66 6H14a2 2 0 0 1 2 2v2.34l1 1L22 8v8" />
+      <path d="M16 16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h2l10 10Z" />
+      <path d="m2 2 20 20" />
+    </Icon>
+  );
+}
+
 /** lucide: star — destacado, referido. */
 export function StarIcon(props: IconProps) {
   return (

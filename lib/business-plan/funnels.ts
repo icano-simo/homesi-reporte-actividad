@@ -29,6 +29,67 @@ export interface Funnel {
   position: number;
   is_active: boolean;
   is_example: boolean;
+  /**
+   * ⚠ TRES ESTADOS, Y EL TERCERO ES REAL — etapa BP48.
+   *
+   *   `undefined`  la columna todavia no existe en la base
+   *   `null`       existe, y este funnel no tiene video
+   *   una cadena   la direccion
+   *
+   * El primero no es teorico: `docs/sql/2026-09-funnel-video.sql` se entrega
+   * SIN EJECUTAR, asi que la app corre contra una base sin estas columnas
+   * hasta que alguien lo aplique. `select('*')` no falla -- simplemente no
+   * trae los campos.
+   *
+   * Y la diferencia importa en pantalla: sin columna no se puede ofrecer
+   * "pegar una URL", porque el guardado fallaria con 42703 y la persona veria
+   * un error sin entender que no hizo nada mal. La zona vacia se dibuja solo
+   * cuando la columna existe y vale `null`.
+   */
+  video_url?: string | null;
+  video_title?: string | null;
+  /** Segundos. `null` = no se sabe; nunca `0`. Ver el SQL de BP48. */
+  video_seconds?: number | null;
+}
+
+/**
+ * COMO SE REPRODUCE UNA URL DE VIDEO — etapa BP48.
+ *
+ * Son dos formas distintas y no se pueden tratar igual:
+ *
+ *   archivo directo  `.mp4` / `.webm`  ->  <video>, y el navegador lee la
+ *                                          duracion solo
+ *   enlace de insercion                ->  <iframe>, y la duracion la escribe
+ *                                          una persona
+ *
+ * La extension se mira sobre el PATHNAME y no sobre la cadena entera: un
+ * enlace de insercion puede traer `.mp4` adentro de un parametro firmado y no
+ * por eso es un archivo directo.
+ *
+ * Ante la duda, `iframe`: un embed metido en un `<video>` no muestra nada, y
+ * un archivo directo metido en un `<iframe>` igual se reproduce --el navegador
+ * le pone su propio reproductor--. El error barato es el que se elige.
+ */
+export function esArchivoDeVideo(url: string): boolean {
+  try {
+    const ruta = new URL(url).pathname.toLowerCase();
+    return ruta.endsWith('.mp4') || ruta.endsWith('.webm') || ruta.endsWith('.ogv');
+  } catch {
+    /* Si no parsea no es un archivo que podamos reconocer. El `check` de la
+       base ya exige `^https?://`, asi que aca no se valida de nuevo. */
+    return false;
+  }
+}
+
+/** `93` -> `1:33`. `null` cuando no se sabe: la tarjeta no muestra nada. */
+export function duracionLegible(segundos: number | null | undefined): string | null {
+  if (typeof segundos !== 'number' || !Number.isFinite(segundos) || segundos <= 0) return null;
+  const total = Math.round(segundos);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const dos = (n: number) => String(n).padStart(2, '0');
+  return h > 0 ? h + ':' + dos(m) + ':' + dos(s) : m + ':' + dos(s);
 }
 
 /**
