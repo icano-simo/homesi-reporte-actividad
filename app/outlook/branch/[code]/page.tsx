@@ -815,13 +815,13 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
     const ausente = focusIsAbsent(lista, focoKey);
     const ocultos = hiddenCount(lista, focoKey);
     if (!ausente && ocultos === 0) return null;
-    const quien = focoNombre ?? 'the loan officer under review';
+    const quien = focoNombre ?? 'the coachee';
     return (
       <tr className="metric mrow" key={'s-' + s + '-foco'}>
         <td className="lbl bp-muted" colSpan={monthsOfYear.length + 3} style={{ paddingLeft: '30px' }}>
           {ausente
             ? `${quien} takes no part in ${s} \u2014 this budget is the branch's, and none of it is theirs.`
-            : `${ocultos} more row${ocultos === 1 ? '' : 's'} hidden while reviewing ${quien}.`}
+            : `${ocultos} more row${ocultos === 1 ? '' : 's'} hidden while coaching ${quien}.`}
         </td>
       </tr>
     );

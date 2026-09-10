@@ -483,7 +483,7 @@ export default function ReviewStepPanel({
      * panel en blanco.
      */
     return (
-      <div className="rv-panel" role="region" aria-label="Review step">
+      <div className="rv-panel" role="region" aria-label="Coaching step">
         <p className="rv-panel__gate">
           <AlertTriangleIcon size={13} /> This review points at a step that is not in the script
           any more. Nothing was lost — ask for the script to be checked.
@@ -620,7 +620,7 @@ export default function ReviewStepPanel({
   if (funnelSinLeer) {
     /* Nada que afirmar todavía: la cabecera y la pregunta, que ya son ciertas. */
     return (
-      <div className="rv-panel rv-panel--buscando" role="region" aria-label="Review step">
+      <div className="rv-panel rv-panel--buscando" role="region" aria-label="Coaching step">
         <div className="rv-panel__head">
           <span className="rv-panel__step">
             Phase {paso.phase_no} · step {paso.step_in_phase}
@@ -772,7 +772,7 @@ export default function ReviewStepPanel({
           : null;
 
     return (
-      <div className="rv-panel" role="region" aria-label="Review step">
+      <div className="rv-panel" role="region" aria-label="Coaching step">
         <div className="rv-panel__head">
           <span className="rv-panel__step">
             Phase {paso.phase_no} · step {paso.step_in_phase}
@@ -842,7 +842,7 @@ export default function ReviewStepPanel({
                 disabled={!estado.ok || ocupado}
                 onClick={guardarYSeguir}
               >
-                {esUltimo ? 'Finish review' : 'OK'}
+                {esUltimo ? 'Finish coaching' : 'OK'}
               </button>
               <button
                 type="button"
@@ -967,7 +967,7 @@ export default function ReviewStepPanel({
      */
     const claveDelPlan = pasosDelPlan?.enrollmentKey ?? null;
     return (
-      <div className="rv-panel" role="region" aria-label="Review step">
+      <div className="rv-panel" role="region" aria-label="Coaching step">
         <div className="rv-panel__head">
           <span className="rv-panel__step">
             Phase {paso.phase_no} · step {paso.step_in_phase}
@@ -1055,7 +1055,7 @@ export default function ReviewStepPanel({
     (rama === 'kept' || rama === 'deferred')
   ) {
     return (
-      <div className="rv-panel" role="region" aria-label="Review step">
+      <div className="rv-panel" role="region" aria-label="Coaching step">
         <div className="rv-panel__head">
           <span className="rv-panel__step">
             Phase {paso.phase_no} · step {paso.step_in_phase}
@@ -1091,7 +1091,7 @@ export default function ReviewStepPanel({
             disabled={!estado.ok || ocupado}
             onClick={guardarYSeguir}
           >
-            {esUltimo ? 'Finish review' : 'OK'}
+            {esUltimo ? 'Finish coaching' : 'OK'}
           </button>
           <button
             type="button"
@@ -1118,7 +1118,7 @@ export default function ReviewStepPanel({
     yaContestado === null
   ) {
     return (
-      <div className="rv-panel" role="region" aria-label="Review step">
+      <div className="rv-panel" role="region" aria-label="Coaching step">
         <div className="rv-panel__head">
           <span className="rv-panel__step">
             Phase {paso.phase_no} · step {paso.step_in_phase}
@@ -1164,7 +1164,7 @@ export default function ReviewStepPanel({
             disabled={!estado.ok || ocupado}
             onClick={guardarYSeguir}
           >
-            {esUltimo ? 'Finish review' : 'OK'}
+            {esUltimo ? 'Finish coaching' : 'OK'}
           </button>
         </div>
       </div>
@@ -1173,7 +1173,7 @@ export default function ReviewStepPanel({
 
   if (buscandoSitio) {
     return (
-      <div className="rv-panel rv-panel--buscando" role="region" aria-label="Review step">
+      <div className="rv-panel rv-panel--buscando" role="region" aria-label="Coaching step">
         <div className="rv-panel__head">
           <span className="rv-panel__step">
             Phase {paso.phase_no} · step {paso.step_in_phase}
@@ -1188,7 +1188,7 @@ export default function ReviewStepPanel({
 
   if (enSitio === false) {
     return (
-      <div className="rv-panel rv-panel--lejos" role="region" aria-label="Review step">
+      <div className="rv-panel rv-panel--lejos" role="region" aria-label="Coaching step">
         <div className="rv-panel__head">
           <span className="rv-panel__step">
             Phase {paso.phase_no} · step {paso.step_in_phase}
@@ -1248,7 +1248,7 @@ export default function ReviewStepPanel({
   }
 
   return (
-    <div className="rv-panel" role="region" aria-label="Review step">
+    <div className="rv-panel" role="region" aria-label="Coaching step">
       <div className="rv-panel__head">
         <span className="rv-panel__step">
           Phase {paso.phase_no} · step {paso.step_in_phase}
@@ -1384,7 +1384,7 @@ export default function ReviewStepPanel({
         >
           <span aria-hidden="true">{budgetListo ? '✓' : '○'}</span>{' '}
           {budgetListo
-            ? "Budget saved for " + loName + " during this review."
+            ? "Budget saved for " + loName + " during this coaching session."
             : 'Save the budget for ' + loName + ' in the editor on this screen. This step waits ' +
               'for the saved row, not for a tick box.'}
         </p>

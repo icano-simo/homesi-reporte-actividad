@@ -690,13 +690,56 @@ body:has(.rv-bar) .app {
  * palido en el reporte--. Solo `outline`, que se dibuja afuera y no ocupa
  * espacio, y una sombra difusa.
  */
+/*
+ * ══════════════════════════════════════════════════════════════════════
+ * ⚠ DIFUMINADO, IGUAL QUE EL BORDE — etapa RV13
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * Era `outline: 2px solid var(--coral)`: el mismo defecto que tenía el marco
+ * antes de RV9, el token más saturado a pleno y con canto duro. Y el halo que
+ * debía suavizarlo no suavizaba nada: `--amber-50` es `#fffbeb`, o sea blanco
+ * roto sobre una tarjeta blanca. Un anillo invisible alrededor de una línea
+ * gritada.
+ *
+ * El reparto es el mismo que arriba: EL PANEL DICE, EL RESALTADO SEÑALA. La
+ * pregunta del paso está escrita en palabras a un lado; acá alcanza con que el
+ * ojo sepa hacia dónde ir.
+ *
+ * Y la restricción de RV2 sigue en pie, por eso no cambia la herramienta: ni
+ * `border` ni `background`. La clase cae sobre un elemento QUE NO ES DE LA
+ * REVISIÓN --la tarjeta del gráfico, el panel del GAP, la barra de Outlook--
+ * así que un borde empujaría el contenido y un fondo le ganaría al tinte de la
+ * banda. `outline` y `box-shadow` no ocupan espacio.
+ *
+ * `color-mix` sobre el token y sin hexadecimales, como en `.rv-edge`: un cambio
+ * de paleta alcanza los dos.
+ */
 .rv-target {
-  outline: 2px solid var(--coral);
-  outline-offset: 4px;
   border-radius: var(--radius-md);
-  box-shadow: 0 0 0 6px var(--amber-50);
+  /*
+   * La línea que cierra la forma. Un píxel y diluida, por la misma razón que la
+   * del marco: sin ella el halo se desvanece contra el canvas claro y la
+   * sección deja de leerse como señalada. Lo que se fue es el canto duro, no el
+   * contorno.
+   */
+  outline: 1px solid color-mix(in srgb, var(--coral) 35%, transparent);
+  outline-offset: 4px;
+  /*
+   * Dos capas: una pegada que le da cuerpo al contorno, y una abierta y borrosa
+   * que se apaga hacia afuera. La segunda es la que hace el trabajo que el
+   * `--amber-50` no hacía.
+   */
+  box-shadow:
+    0 0 0 5px color-mix(in srgb, var(--coral) 10%, transparent),
+    0 0 18px 8px color-mix(in srgb, var(--coral) 14%, transparent);
   /* La transicion es del resaltado, no del desplazamiento: el scroll lo hace
-     el navegador con `behavior: smooth`. */
+     el navegador con `behavior: smooth`.
+
+     ⚠ Y hace que `getComputedStyle` mienta durante 160ms: leído en el mismo
+     tick en que se pone la clase devuelve el valor DE PARTIDA --`currentColor`
+     para el contorno, la sombra vieja de la tarjeta-- mientras que el ancho y
+     el radio, que no están acá, ya muestran los nuevos. Medir el resaltado
+     pide esperar; queda escrito porque me costó cuatro sondas. */
   transition: outline-color 160ms ease, box-shadow 160ms ease;
 }
 /* Quien pidio no animar tampoco quiere un halo que aparezca. Se queda el

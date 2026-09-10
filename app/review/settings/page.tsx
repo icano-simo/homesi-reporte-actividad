@@ -180,16 +180,16 @@ export default function ReviewSettingsPage() {
       <nav className="rv-crumbs" aria-label="Breadcrumb">
         <Link href="/business-plan">Branch Portfolio</Link>
         <span aria-hidden="true">›</span>
-        <Link href="/review">My reviews</Link>
+        <Link href="/review">My coachees</Link>
         <span aria-hidden="true">›</span>
-        <span aria-current="page">Review settings</span>
+        <span aria-current="page">Coach settings</span>
       </nav>
 
       <div className="page-head">
         <div>
-          <h1 className="page-head__title">Review settings</h1>
+          <h1 className="page-head__title">Coach settings</h1>
           <p className="page-head__subtitle">
-            Who on the Business Plan team reviews which Loan Officer, and by when.
+            Who on the Business Plan team coaches which Loan Officer, and by when.
           </p>
         </div>
       </div>
@@ -233,8 +233,8 @@ export default function ReviewSettingsPage() {
       */}
       {myEmployeeKey === null && !pendiente && (
         <p className="rv-hint rv-hint--warn">
-          Your sign-in email is not on the active roster. You can still assign reviews, but you will
-          not appear as a reviewer in any of them.
+          Your sign-in email is not on the active roster. You can still assign coaching, but you will
+          not appear as a coach in any of them.
         </p>
       )}
 
@@ -261,7 +261,7 @@ export default function ReviewSettingsPage() {
       {gente && !pendiente && (
         <div className="bp-form">
           <label className="bp-form__field">
-            <span className="bp-form__label">Reviewer</span>
+            <span className="bp-form__label">Coach</span>
             <select className="field" value={revisor} onChange={(e) => setRevisor(e.target.value)}>
               <option value="">Choose someone…</option>
               {gente.soporte.map((p) => (
@@ -303,8 +303,8 @@ export default function ReviewSettingsPage() {
           </label>
 
           <p className="rv-hint">
-            The reviewer sees this Loan Officer in their own <strong>My reviews</strong> list. A Loan
-            Officer can only have one review in progress at a time — the database refuses a second
+            The coach sees this Loan Officer in their own <strong>My coachees</strong> list. A Loan
+            Officer can only have one coaching session in progress at a time — the database refuses a second
             one, so the worst that can happen is that this says so.
           </p>
 
@@ -350,7 +350,7 @@ export default function ReviewSettingsPage() {
                         due {f.assignment.due_on}
                       </span>
                       <span>
-                        reviewer {f.assignment.reviewer_employee_key}
+                        coach {f.assignment.reviewer_employee_key}
                         {gente
                           ? ' · ' +
                             (gente.soporte.find((p) => p.employee_key === f.assignment.reviewer_employee_key)
@@ -375,7 +375,7 @@ export default function ReviewSettingsPage() {
                       disabled={ocupado || f.session?.status === 'in_progress'}
                       title={
                         f.session?.status === 'in_progress'
-                          ? 'This review is in progress — it has to finish or be left unfinished first.'
+                          ? 'This coaching session is in progress — it has to finish or be left unfinished first.'
                           : undefined
                       }
                       onClick={() => desactivar(f.assignment.assignment_key)}

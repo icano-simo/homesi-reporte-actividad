@@ -76,7 +76,7 @@ export default function ReviewIntake({ loEmployeeKey, loName, habilitado }: Revi
   if (error) {
     return (
       <section className="rv-intake">
-        <h2 className="rv-intake__head">Review intake</h2>
+        <h2 className="rv-intake__head">Coach intake</h2>
         <p className="rv-hint rv-hint--warn">
           <AlertTriangleIcon size={13} /> {error}
         </p>
@@ -93,7 +93,7 @@ export default function ReviewIntake({ loEmployeeKey, loName, habilitado }: Revi
    *   · hay revisiones y RLS no las deja ver  → se dice que falta permiso
    *   · hay revisiones sin comentarios        → se dice que no contestó nada
    *
-   * El primero no dibuja NADA a propósito: un encabezado «Review intake» vacío
+   * El primero no dibuja NADA a propósito: un encabezado «Coach intake» vacío
    * en el perfil de las 30 personas sin revisión es ruido en 30 pantallas.
    */
   if (lista.length === 0) return null;
@@ -101,10 +101,10 @@ export default function ReviewIntake({ loEmployeeKey, loName, habilitado }: Revi
   if (!visible) {
     return (
       <section className="rv-intake">
-        <h2 className="rv-intake__head">Review intake</h2>
+        <h2 className="rv-intake__head">Coach intake</h2>
         <p className="rv-hint">
-          {loName} has {lista.length} review{lista.length === 1 ? '' : 's'} on record, but you
-          cannot read the comments: they are visible to the reviewer and to the Business Plan leads.
+          {loName} has {lista.length} coaching session{lista.length === 1 ? '' : 's'} on record, but you
+          cannot read the comments: they are visible to the coach and to the Business Plan leads.
           This is a permission, not an empty record.
         </p>
       </section>
@@ -115,9 +115,9 @@ export default function ReviewIntake({ loEmployeeKey, loName, habilitado }: Revi
   if (conComentarios.length === 0) {
     return (
       <section className="rv-intake">
-        <h2 className="rv-intake__head">Review intake</h2>
+        <h2 className="rv-intake__head">Coach intake</h2>
         <p className="rv-hint">
-          {loName} has {lista.length} review{lista.length === 1 ? '' : 's'} started and no comments
+          {loName} has {lista.length} coaching session{lista.length === 1 ? '' : 's'} started and no comments
           answered yet.
         </p>
       </section>
@@ -139,9 +139,9 @@ export default function ReviewIntake({ loEmployeeKey, loName, habilitado }: Revi
     >
       <SignedDocIcon size={15} />
       <span className="rv-intake__opentxt">
-        Review intake
+        Coach intake
         <span className="rv-intake__n">
-          {cuantas} review{cuantas === 1 ? '' : 's'}
+          {cuantas} session{cuantas === 1 ? '' : 's'}
         </span>
       </span>
       <span className="rv-intake__openwhen">
@@ -156,7 +156,7 @@ export default function ReviewIntake({ loEmployeeKey, loName, habilitado }: Revi
   return (
     <>
       {gatillo}
-      <Modal title={'Review intake for ' + loName} onClose={() => setDesplegado(false)}>
+      <Modal title={'Coach intake for ' + loName} onClose={() => setDesplegado(false)}>
       <section className="rv-intake rv-intake--modal">
 
       {/*
@@ -164,7 +164,7 @@ export default function ReviewIntake({ loEmployeeKey, loName, habilitado }: Revi
         dibujan: un grupo de una pestaña no ofrece ninguna elección.
       */}
       {conComentarios.length > 1 && (
-        <div className="rv-intake__tabs" role="tablist" aria-label="Reviews">
+        <div className="rv-intake__tabs" role="tablist" aria-label="Coaching sessions">
           {conComentarios.map((s) => (
             <button
               key={s.session.session_key}
@@ -197,7 +197,7 @@ export default function ReviewIntake({ loEmployeeKey, loName, habilitado }: Revi
                 <>started {dia(s.session.started_at)} · still in progress</>
               )}
               {' · '}
-              reviewed by {s.reviewerEmail}
+              coached by {s.reviewerEmail}
             </p>
 
             {s.fases.map((f) => (

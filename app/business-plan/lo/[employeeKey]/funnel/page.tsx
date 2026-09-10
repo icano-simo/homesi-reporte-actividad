@@ -89,8 +89,36 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
   const [busy, setBusy] = useState(false);
   const [opError, setOpError] = useState<string | null>(null);
 
+  /*
+   * ══════════════════════════════════════════════════════════════════════
+   * ⚠ TRES ESTADOS, PORQUE EL MENSAJE AFIRMABA UNA AUSENCIA — etapa RV13
+   * ══════════════════════════════════════════════════════════════════════
+   *
+   * Era `bpData?.loanOfficers.find(...) ?? null`, y ese `?? null` juntaba dos
+   * cosas distintas: «la población todavía no llegó» y «llegó y esta persona
+   * no está». `useBusinessPlanData` arranca con `data: null`, así que durante
+   * toda la carga --que es otra consulta, aparte de la biblioteca de funnels--
+   * `lo` valía `null`.
+   *
+   * Con eso, apretar `Select` antes de tiempo contestaba «This person is not in
+   * the Business Plan population... They need a branch assignment first»: una
+   * afirmación sobre el roster, con una instrucción accionable, dicha sin haber
+   * leído el roster. Me costó dos mediciones a mí mismo --una en RV12 y otra
+   * antes-- y las dos veces la conclusión falsa fue la primera.
+   *
+   *   undefined  no se leyó  ->  «todavía no cargó», y se puede reintentar
+   *   null       se leyó y no está  ->  el mensaje del roster, que ahora es cierto
+   *   objeto     está
+   *
+   * ⚠ Y NO ALCANZA CON ARREGLAR ESTA LÍNEA. `verificar:estados` prohíbe el
+   * `?? null` sobre esta búsqueda: el arreglo de un estado ambiguo no está en
+   * su valor inicial sino en que ningún camino pueda volver a escribirlo.
+   */
   const lo = useMemo(
-    () => bpData?.loanOfficers.find((x) => x.employeeKey === employeeKey) ?? null,
+    () =>
+      bpData === null
+        ? undefined
+        : (bpData.loanOfficers.find((x) => x.employeeKey === employeeKey) ?? null),
     [bpData, employeeKey]
   );
   const branch = lo?.branchCodes[0] ?? null;
@@ -171,9 +199,20 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
      * `lib` sigue junto en la condición porque tampoco se puede activar sin la
      * biblioteca, y el mensaje sirve para los dos: no hay con qué armar el plan.
      */
-    if (!lib || !lo) {
+    /*
+     * ⚠ Y AHORA DISTINGUE «no llegó» DE «no está» — etapa RV13.
+     *
+     * El orden importa: `undefined` primero. Un «no está en la población» dicho
+     * mientras la población viaja no es sólo inexacto -- manda a pedir una
+     * asignación de branch que la persona ya puede tener.
+     */
+    if (lo === undefined) {
+      setOpError('The Business Plan population has not loaded yet — try again in a moment.');
+      return;
+    }
+    if (!lib || lo === null) {
       setOpError(
-        !lo
+        lo === null
           ? 'This person is not in the Business Plan population, so a plan cannot be activated for them. ' +
             'They need a branch assignment first.'
           : 'The funnel library has not loaded yet.'
@@ -328,7 +367,12 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
             {changingKey ? 'Choose a different funnel' : 'Choose your commercial funnel'}
           </h1>
           <p className="page-head__subtitle">
-            {lo ? lo.fullName : '—'}
+            {/* El subtítulo también distingue: un guión mientras viaja, y el
+                motivo cuando de verdad no está. Es el séptimo caso de
+                AGENTS.md en su lugar de origen -- ahí leí este mismo subtítulo
+                antes de que llegaran los datos y conté once ausencias falsas
+                sobre doce. */}
+            {lo === undefined ? '—' : lo === null ? 'Not in the Business Plan population' : lo.fullName}
             {branch && <> · Branch {branch}</>}
           </p>
         </div>

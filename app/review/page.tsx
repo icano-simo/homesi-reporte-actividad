@@ -148,14 +148,14 @@ export default function MyReviewsPage() {
       <nav className="rv-crumbs" aria-label="Breadcrumb">
         <Link href="/business-plan">Branch Portfolio</Link>
         <span aria-hidden="true">›</span>
-        <span aria-current="page">My reviews</span>
+        <span aria-current="page">My coachees</span>
       </nav>
 
       <div className="page-head">
         <div>
-          <h1 className="page-head__title">My reviews</h1>
+          <h1 className="page-head__title">My coachees</h1>
           <p className="page-head__subtitle">
-            The Loan Officers assigned to you, with the date each review is due.
+            The Loan Officers you coach, with the date each session is due.
           </p>
         </div>
 
@@ -173,7 +173,7 @@ export default function MyReviewsPage() {
         */}
         {canAssign === true && (
           <Link className="bp-btn bp-btn--small" href="/review/settings">
-            Review settings
+            Coach settings
           </Link>
         )}
       </div>
@@ -211,7 +211,7 @@ export default function MyReviewsPage() {
           <div className="bp-pending" role="status">
             <AlertTriangleIcon size={14} />
             <span>
-              Your sign-in email is not on the active roster, so no review can be assigned to you —
+              Your sign-in email is not on the active roster, so no coaching session can be assigned to you —
               and this list will stay empty until that is fixed. This is not something you can
               change from here: ask the Business Plan leads to check the email on your roster row.
             </span>
@@ -223,7 +223,7 @@ export default function MyReviewsPage() {
           <p className="rv-hint">
             {myEmployeeKey === undefined
               ? 'Checking who you are…'
-              : 'Nothing assigned to you yet. Assignments are set in Review settings by the Business Plan leads.'}
+              : 'Nothing assigned to you yet. Assignments are set in Coach settings by the Business Plan leads.'}
           </p>
         )}
 
@@ -268,7 +268,7 @@ export default function MyReviewsPage() {
                     className="bp-btn bp-btn--primary bp-btn--small"
                     href={'/review/' + fila.assignment.assignment_key}
                   >
-                    {enCurso ? 'Resume review' : fila.session ? 'Review again' : 'Start review'}
+                    {enCurso ? 'Resume coaching' : fila.session ? 'Coach again' : 'Start coaching'}
                   </Link>
                 </div>
               </article>

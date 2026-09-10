@@ -143,7 +143,7 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
             las revisiones de esta persona, por fase, con su fecha.
 
             ⚠ Y NO SE DIBUJA NADA si no hay revisiones. Un encabezado
-            `Review intake` vacío en el perfil de las 30 personas sin revisar es
+            `Coach intake` vacío en el perfil de las 30 personas sin revisar es
             ruido en 30 pantallas.
 
             El componente decide los tres vacíos --sin revisiones, sin permiso,

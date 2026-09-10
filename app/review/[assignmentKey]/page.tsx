@@ -73,7 +73,7 @@ export default function ArrancarRevisionPage() {
     (async () => {
       const orden = orderedSteps(guion);
       if (orden.length === 0) {
-        setError('The review script has no steps. Nothing to do until it is loaded.');
+        setError('The coaching script has no steps. Nothing to do until it is loaded.');
         return;
       }
       const r = await arrancarOSeguir(assignmentKey, fila.assignment.lo_employee_key, {
@@ -141,7 +141,7 @@ export default function ArrancarRevisionPage() {
       <nav className="rv-crumbs" aria-label="Breadcrumb">
         <Link href="/business-plan">Branch Portfolio</Link>
         <span aria-hidden="true">›</span>
-        <Link href={REVIEW_PATH}>My reviews</Link>
+        <Link href={REVIEW_PATH}>My coachees</Link>
         <span aria-hidden="true">›</span>
         <span aria-current="page">Starting…</span>
       </nav>
@@ -149,10 +149,10 @@ export default function ArrancarRevisionPage() {
       <div className="page-head">
         <div>
           <h1 className="page-head__title">
-            {fila ? 'Review of ' + fila.loName : 'Starting the review'}
+            {fila ? 'Coaching ' + fila.loName : 'Starting the session'}
           </h1>
           <p className="page-head__subtitle">
-            Opening the session and taking you to where the review continues.
+            Opening the session and taking you to where the coaching continues.
           </p>
         </div>
       </div>
@@ -177,8 +177,8 @@ export default function ArrancarRevisionPage() {
         <div className="bp-pending" role="status">
           <AlertTriangleIcon size={14} />
           <span>
-            This review is not on your list. Either it is assigned to someone else or it was
-            deactivated — <Link href={REVIEW_PATH}>go back to your reviews</Link>.
+            This coaching session is not on your list. Either it is assigned to someone else or it was
+            deactivated — <Link href={REVIEW_PATH}>go back to your coachees</Link>.
           </span>
         </div>
       )}

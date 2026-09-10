@@ -59,6 +59,30 @@ const ESTADOS = [
       'Escribir `null` para decir «no sé a quién se revisa» hace que el retorno ' +
       'al lugar del paso se dispare en cada carga.',
   },
+  {
+    archivo: 'app/business-plan/lo/[employeeKey]/funnel/page.tsx',
+    estado: 'lo (la persona, de la población del módulo)',
+    /*
+     * ⚠ LO PROHIBIDO ES LA CADENA OPCIONAL, no el `?? null`.
+     *
+     * `bpData.loanOfficers.find(...) ?? null` --sin `?`-- es correcto y está en
+     * el código: ahí `null` significa «se leyó y no está», que es justo la
+     * distinción que se quiere. Lo que colapsa los dos estados es el `bpData?.`:
+     * con la población todavía viajando devuelve `undefined`, y el `??` lo pasa
+     * a `null` como si se hubiera leído.
+     *
+     * Primera versión de esta fila prohibía el fragmento sin el prefijo y
+     * marcaba el código ya arreglado. Una guarda que no distingue el arreglo
+     * del defecto no sirve.
+     */
+    prohibidos: ['bpData?.loanOfficers.find((x) => x.employeeKey === employeeKey) ?? null'],
+    porque:
+      '`undefined` = la población no llegó, `null` = llegó y la persona no está. ' +
+      'Con el `?? null` los dos eran `null`, y la pantalla contestaba «This person ' +
+      'is not in the Business Plan population... They need a branch assignment ' +
+      'first»: una afirmación sobre el roster, con una instrucción accionable, ' +
+      'dicha sin haber leído el roster.',
+  },
 ];
 
 /**

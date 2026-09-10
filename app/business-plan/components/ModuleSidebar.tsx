@@ -69,7 +69,7 @@ const ITEMS: SidebarItem[] = [
    * aparte habría que otorgarlo a las diez personas del BP Team y mantenerlo,
    * para no decir nada que RLS no diga mejor.
    */
-  { href: '/review', label: 'Review', icon: <SignedDocIcon size={16} /> },
+  { href: '/review', label: 'Coach', icon: <SignedDocIcon size={16} /> },
   { href: '/business-plan/settings', label: 'Settings', icon: <TargetIcon size={16} /> },
 ];
 

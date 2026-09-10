@@ -12,7 +12,8 @@
     "verificar:foco": "node scripts/verificacion/focus.test.mjs",
     "verificar:estados": "node scripts/verificacion/estados-ambiguos.mjs",
     "verificar:pasos": "node scripts/verificacion/pasos.test.mjs",
-    "verificar:desenlace": "node scripts/verificacion/desenlace.test.mjs"
+    "verificar:desenlace": "node scripts/verificacion/desenlace.test.mjs",
+    "verificar:coach": "node scripts/verificacion/coach-rotulos.mjs"
   },
   "dependencies": {
     "@react-pdf/renderer": "^4.9.0",

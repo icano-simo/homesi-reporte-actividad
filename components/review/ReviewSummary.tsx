@@ -84,7 +84,7 @@ export default function ReviewSummary({
         <span className="rv-panel__label">{loName}</span>
       </div>
       <p className="rv-panel__prompt">
-        Everything you answered, in order. Fix anything that reads wrong — the review is still
+        Everything you answered, in order. Fix anything that reads wrong — the session is still
         open. Closing it is the last step, and after that the comments cannot be edited.
       </p>
 
@@ -155,7 +155,7 @@ export default function ReviewSummary({
           onClick={onCerrar}
           disabled={ocupado}
         >
-          {ocupado ? '…' : 'Close review'}
+          {ocupado ? '…' : 'Close coaching'}
         </button>
         <span className="rv-panel__next">after this, the comments are read-only</span>
       </div>
