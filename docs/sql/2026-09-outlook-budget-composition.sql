@@ -45,12 +45,27 @@
 --                     no algo que exista solo. Separarlo de `own_production` es
 --                     lo que después permite preguntarse si el plan sirvió.
 --
--- ⚠ `business_plan` acá es un BUCKET DEL DESGLOSE, no una integración con las
--- tablas del funnel (`business_plan.*`, que administra otro módulo/rama). Esta
--- etapa no lee ni escribe ahí: el número de este bucket lo escribe a mano quien
--- carga el presupuesto, igual que los otros tres. El día que se quiera que sea
--- un cálculo en vez de un número escrito, esa es una etapa aparte -- y una que
--- SÍ tendría que coordinarse con quien mantiene ese módulo.
+-- ⚠⚠ `business_plan` ES UNA EXPECTATIVA DECLARADA, NO PRODUCCIÓN ATRIBUIDA AL
+-- PLAN — Y HAY QUE DECIRLO MÁS FUERTE QUE UNA LÍNEA DE COMENTARIO DE CABECERA.
+--
+-- El valor de este bucket es lo que QUIEN CARGA EL PRESUPUESTO espera que el
+-- plan produzca, escrito a mano -- igual que los otros tres. NO es una lectura
+-- de `business_plan.*` (el módulo de planes de acompañamiento, funnels y
+-- milestones, que administra otro módulo/rama), y esta etapa no lee ni escribe
+-- ahí: no hay ningún cálculo detrás, ninguna comparación contra lo que el
+-- funnel efectivamente produjo, ningún trigger que lo actualice.
+--
+-- Bien para HOY -- es exactamente la clase de cosa que en seis meses alguien
+-- lee como si fuera real. Sin esta advertencia, el primero que compare este
+-- número contra la producción real de un funnel activo va a pensar que hay un
+-- bug: no lo hay, es que son dos cosas distintas por diseño -- una expectativa
+-- escrita a mano contra un cálculo de otro sistema -- y no hay ninguna garantía
+-- de que coincidan.
+--
+-- El día que se quiera que sea un cálculo derivado del funnel en vez de un
+-- número escrito, esa es una etapa APARTE -- y una que SÍ tendría que
+-- coordinarse con quien mantiene `business_plan.*`, porque implica leer datos
+-- de un schema que hoy esta tabla ni siquiera referencia.
 --
 -- ----------------------------------------------------------------------------
 -- QUIÉN TIENE CUÁTRO BUCKETS Y QUIÉN TIENE DOS — confirmado con Isabella
@@ -177,6 +192,12 @@ create table if not exists outlook.person_budget_breakdown (
 
 comment on table outlook.person_budget_breakdown is
   'Append-only, versionado por revision. El desglose INFORMATIVO de outlook.person_budget_total por bucket (own_production/b2b/nppm/business_plan). No tiene por qué sumar el total -- eso se muestra en pantalla, no se fuerza acá.';
+
+comment on column outlook.person_budget_breakdown.bucket is
+  'own_production/b2b/nppm son la misma clasificación de siempre. business_plan es distinto: ver el comment de la columna value.';
+
+comment on column outlook.person_budget_breakdown.value is
+  'Para bucket=business_plan: es una EXPECTATIVA DECLARADA a mano por quien carga el presupuesto -- cuánto se espera que el plan de acompañamiento produzca. NO es una lectura ni un cálculo de business_plan.* (funnels, milestones): esta tabla no lee ni escribe ese schema. No hay garantía de que coincida con lo que el funnel efectivamente produjo -- son dos cosas distintas por diseño, no un bug si difieren. Integrarlo como cálculo real es una etapa aparte, a coordinar con quien mantiene business_plan.*.';
 
 create unique index if not exists person_budget_breakdown_employee_uk
   on outlook.person_budget_breakdown (employee_key, revision, target_month, bucket)
