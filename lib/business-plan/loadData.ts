@@ -409,6 +409,15 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
        * la revisión más alta por empleado, y de ESA revisión se leen sus
        * meses -- si el mes en curso no está entre ellos, el budget de ese
        * mes es `null`, aunque una revisión vieja lo hubiera tenido.
+       *
+       * ⚠⚠ DOS COPIAS DE LA MISMA DECISIÓN, EN ARCHIVOS DISTINTOS -- ver
+       * AGENTS.md, "el hermano mayor: dos copias de la misma decisión", y la
+       * nota gemela en `lib/outlook/loadData.ts` (`gobierna`, misma tabla
+       * `outlook.person_budget_total`). Verificado carácter por carácter al
+       * mergear BP49: las dos definiciones coinciden hoy, pero eso no las
+       * hace una sola -- quien cambie el criterio acá sin repetirlo allá (o
+       * al revés) las separa, igual que `rutaDelModulo`. Revisar el otro
+       * archivo antes de tocar cualquiera de las dos.
        */
       const gobierna = (t: (typeof rows)[number]) => t.confirmed_only !== true && t.total !== null;
       const bestRevision = new Map<number, number>();
