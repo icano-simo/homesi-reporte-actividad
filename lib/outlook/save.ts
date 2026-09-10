@@ -2,6 +2,7 @@
 
 import { getSupabaseClient } from '@/lib/supabase/client';
 import type { Cadence, GrowthSegment, OutlookStrategy, ProjectionMode } from './project';
+import type { BudgetBucket } from './loadData';
 
 /*
  * ============================================================================
@@ -72,12 +73,23 @@ async function authorEmail(): Promise<string> {
  * crudo de PostgREST ('violates check constraint ...') no le dice nada a quien
  * está cargando un presupuesto.
  */
-function readable(err: { code?: string; message: string }): Error {
+/**
+ * ⚠ `opts` EXISTE PARA QUE ESTA FUNCIÓN SIRVA A MÁS DE UNA ETAPA — etapa OL26.
+ * Los mensajes de 23514 y PGRST205 nombraban las restricciones y el archivo
+ * SQL de OL4 a secas, que era correcto mientras sólo OL4 los usaba. El
+ * presupuesto compuesto tiene sus propias restricciones (el sujeto XOR, los
+ * buckets de un realtor) y su propio SQL -- sin `opts`, sus errores habrían
+ * mostrado "Own Production no se puede guardar acá" para un problema que no
+ * tiene nada que ver con Own Production. Sin override, los dos mensajes caen
+ * a los de OL4, así que ningún llamado existente cambia.
+ */
+function readable(err: { code?: string; message: string }, opts?: { sqlFile?: string; checkMessage?: string }): Error {
   if (err.code === '23514') {
     return new Error(
-      'The database rejected this value. The constraints that apply: a benchmark cannot be negative, ' +
-        'a date must be the 1st of a month, growth cannot go below -100%, and ' +
-        '"Own Production" cannot be stored here — its benchmark lives in org.employee_benchmark.'
+      opts?.checkMessage ??
+        'The database rejected this value. The constraints that apply: a benchmark cannot be negative, ' +
+          'a date must be the 1st of a month, growth cannot go below -100%, and ' +
+          '"Own Production" cannot be stored here — its benchmark lives in org.employee_benchmark.'
     );
   }
   if (err.code === '23505') {
@@ -94,7 +106,7 @@ function readable(err: { code?: string; message: string }): Error {
    */
   if (err.code === 'PGRST205' || /Could not find the table/i.test(err.message)) {
     return new Error(
-      'This stage\'s SQL has not been applied yet: docs/sql/2026-08-outlook-monthly-mode.sql. ' +
+      `This stage's SQL has not been applied yet: ${opts?.sqlFile ?? 'docs/sql/2026-08-outlook-monthly-mode.sql'}. ` +
         'Nothing was saved and the projection did not change.'
     );
   }
@@ -546,4 +558,160 @@ export async function saveRecruitLink(input: {
     note: input.note,
   });
   if (error) throw readable(error);
+}
+
+/**
+ * ============================================================================
+ * EL PRESUPUESTO COMPUESTO POR PLAN DE NEGOCIO — etapa OL26, punto 5
+ * ============================================================================
+ *
+ * Dos tablas nuevas, `outlook.person_budget_total` y
+ * `outlook.person_budget_breakdown` -- ver `docs/sql/2026-09-outlook-budget-composition.sql`.
+ * Mismas cuatro reglas de siempre: nunca se actualiza, `set_by` sale de la
+ * sesión, cada edición es una revisión nueva y completa, y la revisión
+ * siguiente se lee de la BASE, no de la pantalla.
+ *
+ * ---------------------------------------------------------------------------
+ * ⚠ EL SUJETO ES UNA PERSONA O UN REALTOR, NUNCA UN BRANCH — a diferencia de
+ * `OutlookSubject`. Unión discriminada por el mismo motivo: el CHECK
+ * `(employee_key is not null) <> (nppm_realtor_code is not null)` de las dos
+ * tablas se vuelve imposible de violar en compilación, no sólo en runtime.
+ * ---------------------------------------------------------------------------
+ *
+ * ---------------------------------------------------------------------------
+ * ⚠ EL ORDEN DE GUARDADO: EL TOTAL PRIMERO — mismo criterio que
+ * `change_funnel` y que el modo mes a mes de OL4.
+ * ---------------------------------------------------------------------------
+ * Si el desglose fallara después de guardar el total, el total ya escrito no
+ * se pierde: queda vigente y sin desglose todavía, que es exactamente lo que
+ * la pantalla puede mostrar (un total con "sin desglose cargado"). Guardar el
+ * desglose primero y que el total fallara después dejaría un desglose sin
+ * total contra el que compararse -- la mitad que no se puede mostrar sola.
+ *
+ * ⚠ EL REALTOR SE IDENTIFICA POR CÓDIGO, NO POR NOMBRE — re-cableado al
+ * rebasar sobre main, etapa del `realtor_code`. Ver
+ * `docs/sql/2026-09-person-budget-realtor-code.sql`: la columna se renombró
+ * de `nppm_realtor` a `nppm_realtor_code` porque el nombre no identifica a
+ * nadie ('FRED A GOMEZ' contra 'FRED GOMEZ'). Mismo criterio que ya usa
+ * `saveNppmBenchmark` para `nppm_benchmark`.
+ */
+export type PersonSubject =
+  | { kind: 'employee'; employeeKey: number }
+  | { kind: 'realtor'; realtorCode: string };
+
+function personSubjectColumns(s: PersonSubject): { employee_key: number } | { nppm_realtor_code: string } {
+  return s.kind === 'employee' ? { employee_key: s.employeeKey } : { nppm_realtor_code: s.realtorCode };
+}
+
+function personSubjectFilter(s: PersonSubject): [string, string | number] {
+  return s.kind === 'employee' ? ['employee_key', s.employeeKey] : ['nppm_realtor_code', s.realtorCode];
+}
+
+const BUDGET_SQL_FILE = 'docs/sql/2026-09-outlook-budget-composition.sql';
+
+/** El total fijado a mano, mes por mes. Devuelve la revisión escrita. */
+export async function savePersonBudgetTotal(input: {
+  subject: PersonSubject;
+  /** 'YYYY-MM' → total. Los meses que no vengan quedan sin fijar. */
+  targets: Record<string, number>;
+  note: string | null;
+}): Promise<number> {
+  const months = Object.keys(input.targets).sort();
+  if (months.length === 0) throw new Error('There is no month to set.');
+
+  const set_by = await authorEmail();
+  const supabase = getSupabaseClient();
+
+  const [subjCol, subjVal] = personSubjectFilter(input.subject);
+  const { data: existing, error: readError } = await supabase
+    .schema('outlook')
+    .from('person_budget_total')
+    .select('revision')
+    .eq(subjCol, subjVal)
+    .order('revision', { ascending: false })
+    .limit(1);
+  if (readError) throw readable(readError, { sqlFile: BUDGET_SQL_FILE });
+  const revision = (existing?.[0]?.revision ?? 0) + 1;
+
+  const rows = months.map((m) => ({
+    ...personSubjectColumns(input.subject),
+    revision,
+    target_month: m + '-01',
+    total: input.targets[m],
+    set_by,
+    note: input.note,
+  }));
+
+  const { error } = await supabase.schema('outlook').from('person_budget_total').insert(rows);
+  if (error) throw readable(error, { sqlFile: BUDGET_SQL_FILE });
+  return revision;
+}
+
+/**
+ * El desglose informativo, por bucket y por mes. UNA revisión cubre TODOS
+ * los buckets y meses de un mismo guardado -- es una sola decisión, "así es
+ * como se explica el total", no una por bucket.
+ *
+ * ⚠ NO SE VALIDA QUE SUME EL TOTAL, a propósito: eso se muestra en pantalla
+ * (ver el delta de `BudgetEditor`), no se rechaza el guardado ni se fuerza un
+ * reescalado que inventaría de dónde sale la diferencia.
+ *
+ * Devuelve la revisión escrita.
+ */
+export async function savePersonBudgetBreakdown(input: {
+  subject: PersonSubject;
+  /** bucket → mes → valor. Sólo se guardan los pares presentes. */
+  breakdown: Partial<Record<BudgetBucket, Record<string, number>>>;
+  note: string | null;
+}): Promise<number> {
+  const entries: { bucket: BudgetBucket; month: string; value: number }[] = [];
+  for (const bucket of Object.keys(input.breakdown) as BudgetBucket[]) {
+    const byMonth = input.breakdown[bucket] ?? {};
+    for (const m of Object.keys(byMonth)) entries.push({ bucket, month: m, value: byMonth[m] });
+  }
+  if (entries.length === 0) throw new Error('There is no month to set.');
+
+  /*
+   * ⚠ EL MISMO CHECK QUE LA BASE, TAMBIÉN ACÁ. La base lo rechaza igual --
+   * `person_budget_breakdown_realtor_buckets_check`-- pero un realtor con
+   * quince meses en cuatro buckets vería fallar el INSERT entero por uno solo
+   * fuera de norma, con un 23514 crudo. Cortarlo antes evita mandar la
+   * consulta para descubrir un error que ya se puede ver acá.
+   */
+  if (input.subject.kind === 'realtor' && entries.some((e) => e.bucket === 'b2b' || e.bucket === 'nppm')) {
+    throw new Error('An NPPM realtor only has Own Production and Business Plan in the breakdown — B2B and NPPM do not apply.');
+  }
+
+  const set_by = await authorEmail();
+  const supabase = getSupabaseClient();
+
+  const [subjCol, subjVal] = personSubjectFilter(input.subject);
+  const { data: existing, error: readError } = await supabase
+    .schema('outlook')
+    .from('person_budget_breakdown')
+    .select('revision')
+    .eq(subjCol, subjVal)
+    .order('revision', { ascending: false })
+    .limit(1);
+  if (readError) throw readable(readError, { sqlFile: BUDGET_SQL_FILE });
+  const revision = (existing?.[0]?.revision ?? 0) + 1;
+
+  const rows = entries.map((e) => ({
+    ...personSubjectColumns(input.subject),
+    revision,
+    target_month: e.month + '-01',
+    bucket: e.bucket,
+    value: e.value,
+    set_by,
+    note: input.note,
+  }));
+
+  const { error } = await supabase.schema('outlook').from('person_budget_breakdown').insert(rows);
+  if (error)
+    throw readable(error, {
+      sqlFile: BUDGET_SQL_FILE,
+      checkMessage:
+        'The database rejected this value. A budget value cannot be negative, and an NPPM realtor cannot have B2B or NPPM in the breakdown.',
+    });
+  return revision;
 }

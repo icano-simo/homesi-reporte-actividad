@@ -186,6 +186,59 @@ export interface ProjectionModeRow {
   created_at: string;
 }
 
+/**
+ * ============================================================================
+ * EL PRESUPUESTO COMPUESTO POR PLAN DE NEGOCIO — etapa OL26, punto 5
+ * ============================================================================
+ *
+ * Dos tablas nuevas, `outlook.person_budget_total` y
+ * `outlook.person_budget_breakdown` -- ver `docs/sql/2026-09-outlook-budget-composition.sql`.
+ * La relación se invierte respecto del resto del módulo: hasta acá el total
+ * de una persona es la SUMA de sus estrategias; acá el total se FIJA primero
+ * y el desglose por plan queda como información, sin obligación de sumar
+ * exacto -- eso se muestra en pantalla (ver `budgetDelta` en la vista), no se
+ * fuerza en la base.
+ *
+ * ⚠ EL SUJETO ES UN Loan Officer O UN REALTOR NPPM, nunca un branch -- a
+ * diferencia de `strategy_benchmark`/`growth_rule`/etc., que admiten
+ * `branch_code`. Acá el presupuesto siempre es de una persona.
+ */
+export type BudgetBucket = 'own_production' | 'b2b' | 'nppm' | 'business_plan';
+
+export interface PersonBudgetTotalRow {
+  person_budget_total_key: number;
+  employee_key: number | null;
+  /**
+   * ⚠ EL CÓDIGO, NO EL NOMBRE — ver
+   * `docs/sql/2026-09-person-budget-realtor-code.sql`. La columna se llamaba
+   * `nppm_realtor` y guardaba el nombre normalizado; la etapa del
+   * `realtor_code` demostró que el nombre no identifica a nadie ('FRED A
+   * GOMEZ' contra 'FRED GOMEZ'), y esta tabla se alinea al mismo criterio que
+   * `nppm_benchmark`.
+   */
+  nppm_realtor_code: string | null;
+  revision: number;
+  target_month: string;
+  total: number | string;
+  set_by: string;
+  note: string | null;
+  created_at: string;
+}
+
+export interface PersonBudgetBreakdownRow {
+  person_budget_breakdown_key: number;
+  employee_key: number | null;
+  /** ⚠ EL CÓDIGO, NO EL NOMBRE — ver el JSDoc de `PersonBudgetTotalRow.nppm_realtor_code`. */
+  nppm_realtor_code: string | null;
+  revision: number;
+  target_month: string;
+  bucket: BudgetBucket;
+  value: number | string;
+  set_by: string;
+  note: string | null;
+  created_at: string;
+}
+
 export interface StrategyYtd {
   strategy: OutlookStrategy;
   /** Cerrados del año. Es la suma de `actualByMonth`, no un conteo aparte. */
@@ -330,6 +383,25 @@ export interface OutlookLoanOfficer {
    * o es una producción sin identidad) o cuando el roster no lo trae.
    */
   position: string | null;
+  /**
+   * ============================================================================
+   * EL PRESUPUESTO COMPUESTO, PUNTO 5 DE OL26
+   * ============================================================================
+   *
+   * `budgetTotal` es el TOTAL fijado a mano, mes → número -- vacío si nadie lo
+   * fijó todavía, y esa ausencia importa: sin fila acá la pantalla sigue
+   * mostrando el total calculado de siempre, no un cero.
+   *
+   * `budgetBreakdown` es el desglose informativo, bucket → mes → número. No
+   * tiene por qué sumar `budgetTotal` -- la pantalla muestra la diferencia, no
+   * la fuerza. Own Production siempre puede tener los cuatro buckets.
+   */
+  budgetTotal: Record<string, number>;
+  /** 0 = nadie fijó un total todavía. */
+  budgetTotalRevision: number;
+  budgetBreakdown: Partial<Record<BudgetBucket, Record<string, number>>>;
+  /** 0 = nadie cargó un desglose todavía. */
+  budgetBreakdownRevision: number;
 }
 
 /**
@@ -434,6 +506,15 @@ export interface BranchRealtor {
   benchmark: number;
   /** `true` si nadie lo fijó y el que rige es `avg3m`. */
   benchmarkIsDefault: boolean;
+  /**
+   * El presupuesto compuesto, punto 5 de OL26 -- ver la nota en
+   * `OutlookLoanOfficer`. Un realtor NPPM sólo admite `own_production` y
+   * `business_plan` en el desglose (reforzado por CHECK en la base).
+   */
+  budgetTotal: Record<string, number>;
+  budgetTotalRevision: number;
+  budgetBreakdown: Partial<Record<BudgetBucket, Record<string, number>>>;
+  budgetBreakdownRevision: number;
 }
 
 /**
@@ -837,6 +918,9 @@ export interface OutlookData {
     growthRules: GrowthRuleRow[];
     monthlyTargets: MonthlyTargetRow[];
     projectionModes: ProjectionModeRow[];
+    /** Etapa OL26, punto 5. */
+    personBudgetTotals: PersonBudgetTotalRow[];
+    personBudgetBreakdowns: PersonBudgetBreakdownRow[];
   };
   diagnostics: {
     activityRowsRead: number;
@@ -867,6 +951,12 @@ export interface OutlookData {
      * descubrir al apretar Guardar que no hay dónde ponerlos.
      */
     monthlyModeAvailable: boolean;
+    /**
+     * ¿Están las dos tablas del punto 5 de OL26? — `outlook.person_budget_total`
+     * y `outlook.person_budget_breakdown`. Mismo uso que `monthlyModeAvailable`:
+     * no ofrecer el editor de presupuesto compuesto si no hay dónde guardarlo.
+     */
+    personBudgetTablesAvailable: boolean;
     /**
      * ¿Están las tres tablas de OL20? — `outlook.recruitment_projection`,
      * `recruitment_ramp` y `recruitment_link`.
@@ -1034,6 +1124,22 @@ export const branchKeyOf = (branchCode: string, strategy: string) => 'b' + branc
 const rowKeyOf = (r: { employee_key: number | null; branch_code: string | null }, strategy: string) =>
   r.employee_key !== null ? employeeKeyOf(r.employee_key, strategy) : 'b' + r.branch_code + '|' + strategy;
 
+/**
+ * La clave del sujeto del presupuesto compuesto (punto 5, OL26): una PERSONA
+ * (Loan Officer) o un REALTOR NPPM, nunca un branch. Distinta de `rowKeyOf`
+ * -- ésa admite branch, ésta no puede -- y con el mismo criterio de prefijo
+ * para que los dos espacios de claves no puedan tocarse.
+ *
+ * ⚠ POR CÓDIGO, NO POR NOMBRE NORMALIZADO -- re-cableado al rebasar sobre
+ * main, etapa del `realtor_code`. Esto usaba `normName`, que la migración de
+ * `docs/sql/2026-09-person-budget-realtor-code.sql` señala como la razón por
+ * la que hacía falta el cambio: 'FRED A GOMEZ' no se une con 'FRED GOMEZ' por
+ * más que se normalice. `nppm_realtor_code` es la clave estable, igual que en
+ * `strategiesOfBranch`.
+ */
+const personBudgetKeyOf = (r: { employee_key: number | null; nppm_realtor_code: string | null }) =>
+  r.employee_key !== null ? 'e' + r.employee_key : 'r' + (r.nppm_realtor_code as string);
+
 export async function loadOutlookData(reference: Date = new Date()): Promise<OutlookData> {
   const supabase = getSupabaseClient();
 
@@ -1081,6 +1187,9 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       ol.from('nppm_benchmark').select('*'),
       ol.from('monthly_target').select('*'),
       ol.from('projection_mode').select('*'),
+      /* Punto 5 de OL26. Ver `docs/sql/2026-09-outlook-budget-composition.sql`. */
+      ol.from('person_budget_total').select('*'),
+      ol.from('person_budget_breakdown').select('*'),
     ]);
   })();
 
@@ -1194,12 +1303,30 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
   let growthRuleRows = 0;
   /* ¿Se pueden leer las dos tablas de OL4? Si no, el modo mes a mes no se ofrece. */
   let monthlyModeAvailable = false;
+  /*
+   * Punto 5 de OL26 — el presupuesto compuesto. Mismo patrón que
+   * `targetsByKey`/`targetRevisionByKey`, con una clave que distingue a una
+   * PERSONA de un REALTOR (nunca un branch, a diferencia de `rowKeyOf`).
+   */
+  const budgetTotalByKey = new Map<string, Record<string, number>>();
+  const budgetTotalRevisionByKey = new Map<string, number>();
+  const budgetBreakdownByKey = new Map<string, Partial<Record<BudgetBucket, Record<string, number>>>>();
+  const budgetBreakdownRevisionByKey = new Map<string, number>();
+  let personBudgetTablesAvailable = false;
+  /* Los cuatro campos del presupuesto compuesto, para un sujeto -- se usan en
+     las tres construcciones de OutlookLoanOfficer y en la de BranchRealtor. */
+  const budgetTotalOf = (key: string) => budgetTotalByKey.get(key) ?? {};
+  const budgetTotalRevisionOf = (key: string) => budgetTotalRevisionByKey.get(key) ?? 0;
+  const budgetBreakdownOf = (key: string) => budgetBreakdownByKey.get(key) ?? {};
+  const budgetBreakdownRevisionOf = (key: string) => budgetBreakdownRevisionByKey.get(key) ?? 0;
   const history: OutlookData['history'] = {
     strategyBenchmarks: [],
     nppmBenchmarks: [],
     growthRules: [],
     monthlyTargets: [],
     projectionModes: [],
+    personBudgetTotals: [],
+    personBudgetBreakdowns: [],
   };
 
   /*
@@ -1225,7 +1352,7 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
 
   try {
     /* Ya pedidas arriba, en paralelo con el resto -- ver el bloque de OL6. */
-    const [benchRes, ruleRes, nppmRes, targetRes, modeRes] = outlookTables;
+    const [benchRes, ruleRes, nppmRes, targetRes, modeRes, budgetTotalRes, budgetBreakdownRes] = outlookTables;
 
     /*
      * ⚠ Las dos tablas de OL4 se leen APARTE de las de OL1, y su error no
@@ -1266,6 +1393,52 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
         targetsByKey.set(k, byMonth);
       }
     }
+
+    /*
+     * Punto 5 de OL26 -- se leen APARTE del resto, mismo motivo que el bloque
+     * de arriba: el SQL lo aplica el revisor y puede no estar puesto, y su
+     * ausencia no tiene por qué apagar benchmarks ni reglas de crecimiento.
+     */
+    if (!budgetTotalRes.error && !budgetBreakdownRes.error) {
+      personBudgetTablesAvailable = true;
+
+      const totals = (budgetTotalRes.data ?? []) as PersonBudgetTotalRow[];
+      history.personBudgetTotals = totals;
+      /* Sólo la revisión más alta de cada sujeto, entera -- igual que los targets. */
+      const maxTotalRev = new Map<string, number>();
+      for (const t of totals) {
+        const k = personBudgetKeyOf(t);
+        maxTotalRev.set(k, Math.max(maxTotalRev.get(k) ?? 0, t.revision));
+      }
+      for (const [k, rev] of maxTotalRev) budgetTotalRevisionByKey.set(k, rev);
+      for (const t of totals) {
+        const k = personBudgetKeyOf(t);
+        if (t.revision !== maxTotalRev.get(k)) continue;
+        const byMonth = budgetTotalByKey.get(k) ?? {};
+        byMonth[t.target_month.slice(0, 7)] = Number(t.total);
+        budgetTotalByKey.set(k, byMonth);
+      }
+
+      const breakdowns = (budgetBreakdownRes.data ?? []) as PersonBudgetBreakdownRow[];
+      history.personBudgetBreakdowns = breakdowns;
+      /* Una revisión cubre TODOS los buckets y meses de un mismo guardado. */
+      const maxBreakdownRev = new Map<string, number>();
+      for (const b of breakdowns) {
+        const k = personBudgetKeyOf(b);
+        maxBreakdownRev.set(k, Math.max(maxBreakdownRev.get(k) ?? 0, b.revision));
+      }
+      for (const [k, rev] of maxBreakdownRev) budgetBreakdownRevisionByKey.set(k, rev);
+      for (const b of breakdowns) {
+        const k = personBudgetKeyOf(b);
+        if (b.revision !== maxBreakdownRev.get(k)) continue;
+        const byBucket = budgetBreakdownByKey.get(k) ?? {};
+        const byMonth = byBucket[b.bucket] ?? {};
+        byMonth[b.target_month.slice(0, 7)] = Number(b.value);
+        byBucket[b.bucket] = byMonth;
+        budgetBreakdownByKey.set(k, byBucket);
+      }
+    }
+
     if (!nppmRes.error) {
       const nppmRows = (nppmRes.data ?? []) as NppmBenchmarkRow[];
       history.nppmBenchmarks = nppmRows;
@@ -2031,6 +2204,12 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       hasIdentity: true,
       isBranchManager: lo.isBranchManager,
       position: rosterByKey.get(lo.employeeKey)?.position ?? null,
+      budgetTotal: budgetTotalOf(personBudgetKeyOf({ employee_key: lo.employeeKey, nppm_realtor_code: null })),
+      budgetTotalRevision: budgetTotalRevisionOf(personBudgetKeyOf({ employee_key: lo.employeeKey, nppm_realtor_code: null })),
+      budgetBreakdown: budgetBreakdownOf(personBudgetKeyOf({ employee_key: lo.employeeKey, nppm_realtor_code: null })),
+      budgetBreakdownRevision: budgetBreakdownRevisionOf(
+        personBudgetKeyOf({ employee_key: lo.employeeKey, nppm_realtor_code: null })
+      ),
       /* Placeholder: se reemplaza por branch al armar el mapa, abajo. */
       strategies: [],
       rulesByStrategy,
@@ -2168,6 +2347,12 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
         hasIdentity: true,
         isBranchManager: employeeByKey.get(key)?.is_branch_manager ?? false,
         position: r?.position ?? null,
+        budgetTotal: budgetTotalOf(personBudgetKeyOf({ employee_key: key, nppm_realtor_code: null })),
+        budgetTotalRevision: budgetTotalRevisionOf(personBudgetKeyOf({ employee_key: key, nppm_realtor_code: null })),
+        budgetBreakdown: budgetBreakdownOf(personBudgetKeyOf({ employee_key: key, nppm_realtor_code: null })),
+        budgetBreakdownRevision: budgetBreakdownRevisionOf(
+          personBudgetKeyOf({ employee_key: key, nppm_realtor_code: null })
+        ),
       });
       branchMap.set(code, list);
     }
@@ -2212,6 +2397,13 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       hasIdentity: false,
       isBranchManager: false,
       position: r.position ?? null,
+      /* Sin `employee_key` real -- ver `hasIdentity: false` arriba -- no hay
+         nada que buscar: un presupuesto compuesto no puede referenciar una
+         identidad sintética. */
+      budgetTotal: {},
+      budgetTotalRevision: 0,
+      budgetBreakdown: {},
+      budgetBreakdownRevision: 0,
     });
     branchMap.set(r.branch_code, list);
   });
@@ -2264,6 +2456,16 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
                   avg3m,
                   benchmark: hayGuardado ? guardado : avg3m,
                   benchmarkIsDefault: !hayGuardado,
+                  budgetTotal: budgetTotalOf(personBudgetKeyOf({ employee_key: null, nppm_realtor_code: realtorCode })),
+                  budgetTotalRevision: budgetTotalRevisionOf(
+                    personBudgetKeyOf({ employee_key: null, nppm_realtor_code: realtorCode })
+                  ),
+                  budgetBreakdown: budgetBreakdownOf(
+                    personBudgetKeyOf({ employee_key: null, nppm_realtor_code: realtorCode })
+                  ),
+                  budgetBreakdownRevision: budgetBreakdownRevisionOf(
+                    personBudgetKeyOf({ employee_key: null, nppm_realtor_code: realtorCode })
+                  ),
                 };
               })
               /* Por el NOMBRE y no por el código, que es opaco. */
@@ -2502,6 +2704,7 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       ),
       activeProducers: rosterRows.filter((r) => r.is_producer && r.is_active).length,
       monthlyModeAvailable,
+      personBudgetTablesAvailable,
       recruitTablesAvailable: recruitTables.editado !== null,
       recruitsRead: todosLosReclutas.length,
       recruitsWithBenchmark: todosLosReclutas.filter((r) => r.monthlyBenchmark !== null).length,

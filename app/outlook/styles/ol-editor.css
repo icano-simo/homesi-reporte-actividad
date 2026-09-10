@@ -299,6 +299,13 @@
   background: var(--slate-50);
 }
 
+/*
+ * ⚠ `.ol-editor__save` / `.ol-editor__savewhat` VIVEN ACÁ TODAVÍA porque
+ * `StrategyEditor.tsx` --el editor por estrategia-- las sigue usando en este
+ * punto de la historia. OL26d lo reemplaza por `PersonBudgetEditor` y borra
+ * el componente; ahí es donde estas dos clases se vuelven muertas y se
+ * eliminan (pedido explícito de Isabella al rebasar esta rama sobre main).
+ */
 /* Guardar el presupuesto. Fila propia, para que no se lea como el Save del
    comentario de al lado: era lo que pasaba cuando compartian la fila. */
 .ol-editor__save {
@@ -311,4 +318,19 @@
 .ol-editor__savewhat {
   font-size: 11px;
   color: var(--slate-400);
+}
+
+/*
+ * ============================================================================
+ * LA DIFERENCIA ENTRE EL DESGLOSE Y EL TOTAL — etapa OL26, punto 5
+ * ============================================================================
+ *
+ * No se fuerza a que sumen -- ver `docs/sql/2026-09-outlook-budget-composition.sql`
+ * y el JSDoc de cabecera de `BudgetEditor.tsx`. El color sólo aparece cuando
+ * hay algo que mirar: una diferencia en cero se ve igual que el resto de la
+ * fila, atenuada por `.ol-residual`.
+ */
+.ol-editor__delta--off {
+  color: var(--coral);
+  font-weight: 700;
 }

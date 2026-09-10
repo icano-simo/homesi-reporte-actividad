@@ -34,7 +34,9 @@ import { useOutlookDataContext } from '@/lib/outlook/useOutlookData';
 import StrategyEditor, { type OutlookEditable } from '@/app/outlook/components/StrategyEditor';
 import NppmEditor from '@/app/outlook/components/NppmEditor';
 import RecruitEditor, { branchOptions } from '@/app/outlook/components/RecruitEditor';
+import BudgetEditor, { type BudgetEditable } from '@/app/outlook/components/BudgetEditor';
 import OutlookTopBar from '@/app/outlook/components/OutlookTopBar';
+import type { PersonSubject } from '@/lib/outlook/save';
 /*
  * ⚠ UNA SOLA IMPLEMENTACION del calculo por estrategia — etapa OL22. Esta
  * pantalla tenia su propia copia y la vista 1 otra; ahora las dos leen de acá.
@@ -547,6 +549,12 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * `monthsOfYear`, que se calcula después de los cortes.
    */
   const { recorriendo } = useReview();
+  /*
+   * El presupuesto compuesto que se está editando -- punto 5 de OL26. Mismo
+   * criterio que `editingRecruit`: se guarda el SUJETO (empleado o realtor),
+   * no la fila, y se resuelve fresco de `branch` en cada render.
+   */
+  const [editingBudget, setEditingBudget] = useState<PersonSubject | null>(null);
 
   if (error) return <div className="hub-container"><div className="bp-empty">Could not load Outlook: {error}</div></div>;
   if (!data) return <div className="hub-container"><div className="bp-empty">Loading…</div></div>;
@@ -1347,6 +1355,25 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                                   </button>
                                 );
                               })()}
+                            {/*
+                              ⚠ EL PRESUPUESTO COMPUESTO, PUNTO 5 DE OL26 -- una
+                              decisión aparte de la regla de crecimiento: no
+                              reemplaza lo que proyectan las columnas de arriba,
+                              es una segunda forma de fijar y explicar un total.
+                              Ver `BudgetEditor`.
+                            */}
+                            <button
+                              type="button"
+                              className={'ol-pill' + (pr.lo.budgetTotalRevision > 0 ? '' : ' ol-pill--empty')}
+                              onClick={() => setEditingBudget({ kind: 'employee', employeeKey: pr.lo.employeeKey })}
+                              title={
+                                pr.lo.budgetTotalRevision > 0
+                                  ? 'This person has a composed budget set (a fixed total, with an informational breakdown by plan). Click to review or edit it.'
+                                  : 'No composed budget set yet for this person. Click to set one -- informational, separate from the projection above.'
+                              }
+                            >
+                              budget
+                            </button>
                           </td>
                         </tr>
                       );
@@ -1448,6 +1475,19 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                             }
                           >
                             {r.benchmarkIsDefault ? '3-mo avg' : 'by hand'}
+                          </button>
+                          {/* Punto 5 de OL26 -- ver la nota en la fila de Loan Officer. */}
+                          <button
+                            type="button"
+                            className={'ol-pill' + (r.budgetTotalRevision > 0 ? '' : ' ol-pill--empty')}
+                            onClick={() => setEditingBudget({ kind: 'realtor', realtorCode: r.realtorCode })}
+                            title={
+                              r.budgetTotalRevision > 0
+                                ? 'This realtor has a composed budget set (a fixed total, with an informational breakdown by plan). Click to review or edit it.'
+                                : 'No composed budget set yet for this realtor. Click to set one -- informational, separate from the projection above.'
+                            }
+                          >
+                            budget
                           </button>
                         </td>
                       </tr>
@@ -2121,6 +2161,58 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
           onSaved={reload}
         />
       )}
+
+      {/*
+        El presupuesto compuesto -- punto 5 de OL26. Mismo criterio que los
+        demás editores: se resuelve la fila FRESCA de `branch` en cada render,
+        nunca desde un objeto guardado en el estado (ver la nota de
+        `editingBudget` más arriba).
+      */}
+      {editingBudget &&
+        (() => {
+          const person: BudgetEditable | null =
+            editingBudget.kind === 'employee'
+              ? (() => {
+                  const lo = branch.loanOfficers.find((x) => x.employeeKey === editingBudget.employeeKey);
+                  return lo
+                    ? {
+                        subject: { kind: 'employee' as const, employeeKey: lo.employeeKey },
+                        label: lo.fullName,
+                        buckets: ['own_production', 'b2b', 'nppm', 'business_plan'] as const,
+                        budgetTotal: lo.budgetTotal,
+                        budgetTotalRevision: lo.budgetTotalRevision,
+                        budgetBreakdown: lo.budgetBreakdown,
+                        budgetBreakdownRevision: lo.budgetBreakdownRevision,
+                      }
+                    : null;
+                })()
+              : (() => {
+                  /* Por código, no por nombre normalizado -- ver la nota de
+                     `PersonSubject` en save.ts. */
+                  const r = bsNppm?.realtors.find((x) => x.realtorCode === editingBudget.realtorCode);
+                  return r
+                    ? {
+                        subject: { kind: 'realtor' as const, realtorCode: r.realtorCode },
+                        label: r.displayName,
+                        buckets: ['own_production', 'business_plan'] as const,
+                        budgetTotal: r.budgetTotal,
+                        budgetTotalRevision: r.budgetTotalRevision,
+                        budgetBreakdown: r.budgetBreakdown,
+                        budgetBreakdownRevision: r.budgetBreakdownRevision,
+                      }
+                    : null;
+                })();
+          if (!person) return null;
+          return (
+            <BudgetEditor
+              person={person}
+              data={data}
+              months={remainingMonths}
+              onClose={() => setEditingBudget(null)}
+              onSaved={reload}
+            />
+          );
+        })()}
 
       {/*
         ⚠ ACÁ HABÍA UN PÁRRAFO LARGO, Y SE FUE A PROPÓSITO — etapa OL6.
