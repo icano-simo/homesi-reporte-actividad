@@ -97,6 +97,16 @@ export interface FunnelNodeLink {
   funnel_key: number;
   node_key: number;
   position: number;
+  /**
+   * El nodo de ESTE funnel que hay que terminar antes -- etapa BP41/BP46.
+   *
+   * `null` = no espera a nada, que es el default y no un valor de respaldo.
+   *
+   * Vive en el VINCULO y no en el nodo porque 16 de los 32 nodos estan en mas
+   * de un funnel --uno en cinco-- asi que puesta en el nodo viajaria a funnels
+   * donde el antecesor no existe.
+   */
+  depends_on_node_key?: number | null;
 }
 
 export interface NodeMilestone {
@@ -132,6 +142,19 @@ export type MilestoneStatus = 'planned' | 'in_progress' | 'completed';
 
 export interface EnrollmentNodeDraft {
   source_node_key: number;
+  /**
+   * La dependencia, TODAVIA en claves de plantilla -- etapa BP46.
+   *
+   * El cliente no puede resolverla: las claves de la copia no existen hasta que
+   * `activate_funnel` inserta las filas. Asi que viaja como el
+   * `source_node_key` del antecesor y la funcion la traduce, en una SEGUNDA
+   * pasada, contra las copias recien creadas.
+   *
+   * Se OMITE cuando el nodo no espera a nada, en vez de mandar `null`: asi la
+   * funcion distingue "no hay dependencia" de "hay una y no se pudo resolver",
+   * que es justo lo que su guarda comprueba.
+   */
+  depends_on_source_node_key?: number;
   name: string;
   description: string | null;
   icon: string | null;
@@ -227,8 +250,8 @@ export function cumulativeDays(slaDays: (number | null)[]): number[] {
 /**
  * El rango "DAY 1-5" de cada nodo se CALCULA; no se escribe a mano.
  *
- * Un nodo dura la SUMA de los `sla_days` de sus steps. Los nodos van uno
- * después del otro, así que cada uno arranca donde terminó el anterior.
+ * Un nodo dura la SUMA de los `sla_days` de sus steps. Cuándo ARRANCA depende
+ * de si declara una dependencia -- ver la nota de adentro.
  *
  * ⚠ ANTES ERA `Math.max`, Y ESTABA MAL DESDE BP40.
  *
@@ -249,10 +272,19 @@ export function cumulativeDays(slaDays: (number | null)[]): number[] {
  */
 export function nodeDayRanges(
   orderedNodeKeys: number[],
-  milestones: NodeMilestone[]
+  milestones: NodeMilestone[],
+  /**
+   * Las dependencias declaradas, `node_key` -> `node_key` del antecesor.
+   *
+   * Omitirlo produce exactamente el comportamiento anterior a BP46: todo
+   * secuencial. Los dos callers que no lo pasan siguen dando lo mismo.
+   */
+  dependsOn?: Map<number, number | null>
 ): NodeDayRange[] {
   const out: NodeDayRange[] = [];
-  let cursor = 1;
+  /* El dia en que termina cada nodo ya calculado, por clave. */
+  const finDe = new Map<number, number>();
+
   orderedNodeKeys.forEach((node_key, i) => {
     const mine = milestones
       .filter((m) => m.node_key === node_key)
@@ -260,8 +292,56 @@ export function nodeDayRanges(
     const acumulados = cumulativeDays(mine.map((m) => m.sla_days));
     const total = acumulados.length ? acumulados[acumulados.length - 1] : 0;
     const span = Math.max(1, total);
-    out.push({ node_key, position: i + 1, fromDay: cursor, toDay: cursor + span - 1 });
-    cursor += span;
+
+    /*
+     * ═════════════════════════════════════════════════════════════════════
+     * CUANDO ARRANCA UN NODO — etapa BP46
+     * ═════════════════════════════════════════════════════════════════════
+     *
+     * Con dependencia declarada: despues de SU antecesor.
+     * Sin dependencia: despues de los que vienen antes por posicion.
+     *
+     * ⚠ LA TRAMPA QUE ESTO EVITA. Derivar el inicio SOLO de la dependencia
+     * haria que un nodo sin antecesor arrancara el dia 1 -- y como hoy ninguna
+     * de las 63 filas de `funnel_node` declara una, los 63 arrancarian el dia 1
+     * a la vez. Los nueve funnels colapsarian a la duracion de su nodo mas
+     * largo, y las fechas de los cinco planes activos con ellos.
+     *
+     * Con esta regla, cero dependencias declaradas = comportamiento identico al
+     * de antes, y solo se mueve lo que alguien declare a proposito. Verificado:
+     * los nueve `ends day` dan lo mismo antes y despues.
+     *
+     * ⚠ Y UNA DESVIACION DE LA REGLA LITERAL, a proposito: sin dependencia se
+     * usa el MAYOR fin entre TODOS los anteriores, no el fin del inmediatamente
+     * anterior.
+     *
+     * Con cero dependencias las dos son identicas --la secuencia es estricta,
+     * asi que el anterior ES el que termina ultimo-- por eso la linea base se
+     * conserva igual. La diferencia aparece con paralelismo: si el nodo 3 espera
+     * al 1 y el nodo 2 es largo, "despues del anterior" dejaria al nodo 4
+     * arrancando encima del 2, que todavia corre. Un nodo que no declara
+     * dependencia viene DESPUES de todo lo anterior -- eso es lo que significa
+     * que la secuencia sea el default.
+     */
+    const dep = dependsOn?.get(node_key) ?? null;
+    let fromDay: number;
+    if (dep !== null && finDe.has(dep)) {
+      fromDay = (finDe.get(dep) as number) + 1;
+    } else if (i === 0) {
+      fromDay = 1;
+    } else {
+      fromDay = Math.max(...orderedNodeKeys.slice(0, i).map((k) => finDe.get(k) ?? 0)) + 1;
+    }
+    /*
+     * Un antecesor declarado que NO esta entre los nodos que se estan
+     * calculando cae en la regla posicional. Pasa al copiar un nodo suelto, y
+     * es la respuesta correcta: no hay contra que medirlo. `activate_funnel`
+     * tiene la guarda que impide que eso llegue a un plan guardado.
+     */
+
+    const toDay = fromDay + span - 1;
+    finDe.set(node_key, toDay);
+    out.push({ node_key, position: i + 1, fromDay, toDay });
   });
   return out;
 }
@@ -313,10 +393,23 @@ export function buildEnrollmentPlan(
   orderedNodeKeys: number[],
   nodes: FunnelNode[],
   milestones: NodeMilestone[],
-  activationDate: string
+  activationDate: string,
+  /**
+   * Las dependencias declaradas, `node_key` -> `node_key` del antecesor.
+   *
+   * Va como MAPA y no como la lista de `funnel_node` a proposito: esta funcion
+   * recibe `orderedNodeKeys` y no sabe de funnels, y pasarle los vinculos la
+   * obligaria a filtrar por uno -- o sea, a saber cual. El que llama ya lo sabe.
+   *
+   * Omitirlo produce un plan sin dependencias, que es exactamente lo que hacia
+   * antes de BP46: los dos callers que no lo pasan siguen funcionando igual.
+   */
+  dependsOn?: Map<number, number | null>
 ): EnrollmentNodeDraft[] {
   const byKey = new Map(nodes.map((n) => [n.node_key, n]));
-  const ranges = nodeDayRanges(orderedNodeKeys, milestones);
+  /* El mapa va tambien a `nodeDayRanges`: sin el, las fechas del plan seguirian
+     apilando los nodos y no reflejarian el paralelismo que se declaro. */
+  const ranges = nodeDayRanges(orderedNodeKeys, milestones, dependsOn);
 
   return orderedNodeKeys.flatMap((node_key, i) => {
     const node = byKey.get(node_key);
@@ -329,9 +422,22 @@ export function buildEnrollmentPlan(
        función que la tabla, el editor y `nodeDayRanges`. */
     const diaEnElNodo = cumulativeDays(mine.map((m) => m.sla_days));
 
+    /*
+     * La dependencia se incluye SOLO si el antecesor esta entre los nodos que
+     * se estan copiando. Declarada contra uno que no viaja, mandarla haria
+     * fallar la guarda de `activate_funnel` -- y con razon, porque el plan
+     * quedaria con una dependencia imposible.
+     *
+     * Esto pasa de verdad al copiar UN nodo suelto, como hace el editor del
+     * plan: ahi `orderedNodeKeys` tiene un elemento y su antecesor no esta.
+     */
+    const antecesor = dependsOn?.get(node_key) ?? null;
+    const viaja = antecesor !== null && orderedNodeKeys.includes(antecesor);
+
     return [
       {
         source_node_key: node_key,
+        ...(viaja ? { depends_on_source_node_key: antecesor } : {}),
         name: node.name,
         description: node.description,
         icon: node.icon,

@@ -29,14 +29,44 @@ interface SidebarItem {
   href: string;
   label: string;
   icon: ReactNode;
+  /**
+   * Otras rutas que dejan este item seleccionado — etapa BP47.
+   *
+   * Hace falta porque `Funnels & Nodes` es UN item con DOS rutas, y las dos no
+   * comparten prefijo: `/business-plan/funnels` no es prefijo de
+   * `/business-plan/library`. Sin esto, cambiar de pestaña apagaba el item del
+   * menú y encendía la raíz del módulo, que es la fallback.
+   */
+  tambien?: string[];
 }
 
 const ITEMS: SidebarItem[] = [
   { href: '/business-plan', label: 'Branch Portfolio', icon: <BuildingIcon size={16} /> },
-  /* Las DOS pantallas de BP41: los nodos con sus steps, y los funnels con los
-     nodos que usan. Antes eran tres pestanas dentro de una sola. */
-  { href: '/business-plan/library', label: 'Node Library', icon: <GridIcon size={16} /> },
-  { href: '/business-plan/funnels', label: 'Funnels', icon: <GridIcon size={16} /> },
+  /*
+   * ═════════════════════════════════════════════════════════════════
+   * UN ITEM PARA LAS DOS PANTALLAS — etapa BP47
+   * ═════════════════════════════════════════════════════════════════
+   *
+   * En BP41 eran dos entradas. Son la misma cosa mirada de los dos lados -- un
+   * nodo está en varios funnels y un funnel usa varios nodos-- y como entradas
+   * separadas el menú prometía dos secciones que comparten hasta la búsqueda.
+   *
+   * La CONMUTACION es un par de pestañas adentro (`FunnelNodeTabs`), y las dos
+   * pestañas son RUTAS y no estado:
+   *
+   *   · la ruta sobrevive al refresco sin escribir una linea para lograrlo;
+   *   · se puede compartir el link de la pestaña de nodos;
+   *   · atrás y adelante del navegador funcionan.
+   *
+   * Un `?view=nodes` sobre una sola ruta habría sido una SEGUNDA fuente de
+   * verdad al lado de la que ya existe, y las dos páginas ya estaban escritas.
+   */
+  {
+    href: '/business-plan/funnels',
+    label: 'Funnels & Nodes',
+    icon: <GridIcon size={16} />,
+    tambien: ['/business-plan/library'],
+  },
   /*
    * Etapa BP20. Las otras entradas miran el negocio por Loan Officer; ésta lo
    * mira por PERSONA DEL EQUIPO DE SOPORTE, que es lo que faltaba: para saber
@@ -55,8 +85,9 @@ const ITEMS: SidebarItem[] = [
  * módulo se resuelve aparte: sólo queda activa si NINGÚN otro item coincide.
  */
 function resolveActiveHref(pathname: string): string {
+  const coincide = (base: string) => pathname === base || pathname.startsWith(base + '/');
   const deepest = ITEMS.filter((i) => i.href !== '/business-plan').find(
-    (i) => pathname === i.href || pathname.startsWith(i.href + '/')
+    (i) => coincide(i.href) || (i.tambien ?? []).some(coincide)
   );
   return deepest ? deepest.href : '/business-plan';
 }

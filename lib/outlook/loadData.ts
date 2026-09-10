@@ -2399,9 +2399,27 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
        * sus filas. Contarlo aparte sería una segunda fórmula para el mismo
        * número, y podría no dar la diferencia que se ve en la pantalla -- que es
        * justo lo que este número viene a explicar.
+       *
+       * ⚠ SE RESTA LO QUE CADA PERSONA CERRÓ EN ESTE BRANCH, NO SU YTD GLOBAL.
+       * Decía `l.ytd`, que es `totalOf(actualByLo, employeeKey)` -- la suma de
+       * TODOS los branches donde esa persona cerró algo, no sólo éste. Alguien
+       * del roster de este branch que además cerró en otro --Gian Laino, roster
+       * 747, con cierres reales en el 710, el 716, el 760 y Affinity este año--
+       * restaba de más acá: su producción de OTROS branches se descontaba del
+       * total de ESTE, y el residuo le quedaba corto a `outsiders` por esa
+       * misma diferencia.
+       *
+       * Medido en el 747: `l.ytd` sumaba 28 (Galo Rizzo) + 24 (Gian Laino,
+       * global) = 52 sobre un total de 54, dando `closedByOutsiders = 2` --
+       * cuando los cierres reales de gente de otro branch (Nathan Martinez 3,
+       * Cristhian Ramirez 1, Jose Zamora 1) ya suman 5. `totalOf(actualByBranchLo,
+       * branchCode + '|' + l.employeeKey)` es lo que Gian cerró EN el 747 (17,
+       * no 24), y da `closedByOutsiders = 5` -- exactamente lo que `outsiders`
+       * ya nombraba, sin la diferencia.
        */
       closedByOutsiders:
-        totalOf(actualByBranch, branchCode) - los.reduce((a, l) => a + l.ytd, 0),
+        totalOf(actualByBranch, branchCode) -
+        los.reduce((a, l) => a + totalOf(actualByBranchLo, branchCode + '|' + l.employeeKey), 0),
       /*
        * Los mismos cierres que cuenta `closedByOutsiders`, con nombre. Se sacan
        * de `actualByBranchLo` --que tiene la producción de CADA persona en CADA

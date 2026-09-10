@@ -124,7 +124,7 @@ export default function StepsPanel({
           {node.description && <p className="bp-panel__desc">{node.description}</p>}
 
           {steps.length === 0 ? (
-            <p className="bp-muted-line">No steps yet.</p>
+            <p className="bp-hint">No steps yet.</p>
           ) : (
             <table className="piv bp-steps-table">
               <thead>
@@ -190,9 +190,14 @@ export default function StepsPanel({
           )}
 
           {/* La leyenda va ACÁ y no en la tarjeta: explica dos columnas que sólo
-              existen dentro del panel. */}
+              existen dentro del panel.
+
+              Y va en `bp-hint` desde BP47, la misma caja que las otras notas de
+              la pantalla. Antes era `bp-legend` a 11px sin caja, y
+              `assign an area` a 11px en ámbar sin caja: dos tratamientos para
+              la misma clase de texto. */}
           {steps.length > 0 && (
-            <p className="bp-legend">SLA is days after the previous step. Day is where it lands in the plan.</p>
+            <p className="bp-hint">SLA is days after the previous step. Day is where it lands in the plan.</p>
           )}
 
           <div className="bp-panel__actions">
@@ -206,7 +211,14 @@ export default function StepsPanel({
             donde se edita. Sin esto a la vista, la duda "¿le rompo el plan a
             Ana?" hace que nadie toque nada.
           */}
-          <p className="bp-panel__rule">
+          {/*
+            Y en `bp-hint` como las otras dos — BP47. Tenía su propia clase con
+            un borde `--sky` a la izquierda: mismo tamaño pero otro tratamiento,
+            que es justo lo que había que unificar. La importancia de esta nota
+            la da el `<strong>` y su lugar al pie del panel, no una caja
+            distinta de las demas.
+          */}
+          <p className="bp-hint">
             Editing here changes the <strong>template</strong>, not the plans already running. Plans are copied when a
             funnel is activated, so adding a step now does not change anyone&apos;s current plan.
           </p>
