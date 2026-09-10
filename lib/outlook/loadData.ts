@@ -203,7 +203,13 @@ export interface ProjectionModeRow {
  * diferencia de `strategy_benchmark`/`growth_rule`/etc., que admiten
  * `branch_code`. Acá el presupuesto siempre es de una persona.
  */
-export type BudgetBucket = 'own_production' | 'b2b' | 'nppm' | 'business_plan';
+/**
+ * ⚠ `recruitment` SE AGREGÓ EN OL26e -- ver
+ * `docs/sql/2026-09-outlook-budget-recruitment-bucket.sql`. Un realtor NPPM no
+ * puede tenerlo (el CHECK de la base lo rechaza, igual que 'b2b' y 'nppm'):
+ * un realtor no participa del programa de reclutamiento.
+ */
+export type BudgetBucket = 'own_production' | 'b2b' | 'nppm' | 'recruitment' | 'business_plan';
 
 export interface PersonBudgetTotalRow {
   person_budget_total_key: number;
@@ -2807,8 +2813,34 @@ export function projectLoanOfficer(
   return { byMonth, stepsByStrategy };
 }
 
-/** La de un branch: la suma de sus Loan Officers. */
-export function projectBranch(branch: OutlookBranch, months: string[]): Record<string, number> {
+/**
+ * La de un branch: la suma de sus Loan Officers.
+ *
+ * ⚠ `applyBudgetOverrides` -- etapa OL26e. `true` (default) es LA VERDAD:
+ * "person_budget_total manda cuando existe, la regla cuando no", y es lo que
+ * tiene que ver la pantalla como total del branch (`page.tsx`) -- ahí es
+ * donde este número se compara contra la suma de las filas que SÍ aplican el
+ * mismo override (`loanOfficerRowsOf`), así que los dos tienen que coincidir.
+ *
+ * `false` es SÓLO para `strategyRowsOf`, que usa este total como el PESO a
+ * REPARTIR entre estrategias (`apportionByWeight`), no como un número a
+ * mostrar. Si ese reparto usara el total con overrides, el presupuesto fijo
+ * de UNA persona -- que no tiene por qué coincidir con su regla de
+ * crecimiento -- infla o desinfla la torta ENTERA, y `apportionByWeight`
+ * reparte la diferencia proporcionalmente entre TODAS las estrategias y
+ * personas, incluidas las que no tienen nada que ver. Verificado a mano: con
+ * Gian fijando 15 (su regla daba 10) y Galo sin tocar nada (regla 8), el
+ * reparto con el total contaminado subía a Galo de 8 a 10 y a B2B --una
+ * estrategia sin ninguna persona con presupuesto fijo-- de 6 a 7. "La regla
+ * queda como estaba para esa persona" exige que Galo y B2B no se muevan un
+ * número si nadie tocó el suyo.
+ */
+export function projectBranch(
+  branch: OutlookBranch,
+  months: string[],
+  opts?: { applyBudgetOverrides?: boolean }
+): Record<string, number> {
+  const applyBudgetOverrides = opts?.applyBudgetOverrides ?? true;
   const byMonth: Record<string, number> = {};
   for (const m of months) byMonth[m] = 0;
   for (const lo of branch.loanOfficers) {
@@ -2816,7 +2848,10 @@ export function projectBranch(branch: OutlookBranch, months: string[]): Record<s
        a su branch de roster, una sola vez. Ver `primaryBranch`. */
     if (lo.primaryBranch !== branch.branchCode) continue;
     const { byMonth: loMonths } = projectLoanOfficer(lo, months);
-    for (const m of months) byMonth[m] += loMonths[m] ?? 0;
+    for (const m of months) {
+      const regla = loMonths[m] ?? 0;
+      byMonth[m] += applyBudgetOverrides ? (lo.budgetTotal[m] ?? regla) : regla;
+    }
   }
   /*
    * ⚠ Y LAS ESTRATEGIAS QUE SON DEL BRANCH — etapa OL11.

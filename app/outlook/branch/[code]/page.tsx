@@ -1915,10 +1915,20 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
           if (editingBudgetActivo.kind === 'employee') {
             const lo = branch.loanOfficers.find((x) => x.employeeKey === editingBudgetActivo.employeeKey);
             if (!lo) return null;
+            /*
+             * ⚠ `recruitment` SÓLO PARA QUIEN PARTICIPA -- etapa OL26e. Ver
+             * `docs/sql/2026-09-outlook-budget-recruitment-bucket.sql`. Mismo
+             * criterio que ya usa `loanOfficerRowsOf` para la píldora
+             * "Rec": sin producción ni presupuesto propio en Recruitment, el
+             * bucket no tiene nada que explicar.
+             */
+            const pr = personRows.find((x) => x.lo.employeeKey === lo.employeeKey);
             const person: BudgetEditable = {
               subject: { kind: 'employee', employeeKey: lo.employeeKey },
               label: lo.fullName,
-              buckets: ['own_production', 'b2b', 'nppm', 'business_plan'],
+              buckets: pr?.participatesInRecruitment
+                ? ['own_production', 'b2b', 'nppm', 'recruitment', 'business_plan']
+                : ['own_production', 'b2b', 'nppm', 'business_plan'],
               budgetTotal: lo.budgetTotal,
               budgetTotalRevision: lo.budgetTotalRevision,
               budgetBreakdown: lo.budgetBreakdown,

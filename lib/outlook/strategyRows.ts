@@ -484,7 +484,21 @@ export function loanOfficerRowsOf(
     for (const m of remainingMonths) {
       const own = ownIdx >= 0 ? (ownBudgets[ownIdx]?.[m] ?? 0) : 0;
       const rec = recIdx >= 0 ? (recBudgetsPersonas[recIdx]?.[m] ?? 0) : 0;
-      projected[m] = own + rec;
+      /*
+       * ⚠ PRECEDENCIA — etapa OL26e: "person_budget_total manda cuando
+       * existe, la regla cuando no". `own + rec` es la regla de crecimiento
+       * de siempre (los pesos de apportionment de arriba NO se tocan --
+       * siguen repartiendo entre el resto de la gente como si esta persona
+       * no tuviera presupuesto fijado, que es justo lo que tiene que pasar
+       * para que el reparto de los demás no cambie).  Si Isabella fijó un
+       * presupuesto para ESTE mes puntual, ese número reemplaza a la regla
+       * sólo para este mes -- un presupuesto parcial dejá los demás meses
+       * cayendo solos al `?? (own + rec)`. Mismo criterio, mismo mes a mes,
+       * que `projectBranch` en loadData.ts: los dos tienen que coincidir
+       * para que el total del branch (que sale de `projectBranch`) cierre
+       * con lo que esta fila muestra por persona.
+       */
+      projected[m] = lo.budgetTotal[m] ?? (own + rec);
     }
 
     return {
@@ -535,12 +549,20 @@ export function strategyRowsOf(
 ): StrategyRow[] {
   const { currentMonth } = data;
   const branchCurrent = currentMonthByBranch(data).get(branch.branchCode) ?? 0;
+  /*
+   * ⚠ `applyBudgetOverrides: false` -- etapa OL26e. Este `branchYear` es el
+   * PESO a repartir entre estrategias más abajo (`apportionByWeight`), no un
+   * número que se muestre -- por eso tiene que quedarse en la regla de
+   * crecimiento pura, igual que `exactoDe`. Ver el JSDoc de `projectBranch`
+   * en loadData.ts para el número que se filtró a Galo y a B2B cuando este
+   * total incluía el presupuesto fijo de otra persona.
+   */
   const branchYear = composeYear(
     monthsOfYear,
     currentMonth,
     branch.actualByMonth,
     branchCurrent,
-    projectBranch(branch, remainingMonths)
+    projectBranch(branch, remainingMonths, { applyBudgetOverrides: false })
   );
 
   const filasBase = branch.byStrategy.filter((bs) => tieneAlgo(branch, bs, currentMonth));

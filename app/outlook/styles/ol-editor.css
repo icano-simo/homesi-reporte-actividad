@@ -91,6 +91,10 @@
   margin: 0;
 }
 
+.ol-editor__gov {
+  margin: 0;
+}
+
 /* ── Una revisión de la regla, como tarjeta ──────────────────────────────── */
 .ol-editor__rev-card {
   border: 1px solid var(--slate-200);

@@ -46,20 +46,37 @@ import {
  * mismo botón que guarda todo lo demás. `outlook.growth_rule` deja de
  * escribirse desde esta pantalla.
  *
- * ⚠ RECRUITMENT NO TIENE FILA ACÁ, y es una pérdida real que queda dicha: el
- * desglose tiene cuatro buckets fijos en la base (`own_production`, `b2b`,
- * `nppm`, `business_plan`, ver el SQL) y ninguno es Recruitment. Quien
- * participa de Recruitment no tiene, hoy, una forma de fijar ni de calcular
- * su presupuesto de Recruitment desde "Set budget". Hace falta decidir si
- * entra como un quinto bucket (una migración más) o si se explica de otra
- * forma -- no se inventó ninguna de las dos acá.
+ * ⚠ RECRUITMENT YA TIENE FILA -- agregado en OL26e (ver
+ * `docs/sql/2026-09-outlook-budget-recruitment-bucket.sql`). Sólo aparece para
+ * quien participa del programa (`person.buckets` lo decide en `page.tsx` con
+ * `participatesInRecruitment`); un realtor NPPM sigue sin poder tenerlo -- no
+ * participa del programa, y el CHECK de la base lo rechaza igual.
  *
- * ⚠ CONSECUENCIA QUE HAY QUE SABER, no escondida: nada de lo que se fija acá
- * cambia lo que la tabla del branch proyecta para los meses futuros de esta
- * persona -- esa proyección la sigue leyendo del motor de siempre
- * (`growth_rule`/`monthly_target`/`projection_mode`), que esta pantalla ya no
- * escribe. "Set budget" es, hoy, una herramienta de planificación paralela:
- * informa, no gobierna la columna que se ve arriba.
+ * ============================================================================
+ * GOBIERNO DE LA PROYECCIÓN — etapa OL26e
+ * ============================================================================
+ *
+ * Hasta OL26d, "Set budget" no tenía ningún efecto sobre la tabla del branch:
+ * el Total que se guardaba acá (`outlook.person_budget_total`) era puramente
+ * informativo, y la columna que se ve arriba seguía saliendo, siempre, del
+ * motor de siempre (`growth_rule`/`monthly_target`/`projection_mode`). Eso se
+ * reportó y la decisión, de Isabella, fue:
+ *
+ *   "person_budget_total manda cuando existe, la regla cuando no."
+ *
+ * Por persona y por MES: si hay un Total fijado para ese mes, ese número
+ * gobierna la proyección (`projectBranch` y `loanOfficerRowsOf`, en
+ * loadData.ts / strategyRows.ts); si no, sigue la regla de crecimiento de
+ * siempre, intacta -- las 190 reglas que ya existían no se descartan, siguen
+ * siendo el default de quien nadie tocó. Un Total parcial (p.ej. sólo
+ * enero-junio) no extrapola ni corta nada: julio-diciembre caen solos a la
+ * regla.
+ *
+ * Por eso esta pantalla ahora tiene que DECIRLO: para alguien que hoy proyecta
+ * por regla, guardar un Total acá no es "un ajuste más" -- es un cambio de
+ * gobierno para los meses que cubra. El aviso de abajo (`ol-editor__gov`)
+ * existe para que quien abre la pantalla lo vea antes de guardar, no
+ * después.
  */
 
 const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -70,6 +87,7 @@ const BUCKET_LABEL: Record<BudgetBucket, string> = {
   own_production: 'Own Production',
   b2b: 'B2B',
   nppm: 'NPPM',
+  recruitment: 'Recruitment',
   business_plan: 'Business Plan',
 };
 
@@ -127,6 +145,25 @@ export default function PersonBudgetEditor({
   onSaved: () => Promise<void> | void;
 }) {
   const months = mesesDelHorizonte ?? data.remainingMonths;
+
+  /*
+   * ⚠ "HOY" ES `person.budgetTotal` TAL COMO LLEGÓ, no `totals` (el estado
+   * editable) -- el aviso tiene que decir de qué fuente viene la proyección
+   * ANTES de que alguien toque un input, no recalcularse mientras escribe.
+   *
+   * ⚠ SÓLO PARA UN LOAN OFFICER -- etapa OL26e. La precedencia nueva
+   * ("person_budget_total manda cuando existe, la regla cuando no") se cableó
+   * en `projectBranch` y `loanOfficerRowsOf`, que sólo leen `OutlookLoanOfficer`.
+   * Un realtor NPPM proyecta distinto -- por su propio benchmark/promedio de 3
+   * meses (`avg3m`/`nppm_realtor_benchmark`), no por `growth_rule` -- y ESE
+   * mecanismo no se tocó en esta etapa. Mostrarle este aviso a un realtor
+   * afirmaría un cambio de gobierno que hoy no pasa: guardar su Total sigue
+   * siendo informativo para él, igual que antes de OL26e.
+   */
+  const monthsByRule =
+    person.subject.kind === 'employee' ? months.filter((m) => person.budgetTotal[m] === undefined) : [];
+  const monthsByBudget =
+    person.subject.kind === 'employee' ? months.filter((m) => person.budgetTotal[m] !== undefined) : [];
 
   const [totals, setTotals] = useState<Record<string, string>>(() =>
     Object.fromEntries(months.map((m) => [m, person.budgetTotal[m] === undefined ? '' : String(person.budgetTotal[m])]))
@@ -300,6 +337,17 @@ export default function PersonBudgetEditor({
       <div className="ol-editor">
         <h2 className="ol-editor__h">BUDGET COMPOSITION</h2>
         <p className="ol-editor__hint">Where the total is expected to come from. It does not have to add up.</p>
+
+        {monthsByRule.length > 0 && (
+          <p className="bp-notice bp-notice--warn ol-editor__gov">
+            ⚠{' '}
+            {monthsByBudget.length === 0
+              ? 'Every month here currently projects by growth rule.'
+              : `${monthsByRule.map(monthLabel).join(', ')} currently project by growth rule.`}{' '}
+            Saving a Total for a month replaces the rule for that month — it is a change of governance, not an
+            adjustment.
+          </p>
+        )}
 
         {months.length === 0 ? (
           <p className="ol-editor__hint">There is no month left to set this year.</p>
