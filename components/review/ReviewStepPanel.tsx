@@ -56,9 +56,16 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { AlertTriangleIcon, CollapseIcon, ExpandIcon } from '@/components/ui/icons';
 import {
-  allowsSecondFunnel,
+  /*
+   * Dos que se dejaron de importar en RV21, con su razón en `gates.ts`:
+   *
+   *   `allowsSecondFunnel`  su único consumidor era el párrafo del 3.1, que
+   *                         salió de la vista. `allow_second` sigue en el dato.
+   *   `gateLink`            el link de MMI pasó a ser el de la persona, así que
+   *                         `mmi_link` no tiene lector. El SQL de esta etapa lo
+   *                         saca del dato.
+   */
   gateEvidence,
-  gateLink,
   gateStatus,
   requiredClicks,
   promptDeLaRama,
@@ -124,6 +131,11 @@ export interface ReviewStepPanelProps {
    * eso el campo arranca vacío sólo en el segundo caso.
    */
   benchmarkActual: number | null;
+  /**
+   * ⚠ EL LINK A MMI DE LA PERSONA REVISADA, o `null` si no tiene NMLS — etapa
+   * RV21. Lo arma el anfitrión con el NMLS efectivo; acá sólo se dibuja.
+   */
+  linkMmiDelLo: string | null;
   /** Para que el anfitrión relea el vigente después de que este panel lo cambie. */
   onBenchmarkGuardado: () => void;
   /**
@@ -212,6 +224,7 @@ export default function ReviewStepPanel({
   buscandoSitio,
   rutaDelPaso,
   benchmarkActual,
+  linkMmiDelLo,
   onBenchmarkGuardado,
   presupuestoGuardado,
   branchesDelLo,
@@ -799,7 +812,26 @@ export default function ReviewStepPanel({
     funnelListo: typeof funnelActual === 'string',
   };
   const estado = gateStatus(paso, draft);
-  const link = gateLink(paso);
+  /*
+   * ⚠ EL LINK ES EL DE LA PERSONA, NO EL DEL PASO — etapa RV21.
+   *
+   * `gateLink(paso)` devuelve `gate_config.mmi_link`, que es el MISMO para
+   * todos: abría MMI, no el perfil de quien se está revisando. Ahora se usa el
+   * que arma el anfitrión con el NMLS efectivo
+   * --`coalesce(lo_profile.nmls_override, dim_employee.nmls)`--, y el genérico
+   * queda sólo como respaldo.
+   *
+   * ⚠ Y NO HAY RESPALDO AL GENÉRICO, que fue mi primer intento y estaba mal:
+   * con `linkMmiDelLo ?? gateLink(paso)`, la ÚNICA persona sin NMLS --Lucio
+   * Romero, 1 de 35-- era justamente la que recibía el link genérico. O sea que
+   * el respaldo se activaba exactamente donde el brief dice que no debe haber
+   * link: «sin NMLS no hay link». Sin respaldo, no lo hay.
+   *
+   * Con eso `gate_config.mmi_link` queda sin ningún lector, y su lectura
+   * --`gateLink`-- también. Ver la nota de `gateLink` en `gates.ts` y el SQL de
+   * esta etapa, que lo saca del dato.
+   */
+  const link = linkMmiDelLo;
   const rotuloSiguiente = siguiente
     ? script.steps.find((s) => sameStep(s, siguiente))?.label ?? null
     : null;
@@ -1486,14 +1518,21 @@ export default function ReviewStepPanel({
                 {loName} is on <strong>{funnelActual}</strong>. Confirming keeps it — nothing is
                 cancelled.
               </p>
-              {!allowsSecondFunnel(paso) && (
-                <p className="rv-panel__gate">
-                  <AlertTriangleIcon size={13} /> Adding a second funnel is not available yet:
-                  today the app shows one plan per person, so a second one would be invisible.
-                  Changing this funnel instead would cancel the current plan and its completed
-                  steps.
-                </p>
-              )}
+              {/*
+                ⚠ ACÁ HABÍA UN PÁRRAFO DE CUATRO RENGLONES, Y SE FUE — etapa RV21.
+
+                Decía por qué no se puede agregar un segundo funnel: que la app
+                muestra un plan por persona, que el segundo sería invisible, y
+                que cambiar este cancelaría el plan y sus steps completados.
+                Todo cierto, y demasiado para una tarjeta de 420px --el mismo
+                criterio que sacó `CalcNote` del perfil en BP50: si algo
+                necesita tres renglones, no va en la vista--.
+
+                No queda nada en su lugar: la opción sigue sin ofrecerse y eso
+                se ve solo. Las razones no se perdieron -- viven en la nota de
+                `allowsSecondFunnel` y en el SQL de `allow_second`, que es
+                donde las busca quien las necesita.
+              */}
             </>
           )}
         </div>

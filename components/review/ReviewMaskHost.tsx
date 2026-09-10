@@ -42,6 +42,8 @@ import {
 } from '@/lib/review/gates';
 import ReviewArrow from './ReviewArrow';
 import { buscarBranches, rutaDelModulo } from '@/lib/review/branches';
+/* La regla del NMLS efectivo y su link viven en un solo lugar -- BP50. */
+import { PERFIL_VACIO, linkMmi, nmlsEfectivo } from '@/lib/business-plan/perfil';
 import { useReviewTarget } from '@/lib/review/useReviewTarget';
 import { useReview } from './ReviewProvider';
 import ReviewMask from './ReviewMask';
@@ -491,6 +493,57 @@ export default function ReviewMaskHost() {
      el valor viejo, que es la misma clase de mentira que el campo vacio. */
   const [tickBench, setTickBench] = useState(0);
 
+  /*
+   * ══════════════════════════════════════════════════════════════════════
+   * EL NMLS DE LA PERSONA REVISADA, PARA EL LINK DE MMI — etapa RV21
+   * ══════════════════════════════════════════════════════════════════════
+   *
+   * El paso 1.2 ofrecía «Open MMI» apuntando a `gate_config.mmi_link`, que es
+   * UN link genérico igual para todos: abría MMI, no el perfil de quien se
+   * está revisando. Con el NMLS efectivo abre a la persona, y el paso pasa a
+   * servir para lo que dice.
+   *
+   * ⚠ EL EFECTIVO ES `coalesce(lo_profile.nmls_override, dim_employee.nmls)`,
+   * la misma regla que BP50: el perfil guarda un override y hereda del roster
+   * cuando está en null. Se reusa `nmlsEfectivo` en vez de escribir el
+   * `coalesce` otra vez -- dos copias de esa regla es lo que la vuelve dos
+   * verdades.
+   *
+   * ⚠ Y SIN NMLS NO HAY LINK: `linkMmi` devuelve `null` con la cadena vacía,
+   * así que el panel no dibuja el enlace en vez de ofrecer `/nmls/null`.
+   * Medido en BP50: lo tienen 34 de 35 LO activos.
+   */
+  const [nmlsDelLo, setNmlsDelLo] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelado = false;
+    (async () => {
+      if (loEnCurso === null) {
+        if (!cancelado) setNmlsDelLo(null);
+        return;
+      }
+      const org = getSupabaseClient().schema('org');
+      const [perfil, empleado] = await Promise.all([
+        org.from('lo_profile').select('nmls_override').eq('employee_key', loEnCurso).limit(1),
+        org.from('dim_employee').select('nmls').eq('employee_key', loEnCurso).limit(1),
+      ]);
+      if (cancelado) return;
+      /*
+       * Un error acá no apaga la revisión --sin NMLS no hay link y el paso
+       * sigue contestable-- pero se avisa: «no hay link» y «no se pudo leer» no
+       * son lo mismo, y sin este `warn` se leerían igual.
+       */
+      for (const r of [perfil, empleado]) {
+        if (r.error) console.warn('[review] no se pudo leer el NMLS: ' + r.error.message);
+      }
+      const override = perfil.data?.[0]?.nmls_override ?? null;
+      const delRoster = empleado.data?.[0]?.nmls ?? null;
+      setNmlsDelLo(nmlsEfectivo({ ...PERFIL_VACIO, nmls_override: override }, delRoster));
+    })();
+    return () => {
+      cancelado = true;
+    };
+  }, [loEnCurso]);
+
   useEffect(() => {
     let cancelado = false;
     (async () => {
@@ -864,6 +917,10 @@ export default function ReviewMaskHost() {
           enSitio={enSitio}
           buscandoSitio={buscandoSitio}
           benchmarkActual={benchmarkActual}
+          /* El link al perfil de MMI de ESTA persona, o `null` si no tiene
+             NMLS -- etapa RV21. Lo arma el anfitrión porque es él el que sabe a
+             quién se revisa. */
+          linkMmiDelLo={linkMmi(nmlsDelLo)}
           presupuestoGuardado={presupuestoGuardado}
           branchesDelLo={branchesDelLo}
           onBenchmarkGuardado={() => setTickBench((t) => t + 1)}
