@@ -220,8 +220,50 @@ export function ChannelBreakdown({ lo }: { lo: LoanOfficerRow }) {
  */
 export function Q1Panel({ lo, benchmarkSlot }: { lo: LoanOfficerRow; benchmarkSlot: ReactNode }) {
   const { budget, budgetMet, benchmarkMet, gapAgainst, budgetSource } = lo.q1;
+
+  /*
+   * ============================================================================
+   * LA NOTA DEL GAP — dice CONTRA QUÉ se cumplió o no, etapa BP51
+   * ============================================================================
+   * Reemplaza a los dos `.bp-stat__flag` que vivían pegados a la fila de
+   * Starting benchmark y a la de Budget ("Forecast meets it" / "...is below
+   * it"): la MISMA información, dicha una sola vez, debajo del número que
+   * decide -- el GAP -- y no al lado de las dos filas que sólo lo alimentan.
+   * `gapAgainst` ya dice contra cuál de las dos se mide; esta nota dice si se
+   * cumplió, con la misma frase para las dos referencias.
+   */
+  const gapNote =
+    gapAgainst === 'budget'
+      ? budgetMet
+        ? 'Forecast meets the budget for this month.'
+        : 'Forecast is currently below the budget for this month.'
+      : gapAgainst === 'benchmark'
+        ? benchmarkMet
+          ? 'Forecast meets the starting benchmark.'
+          : 'Forecast is currently below the starting benchmark.'
+        : null;
+
   return (
     <div className="mcard bp-stats">
+      {/*
+        ============================================================================
+        CABECERA — UNA sola marca de "Provisional data", etapa BP51
+        ============================================================================
+        Antes "provisional" podía aparecer TRES veces en la misma tarjeta: el
+        rótulo de Starting benchmark, el valor del benchmark (dentro de
+        `BenchmarkEditor`) y el rótulo del GAP cuando el benchmark era su
+        referencia activa. Las tres decían lo MISMO -- el benchmark de esta
+        persona es un seed circular (`set_by = 'provisional-seed'`), no un
+        número que alguien fijó -- así que se consolidan acá, una vez, para
+        toda la tarjeta. La condición sigue siendo la de `ProvisionalTag`; acá
+        sólo cambia el texto (`label`), para que la cabecera diga "Provisional
+        data" y no "provisional" a secas.
+      */}
+      <div className="bp-stats__head">
+        <span className="bp-stats__title">Performance summary</span>
+        <ProvisionalTag setBy={lo.benchmarkSetBy} note={lo.benchmarkNote} label="Provisional data" />
+      </div>
+
       {/*
         Los DOS promedios, y no para suavizar el veredicto: son diagnósticos
         distintos y cambian el tipo de ayuda.
@@ -244,96 +286,59 @@ export function Q1Panel({ lo, benchmarkSlot }: { lo: LoanOfficerRow; benchmarkSl
       </div>
       {/*
         ============================================================================
-        STARTING BENCHMARK — etapa BP49
+        STARTING BENCHMARK — etapa BP49, simplificado en BP51
         ============================================================================
         Mismo campo de siempre (`org.employee_benchmark`, vigente) -- no hay
         uno nuevo, sólo se lo llama por lo que es en esta pantalla: el PISO
         contra el que cae el gap cuando el budget no se cumple o no está
         fijado. Ver `gapAgainstOf` en qualifiers.ts.
 
-        Sombreado SÓLO cuando es la referencia ACTIVA del gap
-        (`gapAgainst === 'benchmark'`): si el gap se está midiendo contra el
-        budget, no hay nada que decir todavía de si el benchmark se cumple --
-        mostrar un rojo ahí culparía a alguien por un número que hoy no lo
-        rige. Y el texto ("Forecast meets it" / "...is below it") va SIEMPRE
-        al lado del color: alguien que no distingue verde de rojo tiene que
-        poder leer el mismo estado en palabras.
+        Ya NO lleva sombreado ni badge propios -- BP51 sacó las dos cosas de
+        acá: si se cumple o no ahora lo dice `gapNote`, debajo del GAP, que es
+        donde se decide. Esta fila sólo muestra el número y su editor.
 
         `data-rv-anchor="benchmark"` es un ANCLA ESTABLE para la flecha del
         paso 1.2 -- ver `stepArrows` en `lib/review/gates.ts`. Se queda igual
         que antes de BP49: el ancla es la fila, no el texto de su rótulo.
-
-        ⚠ Y EL RÓTULO DICE "PROVISIONAL" CUANDO LO ES -- 29 de 37 hoy. La
-        primera carga de `org.employee_benchmark` fue un seed derivado del
-        propio promedio de cada persona (`set_by = 'provisional-seed'`), no un
-        número que alguien fijó al contratarla -- ver `ProvisionalTag`. Llamar
-        a eso "Starting benchmark" sin decirlo sería engañoso, y cuando ES la
-        referencia activa del gap (`gapAgainst === 'benchmark'`) un gap contra
-        un número que nadie decidió se leería como un juicio de desempeño que
-        no es. `ProvisionalTag` ya se usa en `BenchmarkEditor` junto al valor;
-        acá va TAMBIÉN en el rótulo, y además al lado del GAP cuando este
-        benchmark es su referencia -- son los dos lugares donde el número se
-        usa para decidir algo, y los dos tienen que decir de dónde sale.
       */}
-      <div
-        className={
-          'bp-stat' + (gapAgainst === 'benchmark' ? (benchmarkMet ? ' bp-stat--met' : ' bp-stat--under') : '')
-        }
-        data-rv-anchor="benchmark"
-      >
-        <span className="bp-stat__label">
-          Starting benchmark <ProvisionalTag setBy={lo.benchmarkSetBy} note={lo.benchmarkNote} />
-        </span>
-        {/*
-          `<div>`, no `<span>`: `benchmarkSlot` (el editor, en el perfil) trae
-          un `<div>` propio, y un bloque dentro de un elemento en línea es HTML
-          inválido.
-        */}
-        <div className="bp-stat__row">
-          {benchmarkSlot}
-          {gapAgainst === 'benchmark' && (
-            <span className="bp-stat__flag">{benchmarkMet ? 'Forecast meets it' : 'Forecast is below it'}</span>
-          )}
-        </div>
+      <div className="bp-stat" data-rv-anchor="benchmark">
+        <span className="bp-stat__label">Starting benchmark</span>
+        {benchmarkSlot}
       </div>
 
       {/*
         ============================================================================
-        BUDGET (THIS MONTH) — etapa BP49, ampliado en BP49b
+        BUDGET (THIS MONTH) — etapa BP49, ampliado en BP49b, simplificado en BP51
         ============================================================================
         De Outlook (`outlook.person_budget_total`, mes en curso, última
         revisión) -- y cuando nadie lo fijó a mano, la proyección de la regla
         de crecimiento de Own Production, LEÍDA y no escrita (ver la cascada
         en `loadData.ts`). `null` es un ESTADO -- ni total ni regla -- y no un
-        cero: por eso NO se sombrea en rojo cuando falta. Un rojo sobre un
-        número que nadie fijó culpa a la persona por algo que no es suyo.
+        cero.
 
         ⚠ `budgetSource` dice CUÁL DE LOS DOS ES. Un número leído de la regla
         no es un total fijado aunque coincida en valor -- nadie lo confirmó, y
-        cambia si la regla cambia. Sin la etiqueta "· from growth rule",
-        alguien va a ver un budget y creer que se decidió.
+        cambia si la regla cambia. Sin la nota "· from growth rule", alguien
+        va a ver un budget y creer que se decidió.
       */}
-      <div className={'bp-stat' + (budget === null ? '' : budgetMet ? ' bp-stat--met' : ' bp-stat--under')}>
+      <div className="bp-stat">
         <span className="bp-stat__label">Budget (this month)</span>
         {budget === null ? (
           <span className="bp-muted" title="Nobody set a budget for this month, and there's no growth rule for Own Production to read either.">
             Not set
           </span>
         ) : (
-          <span className="bp-stat__row">
-            <span className="bp-stat__value">
-              {fmtDecimal(budget)}
-              {budgetSource === 'rule' && (
-                <span
-                  className="bp-muted"
-                  title="Nobody fixed a total for this month -- this reads today's growth-rule projection for Own Production, the same one Outlook shows. It moves if the rule changes."
-                >
-                  {' '}
-                  · from growth rule
-                </span>
-              )}
-            </span>
-            <span className="bp-stat__flag">{budgetMet ? 'Forecast meets it' : 'Forecast is below it'}</span>
+          <span className="bp-stat__value">
+            {fmtDecimal(budget)}
+            {budgetSource === 'rule' && (
+              <span
+                className="bp-muted"
+                title="Nobody fixed a total for this month -- this reads today's growth-rule projection for Own Production, the same one Outlook shows. It moves if the rule changes."
+              >
+                {' '}
+                · from growth rule
+              </span>
+            )}
           </span>
         )}
       </div>
@@ -350,21 +355,30 @@ export function Q1Panel({ lo, benchmarkSlot }: { lo: LoanOfficerRow; benchmarkSl
         starting benchmark" -- porque desde esta etapa el gap ya no mide
         siempre contra lo mismo, y un número sin esa aclaración se prestaría a
         leerse contra el de siempre.
+
+        ⚠ ETAPA BP51: `gapNote`, debajo del número, es el único lugar de la
+        tarjeta que dice si el forecast cumple o no -- antes esa frase vivía
+        DOS veces, pegada a la fila que corresponde y con `white-space: nowrap`,
+        que era lo que se salía de la tarjeta. Acá puede envolver en dos
+        líneas sin romper nada, porque el GAP es el único bloque con fondo
+        propio -- ver `.bp-gap-hero` -- y el ancho lo tiene disponible.
       */}
       <div className={'bp-gap-hero' + (lo.q1.state ? ' bp-gap-hero--' + lo.q1.state : '')}>
         <span className="bp-stat__label">
-          GAP{gapAgainst && ' — vs ' + (gapAgainst === 'budget' ? 'budget' : 'starting benchmark')}{' '}
-          {gapAgainst === 'benchmark' && <ProvisionalTag setBy={lo.benchmarkSetBy} note={lo.benchmarkNote} />}
+          GAP{gapAgainst && ' — vs ' + (gapAgainst === 'budget' ? 'budget' : 'starting benchmark')}
         </span>
         {lo.q1.gap === null ? (
           <span className="bp-muted">—</span>
         ) : (
-          <div className="bp-gap-hero__row">
-            <span className="bp-gap-hero__value" title={exactTitle(lo.q1.gap)}>
-              {fmtGap(lo.q1.gap)}
-            </span>
-            {lo.q1.state && <span className="bp-gap-hero__state">{GAP_STATE_LABEL[lo.q1.state]}</span>}
-          </div>
+          <>
+            <div className="bp-gap-hero__row">
+              <span className="bp-gap-hero__value" title={exactTitle(lo.q1.gap)}>
+                {fmtGap(lo.q1.gap)}
+              </span>
+              {lo.q1.state && <span className="bp-gap-hero__state">{GAP_STATE_LABEL[lo.q1.state]}</span>}
+            </div>
+            {gapNote && <div className="bp-gap-hero__note">{gapNote}</div>}
+          </>
         )}
       </div>
 

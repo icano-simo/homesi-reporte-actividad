@@ -338,11 +338,22 @@ export function VerdictPanel({ verdict }: { verdict: Verdict }) {
  */
 export const PROVISIONAL_SET_BY = 'provisional-seed';
 
-export function ProvisionalTag({ setBy, note }: { setBy: string | null; note?: string | null }) {
+export function ProvisionalTag({
+  setBy,
+  note,
+  label = 'provisional',
+}: {
+  setBy: string | null;
+  note?: string | null;
+  /** Etapa BP51: el texto varía por dónde se muestra (la marca única de la
+      cabecera dice "Provisional data"; el resto sigue diciendo "provisional"),
+      pero la CONDICIÓN es una sola y vive acá. */
+  label?: string;
+}) {
   if (setBy !== PROVISIONAL_SET_BY) return null;
   return (
     <span className="bp-provisional" title={note ?? 'Provisional benchmark — replace with the MMI.'}>
-      provisional
+      {label}
     </span>
   );
 }
