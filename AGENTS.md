@@ -434,8 +434,8 @@ todo lo de abajo mide el vacío.
 
 ## La familia entera: la operación tuvo éxito sobre el objeto equivocado
 
-El caso de arriba no está solo. Ya van **cinco**, y conviene tenerlos juntos
-porque de lejos parecen cinco errores distintos y son uno:
+El caso de arriba no está solo. Ya van **seis**, y conviene tenerlos juntos
+porque de lejos parecen seis errores distintos y son uno:
 
 | la operación | el objeto equivocado | cómo se leyó el resultado |
 |---|---|---|
@@ -444,10 +444,35 @@ porque de lejos parecen cinco errores distintos y son uno:
 | `git diff` | contra la punta de la rama, no contra el `merge-base` | «ese cambio no está en la rama» |
 | lectura de un roster | una clave de persona que no existe | «el editor no abre» |
 | `git merge <rama>` | la ref **local**, vieja desde el rebase | «el rebase no sirvió» |
+| `npx tsc` después de un `checkout` | la ref **local**, vieja desde el push propio | «el merge quedó limpio» |
 
-En los cinco el comando **salió bien**. Nada falló, nada avisó. Lo que estaba
+En los seis el comando **salió bien**. Nada falló, nada avisó. Lo que estaba
 mal era a qué se le aplicó, y el resultado siempre se pudo leer como un
 diagnóstico sobre el código.
+
+**Y el sexto cierra la vuelta del quinto**, porque es la misma ref local vieja
+por la causa contraria. En el quinto la envejeció **un rebase ajeno**; en el
+sexto, **un push propio**:
+
+```
+git push origin HEAD:main     # mueve la rama en el REMOTO
+git rev-parse --short main    # 13752e7   <- la local no se movió
+git checkout main             # deja el árbol en el código anterior
+npx tsc --noEmit              # 0 errores... sobre lo que había antes del merge
+```
+
+Un `push HEAD:<rama>` mueve la rama del remoto y **deja la ref local atrás**,
+así que cualquier verificación posterior a ese push --un `tsc`, una sonda, una
+lectura de archivo-- corre sobre el código anterior. Y da verde, porque ese
+código también estaba bien.
+
+> **Después de un `push HEAD:<rama>`, la ref local es la vieja. Adelantarla
+> antes de verificar: `git merge --ff-only origin/<rama>`.**
+
+Lo que lo delató fue el hash impreso al lado del nombre de la rama, y no el
+resultado: `git rev-parse --short HEAD` decía `13752e7` cuando lo mergeado era
+`270e20d`. **Imprimir el hash junto a cada verificación** es lo que hace que
+esto se vea sin buscarlo.
 
 > **Una operación exitosa sobre el objeto equivocado no se distingue de una
 > fallida sobre el correcto — salvo por el mecanismo.**
@@ -508,6 +533,10 @@ prueba de que eso no era la rama rebasada.
 - **Después de un `rebase --force-with-lease` hecho en otra máquina, la ref
   local está vieja por definición.** Se mergea `origin/<rama>`, nunca
   `<rama>` — y si hay duda, `git log --oneline -1` de las dos antes de tocar.
+- **Y después de un `push HEAD:<rama>` propio, también.** `git merge --ff-only
+  origin/<rama>` antes de verificar, y el hash impreso al lado de cada
+  medición: una ref local vieja no se distingue de una al día, salvo por el
+  hash.
 - **Comparar contra el `merge-base`**, no contra la punta.
 - **Y pedirle a la operación que diga cuánto tocó**: `returning`, `Prefer:
   return=representation`, `Test-Path` después del `rmdir`. Un cero explícito se
