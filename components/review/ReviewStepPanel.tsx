@@ -54,7 +54,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { AlertTriangleIcon } from '@/components/ui/icons';
+import { AlertTriangleIcon, CollapseIcon, ExpandIcon } from '@/components/ui/icons';
 import {
   allowsSecondFunnel,
   gateEvidence,
@@ -361,6 +361,15 @@ export default function ReviewStepPanel({
   const [editando, setEditando] = useState(yaContestado === null);
   const [ocupado, setOcupado] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /*
+   * ⚠ MINIMIZADA: colapsa la barra a su cabecera, para ver el tablero completo
+   * sin salir del modo coach -- etapa RV18. Estado de React y nada más: se
+   * reinicia al cambiar de paso porque el panel se remonta con su `key`, y eso
+   * es lo que se quiere (contenido nuevo, barra abierta). Mismo criterio que el
+   * índice de la flecha en RV14: un movimiento de atención no es evidencia, así
+   * que no se guarda en ningún lado.
+   */
+  const [minimizado, setMinimizado] = useState(false);
 
   /*
    * ⚠ LOS CLICS SE ESCUCHAN EN `document`, EN CAPTURA.
@@ -1249,14 +1258,49 @@ export default function ReviewStepPanel({
 
   return (
     <div className="rv-panel" role="region" aria-label="Coaching step">
-      <div className="rv-panel__head">
+      {/*
+        ══════════════════════════════════════════════════════════════════
+        LA CABECERA DE LA BARRA — etapa RV18
+        ══════════════════════════════════════════════════════════════════
+
+        Fase, paso, rótulo y el botón de minimizar. Es lo ÚNICO que queda
+        cuando la barra está colapsada, y por eso el nombre del paso vive acá y
+        no en una zona: minimizada tiene que seguir diciendo dónde está la
+        revisión, o el modo coach se vuelve un borde de color sin explicación.
+      */}
+      <div className="rv-panel__bar">
         <span className="rv-panel__step">
           Phase {paso.phase_no} · step {paso.step_in_phase}
         </span>
         <span className="rv-panel__label">{paso.label}</span>
         {yaContestado && <span className="rv-panel__done">answered</span>}
+        {/*
+          ⚠ MINIMIZAR NO ES CERRAR, y el rótulo lo dice: colapsa la barra a su
+          cabecera para poder ver el tablero completo SIN salir del modo coach
+          --que es lo que hace `Save and exit`, y eso suelta la máscara--.
+
+          El estado es de React y se reinicia al cambiar de paso, porque el
+          panel se remonta con su `key`. Es deliberado, y es el mismo criterio
+          que el índice de la flecha en RV14: esto es un movimiento de atención,
+          no evidencia de nada. Un paso nuevo trae contenido nuevo que hay que
+          leer, así que abrirse otra vez es lo correcto.
+        */}
+        <button
+          type="button"
+          className="rv-panel__min"
+          data-rv-min=""
+          aria-expanded={!minimizado}
+          onClick={() => setMinimizado((m) => !m)}
+        >
+          {minimizado ? <ExpandIcon size={12} /> : <CollapseIcon size={12} />}
+          {minimizado ? 'Expand' : 'Minimize'}
+        </button>
       </div>
 
+      {minimizado ? null : (
+      <div className="rv-panel__zonas">
+      {/* ── IZQUIERDA: el contexto ────────────────────────────────────── */}
+      <div className="rv-panel__zona rv-panel__zona--ctx">
       <p className="rv-panel__prompt">{texto.prompt}</p>
       {texto.helper && <p className="rv-panel__helper">{texto.helper}</p>}
 
@@ -1325,6 +1369,10 @@ export default function ReviewStepPanel({
         </div>
       )}
 
+      </div>
+
+      {/* ── CENTRO: las entradas ──────────────────────────────────────── */}
+      <div className="rv-panel__zona rv-panel__zona--in">
       {paso.gate_kind === 'number' && editando && (
         <label className="rv-panel__field">
           <span className="rv-panel__fieldlabel">
@@ -1409,10 +1457,12 @@ export default function ReviewStepPanel({
       {editando ? (
         <label className="rv-panel__field">
           <span className="rv-panel__fieldlabel">Comment</span>
+          {/* Dos líneas y no tres -- etapa RV18: la barra tiene que quedar
+              baja, y el campo sigue creciendo a mano (`resize: vertical`). */}
           <textarea
             className="field rv-panel__text"
             data-review-comment=""
-            rows={3}
+            rows={2}
             value={comment}
             onChange={(e) => setComment(e.target.value)}
             placeholder="What did you discuss?"
@@ -1432,6 +1482,10 @@ export default function ReviewStepPanel({
         </div>
       )}
 
+      </div>
+
+      {/* ── DERECHA: las acciones, con lo que falta al lado ───────────── */}
+      <div className="rv-panel__zona rv-panel__zona--act">
       {/*
         ⚠ EL CABLEADO ROTO, DICHO. Un paso que pide un clic cuya marca no existe
         en la pantalla no se puede cerrar nunca, y sin esto no se puede saber por
@@ -1523,6 +1577,9 @@ export default function ReviewStepPanel({
           <span className="rv-panel__next">next: {rotuloSiguiente}</span>
         )}
       </div>
+      </div>
+      </div>
+      )}
     </div>
   );
 }

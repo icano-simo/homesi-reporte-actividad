@@ -112,28 +112,44 @@ function banda(): { arriba: number; abajo: number } {
  * la pantalla a alguien que ya está leyendo. Preguntando primero, la operación
  * es idempotente: si la sección ya se ve entera en la banda, no pasa nada.
  */
-function necesitaCentrado(r: DOMRect): boolean {
+/*
+ * ============================================================================
+ * ⚠ AL TOPE DE LA BANDA, Y NO CENTRADO — etapa RV18
+ * ============================================================================
+ *
+ * Hasta RV17 esto CENTRABA el objetivo, y con el panel como globo en la esquina
+ * tenía sentido: la banda libre era casi la ventana entera.
+ *
+ * Con el panel convertido en barra al pie, centrar deja media pantalla de
+ * contenido DEBAJO del objetivo -- y esa mitad de abajo es justo la que la
+ * barra tapa. Medido en el paso 1.4: centrado, la tarjeta de métricas quedaba
+ * en y=531 con la barra arrancando en y=705, o sea 3 de sus 9 puntos tapados.
+ * Alineando el objetivo al tope de la banda la página baja esos 326px de más y
+ * la tarjeta pasa a y=205, visible entera.
+ *
+ * Y no es una regla nueva: es la que este mismo archivo ya aplicaba al objetivo
+ * MÁS ALTO que la banda --«lo primero de la sección es lo que se lee primero»--
+ * extendida a todos. Lo que el paso señala va arriba, y lo que sigue queda
+ * abajo y a la vista.
+ *
+ * Lo que se pierde, dicho: el contexto que está ENCIMA del objetivo se va de
+ * pantalla. En los ocho pasos del guion eso no dejó afuera nada que el paso
+ * necesite -- el objetivo de cada uno es una sección entera, no un número
+ * suelto dentro de otra.
+ */
+function necesitaMover(r: DOMRect): boolean {
   const b = banda();
-  const alto = b.abajo - b.arriba;
-  if (r.height > alto) {
-    /* Más alta que la banda: alcanza con que EMPIECE dentro. */
-    return r.top < b.arriba - 4 || r.top > b.arriba + 80;
-  }
-  return r.top < b.arriba - 4 || r.bottom > b.abajo + 4;
+  /* Con el borde de arriba dentro de la banda y no muy abajo ya está bien: así
+     la operación sigue siendo idempotente y no le mueve la pantalla a quien
+     está leyendo. Los 80px de tolerancia son los que ya tenía el caso alto. */
+  return r.top < b.arriba - 4 || r.top > b.arriba + 80;
 }
 
 function centrarEnLaBanda(r: DOMRect): void {
-  if (!necesitaCentrado(r)) return;
+  if (!necesitaMover(r)) return;
   const b = banda();
-  const alto = b.abajo - b.arriba;
 
-  /*
-   * Una sección más alta que la banda no se puede centrar sin que sobresalga
-   * por los dos lados. Se le alinea el borde de arriba: lo primero de la
-   * sección es lo que se lee primero.
-   */
-  const destino =
-    r.height > alto ? r.top - b.arriba : r.top + r.height / 2 - (b.arriba + alto / 2);
+  const destino = r.top - b.arriba;
 
   /*
    * `scrollBy` y no `scrollTo`: el desplazamiento es relativo a donde estamos,

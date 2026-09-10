@@ -313,12 +313,41 @@ body:has(.rv-bar) .app {
 /* ── El panel del paso en curso ───────────────────────────────────────────── */
 
 /*
- * Anclado ABAJO y no arriba: la barra ya ocupa el techo, y la pantalla del
- * modulo --el grafico de cierres, la tabla del branch-- tiene que quedar a la
- * vista. La mascara guia, no reemplaza.
+ * ============================================================================
+ * DE GLOBO EN LA ESQUINA A BARRA AL PIE -- etapa RV18
+ * ============================================================================
  *
- * `max-height` con scroll propio: el prompt de Isabella puede ser largo y el
- * panel no puede crecer hasta tapar la pantalla que la persona esta mirando.
+ * Era `right: 18px; bottom: 18px; width: 420px`, y crecia HACIA ARRIBA con el
+ * contenido del paso. Tercera vez que tapaba algo que hacia falta ver: el
+ * titulo del branch (RV16, con los hints de las flechas), lo ultimo de la
+ * pagina (RV17, resuelto con el relleno) y ahora la tarjeta de metricas
+ * --`.bp-stats`: AVG 3M, STARTING BENCHMARK, GAP--.
+ *
+ * MEDIDO ANTES DE CAMBIARLO, sobre los ocho pasos del guion:
+ *
+ *   1.4   panel 420x317 · 69.420px2 de cruce · 9 de 9 puntos de la tarjeta tapados
+ *   1.5   panel 420x263 · 55.380px2 de cruce · 6 de 9
+ *   1.2   panel 420x356 (el mas alto, con el link de MMI) · CERO cruce
+ *
+ * ⚠ Y ESO ULTIMO ES LO QUE DECIDIO LA FORMA: el paso que APUNTA a la tarjeta
+ * (el 1.2) no la tapaba, porque el desplazamiento automatico la sube a y=133.
+ * La tapaba en 1.4 y 1.5, donde el scroll la deja en y=531 -- o sea que no era
+ * «el panel tapa su propio objetivo» sino «el panel tapa la franja de abajo a
+ * la derecha, sea lo que sea». Se arregla la FORMA, no el caso: a lo ancho no
+ * hay franja que tapar.
+ *
+ * La barra crece a lo ANCHO del canvas y su alto lo pone el contenido, con
+ * `max-height: 45vh` como techo -- y adentro tres zonas lado a lado, que es lo
+ * que la vuelve baja. El borde superior en `--coral` es lo que la distingue de
+ * la pagina; los otros tres bordes se fueron con las esquinas.
+ *
+ * ⚠ Y EL RELLENO DE RV17 SIGUE SIRVIENDO SIN TOCARLO: `ReviewMaskHost` mide
+ * `innerHeight - panel.top`, que para una barra pegada abajo es su alto. Al
+ * minimizarse, el relleno se achica solo. Lo que cambio es el NUMERO, no el
+ * mecanismo.
+ *
+ * `overflow-y: auto` se queda: el prompt de Isabella puede ser largo, y con
+ * `max-height` la barra scrollea adentro en vez de comerse la pantalla.
  *
  * ⚠⚠ ESTE `z-index` ES UNA DE DOS COPIAS -- corrección urgente, OL26g. Es
  * el que de verdad chocó: anclado abajo-derecha, tapaba el pie de `Set
@@ -330,19 +359,89 @@ body:has(.rv-bar) .app {
  */
 .rv-panel {
   position: fixed;
-  right: 18px;
-  bottom: 18px;
+  left: 0;
+  right: 0;
+  bottom: 0;
   z-index: 122;
-  width: min(420px, calc(100vw - 36px));
-  max-height: min(70vh, 620px);
+  max-height: 45vh;
   overflow-y: auto;
-  padding: 14px 16px;
   background: var(--white);
-  border: 2px solid var(--coral);
-  border-radius: var(--radius-lg);
+  border-top: 2px solid var(--coral);
   box-shadow: var(--shadow-lg);
   font-size: 12px;
   color: var(--slate-600);
+}
+
+/* ── La barra: cabecera y tres zonas -- etapa RV18 ─────────────────────────── */
+
+/*
+ * La cabecera lleva la fase, el paso y su rotulo, y el boton de minimizar. Es
+ * lo unico que queda cuando la barra esta colapsada, y por eso el nombre del
+ * paso va ACA y no en una zona: minimizada tiene que seguir diciendo donde
+ * esta la revision.
+ */
+.rv-panel__bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--slate-200);
+}
+.rv-panel__min {
+  margin-left: auto;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-full);
+  background: var(--white);
+  color: var(--slate-600);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.rv-panel__min:hover {
+  border-color: var(--coral);
+  color: var(--navy);
+}
+
+/*
+ * TRES ZONAS LADO A LADO: contexto, entradas, acciones. Es lo que hace que la
+ * barra sea BAJA -- lo que antes se apilaba en 420px de ancho ahora se reparte
+ * en el ancho del canvas.
+ *
+ * `minmax(0, …)` en las tres columnas y no `1.1fr` a secas: sin el `min` de 0
+ * una columna con texto largo se niega a encogerse por debajo de su contenido
+ * y desborda la grilla.
+ *
+ * ⚠ A UNA COLUMNA CUANDO NO CABEN. Debajo de 1100px las tres zonas quedarian
+ * de ~300px y el area de comentario deja de ser usable; ahi se apilan, que es
+ * peor que la barra pero mejor que tres columnas ilegibles. El `max-height` con
+ * scroll sigue poniendo el techo.
+ */
+.rv-panel__zonas {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 0.9fr);
+  gap: 18px;
+  align-items: start;
+  padding: 12px 18px 14px;
+}
+@media (max-width: 1100px) {
+  .rv-panel__zonas {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+}
+.rv-panel__zona {
+  min-width: 0;
+}
+/* La de acciones apila sus cosas y queda pegada a la derecha. */
+.rv-panel__zona--act {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 /*
@@ -893,8 +992,14 @@ body:has(.rv-bar) .app {
 
 /* Mas angosto que el panel completo: no tiene campos, y a ancho completo
    parecia que faltaba algo por cargar. */
+/*
+ * ⚠ EL TOPE DE 420px SE FUE -- etapa RV18. Era del globo en la esquina; sobre
+ * una barra pegada a los dos lados, un `max-width` la deja anclada a la
+ * izquierda con el borde superior cortado a mitad de pantalla. El contenido de
+ * este caso es corto, así que se acomoda solo en el ancho del canvas.
+ */
 .rv-panel--lejos {
-  max-width: 420px;
+  max-width: none;
 }
 
 /* El comentario ya guardado, en lugar del campo. */
@@ -1043,8 +1148,10 @@ body:has(.rv-bar) .app {
  * una segunda fuente para el mismo hecho -- la leccion del aviso que sacamos de
  * la barra en RV1.
  */
+/* Mismo motivo que `--lejos`: el tope de 420px era del globo. La opacidad se
+   queda, que es lo que dice «esto es un estado de transición». */
 .rv-panel--buscando {
-  max-width: 420px;
+  max-width: none;
   opacity: 0.72;
 }
 
