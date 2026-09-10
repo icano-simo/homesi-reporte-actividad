@@ -352,6 +352,17 @@ export function Q1Panel({ lo, benchmarkSlot }: { lo: LoanOfficerRow; benchmarkSl
           consolidó arriba porque se repetía tres veces en la misma tarjeta;
           ésta es una sola marca, en un solo lugar, y va donde el número que
           describe.
+
+          ⚠⚠ EL CASO `'fixed'` NO ESTÁ VERIFICADO CONTRA DATOS REALES --
+          declarado, no descubierto después. Isabella reseteó
+          `outlook.person_budget_total`/`monthly_target`/`projection_mode` el
+          2026-09-10: quedaron las 185 filas de seed de `growth_rule`
+          (cubren a las 37 personas), cero modos, cero meses fijados, cero
+          totales a mano. Hoy TODO el mundo proyecta por regla -- las 37
+          muestran la marca, ninguna la omite. La rama de `'fixed'` (marca
+          ausente) se verificó con un valor sembrado a mano en el script de
+          medición, no contra una fila real de `person_budget_total` -- eso
+          sigue pendiente hasta que alguien fije un total de verdad.
         */}
         <div className="bp-stat">
           <span className="bp-stat__label">Budget (this month)</span>
