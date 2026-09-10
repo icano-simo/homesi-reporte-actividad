@@ -85,6 +85,20 @@ const DETAIL_COLUMNS: { header: string; key: keyof DayReportRow | 'blank'; width
   { header: 'Last Finished Milestone', key: 'lastFinishedMilestone', width: 22 },
   { header: 'Loan Program', key: 'loanProgram', width: 20 },
   { header: 'Loan Type', key: 'loanType', width: 14 },
+  /*
+   * Etapa LOA-COLUMNS-1: 3 columnas nuevas, autorizadas por Isa --
+   * "LOA2" y "LOA-2" son personas DISTINTAS (~85% de solapamiento
+   * confirmado, no la misma columna) -- se muestran las 3 tal cual
+   * vienen de Supabase, nunca combinadas ni con un COALESCE.
+   *
+   * ⚠ Nombres de encabezado SUGERIDOS, no confirmados -- "Loan
+   * Processor"/"LOA2"/"LOA-2" (no "Role Name - LO Assistant", que es el
+   * nombre de Salesforce, no del archivo/columna real). Confirmar el
+   * texto exacto antes de commitear si hay dudas.
+   */
+  { header: 'Loan Processor', key: 'loanProcessor', width: 20 },
+  { header: 'LOA2', key: 'loa2', width: 20 },
+  { header: 'LOA-2', key: 'loa_2', width: 20 },
   { header: 'Strategy', key: 'strategy', width: 16 },
   { header: 'Est closing date', key: 'estClosingDate', width: 16 },
   { header: 'Healthiness', key: 'healthiness', width: 15 },

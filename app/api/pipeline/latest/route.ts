@@ -57,6 +57,10 @@ interface PipelineLoanRow {
   opportunity_owner: string | null;
   /** Etapa PROPERTY-STATE-1 -- columna "Subject Property State" del export. */
   property_state: string | null;
+  /** Etapa LOA-COLUMNS-1 -- ver lib/pipeline/types.ts para el porqué de loa2 vs. loa_2 (personas distintas, nunca combinar). */
+  loan_processor: string | null;
+  loa2: string | null;
+  loa_2: string | null;
 }
 
 interface ResolvedLoanRow {
@@ -92,6 +96,10 @@ interface ResolvedLoanRow {
   branch_transferred: boolean | null;
   /** Etapa PROPERTY-STATE-1 -- mismo significado que en `PipelineLoanRow`. */
   property_state: string | null;
+  /** Etapa LOA-COLUMNS-1 -- mismo significado que en `PipelineLoanRow`. */
+  loan_processor: string | null;
+  loa2: string | null;
+  loa_2: string | null;
 }
 
 /**
@@ -152,12 +160,12 @@ export async function GET() {
 
     const loanRows = await fetchAllPages<PipelineLoanRow>(
       'pipeline_loans',
-      'source_loan_id, branch, channel, milestone, raw_milestone, healthy, raw_healthiness, close_month, est_closing_date, amount, loan_officer, borrower_name, milestone_date, branch_transferred, loan_type, loan_program, production_support_note_history, strategy_raw, opportunity_owner_title, nppm_realtor, referred_by, affinity_program, opportunity_owner, property_state',
+      'source_loan_id, branch, channel, milestone, raw_milestone, healthy, raw_healthiness, close_month, est_closing_date, amount, loan_officer, borrower_name, milestone_date, branch_transferred, loan_type, loan_program, production_support_note_history, strategy_raw, opportunity_owner_title, nppm_realtor, referred_by, affinity_program, opportunity_owner, property_state, loan_processor, loa2, loa_2',
       snapshotId
     );
     const resolvedRows = await fetchAllPages<ResolvedLoanRow>(
       'pipeline_resolved_loans',
-      'source_loan_id, branch, channel, status, disbursement_date, amount, loan_officer, borrower_name, loan_status, est_closing_date, raw_loan_folder, loan_type, loan_program, production_support_note_history, strategy_raw, opportunity_owner_title, nppm_realtor, referred_by, affinity_program, opportunity_owner, branch_transferred, property_state',
+      'source_loan_id, branch, channel, status, disbursement_date, amount, loan_officer, borrower_name, loan_status, est_closing_date, raw_loan_folder, loan_type, loan_program, production_support_note_history, strategy_raw, opportunity_owner_title, nppm_realtor, referred_by, affinity_program, opportunity_owner, branch_transferred, property_state, loan_processor, loa2, loa_2',
       snapshotId
     );
 
@@ -222,6 +230,12 @@ export async function GET() {
       nppmRealtor: r.nppm_realtor ?? '',
       referredBy: r.referred_by ?? '',
       affinityProgram: r.affinity_program ?? '',
+      // Etapa LOA-COLUMNS-1: mismo criterio `?? ''` que el resto de los
+      // crudos opcionales de este mapeo -- loa2/loa_2 son personas
+      // distintas (ver lib/pipeline/types.ts), nunca se combinan acá.
+      loanProcessor: r.loan_processor ?? '',
+      loa2: r.loa2 ?? '',
+      loa_2: r.loa_2 ?? '',
     }));
 
     // milestoneDate queda en su default (null): la tabla pipeline_resolved_loans
@@ -292,6 +306,10 @@ export async function GET() {
       nppmRealtor: r.nppm_realtor ?? '',
       referredBy: r.referred_by ?? '',
       affinityProgram: r.affinity_program ?? '',
+      // Etapa LOA-COLUMNS-1: mismo criterio `?? ''` que en openLoans arriba.
+      loanProcessor: r.loan_processor ?? '',
+      loa2: r.loa2 ?? '',
+      loa_2: r.loa_2 ?? '',
     }));
 
     return NextResponse.json({
