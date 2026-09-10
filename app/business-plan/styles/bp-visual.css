@@ -896,6 +896,16 @@ a.bp-btn {
    *
    * `.bp-panel-backdrop`, más abajo, se mantiene en el MISMO valor a
    * propósito -- ver su propia nota.
+   *
+   * ⚠⚠ DOS COPIAS DE LA MISMA DECISIÓN, EN ARCHIVOS DISTINTOS -- ver
+   * AGENTS.md, "el hermano mayor: dos copias de la misma decisión". Este
+   * número y el de `.rv-panel`/la máscara de la revisión
+   * (`app/review/styles/review.css`, hoy 119-122) tienen que decidir LO
+   * MISMO: que el modal quede arriba de todo lo demás. RV14 subió la
+   * máscara sin saber que este backdrop dependía de estar por encima de
+   * ella -- las dos eran correctas cuando se escribieron, lo que las separó
+   * fue editar una sola. Quien suba cualquiera de las dos tiene que revisar
+   * la otra, o este defecto vuelve.
    */
   z-index: 130;
   display: flex;
@@ -5589,6 +5599,12 @@ button.bp-metapill--area:disabled {
    * `.bp-modal-backdrop` lo hizo (ver su nota): un panel fijo de otro sistema
    * por encima de un `aria-modal="true"` es la misma trampa, sea cual sea el
    * número que lo tape.
+   *
+   * ⚠⚠ Y ESTE VALOR TIENE UNA TERCERA COPIA -- `.bp-modal-backdrop`, arriba
+   * en este mismo archivo, Y `.rv-panel`/la máscara de la revisión en
+   * `app/review/styles/review.css` (hoy 119-122). Las tres tienen que
+   * decidir lo mismo: el modal arriba de todo. Ver la nota de
+   * `.bp-modal-backdrop` antes de subir cualquiera de las tres.
    */
   z-index: 130;
   display: flex;
