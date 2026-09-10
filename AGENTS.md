@@ -1096,3 +1096,67 @@ falta».
    queda ningún reparse point adentro.
 5. `git worktree list` para confirmar que sólo está el checkout del usuario, y
    que su rama y su árbol quedaron sin tocar.
+
+# `apportionByWeight` reparte una diferencia que no le pertenece
+
+> Cuarta variante de un modo de falla que ya tenía tres casos en el código,
+> todos de la misma familia pero con la forma invertida. OL11 (B2B sin
+> presupuesto propio), OL12 (NPPM sin proyectar desde sus realtors) y OL22
+> (reclutas sin peso) son los tres de "una fuente que FALTA en los pesos": un
+> peso que falta se redistribuye en silencio entre los que sí están, y el
+> síntoma es un residuo que crece sin que nada lo explique. Ésta es la
+> inversa, y es más difícil de ver porque no falta nada en los pesos —sobra
+> algo en el TOTAL que ningún peso explica.
+
+## La regla
+
+**Un total que cambia por una razón que el peso no conoce se reparte igual
+que si todos los pesos hubieran cambiado.**
+
+`apportionByWeight` no distingue "esta plata de más es de una persona
+puntual" de "esta plata de más es genérica, repártanla entre todos" — un
+total más grande siempre se ve como lo segundo.
+
+## El caso que la fija
+
+OL26e agregó una precedencia a Outlook: si una persona fija un presupuesto
+para un mes, ese número gobierna en vez de su regla de crecimiento
+(`projectBranch`, en `lib/outlook/loadData.ts`). El total del branch pasó a
+incluir ese presupuesto fijo.
+
+Pero `strategyRowsOf` (`lib/outlook/strategyRows.ts`) usa ESE MISMO total
+como el número a repartir entre las estrategias del branch —
+`apportionByWeight(branchYear.byMonth[m], exactoDe_de_cada_estrategia)`— y de
+ahí en cascada cada estrategia reparte su parte entre sus personas
+(`personBudgetsOf`). Los pesos de ese reparto son puro `growth_rule`, sin
+tocar: no tenían por qué cambiar, porque nadie les fijó nada.
+
+Verificado con un branch sintético (Gian fija 15 en vez de su regla —10—;
+Galo no toca nada, regla 8, sin presupuesto propio; B2B es una estrategia sin
+ninguna persona con presupuesto fijo):
+
+| | antes del fix | después |
+|---|---|---|
+| fila de Galo | **10** | 8 |
+| estrategia B2B | **7** | 6 |
+
+La torta entera creció 5 —la diferencia entre el presupuesto de Gian y su
+regla— y `apportionByWeight` la repartió proporcionalmente entre TODOS los
+pesos, incluidos dos que no cambiaron nada: Galo y B2B.
+
+> **El override es del total, no del peso.**
+
+## Qué hacer
+
+- Cuando un total que alimenta un `apportionByWeight` puede moverse por una
+  razón que ALGUNOS de los pesos no reflejan —un override, un ajuste manual,
+  una excepción puntual—, separar las dos cosas: un total para lo que se
+  MUESTRA y un total distinto, sin ese override, para lo que se REPARTE.
+  Nunca el mismo número para las dos si pueden divergir (acá,
+  `projectBranch(branch, months, { applyBudgetOverrides })`).
+- Verificarlo con un caso donde alguien SÍ cambia algo y otro que NO. Si el
+  que no tocó nada se mueve, el total y el peso se están confundiendo.
+- Y las aserciones que prueban el NÚMERO EXACTO de la fuga —no sólo que el
+  fix "da bien" hoy— son las que evitan que alguien deshaga el parámetro
+  después sin saber por qué estaba ahí. Sin ellas, el bug vuelve en silencio
+  la próxima vez que alguien lo toque.
