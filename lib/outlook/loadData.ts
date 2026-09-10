@@ -225,7 +225,25 @@ export interface PersonBudgetTotalRow {
   nppm_realtor_code: string | null;
   revision: number;
   target_month: string;
-  total: number | string;
+  /**
+   * ⚠ NULO EN UNA CONFIRMACIÓN — ver `confirmed_only`. Una confirmación no
+   * fija ningún número, así que no tiene ninguno que guardar.
+   */
+  total: number | string | null;
+  /**
+   * ⚠ QUÉ FUE ESTA REVISIÓN: fijar un número o revisar el que ya había —
+   * etapa RV15, `docs/sql/2026-09-person-budget-confirm-reviewed.sql`.
+   *
+   *   false   se fijaron estos totales. GOBIERNAN el mes (OL26e).
+   *   true    alguien miró lo que había y lo aceptó. No gobierna nada.
+   *
+   * Opcional en el tipo porque la columna puede no estar aplicada todavía: en
+   * ese caso el campo no viene, `=== true` es falso, y todas las filas
+   * gobiernan igual que antes de esta etapa. La dirección segura es esa --
+   * mientras la columna no exista tampoco se puede escribir una confirmación,
+   * así que no hay fila cuyo significado se esté leyendo mal.
+   */
+  confirmed_only?: boolean;
   set_by: string;
   note: string | null;
   created_at: string;
@@ -1410,14 +1428,30 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
 
       const totals = (budgetTotalRes.data ?? []) as PersonBudgetTotalRow[];
       history.personBudgetTotals = totals;
+      /*
+       * ⚠ UNA CONFIRMACIÓN NO ES UNA REVISIÓN VIGENTE — etapa RV15. Una fila
+       * con `confirmed_only` dice «alguien miró esto y lo aceptó», no «el
+       * total es éste». Si contara como la revisión más alta, confirmar le
+       * QUITARÍA el gobierno a un total ya fijado: la revisión vigente no
+       * traería ningún mes y los meses caerían a la regla, por haber apretado
+       * un botón que dice «lo revisé».
+       *
+       * `total === null` también se descarta, y a propósito es una guarda
+       * redundante: el CHECK de la base ya ata el nulo a `confirmed_only`.
+       * Sin ella un nulo se leería como `Number(null)` = 0, que es un total
+       * fijado en cero -- exactamente el error que esta etapa viene a evitar.
+       */
+      const gobierna = (t: PersonBudgetTotalRow) => t.confirmed_only !== true && t.total !== null;
       /* Sólo la revisión más alta de cada sujeto, entera -- igual que los targets. */
       const maxTotalRev = new Map<string, number>();
       for (const t of totals) {
+        if (!gobierna(t)) continue;
         const k = personBudgetKeyOf(t);
         maxTotalRev.set(k, Math.max(maxTotalRev.get(k) ?? 0, t.revision));
       }
       for (const [k, rev] of maxTotalRev) budgetTotalRevisionByKey.set(k, rev);
       for (const t of totals) {
+        if (!gobierna(t)) continue;
         const k = personBudgetKeyOf(t);
         if (t.revision !== maxTotalRev.get(k)) continue;
         const byMonth = budgetTotalByKey.get(k) ?? {};

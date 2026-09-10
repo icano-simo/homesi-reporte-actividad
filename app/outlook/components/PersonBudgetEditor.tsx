@@ -11,6 +11,7 @@ import {
   type GrowthSegment,
 } from '@/lib/outlook/project';
 import {
+  confirmPersonBudgetReviewed,
   savePersonBudgetBreakdown,
   savePersonBudgetTotal,
   type PersonSubject,
@@ -268,9 +269,8 @@ export default function PersonBudgetEditor({
    * mal, cada uno por su lado.
    *
    * Sólo cuenta si ALGO se va a guardar (`totalsChanged || breakdownChanged`)
-   * -- si nadie tocó nada, `save()` no escribe ninguna tabla (ver más abajo,
-   * "Nothing had changed"), y el botón no puede advertir sobre un guardado
-   * que no va a pasar.
+   * -- sin cambios el botón confirma la revisión, que no escribe ningún
+   * número, así que no hay diferencia contra la que advertir.
    */
   function pendingDifference(): number {
     if (!totalsChanged && !breakdownChanged) return 0;
@@ -292,10 +292,19 @@ export default function PersonBudgetEditor({
       ? r.employee_key === person.subject.employeeKey
       : r.nppm_realtor_code === person.subject.realtorCode;
   const lastTotalRow = data.history.personBudgetTotals
-    .filter((r) => isMine(r) && r.revision === person.budgetTotalRevision)
+    .filter((r) => isMine(r) && r.confirmed_only !== true && r.revision === person.budgetTotalRevision)
     .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
   const lastBreakdownRow = data.history.personBudgetBreakdowns
     .filter((r) => isMine(r) && r.revision === person.budgetBreakdownRevision)
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+  /*
+   * Y la última confirmación, que no es una revisión vigente de nada -- por eso
+   * no sale de `budgetTotalRevision`, que las ignora. Va aparte en el pie: sin
+   * esto, revisar y aceptar no deja ninguna huella en la pantalla, y la única
+   * señal de que pasó sería el cartel del momento.
+   */
+  const lastConfirmationRow = data.history.personBudgetTotals
+    .filter((r) => isMine(r) && r.confirmed_only === true)
     .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
 
   async function save() {
@@ -335,24 +344,54 @@ export default function PersonBudgetEditor({
         }
       }
 
+      /*
+       * ============================================================
+       * CONFIRMAR TAMBIÉN ESCRIBE — etapa RV15
+       * ============================================================
+       *
+       * Era la mitad que faltaba, y era la que bloqueaba: el botón ofrecía
+       * «Confirm as reviewed» y no escribía nada, así que la compuerta del
+       * paso 2.2 --que exige una fila de esta persona posterior al arranque
+       * de la sesión-- seguía cerrada. La persona confirmaba, no quedaba
+       * rastro, y el paso no avanzaba.
+       *
+       * La fila NO repite los números: es una revisión que no fija nada
+       * (`confirmed_only`, `total` nulo). El por qué está en
+       * `confirmPersonBudgetReviewed` -- resumido, escribir el número que hoy
+       * proyecta la regla sería un cambio de gobierno, y ninguna persona
+       * tiene hoy un número anterior que repetir.
+       */
+      if (nadaQueGuardar) {
+        const rev = await confirmPersonBudgetReviewed({
+          subject: person.subject,
+          months,
+          note: note.trim() === '' ? null : note.trim(),
+        });
+        done.push(`revision ${rev}`);
+      }
+
       if (done.length === 0) {
         /*
-         * ⚠ DICE QUE NO SE REGISTRÓ, no sólo que nada cambió.
+         * ⚠ YA NO ES «no cambió nada»: con la confirmación de arriba, esta
+         * rama sólo se alcanza de UNA forma -- que alguien haya BORRADO todos
+         * los totales. Entonces `totalsChanged` es cierto y no hay ningún mes
+         * que escribir, y un total no se puede desfijar: el lector toma la
+         * revisión vigente entera, así que la única forma de soltar un mes es
+         * escribir una revisión que lo omita, y para eso tiene que quedar
+         * algún otro mes con número.
          *
-         * El botón ahora ofrece «Confirm as reviewed» cuando no hay cambios,
-         * y mientras el guardado siga escribiendo sólo lo que cambió, apretarlo
-         * no escribe ninguna fila -- así que la compuerta del paso 2.2 sigue
-         * cerrada. Un «Nothing had changed» a secas se lee como «listo», y la
-         * persona se queda esperando que el paso se destrabe.
-         *
-         * Cuando el guardado escriba la revisión igual, esta rama queda
-         * inalcanzable y el mensaje sobra. Hasta entonces tiene que decir la
-         * consecuencia.
+         * Borrar ALGUNOS meses sí funciona --los que queden con número van a
+         * la revisión nueva y los borrados caen a la regla--; borrar TODOS no
+         * tiene fila que escribir. El mensaje lo dice en vez de mentir que
+         * nada cambió.
          */
-        setSaved('Nothing had changed, so nothing was recorded.');
+        setSaved('Clearing every Total is not supported: a Total cannot be un-fixed, so nothing was recorded.');
       } else {
         await onSaved();
-        setSaved('Saved: ' + done.join(' · ') + '.');
+        /* Confirmar y guardar son actos distintos, y el cartel los distingue:
+           «Saved» sobre un presupuesto que nadie cambió se lee como que algo
+           se movió. */
+        setSaved((nadaQueGuardar ? 'Confirmed as reviewed: ' : 'Saved: ') + done.join(' · ') + '.');
         setNote('');
       }
     } catch (e) {
@@ -432,12 +471,13 @@ export default function PersonBudgetEditor({
             sale de `totalsChanged || breakdownChanged`. Nada de la rama del
             budget gap lo afecta.
 
-            ⚠ Y FALTA LA OTRA MITAD, que no es de este archivo: hoy `save()`
-            escribe sólo lo que cambió, así que sin cambios no escribe ninguna
-            tabla y cae en «Nothing had changed» -- ver el mensaje de esa rama,
-            que dice lo que pasó en vez de fingir una confirmación. Cuando el
-            guardado escriba la revisión igual, esa rama queda inalcanzable y
-            «Confirm as reviewed» abre la compuerta.
+            ⚠ Y LA OTRA MITAD YA ESTÁ — etapa RV15. Faltaba, y era la que
+            bloqueaba: el rótulo nombraba el acto pero `save()` seguía
+            escribiendo sólo lo que cambió, así que confirmar no dejaba rastro
+            y la compuerta seguía cerrada. Ahora sin cambios escribe una
+            revisión que no fija nada (`confirmed_only`, `total` nulo) --
+            `confirmPersonBudgetReviewed`--, y eso abre la compuerta sin
+            mover ningún número.
           */}
           {/*
             `data-ol-save` para poder medirlo sin depender del rótulo, que es
@@ -469,7 +509,8 @@ export default function PersonBudgetEditor({
               ? 'Every month here currently projects by growth rule.'
               : `${monthsByRule.map(monthLabel).join(', ')} currently project by growth rule.`}{' '}
             Saving a Total for a month replaces the rule for that month — it is a change of governance, not an
-            adjustment.
+            adjustment. Confirming as reviewed does not: it records who looked and when, and leaves the rule in
+            charge.
           </p>
         )}
 
@@ -660,6 +701,12 @@ export default function PersonBudgetEditor({
         )}
         {!lastTotalRow && !lastBreakdownRow && (
           <p className="ol-editor__hint">Nobody has set a composed budget for this person yet.</p>
+        )}
+        {lastConfirmationRow && (
+          <p className="ol-editor__hint">
+            Last reviewed as is by <b>{lastConfirmationRow.set_by}</b> on {stamp(lastConfirmationRow.created_at)} —
+            nothing was changed then.
+          </p>
         )}
 
         {error && <div className="bp-notice bp-notice--warn ol-editor__msg">{error}</div>}

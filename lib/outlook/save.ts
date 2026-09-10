@@ -609,6 +609,25 @@ function personSubjectFilter(s: PersonSubject): [string, string | number] {
 
 const BUDGET_SQL_FILE = 'docs/sql/2026-09-outlook-budget-composition.sql';
 
+/**
+ * La revisión que sigue para este sujeto, leída de la BASE y no de la
+ * pantalla. Cuenta las confirmaciones además de los totales: el número de
+ * revisión es el orden en que se escribieron las cosas, no una cuenta de
+ * totales fijados.
+ */
+async function siguienteRevisionDelTotal(subject: PersonSubject, sqlFile: string): Promise<number> {
+  const [subjCol, subjVal] = personSubjectFilter(subject);
+  const { data: existing, error } = await getSupabaseClient()
+    .schema('outlook')
+    .from('person_budget_total')
+    .select('revision')
+    .eq(subjCol, subjVal)
+    .order('revision', { ascending: false })
+    .limit(1);
+  if (error) throw readable(error, { sqlFile });
+  return (existing?.[0]?.revision ?? 0) + 1;
+}
+
 /** El total fijado a mano, mes por mes. Devuelve la revisión escrita. */
 export async function savePersonBudgetTotal(input: {
   subject: PersonSubject;
@@ -620,30 +639,102 @@ export async function savePersonBudgetTotal(input: {
   if (months.length === 0) throw new Error('There is no month to set.');
 
   const set_by = await authorEmail();
-  const supabase = getSupabaseClient();
-
-  const [subjCol, subjVal] = personSubjectFilter(input.subject);
-  const { data: existing, error: readError } = await supabase
-    .schema('outlook')
-    .from('person_budget_total')
-    .select('revision')
-    .eq(subjCol, subjVal)
-    .order('revision', { ascending: false })
-    .limit(1);
-  if (readError) throw readable(readError, { sqlFile: BUDGET_SQL_FILE });
-  const revision = (existing?.[0]?.revision ?? 0) + 1;
+  const revision = await siguienteRevisionDelTotal(input.subject, BUDGET_SQL_FILE);
 
   const rows = months.map((m) => ({
     ...personSubjectColumns(input.subject),
     revision,
     target_month: m + '-01',
     total: input.targets[m],
+    /* Explícito, aunque la columna tenga default: esta fila SÍ gobierna. */
+    confirmed_only: false,
     set_by,
     note: input.note,
   }));
 
-  const { error } = await supabase.schema('outlook').from('person_budget_total').insert(rows);
+  const { error } = await getSupabaseClient().schema('outlook').from('person_budget_total').insert(rows);
   if (error) throw readable(error, { sqlFile: BUDGET_SQL_FILE });
+  return revision;
+}
+
+const CONFIRM_SQL_FILE = 'docs/sql/2026-09-person-budget-confirm-reviewed.sql';
+
+/**
+ * ============================================================================
+ * CONFIRMAR SIN FIJAR — etapa RV15
+ * ============================================================================
+ *
+ * «Revisé el presupuesto de esta persona y está bien como está.» Escribe una
+ * revisión de `person_budget_total` con `confirmed_only = true` y `total`
+ * nulo: una fila con autor y fecha, que es lo que la compuerta del paso 2.2
+ * busca --cualquier fila de esa persona posterior al arranque de la sesión-- y
+ * que NO cambia ningún número.
+ *
+ * ⚠ POR QUÉ NO ESCRIBE EL NÚMERO QUE SE ACEPTÓ, que es lo primero que uno
+ * pensaría (una fila igual a la anterior):
+ *
+ *   * Si la persona proyecta por regla --hoy TODAS, `person_budget_total`
+ *     quedó en cero filas--, no hay número anterior que repetir. El único
+ *     candidato es el que proyecta la regla, y fijarlo es un CAMBIO DE
+ *     GOBIERNO: OL26e dice «person_budget_total manda cuando existe, la regla
+ *     cuando no», y la propia pantalla lo avisa antes de guardar. Confirmar
+ *     una revisión congelaría la proyección de esa persona, y la próxima vez
+ *     que cambie su benchmark el número dejaría de seguirlo sin que nadie
+ *     haya decidido eso.
+ *   * Si la persona SÍ tiene total fijado, repetir los números funcionaría --
+ *     pero entonces habría dos mecanismos para un mismo acto, y el editor
+ *     tendría que elegir según lo que haya en la base. Una confirmación que
+ *     nunca toca números es la misma en los dos casos.
+ *   * Y el editor no puede calcular honestamente el total proyectado: conoce
+ *     la tasa de Own Production, no el efectivo multi-bucket de la tabla del
+ *     branch. Escribir un número que no sabe sería inventarlo.
+ *
+ * El lector ignora estas filas al calcular la revisión vigente (ver
+ * `loadData.ts`), así que una confirmación nunca mueve un mes de la regla al
+ * total NI le quita el gobierno a un total ya fijado -- que es lo que pasaría
+ * si una revisión con totales nulos contara como la vigente.
+ *
+ * Devuelve la revisión escrita.
+ */
+export async function confirmPersonBudgetReviewed(input: {
+  subject: PersonSubject;
+  /** Los meses que la revisión abarcó: el horizonte que estaba en pantalla. */
+  months: string[];
+  note: string | null;
+}): Promise<number> {
+  const months = [...input.months].sort();
+  if (months.length === 0) throw new Error('There is no month to confirm.');
+
+  const set_by = await authorEmail();
+  const revision = await siguienteRevisionDelTotal(input.subject, CONFIRM_SQL_FILE);
+
+  const rows = months.map((m) => ({
+    ...personSubjectColumns(input.subject),
+    revision,
+    target_month: m + '-01',
+    total: null,
+    confirmed_only: true,
+    set_by,
+    note: input.note,
+  }));
+
+  /*
+   * ⚠ CON `returning`, y acá no es decorativo: un insert que escribe menos
+   * filas de las que se le dieron se parece a uno que funcionó, y toda la
+   * razón de esta función es dejar rastro. Si no volvieron las filas, no hay
+   * confirmación que reportar.
+   */
+  const { data, error } = await getSupabaseClient()
+    .schema('outlook')
+    .from('person_budget_total')
+    .insert(rows)
+    .select('person_budget_total_key');
+  if (error) throw readable(error, { sqlFile: CONFIRM_SQL_FILE });
+  if ((data?.length ?? 0) !== rows.length) {
+    throw new Error(
+      `The confirmation was not recorded: ${data?.length ?? 0} of ${rows.length} rows came back.`
+    );
+  }
   return revision;
 }
 

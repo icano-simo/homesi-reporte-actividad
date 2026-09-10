@@ -346,9 +346,13 @@ export default function ReviewMaskHost() {
    * hasta que la fila aparece, así que sin reconsultar la persona guardaría y no
    * pasaría nada. Se corta al salir del paso.
    *
-   * ⚠ Y SI EL PRESUPUESTO YA ESTABA BIEN Y NO HAY QUE CAMBIARLO: guardarlo otra
-   * vez escribe una fila con autor y fecha, y ESO es la confirmación. Es más de
-   * lo que daba la casilla, no menos.
+   * ⚠ Y SI EL PRESUPUESTO YA ESTABA BIEN Y NO HAY QUE CAMBIARLO: el botón del
+   * editor dice «Confirm as reviewed» y escribe una revisión de
+   * `person_budget_total` con autor y fecha que NO FIJA NINGÚN NÚMERO
+   * --`confirmed_only`, `total` nulo, etapa RV15--. Para esta consulta es una
+   * fila como cualquier otra, que es todo lo que pide; para la proyección no
+   * existe, así que confirmar no le cambia el gobierno a nadie. Es más de lo
+   * que daba la casilla, no menos.
    */
   const [presupuestoGuardado, setPresupuestoGuardado] = useState(false);
   const pidePresupuesto = pasoActual?.gate_kind === 'budget';
