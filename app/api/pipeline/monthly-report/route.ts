@@ -124,6 +124,21 @@ function toOpen(r: OpenRow): PipelineLoan {
     affinityProgram: '',
     opportunityOwner: '',
     propertyState: '',
+    /*
+     * Etapa LOA-COLUMNS-1: se agregaron para "Export today's forecast" (el
+     * reporte del día, /api/pipeline/day-report) -- no consumidas acá, fuera
+     * de OPEN_COLS a propósito, mismo criterio que nppmRealtor/referredBy/
+     * etc. arriba. El reporte mensual las omite DELIBERADAMENTE, no por
+     * olvido: nadie pidió esta columna en el mensual, y agregarla sin pedido
+     * sería alcance nuevo. Si algún día hace falta acá, agregar a OPEN_COLS
+     * (mismo patrón que loan_type/strategy_raw arriba) -- ver también la nota
+     * de asimetría de snapshots en docs/ARQUITECTURA.md (el mensual lee 3
+     * snapshots históricos, y estas 3 columnas solo existen desde el
+     * snapshot 153 en adelante).
+     */
+    loanProcessor: '',
+    loa2: '',
+    loa_2: '',
   };
 }
 
@@ -160,6 +175,12 @@ function toResolved(r: ResolvedRow): ResolvedLoan {
     affinityProgram: '',
     opportunityOwner: '',
     propertyState: '',
+    // Etapa LOA-COLUMNS-1: mismo motivo y misma nota de asimetría de
+    // snapshots que en toOpen arriba -- solo para "Export today's forecast",
+    // el mensual las omite a propósito.
+    loanProcessor: '',
+    loa2: '',
+    loa_2: '',
   };
 }
 

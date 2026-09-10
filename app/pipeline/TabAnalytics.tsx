@@ -355,6 +355,7 @@ function fmtPercent(n: number): string {
  */
 function ScorecardTable({
   title,
+  titleSuffix = ' Performance',
   columnLabel,
   rows,
   totalCount,
@@ -362,6 +363,8 @@ function ScorecardTable({
   diagnostic,
 }: {
   title: string;
+  /** Etapa FIX-SCORECARD-TITLES-2: texto que se agrega al final de `title` en el encabezado de la tarjeta -- default `" Performance"`, mismo texto que antes estaba hardcodeado. Se pasa `""` cuando `title` ya trae su propio texto completo (ver B2B/NPPM más abajo), para no duplicar la palabra. */
+  titleSuffix?: string;
   columnLabel: string;
   rows: ScorecardRow[];
   totalCount: number;
@@ -398,7 +401,7 @@ function ScorecardTable({
           -- ahí "Branch"/"Loan Officer"/"Business Developer" sigue siendo
           correcto, es la tarjeta la que necesitaba un nombre propio.
         */}
-        <span className="tbl-card__title">{title} Performance</span>
+        <span className="tbl-card__title">{title}{titleSuffix}</span>
         {diagnostic && diagnostic.count > 0 && (
           <span
             title={`${diagnostic.summary}\n${diagnostic.detail}`}
@@ -600,7 +603,14 @@ function MetricPodiumCard({
               <span className="podium-card__badge">
                 <AwardIcon size={badgeSize[rank]} />
               </span>
-              {isTied && <span className="podium-card__tied">(tied)</span>}
+              {isTied && (
+                <span
+                  className="podium-card__tied"
+                  title="Mismo valor que el puesto anterior o el líder -- el orden del podio ya está resuelto por un criterio de desempate secundario (monto)."
+                >
+                  (tied)
+                </span>
+              )}
               <div className="podium-card__row-body">
                 <div className="podium-card__name" title={row.label}>
                   {row.label}
@@ -678,7 +688,7 @@ function ScorecardPodiumPanel({ rows }: { rows: ScorecardRow[] }) {
   return (
     <div ref={panelRef} className={'scorecard-podium-panel' + (visible ? ' scorecard-podium-panel--enter' : '')}>
       <MetricPodiumCard
-        title="Most Closings"
+        title="Top by loan count"
         entries={top3Closings}
         getValue={(row) => row.closedCount}
         format={fmtInt}
@@ -2886,7 +2896,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
               <div className="tbl-card" style={{ padding: '16px' }}>
                 <div className="tbl-card__head">
                   {/* Etapa FIX-SCORECARD-TITLES: mismo nombre que la variante con datos (ScorecardTable) -- es la misma tarjeta, solo su estado vacío. */}
-                  <span className="tbl-card__title">Business Developer Performance</span>
+                  <span className="tbl-card__title">B2B Performance, B2B only by BD</span>
                 </div>
                 {/*
                   Etapa F7.20: mensaje explícito en vez de un scorecard vacío
@@ -2903,8 +2913,9 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
             ) : (
               <>
                 <ScorecardTable
-                  title="Business Developer"
-                  columnLabel="Business Developer"
+                  title="B2B Performance, B2B only by BD"
+                  titleSuffix=""
+                  columnLabel="B2B Performance, B2B only by BD"
                   rows={businessDeveloperScorecard.rows}
                   // Hotfix loan-officer-null: mismo motivo que en Loan Officer arriba.
                   totalCount={businessDeveloperScorecard.diagnostics.resolvedCount + businessDeveloperScorecard.diagnostics.blankCount}
@@ -2938,7 +2949,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
             {nppmDataMissing ? (
               <div className="tbl-card" style={{ padding: '16px' }}>
                 <div className="tbl-card__head">
-                  <span className="tbl-card__title">NPPM Realtor</span>
+                  <span className="tbl-card__title">Performance NPPM only</span>
                 </div>
                 <p className="foot-note" style={{ margin: 0 }}>
                   No NPPM Realtor data in this snapshot — re-upload required to populate this view.
@@ -2947,8 +2958,9 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
             ) : (
               <>
                 <ScorecardTable
-                  title="NPPM Realtor"
-                  columnLabel="NPPM Realtor"
+                  title="Performance NPPM only"
+                  titleSuffix=""
+                  columnLabel="Performance NPPM only"
                   rows={nppmRealtorScorecard.rows}
                   totalCount={nppmRealtorScorecard.totalInput}
                   onRowClick={(row) =>

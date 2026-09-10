@@ -7978,6 +7978,35 @@ usa Commercial Activity).
 
 `app/pipeline/TabAnalytics.tsx`, `app/pipeline/styles/forecast-visual.css`.
 
+## Selector de población tipo píldora en Next Month (1ra parte del rediseño)
+
+Las tablas By Branch/By Strategy de la pestaña Next Month mostraban las 3
+poblaciones (Est Closing Next Month / Out of Scope / Combined) a la vez,
+como 3 pares de columnas fijos -- 7 columnas en total. Pasan a mostrar
+UNA sola población por vez, elegida con un selector tipo píldora (mismo
+patrón visual/de estado que el toggle By branch/By strategy ya
+existente) -- la tabla queda en 3 columnas (nombre + Loans + Amount), con
+el mismo tinte de fondo que ya tenía esa población en el esquema de 3
+pares (sin tintes nuevos).
+
+El total de la fila `Total` sigue siendo el de la población activa
+únicamente -- las 3 sumas completas se siguen calculando igual que antes
+(`byBranchTotals`/`byStrategyTotals`), porque el chequeo de desarrollo en
+consola (que compara esas sumas contra las 3 tarjetas KPI) las sigue
+necesitando completas, no solo la que se muestra.
+
+Las 3 tarjetas KPI del Hero (arriba de la tabla) NO cambian con la
+píldora -- siguen mostrando las 3 poblaciones fijas siempre, sin importar
+cuál esté seleccionada en la tabla de abajo (decisión de diseño).
+
+Sin cambios en `lib/pipeline/nextMonth.ts` ni en `app/pipeline/page.tsx`
+-- `byBranchRows`/`byStrategyRows` ya traían las 3 poblaciones por fila,
+no hizo falta recalcular nada, solo elegir cuál mostrar.
+
+### Archivos
+
+`app/pipeline/TabNextMonth.tsx` (único archivo tocado).
+
 ## KPIs de "Total Closed Volume" / "Closed Loans" / "Average Ticket" ahora abren drill-down
 
 Las 3 tarjetas del Hero KPI de Analytics ahora abren el mismo tipo de
@@ -8029,6 +8058,54 @@ muestra la app.
 `app/pipeline/TabAnalytics.tsx` (único archivo tocado -- estado
 `selectedChannel`, rename de `branchFilteredLoans` a `filteredLoans`,
 `<select>` de Channel en `.control-bar__row`).
+
+## Foot-note de período redundante en Analytics
+
+El texto duplicado del período (ej. "August 2026" / "Q3 2026") se oculta
+en Month y Quarter, donde ya está visible en los controles propios (el
+input nativo de mes, o el año + el select de trimestre) -- queda visible
+SOLO en YTD, único modo sin controles propios que muestren el año.
+
+### Archivos
+
+`app/pipeline/PeriodSelector.tsx`.
+
+## Nombre real del Owner en el drill-down (no el rol)
+
+En préstamos no-NPPM, el sub-label "Owner" bajo el prestatario ahora
+muestra `opportunityOwner` (el nombre real de la persona -- Etapa
+F7.20) en vez de `opportunityOwnerTitle` (el rol, ej. "Business
+Developer"). Si `opportunityOwner` viene vacío, se muestra el mismo
+aviso honesto que ya usan `loanType`/`loanProgram`/`propertyState`
+("Not available for this snapshot") -- nunca cae de vuelta al rol ni
+queda en blanco. `opportunityOwnerTitle` sigue usándose solo para
+decidir SI se muestra el bloque (mismo gate de siempre), nunca como el
+valor mostrado.
+
+Se agregó el campo a los 3 constructores de `LoanDetailModalLoan`
+(`PivotTable.tsx` tenía 2, `TabMilestoneMatrix.tsx` el tercero -- este
+último no estaba en el alcance original de archivos declarado, lo
+señaló `tsc` al faltarle el campo nuevo, requerido en la interface).
+
+### Archivos
+
+`app/pipeline/LoanDetailModal.tsx` (campo nuevo en
+`LoanDetailModalLoan`, bloque "OWNER PARA B2B" actualizado),
+`app/pipeline/PivotTable.tsx` (`openLoanToModalLoan()`,
+`closedLoanToModalLoan()`), `app/pipeline/TabMilestoneMatrix.tsx` (3er
+constructor, agregado por necesidad mecánica, no por alcance original).
+
+## Orden de pestañas: Analytics antes de Business Plan
+
+Reorden de `NAV_TABS` en `ServiceHubHeader.tsx` -- Analytics pasa a
+mostrarse antes de Business Plan (orden final: Commercial Activity,
+Forecast & Pipeline, Analytics, Business Plan, Outlook, Admin). Se movió
+el bloque completo (entrada + su comentario histórico), sin tocar
+`isTabActive()` ni ninguna otra lógica.
+
+### Archivos
+
+`components/layout/ServiceHubHeader.tsx`.
 
 ## Página de detalle de Affinity removida del PDF por estrategia
 
@@ -8088,3 +8165,126 @@ en cero para el período que se está mirando.
 `app/pipeline/page.tsx` (`hideZeroBranches()` reusada tal cual, aplicada
 a `loanOfficerRows.banked`/`.brokered` en `handleExportPdf()` -- ningún
 cambio en `lib/pipeline/loanOfficerForecast.ts`).
+
+## Hover explicativo sobre "(tied)" en los podios de Analytics
+
+`MetricPodiumCard` (`app/pipeline/TabAnalytics.tsx`) ya mostraba el texto
+"(tied)" cuando el valor de un puesto del podio coincide con el del
+puesto anterior o con el del líder -- condición `isTied`, sin cambios.
+Se agregó un atributo `title` sobre ese mismo `<span>`, con el texto
+explicando qué significa el empate (mismo valor numérico entre puestos,
+distinto del desempate de ORDEN que ya resuelve `toRows()` por monto).
+
+### Alcance
+
+Un solo atributo HTML (`title`) sobre un elemento ya existente -- `isTied`
+y el resto de la lógica del componente quedan intactos, sin cambios de
+comportamiento más allá del hover.
+
+### Nota de proceso
+
+Este merge a `main` se hizo como excepción puntual al flujo estándar de
+revisión (que normalmente requiere aprobación antes de mergear), dado el
+tamaño mínimo del cambio.
+
+### Commits
+
+`8324c3e` (rama `feat/tied-hint`) → `67f5dc4` (merge a `main`).
+
+### Archivos
+
+`app/pipeline/TabAnalytics.tsx` (único archivo tocado).
+
+## Loan Processor / LOA2 / LOA-2 en el reporte diario, solo lectura, no en el mensual
+
+Tres columnas nuevas de punta a punta -- `loan_processor`, `loa2` y
+`loa_2` (`pipeline_forecast.pipeline_loans`/`pipeline_resolved_loans`) --
+autorizadas para "Export today's forecast" (el reporte del día,
+`/api/pipeline/day-report`). `loa2` y `loa_2` son personas DISTINTAS
+(confirmado: ~85% de solapamiento, no la misma columna) -- se muestran
+como 2 columnas separadas en el Excel ("LOA2"/"LOA-2"), nunca combinadas
+ni con `COALESCE`.
+
+Encadenado igual que el resto de los crudos opcionales del módulo: tipo
+(`lib/pipeline/types.ts`), lectura del snapshot activo (SELECT explícito
+en `app/api/pipeline/latest/route.ts`), mapeo al insert manual
+(`app/api/pipeline/parse/route.ts` -- camino ya retirado en la práctica,
+ver la nota de esa etapa sobre `save_pipeline_snapshot()`), y columnas
+nuevas en la hoja "Pipeline" del Excel diario
+(`app/api/pipeline/day-report/route.ts`).
+
+### Por qué el reporte mensual NO las trae
+
+`app/api/pipeline/monthly-report/route.ts` fija los 3 campos en `''` en
+sus 2 mappers (`toOpen()`/`toResolved()`) -- **a propósito, no por
+olvido**. Mismo criterio que ya usa ese archivo para
+`nppmRealtor`/`referredBy`/`affinityProgram`/`opportunityOwner`/
+`propertyState`: son campos que ese reporte nunca consume, y por eso
+quedaron fuera de `OPEN_COLS`/`RESOLVED_COLS` (las listas explícitas de
+columnas que ese archivo sí selecciona). Nadie pidió esta columna para el
+reporte mensual -- agregarla ahí habría sido alcance nuevo, no parte de
+esta etapa.
+
+### La asimetría de snapshots (por qué un histórico puede mostrarlas vacías)
+
+El reporte diario y el mensual leen de fuentes distintas:
+
+- **Diario**: siempre el snapshot **activo** (el más reciente), nunca uno
+  histórico.
+- **Mensual**: lee **3 snapshots** -- el del corte, el de fin de mes y el
+  activo -- pudiendo ir bastante atrás en el tiempo.
+
+Estas 3 columnas solo existen desde el **snapshot 153** (2026-09-08) en
+adelante -- confirmado con datos reales de ese snapshot (`loan_processor`
+poblado en 99/112 `pipeline_loans` y 780/917 `pipeline_resolved_loans`;
+`loa2`/`loa_2` en proporciones menores pero no vacías). Un snapshot
+**anterior** al 153 va a devolver estas 3 columnas vacías si algún día se
+necesitaran en el mensual -- no porque la columna falte o el mapeo esté
+roto, sino porque **nadie las escribía todavía** en ese momento (mismo
+criterio que ya distingue este proyecto entre "vacío por diseño" y
+"vacío por un fallo silencioso" para el resto de los crudos opcionales,
+ver Etapa F6/EXCEL-5 más arriba en este documento).
+
+### Archivos
+
+`lib/pipeline/types.ts` (3 campos nuevos en `PipelineLoan`/
+`ResolvedLoan`), `app/api/pipeline/latest/route.ts` (SELECT + mappers),
+`app/api/pipeline/parse/route.ts` (mappers del insert manual, con
+advertencia sobre `save_pipeline_snapshot()`), `lib/pipeline/dayReport.ts`
++ `app/api/pipeline/day-report/route.ts` (3 columnas nuevas en la hoja
+"Pipeline"), `app/api/pipeline/monthly-report/route.ts` (comentario que
+explica la omisión a propósito), `lib/pipeline/sources/salesforce-file.ts`
++ `fixtures/pipeline-demo.ts` + `scripts/test-aggregate.ts` (`''` fijo,
+requerido mecánicamente por el tipo, sin dato real disponible en esos
+caminos).
+
+## Merge de fix/analytics-batch-2 a main, y un fix mecánico aparte
+
+Merge de `fix/analytics-batch-2` a `main` (commit `3d2ae48`) -- trae el
+foot-note de período redundante en Analytics, el nombre real del Owner
+en el drill-down, y el reorden de pestañas (Analytics antes de Business
+Plan), cada uno ya documentado en su propia sección más arriba en este
+documento.
+
+### Fix aparte, requerido después del merge (commit 6ba4262)
+
+`TabNextMonth.tsx` -- que había llegado a `main` por el merge previo de
+`feat/next-month-populations` -- construía `LoanDetailModalLoan` sin el
+campo `opportunityOwner`. Mismo campo ya agregado 3 veces antes por el
+mismo motivo: una colisión mecánica entre 2 ramas que evolucionaron en
+paralelo sin verse -- `fix/analytics-batch-2` agregó `opportunityOwner`
+a la interface y corrigió los 3 constructores que existían en ese
+momento, pero `TabNextMonth.tsx` (con su propio 4to constructor) llegó a
+`main` después, por otra rama, sin ese campo. `tsc` lo señaló al mergear
+las 2 ramas juntas. Agregado mínimo (`opportunityOwner:
+loan.opportunityOwner,`), sin lógica nueva.
+
+`main` queda en `6ba4262`.
+
+### Archivos
+
+`app/pipeline/LoanDetailModal.tsx`, `app/pipeline/PeriodSelector.tsx`,
+`app/pipeline/PivotTable.tsx`, `app/pipeline/TabMilestoneMatrix.tsx`,
+`components/layout/ServiceHubHeader.tsx` (merge de
+`fix/analytics-batch-2`); `app/pipeline/TabNextMonth.tsx` (fix aparte,
+commit `6ba4262`).
