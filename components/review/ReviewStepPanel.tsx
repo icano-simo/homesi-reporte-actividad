@@ -134,13 +134,12 @@ export interface ReviewStepPanelProps {
    * propia persona: aparentaba ser una compuerta y no lo era.
    */
   presupuestoGuardado: boolean;
-  /**
-   * ⚠ SI LA BARRA ESTÁ TAPANDO UN BLOQUE QUE MINIMIZAR MOSTRARÍA — etapa RV19.
-   *
-   * Lo MIDE el anfitrión, que ya mide el panel para el relleno: es geometría,
-   * no un caso especial de un paso. Acá sólo se dibuja el aviso.
+  /*
+   * ⚠ ACÁ ESTABA `tapaAlgo` (RV19) y se fue en RV20 con su aviso: la tarjeta
+   * anclada a la izquierda deja el lado derecho libre por construcción, así que
+   * la medición que lo alimentaba dejó de tener pregunta. Ver la nota del lugar
+   * donde se dibujaba.
    */
-  tapaAlgo: boolean;
   /**
    * En qué branches está el Loan Officer. Con más de uno, la revisión manda al
    * primero y el panel lo DICE -- elegir en silencio sería mandar a una pantalla
@@ -171,6 +170,37 @@ export interface ReviewStepPanelProps {
   onResumen: () => void;
 }
 
+/*
+ * La clave del plegado en `sessionStorage`. Una sola para toda la revisión: es
+ * una preferencia de cómo se mira la pantalla, no un estado por paso -- si
+ * fuera por paso, avanzar la volvería a abrir, que es exactamente lo que RV20
+ * vino a cambiar.
+ */
+const CLAVE_PLEGADO = 'rv:panel-plegado';
+
+/**
+ * El comentario arranca en una línea y crece con el texto hasta cuatro; de ahí
+ * en más scrollea, y `resize: vertical` deja agrandarlo a mano.
+ *
+ * ⚠ EL TECHO SE MIDE, no se clava: `lineHeight` computado por cuatro, más el
+ * padding vertical del propio campo. Un `4 * 18px` escrito acá quedaría viejo
+ * en cuanto la escala del módulo cambie, y «cuatro líneas» dejaría de ser
+ * cuatro líneas.
+ *
+ * ⚠ Y `height: auto` ANTES de leer `scrollHeight`: sin eso, el alto anterior es
+ * el piso y el campo sólo puede crecer -- borrar texto lo dejaría grande. Es el
+ * mismo orden que hay que respetar para medir cualquier cosa que uno mismo
+ * acaba de estirar.
+ */
+function crecerHastaCuatro(el: HTMLTextAreaElement): void {
+  const est = window.getComputedStyle(el);
+  const linea = Number.parseFloat(est.lineHeight);
+  const relleno = Number.parseFloat(est.paddingTop) + Number.parseFloat(est.paddingBottom);
+  el.style.height = 'auto';
+  const techo = Number.isFinite(linea) ? linea * 4 + (Number.isFinite(relleno) ? relleno : 0) : 96;
+  el.style.height = Math.min(el.scrollHeight, techo) + 'px';
+}
+
 export default function ReviewStepPanel({
   script,
   session,
@@ -184,7 +214,6 @@ export default function ReviewStepPanel({
   benchmarkActual,
   onBenchmarkGuardado,
   presupuestoGuardado,
-  tapaAlgo,
   branchesDelLo,
   onGuardar,
   onIrAlPaso,
@@ -370,14 +399,47 @@ export default function ReviewStepPanel({
   const [ocupado, setOcupado] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /*
-   * ⚠ MINIMIZADA: colapsa la barra a su cabecera, para ver el tablero completo
-   * sin salir del modo coach -- etapa RV18. Estado de React y nada más: se
-   * reinicia al cambiar de paso porque el panel se remonta con su `key`, y eso
-   * es lo que se quiere (contenido nuevo, barra abierta). Mismo criterio que el
-   * índice de la flecha en RV14: un movimiento de atención no es evidencia, así
-   * que no se guarda en ningún lado.
+   * ══════════════════════════════════════════════════════════════════════
+   * MINIMIZADA, Y AHORA SE RECUERDA — etapa RV18, cambiado en RV20
+   * ══════════════════════════════════════════════════════════════════════
+   *
+   * En RV18 era estado de React a secas, y como el panel se REMONTA en cada
+   * paso --se lo pide su `key`-- se abría sola al avanzar. El argumento era que
+   * un paso nuevo trae contenido nuevo que hay que leer.
+   *
+   * Decisión de RV20, del brief: si alguien la minimiza, sigue así hasta que la
+   * abra. Es lo mismo que ya se hace con la salida del modo coach:
+   * `sessionStorage`, nunca la base. Un plegado no es evidencia de nada --no
+   * tiene autor ni fecha ni sentido en la historia de la revisión-- así que
+   * guardarlo en `review` sería inventarle importancia; y guardarlo en
+   * `localStorage` lo haría sobrevivir a la sesión, que es justo lo que no se
+   * quiere: mañana, con otra persona, la tarjeta arranca abierta.
+   *
+   * ⚠ SE LEE EN EL INICIALIZADOR y no en un efecto: un `setState` en un efecto
+   * dispara renders en cascada --la regla que este archivo ya se comió-- y el
+   * panel vive debajo del anfitrión del layout raíz. El `typeof window` es por
+   * el render de servidor: en la práctica este componente sólo se dibuja
+   * después de que una consulta del cliente trae la sesión, así que no hay
+   * desajuste de hidratación, pero leerlo sin guarda rompería el build.
    */
-  const [minimizado, setMinimizado] = useState(false);
+  const [minimizado, setMinimizado] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return window.sessionStorage.getItem(CLAVE_PLEGADO) === '1';
+    } catch {
+      /* Modo privado, o un navegador con el almacenamiento bloqueado: que no se
+         acuerde es peor que romper la revisión entera. */
+      return false;
+    }
+  });
+  const setPlegado = (v: boolean) => {
+    setMinimizado(v);
+    try {
+      window.sessionStorage.setItem(CLAVE_PLEGADO, v ? '1' : '0');
+    } catch {
+      /* Igual que arriba: el estado de React ya cambió, sólo no se recuerda. */
+    }
+  };
 
   /*
    * ⚠ LOS CLICS SE ESCUCHAN EN `document`, EN CAPTURA.
@@ -505,6 +567,46 @@ export default function ReviewStepPanel({
           <AlertTriangleIcon size={13} /> This review points at a step that is not in the script
           any more. Nothing was lost — ask for the script to be checked.
         </p>
+      </div>
+    );
+  }
+
+  /*
+   * ══════════════════════════════════════════════════════════════════════
+   * PLEGADA: UNA PÍLDORA, NO UNA CABECERA — etapa RV20
+   * ══════════════════════════════════════════════════════════════════════
+   *
+   * Minimizada, la tarjeta se reduce a una píldora flotante que dice fase y
+   * paso, y un clic la vuelve a abrir. En RV18 el colapso dejaba la cabecera
+   * entera --41px a todo el ancho-- porque la barra ocupaba el ancho; una
+   * tarjeta de 420px puede desaparecer del todo.
+   *
+   * ⚠ SIGUE SIENDO `.rv-panel`, con un modificador, y eso NO es cosmética: el
+   * anfitrión mide `.rv-panel` para publicar `--rv-relleno` (RV17). Si plegada
+   * fuera otro elemento, la medición no encontraría nada, la property se
+   * borraría y lo último de la página quedaría debajo de la píldora. Con el
+   * modificador, el relleno se achica al alto de la píldora solo.
+   *
+   * ⚠ Y ESTE RETORNO VA ANTES DE TODAS LAS RAMAS a propósito: plegada es
+   * plegada, sea el paso del funnel, el de «no es esta pantalla» o uno común.
+   * Un colapso que sólo funcionara en la rama principal sería un colapso que
+   * se abre solo al cambiar de paso.
+   */
+  if (minimizado) {
+    return (
+      <div className="rv-panel rv-panel--plegado" role="region" aria-label="Coaching step">
+        <button
+          type="button"
+          className="rv-pill"
+          data-rv-min=""
+          aria-expanded={false}
+          onClick={() => setPlegado(false)}
+        >
+          <span className="rv-panel__step">
+            Phase {paso.phase_no} · Step {paso.step_in_phase}
+          </span>
+          <ExpandIcon size={12} />
+        </button>
       </div>
     );
   }
@@ -1283,43 +1385,42 @@ export default function ReviewStepPanel({
         <span className="rv-panel__label">{paso.label}</span>
         {yaContestado && <span className="rv-panel__done">answered</span>}
         {/*
-          ⚠ MINIMIZAR NO ES CERRAR, y el rótulo lo dice: colapsa la barra a su
-          cabecera para poder ver el tablero completo SIN salir del modo coach
-          --que es lo que hace `Save and exit`, y eso suelta la máscara--.
+          ⚠ MINIMIZAR NO ES CERRAR, y el rótulo lo dice: pliega la tarjeta a una
+          píldora para ver el tablero completo SIN salir del modo coach --que es
+          lo que hace `Save and exit`, y eso suelta la máscara--.
 
-          El estado es de React y se reinicia al cambiar de paso, porque el
-          panel se remonta con su `key`. Es deliberado, y es el mismo criterio
-          que el índice de la flecha en RV14: esto es un movimiento de atención,
-          no evidencia de nada. Un paso nuevo trae contenido nuevo que hay que
-          leer, así que abrirse otra vez es lo correcto.
+          Y desde RV20 se RECUERDA entre pasos, en `sessionStorage`: ver la nota
+          del estado. Antes se abría sola al avanzar, porque el panel se remonta
+          con su `key`.
         */}
         {/*
-          ⚠ EL AVISO, CUANDO LA CUENTA NO DA — etapa RV19.
+          ══════════════════════════════════════════════════════════════════
+          ⚠ ACÁ ESTABA EL AVISO DE RV19, Y SE FUE — etapa RV20
+          ══════════════════════════════════════════════════════════════════
 
-          Sale del merge de RV18 con BP52: la tarjeta de métricas creció y en un
-          paso dejó de haber posición de scroll que muestre el objetivo y la
-          tarjeta entera. En vez de mover la pantalla para todos, la barra lo
-          dice, y minimizar lo resuelve.
+          «Part of the numbers is behind this bar» existía porque la barra al
+          ancho completo tapaba la tarjeta de métricas en el paso 1.5. Con la
+          tarjeta anclada a la izquierda el lado derecho queda libre POR
+          CONSTRUCCIÓN, así que ese aviso ya no puede hacer falta.
 
-          ⚠ DICE UN HECHO Y NO PROMETE UN RESULTADO: «parte de los números está
-          detrás de esta barra», con el botón de minimizar al lado. Medido, a
-          900px de ventana en el 1.5, minimizar deja la tarjeta al 91% --37px
-          de 419 siguen debajo-- así que un «minimize to see the full card»
-          prometería un 100% que no ocurre. El aviso informa; la acción está
-          pegada y se ve.
+          Y no se borró «por si acaso»: medido en los ocho pasos con la tarjeta
+          nueva, el cruce con `.bp-stats` es CERO en todos, con 1.162px libres a
+          la derecha. Lo que además apareció en esa medición es que el aviso
+          SEGUÍA DISPARÁNDOSE en el 1.4 y el 1.5 -- porque su condición miraba
+          sólo el corte vertical y no el cruce real-- o sea que había pasado a
+          ser exactamente lo que RV19 vino a evitar: un aviso que aparece cuando
+          no falta nada.
 
-          No se dibuja minimizada, y eso no es una condición aparte: la misma
-          cuenta que lo enciende se apaga con la barra en 41px.
+          Se fue completo: el aviso, su medición en el anfitrión, la prop y la
+          clase. Un respaldo que ya no puede dispararse esconde la próxima
+          falla, y ese es el patrón de «lo que compensa una ausencia».
         */}
-        {tapaAlgo && !minimizado && (
-          <span className="rv-panel__oculto">Part of the numbers is behind this bar</span>
-        )}
         <button
           type="button"
           className="rv-panel__min"
           data-rv-min=""
           aria-expanded={!minimizado}
-          onClick={() => setMinimizado((m) => !m)}
+          onClick={() => setPlegado(!minimizado)}
         >
           {minimizado ? <ExpandIcon size={12} /> : <CollapseIcon size={12} />}
           {minimizado ? 'Expand' : 'Minimize'}
@@ -1403,7 +1504,7 @@ export default function ReviewStepPanel({
       {/* ── CENTRO: las entradas ──────────────────────────────────────── */}
       <div className="rv-panel__zona rv-panel__zona--in">
       {paso.gate_kind === 'number' && editando && (
-        <label className="rv-panel__field">
+        <label className="rv-panel__field rv-panel__field--num">
           <span className="rv-panel__fieldlabel">
             Benchmark
             {/*
@@ -1415,7 +1516,7 @@ export default function ReviewStepPanel({
               <span className="rv-panel__hintline">no benchmark set yet</span>
             ) : (
               <span className="rv-panel__hintline">
-                now {benchmarkActual} / month · saving a different number replaces it
+                now {benchmarkActual} / month · replaces it
               </span>
             )}
           </span>
@@ -1426,7 +1527,9 @@ export default function ReviewStepPanel({
             step="0.5"
             value={numero}
             onChange={(e) => setNumero(e.target.value)}
-            placeholder="closings per month"
+            /* Angosto: el placeholder largo no cabe en 96px y el rótulo ya dice
+               qué es -- etapa RV20. */
+            placeholder="0"
           />
         </label>
       )}
@@ -1484,16 +1587,37 @@ export default function ReviewStepPanel({
         código, no yo.
       */}
       {editando ? (
-        <label className="rv-panel__field">
+        <label className="rv-panel__field rv-panel__field--wide">
           <span className="rv-panel__fieldlabel">Comment</span>
-          {/* Dos líneas y no tres -- etapa RV18: la barra tiene que quedar
-              baja, y el campo sigue creciendo a mano (`resize: vertical`). */}
+          {/*
+            ⚠ ARRANCA EN UNA LÍNEA Y CRECE HASTA CUATRO — etapa RV20.
+
+            El brief pide el comentario «como una línea, no un área alta», y
+            avisa del riesgo: si no se puede leer lo que se escribió, el alto
+            ahorrado sale más caro. Una línea fija resuelve el alto y rompe la
+            escritura -- un comentario de tres renglones se vuelve un campo por
+            el que hay que scrollear a ciegas.
+
+            Así que arranca en una y crece con el texto hasta cuatro, y de ahí
+            scrollea. `resize: vertical` sigue puesto, así que se puede agrandar
+            a mano más allá de eso.
+
+            El techo se mide del propio elemento (`lineHeight` computado), no de
+            un número de píxeles clavado: la escala del módulo puede cambiar y
+            cuatro líneas siguen siendo cuatro líneas.
+          */}
           <textarea
             className="field rv-panel__text"
             data-review-comment=""
-            rows={2}
+            rows={1}
             value={comment}
-            onChange={(e) => setComment(e.target.value)}
+            onChange={(e) => {
+              setComment(e.target.value);
+              crecerHastaCuatro(e.currentTarget);
+            }}
+            ref={(el) => {
+              if (el !== null) crecerHastaCuatro(el);
+            }}
             placeholder="What did you discuss?"
           />
         </label>

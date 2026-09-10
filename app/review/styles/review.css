@@ -349,6 +349,32 @@ body:has(.rv-bar) .app {
  * `overflow-y: auto` se queda: el prompt de Isabella puede ser largo, y con
  * `max-height` la barra scrollea adentro en vez de comerse la pantalla.
  *
+ * ============================================================================
+ * Y DE BARRA AL PIE A TARJETA ABAJO A LA IZQUIERDA -- etapa RV20
+ * ============================================================================
+ *
+ * La barra a todo el ancho resolvio el alto --356px de globo a 209 de barra--
+ * pero dejo abierto lo que el merge con BP52 destapo: a lo ancho no hay franja
+ * que tapar, pero la franja de ABAJO sigue siendo la pantalla entera, y ahi
+ * quedaba la tarjeta de metricas en el paso 1.5.
+ *
+ * Anclada a la IZQUIERDA con un ancho maximo, el lado derecho queda libre POR
+ * CONSTRUCCION: la tarjeta de metricas vive a la derecha del canvas, asi que
+ * el cruce no depende de la posicion del scroll ni del alto del contenido de
+ * ningun paso. Es la misma diferencia que entre difuminar un borde y quitarlo:
+ * una condicion geometrica en vez de un aviso.
+ *
+ * ⚠ Y CON ESO SE FUE EL AVISO DE RV19 --«Part of the numbers is behind this
+ * bar»-- con su medicion en el anfitrion y su clase. Medido en los ocho pasos
+ * despues del cambio: cruce cero con `.bp-stats` en todos, sin minimizar. Un
+ * aviso que ya no puede dispararse es un respaldo muerto, y los respaldos
+ * muertos esconden la proxima falla.
+ *
+ * ⚠ EL BORDE, DIFUMINADO -- punto 4 del brief. Era `2px solid var(--coral)` a
+ * saturacion plena: lo unico del modo que quedaba sin bajar, despues de que el
+ * marco (RV9) y el resaltado (RV13) se difuminaran por el mismo motivo. Ahora
+ * es 1px al 45% con `color-mix`, y el peso lo lleva la sombra.
+ *
  * ⚠⚠ ESTE `z-index` ES UNA DE DOS COPIAS -- corrección urgente, OL26g. Es
  * el que de verdad chocó: anclado abajo-derecha, tapaba el pie de `Set
  * budget` (el botón `Save budget`/`Confirm as reviewed`) mientras el modal
@@ -359,14 +385,16 @@ body:has(.rv-bar) .app {
  */
 .rv-panel {
   position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  left: 18px;
+  bottom: 18px;
   z-index: 122;
+  width: min(420px, calc(100vw - 36px));
   max-height: 45vh;
   overflow-y: auto;
   background: var(--white);
-  border-top: 2px solid var(--coral);
+  /* Difuminado: 1px al 45% en vez de 2px a pleno. El peso lo lleva la sombra. */
+  border: 1px solid color-mix(in srgb, var(--coral) 45%, transparent);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   font-size: 12px;
   color: var(--slate-600);
@@ -396,14 +424,39 @@ body:has(.rv-bar) .app {
  * solo en el boton, el aviso quedaria pegado al rotulo del paso y el boton se
  * iria al extremo, con el texto y su accion en las dos puntas de la barra.
  */
-.rv-panel__oculto {
-  margin-left: auto;
-  flex: none;
-  font-size: 11px;
-  color: var(--slate-500);
+/*
+ * ============================================================================
+ * PLEGADA: LA PILDORA -- etapa RV20
+ * ============================================================================
+ *
+ * Plegada, la tarjeta se reduce a una pildora que dice fase y paso. Sigue
+ * siendo `.rv-panel` con un modificador y no otro elemento, porque el anfitrion
+ * mide `.rv-panel` para el relleno del pie (RV17): con otro nombre, la
+ * property se borraria y lo ultimo de la pagina quedaria debajo de la pildora.
+ *
+ * `width: auto` con `max-height: none`: la pildora mide lo que dice, y el
+ * `min(420px, …)` del contenedor deja de aplicar porque ya no hay contenido que
+ * lo pida.
+ */
+.rv-panel--plegado {
+  width: auto;
+  max-height: none;
+  overflow: visible;
+  border-radius: var(--radius-full);
 }
-.rv-panel__oculto + .rv-panel__min {
-  margin-left: 8px;
+.rv-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px 7px 10px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--slate-600);
+  cursor: pointer;
+}
+.rv-pill:hover {
+  color: var(--navy);
 }
 .rv-panel__min {
   margin-left: auto;
@@ -426,55 +479,66 @@ body:has(.rv-bar) .app {
 }
 
 /*
- * TRES ZONAS LADO A LADO: contexto, entradas, acciones. Es lo que hace que la
- * barra sea BAJA -- lo que antes se apilaba en 420px de ancho ahora se reparte
- * en el ancho del canvas.
+ * ============================================================================
+ * LAS ZONAS, AHORA APILADAS EN 420px -- etapa RV20
+ * ============================================================================
  *
- * `minmax(0, …)` en las tres columnas y no `1.1fr` a secas: sin el `min` de 0
- * una columna con texto largo se niega a encogerse por debajo de su contenido
- * y desborda la grilla.
+ * En RV18 eran tres columnas lado a lado, y eso era lo que volvia baja una
+ * barra de 1600px de ancho. En una tarjeta de 420 no hay tres columnas
+ * posibles: se apilan --contexto, entradas, acciones-- y lo que mantiene el
+ * alto bajo es OTRA cosa, la fila unica de las entradas.
  *
- * ⚠ A UNA COLUMNA CUANDO NO CABEN. Debajo de 1100px las tres zonas quedarian
- * de ~300px y el area de comentario deja de ser usable; ahi se apilan, que es
- * peor que la barra pero mejor que tres columnas ilegibles. El `max-height` con
- * scroll sigue poniendo el techo.
+ * ⚠ SE FUE EL `@media (max-width: 1100px)`: existia para pasar de tres
+ * columnas a una cuando no cabian. Con una sola columna siempre, esa regla no
+ * podia dispararse nunca -- y una regla que no puede dispararse esconde la
+ * proxima. El ancho lo maneja `width: min(420px, calc(100vw - 36px))` del
+ * contenedor.
  */
 .rv-panel__zonas {
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 0.9fr);
-  gap: 18px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
   align-items: start;
-  padding: 12px 18px 14px;
-}
-@media (max-width: 1100px) {
-  .rv-panel__zonas {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 10px;
-  }
+  padding: 10px 14px 12px;
 }
 .rv-panel__zona {
   min-width: 0;
 }
 /*
- * ⚠ LAS TRES ZONAS TIENEN REGLA, y las dos de abajo no las tenian: las pedia el
- * JSX y no existian en ninguna hoja. Lo dijo `npm run verificar:clases` al
- * mergear -- una clase sin regla no falla, hereda, y por eso hay que
- * preguntarlo. Asi que o se sacan del markup o se ganan el nombre; se ganan,
- * porque las dos son necesidades reales de la barra.
+ * ⚠ LAS TRES ZONAS TIENEN REGLA, y dos de ellas no la tenian: las pedia el JSX
+ * y no existian en ninguna hoja. Lo dijo `npm run verificar:clases` -- una
+ * clase sin regla no falla, hereda, y por eso hay que preguntarlo.
  */
-/* El contexto con MEDIDA: la pregunta del paso es prosa, y a todo el ancho de
-   su columna se lee peor que en una linea corta. */
+/* El contexto ya no necesita medida propia: la tarjeta entera mide 420px, que
+   es menos que las 52ch que le poniamos como techo. Queda la regla con lo que
+   si aporta: que el texto no empuje el ancho. */
 .rv-panel__zona--ctx {
-  max-width: 52ch;
+  min-width: 0;
 }
-/* Las entradas apiladas: el campo del paso arriba y el comentario abajo, con
-   aire entre los dos. */
+/*
+ * ⚠ LAS ENTRADAS EN UNA SOLA FILA -- punto 3 del brief, y es lo que reemplaza a
+ * las tres columnas como mecanismo para que la tarjeta quede baja: el campo del
+ * paso angosto y el comentario ocupando el resto.
+ *
+ * `align-items: flex-end` para que el numero y el comentario apoyen en la misma
+ * linea de base cuando el primero trae su rotulo de dos renglones.
+ */
 .rv-panel__zona--in {
   display: flex;
-  flex-direction: column;
+  align-items: flex-end;
   gap: 8px;
 }
-/* La de acciones apila sus cosas y queda pegada a la derecha. */
+.rv-panel__zona--in > * {
+  min-width: 0;
+}
+/* El comentario se come el sobrante; el campo del paso no crece. */
+.rv-panel__zona--in > .rv-panel__field--wide {
+  flex: 1 1 auto;
+}
+.rv-panel__zona--in > .rv-panel__field--num {
+  flex: 0 0 96px;
+}
+/* La de acciones apila el aviso y la fila de botones. */
 .rv-panel__zona--act {
   display: flex;
   flex-direction: column;
@@ -660,6 +724,38 @@ body:has(.rv-bar) .app {
    */
   flex-wrap: wrap;
   gap: 8px;
+  /*
+   * ⚠ LOS BOTONES A LA DERECHA DE LA TARJETA -- etapa RV20, y no es estética.
+   *
+   * Con la tarjeta anclada abajo a la izquierda, sus acciones caían en la
+   * esquina inferior izquierda de la ventana… que es exactamente donde vive el
+   * INDICADOR DE DESARROLLO DE NEXT. Medido con `elementFromPoint` sobre el
+   * centro del `OK`: contestaba `NEXTJS-PORTAL`, o sea que el botón no se podía
+   * clickear.
+   *
+   * Sólo pasa en `next dev` --ese portal no existe en producción-- así que no
+   * era un defecto del producto; pero rompía las sondas y a cualquiera que
+   * pruebe en local, y «funciona en producción» no es una respuesta cuando la
+   * verificación corre en dev. Con las acciones a la derecha, la esquina queda
+   * libre y los botones quedan donde se los busca.
+   */
+  justify-content: flex-end;
+}
+/*
+ * El `next:` se queda a la izquierda: dice a dónde lleva, no es una acción.
+ *
+ * ⚠ NECESITA `order: -1`, y eso lo dijo la medición. En el DOM el `next:` va
+ * DESPUÉS de los botones, así que un `margin-right: auto` sobre él se comía el
+ * espacio libre de su derecha y empujaba los botones hacia la IZQUIERDA -- lo
+ * contrario de lo que buscaba. Medido: `justifyContent` ya decía `flex-end` y
+ * el botón seguía en x=33.
+ *
+ * Con `order: -1` pasa a ser el primero de la fila, absorbe el sobrante y los
+ * botones quedan donde tienen que quedar. El orden del DOM no cambia.
+ */
+.rv-panel__actions .rv-panel__next {
+  order: -1;
+  margin-right: auto;
 }
 
 /* ── El aviso en prosa: `rv-hint` ──────────────────────────────────── */

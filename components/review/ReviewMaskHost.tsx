@@ -783,78 +783,29 @@ export default function ReviewMaskHost() {
 
   /*
    * ══════════════════════════════════════════════════════════════════════
-   * ¿LA BARRA ESTÁ TAPANDO ALGO QUE MINIMIZAR MOSTRARÍA? — etapa RV19
+   * ⚠ ACÁ VIVÍA LA MEDICIÓN DEL AVISO DE RV19, Y SE FUE — etapa RV20
    * ══════════════════════════════════════════════════════════════════════
    *
-   * Sale del merge de RV18 con BP52: esa etapa hizo la tarjeta de métricas más
-   * alta --260x301 a 280x419-- y en el paso 1.5 dejó de haber una posición de
-   * scroll que muestre el objetivo del paso Y la tarjeta entera. La cuenta, a
-   * 900px de ventana: banda libre 693px contra 67 del veredicto + 424 de hueco
-   * + 419 de la tarjeta = 910. No entra, y ninguna de las dos etapas está mal.
+   * Medía si `.bp-stats` quedaba cortada por el borde de arriba de la barra,
+   * para que el panel pudiera decir «Part of the numbers is behind this bar».
+   * Existía porque la barra ocupaba el ancho completo y en el paso 1.5 la
+   * tarjeta no entraba --910px de contenido contra 693 de banda--.
    *
-   * La decisión fue no mover la pantalla para todos por un paso de ocho, sino
-   * que la barra LO DIGA: minimizar deja 41px y el cruce en cero.
+   * Con la tarjeta anclada a la izquierda y 420px de ancho, el lado derecho
+   * queda libre POR CONSTRUCCIÓN: medido en los ocho pasos, el cruce con
+   * `.bp-stats` es CERO en todos y quedan 1.162px libres a la derecha. La
+   * pregunta que esta medición contestaba dejó de existir.
    *
-   * ⚠ SE CALCULA, NO SE CLAVA AL 1.5. Una condición sobre `phase 1 step 5`
-   * quedaría vieja sin avisar en cuanto otra etapa cambie el alto de la
-   * tarjeta -- y el paso que no cabe pasaría a ser otro.
+   * ⚠ Y LA MEDICIÓN TAMBIÉN MOSTRÓ QUE EL AVISO SE HABÍA VUELTO FALSO: seguía
+   * apareciendo en el 1.4 y el 1.5, porque la condición miraba el corte
+   * VERTICAL y no el cruce real -- con la tarjeta a la izquierda y los números
+   * a la derecha, los rangos verticales se cruzan y los rectángulos no. O sea
+   * que había pasado a ser lo que RV19 vino a evitar: un aviso que aparece
+   * cuando no falta nada.
    *
-   * ⚠ Y NO ES «CUALQUIER BLOQUE CORTADO», que fue el primer intento y estaba
-   * mal: medido, esa condición se cumple casi siempre --una página larga
-   * siempre sigue debajo de la barra-- y el aviso salía también en el 1.2, con
-   * la tarjeta entera a la vista. Un aviso que aparece cuando no falta nada
-   * enseña a ignorarlo.
-   *
-   * Lo que se pregunta es si LA TARJETA DE NÚMEROS está cortada por el borde de
-   * arriba de la barra. Nombra un elemento --`.bp-stats`, los números que el
-   * módulo pone siempre en el mismo lugar-- y NO un paso: si mañana esa tarjeta
-   * cambia de alto, el aviso aparece solo en los pasos donde ahora no entra,
-   * sin tocar nada acá. Eso es lo que lo hace una medición y no un caso
-   * especial.
-   *
-   * ⚠ Y SE APAGA SOLO AL MINIMIZAR: con la barra en 41px la tarjeta deja de
-   * estar cortada en los pasos donde el aviso aparecía. La misma cuenta que lo
-   * enciende lo apaga, sin una condición extra sobre `minimizado`.
+   * Se fue completo --medición, prop, aviso y clase-- y no se dejó «por si
+   * acaso»: un respaldo que no puede dispararse esconde la próxima falla.
    */
-  const [tapaAlgo, setTapaAlgo] = useState(false);
-  useEffect(() => {
-    if (!hayPanel) return;
-    const mirar = () => {
-      const panel = document.querySelector('.rv-panel');
-      const numeros = document.querySelector('.bp-stats');
-      if (panel === null) return;
-      /* Sin tarjeta en pantalla no hay nada que avisar: el 2.1, el 2.2 y el
-         3.1 no la tienen. */
-      if (numeros === null) {
-        setTapaAlgo((antes) => (antes === false ? antes : false));
-        return;
-      }
-      const barra = panel.getBoundingClientRect().top;
-      const r = numeros.getBoundingClientRect();
-      /* Cortada: empieza arriba del borde de la barra y termina abajo. Si está
-         entera arriba --o entera abajo, fuera de pantalla-- no hay aviso. */
-      const hay = r.top < barra && r.bottom > barra;
-      setTapaAlgo((antes) => (antes === hay ? antes : hay));
-    };
-    /*
-     * ⚠ EN UN `requestAnimationFrame` Y NO SINCRÓNICO: un `setState` en el
-     * cuerpo de un efecto dispara renders en cascada, y este anfitrión vive en
-     * el layout raíz. Es la regla que este archivo ya se comió una vez.
-     */
-    const primera = requestAnimationFrame(mirar);
-    /* Capture en el scroll por lo mismo que la flecha: el contenedor que
-       scrollea puede no ser la ventana. Y un tick, porque el alto de la barra
-       cambia con lo que la persona escribe en el comentario. */
-    window.addEventListener('scroll', mirar, { capture: true, passive: true });
-    window.addEventListener('resize', mirar);
-    const tick = setInterval(mirar, 1000);
-    return () => {
-      cancelAnimationFrame(primera);
-      clearInterval(tick);
-      window.removeEventListener('scroll', mirar, { capture: true });
-      window.removeEventListener('resize', mirar);
-    };
-  }, [hayPanel, claveDelPaso]);
 
   const onSaveAndExit = useCallback(() => {
     /*
@@ -914,10 +865,6 @@ export default function ReviewMaskHost() {
           buscandoSitio={buscandoSitio}
           benchmarkActual={benchmarkActual}
           presupuestoGuardado={presupuestoGuardado}
-          /* La medición vive acá --el anfitrión ya mide el panel para el
-             relleno-- y el panel sólo la dibuja: si la hiciera él, habría dos
-             lugares midiendo la misma geometría. */
-          tapaAlgo={tapaAlgo}
           branchesDelLo={branchesDelLo}
           onBenchmarkGuardado={() => setTickBench((t) => t + 1)}
           /* La misma ruta que decide `enRuta`, no una segunda cuenta: el botón

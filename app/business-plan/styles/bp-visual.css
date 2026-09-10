@@ -585,27 +585,40 @@ table.piv.bp-table--los th {
   color: var(--navy);
 }
 
-/* Cerrado: pares dato/valor, y los vacios no se dibujan. */
-.bp-cv__grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 10px 24px;
-  margin: 12px 0 0;
+/*
+ * ============================================================================
+ * AFUERA QUEDA UNA LINEA, NO UNA GRILLA -- correccion de BP50 en RV20
+ * ============================================================================
+ *
+ * Los siete campos dibujados en la pantalla competian con el veredicto, la
+ * tarjeta de metricas y el grafico. Afuera quedan los dos que aportan de un
+ * vistazo --el NMLS con su link y los estados-- y el resto se abre en un modal.
+ *
+ * ⚠ SE FUERON `.bp-cv__grid`, sus `dt`/`dd` y `.bp-cv__pair--wide`: eran las
+ * reglas de la grilla cerrada, y con la vista reducida ya no las pide nadie.
+ * Una regla que nadie usa reserva un nombre para nadie -- el mismo motivo por
+ * el que se borraron las once de `rv-bar__*` en RV2.
+ */
+.bp-cv__resumen {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  color: var(--navy);
 }
-.bp-cv__pair--wide {
-  grid-column: 1 / -1;
+.bp-cv__dato {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
 }
-.bp-cv__grid dt {
+.bp-cv__rot {
   font-size: 10.5px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--slate-500);
-}
-.bp-cv__grid dd {
-  margin: 2px 0 0;
-  font-size: 12.5px;
-  color: var(--navy);
 }
 .bp-cv__tag {
   margin-left: 6px;
