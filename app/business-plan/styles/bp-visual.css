@@ -804,7 +804,7 @@ table.piv.bp-table--los th {
 
 .bp-q1-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 260px;
+  grid-template-columns: minmax(0, 1fr) 280px;
   gap: 16px;
   margin-bottom: 8px;
 }
@@ -813,11 +813,43 @@ table.piv.bp-table--los th {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+/*
+ * ============================================================================
+ * EL GRÁFICO, CENTRADO EN SU PROPIA TARJETA — etapa BP51
+ * ============================================================================
+ *
+ * `.bp-q1-grid` es una fila de grid con DOS columnas, y por default
+ * (`align-items: stretch`) las dos celdas quedan con la MISMA altura -- la del
+ * contenido más alto. El plot del gráfico mide 150px fijos (`H` en
+ * `MonthlyBarChart.tsx`, la referencia contra la que se escala cada barra) más
+ * el eje y la leyenda, bastante menos que lo que la tarjeta de estadísticas
+ * necesitaba.
+ *
+ * Medido con Chromium real, mismo escenario en los dos casos (benchmark
+ * provisional, sin budget, GAP -1.0 On Risk):
+ *
+ *   ANTES de BP51  322px de alto la fila, 187px el contenido del gráfico --
+ *                  118px de hueco vacío, TODO abajo, porque `.bp-chart-card`
+ *                  no tenía ningún `justify-*` que lo repartiera.
+ *   DESPUÉS        335px de alto la fila (la cabecera y la nota del GAP le
+ *                  agregan contenido real), 187px el contenido del gráfico --
+ *                  72px de hueco, repartido arriba Y abajo por el
+ *                  `justify-content: center` de acá abajo.
+ *
+ * BP51 ataca las dos puntas: la tarjeta de estadísticas baja de tamaño sola
+ * donde puede (sin las tres marcas de "provisional" ni las cajas rosadas
+ * anidadas, ver más abajo), Y el gráfico se adapta al espacio que le sobra en
+ * vez de dejarlo todo apilado de un lado. Las dos salidas que se habían
+ * planteado no eran excluyentes -- el hueco no llega a cero (las dos tarjetas
+ * miden cosas distintas y no hay por qué esperar que sus altos naturales
+ * coincidan), pero se achica 39% y deja de estar todo de un mismo lado.
+ */
 .bp-chart-card {
   padding: 16px 18px 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
-/* El promedio CON mes actual es el que alimenta el GAP: va grande. El de meses
-   cerrados va al lado, más chico, porque es contexto y no entra en el cálculo. */
 
 /* ── Gráfico de barras ──────────────────────────────────────────────────── */
 
@@ -932,10 +964,10 @@ table.piv.bp-table--los th {
 
 /* ── Benchmark editable ─────────────────────────────────────────────────── */
 
+/* Etapa BP51: "Edit" es `.bp-btn.bp-btn--small` -- esto sólo agrega el
+   espacio respecto del valor, ya no tamaño ni peso (eso lo da el botón). */
 .bp-benchmark__edit {
   margin-left: 8px;
-  font-size: 10.5px;
-  font-weight: 600;
 }
 .bp-benchmark__form {
   display: flex;
@@ -1404,11 +1436,124 @@ a.bp-btn {
  * izquierdo, valor pegado al derecho. Antes cada métrica ocupaba dos renglones
  * (etiqueta arriba en gris, valor abajo) y el panel se leía como una lista de
  * párrafos en vez de una ficha de datos.
+ *
+ * ============================================================================
+ * UNA SOLA ESCALA TIPOGRÁFICA — etapa BP51, afinada en BP52
+ * ============================================================================
+ *
+ * Antes de BP51 había seis tamaños compitiendo en la misma tarjeta (10, 10.5,
+ * 14, 16, 9 y 34px) sin un criterio que los ordenara. BP51 los bajó a cinco
+ * roles. BP52 afina dos cosas: la escala entera baja un escalón (se seguía
+ * sintiendo grande), y se agrega un SEXTO rol legítimo -- el encabezado de
+ * grupo -- que no existía porque la tarjeta todavía no agrupaba nada.
+ *
+ * Los seis roles, cada uno con su propio tamaño -- y CONTADOS, no supuestos,
+ * antes de cerrar la etapa (ver el script de verificación en el scratchpad
+ * de esa sesión: 6 tamaños distintos, ni uno de más):
+ *
+ *   título de tarjeta   11px, bold, mayúsculas, gris medio    -- `.bp-stats__title`
+ *   encabezado de grupo 10px, bold, mayúsculas, `--navy`      -- `.bp-stats__group-title`
+ *   rótulo de fila      9.5px, semibold, mayúsculas, gris medio -- `.bp-stat__label`
+ *   valor estándar      12px, negrita, `--navy`, tabular-nums -- `.bp-stat__value`
+ *   destacado (el GAP)  34px, el único con jerarquía real     -- `.bp-gap-hero__value`
+ *   píldora / nota      9px y 10px -- dos roles chicos que YA compartían
+ *                       tamaño con otros antes de esta etapa y lo siguen
+ *                       haciendo (`.bp-gap-hero__state`/`.bp-provisional`
+ *                       en 9px, `.bp-gap-hero__note` en 10px junto con el
+ *                       "Not set"/"—" que hereda de `.bp-stat > .bp-muted`)
+ *
+ * ⚠ El encabezado de grupo se distingue del título de tarjeta por DOS ejes a
+ * la vez -- tamaño (10 contra 11) Y color (`--navy` contra gris medio) -- a
+ * propósito: un solo eje (sólo 1px de diferencia) se habría sentido como
+ * ruido de redondeo, no como una jerarquía nueva.
+ *
+ * El de "Avg 3M (closed months)" se ve más chico que el resto NO por tamaño
+ * --sería un séptimo tamaño-- sino por color (`.bp-stat--muted`, más abajo):
+ * mismo rol tipográfico, contexto y no decisión, dicho con menos contraste en
+ * vez de con una escala propia.
  */
 .bp-stats {
   padding: 6px 16px;
   display: flex;
   flex-direction: column;
+}
+/*
+ * LA CABECERA — una sola marca de "Provisional data" para toda la tarjeta, en
+ * vez de una por renglón. Antes "provisional" podía aparecer hasta TRES veces
+ * a la vez (el rótulo del benchmark, el valor del benchmark, el rótulo del
+ * GAP) por el mismo único hecho: el benchmark de esta persona es un seed
+ * circular. Un hecho se dice una vez; que valga para toda la tarjeta es
+ * justamente lo que la cabecera comunica.
+ */
+.bp-stats__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 9px;
+  margin-bottom: 3px;
+  border-bottom: 1px solid var(--slate-200);
+}
+.bp-stats__title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--slate-500);
+}
+/*
+ * ============================================================================
+ * LOS GRUPOS, POR LA MATEMÁTICA DEL NEGOCIO — etapa BP52
+ * ============================================================================
+ *
+ * Antes las siete filas eran una lista plana: nada en la tarjeta decía que
+ * "Starting benchmark" y "Budget" son justamente los dos números de los que
+ * sale el GAP, ni que los dos promedios de arriba son el mismo tipo de dato
+ * (histórico) por otra razón (ninguno decide nada todavía). `.bp-stats__group`
+ * es sólo el contenedor; `.bp-stats__group-title` es el rótulo de CADA grupo,
+ * más chico que el título de la tarjeta y en `--navy` (no en el gris del
+ * título) -- las dos señales juntas, tamaño Y color, para que la jerarquía se
+ * note sin depender de un solo píxel de diferencia.
+ */
+.bp-stats__group {
+  display: flex;
+  flex-direction: column;
+}
+.bp-stats__group-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--navy);
+  padding-top: 8px;
+}
+/*
+ * El grupo de "Historical averages" termina con un divisor propio, más
+ * marcado que el borde tenue de cada fila -- separa un GRUPO del siguiente,
+ * no una fila de la siguiente, así que tiene que leerse distinto.
+ */
+.bp-stats__group--divided {
+  padding-bottom: 3px;
+  margin-bottom: 3px;
+  border-bottom: 1px solid var(--slate-200);
+}
+/*
+ * "Goals & budget" -- Starting benchmark y Budget, LOS DOS insumos del GAP --
+ * va en una caja de fondo muy tenue, justo arriba de la caja del GAP. Es la
+ * señal visual de "estos dos alimentan a ese": de un vistazo se ve que el
+ * bloque de abajo (el GAP, con su propio fondo de estado) es la consecuencia
+ * del bloque de arriba, sin tener que leer ninguna palabra.
+ *
+ * ⚠ Esto NO es volver a las cajas rosadas anidadas que BP51 sacó. Esas eran
+ * una caja POR FILA, coloreada según si esa fila cumplía o no -- ruido
+ * semántico compitiendo entre sí. Ésta es UNA caja para el grupo entero, en
+ * un tono neutro que no dice "bien" ni "mal" -- dice "estos dos van juntos".
+ */
+.bp-stats__group--boxed {
+  background: var(--slate-50);
+  border-radius: var(--radius-md);
+  padding: 2px 10px;
+  margin: 6px -2px 6px;
 }
 .bp-stat {
   display: flex;
@@ -1421,71 +1566,65 @@ a.bp-btn {
 .bp-stat:last-child {
   border-bottom: none;
 }
+/*
+ * YTD closings -- etapa BP52. Es su propio bloque, el cuarto y último, y no
+ * comparte grupo con nada -- un borde SUPERIOR lo separa del GAP en vez de
+ * un `.bp-stats__group` de un solo rótulo para una sola fila, que habría
+ * sido un encabezado de grupo sin nada que agrupar.
+ */
+.bp-stat--ytd {
+  border-top: 1px solid var(--slate-200);
+  margin-top: 8px;
+  padding-top: 12px;
+}
 .bp-stat__label {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.07em;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--slate-400);
-  /* No se parte en dos líneas: la fila dejaría de leerse como una fila. */
+  color: var(--slate-500);
+  /*
+   * ⚠ SÍ se puede partir en dos líneas -- al revés de lo que decía esta nota
+   * antes de BP51. Un rótulo en `nowrap` es exactamente el mecanismo que
+   * hizo desbordar la tarjeta (ver la nota de `.bp-stat__value`, arriba): con
+   * la columna fija en 280px, "Avg 3M (with current month)" no entra en una
+   * sola línea a 11px. Envolver en dos es management del ancho; forzarlo a
+   * una sola línea es lo que lo saca de la tarjeta.
+   */
   line-height: 1.3;
 }
 .bp-stat__value {
   font-family: var(--font-display);
-  font-size: 16px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--navy);
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+  /*
+   * ⚠ NO `white-space: nowrap`. Ésa era la causa del desborde medido en BP51:
+   * "Starting benchmark" con su fila entera (rótulo + badge + edit + nota)
+   * fijada a una sola línea no cabía en los 260px que tenía la columna en ese
+   * momento (subida a 280px en el mismo cambio, ver `.bp-q1-grid`) y se
+   * salía de la tarjeta -- y de la página,
+   * `document.documentElement.scrollWidth` por encima del viewport, medido
+   * con Chromium real. Dejar que envuelva es lo que lo cierra de verdad: una
+   * fila puede crecer en ALTO, nunca en ancho más allá de su columna, así
+   * que ningún ensanche de columna vuelve a dejar esto seguro por sí solo.
+   */
 }
 /*
- * El promedio CON mes actual es el que alimenta el GAP: va notablemente más
- * grande que el resto. La jerarquía es el mensaje -- de todas las cifras del
- * panel, esta es la que decide.
+ * "Not set" / "—" son valores ausentes, no rótulos -- tienen que leerse en el
+ * mismo tamaño que un valor presente, sólo con menos contraste (`.bp-muted`,
+ * definida en la sección 2 para toda la app, con OTROS usos que no hay que
+ * tocar). Sin este selector heredaban el `font-size: 14px` del body -- 1px
+ * de más que el resto de la escala, medido con Chromium real -- por ser
+ * hijos directos de `.bp-stat`/`.bp-gap-hero` sin ninguna regla propia de
+ * tamaño. Acotado a estos dos padres para no mover `.bp-muted` en los otros
+ * ocho archivos que la usan.
  */
-
-/*
- * ============================================================================
- * SOMBREADO DE STARTING BENCHMARK / BUDGET — etapa BP49
- * ============================================================================
- *
- * Fondo suave, no una alerta: ya sacamos dos veces colores que competían con
- * el contenido (ver AGENTS.md). El texto del `.bp-stat__flag` dice lo mismo
- * que el color, para quien no distingue los tonos -- el color nunca es la
- * única forma de leer el estado.
- */
-.bp-stat--met,
-.bp-stat--under {
-  border-radius: var(--radius-sm);
-  padding: 9px 8px;
-  margin: 0 -8px;
-  border-bottom-color: transparent;
-}
-.bp-stat--met {
-  background: var(--emerald-50);
-}
-.bp-stat--met .bp-stat__value,
-.bp-stat--met .bp-stat__flag {
-  color: var(--emerald-700);
-}
-.bp-stat--under {
-  background: var(--rose-50);
-}
-.bp-stat--under .bp-stat__value,
-.bp-stat--under .bp-stat__flag {
-  color: var(--rose-700);
-}
-.bp-stat__row {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-.bp-stat__flag {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: var(--slate-400);
-  white-space: nowrap;
+.bp-stat > .bp-muted,
+.bp-gap-hero > .bp-muted {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 /*
@@ -1825,17 +1964,28 @@ a.bp-btn {
  * sale del renglón.
  */
 
-/* El promedio de meses cerrados es contexto: no entra en el GAP. */
+/*
+ * El promedio de meses cerrados es contexto: no entra en el GAP. Etapa BP51:
+ * ya NO es un tamaño de letra propio (era 14px contra los 16px del resto,
+ * un cuarto tamaño en la misma tarjeta) -- mismo tamaño que cualquier otro
+ * valor estándar, sólo con menos contraste de color.
+ */
 .bp-stat--muted .bp-stat__value {
-  font-size: 14px;
   color: var(--slate-500);
 }
 
+/*
+ * Margen de arriba más chico que el de abajo -- etapa BP52. El GAP va JUSTO
+ * debajo de `.bp-stats__group--boxed` (Starting benchmark + Budget, los dos
+ * insumos), para que las dos cajas se lean como un par conectado y no como
+ * dos bloques sueltos. Abajo, en cambio, sigue el margen normal: lo que
+ * viene después es YTD closings, que no tiene nada que ver con el GAP.
+ */
 .bp-gap-hero {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  margin: 8px 0;
+  margin: 4px 0 8px;
   padding: 10px 12px;
   border: 1px solid var(--slate-200);
   border-radius: var(--radius-md);
@@ -1864,6 +2014,20 @@ a.bp-btn {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   white-space: nowrap;
+}
+
+/*
+ * LA NOTA DEL GAP — etapa BP51. Reemplaza a `.bp-stat__flag`, que vivía
+ * pegado a la fila de Starting benchmark o de Budget ("Forecast is below
+ * it") con `white-space: nowrap` -- eso era lo que se salía de la tarjeta.
+ * Ahora es una sola línea de contexto, DEBAJO del número que decide, tenue y
+ * SIN `nowrap`: puede envolver en dos líneas si hace falta, nunca desborda.
+ */
+.bp-gap-hero__note {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--slate-600);
+  line-height: 1.4;
 }
 
 /*

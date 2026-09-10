@@ -360,11 +360,15 @@ export function evaluateQualifier1(
   /** El benchmark inicial de la persona -- el piso. Ver `gapAgainstOf`. */
   startingBenchmark: number | null,
   /**
-   * Lo que Outlook fijó para el mes en curso -- `null` cuando nadie lo fijó
-   * (estado, no cero). `null` siempre en el agregado de grupo (etapa BP49: el
-   * budget es del perfil individual, no se suma entre personas).
+   * Lo que Outlook fijó para el mes en curso, o lo que su regla de crecimiento
+   * proyecta cuando nadie lo fijó -- `null` sólo cuando ninguno de los dos
+   * existe (estado, no cero). `null` siempre en el agregado de grupo (etapa
+   * BP49: el budget es del perfil individual, no se suma entre personas). Ver
+   * `budgetSource` para distinguir cuál de los dos es.
    */
-  budget: number | null = null
+  budget: number | null = null,
+  /** De dónde salió `budget` -- ver el JSDoc de `Qualifier1.budgetSource`. */
+  budgetSource: 'fixed' | 'rule' | null = null
 ): Qualifier1 {
   /*
    * `windowMonths` son los dos meses cerrados anteriores más el actual. El
@@ -385,6 +389,7 @@ export function evaluateQualifier1(
     budgetMet,
     benchmarkMet,
     gapAgainst,
+    budgetSource: budget === null ? null : budgetSource,
   };
 }
 

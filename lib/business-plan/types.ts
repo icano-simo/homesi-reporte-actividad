@@ -381,6 +381,30 @@ export interface Qualifier1 {
   budgetMet: boolean | null;
   benchmarkMet: boolean | null;
   gapAgainst: 'budget' | 'benchmark' | null;
+  /**
+   * DE DÓNDE SALE `budget` — etapa BP49b.
+   *
+   * `outlook.person_budget_total` está vacía para casi todo el mundo: nadie
+   * fija un número a mano salvo que lo esté revisando. Sin esto el perfil
+   * mostraría "Not set" para 36 de 37 personas aunque Outlook ya proyecte un
+   * número para cada una vía su regla de crecimiento (`growth_rule` +
+   * benchmark, la misma cuenta de `lib/outlook/project.ts`).
+   *
+   * La cascada, LEÍDA y nunca escrita (ver `loadData.ts`):
+   *   ¿hay un total fijado a mano este mes?  SÍ → `'fixed'`
+   *   si no, ¿hay una regla de crecimiento (o un mes fijado en modo mensual)
+   *   para Own Production?                   SÍ → `'rule'`
+   *   ninguno de los dos                      → `budget` es `null`
+   *
+   * `null` cuando `budget` es `null` -- no hay fuente de la que no haya nada.
+   *
+   * ⚠ Un número leído de la regla NO ES un total fijado, aunque coincida en
+   * valor: nadie lo confirmó, y la próxima corrida de la regla puede darle
+   * otro número. `Q1Panel` tiene que decirlo (algo como "2 · from growth
+   * rule"), porque sin la distinción alguien va a ver un budget y creer que
+   * se decidió -- la misma razón por la que `confirmed_only` existe.
+   */
+  budgetSource: 'fixed' | 'rule' | null;
 }
 
 /**

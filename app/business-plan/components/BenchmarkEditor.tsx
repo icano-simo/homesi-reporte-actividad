@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { fijarBenchmark } from '@/lib/business-plan/benchmark';
 import type { LoanOfficerRow } from '@/lib/business-plan/types';
 import Modal from './Modal';
-import { ProvisionalTag, PROVISIONAL_SET_BY, fmtAvg } from './shared';
+import { PROVISIONAL_SET_BY, fmtAvg } from './shared';
 
 /**
  * ============================================================================
@@ -101,7 +101,17 @@ export default function BenchmarkEditor({ lo, onSaved }: { lo: LoanOfficerRow; o
 
   return (
     <>
-      <div className="bp-stat__value bp-stat__value--small">
+      {/*
+        Etapa BP51: la marca de provisional ya no va acá -- se consolidó en
+        UNA sola, en la cabecera de `Q1Panel` (`Provisional data`). Repetirla
+        por renglón era una de las tres veces que se veía "provisional" en la
+        misma tarjeta. La condición sigue viviendo en `ProvisionalTag`; sólo
+        se dejó de llamarla desde acá.
+
+        Y "Edit" pasó de enlace de texto a botón real (`bp-btn`, no
+        `bp-linkish`) -- es una acción, no una navegación.
+      */}
+      <div className="bp-stat__value">
         {lo.monthlyBenchmark === null ? (
           <span className="bp-muted">—</span>
         ) : (
@@ -114,9 +124,8 @@ export default function BenchmarkEditor({ lo, onSaved }: { lo: LoanOfficerRow; o
             {fmtAvg(lo.monthlyBenchmark)}
           </button>
         )}
-        <ProvisionalTag setBy={lo.benchmarkSetBy} note={lo.benchmarkNote} />
-        <button type="button" className="bp-linkish bp-benchmark__edit" onClick={() => setEditing(true)}>
-          edit
+        <button type="button" className="bp-btn bp-btn--small bp-benchmark__edit" onClick={() => setEditing(true)}>
+          Edit
         </button>
       </div>
 
