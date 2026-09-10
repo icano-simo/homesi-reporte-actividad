@@ -244,6 +244,31 @@ contra esos tres esquemas hoy, y el único archivo autorizado a tocar ese rol es
 el del cambio de contraseña. Cuando algo lo necesite, se otorga **con la razón
 escrita en la migración** — no «para que esté».
 
+### Y la vez que lo redescubrí por las malas, con la tabla ya escrita
+
+La predicción de arriba se cumplió, y el que la pagó fui yo. Al borrar unas
+filas de prueba mandé un `DELETE` con `service_role` a `review` y a `outlook`,
+y las dos contestaron `42501 permission denied for schema`. Reporté al usuario
+que **la brecha era «más ancha de lo que decía la nota, que sólo hablaba de
+`business_plan`»**.
+
+La nota decía los tres. Están en la tabla de arriba, medidos, cada uno con su
+«no». No estaba incompleta: **no la leí.**
+
+> **Una nota que ya contesta la pregunta no sirve de nada si uno la escribe y
+> después no la consulta.**
+
+Es el peor caso de esta sección entera, porque no es un hueco de conocimiento:
+es un hueco de consulta, y no lo arregla escribir mejor. Lo único que lo
+arregla es el reflejo de mirar la nota ANTES de gastar un intento -- y en este
+repo eso cuesta un `grep service_role AGENTS.md`.
+
+Y hay un agravante que conviene ver: reporté una conclusión falsa **sobre mi
+propio registro**, y el usuario la aceptó y me pidió que la anotara. Si no
+hubiera ido a buscar dónde escribirla, la corrección habría quedado
+contradiciendo a la tabla en el mismo archivo. La forma de la nota fue lo que
+salvó el reporte: la tabla estaba ahí para desmentirme.
+
 Y la razón por la que un hueco conocido se puede dejar abierto, que es lo que
 distingue este caso de «Lo que compensa una ausencia hace que la ausencia no se
 note»: **esta ausencia no está
@@ -1132,6 +1157,60 @@ sin fijar se guarda como `null` y no como `0`.
 - Y cuando dos estados significan cosas distintas —no vino contra vino vacío, no
   se decidió contra se decidió cero— **no darles el mismo valor**, aunque cueste
   una columna nullable más.
+
+# Ningún texto pasa por el shell, y ahora hay una guarda
+
+> La regla vive en la nota global del usuario. Esto es su versión mecánica y el
+> registro de por qué hizo falta: **cuatro veces en una sola serie de trabajo**,
+> y las cuatro en comandos que parecían demasiado cortos para merecer un
+> archivo.
+
+## Lo que pasó las cuatro veces
+
+Un backtick es sustitución de comandos. No falla: **reemplaza por vacío**. Un
+mensaje de commit con cinco identificadores entre backticks quedó con cinco
+huecos, y el único rastro fue un `command not found` que se lee como ruido.
+
+Y no es sólo el heredoc: pasó con `git commit -m`, con `python - <<'X'` --dos
+veces, las dos colgando el comando-- y con un `node -e "…"`. El común no es la
+herramienta: es **texto viajando como argumento**.
+
+## La guarda, y qué garantiza
+
+    node scripts/commit.mjs <archivo-con-el-mensaje> [--amend]
+    npm run commit -- <archivo>
+
+Dos mecanismos:
+
+1. el mensaje **no pasa por un shell** -- `execFile` con `-F archivo`, sin
+   expansión, sin backticks, sin comillas que balancear;
+2. después del commit **se lee el mensaje de vuelta** y se compara con el
+   archivo, diciendo en qué línea difieren.
+
+Detectar el daño por la FORMA del texto --un hueco donde iba un
+identificador-- sería una regla sobre cómo se ve la línea, que es el error que
+este archivo lleva documentado cuatro veces. Comparar contra la fuente no
+depende de reconocer el daño.
+
+⚠ **Y la comparación es sospechosa, dicho por su autor:** el mismo script
+escribe y lee, así que no puede detectar el caso que le importa -- si el
+mecanismo 1 funciona, nunca hay nada que comparar. Lo que previene el defecto
+es el 1. El 2 es una guarda redundante para una causa que todavía no conocemos,
+y su rama de fallo **nunca se ejerció**. Queda dicho así, porque por la regla
+de este repo un respaldo que nunca se ejerció es exactamente lo que hay que
+mirar con desconfianza.
+
+## Y lo que la guarda NO cubre
+
+Sólo mensajes de commit. Todo lo demás sigue dependiendo de la regla, que se
+extiende así:
+
+> **Nada de `-e` ni de `-c` con texto. Nunca un heredoc. Si el texto tiene un
+> backtick, un `$`, una comilla o un salto de línea, va a un archivo con la
+> herramienta de escritura y se ejecuta el archivo.**
+
+El umbral no es la longitud. Las cuatro veces el texto era corto -- por eso
+pareció que no hacía falta.
 
 # Worktrees en Windows: la junction de `node_modules`
 

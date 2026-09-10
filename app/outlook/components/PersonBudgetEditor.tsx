@@ -336,7 +336,20 @@ export default function PersonBudgetEditor({
       }
 
       if (done.length === 0) {
-        setSaved('Nothing had changed.');
+        /*
+         * ⚠ DICE QUE NO SE REGISTRÓ, no sólo que nada cambió.
+         *
+         * El botón ahora ofrece «Confirm as reviewed» cuando no hay cambios,
+         * y mientras el guardado siga escribiendo sólo lo que cambió, apretarlo
+         * no escribe ninguna fila -- así que la compuerta del paso 2.2 sigue
+         * cerrada. Un «Nothing had changed» a secas se lee como «listo», y la
+         * persona se queda esperando que el paso se destrabe.
+         *
+         * Cuando el guardado escriba la revisión igual, esta rama queda
+         * inalcanzable y el mensaje sobra. Hasta entonces tiene que decir la
+         * consecuencia.
+         */
+        setSaved('Nothing had changed, so nothing was recorded.');
       } else {
         await onSaved();
         setSaved('Saved: ' + done.join(' · ') + '.');
@@ -391,17 +404,56 @@ export default function PersonBudgetEditor({
             del `reload` los dos quedan en `false`. Faltaba que el botón los
             mirara.
 
-            ⚠ Y con esto la rama `done.length === 0` de `save()` --«Nothing had
-            changed.»-- queda inalcanzable desde este botón. Se deja igual: es
-            una guarda redundante a propósito.
+            ═══════════════════════════════════════════════════════════════
+            ⚠ Y NO SE APAGA: GUARDAR SIN CAMBIOS ES UN ACTO — corrección
+            ═══════════════════════════════════════════════════════════════
+
+            La primera versión lo apagaba con «Nothing to save», y eso resolvía
+            el síntoma bloqueando la acción. Hay casos reales donde el
+            presupuesto está bien sin que nadie edite nada --gap On Target con
+            budget cumplido, o sin budget fijado y benchmark cumplido-- y en
+            esos casos guardar es el registro de que alguien lo miró y lo
+            aceptó. Un botón apagado le quita a la persona la única forma de
+            decirlo, y de paso deja la compuerta del paso 2.2 sin salida: ésa
+            exige una fila nueva.
+
+            Así que el botón queda SIEMPRE habilitado y lo que cambia es el
+            rótulo, porque son dos actos distintos:
+
+                con cambios   `Save budget` / `Save with a difference of N`
+                sin cambios   `Confirm as reviewed`
+
+            El problema que reportó Isabella era el rótulo -- «Save budget»
+            reapareciendo al lado de «Saved: …» -- y se arregla nombrando el
+            acto, no apagando el control.
+
+            ⚠ ACLARACIÓN PARA QUIEN LEA ESTO DESDE OTRA RAMA: este `disabled`
+            NO depende de `gate_config` ni del gap. Es sólo `busy`, y el rótulo
+            sale de `totalsChanged || breakdownChanged`. Nada de la rama del
+            budget gap lo afecta.
+
+            ⚠ Y FALTA LA OTRA MITAD, que no es de este archivo: hoy `save()`
+            escribe sólo lo que cambió, así que sin cambios no escribe ninguna
+            tabla y cae en «Nothing had changed» -- ver el mensaje de esa rama,
+            que dice lo que pasó en vez de fingir una confirmación. Cuando el
+            guardado escriba la revisión igual, esa rama queda inalcanzable y
+            «Confirm as reviewed» abre la compuerta.
+          */}
+          {/*
+            `data-ol-save` para poder medirlo sin depender del rótulo, que es
+            precisamente lo que cambia. La primera sonda seleccionaba el botón
+            con `/Save/` y dejó de encontrarlo al pasar a «Confirm as reviewed»:
+            tres aserciones en rojo por el ancla, no por el código. Mismo
+            idioma que `data-review-comment` y `data-bp-video-action`.
           */}
           <button
             type="button"
+            data-ol-save=""
             className="bp-btn bp-btn--small"
             onClick={save}
-            disabled={busy || nadaQueGuardar}
+            disabled={busy}
           >
-            {busy ? '…' : nadaQueGuardar ? 'Nothing to save' : saveLabel}
+            {busy ? '…' : nadaQueGuardar ? 'Confirm as reviewed' : saveLabel}
           </button>
         </div>
       }
