@@ -40,7 +40,7 @@ const p31 = {
   },
 };
 
-const a = crearArnes({ minimo: 18 });
+const a = crearArnes({ minimo: 32 });
 try {
   /* ═══ 1. Quién exige la decisión ═══ */
   console.log('\n=== 1. la exigencia ===');
@@ -135,7 +135,61 @@ try {
   a.ck(JSON.stringify(evElegido) !== JSON.stringify(evDeclinado),
     'los dos desenlaces son distinguibles en la base');
 
-  /* ═══ 6. Las preguntas de las dos ramas ═══ */
+  /* ═══ 6. LA RAMA CON FUNNEL: tres salidas ═══ */
+  console.log('\n=== 6. con funnel, tres salidas ===');
+
+  /*
+   * ⚠ La de arriba es la distinción que sostiene esta rama: con funnel, TENER
+   * funnel ya no alcanza para cerrar. Hay que decir qué se decidió sobre él.
+   */
+  const conFunnelSinDecir = gateStatus(p31, { comment: 'ok', funnelListo: true });
+  console.log('  con funnel y sin decir nada -> ' + JSON.stringify(conFunnelSinDecir));
+  a.ck(conFunnelSinDecir.ok === true,
+    'tener funnel sigue cerrando el paso: es el respaldo de quien vino del ' +
+    'catálogo y eligió, donde el botón no se aprieta');
+
+  for (const [rama, esperado] of [['kept', 'kept'], ['changed', 'changed'],
+                                  ['deferred', 'deferred']]) {
+    const g = gateStatus(p31, { comment: 'porque sí', funnelListo: true, desenlaceFunnel: rama });
+    a.ck(g.ok === true, 'con funnel y «' + rama + '» + comentario, cierra');
+    const ev = gateEvidence(p31, {
+      comment: 'x', funnelListo: true, desenlaceFunnel: rama, funnelNombre: 'A',
+      ...(rama === 'changed' ? { funnelAnterior: 'B' } : {}),
+    });
+    console.log('  ' + rama.padEnd(9) + ' -> ' + JSON.stringify(ev));
+    a.ck(ev.decision === esperado,
+      'y la evidencia guarda el ACTO: decision=' + ev.decision);
+  }
+
+  /* Y sin comentario, ninguna de las tres cierra. */
+  for (const rama of ['kept', 'changed', 'deferred']) {
+    const g = gateStatus(p31, { comment: '  ', funnelListo: true, desenlaceFunnel: rama });
+    a.ck(g.ok === false, '«' + rama + '» sin comentario NO cierra');
+  }
+
+  /*
+   * ⚠ LA DISTINCIÓN QUE JUSTIFICA `decision`: `kept` y `deferred` dejan el mismo
+   * estado --el mismo funnel activo-- y son la diferencia entre confirmar y no
+   * mirar. Sin el campo, en la base se ven idénticos.
+   */
+  const evKept = gateEvidence(p31, {
+    comment: 'x', funnelListo: true, desenlaceFunnel: 'kept', funnelNombre: 'A' });
+  const evDeferred = gateEvidence(p31, {
+    comment: 'x', funnelListo: true, desenlaceFunnel: 'deferred', funnelNombre: 'A' });
+  a.ck(evKept.funnel_chosen === evDeferred.funnel_chosen,
+    'confirmar y postergar dejan el MISMO estado: funnel_chosen igual en los dos');
+  a.ck(evKept.decision !== evDeferred.decision,
+    'Y SIN EMBARGO SE DISTINGUEN, que es para lo que existe `decision`: ' +
+    evKept.decision + ' contra ' + evDeferred.decision);
+
+  const evCambio = gateEvidence(p31, {
+    comment: 'x', funnelListo: true, desenlaceFunnel: 'changed',
+    funnelNombre: 'Nuevo', funnelAnterior: 'Viejo' });
+  a.ck(evCambio.replaced === 'Viejo',
+    'y el cambio deja rastro de lo que reemplazó: `cancel_funnel` BORRA, así que ' +
+    'sin esto no queda nada de lo que había');
+
+  /* ═══ 7. Las preguntas de las dos ramas ═══ */
   console.log('\n=== 6. las dos preguntas ===');
   a.ck(promptDeLaRama(p31, 'catalogo') === 'What catches your eye?',
     'la del catálogo sale de `gate_config`');

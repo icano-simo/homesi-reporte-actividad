@@ -92,6 +92,13 @@ export interface ReviewStepPanelProps {
    */
   funnelActual: string | null | undefined;
   /**
+   * Cuanto trabajo tiene el plan activo, para poder decir que se pierde al
+   * cambiarlo. `undefined` = todavia no se leyo, y con eso el boton de cambiar
+   * no se ofrece: un `0` dicho antes de leer seria una mentira tranquilizadora
+   * en la pantalla que ofrece destruirlos.
+   */
+  pasosDelPlan?: { hechos: number; total: number };
+  /**
    * Si estamos donde el paso apunta. Lo resuelve `useReviewTarget` en el
    * anfitrión, que es quien puede mirar el DOM de la página entera.
    *
@@ -163,6 +170,7 @@ export default function ReviewStepPanel({
   responses,
   loName,
   funnelActual,
+  pasosDelPlan,
   enSitio,
   buscandoSitio,
   rutaDelPaso,
@@ -280,25 +288,39 @@ export default function ReviewStepPanel({
    */
   const claveDesenlace =
     'rv-funnel:' + session.session_key + ':' + cursor.phase_no + ':' + cursor.step_in_phase;
-  const [desenlace, setDesenlace] = useState<'ver' | 'declinado' | null>(() => {
+  type Desenlace = 'ver' | 'declinado' | 'kept' | 'changed' | 'deferred';
+  /*
+   * ⚠ EL BORRADOR GUARDA TAMBIÉN EL FUNNEL DE ANTES — RV11.
+   *
+   * Para confirmar un CAMBIO hay que poder ver que cambió. Sin `antes`, la
+   * pantalla de confirmación se dispararía apenas la persona llega al catálogo
+   * --hay funnel y el desenlace dice `changed`-- felicitándola por algo que
+   * todavía no hizo.
+   */
+  const [desenlace, setDesenlace] = useState<{ d: Desenlace; antes?: string } | null>(() => {
     try {
-      const v = sessionStorage.getItem(claveDesenlace);
-      return v === 'ver' || v === 'declinado' ? v : null;
+      const crudo = sessionStorage.getItem(claveDesenlace);
+      if (crudo === null) return null;
+      const v = JSON.parse(crudo);
+      return v && typeof v.d === 'string' ? v : null;
     } catch {
-      /* Sin almacenamiento se arranca sin decidir: se vuelve a preguntar, que es
-         el lado seguro -- nunca da por decidido algo que nadie decidió. */
+      /* Sin almacenamiento --o con algo ilegible-- se arranca sin decidir: se
+         vuelve a preguntar, que es el lado seguro. Nunca da por decidido algo
+         que nadie decidió. */
       return null;
     }
   });
-  const decidir = (cual: 'ver' | 'declinado' | null) => {
-    setDesenlace(cual);
+  const decidir = (d: Desenlace | null, antes?: string) => {
+    const v = d === null ? null : { d, ...(antes ? { antes } : {}) };
+    setDesenlace(v);
     try {
-      if (cual === null) sessionStorage.removeItem(claveDesenlace);
-      else sessionStorage.setItem(claveDesenlace, cual);
+      if (v === null) sessionStorage.removeItem(claveDesenlace);
+      else sessionStorage.setItem(claveDesenlace, JSON.stringify(v));
     } catch {
       /* Ver la nota de arriba. */
     }
   };
+  const rama = desenlace?.d ?? null;
 
   const claveClics =
     'rv-clicks:' + session.session_key + ':' + cursor.phase_no + ':' + cursor.step_in_phase;
@@ -635,7 +657,8 @@ export default function ReviewStepPanel({
      * día. Ver la nota de `gateEvidence`: acá la respuesta es la fuente, no una
      * copia de una fuente viva.
      */
-    desenlaceFunnel: desenlace === 'declinado' ? 'declinado' : null,
+    desenlaceFunnel: rama === 'ver' ? null : rama,
+    funnelAnterior: desenlace?.antes ?? null,
     funnelNombre: typeof funnelActual === 'string' ? funnelActual : null,
     /*
      * De la base, vía el anfitrión: `business_plan.enrollment`. La pantalla no lo
@@ -734,9 +757,9 @@ export default function ReviewStepPanel({
   if (faltaFunnel) {
     /* La pregunta cambia con la rama; la del paso queda para la decisión. */
     const preguntaDeLaRama =
-      desenlace === 'declinado'
+      rama === 'declinado' || rama === 'deferred'
         ? promptDeLaRama(paso, 'declinado')
-        : desenlace === 'ver'
+        : rama === 'ver' || rama === 'changed'
           ? promptDeLaRama(paso, 'catalogo')
           : null;
 
@@ -752,7 +775,7 @@ export default function ReviewStepPanel({
         <p className="rv-panel__prompt">{preguntaDeLaRama ?? texto.prompt}</p>
 
         {/* ── 1. SIN DECIDIR ──────────────────────────────────────────── */}
-        {desenlace === null && (
+        {rama === null && (
           <>
             <p className="rv-panel__helper">
               {loName} has no active funnel. Deciding not to pick one is a valid outcome — it
@@ -788,7 +811,7 @@ export default function ReviewStepPanel({
         )}
 
         {/* ── 2. DECLINADO ───────────────────────────────────────────── */}
-        {desenlace === 'declinado' && (
+        {rama === 'declinado' && (
           <>
             <label className="rv-panel__field">
               <span className="rv-panel__fieldlabel">Comment</span>
@@ -826,7 +849,7 @@ export default function ReviewStepPanel({
         )}
 
         {/* ── 3. ELIGIENDO, EN EL CATÁLOGO ──────────────────────────── */}
-        {desenlace === 'ver' && (
+        {rama === 'ver' && (
           <>
             {!enElCatalogo ? (
               <div className="rv-panel__actions">
@@ -896,10 +919,162 @@ export default function ReviewStepPanel({
    * ofrece el campo: la compuerta lo exige igual, así que el panel se cura solo
    * en vez de trabarse.
    */
+  /*
+   * ═══════════════════════════════════════════════════════════════════
+   * CON FUNNEL TAMBIÉN HAY QUE DECIDIR — etapa RV11
+   * ═══════════════════════════════════════════════════════════════════
+   *
+   * Es la mitad de las revisiones. Que un camino tenga pantalla de decisión y el
+   * otro no hacía que la mitad de las entrevistas se sintieran distintas sin
+   * razón -- y sobre todo: «ya tenía uno» no es «alguien lo miró hoy».
+   *
+   * La pregunta de esta rama es otra: no «¿cuál eligen?» sino «¿siguen con
+   * éste, o lo cambian?».
+   *
+   * ⚠ Y «cambiarlo» DESTRUYE. `allow_second` sigue en `false`, así que cambiar
+   * pasa por `change_funnel`, que cancela el actual -- y `cancel_funnel` BORRA
+   * el plan, sus nodos, sus milestones y sus notas. Por eso el botón dice
+   * cuántos pasos hechos se pierden ANTES de que se apriete, y el catálogo lo
+   * vuelve a decir en su modal, que es donde se confirma.
+   *
+   * ⚠ Y MIENTRAS NO SE SEPA CUÁNTO, NO SE OFRECE. `pasosDelPlan` en `undefined`
+   * es «todavía no leí», y un «0 pasos» dicho antes de leer sería una mentira
+   * tranquilizadora en la pantalla que ofrece destruirlos.
+   */
+  if (
+    requiereFunnel &&
+    typeof funnelActual === 'string' &&
+    yaContestado === null &&
+    rama === null
+  ) {
+    const hechos = pasosDelPlan?.hechos ?? null;
+    return (
+      <div className="rv-panel" role="region" aria-label="Review step">
+        <div className="rv-panel__head">
+          <span className="rv-panel__step">
+            Phase {paso.phase_no} · step {paso.step_in_phase}
+          </span>
+          <span className="rv-panel__label">{paso.label}</span>
+        </div>
+        <p className="rv-panel__prompt">
+          {loName} is on <strong>{funnelActual}</strong>. Keep it, change it, or leave it for now?
+        </p>
+        {pasosDelPlan && (
+          <p className="rv-panel__helper">
+            {pasosDelPlan.hechos} of {pasosDelPlan.total} stages done.
+          </p>
+        )}
+        <div className="rv-panel__actions">
+          <button
+            type="button"
+            className="bp-btn bp-btn--primary bp-btn--small"
+            disabled={ocupado}
+            onClick={() => decidir('kept')}
+          >
+            Keep it
+          </button>
+          <button
+            type="button"
+            className="bp-btn bp-btn--small"
+            disabled={ocupado || hechos === null}
+            onClick={() => {
+              decidir('changed', funnelActual);
+              if (!enElCatalogo) router.push(rutaDelCatalogo);
+            }}
+          >
+            {hechos === null
+              ? 'Change it — checking what it would cost…'
+              : hechos === 0
+                ? 'Change it'
+                : 'Change it — deletes ' + hechos + ' completed step' + (hechos === 1 ? '' : 's')}
+          </button>
+          <button
+            type="button"
+            className="bp-btn bp-btn--small"
+            disabled={ocupado}
+            onClick={() => decidir('deferred')}
+          >
+            Leave it for now
+          </button>
+        </div>
+        {botonVolver && <div className="rv-panel__actions">{botonVolver}</div>}
+      </div>
+    );
+  }
+
+  /*
+   * «Seguir» y «dejarlo por ahora» terminan con el mismo funnel activo y son
+   * distintos en el registro: uno es una decisión y el otro es no haberla
+   * tomado. La pantalla es la misma --el comentario y cerrar-- y lo que cambia
+   * es lo que queda escrito.
+   */
+  if (
+    requiereFunnel &&
+    typeof funnelActual === 'string' &&
+    yaContestado === null &&
+    (rama === 'kept' || rama === 'deferred')
+  ) {
+    return (
+      <div className="rv-panel" role="region" aria-label="Review step">
+        <div className="rv-panel__head">
+          <span className="rv-panel__step">
+            Phase {paso.phase_no} · step {paso.step_in_phase}
+          </span>
+          <span className="rv-panel__label">{paso.label}</span>
+        </div>
+        <p className="rv-panel__prompt">
+          {rama === 'kept'
+            ? 'Staying on ' + funnelActual + ' — why is it still the right one?'
+            : 'Leaving ' + funnelActual + ' as it is for now — why not decide today?'}
+        </p>
+        <label className="rv-panel__field">
+          <span className="rv-panel__fieldlabel">Comment</span>
+          <textarea
+            className="field rv-panel__text"
+            data-review-comment=""
+            rows={3}
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            placeholder={rama === 'kept' ? 'Why keep it?' : 'Why not decide now?'}
+          />
+        </label>
+        {!estado.ok && estado.falta && <p className="rv-panel__gate">{estado.falta}</p>}
+        {error && (
+          <p className="rv-panel__gate" role="alert">
+            <AlertTriangleIcon size={13} /> {error}
+          </p>
+        )}
+        <div className="rv-panel__actions">
+          <button
+            type="button"
+            className="bp-btn bp-btn--primary bp-btn--small"
+            disabled={!estado.ok || ocupado}
+            onClick={guardarYSeguir}
+          >
+            {esUltimo ? 'Finish review' : 'OK'}
+          </button>
+          <button
+            type="button"
+            className="rv-panel__edit"
+            disabled={ocupado}
+            onClick={() => decidir(null)}
+          >
+            Back to the choice
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const confirmandoEleccion = rama === 'ver';
+  /* Un cambio se confirma cuando el nombre YA NO ES el de antes. Sin esa
+     comparación, llegar al catálogo sin tocar nada ya felicitaría. */
+  const confirmandoCambio =
+    rama === 'changed' && desenlace?.antes !== undefined && funnelActual !== desenlace.antes;
   if (
     typeof funnelActual === 'string' &&
     requiereFunnel &&
-    desenlace === 'ver' &&
+    (confirmandoEleccion || confirmandoCambio) &&
     yaContestado === null
   ) {
     return (
@@ -912,6 +1087,12 @@ export default function ReviewStepPanel({
         </div>
         <p className="rv-panel__prompt">
           Done — <strong>{funnelActual}</strong> is selected.
+          {confirmandoCambio && desenlace?.antes ? (
+            <>
+              {' '}
+              It replaces <strong>{desenlace.antes}</strong>.
+            </>
+          ) : null}
         </p>
         {comment.trim() === '' ? (
           <label className="rv-panel__field">

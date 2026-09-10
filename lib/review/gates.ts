@@ -54,11 +54,17 @@ export interface StepDraft {
    * casilla vacía es que el comentario sigue siendo obligatorio: declinar sin
    * decir por qué no cierra el paso.
    */
-  desenlaceFunnel?: 'elegido' | 'declinado' | null;
+  desenlaceFunnel?: 'elegido' | 'declinado' | 'kept' | 'changed' | 'deferred' | null;
   /** El nombre del funnel elegido, para el registro del día. Ver `gateEvidence`. */
   funnelNombre?: string | null;
   /** Y su `enrollment_key`, como puntero a lo que pase después. */
   enrollmentKey?: number | null;
+  /**
+   * El funnel que había ANTES, cuando se lo cambia. Queda en la evidencia como
+   * `replaced`: `change_funnel` cancela el anterior y `cancel_funnel` BORRA, así
+   * que sin esto no queda rastro de qué se reemplazó.
+   */
+  funnelAnterior?: string | null;
   /**
    * `true` si el Loan Officer tiene un funnel activo.
    *
@@ -310,7 +316,24 @@ export function gateStatus(step: ReviewStep, draft: StepDraft): GateStatus {
    * apretado antes no puede desmentir una fila de `enrollment`.
    */
   if (requiereDecisionDeFunnel(step)) {
-    const decidido = draft.funnelListo === true || draft.desenlaceFunnel === 'declinado';
+    /*
+     * ⚠ CON FUNNEL, TENER FUNNEL NO ALCANZA — RV11.
+     *
+     * Hasta acá, que existiera un enrolamiento cerraba el paso: la decisión se
+     * daba por tomada porque había plan. Pero «ya tenía uno» no es «alguien lo
+     * miró hoy», y la fase 3 existe para lo segundo. Así que con funnel hay que
+     * decir QUÉ se decidió sobre él: seguir, cambiarlo, o dejarlo por ahora.
+     *
+     * Las tres cierran; lo que no cierra es no haber dicho ninguna. Y el
+     * comentario sigue siendo obligatorio en todas, que es lo único que impide
+     * que esto sea un botón que se aprieta sin pensar.
+     */
+    const dijoAlgo =
+      draft.desenlaceFunnel === 'declinado' ||
+      draft.desenlaceFunnel === 'kept' ||
+      draft.desenlaceFunnel === 'changed' ||
+      draft.desenlaceFunnel === 'deferred';
+    const decidido = dijoAlgo || draft.funnelListo === true;
     if (!decidido) {
       return {
         ok: false,
@@ -393,6 +416,26 @@ export function enPalabras(id: string): string {
 }
 
 /**
+ * Qué acto se registra, de los cinco.
+ *
+ * `picked` es el respaldo cuando hay funnel y nadie apretó nada: pasó por el
+ * catálogo y eligió. No se inventa un sexto valor para «no sé» -- si hay funnel
+ * y no hubo botón, lo que hubo fue una elección.
+ */
+function decisionDelFunnel(draft: StepDraft): string {
+  switch (draft.desenlaceFunnel) {
+    case 'kept':
+      return 'kept';
+    case 'changed':
+      return 'changed';
+    case 'deferred':
+      return 'deferred';
+    default:
+      return 'picked';
+  }
+}
+
+/**
  * Lo que se guarda en `response.gate`: la EVIDENCIA de la compuerta.
  *
  * ⚠ NUNCA el benchmark ni el presupuesto. Ésos viven en `org.employee_benchmark`
@@ -427,15 +470,30 @@ export function gateEvidence(step: ReviewStep, draft: StepDraft): Record<string,
      * pasó después; el nombre, como el hecho de ese día.
      */
     case 'funnel':
+      /*
+       * ⚠ DOS CAMPOS QUE NO SON EL MISMO — RV11.
+       *
+       * `funnel_chosen` es el ESTADO al final del paso: ¿queda un funnel activo?
+       * `decision` es el ACTO: qué hizo la persona. Uno no se deduce del otro en
+       * la dirección que importa -- `kept` y `deferred` dejan el mismo estado y
+       * son la diferencia entre confirmar y no mirar, que es justo lo que la
+       * fase 3 viene a registrar.
+       *
+       *   picked    no tenía, eligió          declined  no tenía, no eligió
+       *   kept      tenía, lo confirmó        changed   tenía, lo reemplazó
+       *   deferred  tenía, lo dejó así por ahora
+       */
       return draft.funnelListo === true
         ? {
             funnel_chosen: true,
+            decision: decisionDelFunnel(draft),
             ...(draft.funnelNombre ? { funnel_name: draft.funnelNombre } : {}),
+            ...(draft.funnelAnterior ? { replaced: draft.funnelAnterior } : {}),
             ...(typeof draft.enrollmentKey === 'number'
               ? { enrollment_key: draft.enrollmentKey }
               : {}),
           }
-        : { funnel_chosen: false };
+        : { funnel_chosen: false, decision: 'declined' };
     case 'number':
       return { benchmark_set: true };
     case 'budget':

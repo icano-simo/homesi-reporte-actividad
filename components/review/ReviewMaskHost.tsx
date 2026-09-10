@@ -121,6 +121,16 @@ export default function ReviewMaskHost() {
    */
   const [funnelActual, setFunnelActual] = useState<string | null | undefined>(undefined);
   const [tickFunnel, setTickFunnel] = useState(0);
+  /*
+   * ⚠ CUÁNTO TRABAJO TIENE EL PLAN, para poder decir qué se pierde al cambiarlo.
+   *
+   * `undefined` = no se leyó todavía, y es la misma distinción de siempre: un
+   * «cero pasos hechos» dicho antes de leer sería una mentira tranquilizadora
+   * justo en la pantalla que ofrece destruirlos.
+   */
+  const [pasosDelPlan, setPasosDelPlan] = useState<{ hechos: number; total: number } | undefined>(
+    undefined
+  );
 
   const pasoActual =
     script && activo?.session
@@ -418,10 +428,10 @@ export default function ReviewMaskHost() {
         if (!cancelado) setFunnelActual(undefined);
         return;
       }
-      const { data } = await getSupabaseClient()
-        .schema('business_plan')
+      const bp = getSupabaseClient().schema('business_plan');
+      const { data } = await bp
         .from('enrollment')
-        .select('funnel_name')
+        .select('enrollment_key, funnel_name')
         .eq('employee_key', loEnCurso)
         .eq('status', 'active')
         /* Con `order` y no solo `limit(1)`: hoy el indice unico garantiza uno,
@@ -429,7 +439,52 @@ export default function ReviewMaskHost() {
            otro archivo. Es el defecto que `useEnrollment` todavia tiene. */
         .order('activated_at', { ascending: false })
         .limit(1);
-      if (!cancelado) setFunnelActual((data ?? [])[0]?.funnel_name ?? null);
+      const activo = (data ?? [])[0] ?? null;
+      if (!cancelado) setFunnelActual(activo?.funnel_name ?? null);
+
+      /*
+       * ══════════════════════════════════════════════════════════════
+       * ⚠ CUÁNTO SE PIERDE SI LO CAMBIAN — etapa RV11
+       * ══════════════════════════════════════════════════════════════
+       *
+       * `change_funnel` cancela y activa otro, y `cancel_funnel` BORRA: el plan,
+       * sus nodos, sus milestones y sus notas. Ofrecer «cambiarlo» sin decir
+       * cuánto trabajo se tira es ofrecer una puerta callando lo que hay del
+       * otro lado.
+       *
+       * ⚠ ES EL TERCER LUGAR QUE CUENTA MILESTONES --están `doneCount` en el
+       * catálogo y `doneMilestones` en `loadData`-- y no se reusa ninguno a
+       * propósito: `loadData` trae el branch entero, y esta máscara vive en el
+       * layout raíz, o sea en las cuatro pantallas del portal. Lo que SÍ es
+       * común es la definición de «completado»: `status = 'completed'`. Si eso
+       * cambia, cambian los tres.
+       */
+      if (activo === null) {
+        if (!cancelado) setPasosDelPlan(undefined);
+        return;
+      }
+      const { data: nodos } = await bp
+        .from('enrollment_node')
+        .select('enrollment_node_key')
+        .eq('enrollment_key', activo.enrollment_key);
+      const claves = ((nodos ?? []) as { enrollment_node_key: number }[]).map(
+        (x) => x.enrollment_node_key
+      );
+      if (claves.length === 0) {
+        if (!cancelado) setPasosDelPlan({ hechos: 0, total: 0 });
+        return;
+      }
+      const { data: hitos } = await bp
+        .from('enrollment_milestone')
+        .select('status')
+        .in('enrollment_node_key', claves);
+      const filas = (hitos ?? []) as { status: string }[];
+      if (!cancelado) {
+        setPasosDelPlan({
+          hechos: filas.filter((m) => m.status === 'completed').length,
+          total: filas.length,
+        });
+      }
     })();
     return () => {
       cancelado = true;
@@ -533,6 +588,7 @@ export default function ReviewMaskHost() {
           responses={activo.responses}
           loName={activo.loName}
           funnelActual={funnelActual}
+          pasosDelPlan={pasosDelPlan}
           enSitio={enSitio}
           buscandoSitio={buscandoSitio}
           benchmarkActual={benchmarkActual}
