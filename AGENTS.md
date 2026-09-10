@@ -302,6 +302,67 @@ Las reglas operativas: **al medir un estilo que se anima, esperar más que la
 duración de la transición antes de leer**; y si aparece la firma —un
 subconjunto de propiedades que no cambia— **mirar el `transition` de la regla
 antes de buscar quién la pisa**.
+## El peor de la familia: la medición que concluyó lo contrario de la verdad
+
+Los otros casos terminan en «no medí» o en «medí mal y no vi el bug». Éste
+terminó en **«medí y está roto»**, sobre algo que estaba bien. Es peor porque
+una conclusión falsa se actúa, y una duda no.
+
+Al comprobar tres `check` recién aplicados, probé con `where funnel_key = 1`.
+Las claves reales de esa tabla son 13..21. Los seis `UPDATE` tocaron **cero
+filas**, PostgREST contestó `204` sin error, y los `check` **nunca se
+evaluaron**. Reporté que ninguna de las tres restricciones rechazaba nada.
+Existían las tres, validadas, y funcionaban.
+
+> **Un `UPDATE` que no matchea nada se parece a uno que funcionó.**
+
+Es «cero filas con `error: null` es una policy de RLS que no aplica» corrido a
+la escritura, y por eso conviene tener las dos juntas: en la lectura la
+ausencia se disfraza de tabla vacía; en la escritura, de éxito.
+
+Y hay una vuelta que lo cierra: **el mismo error estaba en el SQL que ya se
+había aplicado**, en su propia sección de «cómo comprobarlo», con la misma
+clave inventada. Lo escribí yo y lo leyó el usuario, y ninguno de los dos lo
+vio. Una clave escrita a mano en una prueba es indistinguible de una correcta
+hasta que se cuenta lo que tocó.
+
+### Las dos reglas operativas
+
+- **Un `update` de verificación sin `returning` no verifica.** El `returning`
+  convierte «no pasó nada» en una lista vacía, que sí se ve. Lo mismo del lado
+  del cliente: `Prefer: return=representation` y contar las filas.
+- **No inventar la clave.** `where funnel_key = (select min(funnel_key) from …)`
+  o leerla antes. Una constante escrita a mano en una prueba es una suposición
+  sobre los datos disfrazada de dato.
+
+Y la guarda barata, que es la que faltaba: antes de las aserciones, **una sonda
+que confirme que la escritura de prueba alcanza una fila**. Si esa no pasa,
+todo lo de abajo mide el vacío.
+
+## Un párrafo roto en columnas dice lo mismo que uno bien armado
+
+Segunda vez con el mismo defecto, y las dos veces con las aserciones de texto
+en verde.
+
+Un contenedor `display: flex` con prosa como hijo directo convierte **cada nodo
+de texto y cada `<strong>` en un ítem flex**. La frase sale partida en columnas
+con huecos, ilegible. Pasó en `.rv-panel__gate` --un `<strong>` en dos
+columnas-- y volvió a pasar en `.bp-video-hint--warn`, donde la frase quedó en
+cinco.
+
+Lo que lo hace repetible es que **`innerText` no cambia**: una frase partida en
+cinco columnas devuelve exactamente el mismo texto que una bien armada. Ninguna
+aserción sobre el contenido lo puede ver.
+
+> **Medirlo por geometría es lo único que lo distingue.**
+
+En concreto: contar los **hijos directos** del contenedor flex --tienen que ser
+los que uno puso a propósito, no los que quedaron sueltos-- y comprobar que los
+`<strong>` caen **dentro del ancho** del envoltorio y no al lado.
+
+La regla al escribir: **un contenedor flex no lleva prosa como hijo directo.**
+O la prosa va envuelta en un `<span>`, o el contenedor no es flex. Y las dos
+veces lo encontró la captura, no la medición.
 
 ## Qué cuenta como «otra vía»
 
@@ -316,6 +377,17 @@ antes de buscar quién la pisa**.
   filas que no deberían existir suman perfectamente.
 - Una consulta a Supabase: **cero filas con `error: null` es una policy de RLS
   que no aplica**, no una tabla vacía. RLS filtra, no rechaza.
+- Y su complemento, que apunta a otro lado: **un `403 permission denied for
+  table X` no es RLS, es un `GRANT` que falta.** Las policies deciden QUÉ FILAS;
+  el grant decide si se puede tocar la tabla. Los dos fallos son distinguibles,
+  y conviene: cero filas manda a mirar las policies, un 403 manda a mirar los
+  grants.
+
+  Un `create table` nuevo **no hereda** el grant del esquema. Y es fácil
+  escribir las políticas y olvidarlo, porque las políticas son lo que uno está
+  pensando: `business_plan.area` quedó como la única de nueve tablas sin grant,
+  y eso rompió una pantalla que ni la menciona — un trigger `security invoker`
+  la leía, así que asignar un área devolvía 403.
 
 ## Antes que todo lo anterior: que el arnés haya corrido
 

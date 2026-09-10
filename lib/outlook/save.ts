@@ -176,26 +176,66 @@ export async function saveStrategyBenchmark(input: {
 }
 
 /**
- * El benchmark de un realtor NPPM, por NOMBRE.
+ * El benchmark de un realtor NPPM, POR `realtor_code`.
  *
- * Es la única clave que existe: un NPPM no es empleado y no tiene código. Y es
- * del realtor, no del par (realtor, Loan Officer) — el mismo realtor trabaja con
- * varias personas y en varias branches, y decidir cuánto "le toca" a cada una
- * es justamente la asignación que este módulo no construye.
+ * Es del realtor, no del par (realtor, Loan Officer) — el mismo realtor trabaja
+ * con varias personas y en varias branches, y decidir cuánto "le toca" a cada
+ * una es justamente la asignación que este módulo no construye.
  *
- * Se guarda el nombre TAL COMO VIENE de los datos y la comparación se hace
- * normalizando en la app, igual que `aliasIndex`: los datos traen 'FRED A GOMEZ'
- * y 'Fred A Gomez' para la misma persona.
+ * ⚠ ANTES LA CLAVE ERA EL NOMBRE, y por eso se guardaba tal como venía y se
+ * comparaba normalizando en la app. Eso no alcanzaba: los nombres llegan crudos
+ * de Salesforce y la normalización unía 'fred gomez' con 'FRED GOMEZ' pero no
+ * 'FRED A GOMEZ' con 'FRED GOMEZ'. Dos personas guardando desde grafías
+ * distintas creaban dos filas del mismo NPPM, sin fallar y con las dos filas
+ * viéndose plausibles.
+ *
+ * SE ESCRIBEN LAS TRES COLUMNAS, y ninguna sobra:
+ *
+ *   realtor_code   la clave. Inmutable, de `dim_nppm_realtor_v2`.
+ *   display_name   el nombre de la dimensión. Es el del MOMENTO en que se
+ *                  guardó, y por eso se persiste en vez de resolverse al leer:
+ *                  sirve para reconocer la fila si algún día hay que auditar.
+ *   nppm_realtor   el MISMO `display_name`, porque la columna sigue siendo NOT
+ *                  NULL y hay que mandar algo.
+ *
+ * ⚠ POR QUÉ EN `nppm_realtor` VA EL DISPLAY Y NO EL NOMBRE CRUDO. La copia de
+ * auditoría sirve para contestar "de quién es esta fila", y para eso el nombre
+ * canónico es mejor que la grafía de Salesforce: la fila ya no se crea DESDE una
+ * grafía, se crea desde un código. Guardar el crudo reproduciría el desorden que
+ * el código vino a resolver, en la única columna que quedaba libre de él.
+ *
+ * Cuando corra el `DROP NOT NULL` sobre `nppm_realtor`, esta escritura se puede
+ * quitar y la columna queda sólo con las filas históricas -- que hoy son cero.
  */
 export async function saveNppmBenchmark(input: {
-  nppmRealtor: string;
+  /** La clave. Sin esto la fila no se puede ubicar al leer. */
+  realtorCode: string;
+  /** El nombre de la dimensión, tal como se ve hoy. */
+  displayName: string;
   monthlyBenchmark: number;
   effectiveFrom: string;
   note: string | null;
 }): Promise<void> {
+  /*
+   * Una guarda redundante, y a propósito: sin `realtor_code` la fila entra --la
+   * columna es nullable-- y el loader no la puede ubicar, así que el benchmark
+   * queda guardado y la pantalla no lo muestra. Un fallo sin síntoma. Que falle
+   * acá y ruidosamente es mejor que descubrirlo cuando alguien pregunte por qué
+   * su número no aparece.
+   */
+  if (!input.realtorCode.trim()) {
+    throw new Error(
+      'No se puede guardar un benchmark de NPPM sin realtor_code: la fila ' +
+        'quedaría escrita y la pantalla no la mostraría.'
+    );
+  }
+
   const set_by = await authorEmail();
   const { error } = await getSupabaseClient().schema('outlook').from('nppm_benchmark').insert({
-    nppm_realtor: input.nppmRealtor,
+    realtor_code: input.realtorCode,
+    display_name: input.displayName,
+    /* NOT NULL todavía; el mismo display. Ver la nota de arriba. */
+    nppm_realtor: input.displayName,
     monthly_benchmark: input.monthlyBenchmark,
     effective_from: input.effectiveFrom,
     set_by,

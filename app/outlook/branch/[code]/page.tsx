@@ -518,7 +518,18 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    */
   const editingActivo =
     editing ?? (rvPedido !== null && rvClave !== rvDescartado ? rvPedido : null);
-  const [editingNppm, setEditingNppm] = useState<{ realtor: string; ytd: number } | null>(null);
+  /*
+   * ⚠ CON LA LÓGICA DE ARRIBA --de la rama de revisión-- Y LA FORMA NUEVA
+   * DE `editingNppm`, que vino con el `realtor_code`. Los dos cambios son de
+   * dominios distintos: uno decide QUÉ editor se abre, el otro CÓMO se
+   * identifica a un realtor. Ninguno anula al otro.
+   */
+  /* La identidad es el codigo; `displayName` es lo unico que se muestra. */
+  const [editingNppm, setEditingNppm] = useState<{
+    realtorCode: string;
+    displayName: string;
+    ytd: number;
+  } | null>(null);
   /*
    * Lo que se esta editando de reclutamiento -- etapa OL20.
    *
@@ -1864,9 +1875,9 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                         {}
                       );
                       return (
-                        <tr key={'s-' + s + '-r-' + r.realtor} className="metric mrow">
+                        <tr key={'s-' + s + '-r-' + r.realtorCode} className="metric mrow">
                           <td className="lbl" style={{ paddingLeft: '30px' }}>
-                            {r.realtor}
+                            {r.displayName}
                             {/*
                               ⚠ Dos decimales: el promedio de 3 meses de un realtor
                               es casi siempre fraccionario --0,33 · 0,67 · 1,33-- y
@@ -1875,8 +1886,14 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                             */}
                             <BenchTag
                               value={r.benchmark}
-                              onEdit={() => setEditingNppm({ realtor: r.realtor, ytd: r.ytd })}
-                              editLabel={`Edit ${r.realtor}'s benchmark`}
+                              onEdit={() =>
+                                setEditingNppm({
+                                  realtorCode: r.realtorCode,
+                                  displayName: r.displayName,
+                                  ytd: r.ytd,
+                                })
+                              }
+                              editLabel={`Edit ${r.displayName}'s benchmark`}
                               editTitle={
                                 r.benchmarkIsDefault
                                   ? `Nobody has set it, so what applies is the average of their closings over the 3 ` +
@@ -1914,7 +1931,13 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                             <button
                               type="button"
                               className={'ol-pill' + (r.benchmarkIsDefault ? ' ol-pill--empty' : '')}
-                              onClick={() => setEditingNppm({ realtor: r.realtor, ytd: r.ytd })}
+                              onClick={() =>
+                                setEditingNppm({
+                                  realtorCode: r.realtorCode,
+                                  displayName: r.displayName,
+                                  ytd: r.ytd,
+                                })
+                              }
                               title={
                                 r.benchmarkIsDefault
                                   ? `Nobody has set it, so what applies is the average of their closings over the 3 ` +
@@ -2349,7 +2372,8 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
 
       {editingNppm && (
         <NppmEditor
-          realtor={editingNppm.realtor}
+          realtorCode={editingNppm.realtorCode}
+          displayName={editingNppm.displayName}
           ytd={editingNppm.ytd}
           data={data}
           onClose={() => setEditingNppm(null)}

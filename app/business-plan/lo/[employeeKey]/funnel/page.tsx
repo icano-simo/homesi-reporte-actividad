@@ -6,9 +6,20 @@ import { getSupabaseClient } from '@/lib/supabase/client';
 import { useBusinessPlanData } from '@/lib/business-plan/useBusinessPlanData';
 import { useFunnelLibrary } from '@/lib/business-plan/useFunnelLibrary';
 import { useEnrollment } from '@/lib/business-plan/useEnrollment';
-import { buildEnrollmentPlan, checkActivation, funnelStats, type Funnel, type FunnelCategory } from '@/lib/business-plan/funnels';
+import {
+  buildEnrollmentPlan,
+  checkActivation,
+  duracionLegible,
+  esArchivoDeVideo,
+  funnelStats,
+  type Funnel,
+  type FunnelCategory,
+} from '@/lib/business-plan/funnels';
 import { averageOver, monthOf, monthsBefore } from '@/lib/business-plan/impact';
-import { AlertTriangleIcon } from '@/components/ui/icons';
+/* `ChevronDownIcon` del set del módulo, girado por CSS para el estado abierto:
+   no hay chevron-up en `icons.tsx` y un SVG suelto nuevo rompería la coherencia
+   del set --mismo viewBox, mismo stroke-- que ese archivo existe para sostener. */
+import { AlertTriangleIcon, ChevronDownIcon, PlayIcon, VideoOffIcon } from '@/components/ui/icons';
 import Breadcrumbs from '../../../components/Breadcrumbs';
 import Modal from '../../../components/Modal';
 import { FunnelGlyph } from '../../../components/funnelIcons';
@@ -37,6 +48,453 @@ import FunnelExplorer from './FunnelExplorer';
  * La copia la arma `buildEnrollmentPlan` (función pura, probada aparte), que
  * también resuelve las fechas límite: activación + SLA acumulados.
  */
+
+/**
+ * ============================================================================
+ * LA DESCRIPCIÓN DE LA TARJETA, RECORTADA A DOS LÍNEAS — etapa BP48
+ * ============================================================================
+ *
+ * ⚠ NO ES UNA MEJORA COSMÉTICA: `Javier Growth Engine` guarda **1984
+ * caracteres** en `description` -- una sesión entera, con títulos y saltos de
+ * línea. Medido contra la base antes de escribir esto, junto con el resto:
+ *
+ *     funnels   máximo 1984   mediana 63   1 de 9 se pasa de dos líneas
+ *     nodos     máximo  891   mediana 56
+ *
+ * O sea que los funnels tienen el mismo problema que los nodos y peor. Esa
+ * sola descripción ocupaba 450px --25 líneas-- y estiraba su fila del grid a
+ * 652px contra los 270px de las demás. El recorte es lo que hace posible el
+ * punto 1; sin él, «todas las tarjetas de la misma altura» significaría
+ * estirar las nueve a la altura de la más larga.
+ *
+ * ⚠ Y EL TOGGLE SÓLO APARECE SI DE VERDAD DESBORDA, preguntándoselo al DOM
+ * --`scrollHeight > clientHeight`-- y no contando caracteres. Un umbral de
+ * caracteres es una regla sobre la forma del texto: no sabe el ancho de la
+ * columna ni el ancho de las letras, así que dibujaría «Show more» en
+ * descripciones que entran enteras y lo omitiría en las que no.
+ *
+ * El patrón es el de `NoteCell` en `app/pipeline/LoanDetailModal.tsx`, que ya
+ * resolvió esto para las notas de un préstamo: mismo `ref` de medición, misma
+ * condición. Las CLASES sí son propias: `.note-text` está afinada para una
+ * celda de tabla --su `font-size` y su `vertical-align`-- y reusarla acá
+ * ataría el catálogo a un cambio del modal de Pipeline.
+ *
+ * ⚠ Y ES UN `<span role="button">`, NO UN `<button>`. La tarjeta entera ya es
+ * un `<button>` --el clic abre el explorador-- y un botón dentro de otro es
+ * HTML inválido: el navegador desanida y el resultado no es clickeable. Es la
+ * misma razón por la que `Select` es un span, tres pantallas más abajo en este
+ * archivo.
+ */
+function DescripcionDeTarjeta({
+  texto,
+  abierta,
+  onToggle,
+}: {
+  texto: string;
+  abierta: boolean;
+  onToggle: () => void;
+}) {
+  const [desborda, setDesborda] = useState(false);
+
+  /* Ref callback y no `useEffect`: corre cuando el nodo ya está medido, y
+     vuelve a correr si React lo reemplaza. Igual que `NoteCell`. */
+  function medir(nodo: HTMLParagraphElement | null) {
+    if (!nodo) return;
+    const pasa = nodo.scrollHeight > nodo.clientHeight + 1;
+    setDesborda((previo) => (previo === pasa ? previo : pasa));
+  }
+
+  if (texto === '') return null;
+
+  const alternar = (e: React.MouseEvent | React.KeyboardEvent) => {
+    /* La tarjeta abre el explorador al clic. Sin esto, mostrar más texto
+       abriría además un modal encima de lo que se quería leer. */
+    e.stopPropagation();
+    onToggle();
+  };
+
+  return (
+    <>
+      <p
+        ref={abierta ? undefined : medir}
+        className={
+          'bp-catalog__desc' +
+          (abierta ? ' bp-catalog__desc--open' : ' bp-catalog__desc--clamped')
+        }
+      >
+        {texto}
+      </p>
+      {(desborda || abierta) && (
+        <span
+          role="button"
+          tabIndex={0}
+          data-bp-desc-toggle=""
+          className="bp-catalog__showmore"
+          onClick={alternar}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              alternar(e);
+            }
+          }}
+        >
+          {abierta ? 'Show less' : 'Show more'}
+          <ChevronDownIcon
+            size={13}
+            className={'bp-catalog__showmore-caret' + (abierta ? ' is-up' : '')}
+          />
+        </span>
+      )}
+    </>
+  );
+}
+
+/**
+ * ============================================================================
+ * EL VIDEO DEL FUNNEL — etapa BP48
+ * ============================================================================
+ *
+ * ⚠ EL REPRODUCTOR NO VA DENTRO DE LA TARJETA, y no es una preferencia:
+ *
+ *   1. La tarjeta es un `<button>`. Un `<video controls>` o un `<iframe>`
+ *      adentro es contenido interactivo anidado -- HTML inválido, y el
+ *      navegador desanida. Es el mismo motivo por el que `Select` y
+ *      «Show more» son `<span role="button">`.
+ *   2. Son siete tarjetas a la vista. Siete iframes de SharePoint cargando a
+ *      la vez para que alguien mire uno.
+ *   3. Y el punto 1 del brief pide que todas midan lo mismo. Un reproductor
+ *      embebido mueve esa altura para todas.
+ *
+ * Así que la tarjeta lleva UNA TIRA --que dice si hay video, cómo se llama y
+ * cuánto dura-- y el reproductor vive en un modal, que es donde ya vive el
+ * explorador del funnel.
+ */
+function TiraDeVideo({
+  funnel,
+  onAbrir,
+}: {
+  funnel: Funnel;
+  onAbrir: () => void;
+}) {
+  /*
+   * ⚠ TRES ESTADOS. `undefined` es «la columna no existe todavía», porque el
+   * SQL de esta etapa se entrega sin ejecutar. Ahí no se dibuja NADA: ofrecer
+   * «pegar una URL» contra una base sin la columna termina en un 42703 que la
+   * persona lee como que hizo algo mal.
+   */
+  if (funnel.video_url === undefined) return null;
+
+  const hay = typeof funnel.video_url === 'string' && funnel.video_url !== '';
+  const dur = duracionLegible(funnel.video_seconds);
+  const abrir = (e: React.MouseEvent | React.KeyboardEvent) => {
+    e.stopPropagation();
+    onAbrir();
+  };
+
+  /*
+   * ⚠ LOS DOS ESTADOS TIENEN LA MISMA ESTRUCTURA — etapa BP48b.
+   *
+   * Banda oscura, filete a la izquierda, icono, dos renglones y un botón. Lo
+   * único que cambia es qué dice cada pieza. Eso es lo que las hace pesar
+   * igual --que es lo que el brief pide-- y de paso lo que garantiza que midan
+   * igual, que es la condición que las tarjetas necesitan para no
+   * desnivelarse.
+   *
+   * ⚠ EL SEGUNDO RENGLÓN EXISTE SIEMPRE, aunque no se sepa la duración. Si
+   * desapareciera, la banda de un video sin duración mediría menos que las
+   * otras dos y volveríamos al problema del punto 1 de BP48. Y no se rellena
+   * con un «0:00»: cuando no se sabe, lo dice.
+   */
+  const segundoRenglon = hay ? (dur ?? 'Length not set') : 'No media attached yet';
+
+  /*
+   * ⚠ EL PREFIJO ES `bp-catalog__video`, NO `bp-video`. La banda vive en la
+   * tarjeta del catálogo; `bp-video-frame` y `bp-video-hint` son del MODAL,
+   * que es otra cosa. Dos familias con el mismo prefijo y sentidos distintos
+   * no chocan en CSS pero sí en la cabeza del que las lee después.
+   */
+  return (
+    <span
+      data-bp-video-strip=""
+      className={'bp-catalog__video' + (hay ? '' : ' bp-catalog__video--empty')}
+    >
+      <span className="bp-catalog__video-icon" aria-hidden="true">
+        {hay ? <PlayIcon size={15} /> : <VideoOffIcon size={15} />}
+      </span>
+      <span className="bp-catalog__video-body">
+        <span className="bp-catalog__video-title">
+          {hay ? funnel.video_title?.trim() || 'Strategy overview video' : 'Strategy overview video'}
+        </span>
+        <span className="bp-catalog__video-sub">{segundoRenglon}</span>
+      </span>
+      {/*
+        ⚠ EL BOTÓN ES UN `span role="button"` Y LA BANDA ENTERA NO ES
+        CLICKEABLE. Dos motivos: la tarjeta ya es un `<button>` --anidar otro
+        es HTML inválido, igual que con `Select` y «Show more»--, y con la
+        banda entera clickeable habría dos objetivos superpuestos para el mismo
+        acto, que es exactamente lo que obliga a mirar cuál ganó.
+      */}
+      <span
+        role="button"
+        tabIndex={0}
+        data-bp-video-action=""
+        className="bp-catalog__video-btn"
+        onClick={abrir}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            abrir(e);
+          }
+        }}
+      >
+        {hay ? 'Play' : 'Add video'}
+      </span>
+    </span>
+  );
+}
+
+/** `1:33` -> 93. Devuelve `null` si no se entiende: no adivina. */
+function segundosDesdeTexto(t: string): number | null {
+  const limpio = t.trim();
+  if (limpio === '') return null;
+  const partes = limpio.split(':').map((x) => x.trim());
+  if (partes.some((x) => x === '' || !/^\d+$/.test(x))) return null;
+  const n = partes.map(Number);
+  const total =
+    n.length === 1 ? n[0] : n.length === 2 ? n[0] * 60 + n[1] : n.length === 3 ? n[0] * 3600 + n[1] * 60 + n[2] : null;
+  return total !== null && total > 0 ? total : null;
+}
+
+/**
+ * El modal: reproduce si hay video, y si no, la zona para pegar el enlace.
+ *
+ * ⚠ LA ZONA VACÍA NO ES UN ERROR y se nota en la pintura: sin `--coral`, sin
+ * `AlertTriangleIcon`. Un funnel sin video es un estado normal de la
+ * biblioteca, no algo roto.
+ */
+function ModalDeVideo({
+  funnel,
+  onCerrar,
+  onGuardado,
+}: {
+  funnel: Funnel;
+  onCerrar: () => void;
+  onGuardado: () => void;
+}) {
+  const [url, setUrl] = useState(funnel.video_url ?? '');
+  const [titulo, setTitulo] = useState(funnel.video_title ?? '');
+  const [largo, setLargo] = useState(duracionLegible(funnel.video_seconds) ?? '');
+  const [editando, setEditando] = useState(!funnel.video_url);
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const esArchivo = url.trim() !== '' && esArchivoDeVideo(url.trim());
+
+  async function guardar(limpiar: boolean) {
+    setGuardando(true);
+    setError(null);
+    try {
+      const u = url.trim();
+      if (!limpiar && u === '') throw new Error('Paste a link first.');
+      if (!limpiar && !/^https?:\/\//i.test(u)) {
+        throw new Error('That is not a link. It has to start with http:// or https://');
+      }
+      const bp = getSupabaseClient().schema('business_plan');
+      const { error: e } = await bp
+        .from('funnel')
+        .update(
+          limpiar
+            ? { video_url: null, video_title: null, video_seconds: null }
+            : {
+                video_url: u,
+                video_title: titulo.trim() === '' ? null : titulo.trim(),
+                video_seconds: segundosDesdeTexto(largo),
+              }
+        )
+        .eq('funnel_key', funnel.funnel_key);
+      if (e) {
+        /*
+         * ⚠ 42703 = la columna no existe: el SQL de BP48 no se aplicó. Se dice
+         * eso y no el mensaje crudo de Postgres, porque no es un error de
+         * quien está pegando el link.
+         */
+        throw new Error(
+          e.code === '42703'
+            ? 'The video columns are not in the database yet — apply docs/sql/2026-09-funnel-video.sql first.'
+            : e.message
+        );
+      }
+      onGuardado();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  return (
+    <Modal title={'Strategy video — ' + funnel.name} onClose={onCerrar}>
+      <div className="bp-form">
+        {!editando && typeof funnel.video_url === 'string' && (
+          <>
+            <div className="bp-video-frame">
+              {esArchivoDeVideo(funnel.video_url) ? (
+                /*
+                  Archivo directo: reproductor propio del navegador. `preload`
+                  en metadata para no bajar el archivo entero al abrir.
+                */
+                <video src={funnel.video_url} controls preload="metadata" />
+              ) : (
+                /*
+                  Enlace de inserción. `allowFullScreen` porque un video de una
+                  hora en un recuadro de 480px no se mira.
+                */
+                <iframe
+                  src={funnel.video_url}
+                  title={funnel.video_title?.trim() || funnel.name}
+                  allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+                  allowFullScreen
+                />
+              )}
+            </div>
+            <div className="bp-form__actions">
+              <button type="button" className="bp-linkish" onClick={() => setEditando(true)}>
+                Change the link
+              </button>
+            </div>
+          </>
+        )}
+
+        {editando && (
+          <>
+            {/*
+              ══════════════════════════════════════════════════════════════
+              ⚠ EL AVISO DE SHAREPOINT, QUE ES EL QUE EVITA LA CONSULTA
+              ══════════════════════════════════════════════════════════════
+
+              El link que se copia de la barra de direcciones abre una PÁGINA
+              de SharePoint; embebido no reproduce nada, muestra un marco de
+              login. El que sirve es el de inserción, que está en Share →
+              Embed. Decirlo acá cuesta dos líneas; no decirlo cuesta que
+              alguien pegue el normal, vea un recuadro pidiendo credenciales y
+              concluya que la función está rota.
+            */}
+            <p className="bp-video-hint">
+              Two kinds of link work here, and they behave differently.
+            </p>
+            <ul className="bp-video-list">
+              <li>
+                A <strong>direct file</strong> — a link ending in .mp4 or .webm. It plays in the
+                browser and the length is read automatically.
+              </li>
+              <li>
+                An <strong>embed link</strong> — SharePoint, OneDrive, Vimeo, YouTube. It plays in a
+                frame, and the length has to be typed in.
+              </li>
+            </ul>
+            {/*
+              ⚠ LA FRASE VA ENVUELTA EN UN SPAN. El párrafo es `display: flex`
+              para apoyar el icono arriba a la izquierda, y en un contenedor
+              flex cada nodo de texto suelto es un ítem: sin el span, «not» y
+              «Share → Embed» salían como columnas con huecos y la frase
+              quedaba partida en cinco. Ver la nota en `bp-visual.css`.
+            */}
+            <p className="bp-video-hint bp-video-hint--warn">
+              <AlertTriangleIcon size={13} />
+              <span className="bp-video-hint__txt">
+                For SharePoint and OneDrive, the address you copy from the browser bar is{' '}
+                <strong>not</strong> the one to paste — it opens a SharePoint page and shows a
+                sign-in frame instead of the video. Use <strong>Share → Embed</strong> and copy the
+                link from the code it gives you.
+              </span>
+            </p>
+
+            <label className="bp-form__field">
+              <span className="bp-form__label">Video link</span>
+              <input
+                className="field"
+                type="url"
+                value={url}
+                placeholder="https://…"
+                onChange={(e) => setUrl(e.target.value)}
+              />
+            </label>
+            <label className="bp-form__field">
+              <span className="bp-form__label">Title</span>
+              <input
+                className="field"
+                type="text"
+                value={titulo}
+                placeholder={funnel.name}
+                onChange={(e) => setTitulo(e.target.value)}
+              />
+            </label>
+            <label className="bp-form__field">
+              <span className="bp-form__label">
+                Length {esArchivo ? '(read from the file)' : '(mm:ss)'}
+              </span>
+              <input
+                className="field"
+                type="text"
+                value={largo}
+                placeholder="mm:ss"
+                disabled={esArchivo}
+                onChange={(e) => setLargo(e.target.value)}
+              />
+            </label>
+            {/*
+              ⚠ LA DURACIÓN SE LEE, NO SE PIDE, CUANDO SE PUEDE. Un `<video>`
+              oculto con `preload="metadata"` baja sólo la cabecera del archivo
+              y dispara `loadedmetadata` con la duración real. Sólo sirve para
+              archivos directos: de un embed no se puede leer sin la API del
+              proveedor, y por eso ahí el campo queda habilitado.
+            */}
+            {esArchivo && (
+              <video
+                src={url.trim()}
+                preload="metadata"
+                style={{ display: 'none' }}
+                onLoadedMetadata={(e) => {
+                  const d = e.currentTarget.duration;
+                  if (Number.isFinite(d) && d > 0) setLargo(duracionLegible(d) ?? '');
+                }}
+              />
+            )}
+            {error && (
+              <p className="bp-video-hint bp-video-hint--warn">
+                <AlertTriangleIcon size={13} />
+                <span className="bp-video-hint__txt">{error}</span>
+              </p>
+            )}
+            <div className="bp-form__actions">
+              <button
+                type="button"
+                className="bp-btn bp-btn--primary"
+                disabled={guardando || url.trim() === ''}
+                onClick={() => guardar(false)}
+              >
+                {guardando ? 'Saving…' : 'Save the link'}
+              </button>
+              {typeof funnel.video_url === 'string' && (
+                <button
+                  type="button"
+                  className="bp-linkish"
+                  disabled={guardando}
+                  onClick={() => guardar(true)}
+                >
+                  remove the video
+                </button>
+              )}
+              <button type="button" className="bp-linkish" onClick={onCerrar}>
+                cancel
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </Modal>
+  );
+}
 
 export default function ChooseFunnelPage({ params }: { params: Promise<{ employeeKey: string }> }) {
   const { employeeKey: rawKey } = use(params);
@@ -88,6 +546,23 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
   const [exploring, setExploring] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [opError, setOpError] = useState<string | null>(null);
+  /*
+   * Qué descripciones están desplegadas. Un `Set` de claves y no un booleano
+   * por tarjeta: el estado vive acá --y no adentro de `DescripcionDeTarjeta`--
+   * porque cambiar de categoría remonta las tarjetas, y con el estado adentro
+   * volver a Core reabriría o cerraría al azar según cómo React reconcilie.
+   */
+  /* Qué funnel tiene el modal de video abierto. Una sola clave: no se pueden
+     mirar dos videos a la vez, y el modal es global a la pantalla. */
+  const [videoDe, setVideoDe] = useState<number | null>(null);
+  const [descAbiertas, setDescAbiertas] = useState<ReadonlySet<number>>(new Set());
+  const alternarDesc = (key: number) =>
+    setDescAbiertas((previo) => {
+      const siguiente = new Set(previo);
+      if (siguiente.has(key)) siguiente.delete(key);
+      else siguiente.add(key);
+      return siguiente;
+    });
 
   /*
    * ══════════════════════════════════════════════════════════════════════
@@ -252,7 +727,19 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
         .map((l) => l.node_key);
 
       const today = new Date().toISOString().slice(0, 10);
-      const draft = buildEnrollmentPlan(ordered, lib.nodes, lib.milestones, today);
+      /*
+       * LAS DEPENDENCIAS DECLARADAS DEL FUNNEL -- etapa BP46.
+       *
+       * Se arma el mapa aca porque es el que sabe DE QUE FUNNEL se trata: un
+       * nodo puede estar en cinco, y su antecesor es distinto en cada uno.
+       * `buildEnrollmentPlan` recibe claves de nodo y no sabe de funnels.
+       */
+      const dependsOn = new Map<number, number | null>(
+        lib.links
+          .filter((l) => l.funnel_key === funnelKey)
+          .map((l) => [l.node_key, l.depends_on_node_key ?? null])
+      );
+      const draft = buildEnrollmentPlan(ordered, lib.nodes, lib.milestones, today, dependsOn);
 
       /*
        * ═══════════════════════════════════════════════════════════════════════
@@ -500,7 +987,20 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
                     <span className="bp-pill bp-pill--sky">{s.subMilestoneCount} steps</span>
                     {f.duration_weeks && <span className="bp-pill bp-pill--sky">~{f.duration_weeks} weeks</span>}
                   </div>
-                  <p className="bp-catalog__desc">{f.description ?? ''}</p>
+                  <DescripcionDeTarjeta
+                    texto={f.description ?? ''}
+                    abierta={descAbiertas.has(f.funnel_key)}
+                    onToggle={() => alternarDesc(f.funnel_key)}
+                  />
+                  {/*
+                    ⚠ EL ORDEN DE LA TARJETA — etapa BP48b:
+                      1. nombre y métricas   2. descripción   3. VIDEO
+                      4. secuencia de nodos  5. pie
+                    El video estaba al final, después de la secuencia. Sube
+                    acá: es lo que explica el funnel, y la secuencia es el
+                    detalle que se lee después.
+                  */}
+                  <TiraDeVideo funnel={f} onAbrir={() => setVideoDe(f.funnel_key)} />
                   <div className="bp-catalog__chain">
                     {chain.map((n, i) => (
                       <span key={n + i} className="bp-catalog__chip">
@@ -529,8 +1029,27 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
                     esta activando", que es lo que deja mostrar "Activating…" en
                     la tarjeta correcta y no en todas.
                   */}
+                  {/*
+                    ⚠ LOS AVATARES ENTRAN AL PIE — etapa BP48.
+                    Estaban DESPUÉS del pie, como último hijo de la tarjeta. Con
+                    eso el `margin-top: auto` del pie no alcanzaba para alinear
+                    los botones: el pie quedaba flotando encima de un bloque de
+                    avatares cuya altura cambia --y que no existe si el funnel no
+                    tiene equipo de soporte--. Adentro del pie, el pie es el
+                    último bloque y su borde inferior es el de la tarjeta.
+                  */}
                   <div className="bp-catalog__foot">
+                    <div className="bp-catalog__footleft">
                     <span className="bp-catalog__explore">Click to explore</span>
+                    {team.length > 0 && (
+                      <div className="bp-catalog__team" title={team.map((p) => p.full_name).join(', ')}>
+                        {team.slice(0, 4).map((p) => (
+                          <Avatar key={p.employee_key} name={p.full_name} />
+                        ))}
+                        {team.length > 4 && <span className="bp-catalog__more">+{team.length - 4}</span>}
+                      </div>
+                    )}
+                    </div>
                     {/*
                       ⚠ EL FUNNEL ACTUAL NO SE OFRECE COMO DESTINO — etapa BP40.
                       Encontrado mirando la captura, no midiendo nada: en modo
@@ -567,19 +1086,29 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
                     </span>
                     )}
                   </div>
-                  {team.length > 0 && (
-                    <div className="bp-catalog__team" title={team.map((p) => p.full_name).join(', ')}>
-                      {team.slice(0, 4).map((p) => (
-                        <Avatar key={p.employee_key} name={p.full_name} />
-                      ))}
-                      {team.length > 4 && <span className="bp-catalog__more">+{team.length - 4}</span>}
-                    </div>
-                  )}
                 </button>
               );
             })}
             {shown.length === 0 && <p className="bp-muted-line">No active funnels in this category.</p>}
           </div>
+
+          {videoDe !== null && (() => {
+            const f = lib.funnels.find((x) => x.funnel_key === videoDe);
+            if (!f) return null;
+            return (
+              <ModalDeVideo
+                funnel={f}
+                onCerrar={() => setVideoDe(null)}
+                /* Se recarga la biblioteca y se cierra: el catálogo lee los
+                   funnels de `lib`, así que sin recargar la tira seguiría
+                   diciendo «No video yet» con el video ya guardado. */
+                onGuardado={() => {
+                  setVideoDe(null);
+                  reload();
+                }}
+              />
+            );
+          })()}
 
           {exploring !== null && (() => {
             const f = lib.funnels.find((x) => x.funnel_key === exploring);
