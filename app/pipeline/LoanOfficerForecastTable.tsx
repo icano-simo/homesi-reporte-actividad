@@ -56,6 +56,24 @@ export default function LoanOfficerForecastTable({ rows }: LoanOfficerForecastTa
   const visibleRows = filterByName(rows, search);
 
   /**
+   * Fila de totales -- suma directa de los 5 números YA CALCULADOS que
+   * muestra cada fila visible (nunca recalcula pull-through/forecast).
+   * Sobre `visibleRows`, no sobre `rows`: si el buscador filtra, el total
+   * se recalcula sobre el resultado filtrado, igual que el resto de la
+   * tabla responde al mismo filtro.
+   */
+  const totals = visibleRows.reduce(
+    (acc, row) => ({
+      totalCount: acc.totalCount + row.totalCount,
+      healthyCount: acc.healthyCount + row.healthyCount,
+      closedCount: acc.closedCount + row.closedCount,
+      projectedToClose: acc.projectedToClose + row.projectedToClose,
+      totalForecast: acc.totalForecast + row.totalForecast,
+    }),
+    { totalCount: 0, healthyCount: 0, closedCount: 0, projectedToClose: 0, totalForecast: 0 }
+  );
+
+  /**
    * Total/Healthy/Closed abren el modal con los loans reales detrás del
    * número -- mismo criterio que "Combined Total by Branch" en
    * PivotTable.tsx. Projected to Close y Total Forecast NO son clickeables:
@@ -94,7 +112,7 @@ export default function LoanOfficerForecastTable({ rows }: LoanOfficerForecastTa
 
       <div className="tbl-card">
         <div className="tbl-scroll">
-          <table className="piv">
+          <table className="piv piv--loanofficer">
             <thead>
               <tr className="mo-row">
                 <th className="lbl">Loan Officer</th>
@@ -121,6 +139,23 @@ export default function LoanOfficerForecastTable({ rows }: LoanOfficerForecastTa
                   <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={6}>
                     No Loan Officer matches the search.
                   </td>
+                </tr>
+              )}
+              {/*
+                Mismo tratamiento visual que "Combined Total by Branch"
+                (PivotTable.tsx) -- `tr.grp.total` (components.css), no una
+                clase nueva. No clickeable (sin modal): fuera de alcance por
+                ahora, a diferencia de Total Count/Healthy/Closed de las
+                filas normales.
+              */}
+              {visibleRows.length > 0 && (
+                <tr className="grp total">
+                  <td className="lbl">Total</td>
+                  <td className="val">{fmtInt(totals.totalCount)}</td>
+                  <td className="val">{fmtInt(totals.healthyCount)}</td>
+                  <td className="val">{fmtInt(totals.closedCount)}</td>
+                  <td className="val">{fmtInt(totals.projectedToClose)}</td>
+                  <td className="val">{fmtInt(totals.totalForecast)}</td>
                 </tr>
               )}
             </tbody>

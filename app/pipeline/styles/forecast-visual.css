@@ -412,6 +412,16 @@ table.piv.piv--combined td.totcol {
 .piv--nextmonth tr.grp.total td.val {
   font-weight: 700;
 }
+/**
+ * Etapa LOA-TOTALS-1: mismo problema de especificidad de arriba
+ * (table.piv td.val gana a tr.grp td), mismo fix -- clase de contexto propia
+ * de la tabla de LoanOfficerForecastTable.tsx (`piv--loanofficer`, agregada
+ * junto con la fila de Total de esa tabla), sin tocar la regla de
+ * `piv--nextmonth` de arriba.
+ */
+.piv--loanofficer tr.grp.total td.val {
+  font-weight: 700;
+}
 .piv--exec .th-left {
   text-align: left;
 }
