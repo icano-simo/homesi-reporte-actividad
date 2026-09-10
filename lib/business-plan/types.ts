@@ -354,10 +354,33 @@ export interface Qualifier1 {
   /** Los 3 meses de la ventana; el último es el actual, proyectado. */
   windowMonths: string[];
   avgWithCurrent: number;
-  /** null si la persona no tiene benchmark cargado. */
+  /** null si no hay ni budget cumplido ni benchmark contra qué calcularlo. */
   gap: number | null;
   state: 'on_target' | 'on_risk' | 'need_attention' | null;
   passes: boolean | null;
+  /**
+   * ============================================================================
+   * BUDGET Y BENCHMARK, Y CONTRA CUÁL SE CALCULÓ EL GAP — etapa BP49
+   * ============================================================================
+   *
+   * `budget` es lo que Outlook fijó para ESTE mes (`outlook.person_budget_total`,
+   * mes en curso, última revisión) -- `null` cuando nadie lo fijó, que es un
+   * ESTADO ("no se fijó") y no un cero: un budget en cero diría que se espera
+   * cero producción, y acá lo que pasa es que nadie decidió nada todavía.
+   *
+   * `budgetMet`/`benchmarkMet` son `null` cuando no hay budget/benchmark contra
+   * qué medir -- mismo criterio, no se inventa un sí ni un no.
+   *
+   * `gapAgainst` dice CONTRA QUÉ se calculó `gap`, y la regla es siempre la
+   * misma: el budget manda cuando se cumple: es la meta ambiciosa. Si no se
+   * cumple -- o si no hay budget fijado este mes -- el gap cae al benchmark
+   * inicial, que es el piso. Sin ninguno de los dos, `gap` es `null` y no hay
+   * veredicto: la misma garantía que ya tenía esta función antes de BP49.
+   */
+  budget: number | null;
+  budgetMet: boolean | null;
+  benchmarkMet: boolean | null;
+  gapAgainst: 'budget' | 'benchmark' | null;
 }
 
 /**
@@ -566,5 +589,12 @@ export interface BusinessPlanData {
     interventionTableAvailable: boolean;
     /** false = las tablas de funnels todavía no están aplicadas. */
     enrollmentTableAvailable: boolean;
+    /**
+     * false = `outlook.person_budget_total` no se pudo leer (migración sin
+     * aplicar, o sin acceso desde este módulo) -- etapa BP49. El gap sigue
+     * funcionando: cae al benchmark para todos, igual que si nadie hubiera
+     * fijado un budget.
+     */
+    personBudgetTotalTableAvailable: boolean;
   };
 }

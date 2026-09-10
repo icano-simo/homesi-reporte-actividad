@@ -1242,6 +1242,50 @@ a.bp-btn {
  */
 
 /*
+ * ============================================================================
+ * SOMBREADO DE STARTING BENCHMARK / BUDGET — etapa BP49
+ * ============================================================================
+ *
+ * Fondo suave, no una alerta: ya sacamos dos veces colores que competían con
+ * el contenido (ver AGENTS.md). El texto del `.bp-stat__flag` dice lo mismo
+ * que el color, para quien no distingue los tonos -- el color nunca es la
+ * única forma de leer el estado.
+ */
+.bp-stat--met,
+.bp-stat--under {
+  border-radius: var(--radius-sm);
+  padding: 9px 8px;
+  margin: 0 -8px;
+  border-bottom-color: transparent;
+}
+.bp-stat--met {
+  background: var(--emerald-50);
+}
+.bp-stat--met .bp-stat__value,
+.bp-stat--met .bp-stat__flag {
+  color: var(--emerald-700);
+}
+.bp-stat--under {
+  background: var(--rose-50);
+}
+.bp-stat--under .bp-stat__value,
+.bp-stat--under .bp-stat__flag {
+  color: var(--rose-700);
+}
+.bp-stat__row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.bp-stat__flag {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--slate-400);
+  white-space: nowrap;
+}
+
+/*
  * GAP: número y estado en la MISMA píldora, con el fondo del color del estado.
  * Separados en dos renglones había que unirlos mentalmente para leer que −0,5
  * está en riesgo.
