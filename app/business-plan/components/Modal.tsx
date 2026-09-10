@@ -27,6 +27,7 @@ export default function Modal({
   onClose,
   children,
   hideTitle = false,
+  footer,
 }: {
   title: string;
   onClose: () => void;
@@ -39,6 +40,20 @@ export default function Modal({
    * a la vista no es motivo para dejar sin nombre al lector de pantalla.
    */
   hideTitle?: boolean;
+  /**
+   * ============================================================================
+   * EL PIE, FUERA DEL SCROLL -- etapa OL26d
+   * ============================================================================
+   *
+   * ⚠ NO ES `position: sticky` ADENTRO DE `.bp-modal__body`. Ya pasó en Outlook
+   * --la fila del total del branch, etapas OL23/OL24-- que anclar un sticky al
+   * contenedor equivocado crea un scrollport propio y con él una segunda barra
+   * de scroll. Acá el arreglo es estructural y no depende de acordarse: el pie
+   * es un tercer hijo de `.bp-modal` (un flex column), hermano de `.bp-modal__body`
+   * y no un descendiente suyo -- así que nunca comparte su scroll y no hace
+   * falta ningún `position: sticky` para que quede siempre visible.
+   */
+  footer?: ReactNode;
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -71,6 +86,7 @@ export default function Modal({
           </button>
         </div>
         <div className="bp-modal__body">{children}</div>
+        {footer && <div className="bp-modal__footer">{footer}</div>}
       </div>
     </div>
   );

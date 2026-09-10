@@ -56,7 +56,7 @@ export default function NppmEditor({
   ytd: number;
   data: OutlookData;
   onClose: () => void;
-  /* Se espera la recarga antes de anunciar -- ver `StrategyEditor`. */
+  /* Se espera la recarga antes de anunciar -- ver `PersonBudgetEditor`. */
   onSaved: () => Promise<void> | void;
 }) {
   const [value, setValue] = useState('');

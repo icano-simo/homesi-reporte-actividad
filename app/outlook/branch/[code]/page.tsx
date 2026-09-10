@@ -18,17 +18,15 @@ import {
   type NotProjectingReason,
   type RecruitStage,
 } from '@/lib/outlook/recruitment';
-import {
-  type OutlookStrategy,
-} from '@/lib/outlook/project';
 import { remainingMonthsFor } from '@/lib/outlook/horizon';
 import { fmt, sumOfShown } from '@/lib/outlook/format';
 import { useOutlookDataContext } from '@/lib/outlook/useOutlookData';
-import { type OutlookEditable } from '@/app/outlook/components/StrategyEditor';
 import NppmEditor from '@/app/outlook/components/NppmEditor';
 import RecruitEditor, { branchOptions } from '@/app/outlook/components/RecruitEditor';
-import { type BudgetEditable } from '@/app/outlook/components/BudgetEditor';
-import PersonBudgetEditor from '@/app/outlook/components/PersonBudgetEditor';
+import PersonBudgetEditor, {
+  type BudgetEditable,
+  type OwnProductionRate,
+} from '@/app/outlook/components/PersonBudgetEditor';
 import OutlookTopBar from '@/app/outlook/components/OutlookTopBar';
 import type { PersonSubject } from '@/lib/outlook/save';
 /*
@@ -1915,9 +1913,8 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
             else if (rvPedido !== null) setRvDescartado(rvPedido.employeeKey);
           };
           if (editingBudgetActivo.kind === 'employee') {
-            const pr = personRows.find((x) => x.lo.employeeKey === editingBudgetActivo.employeeKey);
-            if (!pr) return null;
-            const lo = pr.lo;
+            const lo = branch.loanOfficers.find((x) => x.employeeKey === editingBudgetActivo.employeeKey);
+            if (!lo) return null;
             const person: BudgetEditable = {
               subject: { kind: 'employee', employeeKey: lo.employeeKey },
               label: lo.fullName,
@@ -1927,26 +1924,20 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               budgetBreakdown: lo.budgetBreakdown,
               budgetBreakdownRevision: lo.budgetBreakdownRevision,
             };
-            const strategyEditable: OutlookEditable = {
-              subject: { kind: 'employee', employeeKey: lo.employeeKey },
-              label: lo.fullName,
-              benchmarkSchedules: lo.benchmarkSchedules,
-              rulesByStrategy: lo.rulesByStrategy,
-              targetsByStrategy: lo.targetsByStrategy,
-              modeByStrategy: lo.modeByStrategy,
-              modeSetBy: lo.modeSetBy,
-              ruleRevision: lo.ruleRevision,
-              targetRevision: lo.targetRevision,
+            /*
+             * ⚠ SÓLO LO QUE HACE FALTA PARA LA CALCULADORA -- etapa OL26d. Ya
+             * no se arma un `OutlookEditable` completo (eso guardaba en
+             * `outlook.growth_rule`, que esta pantalla dejó de escribir): sólo
+             * el benchmark y la última regla, para prellenar "apply a rate".
+             */
+            const ownProductionRate: OwnProductionRate = {
+              savedSchedule: lo.benchmarkSchedules['Own Production'] ?? [],
+              savedSegments: lo.rulesByStrategy['Own Production'] ?? [],
             };
-            const strategies: OutlookStrategy[] = pr.participatesInRecruitment
-              ? ['Own Production', 'Recruitment']
-              : ['Own Production'];
             return (
               <PersonBudgetEditor
-                label={lo.fullName}
-                strategies={strategies}
-                strategyEditable={strategyEditable}
-                budgetPerson={person}
+                person={person}
+                ownProductionRate={ownProductionRate}
                 data={data}
                 months={remainingMonths}
                 onClose={cerrar}
@@ -1969,10 +1960,8 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
           };
           return (
             <PersonBudgetEditor
-              label={r.displayName}
-              strategies={[]}
-              strategyEditable={null}
-              budgetPerson={person}
+              person={person}
+              ownProductionRate={null}
               data={data}
               months={remainingMonths}
               onClose={cerrar}

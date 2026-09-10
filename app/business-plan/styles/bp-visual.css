@@ -933,6 +933,31 @@ a.bp-btn {
 .bp-modal__body {
   overflow: auto;
   padding: 4px 18px 18px;
+  /*
+   * ⚠ `flex: 1` Y `min-height: 0`, NO SÓLO `overflow: auto` -- etapa OL26d.
+   * Con dos hijos (cabecera y cuerpo) el cuerpo se queda con lo que sobra
+   * aunque no lo pida --es el último, no hay nadie más compitiendo por el
+   * espacio--. Con el pie nuevo como TERCER hijo eso deja de ser automático:
+   * sin `flex: 1` el cuerpo mide lo que su contenido necesita y empuja a
+   * `.bp-modal` entero más allá de `max-height`, y sin `min-height: 0` un
+   * flex item no encoge por debajo de su contenido aunque tenga `overflow:
+   * auto` -- las dos son necesarias para que el scroll quede adentro del
+   * cuerpo y el pie no se mueva.
+   */
+  flex: 1 1 auto;
+  min-height: 0;
+}
+/*
+ * El pie del modal -- etapa OL26d. Hermano de `.bp-modal__body`, no
+ * descendiente: `.bp-modal` es un flex column, así que este bloque queda
+ * SIEMPRE visible sin ningún `position: sticky` y sin compartir el scroll
+ * de `.bp-modal__body`. Mismo borde y padding que `.bp-modal__head`, que es
+ * el otro bloque fijo del modal.
+ */
+.bp-modal__footer {
+  flex-shrink: 0;
+  padding: 12px 18px;
+  border-top: 1px solid var(--slate-200);
 }
 
 /* ── Settings ───────────────────────────────────────────────────────────── */
