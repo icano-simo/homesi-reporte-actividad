@@ -8378,3 +8378,49 @@ select n.node_key, n.name, count(distinct fn.funnel_key) as funnels
   join business_plan.funnel_node fn on fn.node_key = n.node_key
  group by 1, 2 order by 3 desc limit 5;
 ```
+
+## PENDIENTE — `feat/ol26-vista-outlook` espera un rebase, y qué hay que hacer después
+
+Siete de las ocho ramas entraron a `main` (última: `6803bad`). La octava, la
+vista de branch de Outlook, quedó afuera **a propósito**: su autora la va a
+rebasar sobre `main`, porque los bloques 5 a 8 del conflicto son 118 líneas
+reescritas por ella y deducirlos desde el diff es donde se pierde una decisión
+sin que nadie lo note.
+
+Esto queda escrito porque **ninguna de las cuatro cosas se ve en el diff**, y
+tres de ellas no las señala ninguna herramienta.
+
+**1. Los diez bloques de `app/outlook/branch/[code]/page.tsx`.** Eran dos
+cuando la rama de revisión todavía no estaba en `main`; pasaron a diez cuando
+entró. Los bloques 1, 2 y 4 son imports y un hook: mecánicos.
+
+**2. ⚠ El bloque 10 no es un conflicto de texto.** OL26 borró la región donde
+la rama de revisión monta `editingActivo` -- el editor que la máscara abre
+leyendo `rvOpen` / `rvLo` de la URL. Aceptar ese borrado **apaga el paso 2.2 de
+la revisión y no falla nada**: ni `tsc`, ni una aserción, ni la pantalla. Hay
+que re-cablearlo sobre el `PersonBudgetEditor` nuevo.
+
+**3. `StrategyEditor.tsx` se borra, y CON ÉL sus dos clases.**
+`.ol-editor__save` y `.ol-editor__savewhat` son de RV4 y hoy tienen consumidor
+en `main`: borrarlas antes deshace ese arreglo. Van en el mismo commit que
+borra el archivo -- ver «el reverso, que sólo aparece con dos ramas vivas» en
+`AGENTS.md`.
+
+El borrado del archivo en sí es aceptable: la lección de RV4 --que el botón no
+se lea como «guardar el comentario»-- sobrevive en el editor nuevo, que dice
+«Save budget» o «Save with a difference of N». Comprobado.
+
+**4. ⚠ Una fila de `review.step` queda mintiendo.** El paso 2.2 tiene
+`gate_config.open_editor = 'Own Production'`, que nombra una ESTRATEGIA. La
+cabecera de OL26 dice que hasta OL25 el editor se abría por estrategia y que
+ahora se abre **por persona**. El `target` --`.ol-editor`-- sigue existiendo,
+así que no falla: lo que desaparece es la forma de llegar. El SQL sale del
+modelo nuevo y no antes, cuando se sepa qué identifica a una persona ahí.
+
+Y el dato que lo vuelve tranquilo: **cero sesiones de revisión activas**, así
+que cambiar ese `gate_config` no corta ninguna revisión a mitad de camino.
+Volver a comprobarlo antes de tocarlo:
+
+```sql
+select count(*) from review.session where status = 'in_progress';
+```
