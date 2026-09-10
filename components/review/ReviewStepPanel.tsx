@@ -53,7 +53,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { AlertTriangleIcon } from '@/components/ui/icons';
 import {
   allowsSecondFunnel,
@@ -61,7 +61,8 @@ import {
   gateLink,
   gateStatus,
   requiredClicks,
-  requiresFunnel,
+  promptDeLaRama,
+  requiereDecisionDeFunnel,
   enPalabras,
   type StepDraft,
 } from '@/lib/review/gates';
@@ -176,6 +177,7 @@ export default function ReviewStepPanel({
   /* Sólo para no ofrecer «andá al catálogo» estando en el catálogo. El resto de
      la decisión de lugar la resuelve el anfitrión, que ve el DOM entero. */
   const pathname = usePathname();
+  const router = useRouter();
   const cursor: StepRef = {
     phase_no: session.current_phase,
     step_in_phase: session.current_step_in_phase,
@@ -259,6 +261,45 @@ export default function ReviewStepPanel({
    * Y NO reemplaza a `response.gate`: eso sigue siendo lo que queda escrito.
    * Esto es un borrador, con el alcance de un borrador.
    */
+  /*
+   * ═════════════════════════════════════════════════════════════════
+   * QUÉ BOTÓN APRETARON EN LA PANTALLA DE DECISIÓN — etapa RV10
+   * ═════════════════════════════════════════════════════════════════
+   *
+   * Es lo ÚNICO del flujo nuevo que no se deriva de la base: el resto sale de
+   * `funnelActual`, que el anfitrión relee cada 4s.
+   *
+   * ⚠ EN `sessionStorage` Y NO EN MEMORIA, porque el flujo CRUZA UNA NAVEGACIÓN:
+   * «Ver los funnels» lleva al catálogo, y de ahí `activate_funnel` lleva al
+   * plan. Una recarga en el medio con el estado en memoria devolvería a la
+   * persona a la pantalla de decisión, en el catálogo, sin decirle por qué.
+   *
+   * Misma convención que el borrador de los clics --y por la misma razón, que
+   * ahí fue un agujero real-- y mismo alcance: es de ESTA sentada. Lo que queda
+   * escrito es `response.gate`, no esto.
+   */
+  const claveDesenlace =
+    'rv-funnel:' + session.session_key + ':' + cursor.phase_no + ':' + cursor.step_in_phase;
+  const [desenlace, setDesenlace] = useState<'ver' | 'declinado' | null>(() => {
+    try {
+      const v = sessionStorage.getItem(claveDesenlace);
+      return v === 'ver' || v === 'declinado' ? v : null;
+    } catch {
+      /* Sin almacenamiento se arranca sin decidir: se vuelve a preguntar, que es
+         el lado seguro -- nunca da por decidido algo que nadie decidió. */
+      return null;
+    }
+  });
+  const decidir = (cual: 'ver' | 'declinado' | null) => {
+    setDesenlace(cual);
+    try {
+      if (cual === null) sessionStorage.removeItem(claveDesenlace);
+      else sessionStorage.setItem(claveDesenlace, cual);
+    } catch {
+      /* Ver la nota de arriba. */
+    }
+  };
+
   const claveClics =
     'rv-clicks:' + session.session_key + ':' + cursor.phase_no + ':' + cursor.step_in_phase;
   const [clicks, setClicks] = useState<string[]>(() => {
@@ -500,7 +541,7 @@ export default function ReviewStepPanel({
    * un estado local quedaría viejo justo en el momento que importa: el de
    * volver del catálogo con el funnel ya activo.
    */
-  const requiereFunnel = requiresFunnel(paso);
+  const requiereFunnel = requiereDecisionDeFunnel(paso);
   /* `=== null` estricto: `undefined` es «no lo leí» y no habilita ni bloquea. */
   const faltaFunnel = requiereFunnel && funnelActual === null;
   /* Y mientras no se haya leído, el paso no afirma nada sobre el funnel. */
@@ -570,7 +611,135 @@ export default function ReviewStepPanel({
     );
   }
 
+  /*
+   * ⚠ LA COMPUERTA SE CALCULA ARRIBA DE LOS CORTES — RV10.
+   *
+   * Estaba después del último `return` temprano, que alcanzaba mientras las
+   * vistas de arriba no la necesitaran. Las tres de la fase 3 sí: la de
+   * «declinado» tiene su propio campo y su propio botón de cerrar, así que
+   * necesita saber si el paso puede guardarse.
+   *
+   * Lo dijo el typechecker, con cuatro errores de TDZ.
+   */
+  const draft: StepDraft = {
+    comment,
+    numero: numero.trim() === '' ? null : Number(numero),
+    clicks,
+    budgetListo,
+    /*
+     * ⚠ EL DESENLACE DE LA FASE 3 — RV10. Lo único de esta compuerta que la
+     * persona declara, y por eso el comentario sigue siendo obligatorio: sin
+     * decir por qué, declinar no cierra el paso.
+     *
+     * `funnelNombre` se manda para que la evidencia guarde QUÉ se eligió ese
+     * día. Ver la nota de `gateEvidence`: acá la respuesta es la fuente, no una
+     * copia de una fuente viva.
+     */
+    desenlaceFunnel: desenlace === 'declinado' ? 'declinado' : null,
+    funnelNombre: typeof funnelActual === 'string' ? funnelActual : null,
+    /*
+     * De la base, vía el anfitrión: `business_plan.enrollment`. La pantalla no lo
+     * puede poner en `true`, igual que el presupuesto.
+     *
+     * ⚠ `typeof === 'string'` y no `!== null`: con tres estados, `undefined`
+     * --«no lo leí»-- pasaba como funnel presente. Acá no se alcanza, porque
+     * `funnelSinLeer` corta antes; pero una condición que miente cuando se la
+     * mueve es la clase de respaldo que hace que la ausencia no se note.
+     */
+    funnelListo: typeof funnelActual === 'string',
+  };
+  const estado = gateStatus(paso, draft);
+  const link = gateLink(paso);
+  const rotuloSiguiente = siguiente
+    ? script.steps.find((s) => sameStep(s, siguiente))?.label ?? null
+    : null;
+
+  /**
+   * ⚠ GUARDAR Y AVANZAR, EN UN GESTO.
+   *
+   * Y en este orden, con corte: si el guardado falla no se mueve el cursor. Si
+   * el guardado sale y el movimiento falla, el paso QUEDA GUARDADO y el error
+   * habla del movimiento -- que es la verdad, y es recuperable apretando otra
+   * vez.
+   */
+  async function guardarYSeguir() {
+    if (!estado.ok || ocupado) return;
+    setOcupado(true);
+
+    /*
+     * ═════════════════════════════════════════════════════════════════
+     * EL BENCHMARK SE ESCRIBE DE VERDAD — etapa RV3
+     * ═════════════════════════════════════════════════════════════════
+     *
+     * En RV1 el número del paso 2 no iba a ninguna parte: la compuerta pedia
+     * "escribi un número" y la evidencia guardaba `benchmark_set: true`. El
+     * número se escribía en el perfil, aparte. Con el campo ACÁ, eso es un paso
+     * de teatro -- se tipea un valor que no cambia nada.
+     *
+     * ⚠ Y SIGUE HABIENDO UNA SOLA FUENTE DEL NÚMERO: `org.employee_benchmark`.
+     * `response.gate` guarda que se fijó, no cuánto. Copiar el número ahí daría
+     * dos lugares libres de discrepar, que es lo que RV1 evitó a propósito.
+     *
+     * ⚠ Y EL ORDEN IMPORTA: primero el benchmark, después la respuesta. Si el
+     * benchmark falla, el paso NO se cierra -- cerrarlo diría que se fijó uno
+     * que no se fijó. Al revés, un paso cerrado sin su benchmark es una
+     * revisión que miente sobre lo que hizo.
+     */
+    /* `typeof` y no `!== null`: en `StepDraft` el número es opcional, así que
+       descartar sólo `null` deja pasar `undefined` -- lo dijo el typechecker. */
+    const nro = draft.numero;
+    if (paso!.gate_kind === 'number' && typeof nro === 'number' && nro !== benchmarkActual) {
+      const rb = await fijarBenchmark(session.lo_employee_key, nro, comment);
+      if (!rb.ok) {
+        setError(rb.error ?? 'The benchmark was not saved.');
+        setOcupado(false);
+        return;
+      }
+      onBenchmarkGuardado();
+    }
+
+    const errGuardar = await onGuardar(cursor, texto!.revision, comment, gateEvidence(paso!, draft));
+    if (errGuardar) {
+      setError(errGuardar);
+      setOcupado(false);
+      return;
+    }
+    if (esUltimo) {
+      /* Guardado el último paso, se muestra todo antes de soltar la máscara. */
+      setOcupado(false);
+      onResumen();
+      return;
+    }
+    setError(await onIrAlPaso(siguiente!));
+    setOcupado(false);
+  }
+
+  /*
+   * ═══════════════════════════════════════════════════════════════════════
+   * LA FASE 3, SIN FUNNEL: TRES PANTALLAS — etapa RV10
+   * ═══════════════════════════════════════════════════════════════════════
+   *
+   * RV7 tenía una sola: «no tiene funnel, andá al catálogo». Isabella la
+   * recorrió y no alcanzó -- nadie sabía si elegía ahora o no, y el paso no
+   * tenía salida si la respuesta era que no.
+   *
+   *   sin decidir   →  ¿van a elegir un funnel ahora?
+   *   declinado     →  el comentario dice por qué, y la revisión cierra
+   *   eligiendo     →  al catálogo, con el campo visible MIENTRAS miran
+   *
+   * ⚠ EL COMENTARIO SE ESCRIBE ANTES DE ELEGIR, no después: es lo que el brief
+   * pide y es lo que cambia el sentido del paso -- se registra lo que se estaba
+   * pensando, no una justificación de lo ya hecho.
+   */
   if (faltaFunnel) {
+    /* La pregunta cambia con la rama; la del paso queda para la decisión. */
+    const preguntaDeLaRama =
+      desenlace === 'declinado'
+        ? promptDeLaRama(paso, 'declinado')
+        : desenlace === 'ver'
+          ? promptDeLaRama(paso, 'catalogo')
+          : null;
+
     return (
       <div className="rv-panel" role="region" aria-label="Review step">
         <div className="rv-panel__head">
@@ -580,39 +749,203 @@ export default function ReviewStepPanel({
           <span className="rv-panel__label">{paso.label}</span>
           {yaContestado && <span className="rv-panel__done">answered</span>}
         </div>
-        <p className="rv-panel__prompt">{texto.prompt}</p>
-        {/*
-          ⚠ LOS DOS BOTÓNES SE NOMBRAN, Y EL DE LA TARJETA PRIMERO.
-          En el catálogo la tarjeta dice `Select` --y activa de una, sin
-          confirmación, cuando la persona no tiene plan--. `Select this funnel`
-          es el del EXPLORADOR, detrás de «click to explore». Nombrar sólo el
-          segundo manda a buscar un botón que no está a la vista.
-        */}
-        <p className="rv-panel__gate">
-          <AlertTriangleIcon size={13} /> {loName} has no active funnel, and this step is where
-          one gets picked. In the catalog, press <strong>Select</strong> on the funnel you agreed
-          on — or open it first and use <strong>Select this funnel</strong>. The comment box
-          shows up once it is active.
+        <p className="rv-panel__prompt">{preguntaDeLaRama ?? texto.prompt}</p>
+
+        {/* ── 1. SIN DECIDIR ──────────────────────────────────────────── */}
+        {desenlace === null && (
+          <>
+            <p className="rv-panel__helper">
+              {loName} has no active funnel. Deciding not to pick one is a valid outcome — it
+              just has to be said, and why.
+            </p>
+            <div className="rv-panel__actions">
+              <button
+                type="button"
+                className="bp-btn bp-btn--primary bp-btn--small"
+                disabled={ocupado}
+                onClick={() => {
+                  decidir('ver');
+                  /*
+                   * Se navega acá y no con un `<Link>`: el botón tiene que dejar
+                   * escrito el desenlace ANTES de moverse, o una recarga en el
+                   * catálogo vuelve a preguntar.
+                   */
+                  if (!enElCatalogo) router.push(rutaDelCatalogo);
+                }}
+              >
+                See the funnels →
+              </button>
+              <button
+                type="button"
+                className="bp-btn bp-btn--small"
+                disabled={ocupado}
+                onClick={() => decidir('declinado')}
+              >
+                Not now
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* ── 2. DECLINADO ───────────────────────────────────────────── */}
+        {desenlace === 'declinado' && (
+          <>
+            <label className="rv-panel__field">
+              <span className="rv-panel__fieldlabel">Comment</span>
+              <textarea
+                className="field rv-panel__text"
+                data-review-comment=""
+                rows={3}
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                placeholder="Why not now?"
+              />
+            </label>
+            {!estado.ok && estado.falta && (
+              <p className="rv-panel__gate">{estado.falta}</p>
+            )}
+            <div className="rv-panel__actions">
+              <button
+                type="button"
+                className="bp-btn bp-btn--primary bp-btn--small"
+                disabled={!estado.ok || ocupado}
+                onClick={guardarYSeguir}
+              >
+                {esUltimo ? 'Finish review' : 'OK'}
+              </button>
+              <button
+                type="button"
+                className="rv-panel__edit"
+                disabled={ocupado}
+                onClick={() => decidir(null)}
+              >
+                Back to the choice
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* ── 3. ELIGIENDO, EN EL CATÁLOGO ──────────────────────────── */}
+        {desenlace === 'ver' && (
+          <>
+            {!enElCatalogo ? (
+              <div className="rv-panel__actions">
+                <Link className="bp-btn bp-btn--primary bp-btn--small" href={rutaDelCatalogo}>
+                  Open the funnel catalog →
+                </Link>
+              </div>
+            ) : (
+              <>
+                {/*
+                  ⚠ EL CAMPO ESTÁ MIENTRAS MIRAN, y el botón de cerrar NO. El paso
+                  se cierra al seleccionar, no acá: lo que se escribe es lo que
+                  están pensando frente a las plantillas.
+                */}
+                <label className="rv-panel__field">
+                  <span className="rv-panel__fieldlabel">Comment</span>
+                  <textarea
+                    className="field rv-panel__text"
+                    data-review-comment=""
+                    rows={3}
+                    value={comment}
+                    onChange={(e) => setComment(e.target.value)}
+                    placeholder="What catches your eye?"
+                  />
+                </label>
+                <p className="rv-panel__helper">
+                  Press <strong>Select</strong> on the one you agreed on. What you write here is
+                  kept.
+                </p>
+              </>
+            )}
+            <div className="rv-panel__actions">
+              <button
+                type="button"
+                className="rv-panel__edit"
+                disabled={ocupado}
+                onClick={() => decidir(null)}
+              >
+                Back to the choice
+              </button>
+            </div>
+          </>
+        )}
+
+        {botonVolver && <div className="rv-panel__actions">{botonVolver}</div>}
+      </div>
+    );
+  }
+
+  /*
+   * ══════════════════════════════════════════════════════════════════════
+   * LA CONFIRMACIÓN: EL FUNNEL APARECIÓ MIENTRAS MIRABAN — etapa RV10
+   * ══════════════════════════════════════════════════════════════════════
+   *
+   * Tres condiciones, y las tres hacen falta:
+   *
+   *   · hay funnel                 -- la selección ocurrió
+   *   · el desenlace dice `ver`    -- pasó por el catálogo EN ESTA SENTADA
+   *   · el paso no está contestado -- no es una revisión que se retoma
+   *
+   * La segunda es la que distingue «acaba de elegir» de «ya tenía uno»: sin
+   * ella, Adriana --que tiene funnel desde septiembre-- entraría a una pantalla
+   * que le felicita por algo que no hizo hoy.
+   *
+   * ⚠ Y EL COMENTARIO YA ESTABA ESCRITO, en el catálogo. Se muestra, no se
+   * vuelve a pedir. Si viene vacío --una recarga entre el catálogo y acá-- se
+   * ofrece el campo: la compuerta lo exige igual, así que el panel se cura solo
+   * en vez de trabarse.
+   */
+  if (
+    typeof funnelActual === 'string' &&
+    requiereFunnel &&
+    desenlace === 'ver' &&
+    yaContestado === null
+  ) {
+    return (
+      <div className="rv-panel" role="region" aria-label="Review step">
+        <div className="rv-panel__head">
+          <span className="rv-panel__step">
+            Phase {paso.phase_no} · step {paso.step_in_phase}
+          </span>
+          <span className="rv-panel__label">{paso.label}</span>
+        </div>
+        <p className="rv-panel__prompt">
+          Done — <strong>{funnelActual}</strong> is selected.
         </p>
-        {!enElCatalogo && (
-          <div className="rv-panel__actions">
-            <Link className="bp-btn bp-btn--primary bp-btn--small" href={rutaDelCatalogo}>
-              Open the funnel catalog →
-            </Link>
+        {comment.trim() === '' ? (
+          <label className="rv-panel__field">
+            <span className="rv-panel__fieldlabel">Comment</span>
+            <textarea
+              className="field rv-panel__text"
+              data-review-comment=""
+              rows={3}
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              placeholder="Why this funnel?"
+            />
+          </label>
+        ) : (
+          <div className="rv-panel__saved">
+            <p className="rv-panel__savedtext">{comment}</p>
           </div>
         )}
-        {enElCatalogo && (
-          <p className="rv-panel__helper">
-            You are on the catalog — press <strong>Select</strong> on the one you agreed on. The
-            review comes back to the profile on its own, and the comment box will be there.
+        {!estado.ok && estado.falta && <p className="rv-panel__gate">{estado.falta}</p>}
+        {error && (
+          <p className="rv-panel__gate" role="alert">
+            <AlertTriangleIcon size={13} /> {error}
           </p>
         )}
-        {/*
-          ⚠ Y ACÁ TAMBIÉN EL BOTÓN DE VOLVER. Este panel no ofrece nada más --sin
-          funnel el paso no se cierra-- así que sin él sería un callejón: estar
-          trabado es justo cuando alguien puede querer retroceder un paso.
-        */}
-        {botonVolver && <div className="rv-panel__actions">{botonVolver}</div>}
+        <div className="rv-panel__actions">
+          <button
+            type="button"
+            className="bp-btn bp-btn--primary bp-btn--small"
+            disabled={!estado.ok || ocupado}
+            onClick={guardarYSeguir}
+          >
+            {esUltimo ? 'Finish review' : 'OK'}
+          </button>
+        </div>
       </div>
     );
   }
@@ -691,88 +1024,6 @@ export default function ReviewStepPanel({
         </div>
       </div>
     );
-  }
-
-  const draft: StepDraft = {
-    comment,
-    numero: numero.trim() === '' ? null : Number(numero),
-    clicks,
-    budgetListo,
-    /*
-     * De la base, vía el anfitrión: `business_plan.enrollment`. La pantalla no lo
-     * puede poner en `true`, igual que el presupuesto.
-     *
-     * ⚠ `typeof === 'string'` y no `!== null`: con tres estados, `undefined`
-     * --«no lo leí»-- pasaba como funnel presente. Acá no se alcanza, porque
-     * `funnelSinLeer` corta antes; pero una condición que miente cuando se la
-     * mueve es la clase de respaldo que hace que la ausencia no se note.
-     */
-    funnelListo: typeof funnelActual === 'string',
-  };
-  const estado = gateStatus(paso, draft);
-  const link = gateLink(paso);
-  const rotuloSiguiente = siguiente
-    ? script.steps.find((s) => sameStep(s, siguiente))?.label ?? null
-    : null;
-
-  /**
-   * ⚠ GUARDAR Y AVANZAR, EN UN GESTO.
-   *
-   * Y en este orden, con corte: si el guardado falla no se mueve el cursor. Si
-   * el guardado sale y el movimiento falla, el paso QUEDA GUARDADO y el error
-   * habla del movimiento -- que es la verdad, y es recuperable apretando otra
-   * vez.
-   */
-  async function guardarYSeguir() {
-    if (!estado.ok || ocupado) return;
-    setOcupado(true);
-
-    /*
-     * ═════════════════════════════════════════════════════════════════
-     * EL BENCHMARK SE ESCRIBE DE VERDAD — etapa RV3
-     * ═════════════════════════════════════════════════════════════════
-     *
-     * En RV1 el número del paso 2 no iba a ninguna parte: la compuerta pedia
-     * "escribi un número" y la evidencia guardaba `benchmark_set: true`. El
-     * número se escribía en el perfil, aparte. Con el campo ACÁ, eso es un paso
-     * de teatro -- se tipea un valor que no cambia nada.
-     *
-     * ⚠ Y SIGUE HABIENDO UNA SOLA FUENTE DEL NÚMERO: `org.employee_benchmark`.
-     * `response.gate` guarda que se fijó, no cuánto. Copiar el número ahí daría
-     * dos lugares libres de discrepar, que es lo que RV1 evitó a propósito.
-     *
-     * ⚠ Y EL ORDEN IMPORTA: primero el benchmark, después la respuesta. Si el
-     * benchmark falla, el paso NO se cierra -- cerrarlo diría que se fijó uno
-     * que no se fijó. Al revés, un paso cerrado sin su benchmark es una
-     * revisión que miente sobre lo que hizo.
-     */
-    /* `typeof` y no `!== null`: en `StepDraft` el número es opcional, así que
-       descartar sólo `null` deja pasar `undefined` -- lo dijo el typechecker. */
-    const nro = draft.numero;
-    if (paso!.gate_kind === 'number' && typeof nro === 'number' && nro !== benchmarkActual) {
-      const rb = await fijarBenchmark(session.lo_employee_key, nro, comment);
-      if (!rb.ok) {
-        setError(rb.error ?? 'The benchmark was not saved.');
-        setOcupado(false);
-        return;
-      }
-      onBenchmarkGuardado();
-    }
-
-    const errGuardar = await onGuardar(cursor, texto!.revision, comment, gateEvidence(paso!, draft));
-    if (errGuardar) {
-      setError(errGuardar);
-      setOcupado(false);
-      return;
-    }
-    if (esUltimo) {
-      /* Guardado el último paso, se muestra todo antes de soltar la máscara. */
-      setOcupado(false);
-      onResumen();
-      return;
-    }
-    setError(await onIrAlPaso(siguiente!));
-    setOcupado(false);
   }
 
   return (

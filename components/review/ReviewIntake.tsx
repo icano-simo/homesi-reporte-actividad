@@ -236,6 +236,41 @@ export default function ReviewIntake({ loEmployeeKey, loName, habilitado }: Revi
                       </p>
                     )}
 
+                    {/*
+                      ══════════════════════════════════════════════════════
+                      EL DESENLACE DE LA FASE 3 — etapa RV10
+                      ══════════════════════════════════════════════════════
+
+                      Sin esto, «decidieron no elegir» y «falta el paso» se leen
+                      igual: el comentario explica el motivo, pero nada dice que
+                      el motivo ES la respuesta. La única señal sería el conteo
+                      de respuestas de la fase, que nadie mira.
+
+                      ⚠ EL NOMBRE SALE DEL `gate` Y NO DE `enrollment`. Es el
+                      registro de lo que se decidió ESE DÍA: `cancel_funnel`
+                      borra enrolamientos, y el intake tiene que seguir diciendo
+                      qué se eligió aunque ese plan ya no exista.
+                    */}
+                    {a.gate !== null && typeof a.gate.funnel_chosen === 'boolean' && (
+                      <p className="rv-intake__prompt">
+                        {a.gate.funnel_chosen === true ? (
+                          <>
+                            Funnel chosen:{' '}
+                            <strong>
+                              {typeof a.gate.funnel_name === 'string'
+                                ? a.gate.funnel_name
+                                : 'one was selected'}
+                            </strong>
+                          </>
+                        ) : (
+                          <>
+                            <strong>No funnel chosen</strong> — decided, not skipped. The comment
+                            says why.
+                          </>
+                        )}
+                      </p>
+                    )}
+
                     <p className="rv-intake__comment">{a.comment}</p>
                     <p className="rv-intake__by">
                       {a.answeredBy} · {dia(a.answeredAt)}

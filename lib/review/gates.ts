@@ -46,6 +46,20 @@ export interface StepDraft {
   /** `true` si el presupuesto de la fase 2 quedó confirmado. */
   budgetListo?: boolean;
   /**
+   * ⚠ EL DESENLACE DE LA FASE 3 — etapa RV10.
+   *
+   * `null` = todavía no decidieron. `'elegido'` sale de que el funnel exista;
+   * `'declinado'` es un botón que se apretó --«No por ahora»-- y por eso es lo
+   * ÚNICO de esta compuerta que la persona declara. Lo que impide que sea una
+   * casilla vacía es que el comentario sigue siendo obligatorio: declinar sin
+   * decir por qué no cierra el paso.
+   */
+  desenlaceFunnel?: 'elegido' | 'declinado' | null;
+  /** El nombre del funnel elegido, para el registro del día. Ver `gateEvidence`. */
+  funnelNombre?: string | null;
+  /** Y su `enrollment_key`, como puntero a lo que pase después. */
+  enrollmentKey?: number | null;
+  /**
    * `true` si el Loan Officer tiene un funnel activo.
    *
    * ⚠ NO ES UNA DECLARACIÓN DE QUIEN REVISA, igual que `budgetListo`: sale de
@@ -179,6 +193,29 @@ export function stepOpenEditor(step: ReviewStep): string | null {
 }
 
 /**
+ * ════════════════════════════════════════════════════════════════════════
+ * LAS PREGUNTAS DE LAS DOS RAMAS — etapa RV10
+ * ════════════════════════════════════════════════════════════════════════
+ *
+ * El paso pregunta una cosa distinta según la rama: mirando el catálogo, «qué
+ * te llama la atención»; declinando, «por qué no». El `prompt` de
+ * `review.step_prompt` sigue siendo el de la pantalla de decisión.
+ *
+ * ⚠ VIVEN EN `gate_config` Y ESO TIENE UN COSTO DICHO: `step_prompt` versiona un
+ * prompt por paso --y cada respuesta guarda su `revision`-- y no tiene columna
+ * de variante. Estas dos frases NO quedan versionadas. Se eligió eso antes que
+ * agregarle una columna al modelo por dos cadenas.
+ *
+ * Y la ausencia cae al `prompt` del paso, que siempre existe: una clave que
+ * falta deja la pregunta general, no una pantalla sin pregunta.
+ */
+export function promptDeLaRama(step: ReviewStep, rama: 'catalogo' | 'declinado'): string | null {
+  const clave = rama === 'catalogo' ? 'prompt_catalog' : 'prompt_declined';
+  const raw = step.gate_config?.[clave];
+  return typeof raw === 'string' && raw.trim() !== '' ? raw.trim() : null;
+}
+
+/**
  * `true` si el paso permite dejar activo un segundo funnel.
  *
  * Hoy `false` en el guion, y es la mitad (b) de la fase 3 que espera a BP39: la
@@ -195,7 +232,7 @@ export function allowsSecondFunnel(step: ReviewStep): boolean {
 
 /**
  * ════════════════════════════════════════════════════════════════════════
- * SI EL PASO EXIGE UN FUNNEL ACTIVO — etapa RV6, punto 2
+ * SI EL PASO EXIGE UNA DECISIÓN SOBRE EL FUNNEL — RV6, redefinido en RV10
  * ════════════════════════════════════════════════════════════════════════
  *
  * ⚠ EL AGUJERO QUE ESTO CIERRA ES EL MÁS GRAVE DE LA SERIE. Isabella llegó al
@@ -214,9 +251,30 @@ export function allowsSecondFunnel(step: ReviewStep): boolean {
  * restrictivo es pedir el primero. Una clave que falta no puede volver a abrir
  * el agujero -- para eso el punto 2 tiene que estar escrito.
  */
-export function requiresFunnel(step: ReviewStep): boolean {
-  if (step.gate_kind === 'funnel') return true;
+/*
+ * ⚠ SE LLAMABA `requiresFunnel`, Y EL NOMBRE PASÓ A MENTIR — RV10.
+ *
+ * Hasta RV9 el paso exigía que hubiera un funnel. Desde RV10 exige una DECISIÓN:
+ * cierra con funnel elegido, o sin funnel y con el motivo escrito. El valor de
+ * `gate_kind` sigue siendo `funnel` --un valor nuevo por cada matiz convierte la
+ * columna en una lista de casos particulares-- pero el helper se renombra,
+ * porque leer «requires funnel» dos etapas más tarde hace creer que sigue
+ * exigiéndolo.
+ */
+export function requiereDecisionDeFunnel(step: ReviewStep): boolean {
+  /*
+   * ⚠ LA EXENCIÓN VA PRIMERO, y el orden es el arreglo.
+   *
+   * Estaba tercera, después de `gate_kind === 'funnel'`, así que no podía eximir
+   * al único paso que tiene ese `gate_kind` -- o sea, al único donde alguien
+   * querría usarla. La nota prometía una salida escrita y el orden de los `if`
+   * la anulaba.
+   *
+   * Una exención explícita tiene que mirarse antes que cualquier regla que la
+   * implique: si no, es una promesa que el código no cumple.
+   */
   if (step.gate_config?.requires_funnel === false) return false;
+  if (step.gate_kind === 'funnel') return true;
   return step.phase_no === 3;
 }
 
@@ -239,8 +297,26 @@ export function gateStatus(step: ReviewStep, draft: StepDraft): GateStatus {
    * Las dos condiciones son obligatorias: sin funnel no se cierra, y con funnel
    * y sin comentario tampoco.
    */
-  if (requiresFunnel(step) && draft.funnelListo !== true) {
-    return { ok: false, falta: 'Pick a funnel first — this step is where that gets decided.' };
+  /*
+   * ⚠ LOS DOS DESENLACES, Y EL COMENTARIO EN LOS DOS — RV10.
+   *
+   * Antes esto pedía el funnel y punto. Ahora pide una DECISIÓN: elegir uno, o
+   * decir que no por ahora. Lo que NO se relaja es el comentario, que se
+   * comprueba abajo para los dos caminos -- lo que hoy no se puede es cerrar el
+   * paso sin decir nada, y eso no cambia.
+   *
+   * `funnelListo` gana sobre `desenlaceFunnel`: si el funnel existe, la decisión
+   * ya está tomada aunque nadie haya apretado nada. Un botón de «no por ahora»
+   * apretado antes no puede desmentir una fila de `enrollment`.
+   */
+  if (requiereDecisionDeFunnel(step)) {
+    const decidido = draft.funnelListo === true || draft.desenlaceFunnel === 'declinado';
+    if (!decidido) {
+      return {
+        ok: false,
+        falta: 'Decide first: pick a funnel, or say it is not happening now.',
+      };
+    }
   }
 
   if (draft.comment.trim() === '') {
@@ -334,6 +410,32 @@ export function gateEvidence(step: ReviewStep, draft: StepDraft): Record<string,
       const hechos = (draft.clicks ?? []).filter((c) => pedidos.includes(c));
       return hechos.length === 0 ? null : { clicked: hechos };
     }
+    /*
+     * ═══════════════════════════════════════════════════════════════
+     * ⚠ EL DESENLACE SE REGISTRA, NO SE DEDUCE — RV10
+     * ═══════════════════════════════════════════════════════════════
+     *
+     * Sin esta fila, «decidieron no elegir» y «falta el paso» se ven igual en el
+     * intake, y el motivo se pierde. Con ella, el intake dice qué se decidió.
+     *
+     * ⚠ Y ACÁ SÍ SE COPIA EL NOMBRE, al revés que con el benchmark. Ahí no se
+     * copia porque `org.employee_benchmark` es la fuente viva del número y dos
+     * copias pueden discrepar. Acá la respuesta ES la fuente: es el registro de
+     * una decisión con fecha, y `cancel_funnel` BORRA enrolamientos. Si el plan
+     * se cancela en noviembre, el intake tiene que seguir diciendo que el 9 de
+     * septiembre se eligió éste. El `enrollment_key` va como puntero a lo que
+     * pasó después; el nombre, como el hecho de ese día.
+     */
+    case 'funnel':
+      return draft.funnelListo === true
+        ? {
+            funnel_chosen: true,
+            ...(draft.funnelNombre ? { funnel_name: draft.funnelNombre } : {}),
+            ...(typeof draft.enrollmentKey === 'number'
+              ? { enrollment_key: draft.enrollmentKey }
+              : {}),
+          }
+        : { funnel_chosen: false };
     case 'number':
       return { benchmark_set: true };
     case 'budget':

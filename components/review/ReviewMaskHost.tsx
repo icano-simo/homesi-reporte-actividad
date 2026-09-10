@@ -29,12 +29,12 @@
  * con el claim, que es el mismo dato que ya se lee para el header.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { cerrarSesion, guardarPaso, moverCursor } from '@/lib/review/actions';
 import { sameStep } from '@/lib/review/progress';
-import { requiresFunnel, stepOpenEditor, stepTarget } from '@/lib/review/gates';
+import { requiereDecisionDeFunnel, stepOpenEditor, stepTarget } from '@/lib/review/gates';
 import { buscarBranches, rutaDelModulo } from '@/lib/review/branches';
 import { useReviewTarget } from '@/lib/review/useReviewTarget';
 import { useReview } from './ReviewProvider';
@@ -139,7 +139,7 @@ export default function ReviewMaskHost() {
    * de siempre, que es donde la máscara deja a la persona.
    */
   const accionPendiente =
-    pasoActual !== null && requiresFunnel(pasoActual) && funnelActual === null;
+    pasoActual !== null && requiereDecisionDeFunnel(pasoActual) && funnelActual === null;
   const selectorDelPaso = pasoActual ? stepTarget(pasoActual, accionPendiente) : null;
 
   /*
@@ -458,68 +458,28 @@ export default function ReviewMaskHost() {
   }, [pideFunnel]);
 
   /*
-   * ⚠ ELEGIR EL FUNNEL TE SACA DEL LUGAR DEL PASO, Y HAY QUE VOLVER — RV5
+   * ══════════════════════════════════════════════════════════════════════
+   * ⚠ ACÁ VIVÍA EL RETORNO AUTOMÁTICO, Y SE FUE EN RV10
+   * ═════════════════════════════════════════════════════════════════════
    *
-   * El paso 3.1 se contesta en `.bp-decision`, que vive en el PERFIL. Y la
-   * accion que el paso pide --elegir un funnel-- pasa por el catalogo y termina
-   * en `/plan?activated=1`, donde esa seccion no existe: el panel pasa a LEJOS
-   * y el campo del comentario desaparece.
+   * RV5 lo puso para que elegir el funnel no dejara a la persona en una
+   * pantalla sin campo, y RV8 lo convirtió en una navegación DURA porque los
+   * datos del Business Plan quedaban rancios. Las dos razones se fueron con el
+   * flujo nuevo:
    *
-   * Medido: Isabella activo el funnel (enrolamiento 84, 04:40) y el octavo
-   * comentario nunca se escribio. Quedo en una pantalla sin donde escribirlo.
+   *   · el paso ya no se contesta en el perfil, así que no hay a dónde volver;
+   *   · `activate_funnel` deja a la persona en `/plan?activated=1`, que es
+   *     exactamente donde el paso 6 del brief la quiere. La última pantalla es
+   *     el plan, y para eso alcanza con NO navegar.
    *
-   * ⚠ SE NAVEGA UNA SOLA VEZ, en la TRANSICION de «sin funnel» a «con funnel».
-   * No «siempre que no estemos en el lugar»: eso le arrebataria la pantalla a
-   * quien entra a `/plan` a mirar el plan a proposito. La transicion ocurre
-   * exactamente cuando la accion del paso se completo, y ahi volver ES completar
-   * la accion -- la misma razon por la que avanzar de fase navega.
+   * ⚠ Y HABRÍA BORRADO EL COMENTARIO. Una navegación dura es una carga
+   * completa, y el comentario que se escribe en el catálogo vive en el estado
+   * del panel: volver al perfil así se llevaba puesto justo lo que el paso 4
+   * vino a registrar. Dejarlo «por si acaso» no era neutral.
    *
-   * Es la leccion de «Branch Out of Division» una vez mas: el paso abrio un
-   * camino y el camino no volvia.
+   * Lo que ocupa su lugar es la pantalla de confirmación del panel, que se
+   * dibuja donde la persona esté.
    */
-  const funnelAnterior = useRef<string | null | undefined>(undefined);
-  useEffect(() => {
-    const previo = funnelAnterior.current;
-    funnelAnterior.current = funnelActual;
-    /* `undefined` es la primera lectura: no hubo transicion, hubo un arranque. */
-    if (previo === undefined || previo !== null || funnelActual === null) return;
-    if (!pideFunnel || !enRuta || enSitio !== false || rutaDelPaso === '') return;
-    /*
-     * ⚠ Y NO SE NAVEGA A DONDE YA ESTAMOS. `enRuta` es cierto también en los
-     * sub-caminos del perfil, y `enSitio === false` puede ser cierto estando en
-     * la ruta correcta --la sección todavía no apareció--. En esa combinación
-     * un `replace` a la misma URL no arregla nada: remonta el árbol, reinicia
-     * la carga de la pantalla y vuelve a arrancar la búsqueda que estaba a
-     * punto de encontrar la sección.
-     *
-     * Es redundante con el arreglo de arriba a propósito: la causa ya no
-     * produce esta transición, y esta guarda hace que si vuelve a producirse
-     * --por otro camino-- no se convierta en un bucle.
-     */
-    if (pathname === rutaDelPaso) return;
-    /*
-     * ⚠ NAVEGACIÓN DURA, Y NO `router.replace` — RV8.
-     *
-     * MEDIDO: con `replace`, la barra de decisión del perfil queda RANCIA. Los
-     * datos del módulo Business Plan viven en un contexto en memoria que no se
-     * relee al navegar del lado del cliente, así que el perfil seguía diciendo
-     * «Business Plan required» con el funnel ya activo -- a los 3s y a los 45s
-     * igual, y sólo una recarga completa lo corrigía.
-     *
-     * Y eso ROMPE EL PASO para quien está On Track: `DecisionBar` no dibuja
-     * nada cuando no hay plan y el veredicto es On Track, así que con los datos
-     * viejos `.bp-decision` no existe, el lugar del paso no aparece nunca y el
-     * panel queda en LEJOS diciendo «andate al perfil» desde el perfil. Le pasó
-     * a Ana Peña, que es On Track. A Nathan Martinez no, porque es On Risk y su
-     * barra se dibuja igual -- una persona no dice nada de la otra.
-     *
-     * Ocurre UNA vez por revisión --el momento en que el funnel se eligió-- y no
-     * se pierde nada: la sesión vive en la base y la salida de la máscara en el
-     * `localStorage`. Lo que se gana es que la pantalla del módulo y el panel
-     * digan lo mismo.
-     */
-    window.location.assign(rutaDelPaso);
-  }, [funnelActual, pideFunnel, enRuta, enSitio, rutaDelPaso, pathname, router]);
 
   /*
    * ⚠ EL RESUMEN ES UN ESTADO DE LA MÁSCARA, no una ruta.
