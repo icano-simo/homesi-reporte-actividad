@@ -1,6 +1,13 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createMiddlewareClient, withAuthCookies } from '@/lib/supabase/middleware';
-import { ADMIN_CLAIM, ANALYTICS_CLAIM, hasAppAccess, hasClaim, OUTLOOK_CLAIM } from '@/lib/auth/appAccess';
+import {
+  ADMIN_CLAIM,
+  ANALYTICS_CLAIM,
+  hasAppAccess,
+  hasClaim,
+  OUTLOOK_CLAIM,
+  REVIEW_ADMIN_CLAIM,
+} from '@/lib/auth/appAccess';
 import {
   LOGIN_PATH,
   NO_ACCESS_PATH,
@@ -10,6 +17,7 @@ import {
   DEFAULT_LANDING,
   OUTLOOK_PATH,
   PASSWORD_CHANGE_ROUTES,
+  REVIEW_SETTINGS_PATH,
   matchesRoute,
 } from '@/lib/auth/routes';
 
@@ -165,6 +173,19 @@ export async function proxy(request: NextRequest) {
     { path: OUTLOOK_PATH, claim: OUTLOOK_CLAIM, label: 'Outlook' },
     { path: ANALYTICS_PATH, claim: ANALYTICS_CLAIM, label: 'Analytics' },
     { path: ADMIN_PATH, claim: ADMIN_CLAIM, label: 'Admin' },
+    /*
+     * ⚠ LA SUB-RUTA Y NO `/review` — etapa RV1.
+     *
+     * `Mis revisiones` vive en `/review` y la tiene el BP Team entero con
+     * `commercial_activity`; sólo la configuración exige `review_admin`. El
+     * bucle compara por prefijo, así que poner acá `/review` habría cerrado
+     * las dos y dejado al BP Team sin la pantalla que el modo existe para
+     * darles.
+     *
+     * Y el orden importa poco pero no da igual: va DESPUÉS de las tres, porque
+     * `/review/settings` no es prefijo de ninguna y ninguna es prefijo de ella.
+     */
+    { path: REVIEW_SETTINGS_PATH, claim: REVIEW_ADMIN_CLAIM, label: 'Review settings' },
   ];
 
   for (const mod of CLAIMED_MODULES) {

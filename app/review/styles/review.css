@@ -1,0 +1,1470 @@
+/* ============================================================================
+   MODO REVISIÓN — etapa RV1
+   ============================================================================
+
+   ⚠ ESTE ARCHIVO SE IMPORTA DESDE EL LAYOUT RAÍZ, no desde el del módulo.
+
+   La máscara vive en el layout raíz porque tiene que sobrevivir al cruce de
+   Business Plan a Outlook, así que su CSS tiene que estar cargado en las cuatro
+   pantallas del portal — no sólo en `/review`. Es la única hoja del repo con
+   ese alcance además de las cuatro de `globals.css`.
+
+   Y no se metió EN `globals.css`: ese archivo documenta un orden intencional
+   --tokens, reset, shell, componentes-- y esto no es ninguno de los cuatro.
+
+   Cero hexadecimales: todo sale de `tokens.css`. El prefijo es `rv-`, y se
+   verificó con `git grep` que no existía antes de escribirlo.
+   ============================================================================ */
+
+/* ── El borde que dice que hay un modo activo ─────────────────────────────── */
+
+/*
+ * Un elemento propio y no un `border` en el `<body>`: un borde en el body
+ * empuja el contenido y recalcula el layout de las cuatro pantallas. Así el
+ * modo se enciende y se apaga sin mover un pixel de lo que hay debajo.
+ *
+ * `pointer-events: none` es necesario, no decorativo: cubre la ventana entera,
+ * y sin eso se comería todos los clics de la app.
+ */
+.rv-edge {
+  position: fixed;
+  inset: 0;
+  /*
+   * ⚠ POR ENCIMA DE LOS MODALES — etapa RV4.
+   *
+   * Estaban en 60/61/62 y `.bp-modal-backdrop` esta en 100, asi que al abrir un
+   * modal la mascara entera quedaba debajo: el panel del paso no se podia
+   * clickear. Lo destapo el paso 2.2, que abre el editor del presupuesto solo
+   * --antes de esta etapa la revision nunca abria un modal, asi que el orden no
+   * se habia ejercido nunca--. Un caso nuevo activa un bug que nadie escribio.
+   *
+   * La mascara va arriba de todo porque ES el marco de la sesion, no contenido
+   * de la pantalla: si se puede tapar, se puede perder de vista en el medio de
+   * una conversacion.
+   *
+   * ⚠⚠ Y ESTE PRINCIPIO SE INVIRTIO PARA EL MODAL MISMO -- corrección urgente,
+   * OL26g. Subir la máscara acá arriba de `.bp-modal-backdrop` (100) resolvió
+   * RV4, pero le pasó el problema al revés al modal que el paso 2.2 abre
+   * DESDE ADENTRO: `.rv-panel` (más abajo en este archivo, hoy 122) tapaba el
+   * pie de `Set budget` --el botón de guardar-- y la revisión no se podía
+   * cerrar. `.bp-modal-backdrop`/`.bp-panel-backdrop`
+   * (`app/business-plan/styles/bp-visual.css`) subieron a 130 para volver a
+   * quedar arriba de la máscara **cuando el modal está abierto** -- el marco
+   * de la sesión sigue siendo el que manda cuando NO hay un modal en pantalla,
+   * pero un modal abierto es `aria-modal="true"`: mientras dura, es lo único
+   * con lo que se puede interactuar, sesión de revisión incluida.
+   *
+   * ⚠⚠ DOS COPIAS DE LA MISMA DECISIÓN, EN ARCHIVOS DISTINTOS -- ver
+   * AGENTS.md, "el hermano mayor: dos copias de la misma decisión", y la nota
+   * de `.bp-modal-backdrop`. Subir este 120 (o el 121 de `.rv-bar`, o el 122
+   * de `.rv-panel`, más abajo) por encima de 130 vuelve a tapar el modal.
+   * Revisar el otro archivo antes de tocar cualquiera de los dos.
+   */
+  z-index: 120;
+  pointer-events: none;
+
+  /*
+   * ══════════════════════════════════════════════════════════════════
+   * ⚠ UN DEGRADADO HACIA ADENTRO, NO UNA LÍNEA PLANA — etapa RV9
+   * ══════════════════════════════════════════════════════════════════
+   *
+   * Era `border: 3px solid var(--coral)`: el token más saturado de la paleta, a
+   * pleno, rodeando la pantalla entera. Le competía al contenido -- y el
+   * contenido es lo que hay que mirar durante una revisión.
+   *
+   * El reparto es: LA BARRA DICE, EL BORDE REFUERZA. Arriba está escrito en
+   * palabras --«Coach mode» y el nombre de la persona-- así que acá alcanza
+   * con que el ojo registre que la pantalla tiene marco.
+   *
+   * ⚠ Y NO HAY ORILLA DE ARRIBA, que no es un olvido: `.rv-bar` es fija, va a
+   * todo el ancho y está en `z-index: 121` contra el 120 de acá, así que la
+   * taparía entera. Pintar ahí sería pintura que nadie ve.
+   *
+   * `color-mix` y no un hexadecimal nuevo: es el modismo que ya usa `ol-year.css`
+   * --nueve veces-- así que un cambio de paleta alcanza esto también.
+   */
+  background:
+    linear-gradient(
+        to top,
+        color-mix(in srgb, var(--coral) 20%, transparent),
+        transparent
+      )
+      bottom / 100% 16px no-repeat,
+    linear-gradient(
+        to right,
+        color-mix(in srgb, var(--coral) 20%, transparent),
+        transparent
+      )
+      left / 16px 100% no-repeat,
+    linear-gradient(
+        to left,
+        color-mix(in srgb, var(--coral) 20%, transparent),
+        transparent
+      )
+      right / 16px 100% no-repeat;
+
+  /* La línea que cierra el marco. Un píxel y muy diluida: sin ella el degradado
+     se desvanece contra el canvas claro y el borde deja de leerse como borde. */
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--coral) 40%, transparent);
+}
+
+/* ── La barra ─────────────────────────────────────────────────────────────── */
+
+.rv-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 121;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  padding: 9px 18px;
+  background: var(--navy);
+  color: var(--white);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.rv-bar__main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.rv-bar__tag {
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: var(--coral);
+  font-family: var(--font-display);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.rv-bar__who {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* ── La lista de fases ────────────────────────────────────────────────────── */
+
+/*
+ * ⚠ ACÁ HABÍA ONCE REGLAS MÁS, y se fueron con lo que dibujaban: `rv-bar__sep`,
+ * `rv-bar__phase`, `rv-bar__mod`, `rv-bar__pct` y las cinco de `rv-steps`.
+ *
+ * En RV2 la barra dejó de decir la fase, el módulo, el porcentaje y las tres
+ * fases con su conteo -- eso vive en `rv-prog`, debajo del menú. Las reglas no
+ * rompían nada quedando, y es justamente el problema: una regla que nadie
+ * escribe es un nombre reservado para nadie, y `chequearChoqueDeClases` lo
+ * defendería igual que si estuviera vivo.
+ *
+ * Comprobado antes de borrarlas: las nueve clases no aparecen en ninguno de los
+ * cinco componentes de `review` ni en sus cuatro pantallas.
+ */
+.rv-bar__exit {
+  margin-left: auto;
+  flex: none;
+  padding: 5px 13px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--white);
+  color: var(--white);
+  font-weight: 600;
+  text-decoration: none;
+}
+.rv-bar__exit:hover {
+  background: var(--white);
+  color: var(--navy);
+}
+
+/*
+ * ⚠ EL CONTENIDO SE CORRE HACIA ABAJO, y sólo cuando la barra existe.
+ *
+ * La barra es `fixed`, así que sin esto taparía el header del portal.
+ *
+ * El corrimiento lo dispara la PRESENCIA de la barra, con `:has()`, y no una
+ * clase que alguien tenga que poner en el `<body>`. Así aparece y desaparece
+ * con la barra sola: no hay dos estados que mantener de acuerdo, ni un
+ * `padding-top` que sobreviva a una máscara que ya se fue. Mismo criterio por
+ * el que el sidebar de Business Plan dejó de tener estado en BP4.
+ */
+body:has(.rv-bar) .app {
+  padding-top: 42px;
+}
+
+/* ── Las dos pantallas ────────────────────────────────────────────────────── */
+
+.rv-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.rv-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 18px;
+  background: var(--canvas);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+}
+.rv-row:hover {
+  border-color: var(--navy);
+}
+.rv-row__main {
+  min-width: 0;
+}
+.rv-row__who {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--navy);
+}
+.rv-row__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 5px;
+  font-size: 11.5px;
+  color: var(--slate-500);
+  font-variant-numeric: tabular-nums;
+}
+.rv-row__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+/* El SLA. Tres tonos y cada uno con su palabra al lado: nunca sólo color. */
+.rv-due {
+  padding: 2px 9px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--slate-200);
+  background: var(--slate-50);
+  color: var(--slate-600);
+  font-weight: 600;
+}
+.rv-due--soon {
+  background: var(--amber-50);
+  border-color: var(--amber-200);
+  color: var(--amber-800);
+}
+.rv-due--late {
+  /* `--coral-50` no existe. El ambar de fondo con borde y texto coral dice
+     "vencido" igual, y el borde es lo que lo separa del "vence pronto". */
+  background: var(--amber-50);
+  border-color: var(--coral);
+  color: var(--coral);
+}
+
+/* El estado de la sesión. `pending` incluye la abandonada, que se DERIVA. */
+.rv-state {
+  padding: 2px 9px;
+  border-radius: var(--radius-full);
+  font-weight: 600;
+}
+.rv-state--none {
+  background: var(--slate-100);
+  color: var(--slate-500);
+}
+.rv-state--progress {
+  background: var(--sky);
+  color: var(--navy);
+}
+.rv-state--stale {
+  background: var(--amber-50);
+  border: 1px solid var(--amber-500);
+  color: var(--amber-800);
+}
+.rv-state--done {
+  background: var(--navy);
+  color: var(--white);
+}
+
+/* Las migas, propias. Ver la nota del TSX: `Breadcrumbs` no pinta fuera del
+   shell de Business Plan, asi que estas pantallas dibujan las suyas. */
+.rv-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 14px;
+  font-size: 11.5px;
+  color: var(--slate-400);
+}
+.rv-crumbs a {
+  color: var(--slate-500);
+  text-decoration: none;
+}
+.rv-crumbs a:hover {
+  color: var(--navy);
+  text-decoration: underline;
+}
+.rv-crumbs [aria-current] {
+  font-weight: 600;
+  color: var(--navy);
+}
+
+/* ── El panel del paso en curso ───────────────────────────────────────────── */
+
+/*
+ * ============================================================================
+ * DE GLOBO EN LA ESQUINA A BARRA AL PIE -- etapa RV18
+ * ============================================================================
+ *
+ * Era `right: 18px; bottom: 18px; width: 420px`, y crecia HACIA ARRIBA con el
+ * contenido del paso. Tercera vez que tapaba algo que hacia falta ver: el
+ * titulo del branch (RV16, con los hints de las flechas), lo ultimo de la
+ * pagina (RV17, resuelto con el relleno) y ahora la tarjeta de metricas
+ * --`.bp-stats`: AVG 3M, STARTING BENCHMARK, GAP--.
+ *
+ * MEDIDO ANTES DE CAMBIARLO, sobre los ocho pasos del guion:
+ *
+ *   1.4   panel 420x317 · 69.420px2 de cruce · 9 de 9 puntos de la tarjeta tapados
+ *   1.5   panel 420x263 · 55.380px2 de cruce · 6 de 9
+ *   1.2   panel 420x356 (el mas alto, con el link de MMI) · CERO cruce
+ *
+ * ⚠ Y ESO ULTIMO ES LO QUE DECIDIO LA FORMA: el paso que APUNTA a la tarjeta
+ * (el 1.2) no la tapaba, porque el desplazamiento automatico la sube a y=133.
+ * La tapaba en 1.4 y 1.5, donde el scroll la deja en y=531 -- o sea que no era
+ * «el panel tapa su propio objetivo» sino «el panel tapa la franja de abajo a
+ * la derecha, sea lo que sea». Se arregla la FORMA, no el caso: a lo ancho no
+ * hay franja que tapar.
+ *
+ * La barra crece a lo ANCHO del canvas y su alto lo pone el contenido, con
+ * `max-height: 45vh` como techo -- y adentro tres zonas lado a lado, que es lo
+ * que la vuelve baja. El borde superior en `--coral` es lo que la distingue de
+ * la pagina; los otros tres bordes se fueron con las esquinas.
+ *
+ * ⚠ Y EL RELLENO DE RV17 SIGUE SIRVIENDO SIN TOCARLO: `ReviewMaskHost` mide
+ * `innerHeight - panel.top`, que para una barra pegada abajo es su alto. Al
+ * minimizarse, el relleno se achica solo. Lo que cambio es el NUMERO, no el
+ * mecanismo.
+ *
+ * `overflow-y: auto` se queda: el prompt de Isabella puede ser largo, y con
+ * `max-height` la barra scrollea adentro en vez de comerse la pantalla.
+ *
+ * ============================================================================
+ * Y DE BARRA AL PIE A TARJETA ABAJO A LA IZQUIERDA -- etapa RV20
+ * ============================================================================
+ *
+ * La barra a todo el ancho resolvio el alto --356px de globo a 209 de barra--
+ * pero dejo abierto lo que el merge con BP52 destapo: a lo ancho no hay franja
+ * que tapar, pero la franja de ABAJO sigue siendo la pantalla entera, y ahi
+ * quedaba la tarjeta de metricas en el paso 1.5.
+ *
+ * Anclada a la IZQUIERDA con un ancho maximo, el lado derecho queda libre POR
+ * CONSTRUCCION: la tarjeta de metricas vive a la derecha del canvas, asi que
+ * el cruce no depende de la posicion del scroll ni del alto del contenido de
+ * ningun paso. Es la misma diferencia que entre difuminar un borde y quitarlo:
+ * una condicion geometrica en vez de un aviso.
+ *
+ * ⚠ Y CON ESO SE FUE EL AVISO DE RV19 --«Part of the numbers is behind this
+ * bar»-- con su medicion en el anfitrion y su clase. Medido en los ocho pasos
+ * despues del cambio: cruce cero con `.bp-stats` en todos, sin minimizar. Un
+ * aviso que ya no puede dispararse es un respaldo muerto, y los respaldos
+ * muertos esconden la proxima falla.
+ *
+ * ⚠ EL BORDE, DIFUMINADO -- punto 4 del brief. Era `2px solid var(--coral)` a
+ * saturacion plena: lo unico del modo que quedaba sin bajar, despues de que el
+ * marco (RV9) y el resaltado (RV13) se difuminaran por el mismo motivo. Ahora
+ * es 1px al 45% con `color-mix`, y el peso lo lleva la sombra.
+ *
+ * ⚠⚠ ESTE `z-index` ES UNA DE DOS COPIAS -- corrección urgente, OL26g. Es
+ * el que de verdad chocó: anclado abajo-derecha, tapaba el pie de `Set
+ * budget` (el botón `Save budget`/`Confirm as reviewed`) mientras el modal
+ * seguía en 100. Ver la nota completa en `.rv-edge` (arriba en este
+ * archivo) y en `.bp-modal-backdrop`
+ * (`app/business-plan/styles/bp-visual.css`) antes de subir este número --
+ * las dos partes tienen que seguir de acuerdo en que el modal gana.
+ */
+.rv-panel {
+  position: fixed;
+  left: 18px;
+  bottom: 18px;
+  z-index: 122;
+  width: min(420px, calc(100vw - 36px));
+  max-height: 45vh;
+  overflow-y: auto;
+  background: var(--white);
+  /* Difuminado: 1px al 45% en vez de 2px a pleno. El peso lo lleva la sombra. */
+  border: 1px solid color-mix(in srgb, var(--coral) 45%, transparent);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  font-size: 12px;
+  color: var(--slate-600);
+}
+
+/* ── La barra: cabecera y tres zonas -- etapa RV18 ─────────────────────────── */
+
+/*
+ * La cabecera lleva la fase, el paso y su rotulo, y el boton de minimizar. Es
+ * lo unico que queda cuando la barra esta colapsada, y por eso el nombre del
+ * paso va ACA y no en una zona: minimizada tiene que seguir diciendo donde
+ * esta la revision.
+ */
+.rv-panel__bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--slate-200);
+}
+/*
+ * El aviso de que la barra tapa algo -- etapa RV19. Tenue a proposito: es una
+ * ayuda, no una alarma, y va pegado al boton de minimizar porque ESA es la
+ * accion que propone.
+ *
+ * ⚠ El `margin-left: auto` se muda aca cuando el aviso existe: si lo dejara
+ * solo en el boton, el aviso quedaria pegado al rotulo del paso y el boton se
+ * iria al extremo, con el texto y su accion en las dos puntas de la barra.
+ */
+/*
+ * ============================================================================
+ * PLEGADA: LA PILDORA -- etapa RV20
+ * ============================================================================
+ *
+ * Plegada, la tarjeta se reduce a una pildora que dice fase y paso. Sigue
+ * siendo `.rv-panel` con un modificador y no otro elemento, porque el anfitrion
+ * mide `.rv-panel` para el relleno del pie (RV17): con otro nombre, la
+ * property se borraria y lo ultimo de la pagina quedaria debajo de la pildora.
+ *
+ * `width: auto` con `max-height: none`: la pildora mide lo que dice, y el
+ * `min(420px, …)` del contenedor deja de aplicar porque ya no hay contenido que
+ * lo pida.
+ */
+.rv-panel--plegado {
+  width: auto;
+  max-height: none;
+  overflow: visible;
+  border-radius: var(--radius-full);
+}
+.rv-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px 7px 10px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--slate-600);
+  cursor: pointer;
+}
+.rv-pill:hover {
+  color: var(--navy);
+}
+.rv-panel__min {
+  margin-left: auto;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-full);
+  background: var(--white);
+  color: var(--slate-600);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.rv-panel__min:hover {
+  border-color: var(--coral);
+  color: var(--navy);
+}
+
+/*
+ * ============================================================================
+ * LAS ZONAS, AHORA APILADAS EN 420px -- etapa RV20
+ * ============================================================================
+ *
+ * En RV18 eran tres columnas lado a lado, y eso era lo que volvia baja una
+ * barra de 1600px de ancho. En una tarjeta de 420 no hay tres columnas
+ * posibles: se apilan --contexto, entradas, acciones-- y lo que mantiene el
+ * alto bajo es OTRA cosa, la fila unica de las entradas.
+ *
+ * ⚠ SE FUE EL `@media (max-width: 1100px)`: existia para pasar de tres
+ * columnas a una cuando no cabian. Con una sola columna siempre, esa regla no
+ * podia dispararse nunca -- y una regla que no puede dispararse esconde la
+ * proxima. El ancho lo maneja `width: min(420px, calc(100vw - 36px))` del
+ * contenedor.
+ */
+.rv-panel__zonas {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 10px 14px 12px;
+}
+.rv-panel__zona {
+  min-width: 0;
+}
+/*
+ * ⚠ LAS TRES ZONAS TIENEN REGLA, y dos de ellas no la tenian: las pedia el JSX
+ * y no existian en ninguna hoja. Lo dijo `npm run verificar:clases` -- una
+ * clase sin regla no falla, hereda, y por eso hay que preguntarlo.
+ */
+/* El contexto ya no necesita medida propia: la tarjeta entera mide 420px, que
+   es menos que las 52ch que le poniamos como techo. Queda la regla con lo que
+   si aporta: que el texto no empuje el ancho. */
+.rv-panel__zona--ctx {
+  min-width: 0;
+}
+/*
+ * ⚠ LAS ENTRADAS EN UNA SOLA FILA -- punto 3 del brief, y es lo que reemplaza a
+ * las tres columnas como mecanismo para que la tarjeta quede baja: el campo del
+ * paso angosto y el comentario ocupando el resto.
+ *
+ * `align-items: flex-end` para que el numero y el comentario apoyen en la misma
+ * linea de base cuando el primero trae su rotulo de dos renglones.
+ */
+.rv-panel__zona--in {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.rv-panel__zona--in > * {
+  min-width: 0;
+}
+/* El comentario se come el sobrante; el campo del paso no crece. */
+.rv-panel__zona--in > .rv-panel__field--wide {
+  flex: 1 1 auto;
+}
+.rv-panel__zona--in > .rv-panel__field--num {
+  flex: 0 0 96px;
+}
+/* La de acciones apila el aviso y la fila de botones. */
+.rv-panel__zona--act {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/*
+ * ============================================================================
+ * EL RELLENO AL PIE -- etapa RV17
+ * ============================================================================
+ *
+ * El panel es `fixed`, asi que tapa lo ultimo de la pagina y el documento se
+ * termina antes de que se pueda desplazar. Esto le agrega abajo, mientras la
+ * mascara este activa, el espacio que el panel ocupa.
+ *
+ * `--rv-relleno` la publica `ReviewMaskHost` MIDIENDO el panel, porque su alto
+ * depende del paso: el prompt, el aviso de la compuerta, el campo de
+ * comentario y la lista de clics del 1.4 lo hacen crecer. Ver su nota.
+ *
+ * ⚠ SIN SESION LA PROPERTY NO EXISTE y el respaldo de `var()` es `0px`, asi que
+ * la app normal no tiene un pixel de mas. Ese es el estado por defecto: el
+ * anfitrion la ESCRIBE cuando hay panel y la SACA cuando no.
+ *
+ * ⚠ Y VA SOBRE `.hub-canvas`, que es de `shell.css` -- se verifico con `grep`
+ * que nadie le fija `padding` ni `padding-bottom` en ninguna hoja, asi que esto
+ * agrega una declaracion y no pelea con otra. Es el `<main>` que envuelve las
+ * cuatro pantallas del portal, o sea el final del contenido en todas.
+ */
+.hub-canvas {
+  padding-bottom: var(--rv-relleno, 0px);
+}
+.rv-panel__head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.rv-panel__step {
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: var(--navy);
+  color: var(--white);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.rv-panel__label {
+  font-family: var(--font-display);
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--navy);
+}
+/* `answered` con su palabra, no solo un tinte. */
+.rv-panel__done {
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  background: var(--emerald-50);
+  color: var(--emerald-800);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.rv-panel__prompt {
+  margin: 0 0 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--navy);
+}
+.rv-panel__helper {
+  margin: 0 0 8px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--slate-500);
+}
+.rv-panel__helper a {
+  color: var(--coral);
+  font-weight: 600;
+}
+.rv-panel__funnel {
+  margin-bottom: 8px;
+}
+.rv-panel__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.rv-panel__fieldlabel {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+}
+.rv-panel__text {
+  font-family: inherit;
+  resize: vertical;
+  line-height: 1.5;
+}
+/*
+ * ⚠ ACÁ ESTABA `.rv-panel__check`, la regla de la casilla del presupuesto.
+ *
+ * Se fue con la casilla: una casilla que uno se marca a sí mismo no verifica
+ * nada. Lo que la reemplaza es `.rv-panel__evid`, que DICE un estado leído de
+ * la base en vez de ofrecer un control que no controla.
+ *
+ * Comprobado antes de borrarla: la clase no aparece en ninguno de los cinco
+ * componentes de `review`.
+ */
+/* La lista de lo que hay que abrir. Marca y palabra: nunca solo color. */
+.rv-panel__clicks {
+  margin: 0 0 8px;
+  padding: 8px 11px;
+  list-style: none;
+  border-radius: var(--radius-sm);
+  background: var(--slate-50);
+  border: 1px solid var(--slate-100);
+  font-size: 11.5px;
+}
+.rv-panel__clicks li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--slate-500);
+}
+.rv-panel__clicks li.is-done {
+  color: var(--emerald-800);
+  font-weight: 600;
+}
+/*
+ * EL MOTIVO POR EL QUE EL BOTON ESTA APAGADO. Va al lado del boton y no en un
+ * tooltip: un control deshabilitado sin explicacion obliga a adivinar si falta
+ * algo o si la app esta rota. Ambar, que es la familia de lo que falta que pase.
+ */
+.rv-panel__gate {
+  /*
+   * ⚠ ERA `display: flex` CON `gap`, Y ESO PARTÍA EL TEXTO EN COLUMNAS.
+   *
+   * En flex cada trozo de texto suelto es un item anónimo, así que un aviso con
+   * un `<strong>` en el medio --el nombre del funnel, el nombre del botón-- se
+   * dibujaba en tres columnas angostas en vez de un párrafo.
+   *
+   * Y con UN solo hijo de texto se ve perfecto: icono más texto son dos items y
+   * el texto ocupa lo que queda. Por eso los diez avisos se veían bien y el
+   * primero con dos piezas --RV5, «{loName} is on <strong>{funnel}</strong>»--
+   * salió partido sin que nadie lo notara. Lo encontró la captura; la medición
+   * del texto estaba en verde, porque el texto estaba entero.
+   *
+   * `block`, y el icono se alinea solo: es lo que deja al `<strong>` inline.
+   */
+  display: block;
+  margin: 0 0 8px;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--amber-50);
+  border-left: 2px solid var(--amber-500);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--amber-800);
+}
+
+/*
+ * El icono del aviso. Lo alineaba `align-items: flex-start`; sin flex se alinea
+ * con la primera línea del texto, que es donde estaba antes.
+ */
+.rv-panel__gate > svg {
+  vertical-align: -2px;
+  margin-right: 4px;
+}
+.rv-panel__actions {
+  display: flex;
+  align-items: center;
+  /*
+   * ⚠ ENVUELVE DESDE RV9, y no es cosmetica: la fila paso de dos cosas a
+   * TRES --avanzar, volver, y el `next:`-- y el panel mide 420px como mucho.
+   * El rótulo de volver dice a dónde lleva, así que es largo a propósito
+   * («← back to Current performance this month»); sin `wrap`, el `next:`
+   * quedaba partido en tres líneas contra el borde.
+   *
+   * Lo encontró la captura: las aserciones preguntaban por el TEXTO de los
+   * botones, y el texto estaba entero.
+   */
+  flex-wrap: wrap;
+  gap: 8px;
+  /*
+   * ⚠ LOS BOTONES A LA DERECHA DE LA TARJETA -- etapa RV20, y no es estética.
+   *
+   * Con la tarjeta anclada abajo a la izquierda, sus acciones caían en la
+   * esquina inferior izquierda de la ventana… que es exactamente donde vive el
+   * INDICADOR DE DESARROLLO DE NEXT. Medido con `elementFromPoint` sobre el
+   * centro del `OK`: contestaba `NEXTJS-PORTAL`, o sea que el botón no se podía
+   * clickear.
+   *
+   * Sólo pasa en `next dev` --ese portal no existe en producción-- así que no
+   * era un defecto del producto; pero rompía las sondas y a cualquiera que
+   * pruebe en local, y «funciona en producción» no es una respuesta cuando la
+   * verificación corre en dev. Con las acciones a la derecha, la esquina queda
+   * libre y los botones quedan donde se los busca.
+   */
+  justify-content: flex-end;
+}
+/*
+ * El `next:` se queda a la izquierda: dice a dónde lleva, no es una acción.
+ *
+ * ⚠ NECESITA `order: -1`, y eso lo dijo la medición. En el DOM el `next:` va
+ * DESPUÉS de los botones, así que un `margin-right: auto` sobre él se comía el
+ * espacio libre de su derecha y empujaba los botones hacia la IZQUIERDA -- lo
+ * contrario de lo que buscaba. Medido: `justifyContent` ya decía `flex-end` y
+ * el botón seguía en x=33.
+ *
+ * Con `order: -1` pasa a ser el primero de la fila, absorbe el sobrante y los
+ * botones quedan donde tienen que quedar. El orden del DOM no cambia.
+ */
+.rv-panel__actions .rv-panel__next {
+  order: -1;
+  margin-right: auto;
+}
+
+/* ── El aviso en prosa: `rv-hint` ──────────────────────────────────── */
+
+/*
+ * ⚠ ESTAS DOS REGLAS ARREGLAN UN DEFECTO, no agregan una pantalla.
+ *
+ * Las cuatro pantallas de la revision escribian `bp-hint` --siete usos-- y esa
+ * clase no esta definida en NINGUNA hoja del arbol. Nunca se vio porque un
+ * parrafo sin regla no queda invisible: hereda los 14px del documento y se lee
+ * igual, sin el tamano, el color ni el interlineado que le tocaban.
+ *
+ * Comprobado por dos vias: `grep` sobre las hojas del repo, y la hoja
+ * COMPILADA que Next sirve --`.rv-bar` diez veces, `bp-hint` cero-->.
+ *
+ * Es el mismo mecanismo que `--ol-text` fuera de su alcance: el respaldo no
+ * esta escrito, es la herencia del CSS, que siempre tiene algo que dar.
+ */
+.rv-hint {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--slate-500);
+}
+/* La variante de aviso, con la misma forma que la razon del gate: mismo tono
+   para el mismo significado --algo que hay que leer antes de seguir--. */
+.rv-hint--warn {
+  padding: 8px 11px;
+  border-radius: var(--radius-sm);
+  background: var(--amber-50);
+  border-left: 2px solid var(--amber-500);
+  color: var(--amber-800);
+}
+
+/* ── El intake, en el perfil del Loan Officer ─────────────────────── */
+
+/*
+ * Vive en esta hoja --que se carga en las cuatro pantallas del portal-- y no en
+ * `bp-visual.css`, por la misma razon que el resto de `rv-`: es de la revision,
+ * y Business Plan no tiene por que saber que existe. La hoja ya esta cargada
+ * ahi porque la mascara la necesita.
+ */
+.rv-intake {
+  margin-top: 20px;
+  padding: 16px 18px;
+  background: var(--canvas);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+}
+.rv-intake__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 10px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--slate-200);
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--navy);
+}
+.rv-intake__n {
+  padding: 2px 9px;
+  border-radius: var(--radius-full);
+  background: var(--slate-100);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--slate-500);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Las revisiones como pestanas. Mismo lenguaje que `bp-modtabs` pero clase
+   propia: redefinir esa habria cambiado las pestanas de Funnels & Nodes. */
+.rv-intake__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--slate-200);
+}
+.rv-intake__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 13px;
+  margin-bottom: -1px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--slate-500);
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.rv-intake__tab:hover {
+  color: var(--navy);
+}
+.rv-intake__tab.is-on {
+  color: var(--navy);
+  border-bottom-color: var(--coral);
+}
+/* `in progress` con su palabra, no un tinte: una revision a medias tiene
+   comentarios que valen y hay que poder distinguirla de una cerrada. */
+.rv-intake__wip {
+  padding: 1px 7px;
+  border-radius: var(--radius-full);
+  background: var(--amber-50);
+  border: 1px solid var(--amber-200);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--amber-800);
+}
+.rv-intake__meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 12px;
+  font-size: 11.5px;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+/*
+ * La descarga del intake -- etapa BP50. Va en la linea de la sesion abierta,
+ * empujada a la derecha: es una accion sobre ESA revision, no sobre el bloque.
+ */
+.rv-intake__pdf {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-full);
+  background: var(--white);
+  color: var(--slate-600);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.rv-intake__pdf:hover:not(:disabled) {
+  border-color: var(--coral);
+  color: var(--navy);
+}
+.rv-intake__pdf:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.rv-intake__phase {
+  margin-bottom: 14px;
+}
+.rv-intake__phasehead {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin: 0 0 7px;
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--slate-500);
+}
+.rv-intake__phasen {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+/*
+ * Cada respuesta. El COMENTARIO manda sobre la pregunta: la pregunta esta para
+ * dar contexto y es la misma en todas las revisiones; lo que cambia --y lo que
+ * alguien viene a leer-- es lo que se dijo. De ahi los 13px del comentario
+ * contra los 11,5 de la pregunta, y el navy contra el slate.
+ */
+.rv-intake__answer {
+  padding: 10px 0;
+  border-top: 1px solid var(--slate-100);
+}
+.rv-intake__step {
+  margin: 0 0 3px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+}
+.rv-intake__prompt {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 5px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--slate-400);
+}
+/* La pregunta que ya no esta en el registro: se dice, no se esconde. */
+.rv-intake__prompt--gone {
+  color: var(--amber-800);
+}
+.rv-intake__old {
+  padding: 1px 7px;
+  border-radius: var(--radius-full);
+  background: var(--amber-50);
+  border: 1px solid var(--amber-200);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--amber-800);
+}
+.rv-intake__comment {
+  margin: 0 0 4px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--navy);
+  /* Los saltos de linea que la persona escribio se conservan: un comentario de
+     tres parrafos en un solo bloque no se lee. */
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.rv-intake__by {
+  margin: 0;
+  font-size: 10.5px;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── RV2: el lugar del paso, resaltado ────────────────────────────── */
+
+/*
+ * La clase la pone y la saca `useReviewTarget` sobre un elemento QUE NO ES DE
+ * LA REVISION: la tarjeta del grafico, el panel del GAP, la barra de Outlook.
+ *
+ * ⚠ POR ESO NO TOCA NI EL LAYOUT NI EL COLOR DE FONDO. Un `border` empujaria el
+ * contenido de la seccion y un fondo le ganaria al tinte de la banda que la
+ * tarjeta ya tenga --que es como cuatro celdas quedaron azul palido sobre azul
+ * palido en el reporte--. Solo `outline`, que se dibuja afuera y no ocupa
+ * espacio, y una sombra difusa.
+ */
+/*
+ * ══════════════════════════════════════════════════════════════════════
+ * ⚠ DIFUMINADO, IGUAL QUE EL BORDE — etapa RV13
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * Era `outline: 2px solid var(--coral)`: el mismo defecto que tenía el marco
+ * antes de RV9, el token más saturado a pleno y con canto duro. Y el halo que
+ * debía suavizarlo no suavizaba nada: `--amber-50` es `#fffbeb`, o sea blanco
+ * roto sobre una tarjeta blanca. Un anillo invisible alrededor de una línea
+ * gritada.
+ *
+ * El reparto es el mismo que arriba: EL PANEL DICE, EL RESALTADO SEÑALA. La
+ * pregunta del paso está escrita en palabras a un lado; acá alcanza con que el
+ * ojo sepa hacia dónde ir.
+ *
+ * Y la restricción de RV2 sigue en pie, por eso no cambia la herramienta: ni
+ * `border` ni `background`. La clase cae sobre un elemento QUE NO ES DE LA
+ * REVISIÓN --la tarjeta del gráfico, el panel del GAP, la barra de Outlook--
+ * así que un borde empujaría el contenido y un fondo le ganaría al tinte de la
+ * banda. `outline` y `box-shadow` no ocupan espacio.
+ *
+ * `color-mix` sobre el token y sin hexadecimales, como en `.rv-edge`: un cambio
+ * de paleta alcanza los dos.
+ */
+
+/*
+ * ══════════════════════════════════════════════════════════════════════
+ * LA FLECHA DEL PASO — etapa RV14
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * En la misma clave que el resaltado y el marco: `color-mix` sobre `--coral`,
+ * diluido, sin hexadecimales. Es una guía, no una alarma -- el brief lo pide y
+ * además el resaltado ya se difuminó en RV13 por la misma razón. Nueve pasos
+ * con una flecha roja plena serían nueve alertas.
+ *
+ * `z-index` 119: debajo de la máscara (120) y de su barra (121), porque la
+ * flecha señala CONTENIDO de la app y no puede taparle el panel del paso.
+ *
+ * `pointer-events` sólo en el OK: el resto no se come clics del contenido que
+ * está señalando.
+ */
+.rv-arrow {
+  position: fixed;
+  z-index: 119;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 240px;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--coral) 30%, transparent);
+  background: color-mix(in srgb, var(--coral) 7%, var(--white));
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--navy) 10%, transparent);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--navy);
+  pointer-events: none;
+}
+/* Arriba del ancla cuando no hay lugar a la izquierda: la punta cambia de lado. */
+.rv-arrow--arriba {
+  transform: none;
+}
+.rv-arrow__txt {
+  min-width: 0;
+}
+.rv-arrow__ok {
+  flex: none;
+  padding: 3px 9px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--coral);
+  color: var(--white);
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.rv-arrow__ok:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 2px;
+}
+/*
+ * La punta, con bordes y no con un carácter: «→» cambia de forma con la
+ * tipografía y no se puede alinear al medio del ancla. Y el brief prohíbe
+ * emojis.
+ */
+.rv-arrow__punta {
+  position: absolute;
+  top: 50%;
+  right: -7px;
+  width: 0;
+  height: 0;
+  transform: translateY(-50%);
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+  border-left: 7px solid color-mix(in srgb, var(--coral) 30%, transparent);
+}
+.rv-arrow--arriba .rv-arrow__punta {
+  top: auto;
+  right: auto;
+  bottom: -7px;
+  left: 16px;
+  transform: none;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 7px solid color-mix(in srgb, var(--coral) 30%, transparent);
+  border-bottom: 0;
+}
+
+.rv-target {
+  border-radius: var(--radius-md);
+  /*
+   * La línea que cierra la forma. Un píxel y diluida, por la misma razón que la
+   * del marco: sin ella el halo se desvanece contra el canvas claro y la
+   * sección deja de leerse como señalada. Lo que se fue es el canto duro, no el
+   * contorno.
+   */
+  outline: 1px solid color-mix(in srgb, var(--coral) 35%, transparent);
+  outline-offset: 4px;
+  /*
+   * Dos capas: una pegada que le da cuerpo al contorno, y una abierta y borrosa
+   * que se apaga hacia afuera. La segunda es la que hace el trabajo que el
+   * `--amber-50` no hacía.
+   */
+  box-shadow:
+    0 0 0 5px color-mix(in srgb, var(--coral) 10%, transparent),
+    0 0 18px 8px color-mix(in srgb, var(--coral) 14%, transparent);
+  /* La transicion es del resaltado, no del desplazamiento: el scroll lo hace
+     el navegador con `behavior: smooth`.
+
+     ⚠ Y hace que `getComputedStyle` mienta durante 160ms: leído en el mismo
+     tick en que se pone la clase devuelve el valor DE PARTIDA --`currentColor`
+     para el contorno, la sombra vieja de la tarjeta-- mientras que el ancho y
+     el radio, que no están acá, ya muestran los nuevos. Medir el resaltado
+     pide esperar; queda escrito porque me costó cuatro sondas. */
+  transition: outline-color 160ms ease, box-shadow 160ms ease;
+}
+/* Quien pidio no animar tampoco quiere un halo que aparezca. Se queda el
+   contorno, que es la informacion; se va la transicion. */
+@media (prefers-reduced-motion: reduce) {
+  .rv-target {
+    transition: none;
+  }
+}
+
+/* ── RV2: el paso que no se contesta desde aca ──────────────────── */
+
+/* Mas angosto que el panel completo: no tiene campos, y a ancho completo
+   parecia que faltaba algo por cargar. */
+/*
+ * ⚠ EL TOPE DE 420px SE FUE -- etapa RV18. Era del globo en la esquina; sobre
+ * una barra pegada a los dos lados, un `max-width` la deja anclada a la
+ * izquierda con el borde superior cortado a mitad de pantalla. El contenido de
+ * este caso es corto, así que se acomoda solo en el ancho del canvas.
+ */
+.rv-panel--lejos {
+  max-width: none;
+}
+
+/* El comentario ya guardado, en lugar del campo. */
+.rv-panel__saved {
+  margin: 0 0 10px;
+  padding: 9px 11px;
+  border-radius: var(--radius-sm);
+  background: var(--slate-50);
+  border-left: 2px solid var(--slate-200);
+}
+.rv-panel__savedtext {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--navy);
+  /* Los saltos de linea que se escribieron se conservan, igual que en el
+     intake: el mismo texto tiene que leerse igual en los dos lugares. */
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+/* `Edit` es un enlace y no un boton con relleno, a proposito: la accion
+   principal del panel es una sola y tiene que verse una sola. */
+.rv-panel__edit {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--slate-500);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.rv-panel__edit:hover:not(:disabled) {
+  color: var(--navy);
+}
+.rv-panel__edit:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+/* Que sigue, al lado del boton. */
+.rv-panel__next {
+  font-size: 11px;
+  color: var(--slate-400);
+}
+
+/* ── RV2: el avance, debajo del menu ───────────────────────── */
+
+.rv-prog {
+  margin-top: 14px;
+  padding: 12px 11px;
+  background: var(--canvas);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+}
+.rv-prog__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-family: var(--font-display);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--slate-500);
+}
+.rv-prog__pct {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+}
+.rv-prog__bar {
+  height: 4px;
+  margin-bottom: 10px;
+  border-radius: var(--radius-full);
+  background: var(--slate-100);
+  overflow: hidden;
+}
+.rv-prog__fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: var(--coral);
+}
+.rv-prog__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.rv-prog__item {
+  display: grid;
+  /* Tres columnas y no `flex`: los conteos quedan alineados entre las tres
+     filas, que es la mitad de para que sirve verlos juntos. */
+  grid-template-columns: 12px 1fr auto;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 0;
+  font-size: 11px;
+  color: var(--slate-500);
+}
+.rv-prog__mark {
+  color: var(--slate-300);
+  font-size: 9px;
+  line-height: 1.6;
+}
+.rv-prog__item.is-done .rv-prog__mark {
+  color: var(--emerald-700);
+}
+.rv-prog__item.is-current .rv-prog__mark {
+  color: var(--coral);
+}
+.rv-prog__item.is-current {
+  color: var(--navy);
+  font-weight: 600;
+}
+.rv-prog__label {
+  overflow-wrap: anywhere;
+}
+.rv-prog__count {
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+/*
+ * Angosto, el sidebar se reduce a iconos y su rotulo se oculta --lo decide el
+ * CSS del modulo, sin estado--. La tarjeta hace lo mismo: sin ella el menu de
+ * 56px tendria una caja de texto de 200px colgando.
+ */
+@media (max-width: 900px) {
+  .rv-prog {
+    display: none;
+  }
+}
+
+/* ── RV3: el panel mientras busca su seccion ───────────────────── */
+
+/*
+ * Sin campos ni botones: solo el paso y su pregunta. Mas angosto y sin el borde
+ * de accion, para que se lea como "todavia no" y no como "esto es todo".
+ *
+ * ⚠ Y SIN NINGUN "cargando": el modulo ya dice el suyo. Un segundo aviso seria
+ * una segunda fuente para el mismo hecho -- la leccion del aviso que sacamos de
+ * la barra en RV1.
+ */
+/* Mismo motivo que `--lejos`: el tope de 420px era del globo. La opacidad se
+   queda, que es lo que dice «esto es un estado de transición». */
+.rv-panel--buscando {
+  max-width: none;
+  opacity: 0.72;
+}
+
+/* La linea que dice cual es el benchmark vigente, dentro del rotulo del campo.
+   `display: block` porque el rotulo es un `<span>` en linea. */
+.rv-panel__hintline {
+  display: block;
+  margin-top: 2px;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── RV3: el encabezado de seccion de la revision ────────────────── */
+
+/*
+ * Mismo lenguaje que `.bp-area-group__head` de BP47 --que es lo que se ve en el
+ * portal-- pero clase propia: eso agrupa nodos por area, esto encabeza una
+ * seccion de la configuracion de la revision. Reusarla habria acoplado dos
+ * pantallas que no tienen nada que ver, y "mejorarla" de paso habria cambiado la
+ * biblioteca de nodos sin que nadie lo pidiera.
+ */
+.rv-sectionhead {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 22px 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--slate-100);
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--slate-500);
+}
+.rv-sectionhead__name {
+  /* El nombre no lleva estilo propio: lo hereda del encabezado. Existe para
+     que el conteo pueda ir aparte sin que el flex los separe raro. */
+  min-width: 0;
+}
+.rv-sectionhead__n {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── RV4: la evidencia del presupuesto, y el intake plegado ────────── */
+
+/*
+ * Un ESTADO, no un control. Dice si el presupuesto se guardo durante la sesion,
+ * y eso lo mide el anfitrion contra las tres tablas de Outlook.
+ *
+ * ⚠ SIN `cursor: pointer` NI NADA QUE INVITE A CLICKEAR, a proposito: aparentar
+ * un control es exactamente el problema que la casilla tenia. Lo que lo satisface
+ * esta en el editor de al lado.
+ */
+.rv-panel__evid {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 0 0 10px;
+  padding: 8px 11px;
+  border-radius: var(--radius-sm);
+  background: var(--amber-50);
+  border-left: 2px solid var(--amber-500);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--amber-800);
+}
+/* Cumplido: el mismo verde que el resto del portal usa para lo hecho, y la
+   marca `✓` lo dice tambien -- el estado no es solo color. */
+.rv-panel__evid.is-done {
+  background: var(--emerald-50);
+  border-left-color: var(--emerald-700);
+  color: var(--emerald-800);
+}
+
+/* La fila que abre el intake en el perfil. */
+.rv-intake__open {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin-top: 20px;
+  padding: 11px 14px;
+  background: var(--canvas);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+  font-family: inherit;
+  font-size: 12.5px;
+  color: var(--slate-500);
+  cursor: pointer;
+  text-align: left;
+}
+.rv-intake__open:hover {
+  border-color: var(--coral);
+  color: var(--navy);
+}
+.rv-intake__opentxt {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--navy);
+}
+.rv-intake__openwhen {
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+}
+/* La llamada a la accion va al final y empujada: la fila se lee de izquierda a
+   derecha y lo ultimo es lo que se aprieta. */
+.rv-intake__opencta {
+  margin-left: auto;
+  font-weight: 600;
+  color: var(--coral);
+}
+/* Dentro del modal la caja no repite su propio marco. */
+.rv-intake--modal {
+  margin-top: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  box-shadow: none;
+}
+
+/* ── RV4: el resumen antes de cerrar ───────────────────────────── */
+
+/*
+ * Mas ancho y mas alto que el panel de un paso: son ocho respuestas y hay que
+ * poder leerlas. Sigue anclado en la misma esquina --la revision guia sobre lo
+ * que se esta mirando-- pero con su propia altura maxima y scroll adentro, para
+ * no taparle la pantalla entera a quien todavia quiere mirar los numeros.
+ */
+.rv-panel--resumen {
+  width: min(560px, calc(100vw - 48px));
+  max-width: none;
+}
+.rv-panel__resumenlista {
+  /* La altura maxima se mide contra la ventana y no en pixeles fijos: el panel
+     tiene cabecera y acciones arriba y abajo, y en una pantalla baja un valor
+     fijo lo empuja fuera de la vista. */
+  max-height: min(52vh, 460px);
+  overflow-y: auto;
+  margin-bottom: 12px;
+  /* El borde de abajo dice que hay mas: una lista cortada sin senal se lee
+     como una lista completa. */
+  border-bottom: 1px solid var(--slate-100);
+}

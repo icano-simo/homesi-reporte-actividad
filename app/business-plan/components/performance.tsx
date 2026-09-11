@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { GAP_STATE_LABEL } from '@/lib/business-plan/qualifiers';
 import { shortMonth } from '@/lib/business-plan/months';
 import type { LoanOfficerRow, Qualifier2Metric } from '@/lib/business-plan/types';
-import { exactTitle, fmtActivityAvg, fmtAvg, fmtGap, fmtLoans } from './shared';
+import { ProvisionalTag, exactTitle, fmtActivityAvg, fmtAvg, fmtDecimal, fmtGap, fmtLoans } from './shared';
 
 /**
  * ============================================================================
@@ -47,6 +47,24 @@ export type ForensicTarget = 'closed' | 'pipeline' | 'healthy' | 'projected' | '
  *
  * Todos los números ENTEROS: un préstamo es discreto. El valor exacto de los
  * que son fraccionarios queda en el `title`.
+ *
+ * ---------------------------------------------------------------------------
+ * ⚠ `data-review-click`: LAS CINCO ESTAN MARCADAS — etapa RV3
+ * ---------------------------------------------------------------------------
+ * El modo revisión puede pedir que un paso no se cierre hasta haber ABIERTO
+ * ciertos números. Los identificadores viven en `gate_config.required_clicks`,
+ * en la base, y el panel escucha los clics en `document`: cualquier elemento con
+ * `data-review-click="id"` cuenta como abierto.
+ *
+ * ESTA PANTALLA NO SABE NADA DE LA REVISIÓN, y no tiene que saber: lo único que
+ * aporta es el nombre de cada número. Por eso están las cinco y no las dos que
+ * el guion pide hoy — pedir un clic nuevo tiene que ser una fila, no un cambio
+ * acá.
+ *
+ * ⚠ Y LOS IDENTIFICADORES TIENEN QUE COINCIDIR CON LOS DE LA BASE. Si no
+ * coinciden, el paso NO SE PUEDE CERRAR y nada falla: es exactamente lo que le
+ * pasó a Isabella cuando el atributo no estaba escrito en ninguna parte. El
+ * panel ahora lo dice en pantalla — ver `ReviewStepPanel`.
  */
 export function ForensicCards({
   lo,
@@ -67,14 +85,16 @@ export function ForensicCards({
         label={'Closings in ' + shortMonth(thisMonth) + ' so far'}
         value={lo.projection.closedToDate}
         onClick={() => onOpen('closed')}
+        reviewClick="closings_so_far"
       />
-      <ForensicItem label="Total Pipeline" value={lo.projection.totalPipeline} suffix="loans" onClick={() => onOpen('pipeline')} />
-      <ForensicItem label="Healthy" value={lo.projection.healthyPipeline} suffix="loans" onClick={() => onOpen('healthy')} />
+      <ForensicItem label="Total Pipeline" value={lo.projection.totalPipeline} suffix="loans" onClick={() => onOpen('pipeline')} reviewClick="total_pipeline" />
+      <ForensicItem label="Healthy" value={lo.projection.healthyPipeline} suffix="loans" onClick={() => onOpen('healthy')} reviewClick="healthy_loans" />
       <ForensicItem
         label="Projected to close after PT"
         value={fmtLoans(projectedFromPipeline)}
         title={exactTitle(projectedFromPipeline)}
         onClick={() => onOpen('projected')}
+        reviewClick="projected_after_pt"
       />
       {/*
         Forecast Total = proyectado + cerrado. Es el número que alimenta el GAP,
@@ -87,6 +107,7 @@ export function ForensicCards({
         title={exactTitle(lo.projection.projectedTotal)}
         strong
         onClick={() => onOpen('forecast')}
+        reviewClick="forecast_total"
         badge={
           ctcAndClosing > 0 ? (
             <span className="bp-ctc-mark" title={`${lo.projection.inCtc} in CTC · ${lo.projection.inClosing} in Closing`}>
@@ -108,6 +129,7 @@ function ForensicItem({
   title,
   onClick,
   badge,
+  reviewClick,
 }: {
   label: string;
   value: string | number;
@@ -116,9 +138,28 @@ function ForensicItem({
   title?: string;
   onClick?: () => void;
   badge?: ReactNode;
+  /**
+   * El identificador con el que el MODO REVISIÓN cuenta este número como
+   * abierto. Ver la nota de `ForensicCards`.
+   */
+  reviewClick?: string;
 }) {
   return (
-    <button type="button" className={'bp-forensic__item' + (strong ? ' is-strong' : '')} title={title} onClick={onClick}>
+    <button
+      type="button"
+      className={'bp-forensic__item' + (strong ? ' is-strong' : '')}
+      title={title}
+      onClick={onClick}
+      /*
+       * ⚠ EL ATRIBUTO VA EN EL <button>, que es el elemento que se clickea.
+       *
+       * El listener de la revisión hace `closest('[data-review-click]')` desde
+       * el objetivo del clic, así que la marca tiene que estar en el botón o en
+       * un ancestro suyo. Ponerla en el `<div>` del valor habría funcionado para
+       * el clic sobre el número y no para el clic sobre el rótulo.
+       */
+      data-review-click={reviewClick}
+    >
       <div className="bp-forensic__value">
         {value}
         {suffix && <span className="bp-forensic__suffix"> {suffix}</span>}
@@ -178,32 +219,153 @@ export function ChannelBreakdown({ lo }: { lo: LoanOfficerRow }) {
  * el editor, el grupo pone la suma con su desglose. Todo lo demás es idéntico.
  */
 export function Q1Panel({ lo, benchmarkSlot }: { lo: LoanOfficerRow; benchmarkSlot: ReactNode }) {
+  const { budget, budgetMet, benchmarkMet, gapAgainst, budgetSource } = lo.q1;
+
+  /*
+   * ============================================================================
+   * LA NOTA DEL GAP — dice CONTRA QUÉ se cumplió o no, etapa BP51
+   * ============================================================================
+   * Reemplaza a los dos `.bp-stat__flag` que vivían pegados a la fila de
+   * Starting benchmark y a la de Budget ("Forecast meets it" / "...is below
+   * it"): la MISMA información, dicha una sola vez, debajo del número que
+   * decide -- el GAP -- y no al lado de las dos filas que sólo lo alimentan.
+   * `gapAgainst` ya dice contra cuál de las dos se mide; esta nota dice si se
+   * cumplió, con la misma frase para las dos referencias.
+   */
+  const gapNote =
+    gapAgainst === 'budget'
+      ? budgetMet
+        ? 'Forecast meets the budget for this month.'
+        : 'Forecast is currently below the budget for this month.'
+      : gapAgainst === 'benchmark'
+        ? benchmarkMet
+          ? 'Forecast meets the starting benchmark.'
+          : 'Forecast is currently below the starting benchmark.'
+        : null;
+
   return (
     <div className="mcard bp-stats">
       {/*
-        Los DOS promedios, y no para suavizar el veredicto: son diagnósticos
-        distintos y cambian el tipo de ayuda.
-          histórico bajo + proyección baja  = problema sostenido
-          histórico bueno + proyección baja = se le secó el pipeline
-          histórico bajo + proyección buena = ya está reaccionando
-        El GAP sale SIEMPRE del que incluye el mes actual.
+        ============================================================================
+        CABECERA — UNA sola marca de "Provisional data", etapa BP51
+        ============================================================================
+        Antes "provisional" podía aparecer TRES veces en la misma tarjeta: el
+        rótulo de Starting benchmark, el valor del benchmark (dentro de
+        `BenchmarkEditor`) y el rótulo del GAP cuando el benchmark era su
+        referencia activa. Las tres decían lo MISMO -- el benchmark de esta
+        persona es un seed circular (`set_by = 'provisional-seed'`), no un
+        número que alguien fijó -- así que se consolidan acá, una vez, para
+        toda la tarjeta. La condición sigue siendo la de `ProvisionalTag`; acá
+        sólo cambia el texto (`label`), para que la cabecera diga "Provisional
+        data" y no "provisional" a secas.
       */}
-      <div className="bp-stat">
-        <span className="bp-stat__label">Avg 3M (with current month)</span>
-        <span className="bp-stat__value" title={exactTitle(lo.q1.avgWithCurrent)}>
-          {fmtAvg(lo.q1.avgWithCurrent)}
-        </span>
+      <div className="bp-stats__head">
+        <span className="bp-stats__title">Performance summary</span>
+        <ProvisionalTag setBy={lo.benchmarkSetBy} note={lo.benchmarkNote} label="Provisional data" />
       </div>
-      <div className="bp-stat bp-stat--muted">
-        <span className="bp-stat__label">Avg 3M (closed months)</span>
-        <span className="bp-stat__value" title={exactTitle(lo.avgClosedMonths)}>
-          {fmtAvg(lo.avgClosedMonths)}
-        </span>
+
+      {/*
+        ============================================================================
+        CUATRO BLOQUES, POR LA MATEMÁTICA DEL NEGOCIO — etapa BP52
+        ============================================================================
+        Antes las siete filas eran una lista plana, sin nada que dijera que
+        Starting benchmark y Budget son justamente los dos insumos del GAP, ni
+        que los dos promedios de arriba son otra cosa (contexto histórico, no
+        una decisión). Ahora son cuatro bloques en el orden en que se razona:
+        primero lo que YA PASÓ (los promedios), después lo que se le pide a
+        esta persona (benchmark y budget), la conclusión que sale de comparar
+        los dos (el GAP), y por separado el acumulado del año.
+      */}
+      <div className="bp-stats__group bp-stats__group--divided">
+        <span className="bp-stats__group-title">Historical averages</span>
+        {/*
+          Los DOS promedios, y no para suavizar el veredicto: son diagnósticos
+          distintos y cambian el tipo de ayuda.
+            histórico bajo + proyección baja  = problema sostenido
+            histórico bueno + proyección baja = se le secó el pipeline
+            histórico bajo + proyección buena = ya está reaccionando
+          El GAP sale SIEMPRE del que incluye el mes actual.
+        */}
+        <div className="bp-stat">
+          <span className="bp-stat__label">Avg 3M (with current month)</span>
+          <span className="bp-stat__value" title={exactTitle(lo.q1.avgWithCurrent)}>
+            {fmtAvg(lo.q1.avgWithCurrent)}
+          </span>
+        </div>
+        <div className="bp-stat bp-stat--muted">
+          <span className="bp-stat__label">Avg 3M (closed months)</span>
+          <span className="bp-stat__value" title={exactTitle(lo.avgClosedMonths)}>
+            {fmtAvg(lo.avgClosedMonths)}
+          </span>
+        </div>
       </div>
-      {/* Neutro a propósito: el benchmark es una referencia, no una alerta. */}
-      <div className="bp-stat">
-        <span className="bp-stat__label">Benchmark</span>
-        {benchmarkSlot}
+
+      {/*
+        ============================================================================
+        GOALS & BUDGET — los DOS insumos del GAP, etapa BP52
+        ============================================================================
+        Starting benchmark y Budget van juntos, en una caja de fondo muy
+        tenue, justo arriba de la caja del GAP -- ver `.bp-stats__group--boxed`
+        en bp-visual.css para por qué esto no es volver a las cajas rosadas
+        que BP51 sacó.
+      */}
+      <div className="bp-stats__group bp-stats__group--boxed">
+        <span className="bp-stats__group-title">Goals &amp; budget</span>
+        {/*
+          STARTING BENCHMARK — etapa BP49, simplificado en BP51.
+          Mismo campo de siempre (`org.employee_benchmark`, vigente) -- no hay
+          uno nuevo, sólo se lo llama por lo que es en esta pantalla: el PISO
+          contra el que cae el gap cuando el budget no se cumple o no está
+          fijado. Ver `gapAgainstOf` en qualifiers.ts.
+
+          Ya NO lleva sombreado ni badge propios -- BP51 sacó las dos cosas de
+          acá: si se cumple o no ahora lo dice `gapNote`, debajo del GAP, que
+          es donde se decide. Esta fila sólo muestra el número y su editor.
+
+          `data-rv-anchor="benchmark"` es un ANCLA ESTABLE para la flecha del
+          paso 1.2 -- ver `stepArrows` en `lib/review/gates.ts`. Se queda
+          igual que antes de BP49: el ancla es la fila, no el texto de su
+          rótulo.
+        */}
+        <div className="bp-stat" data-rv-anchor="benchmark">
+          <span className="bp-stat__label">Starting benchmark</span>
+          {benchmarkSlot}
+        </div>
+
+        {/*
+          BUDGET (THIS MONTH) — etapa BP49, ampliado en BP49b, simplificado en BP51.
+          De Outlook (`outlook.person_budget_total`, mes en curso, última
+          revisión) -- y cuando nadie lo fijó a mano, la proyección de la
+          regla de crecimiento de Own Production, LEÍDA y no escrita (ver la
+          cascada en `loadData.ts`). `null` es un ESTADO -- ni total ni regla
+          -- y no un cero.
+
+          ⚠ `budgetSource` dice CUÁL DE LOS DOS ES. Un número leído de la
+          regla no es un total fijado aunque coincida en valor -- nadie lo
+          confirmó, y cambia si la regla cambia. Sin la nota "· from growth
+          rule", alguien va a ver un budget y creer que se decidió.
+        */}
+        <div className="bp-stat">
+          <span className="bp-stat__label">Budget (this month)</span>
+          {budget === null ? (
+            <span className="bp-muted" title="Nobody set a budget for this month, and there's no growth rule for Own Production to read either.">
+              Not set
+            </span>
+          ) : (
+            <span className="bp-stat__value">
+              {fmtDecimal(budget)}
+              {budgetSource === 'rule' && (
+                <span
+                  className="bp-muted"
+                  title="Nobody fixed a total for this month -- this reads today's growth-rule projection for Own Production, the same one Outlook shows. It moves if the rule changes."
+                >
+                  {' '}
+                  · from growth rule
+                </span>
+              )}
+            </span>
+          )}
+        </div>
       </div>
 
       {/*
@@ -213,22 +375,45 @@ export function Q1Panel({ lo, benchmarkSlot }: { lo: LoanOfficerRow; benchmarkSl
 
         Un decimal siempre: redondear a entero convertiría un −0,5 en 0, o sea On
         Target, y eso cambia veredictos, no la presentación.
+
+        ⚠ ETAPA BP49: el rótulo dice CONTRA QUÉ se calculó -- "vs budget" o "vs
+        starting benchmark" -- porque desde esta etapa el gap ya no mide
+        siempre contra lo mismo, y un número sin esa aclaración se prestaría a
+        leerse contra el de siempre.
+
+        ⚠ ETAPA BP51: `gapNote`, debajo del número, es el único lugar de la
+        tarjeta que dice si el forecast cumple o no -- antes esa frase vivía
+        DOS veces, pegada a la fila que corresponde y con `white-space: nowrap`,
+        que era lo que se salía de la tarjeta. Acá puede envolver en dos
+        líneas sin romper nada, porque el GAP es el único bloque con fondo
+        propio -- ver `.bp-gap-hero` -- y el ancho lo tiene disponible.
       */}
       <div className={'bp-gap-hero' + (lo.q1.state ? ' bp-gap-hero--' + lo.q1.state : '')}>
-        <span className="bp-stat__label">GAP</span>
+        <span className="bp-stat__label">
+          GAP{gapAgainst && ' — vs ' + (gapAgainst === 'budget' ? 'budget' : 'starting benchmark')}
+        </span>
         {lo.q1.gap === null ? (
           <span className="bp-muted">—</span>
         ) : (
-          <div className="bp-gap-hero__row">
-            <span className="bp-gap-hero__value" title={exactTitle(lo.q1.gap)}>
-              {fmtGap(lo.q1.gap)}
-            </span>
-            {lo.q1.state && <span className="bp-gap-hero__state">{GAP_STATE_LABEL[lo.q1.state]}</span>}
-          </div>
+          <>
+            <div className="bp-gap-hero__row">
+              <span className="bp-gap-hero__value" title={exactTitle(lo.q1.gap)}>
+                {fmtGap(lo.q1.gap)}
+              </span>
+              {lo.q1.state && <span className="bp-gap-hero__state">{GAP_STATE_LABEL[lo.q1.state]}</span>}
+            </div>
+            {gapNote && <div className="bp-gap-hero__note">{gapNote}</div>}
+          </>
         )}
       </div>
 
-      <div className="bp-stat">
+      {/*
+        YTD CLOSINGS — cuarto y último bloque, etapa BP52. Separado con un
+        borde superior (`.bp-stat--ytd`) y no con un `.bp-stats__group`
+        propio: es una sola fila, y un encabezado de grupo para una fila sola
+        agruparía algo que no tiene con qué agruparse.
+      */}
+      <div className="bp-stat bp-stat--ytd">
         <span className="bp-stat__label">YTD closings</span>
         <span className="bp-stat__value">{lo.ytdClosings}</span>
       </div>

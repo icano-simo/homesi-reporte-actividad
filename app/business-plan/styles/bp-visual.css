@@ -527,6 +527,201 @@ table.piv.bp-table--los th {
 }
 
 /* ---------------------------------------------------------------------------
+ * 7b. El perfil editable -- etapa BP50
+ * ---------------------------------------------------------------------------
+ *
+ * ⚠ EL PREFIJO ES `bp-cv` PORQUE `bp-profile` YA ESTA ARRIBA, en esta misma
+ * seccion: es la ficha del encabezado. Verificado con `git grep` antes de
+ * escribir esto -- `.bp-profile` y `.bp-profile__meta` se habrian llevado por
+ * delante al nombre y su subtitulo.
+ *
+ * Cerrado es una lista de definiciones y no un formulario: la pantalla se lee
+ * como un CV. Abierto es el formulario, con las dos zonas anchas --estados e
+ * intereses-- ocupando la fila entera.
+ * ------------------------------------------------------------------------ */
+
+.bp-cv {
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  background: var(--white);
+}
+.bp-cv__head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.bp-cv__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--navy);
+}
+.bp-cv__meta {
+  font-size: 11.5px;
+  color: var(--slate-500);
+}
+.bp-cv__toggle {
+  margin-left: auto;
+  padding: 4px 12px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-full);
+  background: var(--white);
+  color: var(--slate-600);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.bp-cv__toggle:hover {
+  border-color: var(--coral);
+  color: var(--navy);
+}
+
+/*
+ * ============================================================================
+ * AFUERA QUEDA UNA LINEA, NO UNA GRILLA -- correccion de BP50 en RV20
+ * ============================================================================
+ *
+ * Los siete campos dibujados en la pantalla competian con el veredicto, la
+ * tarjeta de metricas y el grafico. Afuera quedan los dos que aportan de un
+ * vistazo --el NMLS con su link y los estados-- y el resto se abre en un modal.
+ *
+ * ⚠ SE FUERON `.bp-cv__grid`, sus `dt`/`dd` y `.bp-cv__pair--wide`: eran las
+ * reglas de la grilla cerrada, y con la vista reducida ya no las pide nadie.
+ * Una regla que nadie usa reserva un nombre para nadie -- el mismo motivo por
+ * el que se borraron las once de `rv-bar__*` en RV2.
+ */
+.bp-cv__resumen {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  color: var(--navy);
+}
+.bp-cv__dato {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.bp-cv__rot {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--slate-500);
+}
+.bp-cv__tag {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: var(--radius-full);
+  background: var(--slate-100);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--slate-600);
+}
+
+/* Abierto: el formulario. */
+.bp-cv__form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px 20px;
+  margin-top: 14px;
+}
+.bp-cv__field--wide {
+  grid-column: 1 / -1;
+}
+.bp-cv__chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-height: 26px;
+}
+.bp-cv__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 4px 2px 9px;
+  border-radius: var(--radius-full);
+  background: var(--navy);
+  color: var(--canvas);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.bp-cv__chip button {
+  display: inline-flex;
+  padding: 2px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--canvas);
+  cursor: pointer;
+}
+.bp-cv__chip button:hover {
+  background: var(--coral);
+}
+.bp-cv__addstate {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.bp-cv__stateinput {
+  width: 74px;
+  text-transform: uppercase;
+}
+.bp-cv__hint {
+  margin: 8px 0 0;
+  font-size: 11.5px;
+  color: var(--slate-500);
+  line-height: 1.7;
+}
+/* Cada sugerencia es un boton: se agrega de un clic, porque donde alguien
+   cerro no es donde tiene licencia. */
+.bp-cv__sugg {
+  margin-right: 5px;
+  padding: 2px 8px;
+  border: 1px dashed var(--slate-200);
+  border-radius: var(--radius-full);
+  background: var(--white);
+  color: var(--slate-600);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.bp-cv__sugg:hover {
+  border-style: solid;
+  border-color: var(--coral);
+  color: var(--navy);
+}
+.bp-cv__hintline {
+  display: block;
+  margin-top: 2px;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--slate-500);
+}
+.bp-cv__actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ---------------------------------------------------------------------------
  * 8. Pie de diagnóstico
  * ------------------------------------------------------------------------ */
 
@@ -622,7 +817,7 @@ table.piv.bp-table--los th {
 
 .bp-q1-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 260px;
+  grid-template-columns: minmax(0, 1fr) 280px;
   gap: 16px;
   margin-bottom: 8px;
 }
@@ -631,11 +826,43 @@ table.piv.bp-table--los th {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+/*
+ * ============================================================================
+ * EL GRÁFICO, CENTRADO EN SU PROPIA TARJETA — etapa BP51
+ * ============================================================================
+ *
+ * `.bp-q1-grid` es una fila de grid con DOS columnas, y por default
+ * (`align-items: stretch`) las dos celdas quedan con la MISMA altura -- la del
+ * contenido más alto. El plot del gráfico mide 150px fijos (`H` en
+ * `MonthlyBarChart.tsx`, la referencia contra la que se escala cada barra) más
+ * el eje y la leyenda, bastante menos que lo que la tarjeta de estadísticas
+ * necesitaba.
+ *
+ * Medido con Chromium real, mismo escenario en los dos casos (benchmark
+ * provisional, sin budget, GAP -1.0 On Risk):
+ *
+ *   ANTES de BP51  322px de alto la fila, 187px el contenido del gráfico --
+ *                  118px de hueco vacío, TODO abajo, porque `.bp-chart-card`
+ *                  no tenía ningún `justify-*` que lo repartiera.
+ *   DESPUÉS        335px de alto la fila (la cabecera y la nota del GAP le
+ *                  agregan contenido real), 187px el contenido del gráfico --
+ *                  72px de hueco, repartido arriba Y abajo por el
+ *                  `justify-content: center` de acá abajo.
+ *
+ * BP51 ataca las dos puntas: la tarjeta de estadísticas baja de tamaño sola
+ * donde puede (sin las tres marcas de "provisional" ni las cajas rosadas
+ * anidadas, ver más abajo), Y el gráfico se adapta al espacio que le sobra en
+ * vez de dejarlo todo apilado de un lado. Las dos salidas que se habían
+ * planteado no eran excluyentes -- el hueco no llega a cero (las dos tarjetas
+ * miden cosas distintas y no hay por qué esperar que sus altos naturales
+ * coincidan), pero se achica 39% y deja de estar todo de un mismo lado.
+ */
 .bp-chart-card {
   padding: 16px 18px 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
-/* El promedio CON mes actual es el que alimenta el GAP: va grande. El de meses
-   cerrados va al lado, más chico, porque es contexto y no entra en el cálculo. */
 
 /* ── Gráfico de barras ──────────────────────────────────────────────────── */
 
@@ -750,10 +977,10 @@ table.piv.bp-table--los th {
 
 /* ── Benchmark editable ─────────────────────────────────────────────────── */
 
+/* Etapa BP51: "Edit" es `.bp-btn.bp-btn--small` -- esto sólo agrega el
+   espacio respecto del valor, ya no tamaño ni peso (eso lo da el botón). */
 .bp-benchmark__edit {
   margin-left: 8px;
-  font-size: 10.5px;
-  font-weight: 600;
 }
 .bp-benchmark__form {
   display: flex;
@@ -840,6 +1067,27 @@ a.bp-btn {
 .bp-decision--suggested {
   background: var(--slate-600);
 }
+/*
+ * ============================================================================
+ * TERCER TONO: DISPONIBLE -- etapa BP50
+ * ============================================================================
+ *
+ * On Track y no evaluable. Es el unico CLARO de los tres, y eso ES el mensaje:
+ * los dos oscuros piden algo --uno obliga, el otro sugiere-- y este solo dice
+ * que la puerta esta abierta. Un funnel es acompañamiento, no remediacion.
+ *
+ * ⚠ EL TEXTO SE REDEFINE ACA, y hace falta: `.bp-decision__why` va en `--sky`,
+ * que sobre un fondo claro no se lee. Mismo idioma que la tira de video de
+ * BP48b -- regla a la izquierda en `--sky` y contenido sobrio-- pero invertido.
+ */
+.bp-decision--available {
+  background: var(--slate-50);
+  color: var(--navy);
+  border-left: 3px solid var(--sky);
+}
+.bp-decision--available .bp-decision__why {
+  color: var(--slate-600);
+}
 .bp-decision__title {
   font-family: var(--font-display);
   font-size: 14px;
@@ -876,7 +1124,38 @@ a.bp-btn {
 .bp-modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 100;
+  /*
+   * ⚠ 130, NO 100 — corrección urgente, OL26g.
+   *
+   * `.rv-panel` (el panel del paso de la revisión, `app/review/styles/review.css`)
+   * es `position: fixed; z-index: 122`, anclado abajo a la derecha. Con este
+   * modal en 100, el panel de la revisión quedaba SIEMPRE por encima -- y el
+   * pie del modal (`Save budget`/`Confirm as reviewed`, en `PersonBudgetEditor`
+   * vía el prop `footer`) vive justo ahí abajo. El síntoma no era que el pie
+   * no existiera --ya usa el mismo hermano-de-`.bp-modal__body` de siempre--
+   * sino que el panel de la revisión lo tapaba desde arriba.
+   *
+   * `aria-modal="true"` ya declara la intención: mientras un modal está
+   * abierto, es lo único con lo que se puede interactuar. Que un panel fijo
+   * de OTRO sistema quede por encima contradice esa semántica, no es sólo un
+   * problema visual. 130 deja margen sobre el 122 más alto que hay hoy en la
+   * app (`git grep -n z-index` en `app/` y `components/`) sin inventar un
+   * número mágico mayor "por las dudas".
+   *
+   * `.bp-panel-backdrop`, más abajo, se mantiene en el MISMO valor a
+   * propósito -- ver su propia nota.
+   *
+   * ⚠⚠ DOS COPIAS DE LA MISMA DECISIÓN, EN ARCHIVOS DISTINTOS -- ver
+   * AGENTS.md, "el hermano mayor: dos copias de la misma decisión". Este
+   * número y el de `.rv-panel`/la máscara de la revisión
+   * (`app/review/styles/review.css`, hoy 119-122) tienen que decidir LO
+   * MISMO: que el modal quede arriba de todo lo demás. RV14 subió la
+   * máscara sin saber que este backdrop dependía de estar por encima de
+   * ella -- las dos eran correctas cuando se escribieron, lo que las separó
+   * fue editar una sola. Quien suba cualquiera de las dos tiene que revisar
+   * la otra, o este defecto vuelve.
+   */
+  z-index: 130;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -933,6 +1212,31 @@ a.bp-btn {
 .bp-modal__body {
   overflow: auto;
   padding: 4px 18px 18px;
+  /*
+   * ⚠ `flex: 1` Y `min-height: 0`, NO SÓLO `overflow: auto` -- etapa OL26d.
+   * Con dos hijos (cabecera y cuerpo) el cuerpo se queda con lo que sobra
+   * aunque no lo pida --es el último, no hay nadie más compitiendo por el
+   * espacio--. Con el pie nuevo como TERCER hijo eso deja de ser automático:
+   * sin `flex: 1` el cuerpo mide lo que su contenido necesita y empuja a
+   * `.bp-modal` entero más allá de `max-height`, y sin `min-height: 0` un
+   * flex item no encoge por debajo de su contenido aunque tenga `overflow:
+   * auto` -- las dos son necesarias para que el scroll quede adentro del
+   * cuerpo y el pie no se mueva.
+   */
+  flex: 1 1 auto;
+  min-height: 0;
+}
+/*
+ * El pie del modal -- etapa OL26d. Hermano de `.bp-modal__body`, no
+ * descendiente: `.bp-modal` es un flex column, así que este bloque queda
+ * SIEMPRE visible sin ningún `position: sticky` y sin compartir el scroll
+ * de `.bp-modal__body`. Mismo borde y padding que `.bp-modal__head`, que es
+ * el otro bloque fijo del modal.
+ */
+.bp-modal__footer {
+  flex-shrink: 0;
+  padding: 12px 18px;
+  border-top: 1px solid var(--slate-200);
 }
 
 /* ── Settings ───────────────────────────────────────────────────────────── */
@@ -1145,11 +1449,124 @@ a.bp-btn {
  * izquierdo, valor pegado al derecho. Antes cada métrica ocupaba dos renglones
  * (etiqueta arriba en gris, valor abajo) y el panel se leía como una lista de
  * párrafos en vez de una ficha de datos.
+ *
+ * ============================================================================
+ * UNA SOLA ESCALA TIPOGRÁFICA — etapa BP51, afinada en BP52
+ * ============================================================================
+ *
+ * Antes de BP51 había seis tamaños compitiendo en la misma tarjeta (10, 10.5,
+ * 14, 16, 9 y 34px) sin un criterio que los ordenara. BP51 los bajó a cinco
+ * roles. BP52 afina dos cosas: la escala entera baja un escalón (se seguía
+ * sintiendo grande), y se agrega un SEXTO rol legítimo -- el encabezado de
+ * grupo -- que no existía porque la tarjeta todavía no agrupaba nada.
+ *
+ * Los seis roles, cada uno con su propio tamaño -- y CONTADOS, no supuestos,
+ * antes de cerrar la etapa (ver el script de verificación en el scratchpad
+ * de esa sesión: 6 tamaños distintos, ni uno de más):
+ *
+ *   título de tarjeta   11px, bold, mayúsculas, gris medio    -- `.bp-stats__title`
+ *   encabezado de grupo 10px, bold, mayúsculas, `--navy`      -- `.bp-stats__group-title`
+ *   rótulo de fila      9.5px, semibold, mayúsculas, gris medio -- `.bp-stat__label`
+ *   valor estándar      12px, negrita, `--navy`, tabular-nums -- `.bp-stat__value`
+ *   destacado (el GAP)  34px, el único con jerarquía real     -- `.bp-gap-hero__value`
+ *   píldora / nota      9px y 10px -- dos roles chicos que YA compartían
+ *                       tamaño con otros antes de esta etapa y lo siguen
+ *                       haciendo (`.bp-gap-hero__state`/`.bp-provisional`
+ *                       en 9px, `.bp-gap-hero__note` en 10px junto con el
+ *                       "Not set"/"—" que hereda de `.bp-stat > .bp-muted`)
+ *
+ * ⚠ El encabezado de grupo se distingue del título de tarjeta por DOS ejes a
+ * la vez -- tamaño (10 contra 11) Y color (`--navy` contra gris medio) -- a
+ * propósito: un solo eje (sólo 1px de diferencia) se habría sentido como
+ * ruido de redondeo, no como una jerarquía nueva.
+ *
+ * El de "Avg 3M (closed months)" se ve más chico que el resto NO por tamaño
+ * --sería un séptimo tamaño-- sino por color (`.bp-stat--muted`, más abajo):
+ * mismo rol tipográfico, contexto y no decisión, dicho con menos contraste en
+ * vez de con una escala propia.
  */
 .bp-stats {
   padding: 6px 16px;
   display: flex;
   flex-direction: column;
+}
+/*
+ * LA CABECERA — una sola marca de "Provisional data" para toda la tarjeta, en
+ * vez de una por renglón. Antes "provisional" podía aparecer hasta TRES veces
+ * a la vez (el rótulo del benchmark, el valor del benchmark, el rótulo del
+ * GAP) por el mismo único hecho: el benchmark de esta persona es un seed
+ * circular. Un hecho se dice una vez; que valga para toda la tarjeta es
+ * justamente lo que la cabecera comunica.
+ */
+.bp-stats__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 9px;
+  margin-bottom: 3px;
+  border-bottom: 1px solid var(--slate-200);
+}
+.bp-stats__title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--slate-500);
+}
+/*
+ * ============================================================================
+ * LOS GRUPOS, POR LA MATEMÁTICA DEL NEGOCIO — etapa BP52
+ * ============================================================================
+ *
+ * Antes las siete filas eran una lista plana: nada en la tarjeta decía que
+ * "Starting benchmark" y "Budget" son justamente los dos números de los que
+ * sale el GAP, ni que los dos promedios de arriba son el mismo tipo de dato
+ * (histórico) por otra razón (ninguno decide nada todavía). `.bp-stats__group`
+ * es sólo el contenedor; `.bp-stats__group-title` es el rótulo de CADA grupo,
+ * más chico que el título de la tarjeta y en `--navy` (no en el gris del
+ * título) -- las dos señales juntas, tamaño Y color, para que la jerarquía se
+ * note sin depender de un solo píxel de diferencia.
+ */
+.bp-stats__group {
+  display: flex;
+  flex-direction: column;
+}
+.bp-stats__group-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--navy);
+  padding-top: 8px;
+}
+/*
+ * El grupo de "Historical averages" termina con un divisor propio, más
+ * marcado que el borde tenue de cada fila -- separa un GRUPO del siguiente,
+ * no una fila de la siguiente, así que tiene que leerse distinto.
+ */
+.bp-stats__group--divided {
+  padding-bottom: 3px;
+  margin-bottom: 3px;
+  border-bottom: 1px solid var(--slate-200);
+}
+/*
+ * "Goals & budget" -- Starting benchmark y Budget, LOS DOS insumos del GAP --
+ * va en una caja de fondo muy tenue, justo arriba de la caja del GAP. Es la
+ * señal visual de "estos dos alimentan a ese": de un vistazo se ve que el
+ * bloque de abajo (el GAP, con su propio fondo de estado) es la consecuencia
+ * del bloque de arriba, sin tener que leer ninguna palabra.
+ *
+ * ⚠ Esto NO es volver a las cajas rosadas anidadas que BP51 sacó. Esas eran
+ * una caja POR FILA, coloreada según si esa fila cumplía o no -- ruido
+ * semántico compitiendo entre sí. Ésta es UNA caja para el grupo entero, en
+ * un tono neutro que no dice "bien" ni "mal" -- dice "estos dos van juntos".
+ */
+.bp-stats__group--boxed {
+  background: var(--slate-50);
+  border-radius: var(--radius-md);
+  padding: 2px 10px;
+  margin: 6px -2px 6px;
 }
 .bp-stat {
   display: flex;
@@ -1162,28 +1579,66 @@ a.bp-btn {
 .bp-stat:last-child {
   border-bottom: none;
 }
+/*
+ * YTD closings -- etapa BP52. Es su propio bloque, el cuarto y último, y no
+ * comparte grupo con nada -- un borde SUPERIOR lo separa del GAP en vez de
+ * un `.bp-stats__group` de un solo rótulo para una sola fila, que habría
+ * sido un encabezado de grupo sin nada que agrupar.
+ */
+.bp-stat--ytd {
+  border-top: 1px solid var(--slate-200);
+  margin-top: 8px;
+  padding-top: 12px;
+}
 .bp-stat__label {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.07em;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--slate-400);
-  /* No se parte en dos líneas: la fila dejaría de leerse como una fila. */
+  color: var(--slate-500);
+  /*
+   * ⚠ SÍ se puede partir en dos líneas -- al revés de lo que decía esta nota
+   * antes de BP51. Un rótulo en `nowrap` es exactamente el mecanismo que
+   * hizo desbordar la tarjeta (ver la nota de `.bp-stat__value`, arriba): con
+   * la columna fija en 280px, "Avg 3M (with current month)" no entra en una
+   * sola línea a 11px. Envolver en dos es management del ancho; forzarlo a
+   * una sola línea es lo que lo saca de la tarjeta.
+   */
   line-height: 1.3;
 }
 .bp-stat__value {
   font-family: var(--font-display);
-  font-size: 16px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--navy);
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+  /*
+   * ⚠ NO `white-space: nowrap`. Ésa era la causa del desborde medido en BP51:
+   * "Starting benchmark" con su fila entera (rótulo + badge + edit + nota)
+   * fijada a una sola línea no cabía en los 260px que tenía la columna en ese
+   * momento (subida a 280px en el mismo cambio, ver `.bp-q1-grid`) y se
+   * salía de la tarjeta -- y de la página,
+   * `document.documentElement.scrollWidth` por encima del viewport, medido
+   * con Chromium real. Dejar que envuelva es lo que lo cierra de verdad: una
+   * fila puede crecer en ALTO, nunca en ancho más allá de su columna, así
+   * que ningún ensanche de columna vuelve a dejar esto seguro por sí solo.
+   */
 }
 /*
- * El promedio CON mes actual es el que alimenta el GAP: va notablemente más
- * grande que el resto. La jerarquía es el mensaje -- de todas las cifras del
- * panel, esta es la que decide.
+ * "Not set" / "—" son valores ausentes, no rótulos -- tienen que leerse en el
+ * mismo tamaño que un valor presente, sólo con menos contraste (`.bp-muted`,
+ * definida en la sección 2 para toda la app, con OTROS usos que no hay que
+ * tocar). Sin este selector heredaban el `font-size: 14px` del body -- 1px
+ * de más que el resto de la escala, medido con Chromium real -- por ser
+ * hijos directos de `.bp-stat`/`.bp-gap-hero` sin ninguna regla propia de
+ * tamaño. Acotado a estos dos padres para no mover `.bp-muted` en los otros
+ * ocho archivos que la usan.
  */
+.bp-stat > .bp-muted,
+.bp-gap-hero > .bp-muted {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
 
 /*
  * GAP: número y estado en la MISMA píldora, con el fondo del color del estado.
@@ -1522,17 +1977,28 @@ a.bp-btn {
  * sale del renglón.
  */
 
-/* El promedio de meses cerrados es contexto: no entra en el GAP. */
+/*
+ * El promedio de meses cerrados es contexto: no entra en el GAP. Etapa BP51:
+ * ya NO es un tamaño de letra propio (era 14px contra los 16px del resto,
+ * un cuarto tamaño en la misma tarjeta) -- mismo tamaño que cualquier otro
+ * valor estándar, sólo con menos contraste de color.
+ */
 .bp-stat--muted .bp-stat__value {
-  font-size: 14px;
   color: var(--slate-500);
 }
 
+/*
+ * Margen de arriba más chico que el de abajo -- etapa BP52. El GAP va JUSTO
+ * debajo de `.bp-stats__group--boxed` (Starting benchmark + Budget, los dos
+ * insumos), para que las dos cajas se lean como un par conectado y no como
+ * dos bloques sueltos. Abajo, en cambio, sigue el margen normal: lo que
+ * viene después es YTD closings, que no tiene nada que ver con el GAP.
+ */
 .bp-gap-hero {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  margin: 8px 0;
+  margin: 4px 0 8px;
   padding: 10px 12px;
   border: 1px solid var(--slate-200);
   border-radius: var(--radius-md);
@@ -1561,6 +2027,20 @@ a.bp-btn {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   white-space: nowrap;
+}
+
+/*
+ * LA NOTA DEL GAP — etapa BP51. Reemplaza a `.bp-stat__flag`, que vivía
+ * pegado a la fila de Starting benchmark o de Budget ("Forecast is below
+ * it") con `white-space: nowrap` -- eso era lo que se salía de la tarjeta.
+ * Ahora es una sola línea de contexto, DEBAJO del número que decide, tenue y
+ * SIN `nowrap`: puede envolver en dos líneas si hace falta, nunca desborda.
+ */
+.bp-gap-hero__note {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--slate-600);
+  line-height: 1.4;
 }
 
 /*
@@ -1874,10 +2354,28 @@ a.bp-btn {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
+  /*
+   * ⚠ TODAS LAS FILAS DEL MISMO ALTO — etapa BP48.
+   *
+   * Sin esto cada fila se ajusta a su propio contenido: medido, las tarjetas
+   * quedaban en 270px, 652px y 294px. `1fr` reparte el alto de la más alta
+   * entre todas las filas, que es lo que el brief pide.
+   *
+   * Y sólo tiene sentido JUNTO al recorte de la descripción: con los 1984
+   * caracteres de `Javier Growth Engine` sin recortar, «todas iguales» habría
+   * significado estirar las nueve a 652px.
+   */
+  grid-auto-rows: 1fr;
 }
 @media (max-width: 900px) {
   .bp-catalog {
     grid-template-columns: minmax(0, 1fr);
+    /*
+     * En una sola columna «la misma línea horizontal» no existe --no hay dos
+     * tarjetas lado a lado-- y forzar el alto de la más alta dejaría un hueco
+     * debajo de cada una. Cada tarjeta vuelve a medir lo suyo.
+     */
+    grid-auto-rows: auto;
   }
 }
 .bp-catalog__card {
@@ -1891,6 +2389,19 @@ a.bp-btn {
   padding: 16px 18px;
   cursor: pointer;
   transition: box-shadow 0.14s ease, border-color 0.14s ease;
+  /*
+   * ⚠ COLUMNA FLEX, Y NO ES UN DETALLE: un `<button>` estirado CENTRA su
+   * contenido verticalmente. Con la fila a 652px, `Network Leverage` aparecía
+   * flotando en el medio con 220px de vacío arriba y otros tantos abajo -- se
+   * ve en la captura de antes, y ninguna medición de altos lo delataba porque
+   * el alto era el correcto.
+   *
+   * En columna el contenido arranca arriba, y el pie se va al fondo con el
+   * `margin-top: auto` de `.bp-catalog__foot`.
+   */
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
 }
 .bp-catalog__card:hover {
   box-shadow: var(--shadow-lg);
@@ -1936,6 +2447,97 @@ a.bp-btn {
   line-height: 1.5;
   color: var(--slate-600);
   margin: 0 0 10px;
+}
+/*
+ * ⚠ EL RECORTE A DOS LÍNEAS — etapa BP48.
+ *
+ * Es un recorte VISUAL: el texto completo sigue en el DOM y el navegador
+ * decide cuánto entra según el ancho real de la tarjeta. Recortar por cantidad
+ * de caracteres daría un largo distinto en cada ancho de pantalla y cortaría a
+ * mitad de palabra.
+ *
+ * Mismo modismo que `.note-text--clamped` en `app/styles/components.css`, que
+ * ya hace esto con las notas de un préstamo. Las clases van separadas a
+ * propósito: aquélla está afinada para una celda de tabla.
+ *
+ * `-webkit-line-clamp` sin prefijo estándar porque los tres motores actuales
+ * lo implementan con el prefijo y sólo con `display: -webkit-box`.
+ */
+.bp-catalog__desc--clamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  /* Sin esto, la última palabra visible se puede cortar al medio si sola no
+     entra en el ancho. */
+  overflow-wrap: anywhere;
+}
+/*
+ * ══════════════════════════════════════════════════════════════════════
+ * ⚠ Y DESPLEGADA TIENE TOPE — etapa BP48, y esto salió de apretar el botón
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * `grid-auto-rows: 1fr` hace que todas las filas midan lo mismo, que es el
+ * punto 1. La consecuencia, medida al ejercer «Show more» por primera vez: la
+ * descripción de 1984 caracteres pasaba de 36px a 450px y **las siete
+ * tarjetas** saltaban de 307px a 689px. Seis con 380px de vacío para que una
+ * muestre su texto.
+ *
+ * El tope acota ese salto y el sobrante se alcanza scrolleando dentro del
+ * párrafo. No es lo mismo que recortar: recortado es que el texto no está
+ * disponible; acotado es que está entero y hay que correrlo.
+ *
+ * ⚠ Y no se resuelve sacando `1fr`: sin él vuelven las tres alturas distintas
+ * del principio. Las dos cosas que el brief pide --misma altura y poder leer
+ * el texto largo-- se cruzan justo acá, y el tope es el punto donde se cruzan.
+ */
+.bp-catalog__desc--open {
+  max-height: 9em;
+  overflow-y: auto;
+  /* Con los saltos de línea del texto original, que colapsados hacen de esas
+     1984 caracteres un solo bloque ilegible. Sólo al desplegar: en dos líneas
+     un salto se comería la mitad del recorte. */
+  white-space: pre-line;
+  /* La barra que aparece no debe pegarse a las letras. */
+  padding-right: 6px;
+}
+/*
+ * El desplegable. `span` y no `button` --la tarjeta entera ya es un botón--
+ * pero con el aspecto y el foco de un control, porque lo es.
+ */
+.bp-catalog__showmore {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  align-self: flex-start;
+  margin: -6px 0 10px;
+  padding: 2px 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--coral);
+  cursor: pointer;
+  /* El subrayado aparece al pasar por encima: en reposo la tarjeta ya tiene
+     bastante tinta y esto es secundario al nombre y a los conteos. */
+  text-decoration: none;
+}
+.bp-catalog__showmore:hover {
+  text-decoration: underline;
+}
+.bp-catalog__showmore:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+.bp-catalog__showmore-caret {
+  transition: transform 0.14s ease;
+}
+.bp-catalog__showmore-caret.is-up {
+  transform: rotate(180deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .bp-catalog__showmore-caret {
+    transition: none;
+  }
 }
 .bp-catalog__chain {
   display: flex;
@@ -2922,11 +3524,225 @@ table.piv th.bp-wrap {
 
 /* Pie de la tarjeta del catálogo: explorar a la izquierda, elegir a la derecha. */
 .bp-catalog__foot {
+  /*
+   * ⚠ AL FONDO DE LA TARJETA — etapa BP48. Medido antes: los pies de una misma
+   * fila caían desfasados 25px, 13px y 191px, porque cada uno quedaba justo
+   * debajo de su contenido. El `auto` se come todo el espacio sobrante, así que
+   * el pie toca el borde inferior sin importar cuánto mida lo de arriba.
+   *
+   * ⚠ Y REEMPLAZA al `margin-top: 10px` que había en esta misma regla, no se
+   * suma. La primera versión dejó los dos y el de abajo ganaba --misma
+   * declaración, la última pisa-- así que el `auto` no hacía nada y los pies
+   * seguían desfasados 50px, 25px y 10px. El separador de 10px ahora lo pone
+   * el bloque de arriba, que es de donde tiene que salir.
+   */
+  margin-top: auto;
+  padding-top: 10px;
   display: flex;
-  align-items: center;
+  /*
+   * `flex-end` y no `center`: la columna izquierda del pie mide una o dos
+   * filas según el funnel tenga equipo de soporte o no. Centrado, el botón
+   * subía o bajaba con ella; apoyado abajo, su borde inferior es siempre el
+   * mismo -- que es la línea horizontal que pide el brief.
+   */
+  align-items: flex-end;
   justify-content: space-between;
   gap: 10px;
-  margin-top: 10px;
+}
+/*
+ * ══════════════════════════════════════════════════════════════════════
+ * EL VIDEO DEL FUNNEL — etapa BP48
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * La tira de la tarjeta. Mide siempre lo mismo tenga video o no: si el estado
+ * vacío ocupara menos, las tarjetas volverían a diferir y el punto 1 se
+ * caería por la puerta de atrás.
+ */
+/*
+ * ══════════════════════════════════════════════════════════════════════
+ * LA BANDA DEL VIDEO — etapa BP48b
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * Antes era una tira clara, de una línea, con borde punteado cuando estaba
+ * vacía. Ahora es una banda oscura, y los DOS estados comparten la caja: mismo
+ * fondo, mismo filete, mismo icono, dos renglones y un botón. Sólo cambia lo
+ * que dice cada pieza.
+ *
+ * Que compartan la caja es lo que las hace pesar igual --que es lo que el
+ * brief pide-- y de paso lo que garantiza que midan igual, que es la condición
+ * del punto 1: si el estado vacío ocupara menos, las tarjetas volverían a
+ * desnivelarse.
+ *
+ * ⚠ `--slate-800` Y NO UN `--slate-900`: la escala del proyecto llega hasta
+ * 800. No se inventó un token nuevo para una sola banda; el que existe ya es
+ * oscuro.
+ */
+.bp-catalog__video {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--slate-800);
+  /*
+   * ⚠ EL FILETE ES `--sky`, Y ESA DECISIÓN TIENE HISTORIA.
+   *
+   * La especificación lo pedía en `--coral`, y eso chocaba con lo que se
+   * decidió en BP48: un funnel sin video no es un problema. Con nueve funnels
+   * sin cargar, nueve franjas rojas se leen como nueve alertas.
+   *
+   * `--sky` es el tono informativo del sistema --así se usa en Outlook-- y
+   * dice «acá va a ir un video» en vez de «esto está mal». El coral queda para
+   * el botón, que sí es una acción.
+   *
+   * Va en los dos estados: el filete marca de qué habla la banda, no si le
+   * falta algo. Lo que dice que falta es el texto.
+   */
+  border-left: 3px solid var(--sky);
+  color: var(--white);
+}
+.bp-catalog__video-icon {
+  display: flex;
+  flex: none;
+  color: var(--sky);
+}
+.bp-catalog__video-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+.bp-catalog__video-title {
+  font-size: 11px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* El segundo renglón: la duración, o por qué no hay. Siempre presente, para
+   que la banda mida lo mismo en los dos estados. */
+.bp-catalog__video-sub {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--slate-400);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* El botón, que es lo único coral de la banda: es el acto. */
+.bp-catalog__video-btn {
+  flex: none;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--coral);
+  color: var(--white);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: filter 0.14s ease;
+}
+.bp-catalog__video-btn:hover {
+  filter: brightness(1.08);
+}
+.bp-catalog__video-btn:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bp-catalog__video-btn {
+    transition: none;
+  }
+}
+/*
+ * ⚠ SIN VIDEO NO ES UN ERROR, y sigue sin serlo con la banda oscura. El estado
+ * vacío no cambia de color respecto del cargado: cambia de icono, de segundo
+ * renglón y de botón. Lo que distingue a los dos es lo que DICEN, no una
+ * alarma. Por eso esta regla casi no declara nada -- y se deja escrita para
+ * que quede claro que la ausencia de reglas es la decisión.
+ */
+.bp-catalog__video--empty .bp-catalog__video-title {
+  color: var(--slate-300);
+}
+
+/* El reproductor, dentro del modal. */
+.bp-video-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--navy);
+}
+.bp-video-frame video,
+.bp-video-frame iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.bp-video-hint {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--slate-600);
+}
+/*
+ * El aviso de SharePoint. Ámbar y no coral: es una advertencia sobre qué link
+ * pegar, no un error de quien lo está pegando.
+ *
+ * ⚠ `display: flex` CON EL TEXTO ENVUELTO EN UN SPAN, y no suelto.
+ *
+ * La primera versión ponía el flex sobre el párrafo entero, con el icono y la
+ * prosa como hijos directos. Cada nodo de texto suelto y cada `<strong>` se
+ * volvía un ítem flex, así que «not» y «Share → Embed» salieron como columnas
+ * separadas con huecos en el medio -- la frase quedaba partida en cinco.
+ *
+ * Es el mismo defecto que tuvo `.rv-panel__gate`, y las dos veces lo encontró
+ * LA CAPTURA con las aserciones de texto en verde: `innerText` de un párrafo
+ * roto en columnas dice exactamente lo mismo que uno bien armado.
+ *
+ * La regla que queda: un contenedor flex no puede tener prosa con marcado
+ * inline como hijo directo. O la prosa va envuelta, o el contenedor no es
+ * flex.
+ */
+.bp-video-hint--warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--amber-50);
+  color: var(--navy);
+}
+.bp-video-hint--warn svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--amber-500);
+}
+/* El único otro hijo: la frase entera, que adentro puede tener el marcado que
+   quiera porque ya no la toca el flex. */
+.bp-video-hint__txt {
+  min-width: 0;
+}
+.bp-video-list {
+  margin: 0 0 10px;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--slate-600);
+}
+
+/* La columna izquierda del pie: el rótulo de explorar y, debajo, el equipo. */
+.bp-catalog__footleft {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
 }
 
 /* ── Tablas como tarjetas flotantes ─────────────────────────────────────── */
@@ -4802,39 +5618,6 @@ table.piv tr.metric.is-picked td.lbl {
 .bp-area-group {
   margin-bottom: 26px;
 }
-.bp-area-group__head {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  margin: 0 0 10px;
-  font-family: var(--font-display);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--slate-500);
-  border-bottom: 1px solid var(--slate-100);
-  padding-bottom: 6px;
-}
-.bp-area-group__head--none {
-  color: var(--amber-800);
-  border-bottom-color: var(--amber-200);
-}
-.bp-area-group__n {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0;
-  text-transform: none;
-  color: var(--slate-400);
-  font-variant-numeric: tabular-nums;
-}
-.bp-area-group__todo {
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0;
-  text-transform: none;
-  color: var(--amber-700);
-}
 
 /* ── La tarjeta de un nodo ────────────────────────────────────────────────── */
 
@@ -5097,21 +5880,31 @@ span.bp-ms__dot {
  * --`Budget Allocation - Ca...`-- mientras que una descripción recortada sólo
  * esconde detalle que igual no cabía.
  */
+/*
+ * EL NOMBRE MANDA SOBRE LA DESCRIPCION -- etapa BP47.
+ *
+ * Estaban a 13px y 11.5px: dos puntos y medio de diferencia, con la
+ * descripcion ocupando el ancho entero de la tarjeta. En una lista de 32 el ojo
+ * enganchaba la descripcion, que es la parte que ademas se recorta.
+ *
+ * Ahora 14.5px contra 11px, y la descripcion en `--slate-400` en vez de 500.
+ */
 .bp-nodecard__name {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 13px;
+  font-size: 14.5px;
   font-weight: 700;
+  line-height: 1.3;
   color: var(--navy);
   overflow-wrap: anywhere;
 }
 /* La descripción SÍ se recorta, a una línea. Dos de los seis nodos sin área
    guardan una sesión entera acá: 891 y 658 caracteres. */
 .bp-nodecard__desc {
-  margin: 2px 0 0;
-  font-size: 11.5px;
+  margin: 3px 0 0;
+  font-size: 11px;
   line-height: 1.45;
-  color: var(--slate-500);
+  color: var(--slate-400);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -5217,7 +6010,7 @@ button.bp-metapill--area:disabled {
   position: fixed;
   inset: 0;
   /*
-   * ⚠ 100, EL MISMO QUE `.bp-modal-backdrop`, Y NO 40.
+   * ⚠ EL MISMO QUE `.bp-modal-backdrop`, Y NO 40.
    *
    * Con 40 la barra global --`.hub-header`, sticky en 50-- pintaba ENCIMA del
    * panel: el título del nodo y la × quedaban tapados. La medición leyó el
@@ -5226,9 +6019,18 @@ button.bp-metapill--area:disabled {
    * Y no se arregla bajando el panel: es `aria-modal`, y dejar la navegación
    * global visible y clicable sobre un modal es una trampa -- se puede saltar a
    * Outlook con el panel abierto. Se sigue el mismo z-index que el Modal del
-   * módulo, que ya resolvió esto.
+   * módulo, que ya resolvió esto -- y por la misma razón subió a 130 cuando
+   * `.bp-modal-backdrop` lo hizo (ver su nota): un panel fijo de otro sistema
+   * por encima de un `aria-modal="true"` es la misma trampa, sea cual sea el
+   * número que lo tape.
+   *
+   * ⚠⚠ Y ESTE VALOR TIENE UNA TERCERA COPIA -- `.bp-modal-backdrop`, arriba
+   * en este mismo archivo, Y `.rv-panel`/la máscara de la revisión en
+   * `app/review/styles/review.css` (hoy 119-122). Las tres tienen que
+   * decidir lo mismo: el modal arriba de todo. Ver la nota de
+   * `.bp-modal-backdrop` antes de subir cualquiera de las tres.
    */
-  z-index: 100;
+  z-index: 130;
   display: flex;
   justify-content: flex-end;
 }
@@ -5336,16 +6138,6 @@ button.bp-metapill--area:disabled {
 .bp-panel__actions {
   margin-top: 12px;
 }
-.bp-panel__rule {
-  margin: 16px 0 0;
-  padding: 9px 11px;
-  border-left: 2px solid var(--sky);
-  background: var(--slate-50);
-  border-radius: var(--radius-sm);
-  font-size: 11.5px;
-  line-height: 1.5;
-  color: var(--slate-600);
-}
 
 /* ── El menu de mas acciones de una tarjeta ── etapa BP44 ────────────────────
 
@@ -5413,15 +6205,6 @@ button.bp-metapill--area:disabled {
    LA PANTALLA DE UN FUNNEL — etapa BP45
    ════════════════════════════════════════════════════════════════════════════ */
 
-/* El nombre del funnel en la lista: es un enlace, pero no se ve como uno --
-   la tarjeta entera ya invita a entrar. */
-.bp-funnel-link {
-  color: var(--navy);
-  text-decoration: none;
-}
-.bp-funnel-link:hover {
-  text-decoration: underline;
-}
 
 /* ── La tarjeta de un nodo dentro de la secuencia ────────────────────────── */
 
@@ -5565,5 +6348,353 @@ button.bp-metapill--area:disabled {
 .bp-pickrow__meta {
   font-size: 11px;
   color: var(--slate-500);
+  font-variant-numeric: tabular-nums;
+}
+
+/* La dependencia declarada: ambar tenue como lo que espera, no como lo que
+   falta. Es un HECHO del funnel, no algo a resolver -- por eso no comparte el
+   tono de "sin area" ni el de una accion. */
+.bp-metapill--waits {
+  background: var(--sky);
+  border-color: var(--sky);
+  color: var(--navy);
+  font-weight: 700;
+}
+
+/*
+ * El aviso de trabado del plan, en la familia ambar del candado: es algo que
+ * falta que pase, no un error ni un dato.
+ *
+ * Se escribe SIN fallback a proposito -- `var(--amber-50)` y no
+ * `var(--amber-50, #fffbeb)`. Un respaldo que nunca se ejerce es lo que hace que
+ * la ausencia del original no se note: asi es como `--white` estuvo indefinido
+ * durante cuatro usos. Los tres tokens estan en `tokens.css` (lineas 84, 87, 89)
+ * y si alguno se fuera, esto tiene que salir feo y no tapado.
+ */
+.bp-plan-node__blocked {
+  margin: 6px 0 0;
+  padding: 6px 10px;
+  border-left: 2px solid var(--amber-500);
+  background: var(--amber-50);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--amber-800);
+}
+
+/*
+ * El punto de trabado del stepper. Se AGREGA al boton, no reemplaza su
+ * contorno: pendiente, en curso y completado ya se distinguen ahi, y un nodo
+ * trabado puede estar en cualquiera de los tres.
+ *
+ * `flex: none` es necesario: el boton es un inline-flex y sin eso el punto se
+ * comprime a un ovalo cuando el nombre del nodo es largo.
+ */
+.bp-step__blocked {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--amber-500);
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   FUNNELS & NODES: UN MODULO, DOS PESTANAS — etapa BP47
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/*
+ * Las pestañas del módulo. No reusan `.bp-tabs`, que en esta pantalla ya está
+ * ocupada por el filtro de áreas: dos grupos de pestañas idénticos, uno arriba
+ * del otro y con ejes distintos, se leen como un solo control roto. Éstas son
+ * más grandes y llevan subrayado; el filtro de áreas queda como píldoras.
+ */
+.bp-modtabs {
+  display: flex;
+  gap: 2px;
+  margin: 0 0 18px;
+  border-bottom: 1px solid var(--slate-200);
+}
+.bp-modtabs__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 16px;
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--slate-500);
+  text-decoration: none;
+}
+.bp-modtabs__tab:hover {
+  color: var(--navy);
+  background: var(--slate-50);
+}
+.bp-modtabs__tab.is-on {
+  color: var(--navy);
+  border-bottom-color: var(--coral);
+}
+.bp-modtabs__n {
+  padding: 1px 7px;
+  border-radius: var(--radius-full);
+  background: var(--slate-100);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--slate-500);
+  font-variant-numeric: tabular-nums;
+}
+.bp-modtabs__tab.is-on .bp-modtabs__n {
+  background: var(--navy);
+  color: var(--white);
+}
+
+/* ── La franja de un funnel ──────────────────────────────────────────────── */
+
+.bp-fnlist {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+/*
+ * `position: relative` NO es decorativo: es lo que hace que el `<a>` estirado
+ * de abajo se mida contra la franja y no contra la página.
+ */
+.bp-fnrow {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px 18px;
+  background: var(--canvas);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+}
+.bp-fnrow:hover {
+  border-color: var(--navy);
+  box-shadow: var(--shadow-md);
+}
+/*
+ * EL LINK ESTIRADO. Cubre la franja entera y va DEBAJO de la tira de controles
+ * (`z-index: 0` contra `1`), así que `Edit` recibe su propio clic. Sin texto:
+ * su nombre accesible es el `aria-label`.
+ */
+.bp-fnrow__hit {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+}
+.bp-fnrow__hit:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 2px;
+}
+.bp-fnrow__main {
+  position: relative;
+  z-index: 0;
+  min-width: 0;
+  flex: 1 1 auto;
+  pointer-events: none;
+}
+.bp-fnrow__name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--navy);
+  overflow-wrap: anywhere;
+}
+.bp-fnrow__desc {
+  margin: 3px 0 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--slate-400);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* La tira de controles: por encima del link estirado, y con sus propios
+   eventos de puntero -- el `__main` los tiene apagados para que el clic en el
+   nombre caiga en el link. */
+.bp-fnrow__meta {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  /*
+   * ⚠ `flex: 0 0 auto` Y SIN `max-width`. Los controles no se encogen ni se
+   * envuelven: el lado del nombre es el que da el espacio, y para eso tiene
+   * `min-width: 0` y elipsis en la descripcion.
+   *
+   * Las dos variantes que salieron peor, medidas en las nueve franjas:
+   *
+   *   `0 0 auto` + `max-width: 46%`  → `Community Referrals` mandaba su `Edit`
+   *                                    solo a una segunda linea.
+   *   `1 1 auto` + `max-width: 54%`  → peor: con `flex-shrink: 1` la tira baja
+   *                                    de su contenido, y en `Javier Growth
+   *                                    Engine` --descripcion larguisima-- la
+   *                                    comprimio a SEIS lineas, una pildora
+   *                                    por linea.
+   *
+   * El `flex-wrap: wrap` se queda igual: es la red por si el viewport se hace
+   * mas angosto que los seis controles juntos.
+   */
+  flex: 0 0 auto;
+}
+/* Cero enrolados: texto y no píldora. Ver la nota del TSX. */
+.bp-fnrow__none {
+  font-size: 11px;
+  color: var(--slate-400);
+  padding: 0 4px;
+}
+
+/* ── La cadena de nodos ──────────────────────────────────────────────────── */
+
+/*
+ * ENVUELVE, y ninguna píldora se recorta. Un `<ol>` porque el ORDEN es el dato:
+ * la secuencia de un funnel no es un conjunto.
+ */
+.bp-chain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 2px;
+  margin: 9px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.bp-chain__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+.bp-chain__arrow {
+  flex: none;
+  color: var(--slate-300);
+}
+/*
+ * ⚠ SIN `text-overflow` Y SIN `white-space: nowrap`. El nombre más largo tiene
+ * 53 caracteres y tiene que poder bajar de línea adentro de su píldora antes
+ * que cortarse: un nombre a medias es inidentificable. Es la distinción que
+ * costó el bug de `table.piv`.
+ */
+.bp-chain__pill {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--slate-200);
+  background: var(--slate-50);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--slate-600);
+  overflow-wrap: anywhere;
+}
+.bp-fnrow:hover .bp-chain__pill {
+  border-color: var(--slate-300);
+}
+
+/* ── El encabezado de área de la biblioteca ──────────────────────────────── */
+
+.bp-areahead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 10px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--slate-200);
+  font-family: var(--font-display);
+  /*
+   * 17px, y el numero importa: el nombre de un nodo esta en 14.5px, asi que a
+   * 15px la medicion decia "mas grande" por medio pixel -- una diferencia que
+   * no se ve y que no sostiene la afirmacion. La jerarquia ahora es 17 / 14.5 /
+   * 11 y cada salto se mide.
+   */
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--navy);
+}
+/* La mayúscula la pone el CSS y no el texto: el área se guarda como
+   `Sales Coaching` y así se busca. */
+.bp-areahead__name {
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.bp-areahead__n {
+  padding: 2px 9px;
+  border-radius: var(--radius-full);
+  background: var(--slate-100);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--slate-500);
+  font-variant-numeric: tabular-nums;
+}
+/* Los 7 sin área conservan el ámbar: es lo que hace que alguien las asigne. */
+.bp-areahead--none {
+  color: var(--amber-800);
+  border-bottom-color: var(--amber-500);
+}
+.bp-areahead--none .bp-areahead__n {
+  background: var(--amber-100);
+  color: var(--amber-800);
+}
+
+/* ── Las notas aclaratorias, todas iguales ───────────────────────────────── */
+
+/*
+ * UNA SOLA CAJA PARA TODAS. Antes eran `bp-legend` a 11px sin caja,
+ * `bp-muted-line` a 12.5px sin caja y `bp-area-group__todo` a 11px en ámbar sin
+ * caja: tres tratamientos para la misma clase de texto, que es "esto lo aclara
+ * la pantalla, no es un dato".
+ *
+ * `bp-note` estaba tomada -- es la nota que escribe una PERSONA sobre un step,
+ * y redefinirla habría cambiado la lista de notas de la pantalla del plan sin
+ * que nada lo dijera. Un `git grep` antes de escribir el nombre.
+ */
+.bp-hint {
+  margin: 8px 0 0;
+  padding: 7px 11px;
+  border-radius: var(--radius-sm);
+  background: var(--slate-50);
+  border: 1px solid var(--slate-100);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--slate-500);
+}
+.bp-hint--warn {
+  background: var(--amber-50);
+  border-color: var(--amber-200);
+  color: var(--amber-800);
+}
+
+/* ── Dos matices de píldora que hacían falta ─────────────────────────────── */
+
+/* Con icono adentro: alinea el glifo con la cifra. */
+.bp-metapill--num {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-variant-numeric: tabular-nums;
+}
+.bp-metapill--num svg {
+  color: var(--slate-400);
+}
+/* Hay gente adentro. No es un estado a resolver, así que no es ámbar: es un
+   dato que existe, y por eso se destaca en navy en vez de gris. */
+.bp-metapill--on {
+  background: var(--navy);
+  border-color: var(--navy);
+  color: var(--white);
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }

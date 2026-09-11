@@ -6,7 +6,18 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "commit": "node scripts/commit.mjs",
+    "verificar:clases": "node scripts/verificacion/clases-definidas.mjs",
+    "verificar:guardas": "node scripts/verificacion/guardas.test.mjs",
+    "verificar:foco": "node scripts/verificacion/focus.test.mjs",
+    "verificar:estados": "node scripts/verificacion/estados-ambiguos.mjs",
+    "verificar:pasos": "node scripts/verificacion/pasos.test.mjs",
+    "verificar:desenlace": "node scripts/verificacion/desenlace.test.mjs",
+    "verificar:coach": "node scripts/verificacion/coach-rotulos.mjs",
+    "verificar:video": "node scripts/verificacion/video.test.mjs",
+    "verificar:shell": "node scripts/verificacion/sin-texto-al-shell.test.mjs",
+    "guarda:instalar": "node scripts/verificacion/instalar-guarda-shell.mjs"
   },
   "dependencies": {
     "@react-pdf/renderer": "^4.9.0",
