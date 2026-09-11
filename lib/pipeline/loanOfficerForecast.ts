@@ -9,7 +9,6 @@ import {
   type DateRange,
   type PullThroughRates,
 } from './aggregate';
-import type { AliasIndex } from '@/lib/business-plan/aliasIndex';
 import type { LoanOfficerResolvedEntry } from '@/app/pipeline/useLoanOfficerResolved';
 import type { PipelineLoan, ResolvedLoan } from './types';
 
@@ -77,40 +76,35 @@ export function buildLoanOfficerForecastRows(
   resolvedLoans: ResolvedLoan[],
   dateRange: DateRange,
   rates: PullThroughRates,
-  aliasIndex: AliasIndex,
-  employeeNameByKey: Map<number, string>,
   loanOfficerResolvedIndex: Map<string, LoanOfficerResolvedEntry>
 ): LoanOfficerForecastRow[] {
   const result: LoanOfficerForecastRow[] = [];
 
   /**
-   * Resuelve un nombre crudo de "Loan Officers" (Salesforce), en 3 pasos,
+   * Resuelve un nombre crudo de "Loan Officers" (Salesforce), en 2 pasos,
    * la primera que resuelva gana:
    *
-   * 1. `org.loan_officer_resolved` (fuente PREFERIDA, sincronizada aparte,
-   *    ver useLoanOfficerResolved.ts) -- si el nombre trae `person_code`,
-   *    la identidad es el `person_code` y el nombre a mostrar es
+   * 1. `org.loan_officer_resolved` (fuente ÚNICA desde 11-sep, ver
+   *    useLoanOfficerResolved.ts) -- si el nombre trae `person_code`, la
+   *    identidad es el `person_code` y el nombre a mostrar es
    *    `nombre_canonico`. `loanOfficerResolvedIndex` ya viene filtrado a
    *    solo person_code no nulo (ver ese hook), así que "está en el Map" y
    *    "resolvió" son lo mismo acá.
-   * 2. Si el paso 1 no resolvió: fallback al mecanismo YA EXISTENTE --
-   *    org.employee_alias (source='salesforce') vía buildLoanOfficerScorecard()
-   *    en scorecards.ts. Combinado, no reemplazado: un nombre que
-   *    `loan_officer_resolved` no cubre pero `employee_alias` sí, sigue
-   *    resolviendo igual que antes de este cambio.
-   * 3. Si tampoco resuelve ahí: NO se descarta ni se fusiona con nadie --
-   *    queda como su propia identidad (key = 'raw:'+nombre), con su nombre
-   *    crudo como display -- fidelidad del dato por sobre prolijidad del
-   *    nombre (7 casos conocidos hoy, 8-sep, pendientes de que Isa los
-   *    agregue a employee_alias/loan_officer_resolved).
+   * 2. Si no resuelve ahí: NO se descarta ni se fusiona con nadie -- queda
+   *    como su propia identidad (key = 'raw:'+nombre), con su nombre crudo
+   *    como display -- fidelidad del dato por sobre prolijidad del nombre.
+   *
+   * Fallback a org.employee_alias QUITADO (11-sep, a pedido explícito de
+   * Isa): la vista `org.loan_officer_resolved` se corrigió para cubrir
+   * también las grafías que vienen del PIPELINE del Forecast (antes solo
+   * conocía Encompass), pasando de 72 a 87 filas -- ya no hace falta un
+   * segundo mecanismo de resolución conviviendo con el primero.
    */
   function resolveOfficer(rawName: string): { key: string; displayName: string } {
     const resolved = loanOfficerResolvedIndex.get(rawName);
     if (resolved) return { key: 'person:' + resolved.personCode, displayName: resolved.nombreCanonico };
 
-    const { employeeKey } = aliasIndex.lookup('salesforce', rawName);
-    if (employeeKey === null) return { key: 'raw:' + rawName, displayName: rawName };
-    return { key: 'emp:' + employeeKey, displayName: employeeNameByKey.get(employeeKey) ?? rawName };
+    return { key: 'raw:' + rawName, displayName: rawName };
   }
 
   for (const branchRow of branchRows) {
