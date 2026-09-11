@@ -24,16 +24,28 @@
  * necesita las viejas.
  *
  * ---------------------------------------------------------------------------
- * ⚠ QUIÉN LO PUEDE VER LO DECIDE RLS, Y NO ES TODO EL MUNDO
+ * ⚠ EL INTAKE ES DEL EQUIPO, Y ESO CAMBIÓ QUÉ PUEDE DECIR ESTA PANTALLA
  * ---------------------------------------------------------------------------
- * `response_select` deja leer a quien tiene `review_admin` o es el revisor de
- * esa asignación. Así que en el perfil de un Loan Officer, alguien más del
- * portal ve CERO respuestas con `error: null` — el silencio de siempre.
+ * `session_select` y `response_select` pasaron a `review.has_access()` a secas
+ * --o sea, `commercial_activity`--. Antes pedían además `review_admin` o ser el
+ * revisor de esa asignación, y eso hacía que Isabella no pudiera leer la
+ * revisión que hizo Fernando: un registro compartido detrás de un permiso
+ * personal.
  *
- * Este hook devuelve `visible` para que la pantalla pueda decir «no tenés
- * permiso para verlo» en vez de «no hay nada», que son dos cosas distintas. Si
- * Isabella decide que el intake sea legible por todo el portal, eso es una
- * policy más y no un cambio acá.
+ * Escribir NO cambió: `response_insert` sigue pidiendo `owns_session`. Se lee
+ * en equipo y se escribe de a uno.
+ *
+ * ⚠ Y POR ESO ESTE HOOK YA NO DEVUELVE `visible`. Las dos policies son ahora
+ * EL MISMO predicado, así que «veo la sesión pero no sus respuestas» dejó de
+ * ser un estado posible: quien ve una ve las otras, y quien no tiene el claim
+ * no ve ninguna de las dos --ni llega a Business Plan--. Medido: tres personas
+ * con `commercial_activity` y sin `review_admin` leen las 3 respuestas de una
+ * sesión que no es suya.
+ *
+ * ⚠ SI ALGUNA VEZ `response_select` SE VUELVE MÁS ESTRECHA QUE `session_select`,
+ * este estado tiene que volver: ahí cero respuestas sobre una sesión visible
+ * vuelve a significar dos cosas. Hoy significa una sola, y decirla mal era peor
+ * que no decir nada.
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -72,15 +84,17 @@ export interface IntakeSession {
 }
 
 export interface IntakeState {
+  /** Sólo las revisiones CERRADAS, con sus respuestas. Ver la nota de RV4. */
   sessions: IntakeSession[] | null;
+  /**
+   * Cuántas revisiones de esta persona están EN CURSO. Se cuentan y no se
+   * muestran: su contenido se está escribiendo, pero «hay una sin cerrar» es
+   * distinto de «no hay nada», y sin este número la pantalla no podía decirlo.
+   */
+  enCurso: number;
   isLoading: boolean;
   unavailable: ReviewUnavailable;
   error: string | null;
-  /**
-   * `false` = hay revisiones de esta persona pero RLS no deja ver sus
-   * respuestas. NO es lo mismo que no haber contestado nada.
-   */
-  visible: boolean;
   reload: () => void;
 }
 
@@ -94,10 +108,10 @@ function queFalta(e: { code?: string } | null): ReviewUnavailable {
 export function useIntake(loEmployeeKey: number | null, habilitado = true): IntakeState {
   const [estado, setEstado] = useState<Omit<IntakeState, 'reload'>>({
     sessions: null,
+    enCurso: 0,
     isLoading: true,
     unavailable: null,
     error: null,
-    visible: true,
   });
   const [tick, setTick] = useState(0);
   const reload = useCallback(() => setTick((t) => t + 1), []);
@@ -126,7 +140,7 @@ export function useIntake(loEmployeeKey: number | null, habilitado = true): Inta
          * --copiado y clavado por la FK compuesta-- así que no hace falta pasar
          * por la asignación para filtrar.
          *
-         * ⚠ SÓLO LAS CERRADAS — etapa RV4.
+         * ⚠ EL CONTENIDO, SÓLO DE LAS CERRADAS — etapa RV4.
          *
          * RV1 traía también las en curso, con el argumento de que una revisión a
          * medias ya tiene comentarios que valen. Probado por Isabella, el
@@ -138,25 +152,34 @@ export function useIntake(loEmployeeKey: number | null, habilitado = true): Inta
          * Un registro es de lo que YA PASÓ. Lo que está en curso se ve en la
          * máscara, que es su lugar, y al cerrar hay un resumen completo antes de
          * soltarla -- ver `ReviewSummary`.
+         *
+         * ⚠ PERO SE TRAEN LAS DOS Y SE FILTRA ACÁ, que es el cambio de RV23. El
+         * `.eq('status', 'completed')` de RV4 hacía que una persona con una
+         * revisión abierta y ninguna cerrada fuera INDISTINGUIBLE de una sin
+         * ninguna revisión: las dos daban cero filas y el perfil no dibujaba
+         * nada. Hoy le pasa a Aimmee Buendia --sesión 61, 7 de 8 contestados--
+         * y a Luis Silva. Contar no es mostrar: el contenido de la abierta
+         * sigue sin verse, y lo único que se dice es que existe.
          */
         const sesRes = await rv()
           .from('session')
           .select('*')
           .eq('lo_employee_key', loEmployeeKey)
-          .eq('status', 'completed')
           .order('started_at', { ascending: false });
         if (cancelado) return;
 
         const falta = queFalta(sesRes.error);
         if (falta) {
-          setEstado({ sessions: null, isLoading: false, unavailable: falta, error: null, visible: true });
+          setEstado({ sessions: null, enCurso: 0, isLoading: false, unavailable: falta, error: null });
           return;
         }
         if (sesRes.error) throw new Error(sesRes.error.message);
-        const sesiones = (sesRes.data ?? []) as ReviewSession[];
+        const todas = (sesRes.data ?? []) as ReviewSession[];
+        const sesiones = todas.filter((s) => s.status === 'completed');
+        const enCurso = todas.filter((s) => s.status === 'in_progress').length;
 
         if (sesiones.length === 0) {
-          setEstado({ sessions: [], isLoading: false, unavailable: null, error: null, visible: true });
+          setEstado({ sessions: [], enCurso, isLoading: false, unavailable: null, error: null });
           return;
         }
 
@@ -176,17 +199,26 @@ export function useIntake(loEmployeeKey: number | null, habilitado = true): Inta
         const textos = (textosRes.data ?? []) as ReviewStepPrompt[];
 
         /*
-         * ⚠ CERO RESPUESTAS CON SESIONES QUE EXISTEN = RLS FILTRÓ.
+         * ⚠ ACÁ VIVÍA EL HEURÍSTICO DE «NO TENÉS PERMISO», Y SE FUE — etapa RV23.
          *
-         * Y desde RV4 la señal es limpia: acá sólo llegan sesiones CERRADAS, y
-         * una sesión cerrada tiene respuestas por construcción --no se puede
-         * cerrar sin contestar el último paso--. Así que cero respuestas sobre
-         * una sesión cerrada es RLS y no «no contestó nada».
+         * Decía: cero respuestas sobre una sesión cerrada es RLS, «porque una
+         * sesión cerrada tiene respuestas por construcción». Las dos mitades
+         * están mal hoy:
          *
-         * El heurístico anterior miraba el cursor porque había sesiones en curso
-         * en la lista; ya no las hay.
+         *   · el permiso ya no puede filtrar --las dos policies son el mismo
+         *     predicado--, así que la causa que elegía no ocurre;
+         *   · y la construcción que invocaba es de la APP, no de la base: la
+         *     sesión 62 se cerró por REST sin una sola respuesta y existe.
+         *
+         * Resultado: en el perfil de Luis Silva decía «no podés leer los
+         * comentarios» cuando el permiso estaba y los comentarios no existían.
+         * Dos causas con el mismo síntoma --cero filas-- y el código eligiendo
+         * la que ya no pasa.
+         *
+         * La distinción que SÍ se puede sostener es la que queda: hay
+         * respuestas, o la revisión se cerró sin ninguna. Eso lo dice la
+         * pantalla con `fases.length`, sin una bandera aparte.
          */
-        const visible = respuestas.length > 0 || sesiones.length === 0;
 
         /* El prompt de una revisión concreta. `null` si esa fila ya no está. */
         const promptDe = (r: ReviewResponse): ReviewStepPrompt | null =>
@@ -255,19 +287,19 @@ export function useIntake(loEmployeeKey: number | null, habilitado = true): Inta
 
         setEstado({
           sessions: armadas,
+          enCurso,
           isLoading: false,
           unavailable: null,
           error: null,
-          visible,
         });
       } catch (err) {
         if (!cancelado) {
           setEstado({
             sessions: null,
+            enCurso: 0,
             isLoading: false,
             unavailable: null,
             error: err instanceof Error ? err.message : String(err),
-            visible: true,
           });
         }
       }
