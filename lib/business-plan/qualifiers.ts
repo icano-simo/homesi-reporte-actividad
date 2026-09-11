@@ -318,11 +318,57 @@ export function gapState(gap: number): Qualifier1['state'] {
   return 'need_attention';
 }
 
+/**
+ * ============================================================================
+ * CONTRA QUÉ SE MIDE EL GAP — etapa BP49
+ * ============================================================================
+ *
+ * El budget (Outlook, este mes) es la meta ambiciosa; el benchmark inicial es
+ * el piso. El gap se calcula contra el budget SÓLO cuando el forecast lo
+ * cumple -- si no lo cumple, o si no hay budget fijado este mes, cae al
+ * benchmark. Es deliberado que "no hay budget" y "hay budget y no se cumplió"
+ * terminen en la misma rama: las dos comparten la conclusión ("medí contra el
+ * piso"), aunque el motivo sea distinto -- uno es una ausencia, el otro un
+ * resultado. La UI sí distingue las dos causas (ver `Q1Panel`): un budget sin
+ * fijar no se sombrea en rojo, uno fijado y no cumplido sí.
+ *
+ * ⚠ SIN BENCHMARK Y SIN BUDGET CUMPLIDO, `gap` sigue siendo `null` -- la misma
+ * garantía de siempre ("sin benchmark no hay veredicto, no se inventa un
+ * default"), ahora con una segunda puerta de entrada: un budget cumplido
+ * también alcanza para tener gap, aunque nunca se haya fijado un benchmark.
+ */
+function gapAgainstOf(
+  avgWithCurrent: number,
+  startingBenchmark: number | null,
+  budget: number | null
+): { gap: number | null; gapAgainst: 'budget' | 'benchmark' | null; budgetMet: boolean | null; benchmarkMet: boolean | null } {
+  const budgetMet = budget === null ? null : avgWithCurrent >= budget;
+  const benchmarkMet = startingBenchmark === null ? null : avgWithCurrent >= startingBenchmark;
+  if (budgetMet === true) {
+    return { gap: avgWithCurrent - (budget as number), gapAgainst: 'budget', budgetMet, benchmarkMet };
+  }
+  if (startingBenchmark !== null) {
+    return { gap: avgWithCurrent - startingBenchmark, gapAgainst: 'benchmark', budgetMet, benchmarkMet };
+  }
+  return { gap: null, gapAgainst: null, budgetMet, benchmarkMet };
+}
+
 export function evaluateQualifier1(
   monthlyClosings: Record<string, number>,
   windowMonths: string[],
   projection: CurrentMonthProjection,
-  benchmark: number | null
+  /** El benchmark inicial de la persona -- el piso. Ver `gapAgainstOf`. */
+  startingBenchmark: number | null,
+  /**
+   * Lo que Outlook fijó para el mes en curso, o lo que su regla de crecimiento
+   * proyecta cuando nadie lo fijó -- `null` sólo cuando ninguno de los dos
+   * existe (estado, no cero). `null` siempre en el agregado de grupo (etapa
+   * BP49: el budget es del perfil individual, no se suma entre personas). Ver
+   * `budgetSource` para distinguir cuál de los dos es.
+   */
+  budget: number | null = null,
+  /** De dónde salió `budget` -- ver el JSDoc de `Qualifier1.budgetSource`. */
+  budgetSource: 'fixed' | 'rule' | null = null
 ): Qualifier1 {
   /*
    * `windowMonths` son los dos meses cerrados anteriores más el actual. El
@@ -331,14 +377,19 @@ export function evaluateQualifier1(
    */
   const closedPart = windowMonths.slice(0, -1).reduce((sum, m) => sum + (monthlyClosings[m] ?? 0), 0);
   const avgWithCurrent = (closedPart + projection.projectedTotal) / windowMonths.length;
-  const gap = benchmark === null ? null : avgWithCurrent - benchmark;
+  const { gap, gapAgainst, budgetMet, benchmarkMet } = gapAgainstOf(avgWithCurrent, startingBenchmark, budget);
   return {
     windowMonths,
     avgWithCurrent,
     gap,
-    // Sin benchmark no hay veredicto: no se inventa un default.
+    // Sin nada contra qué medir no hay veredicto: no se inventa un default.
     state: gap === null ? null : gapState(gap),
     passes: gap === null ? null : gap >= 0,
+    budget,
+    budgetMet,
+    benchmarkMet,
+    gapAgainst,
+    budgetSource: budget === null ? null : budgetSource,
   };
 }
 

@@ -125,6 +125,21 @@ export interface InterventionRow {
   id: number;
   employee_key: number;
   status: InterventionStatus;
+  /**
+   * ⚠ OBSOLETA — NO LEER. Decisión de RV1/BP39.
+   *
+   * La intervención es de la PERSONA --su estado de acompañamiento-- y no del
+   * plan. Con varios planes activos por Loan Officer, esta columna no puede
+   * nombrar "el" funnel: el primero sería arbitrario, igual que el `[0]` que
+   * `useEnrollment` toma hoy de una consulta sin `order by`.
+   *
+   * El funnel de cada plan está en `business_plan.enrollment.funnel_key`, que
+   * es donde corresponde. Acá quedan 5 filas con valor y se conservan --
+   * borrarlas no gana nada--, pero nada nuevo debe leerla.
+   *
+   * Sigue en el tipo a propósito: quitarla del tipo la volvería invisible, y
+   * entonces el próximo que la vea en la base no tendría dónde enterarse.
+   */
   funnel_key: number | null;
   reviewed_at: string | null;
   reviewed_by: string | null;
@@ -339,10 +354,57 @@ export interface Qualifier1 {
   /** Los 3 meses de la ventana; el último es el actual, proyectado. */
   windowMonths: string[];
   avgWithCurrent: number;
-  /** null si la persona no tiene benchmark cargado. */
+  /** null si no hay ni budget cumplido ni benchmark contra qué calcularlo. */
   gap: number | null;
   state: 'on_target' | 'on_risk' | 'need_attention' | null;
   passes: boolean | null;
+  /**
+   * ============================================================================
+   * BUDGET Y BENCHMARK, Y CONTRA CUÁL SE CALCULÓ EL GAP — etapa BP49
+   * ============================================================================
+   *
+   * `budget` es lo que Outlook fijó para ESTE mes (`outlook.person_budget_total`,
+   * mes en curso, última revisión) -- `null` cuando nadie lo fijó, que es un
+   * ESTADO ("no se fijó") y no un cero: un budget en cero diría que se espera
+   * cero producción, y acá lo que pasa es que nadie decidió nada todavía.
+   *
+   * `budgetMet`/`benchmarkMet` son `null` cuando no hay budget/benchmark contra
+   * qué medir -- mismo criterio, no se inventa un sí ni un no.
+   *
+   * `gapAgainst` dice CONTRA QUÉ se calculó `gap`, y la regla es siempre la
+   * misma: el budget manda cuando se cumple: es la meta ambiciosa. Si no se
+   * cumple -- o si no hay budget fijado este mes -- el gap cae al benchmark
+   * inicial, que es el piso. Sin ninguno de los dos, `gap` es `null` y no hay
+   * veredicto: la misma garantía que ya tenía esta función antes de BP49.
+   */
+  budget: number | null;
+  budgetMet: boolean | null;
+  benchmarkMet: boolean | null;
+  gapAgainst: 'budget' | 'benchmark' | null;
+  /**
+   * DE DÓNDE SALE `budget` — etapa BP49b.
+   *
+   * `outlook.person_budget_total` está vacía para casi todo el mundo: nadie
+   * fija un número a mano salvo que lo esté revisando. Sin esto el perfil
+   * mostraría "Not set" para 36 de 37 personas aunque Outlook ya proyecte un
+   * número para cada una vía su regla de crecimiento (`growth_rule` +
+   * benchmark, la misma cuenta de `lib/outlook/project.ts`).
+   *
+   * La cascada, LEÍDA y nunca escrita (ver `loadData.ts`):
+   *   ¿hay un total fijado a mano este mes?  SÍ → `'fixed'`
+   *   si no, ¿hay una regla de crecimiento (o un mes fijado en modo mensual)
+   *   para Own Production?                   SÍ → `'rule'`
+   *   ninguno de los dos                      → `budget` es `null`
+   *
+   * `null` cuando `budget` es `null` -- no hay fuente de la que no haya nada.
+   *
+   * ⚠ Un número leído de la regla NO ES un total fijado, aunque coincida en
+   * valor: nadie lo confirmó, y la próxima corrida de la regla puede darle
+   * otro número. `Q1Panel` tiene que decirlo (algo como "2 · from growth
+   * rule"), porque sin la distinción alguien va a ver un budget y creer que
+   * se decidió -- la misma razón por la que `confirmed_only` existe.
+   */
+  budgetSource: 'fixed' | 'rule' | null;
 }
 
 /**
@@ -407,6 +469,13 @@ export interface LoanOfficerRow {
   attributionOverride: { forcedBranchCode: string; reason: string | null } | null;
   tier: string | null;
   rosterStatus: string | null;
+  /**
+   * El NMLS de `org.dim_employee`, o sea de la sincronización con BigQuery
+   * -- etapa BP50. `null` cuando la fuente no lo trae, y ese caso existe:
+   * medido, un LO activo (Lucio Romero) no tiene. El perfil editable guarda un
+   * OVERRIDE aparte y hereda éste cuando está en null; ver `lib/business-plan/perfil.ts`.
+   */
+  nmls: string | null;
   isBranchManager: boolean;
   isProducing: boolean;
 
@@ -551,5 +620,12 @@ export interface BusinessPlanData {
     interventionTableAvailable: boolean;
     /** false = las tablas de funnels todavía no están aplicadas. */
     enrollmentTableAvailable: boolean;
+    /**
+     * false = `outlook.person_budget_total` no se pudo leer (migración sin
+     * aplicar, o sin acceso desde este módulo) -- etapa BP49. El gap sigue
+     * funcionando: cae al benchmark para todos, igual que si nadie hubiera
+     * fijado un budget.
+     */
+    personBudgetTotalTableAvailable: boolean;
   };
 }

@@ -3,7 +3,8 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
-import { BuildingIcon, GridIcon, HandshakeIcon, TargetIcon } from '@/components/ui/icons';
+import { BuildingIcon, GridIcon, HandshakeIcon, SignedDocIcon, TargetIcon } from '@/components/ui/icons';
+import ReviewProgress from '@/components/review/ReviewProgress';
 
 /**
  * ============================================================================
@@ -29,20 +30,76 @@ interface SidebarItem {
   href: string;
   label: string;
   icon: ReactNode;
+  /**
+   * Otras rutas que dejan este item seleccionado — etapa BP47.
+   *
+   * Hace falta porque `Funnels & Nodes` es UN item con DOS rutas, y las dos no
+   * comparten prefijo: `/business-plan/funnels` no es prefijo de
+   * `/business-plan/library`. Sin esto, cambiar de pestaña apagaba el item del
+   * menú y encendía la raíz del módulo, que es la fallback.
+   */
+  tambien?: string[];
 }
 
 const ITEMS: SidebarItem[] = [
   { href: '/business-plan', label: 'Branch Portfolio', icon: <BuildingIcon size={16} /> },
-  /* Las DOS pantallas de BP41: los nodos con sus steps, y los funnels con los
-     nodos que usan. Antes eran tres pestanas dentro de una sola. */
-  { href: '/business-plan/library', label: 'Node Library', icon: <GridIcon size={16} /> },
-  { href: '/business-plan/funnels', label: 'Funnels', icon: <GridIcon size={16} /> },
+  /*
+   * ═════════════════════════════════════════════════════════════════
+   * UN ITEM PARA LAS DOS PANTALLAS — etapa BP47
+   * ═════════════════════════════════════════════════════════════════
+   *
+   * En BP41 eran dos entradas. Son la misma cosa mirada de los dos lados -- un
+   * nodo está en varios funnels y un funnel usa varios nodos-- y como entradas
+   * separadas el menú prometía dos secciones que comparten hasta la búsqueda.
+   *
+   * La CONMUTACION es un par de pestañas adentro (`FunnelNodeTabs`), y las dos
+   * pestañas son RUTAS y no estado:
+   *
+   *   · la ruta sobrevive al refresco sin escribir una linea para lograrlo;
+   *   · se puede compartir el link de la pestaña de nodos;
+   *   · atrás y adelante del navegador funcionan.
+   *
+   * Un `?view=nodes` sobre una sola ruta habría sido una SEGUNDA fuente de
+   * verdad al lado de la que ya existe, y las dos páginas ya estaban escritas.
+   */
+  {
+    href: '/business-plan/funnels',
+    label: 'Funnels & Nodes',
+    icon: <GridIcon size={16} />,
+    tambien: ['/business-plan/library'],
+  },
   /*
    * Etapa BP20. Las otras entradas miran el negocio por Loan Officer; ésta lo
    * mira por PERSONA DEL EQUIPO DE SOPORTE, que es lo que faltaba: para saber
    * todo lo que tenía pendiente alguien había que abrir los planes uno por uno.
    */
   { href: '/business-plan/team', label: 'BP Team', icon: <HandshakeIcon size={16} /> },
+  /*
+   * ═══════════════════════════════════════════════════════════════
+   * EL MODO REVISIÓN — etapa RV1
+   * ═══════════════════════════════════════════════════════════════
+   *
+   * Sin esto las dos pantallas sólo se alcanzaban escribiendo la URL. Isabella
+   * las vio porque le pasaron el link -- nadie más las habría encontrado.
+   *
+   * ⚠ APUNTA A `/review` Y NO A LA CONFIGURACIÓN, y es deliberado: son dos
+   * permisos distintos. `/review` la ve el BP Team entero con
+   * `commercial_activity`; `/review/settings` exige `review_admin`, que hoy
+   * tienen cuatro personas.
+   *
+   * Y la configuración NO es otra entrada del sidebar: es un enlace DENTRO de
+   * `/review`, visible sólo para quien puede asignar. Una entrada de menú que
+   * rebota al landing para 93 de las 97 personas es peor que ninguna -- promete
+   * una sección que para ellas no existe. Mismo criterio que hace que
+   * `ServiceHubHeader` no dibuje la pestaña de Outlook sin su claim.
+   *
+   * ⚠ Y NO LLEVA CLAIM PROPIO. Se dibuja para todos los que ya están en la app,
+   * y quien no tenga nada asignado ve la lista vacía con su motivo -- que
+   * distingue "no te asignaron" de "no estás en el roster". Un claim `review`
+   * aparte habría que otorgarlo a las diez personas del BP Team y mantenerlo,
+   * para no decir nada que RLS no diga mejor.
+   */
+  { href: '/review', label: 'Coach', icon: <SignedDocIcon size={16} /> },
   { href: '/business-plan/settings', label: 'Settings', icon: <TargetIcon size={16} /> },
 ];
 
@@ -55,8 +112,9 @@ const ITEMS: SidebarItem[] = [
  * módulo se resuelve aparte: sólo queda activa si NINGÚN otro item coincide.
  */
 function resolveActiveHref(pathname: string): string {
+  const coincide = (base: string) => pathname === base || pathname.startsWith(base + '/');
   const deepest = ITEMS.filter((i) => i.href !== '/business-plan').find(
-    (i) => pathname === i.href || pathname.startsWith(i.href + '/')
+    (i) => coincide(i.href) || (i.tambien ?? []).some(coincide)
   );
   return deepest ? deepest.href : '/business-plan';
 }
@@ -84,6 +142,27 @@ export default function ModuleSidebar() {
           </Link>
         );
       })}
+
+      {/*
+        ═══════════════════════════════════════════════════════════════
+        EL AVANCE DE LA REVISIÓN — etapa RV2, punto 4
+        ═══════════════════════════════════════════════════════════════
+
+        Debajo del menú, que es donde hay espacio libre. Estaba en la barra de
+        arriba y ahí se perdía entre el texto.
+
+        ⚠ Se dibuja SOLO con una revisión en curso: sin sesión el componente
+        devuelve `null` y el sidebar queda exactamente como estaba. No hay un
+        contenedor vacío ni un margen de más para las 97 personas que no
+        revisan a nadie.
+
+        ⚠ Y lo que esto NO cubre, dicho acá porque es donde se decide: la fase 2
+        visita Outlook, que no monta este sidebar. Ahí no hay tarjeta de avance
+        -- queda la barra de arriba y el panel del paso. Es una pérdida real, y
+        la alternativa era un segundo lugar donde dibujarlo con su propio
+        criterio de posición, para dos pasos de ocho.
+      */}
+      <ReviewProgress />
     </aside>
   );
 }

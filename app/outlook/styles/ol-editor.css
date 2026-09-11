@@ -91,6 +91,10 @@
   margin: 0;
 }
 
+.ol-editor__gov {
+  margin: 0;
+}
+
 /* ── Una revisión de la regla, como tarjeta ──────────────────────────────── */
 .ol-editor__rev-card {
   border: 1px solid var(--slate-200);
@@ -161,68 +165,11 @@
 }
 
 /*
- * ── La pregunta del modo, y los meses del modo B — etapa OL4 ──────────────
- *
- * Dos botones grandes y no un `<select>`: son DOS opciones con nombre y una
- * frase que las distingue, y esa frase es la que evita tener que explicar los
- * dos modos en un párrafo aparte. Un desplegable escondería la mitad de la
- * pregunta detrás de un clic.
- *
- * `role="radiogroup"` y `aria-checked` porque para el lector de pantalla esto es
- * una elección entre dos, no dos acciones sueltas.
+ * ⚠ `.ol-modes` / `.ol-mode*` / `.ol-months` SE FUERON -- etapa OL26d. Eran el
+ * selector de "by growth rate / month by month" de `StrategyEditor`, que dejó
+ * de existir: los dos modos ahora escriben en la misma fila de Budget
+ * composition (`.ol-editor__rate` más abajo), no en pantallas separadas.
  */
-.ol-modes {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-.ol-mode {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  text-align: left;
-  padding: 9px 12px;
-  border: 1px solid var(--slate-200);
-  border-radius: var(--radius-md);
-  background: var(--white);
-  cursor: pointer;
-  font-family: inherit;
-  transition: border-color 0.14s, background 0.14s;
-}
-.ol-mode:hover {
-  border-color: var(--sky);
-}
-.ol-mode.is-on {
-  border-color: var(--navy);
-  background: var(--accent-soft);
-}
-.ol-mode__name {
-  font-size: var(--ol-text);
-  font-weight: 700;
-  color: var(--navy);
-}
-.ol-mode__hint {
-  font-size: var(--ol-text);
-  color: var(--slate-500);
-  line-height: 1.4;
-}
-
-/* Los cuatro meses del modo B, uno al lado del otro: la fila que se está fijando
-   tiene la misma forma que la fila que se va a ver en la tabla. */
-.ol-months {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-/* El modo que no se puede guardar todavía: visible, y claramente no elegible. */
-.ol-mode:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.ol-mode:disabled:hover {
-  border-color: var(--slate-200);
-}
 
 /*
  * ── La escala del editor — etapa OL5 ──────────────────────────────────────
@@ -298,3 +245,57 @@
   border-radius: var(--radius-md);
   background: var(--slate-50);
 }
+
+/*
+ * ============================================================================
+ * EL TOTAL, DE SÓLO LECTURA — pedido urgente de Isabella
+ * ============================================================================
+ *
+ * Ya no se puede escribir: es la suma de las celdas del desglose. Gris, para
+ * que se distinga de un número que alguien tipeó -- las filas de abajo sí
+ * son `<input>`, ésta ya no. Reemplaza a `.ol-editor__delta--off`, que
+ * pintaba la fila `Difference` -- esa fila ya no puede existir: el total y
+ * el desglose son el mismo número, nunca hay diferencia que mostrar.
+ */
+.ol-editor__total .lbl {
+  color: var(--slate-500);
+}
+.ol-editor__totalcell {
+  color: var(--slate-500);
+}
+
+/*
+ * ============================================================================
+ * "APPLY A RATE", AL LADO DE OWN PRODUCTION — etapa OL26d
+ * ============================================================================
+ *
+ * El enlace que abre la calculadora de tasa. Mismo criterio que `.ol-edit`
+ * --discreto, no compite con el número-- pero con texto en vez de lápiz,
+ * porque acá la acción no es "editar este campo": es "calcular con qué
+ * llenarlo", una acción distinta que merece su propia palabra.
+ */
+.ol-editor__ratelink {
+  margin-left: 8px;
+}
+
+/*
+ * La calculadora en sí -- misma caja que `.ol-editor__ramp`: es una
+ * herramienta aparte de la fila que llena, no un campo más del formulario.
+ */
+.ol-editor__rate {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  background: var(--slate-50);
+}
+
+/*
+ * ⚠ SE FUE EL SELECTOR DE ESTRATEGIA -- etapa OL26c. `PersonBudgetEditor`
+ * apilaba Own Production, Recruitment y Budget composition detrás de un
+ * selector -- otra capa de pestañas encima de la de by month/by rate que ya
+ * existía. Ahora las tres van apiladas, una sola pantalla sin clics para
+ * cambiar de sección.
+ */

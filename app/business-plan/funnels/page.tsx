@@ -9,6 +9,8 @@ import { funnelTotals } from '@/lib/business-plan/librarySearch';
 import Breadcrumbs from '../components/Breadcrumbs';
 import LibrarySearchBar from '../components/LibrarySearchBar';
 import { FunnelGlyph } from '../components/funnelIcons';
+import { ClockIcon, ChevronRightIcon } from '@/components/ui/icons';
+import FunnelNodeTabs from '../components/FunnelNodeTabs';
 import { ErrorState, LoadingState } from '../components/shared';
 import { ConfirmDelete, FunnelForm } from '../library/LibraryForms';
 
@@ -55,12 +57,18 @@ export default function FunnelsPage() {
 
   return (
     <>
-      <Breadcrumbs items={[{ label: 'Branch Portfolio', href: '/business-plan' }, { label: 'Funnels' }]} />
+      <Breadcrumbs
+        items={[{ label: 'Branch Portfolio', href: '/business-plan' }, { label: 'Funnels & Nodes' }]}
+      />
 
       <div className="page-head">
-        <h1 className="page-head__title">Funnels</h1>
+        <h1 className="page-head__title">Funnels &amp; Nodes</h1>
         {data && <LibrarySearchBar data={data} />}
       </div>
+
+      {/* Los conteos salen de `data`; mientras no llego, la pestana va sin
+          numero. Ver la nota de `FunnelNodeTabs`: un 0 no es "no se". */}
+      <FunnelNodeTabs funnels={data?.funnels.length} nodes={data?.nodes.length} />
 
       {isLoading && <LoadingState />}
       {error && <ErrorState message={error} />}
@@ -84,44 +92,130 @@ export default function FunnelsPage() {
             </button>
           </div>
 
-          <div className="bp-node-list">
+          <div className="bp-fnlist">
             {data.funnels.map((f) => {
               const t = funnelTotals(f.funnel_key, data);
               const st = funnelStats(f.funnel_key, data.links, data.milestones, data.owners);
               const check = checkActivation(f.funnel_key, data.links, data.milestones);
               const enrolados = data.enrollmentsByFunnel[f.funnel_key] ?? 0;
 
+              /*
+               * LA SECUENCIA DE NODOS, EN ORDEN. Sale de `links` y no de
+               * `funnelStats`, porque hace falta el ORDEN y el nombre de cada
+               * uno -- `st` trae conteos.
+               */
+              const secuencia = data.links
+                .filter((l) => l.funnel_key === f.funnel_key)
+                .sort((a, b) => a.position - b.position)
+                .map((l) => data.nodes.find((x) => x.node_key === l.node_key))
+                .filter((x): x is NonNullable<typeof x> => x !== undefined);
+
               return (
-                <article key={f.funnel_key} className="bp-nodecard">
-                  <div className="bp-nodecard__left">
-                    <h3 className="bp-nodecard__name">
+                <article key={f.funnel_key} className="bp-fnrow">
+                  {/*
+                    ═══════════════════════════════════════════════════════
+                    LA CAJA ENTERA ES EL LINK — etapa BP47
+                    ═══════════════════════════════════════════════════════
+
+                    Un `<a>` vacío estirado sobre la franja, no un `onClick` en
+                    el `<article>`. Y no envolviendo la franja tampoco: adentro
+                    hay un botón (`Edit`) y otro link, y un `<a>` no puede
+                    contener elementos interactivos -- el HTML es inválido y el
+                    navegador reordena el árbol.
+
+                    Con un `onClick` en el contenedor se pierden ctrl+clic,
+                    clic del medio, "copiar dirección" y el foco por teclado.
+                    Estirado, sigue siendo un link de verdad: el `z-index` de la
+                    tira de controles lo deja debajo, así que `Edit` recibe su
+                    propio clic.
+                  */}
+                  <Link
+                    className="bp-fnrow__hit"
+                    href={'/business-plan/funnels/' + f.funnel_key}
+                    aria-label={'Open funnel ' + f.name}
+                  />
+
+                  <div className="bp-fnrow__main">
+                    <h3 className="bp-fnrow__name">
                       <FunnelGlyph icon={f.icon} size={16} />
-                      {/* Enlaza al funnel. El nombre entero, sin recorte. */}
-                      <Link className="bp-funnel-link" href={'/business-plan/funnels/' + f.funnel_key}>
-                        {f.name}
-                      </Link>
+                      <span>{f.name}</span>
                     </h3>
-                    {f.description && <p className="bp-nodecard__desc">{f.description}</p>}
+                    {f.description && <p className="bp-fnrow__desc">{f.description}</p>}
+
+                    {/*
+                      ═══════════════════════════════════════════════════════
+                      LA CADENA ENVUELVE Y NO SE RECORTA — etapa BP47
+                      ═══════════════════════════════════════════════════════
+
+                      Medido contra la base: el funnel más grande es
+                      `Recruitment - DYS` con 12 nodos, 381 caracteres contando
+                      los separadores; a 11px eso son ~2400px y la lista mide
+                      ~1050. Necesita tres líneas. Ocho de los nueve necesitan
+                      dos o menos.
+
+                      ⚠ SE DESCARTÓ EL `+N more`. Recortar a un contador esconde
+                      justo lo único que esta tira existe para mostrar -- el
+                      ORDEN en que van los nodos--, y con 12 nodos habría
+                      escondido ocho. Tres líneas en la franja más alta cuestan
+                      menos que un dato que hay que ir a buscar.
+
+                      ⚠ Y NINGÚN NOMBRE SE CORTA. Sin `text-overflow` y con
+                      `overflow-wrap: anywhere`: un nombre a medias es
+                      inidentificable, y el más largo tiene 53 caracteres
+                      (`Build your own source of borrowers - Prospects Source`).
+                      Es el bug de `table.piv` otra vez, que ahí dejó una tabla
+                      de nombres con elipsis.
+                    */}
+                    {secuencia.length === 0 ? (
+                      <p className="bp-hint">No nodes yet — open it to add the first one.</p>
+                    ) : (
+                      <ol className="bp-chain">
+                        {secuencia.map((n, i) => (
+                          <li key={n.node_key} className="bp-chain__item">
+                            {/* La flecha va ANTES y no después: así la última
+                                píldora no arrastra una flecha que no apunta a
+                                nada, y al envolver la línea empieza con la
+                                flecha, que es lo que dice que viene de arriba. */}
+                            {i > 0 && (
+                              <ChevronRightIcon size={12} className="bp-chain__arrow" aria-hidden="true" />
+                            )}
+                            <span className="bp-chain__pill">{n.name}</span>
+                          </li>
+                        ))}
+                      </ol>
+                    )}
                   </div>
 
-                  <div className="bp-nodecard__meta">
+                  <div className="bp-fnrow__meta" role="presentation">
                     <span className="bp-metapill">{f.category}</span>
-                    <span className="bp-metapill">
-                      {t.nodes} node{t.nodes === 1 ? '' : 's'}
-                    </span>
                     <span className="bp-metapill">
                       {t.steps} step{t.steps === 1 ? '' : 's'}
                     </span>
-                    {/* `ends day N`, el número que decide cuánto dura. */}
-                    <span className="bp-metapill">{t.steps === 0 ? '— days' : 'ends day ' + t.endsDay}</span>
 
-                    {/* Cero NO es un botón: no hay lista que abrir. */}
+                    {/*
+                      EL DÍA FINAL, CON EL RELOJ. `ends day N` es lo que decide
+                      cuánto dura, y los nueve van de 8 a 207 días.
+                      El icono es un reloj y no un calendario a proposito: es un
+                      contador de días desde el enrolamiento, no una fecha.
+                    */}
+                    <span className="bp-metapill bp-metapill--num">
+                      <ClockIcon size={12} aria-hidden="true" />
+                      {t.steps === 0 ? '— days' : 'ends day ' + t.endsDay}
+                    </span>
+
+                    {/*
+                      ⚠ CERO NO ES UNA PÍLDORA. Con nadie enrolado no hay nada
+                      que mostrar, y una píldora es un objeto: invita a un clic
+                      que no lleva a ninguna parte. Medido, seis de los nueve
+                      funnels están en cero, así que serían seis píldoras vacías
+                      compitiendo con las tres que sí dicen algo.
+                    */}
                     {enrolados === 0 ? (
-                      <span className="bp-metapill">nobody enrolled</span>
+                      <span className="bp-fnrow__none">nobody enrolled</span>
                     ) : (
-                      <Link className="bp-metapill bp-metapill--link" href={'/business-plan/funnels/' + f.funnel_key}>
+                      <span className="bp-metapill bp-metapill--on">
                         {enrolados} enrolled
-                      </Link>
+                      </span>
                     )}
 
                     {!f.is_active && <span className="bp-metapill bp-metapill--warn">inactive</span>}

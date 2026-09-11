@@ -100,7 +100,20 @@ export interface StrategyBenchmarkRow {
 
 export interface NppmBenchmarkRow {
   nppm_benchmark_key: number;
+  /**
+   * ⚠ LA CLAVE ES `realtor_code`, NO ESTE CAMPO.
+   *
+   * `nppm_realtor` es el nombre tal como se guardó y sigue siendo NOT NULL en
+   * la tabla, pero está sólo para poder reconocer una fila si hay que auditar.
+   * Emparejar por él es lo que esta migración vino a eliminar: los nombres
+   * llegan crudos de Salesforce y 'FRED A GOMEZ' no se une con 'FRED GOMEZ'
+   * por más que se normalice la capitalización.
+   */
   nppm_realtor: string;
+  /** La clave estable, de `dim_nppm_realtor_v2`. Es por lo único que se une. */
+  realtor_code: string | null;
+  /** El nombre para mostrar, el de la dimensión y no el crudo de Salesforce. */
+  display_name: string | null;
   monthly_benchmark: number | string;
   effective_from: string;
   set_by: string;
@@ -141,6 +154,12 @@ export interface RosterRow {
   branch_code: string | null;
   is_producer: boolean;
   is_active: boolean;
+  /**
+   * Etapa OL26: el cargo tal como lo trae el roster (`org.roster_current.position`,
+   * ej. "LOAN OFFICER", "Producing Branch Manager", "LO ASSISTANT"). Antes no se
+   * traía -- la vista no distinguía el cargo de cada persona.
+   */
+  position: string | null;
 }
 
 export interface MonthlyTargetRow {
@@ -167,6 +186,83 @@ export interface ProjectionModeRow {
   created_at: string;
 }
 
+/**
+ * ============================================================================
+ * EL PRESUPUESTO COMPUESTO POR PLAN DE NEGOCIO — etapa OL26, punto 5
+ * ============================================================================
+ *
+ * Dos tablas nuevas, `outlook.person_budget_total` y
+ * `outlook.person_budget_breakdown` -- ver `docs/sql/2026-09-outlook-budget-composition.sql`.
+ * La relación se invierte respecto del resto del módulo: hasta acá el total
+ * de una persona es la SUMA de sus estrategias; acá el total se FIJA primero
+ * y el desglose por plan queda como información, sin obligación de sumar
+ * exacto -- eso se muestra en pantalla (ver `budgetDelta` en la vista), no se
+ * fuerza en la base.
+ *
+ * ⚠ EL SUJETO ES UN Loan Officer O UN REALTOR NPPM, nunca un branch -- a
+ * diferencia de `strategy_benchmark`/`growth_rule`/etc., que admiten
+ * `branch_code`. Acá el presupuesto siempre es de una persona.
+ */
+/**
+ * ⚠ `recruitment` SE AGREGÓ EN OL26e -- ver
+ * `docs/sql/2026-09-outlook-budget-recruitment-bucket.sql`. Un realtor NPPM no
+ * puede tenerlo (el CHECK de la base lo rechaza, igual que 'b2b' y 'nppm'):
+ * un realtor no participa del programa de reclutamiento.
+ */
+export type BudgetBucket = 'own_production' | 'b2b' | 'nppm' | 'recruitment' | 'business_plan';
+
+export interface PersonBudgetTotalRow {
+  person_budget_total_key: number;
+  employee_key: number | null;
+  /**
+   * ⚠ EL CÓDIGO, NO EL NOMBRE — ver
+   * `docs/sql/2026-09-person-budget-realtor-code.sql`. La columna se llamaba
+   * `nppm_realtor` y guardaba el nombre normalizado; la etapa del
+   * `realtor_code` demostró que el nombre no identifica a nadie ('FRED A
+   * GOMEZ' contra 'FRED GOMEZ'), y esta tabla se alinea al mismo criterio que
+   * `nppm_benchmark`.
+   */
+  nppm_realtor_code: string | null;
+  revision: number;
+  target_month: string;
+  /**
+   * ⚠ NULO EN UNA CONFIRMACIÓN — ver `confirmed_only`. Una confirmación no
+   * fija ningún número, así que no tiene ninguno que guardar.
+   */
+  total: number | string | null;
+  /**
+   * ⚠ QUÉ FUE ESTA REVISIÓN: fijar un número o revisar el que ya había —
+   * etapa RV15, `docs/sql/2026-09-person-budget-confirm-reviewed.sql`.
+   *
+   *   false   se fijaron estos totales. GOBIERNAN el mes (OL26e).
+   *   true    alguien miró lo que había y lo aceptó. No gobierna nada.
+   *
+   * Opcional en el tipo porque la columna puede no estar aplicada todavía: en
+   * ese caso el campo no viene, `=== true` es falso, y todas las filas
+   * gobiernan igual que antes de esta etapa. La dirección segura es esa --
+   * mientras la columna no exista tampoco se puede escribir una confirmación,
+   * así que no hay fila cuyo significado se esté leyendo mal.
+   */
+  confirmed_only?: boolean;
+  set_by: string;
+  note: string | null;
+  created_at: string;
+}
+
+export interface PersonBudgetBreakdownRow {
+  person_budget_breakdown_key: number;
+  employee_key: number | null;
+  /** ⚠ EL CÓDIGO, NO EL NOMBRE — ver el JSDoc de `PersonBudgetTotalRow.nppm_realtor_code`. */
+  nppm_realtor_code: string | null;
+  revision: number;
+  target_month: string;
+  bucket: BudgetBucket;
+  value: number | string;
+  set_by: string;
+  note: string | null;
+  created_at: string;
+}
+
 export interface StrategyYtd {
   strategy: OutlookStrategy;
   /** Cerrados del año. Es la suma de `actualByMonth`, no un conteo aparte. */
@@ -174,7 +270,7 @@ export interface StrategyYtd {
   /** Cerrados por mes, 'YYYY-MM' → cuántos. Sólo meses con producción — OL3. */
   actualByMonth: Record<string, number>;
   /**
-   * Dentro de NPPM, los realtors por nombre. Vacío en las otras cuatro.
+   * Dentro de NPPM, los realtors. Vacío en las otras cuatro.
    *
    * ⚠ El benchmark es del REALTOR, no del par (realtor, Loan Officer): el mismo
    * realtor trabaja con varias personas y en varias branches -- Laura Delgado
@@ -183,7 +279,13 @@ export interface StrategyYtd {
    * los datos; el compromiso es del realtor.
    */
   byRealtor: {
-    realtor: string;
+    /**
+     * ⚠ LA IDENTIDAD, y va SIEMPRE en las claves y en los joins. Nunca en
+     * pantalla: es `nppm_a7cea027d81e`, no un nombre.
+     */
+    realtorCode: string;
+    /** Lo único que va en pantalla. */
+    displayName: string;
     ytd: number;
     /** Su producción mes a mes — etapa OL3. */
     actualByMonth: Record<string, number>;
@@ -299,6 +401,31 @@ export interface OutlookLoanOfficer {
    * vez de 34.
    */
   isBranchManager: boolean;
+  /**
+   * El cargo del roster (`org.roster_current.position`) — etapa OL26. `null`
+   * cuando la persona no tiene fila en el roster (viene sólo del Business Plan
+   * o es una producción sin identidad) o cuando el roster no lo trae.
+   */
+  position: string | null;
+  /**
+   * ============================================================================
+   * EL PRESUPUESTO COMPUESTO, PUNTO 5 DE OL26
+   * ============================================================================
+   *
+   * `budgetTotal` es el TOTAL fijado a mano, mes → número -- vacío si nadie lo
+   * fijó todavía, y esa ausencia importa: sin fila acá la pantalla sigue
+   * mostrando el total calculado de siempre, no un cero.
+   *
+   * `budgetBreakdown` es el desglose informativo, bucket → mes → número. No
+   * tiene por qué sumar `budgetTotal` -- la pantalla muestra la diferencia, no
+   * la fuerza. Own Production siempre puede tener los cuatro buckets.
+   */
+  budgetTotal: Record<string, number>;
+  /** 0 = nadie fijó un total todavía. */
+  budgetTotalRevision: number;
+  budgetBreakdown: Partial<Record<BudgetBucket, Record<string, number>>>;
+  /** 0 = nadie cargó un desglose todavía. */
+  budgetBreakdownRevision: number;
 }
 
 /**
@@ -332,8 +459,66 @@ export const UNASSIGNED_REALTOR = 'unassigned realtor';
 /** Ídem para el dueño de una oportunidad Affinity que no es una persona. */
 export const UNASSIGNED_OWNER = 'unassigned owner';
 
+/**
+ * ============================================================================
+ * LA IDENTIDAD DE UN REALTOR NPPM: `realtor_code`
+ * ============================================================================
+ *
+ * `nppm_realtor_code` viene resuelto de `dim_nppm_realtor_v2` a través de
+ * `loan_records_v2`, y NO CAMBIA NUNCA: ni cuando la persona entra al roster ni
+ * cuando alguien corrige la grafía en Salesforce. Es lo único por lo que se
+ * agrupa y se une.
+ *
+ * ⚠ ANTES SE EMPAREJABA POR NOMBRE NORMALIZADO, y eso se fue de acá. El
+ * criterio era trim + espacios colapsados + mayúsculas, que une 'fred gomez'
+ * con 'FRED GOMEZ' pero NO 'FRED A GOMEZ' con 'FRED GOMEZ': la inicial del
+ * medio sobrevive, y ése es exactamente el caso que hay en el dato. También
+ * había 'Jose Boggio' contra 'Jose A Boggio' en el mismo préstamo, y 'Ana
+ * Manjarrez' con Z contra 'Manjarres' con S.
+ *
+ * El normalizador NO quedó conviviendo con el código a propósito: dos reglas de
+ * identidad para lo mismo divergen, y ya pasó con `classifyLoan`, donde la
+ * vieja contradijo a la nueva durante semanas.
+ *
+ * ⚠ QUÉ HACER CUANDO NO HAY CÓDIGO -- y son dos casos, no uno:
+ *
+ *   hay nombre y no hay código   Walter Mena: 2 préstamos marcados NPPM y no
+ *                                está en la dimensión. Es un hueco de la
+ *                                fuente, no un dato ausente, así que CONSERVA
+ *                                SU NOMBRE en su propia fila. Se le arma una
+ *                                clave local con el prefijo de abajo, que no
+ *                                puede chocar con un `nppm_...` real.
+ *   no hay ninguno de los dos    ahí sí va `UNASSIGNED_REALTOR`.
+ *
+ * Colapsar los dos casos en 'unassigned realtor' perdería el nombre de Walter
+ * Mena, que es el dato que permite ir a arreglarlo arriba.
+ */
+const SIN_CODIGO_PREFIX = 'sin-codigo:';
+
+/** La identidad y el nombre visible de un realtor, a partir de una fila. */
+function realtorIdentity(row: {
+  nppm_realtor_code: string | null;
+  nppm_display_name: string | null;
+  nppm_realtor_efectivo: string | null;
+}): { code: string; displayName: string } {
+  const code = row.nppm_realtor_code?.trim();
+  if (code) {
+    return { code, displayName: row.nppm_display_name?.trim() || code };
+  }
+
+  const nombre = row.nppm_realtor_efectivo?.trim();
+  if (nombre) {
+    return { code: SIN_CODIGO_PREFIX + nombre, displayName: nombre };
+  }
+
+  return { code: UNASSIGNED_REALTOR, displayName: UNASSIGNED_REALTOR };
+}
+
 export interface BranchRealtor {
-  realtor: string;
+  /** La identidad. Va en las claves, nunca en pantalla. */
+  realtorCode: string;
+  /** Lo único que va en pantalla. */
+  displayName: string;
   ytd: number;
   actualByMonth: Record<string, number>;
   /**
@@ -345,6 +530,15 @@ export interface BranchRealtor {
   benchmark: number;
   /** `true` si nadie lo fijó y el que rige es `avg3m`. */
   benchmarkIsDefault: boolean;
+  /**
+   * El presupuesto compuesto, punto 5 de OL26 -- ver la nota en
+   * `OutlookLoanOfficer`. Un realtor NPPM sólo admite `own_production` y
+   * `business_plan` en el desglose (reforzado por CHECK en la base).
+   */
+  budgetTotal: Record<string, number>;
+  budgetTotalRevision: number;
+  budgetBreakdown: Partial<Record<BudgetBucket, Record<string, number>>>;
+  budgetBreakdownRevision: number;
 }
 
 /**
@@ -710,6 +904,14 @@ export interface OutlookData {
   remainingMonths: string[];
   currentMonth: string;
   /**
+   * La fecha de hoy, 'YYYY-MM-DD' — etapa OL26. La MISMA que ya usa el loader
+   * para clasificar reclutas (`hoyISO`, más abajo): expuesta acá para que
+   * `shouldShowRecruit` se evalúe en la pantalla con la fecha del SERVIDOR, no
+   * con el reloj del navegador de quien mira -- que podría estar en otra zona
+   * horaria o simplemente mal puesto.
+   */
+  today: string;
+  /**
    * Los doce meses del año — etapa OL3.
    *
    * ⚠ Las tres bandas de la tabla son exactamente una partición de esta lista:
@@ -740,6 +942,9 @@ export interface OutlookData {
     growthRules: GrowthRuleRow[];
     monthlyTargets: MonthlyTargetRow[];
     projectionModes: ProjectionModeRow[];
+    /** Etapa OL26, punto 5. */
+    personBudgetTotals: PersonBudgetTotalRow[];
+    personBudgetBreakdowns: PersonBudgetBreakdownRow[];
   };
   diagnostics: {
     activityRowsRead: number;
@@ -770,6 +975,12 @@ export interface OutlookData {
      * descubrir al apretar Guardar que no hay dónde ponerlos.
      */
     monthlyModeAvailable: boolean;
+    /**
+     * ¿Están las dos tablas del punto 5 de OL26? — `outlook.person_budget_total`
+     * y `outlook.person_budget_breakdown`. Mismo uso que `monthlyModeAvailable`:
+     * no ofrecer el editor de presupuesto compuesto si no hay dónde guardarlo.
+     */
+    personBudgetTablesAvailable: boolean;
     /**
      * ¿Están las tres tablas de OL20? — `outlook.recruitment_projection`,
      * `recruitment_ramp` y `recruitment_link`.
@@ -816,10 +1027,18 @@ export function remainingMonthsOf(currentMonth: string): string[] {
   return out;
 }
 
-/** Mismo criterio que `aliasIndex`: trim, espacios colapsados, mayúsculas. */
-function normName(name: string): string {
-  return name.trim().replace(/\s+/g, ' ').toUpperCase();
-}
+/*
+ * ⚠ ACÁ VIVÍA `normName`, Y SE FUE A PROPÓSITO.
+ *
+ * Normalizaba el nombre del realtor --trim, espacios colapsados, mayúsculas--
+ * para unir sus grafías. No alcanzaba: une 'fred gomez' con 'FRED GOMEZ' pero
+ * no 'FRED A GOMEZ' con 'FRED GOMEZ', y la inicial del medio es justo el caso
+ * que trae el dato. La identidad ahora es `nppm_realtor_code`, resuelto arriba;
+ * ver `realtorIdentity`.
+ *
+ * No quedó al lado del código nuevo porque dos reglas de identidad para lo
+ * mismo divergen -- y ya pasó con `classifyLoan`.
+ */
 
 /*
  * ============================================================================
@@ -879,9 +1098,27 @@ interface ActivityYtdRow {
   loan_officer_person_code: string | null;
   branch: string | null;
   strategy: string | null;
-  nppm_realtor: string | null;
-  /* El respaldo del realtor NPPM cuando `nppm_realtor` viene vacío -- OL13. */
-  referred_by_realtor: string | null;
+  /*
+   * ⚠ `nppm_realtor` Y `referred_by_realtor` YA NO SE LEEN ACÁ, y por eso no
+   * están en este tipo ni en el `select`. La identidad sale de las tres de
+   * abajo, y el COALESCE entre esos dos campos ya viene resuelto de BigQuery.
+   * Pedirlos sería traer dos columnas de texto por cada préstamo del año para
+   * no usarlas.
+   *
+   * Siguen existiendo en `lib/supabase/loadCurrent.ts`, que es otro módulo y
+   * otra pregunta.
+   */
+  /** La clave estable. NULL sólo donde la dimensión no conoce al realtor. */
+  nppm_realtor_code: string | null;
+  /** El nombre de la dimensión, el que va en pantalla. */
+  nppm_display_name: string | null;
+  /**
+   * El nombre con el COALESCE de los dos campos de arriba YA APLICADO, resuelto
+   * en BigQuery. Es lo que se guarda como `nppm_realtor` al fijar un benchmark:
+   * usar `nppm_realtor` a secas dejaría vacías las tres filas del branch 733
+   * cuyo realtor viene en `referred_by_realtor`.
+   */
+  nppm_realtor_efectivo: string | null;
   /*
    * ⚠ EL DUEÑO DE LA OPORTUNIDAD, que en Affinity es un ACCOUNT EXECUTIVE y no
    * el Loan Officer. Es la unidad de decisión de esa estrategia -- etapa OL13.
@@ -910,6 +1147,22 @@ export const employeeKeyOf = (employeeKey: number, strategy: string) => 'e' + em
 export const branchKeyOf = (branchCode: string, strategy: string) => 'b' + branchCode + '|' + strategy;
 const rowKeyOf = (r: { employee_key: number | null; branch_code: string | null }, strategy: string) =>
   r.employee_key !== null ? employeeKeyOf(r.employee_key, strategy) : 'b' + r.branch_code + '|' + strategy;
+
+/**
+ * La clave del sujeto del presupuesto compuesto (punto 5, OL26): una PERSONA
+ * (Loan Officer) o un REALTOR NPPM, nunca un branch. Distinta de `rowKeyOf`
+ * -- ésa admite branch, ésta no puede -- y con el mismo criterio de prefijo
+ * para que los dos espacios de claves no puedan tocarse.
+ *
+ * ⚠ POR CÓDIGO, NO POR NOMBRE NORMALIZADO -- re-cableado al rebasar sobre
+ * main, etapa del `realtor_code`. Esto usaba `normName`, que la migración de
+ * `docs/sql/2026-09-person-budget-realtor-code.sql` señala como la razón por
+ * la que hacía falta el cambio: 'FRED A GOMEZ' no se une con 'FRED GOMEZ' por
+ * más que se normalice. `nppm_realtor_code` es la clave estable, igual que en
+ * `strategiesOfBranch`.
+ */
+const personBudgetKeyOf = (r: { employee_key: number | null; nppm_realtor_code: string | null }) =>
+  r.employee_key !== null ? 'e' + r.employee_key : 'r' + (r.nppm_realtor_code as string);
 
 export async function loadOutlookData(reference: Date = new Date()): Promise<OutlookData> {
   const supabase = getSupabaseClient();
@@ -942,7 +1195,7 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
     supabase
       .from('loan_records_v2')
       .select(
-        'loan_officer, loan_officer_person_code, branch, strategy, nppm_realtor, referred_by_realtor, opportunity_owner, closing_month'
+        'loan_officer, loan_officer_person_code, branch, strategy, nppm_realtor_code, nppm_display_name, nppm_realtor_efectivo, opportunity_owner, closing_month'
       )
       .eq('counts_for_division', true)
       .not('closing_month', 'is', null)
@@ -958,6 +1211,9 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       ol.from('nppm_benchmark').select('*'),
       ol.from('monthly_target').select('*'),
       ol.from('projection_mode').select('*'),
+      /* Punto 5 de OL26. Ver `docs/sql/2026-09-outlook-budget-composition.sql`. */
+      ol.from('person_budget_total').select('*'),
+      ol.from('person_budget_breakdown').select('*'),
     ]);
   })();
 
@@ -1023,7 +1279,7 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
     supabase
       .schema('org')
       .from('roster_current')
-      .select('person_code, display_name, branch_code, is_producer, is_active'),
+      .select('person_code, display_name, branch_code, is_producer, is_active, position'),
     /*
      * `dim_employee` sólo por el NOMBRE y el rol de quien cerró en un branch y
      * no está en la lista del Business Plan. El roster no siempre la tiene: las
@@ -1071,12 +1327,30 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
   let growthRuleRows = 0;
   /* ¿Se pueden leer las dos tablas de OL4? Si no, el modo mes a mes no se ofrece. */
   let monthlyModeAvailable = false;
+  /*
+   * Punto 5 de OL26 — el presupuesto compuesto. Mismo patrón que
+   * `targetsByKey`/`targetRevisionByKey`, con una clave que distingue a una
+   * PERSONA de un REALTOR (nunca un branch, a diferencia de `rowKeyOf`).
+   */
+  const budgetTotalByKey = new Map<string, Record<string, number>>();
+  const budgetTotalRevisionByKey = new Map<string, number>();
+  const budgetBreakdownByKey = new Map<string, Partial<Record<BudgetBucket, Record<string, number>>>>();
+  const budgetBreakdownRevisionByKey = new Map<string, number>();
+  let personBudgetTablesAvailable = false;
+  /* Los cuatro campos del presupuesto compuesto, para un sujeto -- se usan en
+     las tres construcciones de OutlookLoanOfficer y en la de BranchRealtor. */
+  const budgetTotalOf = (key: string) => budgetTotalByKey.get(key) ?? {};
+  const budgetTotalRevisionOf = (key: string) => budgetTotalRevisionByKey.get(key) ?? 0;
+  const budgetBreakdownOf = (key: string) => budgetBreakdownByKey.get(key) ?? {};
+  const budgetBreakdownRevisionOf = (key: string) => budgetBreakdownRevisionByKey.get(key) ?? 0;
   const history: OutlookData['history'] = {
     strategyBenchmarks: [],
     nppmBenchmarks: [],
     growthRules: [],
     monthlyTargets: [],
     projectionModes: [],
+    personBudgetTotals: [],
+    personBudgetBreakdowns: [],
   };
 
   /*
@@ -1102,7 +1376,7 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
 
   try {
     /* Ya pedidas arriba, en paralelo con el resto -- ver el bloque de OL6. */
-    const [benchRes, ruleRes, nppmRes, targetRes, modeRes] = outlookTables;
+    const [benchRes, ruleRes, nppmRes, targetRes, modeRes, budgetTotalRes, budgetBreakdownRes] = outlookTables;
 
     /*
      * ⚠ Las dos tablas de OL4 se leen APARTE de las de OL1, y su error no
@@ -1143,15 +1417,110 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
         targetsByKey.set(k, byMonth);
       }
     }
+
+    /*
+     * Punto 5 de OL26 -- se leen APARTE del resto, mismo motivo que el bloque
+     * de arriba: el SQL lo aplica el revisor y puede no estar puesto, y su
+     * ausencia no tiene por qué apagar benchmarks ni reglas de crecimiento.
+     */
+    if (!budgetTotalRes.error && !budgetBreakdownRes.error) {
+      personBudgetTablesAvailable = true;
+
+      const totals = (budgetTotalRes.data ?? []) as PersonBudgetTotalRow[];
+      history.personBudgetTotals = totals;
+      /*
+       * ⚠ UNA CONFIRMACIÓN NO ES UNA REVISIÓN VIGENTE — etapa RV15. Una fila
+       * con `confirmed_only` dice «alguien miró esto y lo aceptó», no «el
+       * total es éste». Si contara como la revisión más alta, confirmar le
+       * QUITARÍA el gobierno a un total ya fijado: la revisión vigente no
+       * traería ningún mes y los meses caerían a la regla, por haber apretado
+       * un botón que dice «lo revisé».
+       *
+       * `total === null` también se descarta, y a propósito es una guarda
+       * redundante: el CHECK de la base ya ata el nulo a `confirmed_only`.
+       * Sin ella un nulo se leería como `Number(null)` = 0, que es un total
+       * fijado en cero -- exactamente el error que esta etapa viene a evitar.
+       *
+       * ⚠⚠ DOS COPIAS DE LA MISMA DECISIÓN, EN ARCHIVOS DISTINTOS -- ver
+       * AGENTS.md, "el hermano mayor: dos copias de la misma decisión".
+       * `lib/business-plan/loadData.ts` define este MISMO `gobierna` --
+       * `t.confirmed_only !== true && t.total !== null`, con el mismo
+       * criterio de revisión más alta GOBERNANTE por sujeto, no por mes --
+       * porque el perfil del Loan Officer (BP49) también lee
+       * `outlook.person_budget_total` y tiene que coincidir en qué fila
+       * cuenta como "el budget del mes". Que hoy sean idénticas no las hace
+       * una sola: quien cambie el criterio acá (o allá) sin repetir el
+       * cambio en el otro archivo las separa, igual que pasó con
+       * `rutaDelModulo`.
+       */
+      const gobierna = (t: PersonBudgetTotalRow) => t.confirmed_only !== true && t.total !== null;
+      /* Sólo la revisión más alta de cada sujeto, entera -- igual que los targets. */
+      const maxTotalRev = new Map<string, number>();
+      for (const t of totals) {
+        if (!gobierna(t)) continue;
+        const k = personBudgetKeyOf(t);
+        maxTotalRev.set(k, Math.max(maxTotalRev.get(k) ?? 0, t.revision));
+      }
+      for (const [k, rev] of maxTotalRev) budgetTotalRevisionByKey.set(k, rev);
+      for (const t of totals) {
+        if (!gobierna(t)) continue;
+        const k = personBudgetKeyOf(t);
+        if (t.revision !== maxTotalRev.get(k)) continue;
+        const byMonth = budgetTotalByKey.get(k) ?? {};
+        byMonth[t.target_month.slice(0, 7)] = Number(t.total);
+        budgetTotalByKey.set(k, byMonth);
+      }
+
+      const breakdowns = (budgetBreakdownRes.data ?? []) as PersonBudgetBreakdownRow[];
+      history.personBudgetBreakdowns = breakdowns;
+      /* Una revisión cubre TODOS los buckets y meses de un mismo guardado. */
+      const maxBreakdownRev = new Map<string, number>();
+      for (const b of breakdowns) {
+        const k = personBudgetKeyOf(b);
+        maxBreakdownRev.set(k, Math.max(maxBreakdownRev.get(k) ?? 0, b.revision));
+      }
+      for (const [k, rev] of maxBreakdownRev) budgetBreakdownRevisionByKey.set(k, rev);
+      for (const b of breakdowns) {
+        const k = personBudgetKeyOf(b);
+        if (b.revision !== maxBreakdownRev.get(k)) continue;
+        const byBucket = budgetBreakdownByKey.get(k) ?? {};
+        const byMonth = byBucket[b.bucket] ?? {};
+        byMonth[b.target_month.slice(0, 7)] = Number(b.value);
+        byBucket[b.bucket] = byMonth;
+        budgetBreakdownByKey.set(k, byBucket);
+      }
+    }
+
     if (!nppmRes.error) {
       const nppmRows = (nppmRes.data ?? []) as NppmBenchmarkRow[];
       history.nppmBenchmarks = nppmRows;
-      /* Por nombre normalizado: los datos traen 'FRED A GOMEZ' y 'Fred A Gomez'
-         para la misma persona, y el benchmark es uno. */
+      /*
+       * POR `realtor_code`, que es la identidad. Antes iba por nombre
+       * normalizado y no alcanzaba -- ver la nota donde vivía `normName`.
+       *
+       * ⚠ UNA FILA SIN `realtor_code` NO SE PUEDE UBICAR, así que se cuenta y
+       * se avisa en vez de descartarse en silencio: sería un benchmark que
+       * alguien fijó y la pantalla no muestra, sin ningún síntoma. Hoy no puede
+       * haber ninguna --la tabla estaba VACÍA cuando se migró la clave, así que
+       * no hay filas viejas sin código-- y por eso el aviso es la señal de que
+       * algo escribió sin clave.
+       */
       const byRealtor = new Map<string, NppmBenchmarkRow[]>();
+      let sinCodigo = 0;
       for (const n of nppmRows) {
-        const k = normName(n.nppm_realtor);
+        const k = n.realtor_code?.trim();
+        if (!k) {
+          sinCodigo++;
+          continue;
+        }
         byRealtor.set(k, [...(byRealtor.get(k) ?? []), n]);
+      }
+      if (sinCodigo > 0) {
+        console.warn(
+          `[outlook] ${sinCodigo} benchmark(s) de NPPM sin realtor_code: no se ` +
+            'pueden ubicar y no se muestran. La tabla estaba vacía al migrar la ' +
+            'clave, así que esto significa que algo los escribió sin ella.'
+        );
       }
       for (const [k, rows2] of byRealtor) nppmScheduleByRealtor.set(k, scheduleFrom(rows2));
     }
@@ -1360,13 +1729,23 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
   const actualByLoStrategy: MonthCounter = new Map();
   const actualByLoStrategyRealtor: MonthCounter = new Map();
   /*
-   * Qué realtors tiene cada (branch, persona, NPPM). Se lleva aparte en vez de
-   * barrer las claves con `startsWith`, que es lo que hacía OL1: un nombre de
-   * realtor con una barra vertical rompía el corte de la clave y el realtor
-   * aparecía con el nombre mutilado. Enumerar desde un conjunto no depende de
-   * cómo esté escrito el nombre.
+   * Qué realtors tiene cada (branch, persona, NPPM), POR CÓDIGO. Se lleva
+   * aparte en vez de barrer las claves con `startsWith`, que es lo que hacía
+   * OL1: un nombre de realtor con una barra vertical rompía el corte de la
+   * clave y el realtor aparecía con el nombre mutilado. Enumerar desde un
+   * conjunto no depende de cómo esté escrito el nombre -- y ahora tampoco
+   * dependen las claves, que llevan el código.
    */
   const realtorsByStrategyKey = new Map<string, Set<string>>();
+  /**
+   * Código de realtor -> nombre para mostrar.
+   *
+   * Los conjuntos y las claves llevan el código, así que el nombre visible
+   * tiene que venir de algún lado a la hora de dibujar. Se llena en la misma
+   * pasada que los contadores: cada fila trae su `nppm_display_name`, y un
+   * código siempre trae el mismo nombre.
+   */
+  const nombrePorCodigo = new Map<string, string>();
   /*
    * A NIVEL BRANCH, sin la persona en la clave — etapa OL8.
    *
@@ -1481,27 +1860,34 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
 
     if (strategy === 'NPPM') {
       /*
-       * ⚠ EL REALTOR PUEDE VENIR EN DOS CAMPOS — etapa OL13.
+       * LA IDENTIDAD SALE DE `realtorIdentity`, no de los campos de nombre.
        *
-       * `nppm_realtor` es el principal y `referred_by_realtor` el respaldo: es la
-       * misma regla que Forecast ya usa en `nppmRealtors`. Medido: un préstamo del
-       * 733 tenía `nppm_realtor` vacío y `referred_by_realtor` con 'Santiago
-       * Jaraba Chacon', así que se mostraba como `unassigned realtor` teniendo
-       * nombre.
+       * ⚠ EL RESPALDO DE DOS CAMPOS SIGUE EXISTIENDO, PERO YA NO ESTÁ ACÁ
+       * --etapa OL13--. `nppm_realtor` es el principal y `referred_by_realtor`
+       * el respaldo, y ese COALESCE ahora se hace EN BIGQUERY: el código se
+       * resuelve del valor ya combinado y llega en `nppm_realtor_code`. Son tres
+       * préstamos del branch 733 --dos de Santiago Jaraba Chacon y uno de Ana
+       * Hardy-- que tienen el campo principal vacío y su realtor en el respaldo.
+       * Si el código se hubiera resuelto del principal a secas, esos tres
+       * volverían a `unassigned realtor` teniendo nombre, que es el bug que OL13
+       * arregló.
        *
-       * ⚠ Y NO LOS RESUELVE A TODOS: queda un préstamo del 776 --agosto-- con los
-       * DOS campos vacíos. Ese sigue como `unassigned realtor`, que es la verdad:
-       * su realtor no está en el dato de origen.
+       * ⚠ Y SIGUE HABIENDO UN PRÉSTAMO SIN NINGUNO DE LOS DOS: el del 776 de
+       * agosto. Ése es el único que va a `UNASSIGNED_REALTOR`, y es la verdad:
+       * su realtor no está en el dato de origen. No confundirlo con Walter Mena,
+       * que tiene nombre y no tiene código -- ver `realtorIdentity`.
        */
-      const realtor = row.nppm_realtor?.trim() || row.referred_by_realtor?.trim() || UNASSIGNED_REALTOR;
-      bump(actualByLoStrategyRealtor, sk + '|' + realtor, month);
+      const { code, displayName } = realtorIdentity(row);
+      nombrePorCodigo.set(code, displayName);
+
+      bump(actualByLoStrategyRealtor, sk + '|' + code, month);
       const set = realtorsByStrategyKey.get(sk) ?? new Set<string>();
-      set.add(realtor);
+      set.add(code);
       realtorsByStrategyKey.set(sk, set);
 
-      bump(actualByBranchRealtor, branch + '|' + realtor, month);
+      bump(actualByBranchRealtor, branch + '|' + code, month);
       const porBranch = realtorsByBranch.get(branch) ?? new Set<string>();
-      porBranch.add(realtor);
+      porBranch.add(code);
       realtorsByBranch.set(branch, porBranch);
     }
   }
@@ -1549,17 +1935,20 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       const byRealtor =
         s === 'NPPM'
           ? [...(realtorsByStrategyKey.get(sk) ?? [])]
-              .map((realtor) => {
-                const schedule = nppmScheduleByRealtor.get(normName(realtor)) ?? [];
+              .map((realtorCode) => {
+                /* Por código. Antes iba por nombre normalizado -- ver `normName`. */
+                const schedule = nppmScheduleByRealtor.get(realtorCode) ?? [];
                 const at = benchmarkAt(schedule, displayMonth);
                 return {
-                  realtor,
-                  ytd: totalOf(actualByLoStrategyRealtor, sk + '|' + realtor),
-                  actualByMonth: monthsOf(actualByLoStrategyRealtor, sk + '|' + realtor),
+                  realtorCode,
+                  displayName: nombrePorCodigo.get(realtorCode) ?? realtorCode,
+                  ytd: totalOf(actualByLoStrategyRealtor, sk + '|' + realtorCode),
+                  actualByMonth: monthsOf(actualByLoStrategyRealtor, sk + '|' + realtorCode),
                   benchmark: schedule.length === 0 ? null : at,
                 };
               })
-              .sort((a, b) => b.ytd - a.ytd || a.realtor.localeCompare(b.realtor))
+              /* Se ordena por el NOMBRE, no por el código: el código es opaco. */
+              .sort((a, b) => b.ytd - a.ytd || a.displayName.localeCompare(b.displayName))
           : [];
       return {
         strategy: s,
@@ -1866,6 +2255,13 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       rosterState: rosterStateOf(lo.employeeKey),
       hasIdentity: true,
       isBranchManager: lo.isBranchManager,
+      position: rosterByKey.get(lo.employeeKey)?.position ?? null,
+      budgetTotal: budgetTotalOf(personBudgetKeyOf({ employee_key: lo.employeeKey, nppm_realtor_code: null })),
+      budgetTotalRevision: budgetTotalRevisionOf(personBudgetKeyOf({ employee_key: lo.employeeKey, nppm_realtor_code: null })),
+      budgetBreakdown: budgetBreakdownOf(personBudgetKeyOf({ employee_key: lo.employeeKey, nppm_realtor_code: null })),
+      budgetBreakdownRevision: budgetBreakdownRevisionOf(
+        personBudgetKeyOf({ employee_key: lo.employeeKey, nppm_realtor_code: null })
+      ),
       /* Placeholder: se reemplaza por branch al armar el mapa, abajo. */
       strategies: [],
       rulesByStrategy,
@@ -2002,6 +2398,13 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
         rosterState: rosterStateOf(key),
         hasIdentity: true,
         isBranchManager: employeeByKey.get(key)?.is_branch_manager ?? false,
+        position: r?.position ?? null,
+        budgetTotal: budgetTotalOf(personBudgetKeyOf({ employee_key: key, nppm_realtor_code: null })),
+        budgetTotalRevision: budgetTotalRevisionOf(personBudgetKeyOf({ employee_key: key, nppm_realtor_code: null })),
+        budgetBreakdown: budgetBreakdownOf(personBudgetKeyOf({ employee_key: key, nppm_realtor_code: null })),
+        budgetBreakdownRevision: budgetBreakdownRevisionOf(
+          personBudgetKeyOf({ employee_key: key, nppm_realtor_code: null })
+        ),
       });
       branchMap.set(code, list);
     }
@@ -2045,6 +2448,14 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       rosterState: 'producer',
       hasIdentity: false,
       isBranchManager: false,
+      position: r.position ?? null,
+      /* Sin `employee_key` real -- ver `hasIdentity: false` arriba -- no hay
+         nada que buscar: un presupuesto compuesto no puede referenciar una
+         identidad sintética. */
+      budgetTotal: {},
+      budgetTotalRevision: 0,
+      budgetBreakdown: {},
+      budgetBreakdownRevision: 0,
     });
     branchMap.set(r.branch_code, list);
   });
@@ -2070,8 +2481,8 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
         strategy !== 'NPPM'
           ? []
           : [...(realtorsByBranch.get(branchCode) ?? [])]
-              .map((realtor) => {
-                const rk = branchCode + '|' + realtor;
+              .map((realtorCode) => {
+                const rk = branchCode + '|' + realtorCode;
                 const meses = monthsOf(actualByBranchRealtor, rk);
                 /*
                  * ⚠ EL BENCHMARK POR DEFECTO ES EL PROMEDIO DE SUS 3 MESES
@@ -2085,18 +2496,32 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
                  * ventana.
                  */
                 const avg3m = ventanaCerrada.reduce((a, m) => a + (meses[m] ?? 0), 0) / NPPM_WINDOW;
-                const guardado = benchmarkAt(nppmScheduleByRealtor.get(normName(realtor)) ?? [], displayMonth);
-                const hayGuardado = (nppmScheduleByRealtor.get(normName(realtor)) ?? []).length > 0;
+                /* Por código, igual que en `strategiesOf`. */
+                const schedule = nppmScheduleByRealtor.get(realtorCode) ?? [];
+                const guardado = benchmarkAt(schedule, displayMonth);
+                const hayGuardado = schedule.length > 0;
                 return {
-                  realtor,
+                  realtorCode,
+                  displayName: nombrePorCodigo.get(realtorCode) ?? realtorCode,
                   ytd: totalOf(actualByBranchRealtor, rk),
                   actualByMonth: meses,
                   avg3m,
                   benchmark: hayGuardado ? guardado : avg3m,
                   benchmarkIsDefault: !hayGuardado,
+                  budgetTotal: budgetTotalOf(personBudgetKeyOf({ employee_key: null, nppm_realtor_code: realtorCode })),
+                  budgetTotalRevision: budgetTotalRevisionOf(
+                    personBudgetKeyOf({ employee_key: null, nppm_realtor_code: realtorCode })
+                  ),
+                  budgetBreakdown: budgetBreakdownOf(
+                    personBudgetKeyOf({ employee_key: null, nppm_realtor_code: realtorCode })
+                  ),
+                  budgetBreakdownRevision: budgetBreakdownRevisionOf(
+                    personBudgetKeyOf({ employee_key: null, nppm_realtor_code: realtorCode })
+                  ),
                 };
               })
-              .sort((a, b) => b.ytd - a.ytd || a.realtor.localeCompare(b.realtor));
+              /* Por el NOMBRE y no por el código, que es opaco. */
+              .sort((a, b) => b.ytd - a.ytd || a.displayName.localeCompare(b.displayName));
       /*
        * Las dos mitades del mes en curso, sólo de quienes tienen ESTE branch como
        * primario -- mismo filtro que el total del branch, para que la suma cierre.
@@ -2251,9 +2676,27 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
        * sus filas. Contarlo aparte sería una segunda fórmula para el mismo
        * número, y podría no dar la diferencia que se ve en la pantalla -- que es
        * justo lo que este número viene a explicar.
+       *
+       * ⚠ SE RESTA LO QUE CADA PERSONA CERRÓ EN ESTE BRANCH, NO SU YTD GLOBAL.
+       * Decía `l.ytd`, que es `totalOf(actualByLo, employeeKey)` -- la suma de
+       * TODOS los branches donde esa persona cerró algo, no sólo éste. Alguien
+       * del roster de este branch que además cerró en otro --Gian Laino, roster
+       * 747, con cierres reales en el 710, el 716, el 760 y Affinity este año--
+       * restaba de más acá: su producción de OTROS branches se descontaba del
+       * total de ESTE, y el residuo le quedaba corto a `outsiders` por esa
+       * misma diferencia.
+       *
+       * Medido en el 747: `l.ytd` sumaba 28 (Galo Rizzo) + 24 (Gian Laino,
+       * global) = 52 sobre un total de 54, dando `closedByOutsiders = 2` --
+       * cuando los cierres reales de gente de otro branch (Nathan Martinez 3,
+       * Cristhian Ramirez 1, Jose Zamora 1) ya suman 5. `totalOf(actualByBranchLo,
+       * branchCode + '|' + l.employeeKey)` es lo que Gian cerró EN el 747 (17,
+       * no 24), y da `closedByOutsiders = 5` -- exactamente lo que `outsiders`
+       * ya nombraba, sin la diferencia.
        */
       closedByOutsiders:
-        totalOf(actualByBranch, branchCode) - los.reduce((a, l) => a + l.ytd, 0),
+        totalOf(actualByBranch, branchCode) -
+        los.reduce((a, l) => a + totalOf(actualByBranchLo, branchCode + '|' + l.employeeKey), 0),
       /*
        * Los mismos cierres que cuenta `closedByOutsiders`, con nombre. Se sacan
        * de `actualByBranchLo` --que tiene la producción de CADA persona en CADA
@@ -2276,6 +2719,7 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
   return {
     remainingMonths,
     currentMonth,
+    today: hoyISO,
     monthsOfYear,
     actualMonths: monthsOfYear.filter((m) => m < currentMonth),
     branches,
@@ -2312,6 +2756,7 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       ),
       activeProducers: rosterRows.filter((r) => r.is_producer && r.is_active).length,
       monthlyModeAvailable,
+      personBudgetTablesAvailable,
       recruitTablesAvailable: recruitTables.editado !== null,
       recruitsRead: todosLosReclutas.length,
       recruitsWithBenchmark: todosLosReclutas.filter((r) => r.monthlyBenchmark !== null).length,
@@ -2414,8 +2859,34 @@ export function projectLoanOfficer(
   return { byMonth, stepsByStrategy };
 }
 
-/** La de un branch: la suma de sus Loan Officers. */
-export function projectBranch(branch: OutlookBranch, months: string[]): Record<string, number> {
+/**
+ * La de un branch: la suma de sus Loan Officers.
+ *
+ * ⚠ `applyBudgetOverrides` -- etapa OL26e. `true` (default) es LA VERDAD:
+ * "person_budget_total manda cuando existe, la regla cuando no", y es lo que
+ * tiene que ver la pantalla como total del branch (`page.tsx`) -- ahí es
+ * donde este número se compara contra la suma de las filas que SÍ aplican el
+ * mismo override (`loanOfficerRowsOf`), así que los dos tienen que coincidir.
+ *
+ * `false` es SÓLO para `strategyRowsOf`, que usa este total como el PESO a
+ * REPARTIR entre estrategias (`apportionByWeight`), no como un número a
+ * mostrar. Si ese reparto usara el total con overrides, el presupuesto fijo
+ * de UNA persona -- que no tiene por qué coincidir con su regla de
+ * crecimiento -- infla o desinfla la torta ENTERA, y `apportionByWeight`
+ * reparte la diferencia proporcionalmente entre TODAS las estrategias y
+ * personas, incluidas las que no tienen nada que ver. Verificado a mano: con
+ * Gian fijando 15 (su regla daba 10) y Galo sin tocar nada (regla 8), el
+ * reparto con el total contaminado subía a Galo de 8 a 10 y a B2B --una
+ * estrategia sin ninguna persona con presupuesto fijo-- de 6 a 7. "La regla
+ * queda como estaba para esa persona" exige que Galo y B2B no se muevan un
+ * número si nadie tocó el suyo.
+ */
+export function projectBranch(
+  branch: OutlookBranch,
+  months: string[],
+  opts?: { applyBudgetOverrides?: boolean }
+): Record<string, number> {
+  const applyBudgetOverrides = opts?.applyBudgetOverrides ?? true;
   const byMonth: Record<string, number> = {};
   for (const m of months) byMonth[m] = 0;
   for (const lo of branch.loanOfficers) {
@@ -2423,7 +2894,10 @@ export function projectBranch(branch: OutlookBranch, months: string[]): Record<s
        a su branch de roster, una sola vez. Ver `primaryBranch`. */
     if (lo.primaryBranch !== branch.branchCode) continue;
     const { byMonth: loMonths } = projectLoanOfficer(lo, months);
-    for (const m of months) byMonth[m] += loMonths[m] ?? 0;
+    for (const m of months) {
+      const regla = loMonths[m] ?? 0;
+      byMonth[m] += applyBudgetOverrides ? (lo.budgetTotal[m] ?? regla) : regla;
+    }
   }
   /*
    * ⚠ Y LAS ESTRATEGIAS QUE SON DEL BRANCH — etapa OL11.

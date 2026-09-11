@@ -178,17 +178,41 @@ export default function NodeLibrary({
         )}
       </div>
 
-      {grupos.length === 0 && <p className="bp-muted-line">No nodes in this area.</p>}
+      {grupos.length === 0 && <p className="bp-hint">No nodes in this area.</p>}
 
       {grupos.map((g) => (
         <section key={String(g.area)} className="bp-area-group">
-          <h2 className={'bp-area-group__head' + (g.area === null ? ' bp-area-group__head--none' : '')}>
-            {g.area ?? 'No area'}
-            <span className="bp-area-group__n">
+          {/*
+            ═════════════════════════════════════════════════════════════
+            EL ENCABEZADO DE ÁREA MANDA — etapa BP47
+            ═════════════════════════════════════════════════════════════
+
+            Era 12px en mayúsculas y `--slate-500`, o sea más chico y más pálido
+            que el nombre de los nodos que agrupa. Con 32 tarjetas en cinco
+            grupos, el separador desaparecía y la lista se leía como una sola.
+
+            Ahora es 15px en `--navy`, y el conteo va en píldora al lado.
+
+            ⚠ SIGUE EN MAYÚSCULAS POR CSS (`text-transform`), no en el texto: el
+            área se guarda como `Sales Coaching` y así se busca. Escribirla en
+            mayúsculas acá la volvería otra cadena -- y ya nos costó una vez leer
+            `innerText`, que aplica la transformación, y comparar contra el dato.
+
+            ⚠ Y `No area` CONSERVA EL ÁMBAR. Es lo que hace que alguien las
+            asigne, y son 7 de 32. En gris sería un grupo más.
+          */}
+          <h2 className={'bp-areahead' + (g.area === null ? ' bp-areahead--none' : '')}>
+            <span className="bp-areahead__name">{g.area ?? 'No area'}</span>
+            <span className="bp-areahead__n">
               {g.nodos.length} node{g.nodos.length === 1 ? '' : 's'}
             </span>
-            {g.area === null && <span className="bp-area-group__todo">assign an area to group them</span>}
           </h2>
+          {g.area === null && (
+            <p className="bp-hint bp-hint--warn">
+              These nodes are not grouped anywhere until someone picks an area for them. Click the
+              amber pill on a card to set it.
+            </p>
+          )}
 
           <div className="bp-node-list">
             {g.nodos.map((n) => {

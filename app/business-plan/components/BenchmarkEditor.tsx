@@ -1,10 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { getSupabaseClient } from '@/lib/supabase/client';
+import { fijarBenchmark } from '@/lib/business-plan/benchmark';
 import type { LoanOfficerRow } from '@/lib/business-plan/types';
 import Modal from './Modal';
-import { ProvisionalTag, PROVISIONAL_SET_BY, fmtAvg } from './shared';
+import { PROVISIONAL_SET_BY, fmtAvg } from './shared';
 
 /**
  * ============================================================================
@@ -43,29 +43,19 @@ export default function BenchmarkEditor({ lo, onSaved }: { lo: LoanOfficerRow; o
     setSaving(true);
     setError(null);
     try {
-      const supabase = getSupabaseClient();
-      const { data: userData } = await supabase.auth.getUser();
-      const email = userData.user?.email;
-      if (!email) throw new Error('No authenticated session.');
-
-      const { error: insertError } = await supabase.schema('org').from('employee_benchmark').insert({
-        employee_key: lo.employeeKey,
-        monthly_benchmark: parsed,
-        /*
-         * `effective_from` queda en el default de la base (hoy). Si ya existe
-         * una fila de hoy para esta persona, el INSERT choca con la clave
-         * primaria: es correcto, no hay dos benchmarks vigentes el mismo día.
-         */
-        set_by: email,
-        note: note.trim() === '' ? null : note.trim(),
-      });
-      if (insertError) {
-        throw new Error(
-          insertError.code === '23505'
-            ? 'This officer already has a benchmark set today. It takes effect from tomorrow onwards.'
-            : insertError.message
-        );
-      }
+      /*
+       * ⚠ EL `insert` SE MUDÓ A `lib/business-plan/benchmark.ts` — etapa RV3.
+       *
+       * Desde que el paso 2 de la revisión también fija el benchmark, hay dos
+       * pantallas escribiendo la misma tabla append-only. Dos `insert` con su
+       * propio criterio de autor y de error es la forma exacta en que se
+       * separan, así que hay uno.
+       *
+       * Y ahi se documenta lo que este archivo decía mal: el mensaje de
+       * «benchmark ya fijado hoy» describía una clave primaria que BP29 cambió.
+       */
+      const r = await fijarBenchmark(lo.employeeKey, parsed, note);
+      if (!r.ok) throw new Error(r.error ?? 'The benchmark was not saved.');
       setEditing(false);
       setNote('');
       onSaved();
@@ -111,7 +101,17 @@ export default function BenchmarkEditor({ lo, onSaved }: { lo: LoanOfficerRow; o
 
   return (
     <>
-      <div className="bp-stat__value bp-stat__value--small">
+      {/*
+        Etapa BP51: la marca de provisional ya no va acá -- se consolidó en
+        UNA sola, en la cabecera de `Q1Panel` (`Provisional data`). Repetirla
+        por renglón era una de las tres veces que se veía "provisional" en la
+        misma tarjeta. La condición sigue viviendo en `ProvisionalTag`; sólo
+        se dejó de llamarla desde acá.
+
+        Y "Edit" pasó de enlace de texto a botón real (`bp-btn`, no
+        `bp-linkish`) -- es una acción, no una navegación.
+      */}
+      <div className="bp-stat__value">
         {lo.monthlyBenchmark === null ? (
           <span className="bp-muted">—</span>
         ) : (
@@ -124,9 +124,8 @@ export default function BenchmarkEditor({ lo, onSaved }: { lo: LoanOfficerRow; o
             {fmtAvg(lo.monthlyBenchmark)}
           </button>
         )}
-        <ProvisionalTag setBy={lo.benchmarkSetBy} note={lo.benchmarkNote} />
-        <button type="button" className="bp-linkish bp-benchmark__edit" onClick={() => setEditing(true)}>
-          edit
+        <button type="button" className="bp-btn bp-btn--small bp-benchmark__edit" onClick={() => setEditing(true)}>
+          Edit
         </button>
       </div>
 

@@ -1,0 +1,719 @@
+'use client';
+
+import { useState } from 'react';
+import Modal from '@/app/business-plan/components/Modal';
+import type { BudgetBucket, OutlookData } from '@/lib/outlook/loadData';
+import {
+  cadenceLabel,
+  projectPlan,
+  type BenchmarkPoint,
+  type Cadence,
+  type GrowthSegment,
+} from '@/lib/outlook/project';
+import {
+  confirmPersonBudgetReviewed,
+  savePersonBudgetBreakdown,
+  savePersonBudgetTotal,
+  type PersonSubject,
+} from '@/lib/outlook/save';
+
+/**
+ * ============================================================================
+ * SET BUDGET — una sola pantalla (etapa OL26, corregida en OL26d)
+ * ============================================================================
+ *
+ * ⚠ EL MODELO ERA DOS CAMINOS QUE TERMINABAN EN PANTALLAS DISTINTAS. Hasta acá,
+ * la regla de crecimiento de Own Production (por mes o por tasa) se decidía en
+ * su propia sección, con su propio guardado -- `outlook.growth_rule` /
+ * `monthly_target` / `projection_mode` -- y el presupuesto compuesto (el
+ * total y su desglose, punto 5) vivía en OTRA sección, con OTRO guardado. Dos
+ * decisiones sobre el mismo número, en dos lugares.
+ *
+ * Ahora hay UN solo lugar donde el número vive: la fila `Own Production` de
+ * esta tabla. Los dos modos escriben ahí:
+ *
+ *   por mes    se escribe el número de cada mes directo en la fila.
+ *   por tasa   se elige el período (igual que antes: desde qué mes, cada
+ *              cuánto, qué porcentaje) y "Apply" calcula con `projectPlan` --
+ *              la MISMA función que arma la tabla del branch, no una copia --
+ *              y llena la fila con el resultado. De ahí en más son números
+ *              comunes: se pueden seguir ajustando a mano.
+ *
+ * ⚠ APLICAR UNA TASA NO GUARDA UNA REGLA. Es una calculadora: toma el
+ * benchmark ya guardado (`ownProductionRate.savedSchedule`, de
+ * `org.employee_benchmark` vía el Business Plan) y el período elegido, y
+ * escribe el resultado en la fila. Lo único que se guarda al final es la fila
+ * -- `outlook.person_budget_total` / `person_budget_breakdown` --, con el
+ * mismo botón que guarda todo lo demás. `outlook.growth_rule` deja de
+ * escribirse desde esta pantalla.
+ *
+ * ⚠ RECRUITMENT YA TIENE FILA -- agregado en OL26e (ver
+ * `docs/sql/2026-09-outlook-budget-recruitment-bucket.sql`). Sólo aparece para
+ * quien participa del programa (`person.buckets` lo decide en `page.tsx` con
+ * `participatesInRecruitment`); un realtor NPPM sigue sin poder tenerlo -- no
+ * participa del programa, y el CHECK de la base lo rechaza igual.
+ *
+ * ============================================================================
+ * GOBIERNO DE LA PROYECCIÓN — etapa OL26e
+ * ============================================================================
+ *
+ * Hasta OL26d, "Set budget" no tenía ningún efecto sobre la tabla del branch:
+ * el Total que se guardaba acá (`outlook.person_budget_total`) era puramente
+ * informativo, y la columna que se ve arriba seguía saliendo, siempre, del
+ * motor de siempre (`growth_rule`/`monthly_target`/`projection_mode`). Eso se
+ * reportó y la decisión, de Isabella, fue:
+ *
+ *   "person_budget_total manda cuando existe, la regla cuando no."
+ *
+ * Por persona y por MES: si hay un Total fijado para ese mes, ese número
+ * gobierna la proyección (`projectBranch` y `loanOfficerRowsOf`, en
+ * loadData.ts / strategyRows.ts); si no, sigue la regla de crecimiento de
+ * siempre, intacta -- las 190 reglas que ya existían no se descartan, siguen
+ * siendo el default de quien nadie tocó. Un Total parcial (p.ej. sólo
+ * enero-junio) no extrapola ni corta nada: julio-diciembre caen solos a la
+ * regla.
+ *
+ * Por eso esta pantalla ahora tiene que DECIRLO: para alguien que hoy proyecta
+ * por regla, guardar un Total acá no es "un ajuste más" -- es un cambio de
+ * gobierno para los meses que cubra. El aviso de abajo (`ol-editor__gov`)
+ * existe para que quien abre la pantalla lo vea antes de guardar, no
+ * después.
+ */
+
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const monthLabel = (ym: string) => MONTH_ABBR[Number(ym.split('-')[1]) - 1];
+const CADENCES: Cadence[] = ['monthly', 'quarterly', 'semiannual'];
+
+const BUCKET_LABEL: Record<BudgetBucket, string> = {
+  own_production: 'Own Production',
+  b2b: 'B2B',
+  nppm: 'NPPM',
+  recruitment: 'Recruitment',
+  business_plan: 'Business Plan',
+};
+
+function stamp(iso: string): string {
+  return String(iso).slice(0, 16).replace('T', ' ');
+}
+
+function fmtNum(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toFixed(2);
+}
+
+/**
+ * A quién pertenece este presupuesto, y qué buckets le aplican — confirmado
+ * con Isabella: los cuatro a un Loan Officer, sólo `own_production` y
+ * `business_plan` a un realtor NPPM. "Un realtor NPPM no tiene B2B ni NPPM
+ * propios -- su producción es lo que trae él, más lo que sume un plan si lo
+ * tiene."
+ */
+export interface BudgetEditable {
+  subject: PersonSubject;
+  label: string;
+  buckets: BudgetBucket[];
+  budgetTotal: Record<string, number>;
+  budgetTotalRevision: number;
+  budgetBreakdown: Partial<Record<BudgetBucket, Record<string, number>>>;
+  budgetBreakdownRevision: number;
+}
+
+/**
+ * Lo mínimo para calcular "qué produciría esta tasa" para Own Production:
+ * el benchmark guardado (la base sobre la que crece) y la regla vigente, sólo
+ * para prellenar la calculadora con lo último que se usó. `null` para un
+ * realtor NPPM, que no tiene benchmark de Own Production.
+ */
+export interface OwnProductionRate {
+  savedSchedule: BenchmarkPoint[];
+  savedSegments: GrowthSegment[];
+}
+
+export default function PersonBudgetEditor({
+  person,
+  ownProductionRate,
+  ruleProjection,
+  data,
+  months: mesesDelHorizonte,
+  onClose,
+  onSaved,
+}: {
+  person: BudgetEditable;
+  /** `null` para un realtor NPPM: no tiene regla de crecimiento que calcular. */
+  ownProductionRate: OwnProductionRate | null;
+  /**
+   * ============================================================================
+   * EL PUNTO DE PARTIDA — pedido urgente de Isabella
+   * ============================================================================
+   * Lo que la regla de crecimiento proyecta HOY para Own Production, mes a
+   * mes -- de `projectLoanOfficer` en `page.tsx`, la MISMA función que arma
+   * la tabla del branch, no una copia. `null` para un realtor NPPM: no
+   * proyecta por esta regla.
+   *
+   * Si el presupuesto de un mes viene de la regla (`monthsByRule`, más
+   * abajo), TODO se coloca en Own Production al abrir la pantalla -- es el
+   * punto de partida. Durante la revisión se mira y, si hace falta, se mueve
+   * parte a los otros planes.
+   */
+  ruleProjection: Record<string, number> | null;
+  data: OutlookData;
+  /** Los meses que la pantalla está mostrando, no `data.remainingMonths` a secas -- mismo motivo de siempre. */
+  months?: string[];
+  onClose: () => void;
+  onSaved: () => Promise<void> | void;
+}) {
+  const months = mesesDelHorizonte ?? data.remainingMonths;
+
+  /*
+   * ⚠ "HOY" ES `person.budgetTotal` TAL COMO LLEGÓ -- el aviso tiene que
+   * decir de qué fuente viene la proyección ANTES de que alguien toque un
+   * input, no recalcularse mientras escribe.
+   *
+   * ⚠ SÓLO PARA UN LOAN OFFICER -- etapa OL26e. La precedencia nueva
+   * ("person_budget_total manda cuando existe, la regla cuando no") se cableó
+   * en `projectBranch` y `loanOfficerRowsOf`, que sólo leen `OutlookLoanOfficer`.
+   * Un realtor NPPM proyecta distinto -- por su propio benchmark/promedio de 3
+   * meses (`avg3m`/`nppm_realtor_benchmark`), no por `growth_rule` -- y ESE
+   * mecanismo no se tocó en esta etapa. Mostrarle este aviso a un realtor
+   * afirmaría un cambio de gobierno que hoy no pasa: guardar su Total sigue
+   * siendo informativo para él, igual que antes de OL26e.
+   */
+  const monthsByRule =
+    person.subject.kind === 'employee' ? months.filter((m) => person.budgetTotal[m] === undefined) : [];
+  const monthsByBudget =
+    person.subject.kind === 'employee' ? months.filter((m) => person.budgetTotal[m] !== undefined) : [];
+
+  /*
+   * ============================================================================
+   * EL TOTAL YA NO SE ESCRIBE — pedido urgente de Isabella
+   * ============================================================================
+   * Deja de ser editable y pasa a ser LA SUMA del desglose, de sólo lectura:
+   * ya no puede haber diferencia entre los dos, porque son el mismo número
+   * mirado de dos formas. `initialBucketOf` es la única fuente de verdad del
+   * valor con el que abre cada celda -- se usa para el estado inicial Y para
+   * saber qué cambió, así que las dos lecturas no pueden divergir.
+   */
+  function initialBucketOf(b: BudgetBucket, m: string): number {
+    const existing = person.budgetBreakdown[b]?.[m];
+    if (existing !== undefined) return existing;
+    /* El punto de partida: ver la nota de `ruleProjection` más arriba. */
+    if (b === 'own_production' && person.budgetTotal[m] === undefined && ruleProjection?.[m] !== undefined) {
+      return ruleProjection[m];
+    }
+    return 0;
+  }
+  /* Vacío cuenta como "no tocado" y no como 0 -- ver `breakdownSumOf`. */
+  function initialStringOf(b: BudgetBucket, m: string): string {
+    const existing = person.budgetBreakdown[b]?.[m];
+    if (existing !== undefined) return String(existing);
+    if (b === 'own_production' && person.budgetTotal[m] === undefined && ruleProjection?.[m] !== undefined) {
+      return String(ruleProjection[m]);
+    }
+    return '';
+  }
+
+  const [breakdown, setBreakdown] = useState<Record<BudgetBucket, Record<string, string>>>(() =>
+    Object.fromEntries(
+      person.buckets.map((b) => [b, Object.fromEntries(months.map((m) => [m, initialStringOf(b, m)]))])
+    ) as Record<BudgetBucket, Record<string, string>>
+  );
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
+
+  /* La calculadora de tasa para Own Production -- cerrada por default: el modo
+     por mes (los números de la fila, tal cual) es lo que se ve al abrir. */
+  const [rateOpen, setRateOpen] = useState(false);
+  const [rateSegments, setRateSegments] = useState<GrowthSegment[]>(
+    ownProductionRate && ownProductionRate.savedSegments.length > 0
+      ? ownProductionRate.savedSegments
+      : [{ fromMonth: months[0] ?? data.currentMonth, cadence: 'quarterly', growthPct: 0 }]
+  );
+
+  function bucketOf(b: BudgetBucket, m: string): number {
+    const raw = breakdown[b]?.[m]?.trim();
+    return raw === '' || raw === undefined || !Number.isFinite(Number(raw)) ? 0 : Number(raw);
+  }
+  /**
+   * `null` = ningún bucket tiene un valor este mes -- no hay total que
+   * mostrar ni que guardar todavía, y no es lo mismo que un total en cero:
+   * un cero afirmaría que se espera cero producción, y acá lo que pasa es
+   * que nadie cargó nada.
+   */
+  function breakdownSumOf(m: string): number | null {
+    const tocado = person.buckets.some((b) => (breakdown[b]?.[m]?.trim() ?? '') !== '');
+    return tocado ? person.buckets.reduce((a, b) => a + bucketOf(b, m), 0) : null;
+  }
+
+  /**
+   * Calcula con `projectPlan` -- la MISMA función que arma la tabla del
+   * branch -- y escribe el resultado en la fila de Own Production. No guarda
+   * nada todavía: eso lo hace "Save budget", como el resto de la fila.
+   */
+  function applyRate() {
+    if (!ownProductionRate) return;
+    const steps = projectPlan(months, {
+      mode: 'growth',
+      benchmarks: ownProductionRate.savedSchedule,
+      segments: rateSegments,
+      targets: {},
+    });
+    setBreakdown((prev) => ({
+      ...prev,
+      own_production: Object.fromEntries(months.map((m, i) => [m, String(steps[i]?.value ?? 0)])),
+    }));
+    setRateOpen(false);
+  }
+  function patchSegment(i: number, change: Partial<GrowthSegment>) {
+    setRateSegments((prev) => prev.map((s, j) => (j === i ? { ...s, ...change } : s)));
+  }
+  function addSegment() {
+    const used = new Set(rateSegments.map((s) => s.fromMonth));
+    const free = months.find((m) => !used.has(m));
+    setRateSegments((prev) => [
+      ...prev,
+      { fromMonth: free ?? months[months.length - 1] ?? data.currentMonth, cadence: 'quarterly', growthPct: 0 },
+    ]);
+  }
+
+  /*
+   * ⚠ SÓLO `breakdownChanged` -- el total ya no es un estado propio, así que
+   * ya no hay un `totalsChanged` independiente que pueda divergir de éste.
+   * Comparado contra `initialBucketOf`, que es la MISMA fuente que usó el
+   * estado inicial (incluido el punto de partida prellenado) -- si comparara
+   * contra `person.budgetBreakdown` a secas, un mes prellenado por la regla
+   * se leería como "cambiado" apenas se abre la pantalla, sin que nadie haya
+   * tocado nada.
+   */
+  const breakdownChanged = person.buckets.some((b) => months.some((m) => bucketOf(b, m) !== initialBucketOf(b, m)));
+  /* Lo que el botón de guardar tenía que mirar y no miraba. Ver su nota. */
+  const nadaQueGuardar = !breakdownChanged;
+
+  /*
+   * Quién guardó la revisión vigente de cada tabla, para la línea al pie. Por
+   * código, no por nombre normalizado -- ver la nota de `PersonSubject` en
+   * save.ts.
+   */
+  const isMine = (r: { employee_key: number | null; nppm_realtor_code: string | null }) =>
+    person.subject.kind === 'employee'
+      ? r.employee_key === person.subject.employeeKey
+      : r.nppm_realtor_code === person.subject.realtorCode;
+  const lastTotalRow = data.history.personBudgetTotals
+    .filter((r) => isMine(r) && r.confirmed_only !== true && r.revision === person.budgetTotalRevision)
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+  const lastBreakdownRow = data.history.personBudgetBreakdowns
+    .filter((r) => isMine(r) && r.revision === person.budgetBreakdownRevision)
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+  /*
+   * Y la última confirmación, que no es una revisión vigente de nada -- por eso
+   * no sale de `budgetTotalRevision`, que las ignora. Va aparte en el pie: sin
+   * esto, revisar y aceptar no deja ninguna huella en la pantalla, y la única
+   * señal de que pasó sería el cartel del momento.
+   */
+  const lastConfirmationRow = data.history.personBudgetTotals
+    .filter((r) => isMine(r) && r.confirmed_only === true)
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    setSaved(null);
+    const done: string[] = [];
+    try {
+      /*
+       * ⚠ EL TOTAL Y EL DESGLOSE SE GUARDAN JUNTOS -- pedido urgente de
+       * Isabella. Ya no son dos ediciones independientes (`totalsChanged` /
+       * `breakdownChanged` por separado): el total es la suma del desglose,
+       * así que cambiar el desglose es la única forma de cambiar el total.
+       * El ORDEN se mantiene -- el total primero -- por el mismo motivo de
+       * siempre: si el desglose fallara después, el total ya escrito no se
+       * pierde.
+       */
+      if (breakdownChanged) {
+        const targets: Record<string, number> = {};
+        for (const m of months) {
+          const sum = breakdownSumOf(m);
+          if (sum !== null) targets[m] = sum;
+        }
+        if (Object.keys(targets).length > 0) {
+          const rev = await savePersonBudgetTotal({ subject: person.subject, targets, note: note.trim() === '' ? null : note.trim() });
+          done.push(`total revision ${rev}`);
+        }
+
+        const draft: Partial<Record<BudgetBucket, Record<string, number>>> = {};
+        for (const b of person.buckets) {
+          const byMonth: Record<string, number> = {};
+          for (const m of months) {
+            const raw = breakdown[b]?.[m]?.trim();
+            if (raw !== '' && raw !== undefined && Number.isFinite(Number(raw))) byMonth[m] = Number(raw);
+          }
+          if (Object.keys(byMonth).length > 0) draft[b] = byMonth;
+        }
+        if (Object.keys(draft).length > 0) {
+          const rev = await savePersonBudgetBreakdown({
+            subject: person.subject,
+            breakdown: draft,
+            note: note.trim() === '' ? null : note.trim(),
+          });
+          done.push(`breakdown revision ${rev}`);
+        }
+      }
+
+      /*
+       * ============================================================
+       * CONFIRMAR TAMBIÉN ESCRIBE — etapa RV15
+       * ============================================================
+       *
+       * Era la mitad que faltaba, y era la que bloqueaba: el botón ofrecía
+       * «Confirm as reviewed» y no escribía nada, así que la compuerta del
+       * paso 2.2 --que exige una fila de esta persona posterior al arranque
+       * de la sesión-- seguía cerrada. La persona confirmaba, no quedaba
+       * rastro, y el paso no avanzaba.
+       *
+       * La fila NO repite los números: es una revisión que no fija nada
+       * (`confirmed_only`, `total` nulo). El por qué está en
+       * `confirmPersonBudgetReviewed` -- resumido, escribir el número que hoy
+       * proyecta la regla sería un cambio de gobierno, y ninguna persona
+       * tiene hoy un número anterior que repetir.
+       */
+      if (nadaQueGuardar) {
+        const rev = await confirmPersonBudgetReviewed({
+          subject: person.subject,
+          months,
+          note: note.trim() === '' ? null : note.trim(),
+        });
+        done.push(`revision ${rev}`);
+      }
+
+      if (done.length === 0) {
+        /*
+         * ⚠ YA NO ES «no cambió nada»: con la confirmación de arriba, esta
+         * rama sólo se alcanza de UNA forma -- que alguien haya BORRADO todas
+         * las celdas del desglose, de todos los meses. Entonces
+         * `breakdownChanged` es cierto y no hay ningún mes con un total que
+         * calcular, y un total no se puede desfijar: el lector toma la
+         * revisión vigente entera, así que la única forma de soltar un mes es
+         * escribir una revisión que lo omita, y para eso tiene que quedar
+         * algún otro mes con número.
+         *
+         * Borrar ALGUNOS meses sí funciona --los que queden con número van a
+         * la revisión nueva y los borrados caen a la regla--; borrar TODOS no
+         * tiene fila que escribir. El mensaje lo dice en vez de mentir que
+         * nada cambió.
+         */
+        setSaved('Clearing every cell is not supported: a Total cannot be un-fixed, so nothing was recorded.');
+      } else {
+        await onSaved();
+        /* Confirmar y guardar son actos distintos, y el cartel los distingue:
+           «Saved» sobre un presupuesto que nadie cambió se lee como que algo
+           se movió. */
+        setSaved((nadaQueGuardar ? 'Confirmed as reviewed: ' : 'Saved: ') + done.join(' · ') + '.');
+        setNote('');
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      title={`${person.label} — Set budget`}
+      onClose={onClose}
+      footer={
+        <div className="ol-editor__row">
+          <div className="bp-form__field ol-editor__grow">
+            <label className="bp-form__label" htmlFor="ol-budget-note">
+              Why (optional)
+            </label>
+            <input
+              id="ol-budget-note"
+              type="text"
+              className="field"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+            />
+          </div>
+          {/*
+            ═══════════════════════════════════════════════════════════════
+            ⚠ EL BOTÓN NO SABÍA SI HABÍA ALGO QUE GUARDAR — OL26g, punto 3
+            ═══════════════════════════════════════════════════════════════
+
+            El síntoma: Isabella guarda, dice que guardó, y le vuelve a
+            aparecer el botón de guardar.
+
+            No estaba guardando dos veces, y el estado SÍ se refrescaba. Medido
+            en sus propias filas: la revisión 1 se escribió 12:50:59 con UN mes
+            y la 2 a las 12:51:53 con SEIS. Cincuenta y cuatro segundos y
+            contenido distinto -- dos guardados deliberados. Un doble guardado
+            del mismo clic habría dejado dos filas del mismo instante con el
+            mismo contenido.
+
+            Era esto: `disabled={busy}` y nada más. Terminado el guardado,
+            `busy` vuelve a `false`, el botón se habilita otra vez y sigue
+            diciendo «Save budget» -- justo al lado del cartel «Saved: …». Las
+            dos cosas juntas se leen como «guardó pero me lo vuelve a pedir».
+
+            `breakdownChanged` ya sabía la respuesta: después del `reload`
+            queda en `false`. Faltaba que el botón la mirara.
+
+            ═══════════════════════════════════════════════════════════════
+            ⚠ Y NO SE APAGA: GUARDAR SIN CAMBIOS ES UN ACTO — corrección
+            ═══════════════════════════════════════════════════════════════
+
+            La primera versión lo apagaba con «Nothing to save», y eso resolvía
+            el síntoma bloqueando la acción. Hay casos reales donde el
+            presupuesto está bien sin que nadie edite nada --gap On Target con
+            budget cumplido, o sin budget fijado y benchmark cumplido-- y en
+            esos casos guardar es el registro de que alguien lo miró y lo
+            aceptó. Un botón apagado le quita a la persona la única forma de
+            decirlo, y de paso deja la compuerta del paso 2.2 sin salida: ésa
+            exige una fila nueva.
+
+            Así que el botón queda SIEMPRE habilitado y lo que cambia es el
+            rótulo, porque son dos actos distintos:
+
+                con cambios   `Save budget`
+                sin cambios   `Confirm as reviewed`
+
+            El problema que reportó Isabella era el rótulo -- «Save budget»
+            reapareciendo al lado de «Saved: …» -- y se arregla nombrando el
+            acto, no apagando el control.
+
+            ⚠ ACLARACIÓN PARA QUIEN LEA ESTO DESDE OTRA RAMA: este `disabled`
+            NO depende de `gate_config` ni del gap. Es sólo `busy`, y el rótulo
+            sale de `breakdownChanged`. Nada de la rama del budget gap lo
+            afecta.
+
+            ⚠ Y «Save with a difference of N» YA NO EXISTE -- pedido urgente
+            posterior de Isabella. El total dejó de ser un campo propio y pasó
+            a ser LA SUMA del desglose (de sólo lectura, más abajo): ya no
+            puede haber diferencia entre los dos, porque son el mismo número.
+            La fila `Difference` se sacó con el mismo motivo.
+
+            ⚠ Y LA OTRA MITAD YA ESTÁ — etapa RV15. Faltaba, y era la que
+            bloqueaba: el rótulo nombraba el acto pero `save()` seguía
+            escribiendo sólo lo que cambió, así que confirmar no dejaba rastro
+            y la compuerta seguía cerrada. Ahora sin cambios escribe una
+            revisión que no fija nada (`confirmed_only`, `total` nulo) --
+            `confirmPersonBudgetReviewed`--, y eso abre la compuerta sin
+            mover ningún número.
+          */}
+          {/*
+            `data-ol-save` para poder medirlo sin depender del rótulo, que es
+            precisamente lo que cambia. La primera sonda seleccionaba el botón
+            con `/Save/` y dejó de encontrarlo al pasar a «Confirm as reviewed»:
+            tres aserciones en rojo por el ancla, no por el código. Mismo
+            idioma que `data-review-comment` y `data-bp-video-action`.
+          */}
+          <button
+            type="button"
+            data-ol-save=""
+            className="bp-btn bp-btn--small"
+            onClick={save}
+            disabled={busy}
+          >
+            {busy ? '…' : nadaQueGuardar ? 'Confirm as reviewed' : 'Save budget'}
+          </button>
+        </div>
+      }
+    >
+      <div className="ol-editor">
+        <h2 className="ol-editor__h">BUDGET COMPOSITION</h2>
+        <p className="ol-editor__hint">The total is the sum of the plans below — it is calculated, not typed.</p>
+
+        {monthsByRule.length > 0 && (
+          <p className="bp-notice bp-notice--warn ol-editor__gov">
+            ⚠{' '}
+            {monthsByBudget.length === 0
+              ? 'Every month here currently projects by growth rule.'
+              : `${monthsByRule.map(monthLabel).join(', ')} currently project by growth rule.`}{' '}
+            Saving a Total for a month replaces the rule for that month — it is a change of governance, not an
+            adjustment. Confirming as reviewed does not: it records who looked and when, and leaves the rule in
+            charge.
+          </p>
+        )}
+
+        {months.length === 0 ? (
+          <p className="ol-editor__hint">There is no month left to set this year.</p>
+        ) : (
+          <div className="tbl-scroll">
+            <table className="piv ol-editor__tbl">
+              <thead>
+                <tr className="mo-row">
+                  <th className="lbl"></th>
+                  {months.map((m) => (
+                    <th key={m} className="bp-center">
+                      {monthLabel(m)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {/*
+                  ⚠ DE SÓLO LECTURA -- pedido urgente de Isabella. El total
+                  deja de ser editable y pasa a ser la suma de las celdas del
+                  desglose: gris, para que se vea que es calculado y no un
+                  número que alguien tipeó. `breakdownSumOf` es `null` cuando
+                  ningún bucket tiene valor este mes -- vacío, no "0": un cero
+                  afirmaría que se espera cero producción.
+                */}
+                <tr className="metric ol-editor__total" style={{ fontWeight: 700 }}>
+                  <td className="lbl">Total</td>
+                  {months.map((m) => {
+                    const sum = breakdownSumOf(m);
+                    return (
+                      <td key={m} className="bp-center ol-editor__totalcell" title="Calculated: the sum of the plans below.">
+                        {sum === null ? <span className="bp-muted">—</span> : fmtNum(sum)}
+                      </td>
+                    );
+                  })}
+                </tr>
+                {person.buckets.map((b) => (
+                  <tr key={b} className="metric">
+                    <td className="lbl bp-muted">
+                      {BUCKET_LABEL[b]}
+                      {b === 'own_production' && ownProductionRate && (
+                        <button type="button" className="bp-linkish ol-editor__ratelink" onClick={() => setRateOpen((v) => !v)}>
+                          {rateOpen ? 'hide rate' : 'apply a rate'}
+                        </button>
+                      )}
+                    </td>
+                    {months.map((m) => (
+                      <td key={m} className="bp-center">
+                        <input
+                          type="number"
+                          step="1"
+                          min="0"
+                          className="field ol-editor__num"
+                          value={breakdown[b]?.[m] ?? ''}
+                          onChange={(e) =>
+                            setBreakdown((prev) => ({ ...prev, [b]: { ...prev[b], [m]: e.target.value } }))
+                          }
+                          aria-label={`${BUCKET_LABEL[b]} for ${monthLabel(m)}`}
+                        />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {rateOpen && ownProductionRate && (
+          <section className="ol-editor__rate">
+            <table className="piv ol-editor__tbl">
+              <thead>
+                <tr className="mo-row">
+                  <th className="lbl">From</th>
+                  <th className="lbl">Every</th>
+                  <th className="bp-center">Growth</th>
+                  <th className="lbl"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {rateSegments.map((seg, i) => (
+                  <tr key={i} className="metric">
+                    <td className="lbl">
+                      <select
+                        className="field ol-editor__sel"
+                        value={seg.fromMonth}
+                        onChange={(e) => patchSegment(i, { fromMonth: e.target.value })}
+                        aria-label="Month the segment starts in"
+                      >
+                        {months.map((m) => (
+                          <option key={m} value={m}>
+                            {monthLabel(m)} {m.split('-')[0]}
+                          </option>
+                        ))}
+                        {!months.includes(seg.fromMonth) && (
+                          <option value={seg.fromMonth}>{seg.fromMonth} (saved)</option>
+                        )}
+                      </select>
+                    </td>
+                    <td className="lbl">
+                      <select
+                        className="field ol-editor__sel"
+                        value={seg.cadence}
+                        onChange={(e) => patchSegment(i, { cadence: e.target.value as Cadence })}
+                        aria-label="Segment cadence"
+                      >
+                        {CADENCES.map((c) => (
+                          <option key={c} value={c}>
+                            {cadenceLabel(c)}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="bp-center">
+                      <input
+                        type="number"
+                        step="1"
+                        className="field ol-editor__num"
+                        value={String(seg.growthPct)}
+                        onChange={(e) => patchSegment(i, { growthPct: Number(e.target.value) })}
+                        aria-label="Segment growth percentage"
+                      />
+                      <span className="ol-editor__pct">%</span>
+                    </td>
+                    <td className="lbl">
+                      {rateSegments.length > 1 && (
+                        <button
+                          type="button"
+                          className="bp-linkish"
+                          onClick={() => setRateSegments((prev) => prev.filter((_, j) => j !== i))}
+                        >
+                          remove
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="ol-editor__row">
+              <button type="button" className="bp-linkish" onClick={addSegment} disabled={rateSegments.length >= months.length}>
+                + another segment
+              </button>
+              <button type="button" className="bp-btn bp-btn--small" onClick={applyRate}>
+                Apply to Own Production
+              </button>
+            </div>
+          </section>
+        )}
+
+        {(lastTotalRow || lastBreakdownRow) && (
+          <p className="ol-editor__hint">
+            {lastTotalRow && (
+              <>
+                Total set by <b>{lastTotalRow.set_by}</b> on {stamp(lastTotalRow.created_at)} (revision{' '}
+                {person.budgetTotalRevision}).
+              </>
+            )}
+            {lastTotalRow && lastBreakdownRow ? ' ' : ''}
+            {lastBreakdownRow && (
+              <>
+                Breakdown set by <b>{lastBreakdownRow.set_by}</b> on {stamp(lastBreakdownRow.created_at)} (revision{' '}
+                {person.budgetBreakdownRevision}).
+              </>
+            )}
+          </p>
+        )}
+        {!lastTotalRow && !lastBreakdownRow && (
+          <p className="ol-editor__hint">Nobody has set a composed budget for this person yet.</p>
+        )}
+        {lastConfirmationRow && (
+          <p className="ol-editor__hint">
+            Last reviewed as is by <b>{lastConfirmationRow.set_by}</b> on {stamp(lastConfirmationRow.created_at)} —
+            nothing was changed then.
+          </p>
+        )}
+
+        {error && <div className="bp-notice bp-notice--warn ol-editor__msg">{error}</div>}
+        {saved && !error && <div className="bp-notice ol-editor__msg">{saved}</div>}
+      </div>
+    </Modal>
+  );
+}

@@ -8288,3 +8288,289 @@ loan.opportunityOwner,`), sin lógica nueva.
 `components/layout/ServiceHubHeader.tsx` (merge de
 `fix/analytics-batch-2`); `app/pipeline/TabNextMonth.tsx` (fix aparte,
 commit `6ba4262`).
+
+## HALLAZGO PENDIENTE — la biblioteca del Business Plan no tiene dueño
+
+**Esto no es una etapa hecha: es un hallazgo anotado.** Salió al decidir quién
+podía cambiar el video de un funnel en BP48, y la decisión de esa etapa fue
+NO tocar permisos. Se escribe acá porque merece su propia etapa y porque un
+parche sobre una columna habría sido peor que nada.
+
+### Lo que hay, medido
+
+Cinco tablas de la biblioteca tienen **una sola policy `for all`** cuyo único
+requisito es `business_plan.has_access()`:
+
+| tabla | filas hoy | policy |
+|---|---|---|
+| `funnel` | 9 | `funnel_all` — ALL |
+| `funnel_node` | 64 | `funnel_node_all` — ALL |
+| `node` | 33 | `node_all` — ALL |
+| `node_milestone` | 108 | `node_milestone_all` — ALL |
+| `node_owner` | 80 | `node_owner_all` — ALL |
+
+Son **294 filas**, toda la biblioteca. Y `has_access()` no distingue roles: es
+`allowed_apps ? 'commercial_activity'`, el mismo permiso que abre Commercial
+Activity. Hoy lo tienen **19 personas** de 28 usuarios.
+
+O sea: cualquiera de esas 19 puede borrar, sin pasar por ninguna pantalla que
+lo ofrezca, cualquier funnel, nodo, step o responsable de la biblioteca. En
+`business_plan` no existe ningún claim de administrador.
+
+### Y las cascadas lo agrandan
+
+El único freno que hay es la FK `enrollment.funnel_key → funnel ON DELETE
+RESTRICT`: un funnel con enrolamientos no se puede borrar (hoy hay 9 activos).
+Los NODOS no tienen ese freno, y de un nodo cuelgan tres cascadas:
+
+```
+funnel_node.node_key    → node  ON DELETE CASCADE
+node_milestone.node_key → node  ON DELETE CASCADE
+node_owner.node_key     → node  ON DELETE CASCADE
+```
+
+Así que borrar **un** nodo lo saca de todos los funnels que lo usan y se lleva
+sus steps y sus responsables. El caso peor de hoy es `CRM, MMI & for Network
+effects` (nodo 52): está en **5 de los 9 funnels**, y borrarlo cambia esos
+cinco planes de plantilla en un solo `delete`. `Value Proposition Presentation`
+está en 4, con 4 steps y 3 responsables.
+
+Los planes YA activos se salvan por diseño --se copian, no referencian-- y
+`enrollment_node.source_node_key` es `ON DELETE SET NULL`: pierden el rastro a
+la plantilla pero no el contenido. El daño es sobre la biblioteca y sobre todo
+plan que se active después.
+
+### Por qué no se arregló en BP48
+
+Porque proteger sólo `funnel.video_url` habría dejado **una puerta con llave al
+lado de cuatro abiertas**, y eso es peor que ninguna: da confianza falsa. Quien
+no pudiera cambiar el video podría igual borrar el funnel entero.
+
+> Una restricción parcial sobre un recurso compartido no protege el recurso:
+> protege la ilusión de que está protegido.
+
+### Qué tendría que hacer la etapa que lo tome
+
+- Un claim de administrador de biblioteca --el molde existe: `review_admin` /
+  `review.can_assign()` en el módulo de revisión-- y una función
+  `business_plan.can_edit_library()`.
+- Y que gobierne **las cinco tablas**, no una columna. Separar lectura
+  (`has_access()`) de escritura (`can_edit_library()`), que hoy son la misma.
+- Decidir qué pasa con quien ya venía editando: hoy son 19 y el número real de
+  personas que administran la biblioteca es mucho menor. Hay que preguntarlo,
+  no deducirlo.
+
+### Cómo volver a medirlo
+
+```sql
+-- las policies de un solo `for all`
+select tablename, policyname, cmd, qual::text
+  from pg_policies where schemaname = 'business_plan' and cmd = 'ALL'
+ order by tablename;
+
+-- cuántos tienen la llave
+select count(*) from auth.users
+ where (raw_app_meta_data -> 'allowed_apps') ? 'commercial_activity';
+
+-- el nodo más reusado, que es el que más cuesta perder
+select n.node_key, n.name, count(distinct fn.funnel_key) as funnels
+  from business_plan.node n
+  join business_plan.funnel_node fn on fn.node_key = n.node_key
+ group by 1, 2 order by 3 desc limit 5;
+```
+
+## PENDIENTE — `feat/ol26-vista-outlook` espera un rebase, y qué hay que hacer después
+
+Siete de las ocho ramas entraron a `main` (última: `6803bad`). La octava, la
+vista de branch de Outlook, quedó afuera **a propósito**: su autora la va a
+rebasar sobre `main`, porque los bloques 5 a 8 del conflicto son 118 líneas
+reescritas por ella y deducirlos desde el diff es donde se pierde una decisión
+sin que nadie lo note.
+
+Esto queda escrito porque **ninguna de las cuatro cosas se ve en el diff**, y
+tres de ellas no las señala ninguna herramienta.
+
+**1. Los diez bloques de `app/outlook/branch/[code]/page.tsx`.** Eran dos
+cuando la rama de revisión todavía no estaba en `main`; pasaron a diez cuando
+entró. Los bloques 1, 2 y 4 son imports y un hook: mecánicos.
+
+**2. ⚠ El bloque 10 no es un conflicto de texto.** OL26 borró la región donde
+la rama de revisión monta `editingActivo` -- el editor que la máscara abre
+leyendo `rvOpen` / `rvLo` de la URL. Aceptar ese borrado **apaga el paso 2.2 de
+la revisión y no falla nada**: ni `tsc`, ni una aserción, ni la pantalla. Hay
+que re-cablearlo sobre el `PersonBudgetEditor` nuevo.
+
+**3. `StrategyEditor.tsx` se borra, y CON ÉL sus dos clases.**
+`.ol-editor__save` y `.ol-editor__savewhat` son de RV4 y hoy tienen consumidor
+en `main`: borrarlas antes deshace ese arreglo. Van en el mismo commit que
+borra el archivo -- ver «el reverso, que sólo aparece con dos ramas vivas» en
+`AGENTS.md`.
+
+El borrado del archivo en sí es aceptable: la lección de RV4 --que el botón no
+se lea como «guardar el comentario»-- sobrevive en el editor nuevo, que dice
+«Save budget» o «Save with a difference of N». Comprobado.
+
+**4. ⚠ Una fila de `review.step` queda mintiendo.** El paso 2.2 tiene
+`gate_config.open_editor = 'Own Production'`, que nombra una ESTRATEGIA. La
+cabecera de OL26 dice que hasta OL25 el editor se abría por estrategia y que
+ahora se abre **por persona**. El `target` --`.ol-editor`-- sigue existiendo,
+así que no falla: lo que desaparece es la forma de llegar. El SQL sale del
+modelo nuevo y no antes, cuando se sepa qué identifica a una persona ahí.
+
+Y el dato que lo vuelve tranquilo: **cero sesiones de revisión activas**, así
+que cambiar ese `gate_config` no corta ninguna revisión a mitad de camino.
+Volver a comprobarlo antes de tocarlo:
+
+```sql
+select count(*) from review.session where status = 'in_progress';
+```
+
+## PENDIENTE — dos huecos de la compuerta del presupuesto, y lo que OL26g le hace a los datos que ya están
+
+Salieron al arreglar la compuerta del paso 2.2, que esperaba en tablas donde
+ya nadie escribe. El arreglo entró; **estos tres quedan abiertos**, y los tres
+se miden sin tocar nada.
+
+### 1. `strategy_benchmark` es un brazo que no puede dispararse
+
+La compuerta acepta una fila nueva en cinco tablas. Una de las cinco no puede
+cumplirse para una persona: `outlook.strategy_benchmark` tiene **2 filas y
+ninguna con `employee_key`**. Está escrita como cobertura y no lo es. Se dejó
+porque la columna existe y mañana puede llenarse, pero no se cuenta.
+
+```sql
+select count(*) as filas, count(employee_key) as con_persona
+  from outlook.strategy_benchmark;
+-- medido: 2 y 0
+```
+
+### 2. ⚠ Un realtor NPPM no puede abrir la compuerta, y no por OL26
+
+El benchmark de un realtor vive en `outlook.nppm_benchmark`, que se llavea por
+`realtor_code` y **no tiene `employee_key` ni `branch_code`**. La compuerta
+filtra por la persona revisada, así que esa tabla no se puede acotar a ella.
+
+Es un hueco anterior a OL26, no lo introdujo el arreglo. Y **no se tapó a
+propósito**: sin un alcance, la compuerta se abriría con el benchmark de un
+realtor de otro branch, y una compuerta que se abre por el trabajo de otro es
+peor que una que se traba.
+
+La etapa que lo tome tiene que decidir el alcance primero --¿el branch de la
+persona? ¿los realtors que aparecen en su vista?-- y para eso hace falta una
+columna que hoy no está.
+
+### 3. ⚠ OL26g no es neutral para las filas que ya existen
+
+Cuando el total pase a ser DERIVADO --la suma del desglose-- cambia qué gobierna
+la proyección de meses que ya tienen datos. Hoy, medido en el código:
+
+```ts
+byMonth[m] += lo.budgetTotal[m] ?? regla;      // loadData.ts
+projected[m] = lo.budgetTotal[m] ?? (own + rec); // strategyRows.ts
+```
+
+O sea: **si hay total, gobierna; si no hay, gobierna la regla de crecimiento.**
+
+Y así están las 8 filas de `person_budget_total`, comparando cada total de la
+última revisión contra la suma de su propio desglose de la última revisión:
+
+| sujeto | mes | total | suma del desglose | qué pasa con OL26g |
+|---|---|---|---|---|
+| Aileen Perez (29) | 2026-10 … 2027-03, seis meses | 1.00 cada uno | 1.00 cada uno | **nada: coinciden** |
+| Aimmee buendia (30) | 2026-10 | 10.00 | 9.00 (3 buckets) | el total pasa de 10 a **9** |
+| Aimmee buendia (30) | 2026-11 | *no hay* | 6.00 | pasa a **estar** gobernado |
+| Aimmee buendia (30) | 2026-12 | *no hay* | 8.00 | pasa a **estar** gobernado |
+
+Las seis de Aileen son de su sesión de revisión y **no se borran**: coinciden
+con su desglose, así que el cambio de modelo no las toca.
+
+Los tres casos de Aimmee sí son decisiones:
+
+- el de 2026-10 es un total escrito a mano que **no cuadra con su propio
+  desglose**, y derivarlo lo cambia en silencio;
+- los de 2026-11 y 2026-12 son meses que **hoy los proyecta la regla**, porque
+  no tienen total. Derivar el total se lo saca a la regla y se lo da al
+  desglose. Eso no es limpiar datos: es cambiar un pronóstico.
+
+La consulta que lo vuelve a medir, para correrla antes de decidir:
+
+```sql
+with t as (
+  select employee_key, nppm_realtor_code, target_month, revision, total,
+         row_number() over (partition by employee_key, nppm_realtor_code,
+           target_month order by revision desc) as rn
+    from outlook.person_budget_total
+), b as (
+  select employee_key, nppm_realtor_code, target_month, revision, value,
+         dense_rank() over (partition by employee_key, nppm_realtor_code,
+           target_month order by revision desc) as dr
+    from outlook.person_budget_breakdown
+)
+select t.employee_key, to_char(t.target_month,'YYYY-MM') as mes,
+       t.total, sum(b.value) as suma
+  from t left join b
+    on t.employee_key = b.employee_key and t.target_month = b.target_month
+   and b.dr = 1
+ where t.rn = 1
+ group by 1, 2, 3
+ order by 1, 2;
+```
+
+### 4. Y la fila de «Difference» no se saca, se redefine
+
+Con el total derivado, la diferencia **entre el total y el desglose** es una
+identidad y no una comprobación: hay que sacarla, y mostrar un cero permanente
+sería peor que no mostrarla.
+
+Pero la diferencia **contra la proyección de la regla de crecimiento** sí es un
+dato real, y se queda sin dónde aparecer: un desglose que suma bastante menos
+que lo que la regla proyecta es exactamente lo que alguien querría ver. Es otra
+fila, con otro rótulo y otro origen, y **hay que definirla, no heredarla**.
+
+### 5. El borrado está decidido y ESPERA A UN PASO ABIERTO
+
+Isabella confirmó que los desgloses de hoy son pruebas y hay que borrarlos:
+`person_budget_total` y `person_budget_breakdown` a cero. Con eso desaparece
+la decisión del punto 3 -- sin datos bajo el modelo viejo, el total derivado no
+le cambia el pronóstico a nadie y la proyección vuelve a las 190 reglas de
+crecimiento.
+
+⚠ **Pero no se puede borrar todavía**, y el motivo es la compuerta que se acaba
+de arreglar: se abre porque hay filas de presupuesto posteriores al arranque de
+la sesión. La sesión 43 --Aileen Perez-- tiene respuesta para los pasos 1.1 a
+2.1 y **no para 2.2**, así que ese paso está ABIERTO. Borrar las filas ahora
+cierra la compuerta y la vuelve a trabar.
+
+La condición se comprueba sin preguntarle a nadie, y por eso queda escrita:
+
+```sql
+-- 0 = el paso sigue abierto, NO borrar. 1 = contestado, se puede borrar.
+select count(*) from review.response
+ where session_key = 43 and phase_no = 2 and step_in_phase = 2;
+
+-- o, en general, que no quede ninguna sesión abierta apoyada en esas filas
+select s.session_key, s.lo_employee_key, s.current_phase, s.current_step_in_phase
+  from review.session s
+ where s.status = 'in_progress';
+```
+
+Y después del borrado hay que medir dos cosas, no una:
+
+```sql
+-- 1. las dos tablas en cero
+select (select count(*) from outlook.person_budget_total) as totales,
+       (select count(*) from outlook.person_budget_breakdown) as desgloses;
+
+-- 2. y que la proyección no se haya movido: sin totales, `budgetTotal[m] ??
+--    regla` cae SIEMPRE en la regla, así que tiene que quedar idéntica a la
+--    de las reglas de crecimiento. Se compara contra una captura tomada ANTES
+--    del borrado, no contra el recuerdo de lo que mostraba.
+select count(*) as reglas from outlook.growth_rule;   -- medido: 190
+```
+
+⚠ La captura de la proyección se toma **antes** de borrar. Comparar contra lo
+que uno se acuerda que mostraba la pantalla no es una comparación.
+
+Y la recomendación que además vuelve inocuo el borrado: **un desglose sin total
+sigue gobernado por la regla**, mismo criterio que «lo que ya pasó no se
+recalcula». Si se adopta, los dos meses de Aimmee dejan de ser una decisión.
