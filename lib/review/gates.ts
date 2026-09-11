@@ -94,7 +94,24 @@ export function requiredClicks(step: ReviewStep): string[] {
   return raw.filter((x): x is string => typeof x === 'string');
 }
 
-/** El link que el paso ofrece abrir, o `null`. Hoy sólo MMI, en el paso 2. */
+/**
+ * El link que el paso ofrece abrir, o `null`. Era `gate_config.mmi_link`.
+ *
+ * ⚠ SIN LECTORES DESDE RV21, y por eso está marcada en vez de borrada: el
+ * `Open MMI` del paso 1.2 pasó a usar el perfil de MMI de LA PERSONA
+ * --`https://new.mmi.run/nmls/<nmls efectivo>`, la regla de BP50-- porque el
+ * genérico abría MMI y no a quien se está revisando.
+ *
+ * Y no quedó como respaldo a propósito: con `linkMmiDelLo ?? gateLink(paso)`,
+ * la única persona sin NMLS era justo la que recibía el link genérico, o sea lo
+ * contrario de «sin NMLS no hay link».
+ *
+ * ⚠ ESTA SE VA CON EL DATO: a diferencia de `allowsSecondFunnel`
+ * --donde `allow_second` sigue significando algo y espera a BP39--, `mmi_link`
+ * ya no puede significar nada útil: un link igual para todos en una pantalla
+ * que revisa a una persona. El SQL de RV21 lo saca de `gate_config`, y cuando
+ * eso esté aplicado, esta función se borra.
+ */
 export function gateLink(step: ReviewStep): string | null {
   const raw = step.gate_config?.mmi_link;
   return typeof raw === 'string' && raw.trim() !== '' ? raw : null;
@@ -277,13 +294,26 @@ export function promptDeLaRama(step: ReviewStep, rama: 'catalogo' | 'declinado')
 /**
  * `true` si el paso permite dejar activo un segundo funnel.
  *
- * Hoy `false` en el guion, y es la mitad (b) de la fase 3 que espera a BP39: la
- * opción se dibuja deshabilitada diciendo por qué. Habilitarla es un UPDATE de
- * una fila, no un despliegue.
+ * Hoy `false` en el guion, y es la mitad (b) de la fase 3 que espera a BP39.
+ * Habilitarla es un UPDATE de una fila, no un despliegue.
  *
  * ⚠ La ausencia de la clave se lee como `false`, no como `true`: dejar dos
  * planes activos hoy rompería la pantalla del plan, que toma `data[0]` de una
  * consulta sin `order by`. El lado seguro de fallar es el restrictivo.
+ *
+ * ⚠ Y HOY NO LA LLAMA NADIE — etapa RV21, y queda dicho en vez de borrarla.
+ *
+ * Su único consumidor era el párrafo de cuatro renglones del paso 3.1, que
+ * explicaba por qué no se puede un segundo plan; ese texto salió de la vista
+ * (el criterio de siempre: si necesita tres renglones, no va en la pantalla).
+ * El panel nunca ofreció un control para elegir un segundo funnel, así que
+ * quitar el párrafo no habilitó nada.
+ *
+ * Se conserva porque `allow_second` SIGUE EN EL DATO y sigue significando lo
+ * mismo: el día que la fase 3 ofrezca la opción, ésta es la lectura correcta —
+ * con la ausencia leída como `false`, que es la parte que cuesta redescubrir.
+ * Es el mismo caso que `stepArrows` desde RV16: sin datos no es lo mismo que
+ * sin uso.
  */
 export function allowsSecondFunnel(step: ReviewStep): boolean {
   return step.gate_config?.allow_second === true;
