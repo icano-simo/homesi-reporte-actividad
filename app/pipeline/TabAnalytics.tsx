@@ -41,7 +41,7 @@ import {
   type MonthlyTypeBreakdown,
 } from '@/lib/pipeline/trends';
 import { buildStrategyMix, type StrategyMixRow } from '@/lib/pipeline/strategyMix';
-import { classifyStrategy, hasStrategyData, type Strategy } from '@/lib/pipeline/strategy';
+import { classifyStrategy, hasStrategyData, STRATEGY_ORDER, type Strategy } from '@/lib/pipeline/strategy';
 import { US_MAP_VIEWBOX, US_STATE_PATHS } from '@/lib/pipeline/usStatesSvgPaths';
 import { getForecastDb, isSupabaseConfigured } from '@/lib/supabase/client';
 import PeriodSelector from './PeriodSelector';
@@ -2167,6 +2167,14 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
    */
   const [selectedBranch, setSelectedBranch] = useState<string>('ALL');
   const [selectedChannel, setSelectedChannel] = useState<'ALL' | ResolvedLoan['channel']>('ALL');
+  /**
+   * Etapa ANALYTICS-MAP-STRATEGY-1: filtro LOCAL al mapa "Subject Property
+   * State" únicamente -- a diferencia de selectedBranch/selectedChannel de
+   * arriba, no afecta ningún otro ranking/scorecard de la pestaña. Mismo
+   * patrón de clasificación que ya usa el drill-down del donut de Strategy
+   * Mix (classifyStrategy(l) === estrategia, ver más abajo).
+   */
+  const [mapStrategyFilter, setMapStrategyFilter] = useState<'ALL' | Strategy>('ALL');
   const filteredLoans = resolvedLoans
     .filter((l) => selectedBranch === 'ALL' || l.branch === selectedBranch)
     .filter((l) => selectedChannel === 'ALL' || l.channel === selectedChannel);
@@ -2296,7 +2304,18 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
   const fundedInRange = fundedLoansInRange(filteredLoans, range);
   const programRanking = buildLoanProgramRanking(fundedInRange);
   const typeRanking = buildLoanTypeRanking(fundedInRange);
-  const propertyStateRanking = buildPropertyStateRanking(fundedInRange);
+  /**
+   * Etapa ANALYTICS-MAP-STRATEGY-1: mismo patrón que el drill-down del
+   * donut de Strategy Mix (classifyStrategy(l) === estrategia, más abajo en
+   * este archivo) -- "All strategies" (`mapStrategyFilter === 'ALL'`) es
+   * exactamente `fundedInRange` sin filtrar, comportamiento idéntico al de
+   * antes de este cambio. Filtra ANTES de construir el ranking -- el mapa
+   * (`blendSkyToNavy`/leyenda) recibe el set ya filtrado, sin saber que
+   * existe un filtro de estrategia.
+   */
+  const propertyStateLoans =
+    mapStrategyFilter === 'ALL' ? fundedInRange : fundedInRange.filter((l) => classifyStrategy(l) === mapStrategyFilter);
+  const propertyStateRanking = buildPropertyStateRanking(propertyStateLoans);
 
   const branchScorecard = buildBranchScorecard(filterToForecastBranches(fundedInRange), orgRoster.knownBranchCodes);
   const loanOfficerScorecard = buildLoanOfficerScorecard(
@@ -2771,6 +2790,27 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
           <div className="tbl-card us-map-fade-in" style={{ padding: '16px', gridColumn: '1 / -1' }}>
             <div className="tbl-card__head">
               <span className="tbl-card__title">Subject Property State</span>
+              {/*
+                Etapa ANALYTICS-MAP-STRATEGY-1: mismo estilo visual que el
+                selector de Channel del header de Analytics (control-group +
+                label-chip + select.field) -- filtro LOCAL a este mapa, no
+                comparte estado con selectedBranch/selectedChannel.
+              */}
+              <div className="control-group">
+                <span className="label-chip">Strategy</span>
+                <select
+                  className="field"
+                  value={mapStrategyFilter}
+                  onChange={(e) => setMapStrategyFilter(e.target.value as 'ALL' | Strategy)}
+                >
+                  <option value="ALL">All strategies</option>
+                  {STRATEGY_ORDER.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
             <PropertyStateMap
               rows={propertyStateRanking}
@@ -2778,7 +2818,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
                 setDrillDown({
                   metric: 'Subject Property State',
                   context: row.label,
-                  loans: fundedInRange
+                  loans: propertyStateLoans
                     .filter((l) => (l.propertyState.trim() || NO_PROPERTY_STATE_LABEL) === row.label)
                     .map(closedLoanToModalLoan),
                   hiddenColumns: ['propertyState', 'milestone', 'status'],
