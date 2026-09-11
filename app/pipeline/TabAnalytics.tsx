@@ -35,7 +35,6 @@ import {
   avgTicketByMonth,
   buildMonthlyTotals,
   buildMonthlyTypeBreakdown,
-  currentYear,
   type MonthlyAvgTicket,
   type MonthlyTotal,
   type MonthlyTypeBreakdown,
@@ -2410,17 +2409,20 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
       : null;
 
   /*
-   * Etapa F7, Parte 3: las tendencias son SIEMPRE del año en curso (UTC),
-   * independiente del año que tenga seleccionado el período de arriba --
-   * `filteredLoans` acá es el array completo YA filtrado por branch y
-   * channel (sin filtrar por `fundedLoansInRange`, que solo cubre el período
-   * elegido) porque la serie necesita los 12 meses del año, no solo el
-   * período seleccionado. Etapa AJUSTES-ANALYTICS-1, punto 5: antes decía
-   * `resolvedLoans` acá -- sin este cambio, Monthly Trends habría quedado
-   * sordo al filtro de Branch mientras el resto de la pestaña sí lo
-   * respetaba.
+   * Etapa ANALYTICS-YEAR-SELECTOR: las tendencias usan el AÑO DEL PERÍODO
+   * seleccionado arriba (`period.year`, mismo campo en los 3 modos --
+   * Month/Quarter/YTD, ver lib/pipeline/period.ts), ya no el año del
+   * sistema fijo -- antes usaba `currentYear()` (businessToday().year)
+   * sin mirar el período, así que un período de un año pasado igual
+   * mostraba las 12 barras del año en curso. `filteredLoans` acá es el
+   * array completo YA filtrado por branch y channel (sin filtrar por
+   * `fundedLoansInRange`, que solo cubre el período elegido) porque la
+   * serie necesita los 12 meses del año, no solo el período seleccionado.
+   * Etapa AJUSTES-ANALYTICS-1, punto 5: antes decía `resolvedLoans` acá --
+   * sin ese cambio, Monthly Trends habría quedado sordo al filtro de
+   * Branch mientras el resto de la pestaña sí lo respetaba.
    */
-  const trendsYear = currentYear();
+  const trendsYear = period.year;
   const monthlyTotals = buildMonthlyTotals(filteredLoans, trendsYear);
   const monthlyTypeBreakdown = buildMonthlyTypeBreakdown(filteredLoans, trendsYear);
   const highlightMonths = new Set(periodMonths(period).filter((m) => m.startsWith(String(trendsYear) + '-')));
