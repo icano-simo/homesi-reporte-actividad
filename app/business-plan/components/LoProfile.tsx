@@ -43,7 +43,8 @@
  */
 
 import { useEffect, useState } from 'react';
-import { CalendarIcon, CloseIcon, TargetIcon } from '@/components/ui/icons';
+import Modal from './Modal';
+import { CloseIcon, TargetIcon } from '@/components/ui/icons';
 import {
   ESTADO_VALIDO,
   PERFIL_VACIO,
@@ -173,89 +174,112 @@ export default function LoProfile({
                 ' on ' +
                 (fila.updated_at ?? fila.created_at).slice(0, 10)}
         </span>
+        {/* El rótulo dice qué va a pasar: se abre una ventana, no se despliega
+            una sección. Y con perfil vacío invita a llenarlo. */}
         <button
           type="button"
           className="bp-cv__toggle"
           data-bp-cv-toggle=""
-          aria-expanded={abierto}
-          onClick={() => setAbierto((a) => !a)}
+          aria-haspopup="dialog"
+          onClick={() => setAbierto(true)}
         >
-          {abierto ? 'Close' : fila === null ? 'Fill it in' : 'Edit'}
+          {fila === null ? 'Fill it in' : 'Open profile'}
         </button>
       </div>
 
       {/*
-        CERRADO MUESTRA LO QUE HAY, no un formulario: la pantalla es un CV, y un
-        CV se lee. Los campos vacíos no se dibujan -- una grilla de «—» no dice
-        nada y ocupa lo mismo que los datos.
+        ⚠ AFUERA, SÓLO LO QUE APORTA DE UN VISTAZO — corrección de BP50.
+
+        El NMLS con su link y los estados donde opera. Nada más: los otros
+        cinco campos son para leer cuando alguien va a hablar de ellos, y en la
+        pantalla competían con el veredicto y la tarjeta de métricas.
+
+        Los vacíos no se dibujan --una grilla de «—» ocupa lo mismo que los
+        datos y no dice nada-- y con los tres estados de la carga: mientras no
+        se leyó, no se afirma nada.
       */}
-      {!abierto && fila !== undefined && (
-        <dl className="bp-cv__grid">
+      {fila !== undefined && (
+        <p className="bp-cv__resumen">
+          {nmls !== null ? (
+            <span className="bp-cv__dato">
+              <span className="bp-cv__rot">NMLS</span> {nmls}
+              {mmi !== null && (
+                <>
+                  {' '}
+                  <a href={mmi} target="_blank" rel="noreferrer">
+                    MMI
+                  </a>
+                </>
+              )}
+              {!heredado && <span className="bp-cv__tag">edited here</span>}
+            </span>
+          ) : (
+            <span className="bp-cv__dato bp-muted">
+              <span className="bp-cv__rot">NMLS</span> not on record
+            </span>
+          )}
           {estados.length > 0 && (
-            <div className="bp-cv__pair">
-              <dt>Operates in</dt>
-              <dd>{estados.join(' · ')}</dd>
-            </div>
-          )}
-          {nmls !== null && (
-            <div className="bp-cv__pair">
-              <dt>NMLS</dt>
-              <dd>
-                {nmls}
-                {mmi !== null && (
-                  <>
-                    {' '}
-                    <a href={mmi} target="_blank" rel="noreferrer">
-                      MMI
-                    </a>
-                  </>
-                )}
-                {!heredado && <span className="bp-cv__tag">edited here</span>}
-              </dd>
-            </div>
-          )}
-          {borrador.licenses !== null && (
-            <div className="bp-cv__pair">
-              <dt>Licenses</dt>
-              <dd>{borrador.licenses}</dd>
-            </div>
-          )}
-          {borrador.lead_source !== null && (
-            <div className="bp-cv__pair">
-              <dt>Main lead source</dt>
-              <dd>{borrador.lead_source}</dd>
-            </div>
-          )}
-          {borrador.schedule !== null && (
-            <div className="bp-cv__pair">
-              <dt>Schedule</dt>
-              <dd>{SCHEDULE_LABEL[borrador.schedule]}</dd>
-            </div>
-          )}
-          {borrador.started_on !== null && (
-            <div className="bp-cv__pair">
-              <dt>Started</dt>
-              <dd>
-                <CalendarIcon size={12} /> {borrador.started_on}
-              </dd>
-            </div>
-          )}
-          {borrador.interests !== null && (
-            <div className="bp-cv__pair bp-cv__pair--wide">
-              <dt>Interests</dt>
-              <dd>{borrador.interests}</dd>
-            </div>
+            <span className="bp-cv__dato">
+              <span className="bp-cv__rot">Operates in</span> {estados.join(' · ')}
+            </span>
           )}
           {fila === null && (
-            <p className="bp-muted-line">
-              Nothing on record yet — states, licenses, lead source, schedule, start date and
-              interests are filled in here.
-            </p>
+            <span className="bp-cv__dato bp-muted">
+              nothing else on record — licenses, lead source, schedule, start date and interests go
+              inside
+            </span>
           )}
-        </dl>
+        </p>
       )}
 
+      {/*
+        ══════════════════════════════════════════════════════════════════════
+        EL FORMULARIO VA EN UN MODAL — corrección de BP50, etapa RV20
+        ══════════════════════════════════════════════════════════════════════
+
+        Los siete campos en la pantalla eran demasiada información compitiendo
+        con el veredicto, la tarjeta de métricas y el gráfico. Ahora afuera queda
+        el mínimo --el NMLS con su link y los estados-- y el resto se abre.
+
+        ⚠ SE REUSA `Modal` CON SU `footer`, que es el mismo camino que usó el
+        editor del presupuesto: el pie es HERMANO del cuerpo en un flex column,
+        así que el botón de guardar queda siempre visible sin ningún `sticky`
+        --y sin crear un segundo scrollport, que es el defecto que ese patrón
+        vino a evitar--.
+
+        ⚠ Y CON EL MODAL ABIERTO LA TARJETA DEL COACH QUEDA INOPERABLE: el
+        backdrop está en `z-index: 130` contra el 122 del panel (corrección de
+        OL26g, para que el modal gane). Es coherente --un `aria-modal` es lo
+        único con lo que se interactúa mientras dura-- y pasa igual con el
+        editor del presupuesto en el 2.2. Lo que hay que garantizar es que
+        cerrar el modal devuelva el control, y eso se mide.
+      */}
       {abierto && (
+        <Modal
+          title={'LO profile — ' + fullName}
+          onClose={() => setAbierto(false)}
+          footer={
+            <div className="bp-cv__actions">
+              <button
+                type="button"
+                className="bp-btn bp-btn--primary bp-btn--small"
+                data-bp-cv-save=""
+                disabled={guardando}
+                onClick={guardar}
+              >
+                {guardando ? 'Saving…' : 'Save profile'}
+              </button>
+              <button
+                type="button"
+                className="bp-btn bp-btn--small"
+                onClick={() => setAbierto(false)}
+              >
+                Close
+              </button>
+              {guardado && <span className="bp-cv__meta">Saved.</span>}
+            </div>
+          }
+        >
         <div className="bp-cv__form">
           {/* ── Estados ─────────────────────────────────────────────────── */}
           <div className="bp-form__field bp-cv__field--wide">
@@ -392,8 +416,11 @@ export default function LoProfile({
               }
             >
               <option value="">Not set</option>
-              <option value="full_time">Full time</option>
-              <option value="part_time">Part time</option>
+              {/* Los rótulos salen del mapa y no escritos acá: con el resumen
+                  de afuera reducido, este select quedó como su único lector, y
+                  duplicarlos sería tener dos verdades sobre el mismo valor. */}
+              <option value="full_time">{SCHEDULE_LABEL.full_time}</option>
+              <option value="part_time">{SCHEDULE_LABEL.part_time}</option>
             </select>
           </div>
 
@@ -428,22 +455,8 @@ export default function LoProfile({
 
           {error !== null && <p className="bp-notice bp-notice--warn">{error}</p>}
           {guardado && <p className="bp-notice">Saved.</p>}
-
-          <div className="bp-cv__actions">
-            <button
-              type="button"
-              className="bp-btn bp-btn--primary bp-btn--small"
-              data-bp-cv-save=""
-              disabled={guardando}
-              onClick={guardar}
-            >
-              {guardando ? 'Saving…' : 'Save profile'}
-            </button>
-            <button type="button" className="bp-btn bp-btn--small" onClick={() => setAbierto(false)}>
-              Close
-            </button>
-          </div>
         </div>
+        </Modal>
       )}
     </section>
   );
