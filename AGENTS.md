@@ -1959,3 +1959,109 @@ esa letra chica y dejar que Isabella lo descubriera en pantalla.
   inferir el acceso de una lista de personas autorizadas.** Es lo que faltó
   en BP49b y lo que contestó esta vez -- con la salvedad de arriba, sobre qué
   SÍ y qué NO contesta.
+
+# Una línea base envejece, y un invariante no
+
+> Sección aparte de la tabla de las siete: aquellas son mediciones MAL HECHAS.
+> Ésta estaba bien hecha y dejó de valer sola, porque **el dato se movió abajo**.
+> Es un mecanismo distinto y por eso no se mete ahí.
+
+## La regla
+
+**Cuando el dato puede cambiar entre la medición de antes y la de después, la
+salida no es una línea base más fresca: es una propiedad que no dependa del
+dato.**
+
+Refrescar la línea base sólo mueve la ventana. La próxima corrida vuelve a tener
+el mismo problema, y peor, porque ya se creyó una vez.
+
+## El caso que la fija (OL27)
+
+La etapa cambiaba de dónde sale el presupuesto del branch, y el criterio de
+aceptación era «los totales de los 14 branches no se mueven». Se midieron antes,
+se hizo el cambio, se midieron después: **el 710 pasó de 36 a 40.**
+
+No era el código. `outlook.budget_total` tenía filas de diez personas escritas
+ESE DÍA entre las 16:24 y las 16:37 -- Isabella fijando presupuestos mientras la
+etapa se escribía. La línea base era de la mañana.
+
+> **Una línea base de hace horas no distingue «lo rompí» de «cambió el dato».**
+
+Lo que reemplazó a la comparación fue el invariante que el módulo ya tenía y que
+nadie estaba verificando: **la tabla del branch y la lista de Outlook tienen que
+decir el mismo número, mes a mes.** Llegan por caminos distintos --una suma las
+filas que dibuja, la otra proyecta el branch entero-- así que coincidir no es
+gratis. Y no envejece: vale con los datos de hoy y con los de mañana.
+
+## Y lo que lo prueba no es el argumento, es el resultado
+
+El invariante **encontró un defecto real que la comparación contra línea base no
+habría visto**: AFFINITY mostraba `0 0 0` en la fila nueva donde la lista deja la
+celda vacía. Los dos números pasaban la prueba vieja --el total no se había
+movido-- y sin embargo las dos pantallas decían cosas distintas del mismo
+branch. La falsa era la de la tabla: `0` afirma «no se va a cerrar nada» cuando
+lo que pasa es que **nadie decidió todavía**, y habría roto la distinción que
+`fmt` sostiene en todo el módulo justo en el branch que la etapa venía a
+arreglar.
+
+## La excepción declarada, que es la otra mitad
+
+En ese mismo branch quedó una discrepancia `vacío`/`0` **pre-existente** --el
+total de AFFINITY, de la fila de Affinity de OL26c-- y no se arregló de paso:
+cambia un número en pantalla y no era lo que la etapa pedía. Lo que sí se hizo
+fue que la sonda la **afirme**:
+
+```
+a.ck(JSON.stringify(discrepan) === JSON.stringify(['AFFINITY']),
+  'la única discrepancia vacío/cero es AFFINITY, y ya estaba antes de esta etapa');
+```
+
+> **Una excepción declarada no se confunde con un fallo.** Si mañana aparece en
+> otro branch, la sonda se pone roja; si desaparece en AFFINITY, también.
+
+Tolerarla con un `filter` o un umbral habría dejado la misma pantalla y ninguna
+forma de enterarse.
+
+# «Exactamente uno» escrito de tres maneras que dicen otra cosa
+
+> Tercera vez de la misma forma, en tres lugares que no se parecen: una
+> aserción, un CHECK de SQL y una condición de fila. Por eso va como sección: lo
+> que se repite no es el lenguaje, es la intención mal escrita.
+
+## La regla
+
+**Cuando la intención es «exactamente uno de estos», escribirlo contando.** No
+encadenando comparaciones, no con un `or`, no apoyándose en que los otros casos
+no existan.
+
+## Los tres casos
+
+**1. El `||` en una aserción.** `!a.includes(b) || a.length === 3`: el segundo
+término siempre era cierto, así que la aserción no podía fallar. Pasó **dos
+veces**, las dos escribiendo la prueba de otra cosa. Está arriba, en la sección
+de las guardas: *un OR en una aserción es una pregunta sin contestar; se
+contesta armando el estado, no ampliando la condición*.
+
+**2. El XOR encadenado en un CHECK.** Con dos sujetos,
+`(a is not null) <> (b is not null)` dice «exactamente uno» y está bien. Con
+tres, `a <> b <> c` es **asociativo**: `true <> true <> true` da `true`, así que
+el CHECK dejaría entrar una fila con los tres sujetos puestos. La forma que sí
+dice lo que se quiere es `num_nonnulls(a, b, c) = 1`. Encontrado ESCRIBIENDO la
+migración de OL27, no después.
+
+**3. El `is null` que cambia de alcance cuando aparece un tercer caso.**
+`nppm_realtor_code is null or bucket in ('own_production', 'business_plan')`
+significaba «el realtor sólo tiene dos buckets» mientras los sujetos eran dos.
+Con un sujeto nuevo, ese `is null` pasa a ser verdadero también para el branch:
+**la condición no cambia de texto pero sí de alcance**. Acá el resultado era el
+deseado --un branch admite los cuatro buckets-- y por eso importa más: una
+condición que acierta por accidente se lee como una que decidió.
+
+## Qué hacer
+
+- Al agregar un caso a un conjunto que una condición discrimina, **releer la
+  condición con el caso nuevo puesto**, no sólo con los viejos. Es la misma
+  pregunta que hace la sección del `mmi_link`: qué decía la ausencia, y qué dice
+  ahora que hay un tercero.
+- Y si el resultado sigue siendo el correcto, **escribirlo igual**. Lo que se
+  deja implícito no lo hereda quien lee después.
