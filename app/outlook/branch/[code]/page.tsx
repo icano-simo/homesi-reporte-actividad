@@ -901,10 +901,53 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
   const hayBranchBudget =
     remainingMonths.some((m) => (branchBudget.byMonth[m] ?? 0) > 0) || branchSinGente;
 
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * EL MES EN CURSO NO MEZCLA PRONÓSTICO CON CERRADO — etapa OL32
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * La columna del mes en curso es un PRONÓSTICO: sale del pipeline, que no
+   * lleva la estrategia consigo, y `loanOfficerRowsOf` reparte el entero del
+   * branch entre las PERSONAS. O sea que las filas de persona ya suman el mes
+   * completo.
+   *
+   * NPPM y Affinity mostraban ahí lo REALMENTE CERRADO, así que la suma de las
+   * filas se pasaba del pronóstico por exactamente ese monto y la
+   * reconciliación lo descontaba. Medido en el 716: las personas 14 --el
+   * pronóstico entero-- más 4 de Affinity, contra un pronóstico de 14, y un
+   * residuo de −4. Eso es lo que el rótulo de OL31 leía como «el branch ya pasó
+   * lo que se esperaba del mes».
+   *
+   * ⚠ VA EN BLANCO Y NO EN CERO. Un cero diría «no se espera nada de NPPM este
+   * mes», y lo que pasa es que no se puede saber: el pronóstico no se abre por
+   * estrategia. Es la distinción de `fmt` --celda vacía contra `0`-- otra vez.
+   *
+   * ⚠ Y SÓLO DONDE EL MES EN CURSO ES UN PRONÓSTICO. En un branch sin nadie
+   * rosterizado no hay pronóstico y su mes en curso ES lo cerrado --la regla de
+   * la vista 1, y lo que hace que AFFINITY muestre sus 5 de agosto-- así que
+   * ahí no hay ninguna mezcla que deshacer y la fila sigue como está.
+   *
+   * ⚠ Y LO CERRADO NO SE PIERDE: la celda vacía lleva en su tooltip cuánto
+   * cerró esa fila en el mes. Se saca de la COLUMNA, donde convive con números
+   * de otra clase, no de la pantalla.
+   */
+  const mesEnCursoEsPronostico = !branchSinGente;
+  const sinMesEnCurso = (y: YearRow): YearRow =>
+    !mesEnCursoEsPronostico || y.byMonth[currentMonth] === null
+      ? y
+      : {
+          byMonth: { ...y.byMonth, [currentMonth]: null },
+          total: y.total - (y.byMonth[currentMonth] ?? 0),
+          hasUnknown: true,
+        };
+
   const loExistingYears = personRows.map((p) => p.year);
   const loHiringYears = visibleRecruitRows.map((r) => r.year);
-  const nppmExistingYears = nppmRows.map((x) => x.year);
+  const nppmExistingYears = nppmRows.map((x) => sinMesEnCurso(x.year));
   const nppmHiringYears = nppmHiringRows.map((x) => x.year);
+  /* La de Affinity, con el mismo criterio. `filaUnica` no la usa: esa sólo
+     existe en branches sin gente, donde `sinMesEnCurso` es la identidad. */
+  const affinityYear = affinityRow ? sinMesEnCurso(affinityRow.year) : null;
 
   /*
    * ══════════════════════════════════════════════════════════════════════════
@@ -955,7 +998,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
     ...(filaUnica !== null
       ? [filaUnica]
       : [
-          ...(affinityRow ? [affinityRow.year] : []),
+          ...(affinityYear ? [affinityYear] : []),
           ...(hayBranchBudget ? [branchBudgetYear] : []),
         ]),
   ];
@@ -1526,11 +1569,25 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                           />
                         </td>
                         {monthsOfYear.map((m) => (
-                          <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
-                            {fmt(rYear.byMonth[m] ?? null)}
+                          <td
+                            key={m}
+                            className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}
+                            /* Lo cerrado del mes, fuera de la columna — OL32. */
+                            title={
+                              m === currentMonth && mesEnCursoEsPronostico
+                                ? `Closed so far in ${monthLabel(m)}: ` +
+                                  `${fmt(rYear.byMonth[m] ?? 0)}. The column shows the month's forecast, which ` +
+                                  `the pipeline does not open by realtor, so it is left blank here instead of ` +
+                                  `mixing two different things in one column.`
+                                : undefined
+                            }
+                          >
+                            {fmt(sinMesEnCurso(rYear).byMonth[m] ?? null)}
                           </td>
                         ))}
-                        <td className="bp-center totcol">{fmt(sumOfShown(monthsOfYear.map((m) => rYear.byMonth[m] ?? null)))}</td>
+                        <td className="bp-center totcol">
+                          {fmt(sumOfShown(monthsOfYear.map((m) => sinMesEnCurso(rYear).byMonth[m] ?? null)))}
+                        </td>
                         <td className="ol-rulecol">
                           <button
                             type="button"
@@ -1768,12 +1825,28 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                   <BenchTag value={affinityBench} />
                 </td>
                 {monthsOfYear.map((m) => (
-                  <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
-                    {fmt(affinityRow.year.byMonth[m] ?? null)}
+                  <td
+                    key={m}
+                    className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}
+                    /*
+                      ⚠ LO CERRADO DEL MES NO SE PIERDE, SALE DE LA COLUMNA — OL32.
+                      La celda va vacía porque esta columna es un pronóstico y el
+                      pipeline no lo abre por estrategia; el número real vive acá.
+                    */
+                    title={
+                      m === currentMonth && mesEnCursoEsPronostico
+                        ? `Closed so far in ${monthLabel(m)}: ` +
+                          `${fmt(affinityRow.year.byMonth[m] ?? 0)}. The column shows the month's forecast, ` +
+                          `which the pipeline does not open by strategy, so it is left blank here instead of ` +
+                          `mixing two different things in one column.`
+                        : undefined
+                    }
+                  >
+                    {fmt(affinityYear?.byMonth[m] ?? null)}
                   </td>
                 ))}
                 <td className="bp-center totcol">
-                  {fmt(sumOfShown(monthsOfYear.map((m) => affinityRow.year.byMonth[m] ?? null)))}
+                  {fmt(sumOfShown(monthsOfYear.map((m) => affinityYear?.byMonth[m] ?? null)))}
                 </td>
                 <td className="ol-rulecol bp-muted">not editable here</td>
               </tr>
