@@ -49,6 +49,15 @@ const DEJA_PASAR = [
   'ls node_modules | wc -l',
   'echo "ruido" > /dev/null',
   'node scripts/verificacion/sin-texto-al-shell.test.mjs',
+  /*
+   * ⚠ EL FALSO POSITIVO QUE LA GUARDA SE COMIÓ, y las variantes de la misma
+   * forma. El `>` que matcheaba era el de `2>&1` dentro de una sustitución de
+   * comando: no escribe ningún archivo. Ver la nota del patrón.
+   */
+  'echo "faltantes: $(npm ls --depth=0 2>&1 | grep -ciE \'UNMET|missing\')"',
+  'echo "estado: $(curl -s -o /dev/null -w "%{http_code}" http://localhost:3125/ 2>&1)"',
+  'printf "%s\\n" "$(git status --short 2>&1)"',
+  'echo "aviso" >&2',
 ];
 
 const a = crearArnes({ minimo: BLOQUEA.length + DEJA_PASAR.length + 1 });
