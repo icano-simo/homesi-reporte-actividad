@@ -927,6 +927,15 @@ export interface OutlookBranch {
   /** Las cinco estrategias del branch — etapa OL8. */
   byStrategy: BranchStrategy[];
   /**
+   * Los OTROS branches que se leen dentro de éste — etapa OL29, de
+   * `org.branch_group`. Vacío para los 18 que no agrupan a nadie.
+   *
+   * ⚠ Existe para que la pantalla lo DIGA. Un branch que absorbe la producción
+   * de otro sin avisar es un número que no se puede auditar: quien busque el
+   * 777 en la lista no lo va a encontrar y no va a saber por qué.
+   */
+  groupMembers: string[];
+  /**
    * ==========================================================================
    * EL PRESUPUESTO FIJADO PARA EL BRANCH ENTERO — etapa OL27
    * ==========================================================================
@@ -1357,6 +1366,12 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
      */
     /* `nmls` desde OL20: el único identificador que une el roster con la gente en proceso. */
     supabase.schema('org').from('dim_employee').select('employee_key, full_name, is_branch_manager, nmls'),
+    /*
+     * Los branches que se leen como uno — etapa OL29. Va en el mismo lote: no
+     * depende de nada. Si la tabla todavía no está aplicada, el error se
+     * ignora y el módulo se comporta como antes -- ver `grupoDe`.
+     */
+    supabase.schema('org').from('branch_group').select('branch_code, group_code'),
   ]);
 
   const [bp, rows, outlookTables, orgTables, recruitTables] = await Promise.all([
@@ -1669,7 +1684,7 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
    * `buildExcludedIndex`, que son las piezas que de verdad importan.
    */
   /* Ya pedidas arriba, en paralelo con el resto -- ver el bloque de OL6. */
-  const [aliasRes, excludedRes, rosterRes, employeeRes] = orgTables;
+  const [aliasRes, excludedRes, rosterRes, employeeRes, branchGroupRes] = orgTables;
   if (aliasRes.error) throw new Error('org.employee_alias: ' + aliasRes.error.message);
   const aliasIndex = buildAliasIndex((aliasRes.data ?? []) as never[]);
   const excludedIndex = buildExcludedIndex((excludedRes.data ?? []) as never[]);
@@ -1697,7 +1712,51 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
    * policies de SELECT: `admin`, `outlook` y `commercial_activity`. Ninguna de
    * escritura: la tabla la escribe el sync, no la app.
    */
-  const rosterRows = rosterRes.error ? [] : ((rosterRes.data ?? []) as RosterRow[]);
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * DOS BRANCHES QUE SE LEEN COMO UNO — etapa OL29
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * `org.branch_group` dice qué branches Outlook trata como uno solo. Hoy son
+   * el 710 y el 777: Jonathan Valenzuela abrió oficina propia y su producción
+   * se originó en el 710, así que el 777 aparecía vacío y sus 4 cierres caían
+   * en la reconciliación del 710 bajo el rótulo «closed by loan officers from
+   * other branches» -- cierto de Gian Laino, del 747, y falso de él.
+   *
+   * ⚠ ES DATO Y NO CONDICIÓN: una regla `branch === '710' || branch === '777'`
+   * queda vieja el día que alguien más abra oficina, y queda vieja SIN AVISAR.
+   * Ver `docs/sql/2026-09-org-branch-group.sql`, donde además vive el MOTIVO de
+   * cada fila.
+   *
+   * ⚠ Y SE APLICA EN DOS LUGARES SOLOS, que son por donde el branch ENTRA a
+   * este módulo: el branch del préstamo --`classifyBranch`-- y el del roster.
+   * Todo lo demás --`branchMap`, `primaryBranch`, los reclutas, las claves de
+   * estrategia, de realtor y de dueño-- se deriva de esos dos, así que agrupar
+   * ahí agrupa todo sin catorce `if` repartidos. Un mapeo aplicado en once
+   * sitios es once oportunidades de olvidarse de uno.
+   *
+   * Sin la tabla --o vacía-- `grupoDe` es la identidad y el módulo se comporta
+   * exactamente como antes. Eso es lo que permite mergear esto sin esperar a la
+   * migración.
+   */
+  const grupoPorBranch = new Map<string, string>();
+  if (!branchGroupRes.error) {
+    for (const g of (branchGroupRes.data ?? []) as { branch_code: string; group_code: string }[]) {
+      if (g.branch_code !== g.group_code) grupoPorBranch.set(g.branch_code, g.group_code);
+    }
+  }
+  const grupoDe = (code: string | null | undefined): string | null =>
+    code === null || code === undefined ? (code ?? null) : (grupoPorBranch.get(code) ?? code);
+
+  /*
+   * El roster ya agrupado: `branch_code` pasa a ser el del GRUPO, así que
+   * `primaryBranch`, la siembra de `branchMap` y `isInactive` leen el grupo sin
+   * enterarse. El `person_code` y el nombre no se tocan.
+   */
+  const rosterRows = (rosterRes.error ? [] : ((rosterRes.data ?? []) as RosterRow[])).map((r) => ({
+    ...r,
+    branch_code: grupoDe(r.branch_code),
+  }));
 
   const rosterByKey = new Map<number, RosterRow>();
   /* Productores que el roster afirma y que no tienen identidad interna. */
@@ -1845,7 +1904,8 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
     const officerKey = resolveOfficerKey(row);
     if (officerKey === null) {
       unresolvedOfficers += 1;
-      const b = classifyBranch(row.branch ?? '');
+      /* Agrupado — OL29: el branch del préstamo entra por acá. */
+      const b = grupoDe(classifyBranch(row.branch ?? '')) as string;
       unattributedByBranch.set(b, (unattributedByBranch.get(b) ?? 0) + 1);
 
       /*
@@ -1895,7 +1955,8 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
     ytdRowsCounted += 1;
     const month = row.closing_month.slice(0, 7);
     if (month > currentMonth) actualsAfterCurrentMonth += 1;
-    const branch = classifyBranch(row.branch ?? '');
+    /* Agrupado — OL29: el otro punto por donde el branch entra al módulo. */
+    const branch = grupoDe(classifyBranch(row.branch ?? '')) as string;
     bump(actualByBranch, branch, month);
     bump(actualByBranchLo, branch + '|' + officerKey, month);
     bump(actualByLo, String(officerKey), month);
@@ -2094,7 +2155,8 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       { origen: f.origen, confianza: f.confianza, closeDate: f.close_date, startDate },
       hoyISO
     );
-    const branchCode = ed?.branch_code ?? f.branch_code ?? 'Recruitment';
+    /* Agrupado — OL29: un recluta que entra a un branch agrupado entra al grupo. */
+    const branchCode = grupoDe(ed?.branch_code ?? f.branch_code) ?? 'Recruitment';
     const producingFrom = ed?.producing_from ?? defaultProducingFrom(startDate, currentMonth);
     const benchmark =
       ed && ed.monthly_benchmark !== null && ed.monthly_benchmark !== undefined ? Number(ed.monthly_benchmark) : null;
@@ -2139,12 +2201,14 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
     const valores = projectRecruit(remainingMonths, input, currentMonth);
     const byMonth: Record<string, number> = {};
     remainingMonths.forEach((m, i) => (byMonth[m] = valores[i]));
-    const lista = recruitsPorBranch.get(ed.branch_code) ?? [];
+    /* Agrupado — OL29, igual que la otra rama de reclutas. */
+    const branchDelRecluta = grupoDe(ed.branch_code) ?? ed.branch_code;
+    const lista = recruitsPorBranch.get(branchDelRecluta) ?? [];
     lista.push({
       identity: ed.identity,
       personName: ed.person_name,
       role: ed.role as 'loan_officer' | 'nppm',
-      branchCodeActual: ed.branch_code,
+      branchCodeActual: branchDelRecluta,
       nmls: ed.nmls,
       stage: 'in_hiring',
       startDate: ed.start_date,
@@ -2156,7 +2220,7 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       byMonth,
       notProjecting: notProjectingReason(input, currentMonth),
     });
-    recruitsPorBranch.set(ed.branch_code, lista);
+    recruitsPorBranch.set(branchDelRecluta, lista);
   }
   for (const lista of recruitsPorBranch.values()) {
     lista.sort((a, b) => a.personName.localeCompare(b.personName));
@@ -2830,6 +2894,11 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
         .sort((a, b) => b.closings - a.closings || a.name.localeCompare(b.name)),
       loanOfficers: los.sort((a, b) => b.ytd - a.ytd || a.fullName.localeCompare(b.fullName)),
       byStrategy: strategiesOfBranch(branchCode),
+      /* Quiénes se leen acá adentro — OL29. */
+      groupMembers: [...grupoPorBranch.entries()]
+        .filter(([, g]) => g === branchCode)
+        .map(([b]) => b)
+        .sort(),
       /* El presupuesto del BRANCH como sujeto — etapa OL27. Mismos lectores
          que el de una persona; lo único que cambia es la clave. */
       budgetTotal: budgetTotalOf(

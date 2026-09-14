@@ -1081,6 +1081,28 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
           <h1 className="page-head__title">
             Branch {branch.branchCode}
             {/*
+              ══════════════════════════════════════════════════════════════
+              LO QUE ESTE BRANCH LEE ADENTRO — etapa OL29
+              ══════════════════════════════════════════════════════════════
+
+              Un branch que absorbe la producción de otro sin decirlo es un
+              número que no se puede auditar: quien busque el 777 en la lista no
+              lo va a encontrar y no va a saber por qué. El motivo vive en
+              `org.branch_group.reason` y se muestra al pasar por encima.
+            */}
+            {branch.groupMembers.length > 0 && (
+              <span
+                className="bp-muted ol-tag"
+                title={
+                  `This branch is read together with ${branch.groupMembers.join(', ')}: their production ` +
+                  `and their people count here. Nothing was moved -- the loans keep the branch they ` +
+                  `closed in, and the roster keeps its own codes.`
+                }
+              >
+                includes {branch.groupMembers.join(', ')}
+              </span>
+            )}
+            {/*
               Era un párrafo al pie y ahora es una marca al lado del título: dice
               lo mismo en dos palabras, y está donde se mira primero en vez de
               debajo de la tabla que viene a explicar.
