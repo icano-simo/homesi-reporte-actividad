@@ -294,10 +294,17 @@ export default function PersonBudgetEditor({
    * código, no por nombre normalizado -- ver la nota de `PersonSubject` en
    * save.ts.
    */
-  const isMine = (r: { employee_key: number | null; nppm_realtor_code: string | null }) =>
+  const isMine = (r: {
+    employee_key: number | null;
+    nppm_realtor_code: string | null;
+    branch_code: string | null;
+  }) =>
     person.subject.kind === 'employee'
       ? r.employee_key === person.subject.employeeKey
-      : r.nppm_realtor_code === person.subject.realtorCode;
+      : person.subject.kind === 'realtor'
+        ? r.nppm_realtor_code === person.subject.realtorCode
+        : /* El branch, tercer sujeto desde OL27. */
+          r.branch_code === person.subject.branchCode;
   const lastTotalRow = data.history.personBudgetTotals
     .filter((r) => isMine(r) && r.confirmed_only !== true && r.revision === person.budgetTotalRevision)
     .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];

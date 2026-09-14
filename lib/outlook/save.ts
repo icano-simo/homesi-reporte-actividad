@@ -572,9 +572,14 @@ export async function saveRecruitLink(input: {
  * siguiente se lee de la BASE, no de la pantalla.
  *
  * ---------------------------------------------------------------------------
- * ⚠ EL SUJETO ES UNA PERSONA O UN REALTOR, NUNCA UN BRANCH — a diferencia de
- * `OutlookSubject`. Unión discriminada por el mismo motivo: el CHECK
- * `(employee_key is not null) <> (nppm_realtor_code is not null)` de las dos
+ * ⚠ TRES SUJETOS DESDE OL27, Y EL TERCERO ES EL BRANCH. Hasta acá eran dos --y
+ * este comentario decía «nunca un branch»-- porque las tablas aceptaban dos.
+ * AFFINITY dejó a la vista lo que faltaba: un branch con CERO productores en el
+ * roster no tiene a quién colgarle el presupuesto, así que el editor no se
+ * puede abrir para nadie. Ver `docs/sql/2026-09-budget-sujeto-branch.sql`.
+ *
+ * Sigue siendo una unión discriminada por el mismo motivo: el CHECK
+ * `num_nonnulls(employee_key, nppm_realtor_code, branch_code) = 1` de las dos
  * tablas se vuelve imposible de violar en compilación, no sólo en runtime.
  * ---------------------------------------------------------------------------
  *
@@ -595,16 +600,31 @@ export async function saveRecruitLink(input: {
  * nadie ('FRED A GOMEZ' contra 'FRED GOMEZ'). Mismo criterio que ya usa
  * `saveNppmBenchmark` para `nppm_benchmark`.
  */
-export type PersonSubject =
+export type BudgetSubject =
   | { kind: 'employee'; employeeKey: number }
-  | { kind: 'realtor'; realtorCode: string };
+  | { kind: 'realtor'; realtorCode: string }
+  | { kind: 'branch'; branchCode: string };
 
-function personSubjectColumns(s: PersonSubject): { employee_key: number } | { nppm_realtor_code: string } {
-  return s.kind === 'employee' ? { employee_key: s.employeeKey } : { nppm_realtor_code: s.realtorCode };
+/**
+ * ⚠ EL NOMBRE VIEJO, PARA NO ROMPER A QUIEN LO IMPORTE. `PersonSubject` dejó de
+ * describir lo que el tipo es en cuanto entró el branch, igual que el nombre de
+ * las tablas. Se deja el alias en vez de dos nombres vivos: el que se usa es
+ * `BudgetSubject`.
+ */
+export type PersonSubject = BudgetSubject;
+
+function personSubjectColumns(
+  s: BudgetSubject
+): { employee_key: number } | { nppm_realtor_code: string } | { branch_code: string } {
+  if (s.kind === 'employee') return { employee_key: s.employeeKey };
+  if (s.kind === 'realtor') return { nppm_realtor_code: s.realtorCode };
+  return { branch_code: s.branchCode };
 }
 
-function personSubjectFilter(s: PersonSubject): [string, string | number] {
-  return s.kind === 'employee' ? ['employee_key', s.employeeKey] : ['nppm_realtor_code', s.realtorCode];
+function personSubjectFilter(s: BudgetSubject): [string, string | number] {
+  if (s.kind === 'employee') return ['employee_key', s.employeeKey];
+  if (s.kind === 'realtor') return ['nppm_realtor_code', s.realtorCode];
+  return ['branch_code', s.branchCode];
 }
 
 const BUDGET_SQL_FILE = 'docs/sql/2026-09-outlook-budget-composition.sql';
@@ -619,7 +639,7 @@ async function siguienteRevisionDelTotal(subject: PersonSubject, sqlFile: string
   const [subjCol, subjVal] = personSubjectFilter(subject);
   const { data: existing, error } = await getSupabaseClient()
     .schema('outlook')
-    .from('person_budget_total')
+    .from('budget_total')
     .select('revision')
     .eq(subjCol, subjVal)
     .order('revision', { ascending: false })
@@ -652,7 +672,7 @@ export async function savePersonBudgetTotal(input: {
     note: input.note,
   }));
 
-  const { error } = await getSupabaseClient().schema('outlook').from('person_budget_total').insert(rows);
+  const { error } = await getSupabaseClient().schema('outlook').from('budget_total').insert(rows);
   if (error) throw readable(error, { sqlFile: BUDGET_SQL_FILE });
   return revision;
 }
@@ -726,9 +746,9 @@ export async function confirmPersonBudgetReviewed(input: {
    */
   const { data, error } = await getSupabaseClient()
     .schema('outlook')
-    .from('person_budget_total')
+    .from('budget_total')
     .insert(rows)
-    .select('person_budget_total_key');
+    .select('budget_total_key');
   if (error) throw readable(error, { sqlFile: CONFIRM_SQL_FILE });
   if ((data?.length ?? 0) !== rows.length) {
     throw new Error(
@@ -779,7 +799,7 @@ export async function savePersonBudgetBreakdown(input: {
   const [subjCol, subjVal] = personSubjectFilter(input.subject);
   const { data: existing, error: readError } = await supabase
     .schema('outlook')
-    .from('person_budget_breakdown')
+    .from('budget_breakdown')
     .select('revision')
     .eq(subjCol, subjVal)
     .order('revision', { ascending: false })
@@ -797,7 +817,7 @@ export async function savePersonBudgetBreakdown(input: {
     note: input.note,
   }));
 
-  const { error } = await supabase.schema('outlook').from('person_budget_breakdown').insert(rows);
+  const { error } = await supabase.schema('outlook').from('budget_breakdown').insert(rows);
   if (error)
     throw readable(error, {
       sqlFile: BUDGET_SQL_FILE,

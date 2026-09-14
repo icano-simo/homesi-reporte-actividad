@@ -212,8 +212,16 @@ export interface ProjectionModeRow {
 export type BudgetBucket = 'own_production' | 'b2b' | 'nppm' | 'recruitment' | 'business_plan';
 
 export interface PersonBudgetTotalRow {
-  person_budget_total_key: number;
+  budget_total_key: number;
   employee_key: number | null;
+  /**
+   * ⚠ EL TERCER SUJETO — etapa OL27,
+   * `docs/sql/2026-09-budget-sujeto-branch.sql`. Exactamente uno de los tres
+   * está puesto, y lo garantiza un CHECK con `num_nonnulls(...) = 1`. El branch
+   * existe porque AFFINITY no tiene ni un productor en el roster: sin él, ese
+   * presupuesto no tiene a quién colgarse.
+   */
+  branch_code: string | null;
   /**
    * ⚠ EL CÓDIGO, NO EL NOMBRE — ver
    * `docs/sql/2026-09-person-budget-realtor-code.sql`. La columna se llamaba
@@ -250,10 +258,12 @@ export interface PersonBudgetTotalRow {
 }
 
 export interface PersonBudgetBreakdownRow {
-  person_budget_breakdown_key: number;
+  budget_breakdown_key: number;
   employee_key: number | null;
   /** ⚠ EL CÓDIGO, NO EL NOMBRE — ver el JSDoc de `PersonBudgetTotalRow.nppm_realtor_code`. */
   nppm_realtor_code: string | null;
+  /** ⚠ El tercer sujeto — ver `PersonBudgetTotalRow.branch_code`. */
+  branch_code: string | null;
   revision: number;
   target_month: string;
   bucket: BudgetBucket;
@@ -897,6 +907,29 @@ export interface OutlookBranch {
   loanOfficers: OutlookLoanOfficer[];
   /** Las cinco estrategias del branch — etapa OL8. */
   byStrategy: BranchStrategy[];
+  /**
+   * ==========================================================================
+   * EL PRESUPUESTO FIJADO PARA EL BRANCH ENTERO — etapa OL27
+   * ==========================================================================
+   *
+   * 'YYYY-MM' → total, de `outlook.budget_total` con `branch_code`. Vacío
+   * cuando nadie fijó nada, que es el caso de los 14 branches hoy.
+   *
+   * ⚠ EXISTE PORQUE HAY UN BRANCH SIN NADIE A QUIEN ABRIRLE EL EDITOR:
+   * AFFINITY tiene CERO productores en el roster, así que «el presupuesto del
+   * branch es la suma de sus personas» no tiene sujeto. Con esto el sujeto es
+   * el branch.
+   *
+   * ⚠ Y MANDA SOBRE EL PRESUPUESTO POR ESTRATEGIA, no se suma a él: es la misma
+   * regla que OL26e fijó para las personas --«el total fijado manda cuando
+   * existe, la regla cuando no»--. Ver `branchLevelBudget`. Lo ADITIVO es otra
+   * cosa: el presupuesto del branch se suma al de sus PERSONAS, porque es
+   * producción que no se le atribuye a nadie del roster.
+   */
+  budgetTotal: Record<string, number>;
+  budgetTotalRevision: number;
+  budgetBreakdown: Partial<Record<string, Record<string, number>>>;
+  budgetBreakdownRevision: number;
 }
 
 export interface OutlookData {
@@ -1161,8 +1194,22 @@ const rowKeyOf = (r: { employee_key: number | null; branch_code: string | null }
  * más que se normalice. `nppm_realtor_code` es la clave estable, igual que en
  * `strategiesOfBranch`.
  */
-const personBudgetKeyOf = (r: { employee_key: number | null; nppm_realtor_code: string | null }) =>
-  r.employee_key !== null ? 'e' + r.employee_key : 'r' + (r.nppm_realtor_code as string);
+/*
+ * ⚠ TRES SUJETOS DESDE OL27, y por eso el prefijo dejó de ser decorativo: `b`
+ * es el BRANCH. Sin él, un branch que se llamara igual que un `realtor_code`
+ * compartiría clave -- improbable, y el tipo de improbable que este módulo
+ * prefiere hacer imposible.
+ */
+const personBudgetKeyOf = (r: {
+  employee_key: number | null;
+  nppm_realtor_code: string | null;
+  branch_code?: string | null;
+}) =>
+  r.employee_key !== null
+    ? 'e' + r.employee_key
+    : r.nppm_realtor_code !== null
+      ? 'r' + r.nppm_realtor_code
+      : 'b' + (r.branch_code as string);
 
 export async function loadOutlookData(reference: Date = new Date()): Promise<OutlookData> {
   const supabase = getSupabaseClient();
@@ -1211,9 +1258,13 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       ol.from('nppm_benchmark').select('*'),
       ol.from('monthly_target').select('*'),
       ol.from('projection_mode').select('*'),
-      /* Punto 5 de OL26. Ver `docs/sql/2026-09-outlook-budget-composition.sql`. */
-      ol.from('person_budget_total').select('*'),
-      ol.from('person_budget_breakdown').select('*'),
+      /*
+       * Punto 5 de OL26. Ver `docs/sql/2026-09-outlook-budget-composition.sql`,
+       * y el renombre --con el sujeto branch-- en
+       * `docs/sql/2026-09-budget-sujeto-branch.sql`.
+       */
+      ol.from('budget_total').select('*'),
+      ol.from('budget_breakdown').select('*'),
     ]);
   })();
 
@@ -2713,6 +2764,20 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
         .sort((a, b) => b.closings - a.closings || a.name.localeCompare(b.name)),
       loanOfficers: los.sort((a, b) => b.ytd - a.ytd || a.fullName.localeCompare(b.fullName)),
       byStrategy: strategiesOfBranch(branchCode),
+      /* El presupuesto del BRANCH como sujeto — etapa OL27. Mismos lectores
+         que el de una persona; lo único que cambia es la clave. */
+      budgetTotal: budgetTotalOf(
+        personBudgetKeyOf({ employee_key: null, nppm_realtor_code: null, branch_code: branchCode })
+      ),
+      budgetTotalRevision: budgetTotalRevisionOf(
+        personBudgetKeyOf({ employee_key: null, nppm_realtor_code: null, branch_code: branchCode })
+      ),
+      budgetBreakdown: budgetBreakdownOf(
+        personBudgetKeyOf({ employee_key: null, nppm_realtor_code: null, branch_code: branchCode })
+      ),
+      budgetBreakdownRevision: budgetBreakdownRevisionOf(
+        personBudgetKeyOf({ employee_key: null, nppm_realtor_code: null, branch_code: branchCode })
+      ),
     }))
     .sort((a, b) => b.ytd - a.ytd || a.branchCode.localeCompare(b.branchCode));
 
@@ -2899,10 +2964,25 @@ export interface BranchBudgetPart {
 export function branchLevelBudget(
   branch: OutlookBranch,
   months: string[]
-): { byMonth: Record<string, number>; parts: BranchBudgetPart[] } {
+): { byMonth: Record<string, number>; parts: BranchBudgetPart[]; fijadoAMano: string[] } {
   const byMonth: Record<string, number> = {};
   for (const m of months) byMonth[m] = 0;
   const parts: BranchBudgetPart[] = [];
+  /*
+   * ⚠ EL TOTAL FIJADO PARA EL BRANCH MANDA CUANDO EXISTE — etapa OL27, misma
+   * regla que OL26e para una persona: «el total fijado manda cuando existe, la
+   * regla cuando no». No se SUMA al presupuesto por estrategia: son dos
+   * maneras de decir lo mismo, y sumarlas contaría el mismo presupuesto dos
+   * veces en el único branch donde hoy conviven (el 747 y el 716 tienen las
+   * filas de B2B).
+   *
+   * Lo ADITIVO es la otra relación, la que el brief decide: el presupuesto del
+   * branch se suma al de sus PERSONAS, porque es producción que no se le
+   * atribuye a nadie del roster. Ver la fila «Branch-level budget».
+   */
+  const fijadoAMano = months.filter((m) => branch.budgetTotal[m] !== undefined);
+  for (const m of fijadoAMano) byMonth[m] = branch.budgetTotal[m];
+
   for (const bs of branch.byStrategy) {
     const hay = bs.mode === 'monthly' ? bs.targetRevision > 0 : bs.benchmarkSchedule.length > 0;
     if (!hay) continue;
@@ -2915,11 +2995,12 @@ export function branchLevelBudget(
     const suyo: Record<string, number> = {};
     for (const st of steps) {
       suyo[st.month] = st.value;
-      byMonth[st.month] += st.value;
+      /* El mes que alguien fijó a mano NO acumula: ya lo decidió una persona. */
+      if (!fijadoAMano.includes(st.month)) byMonth[st.month] += st.value;
     }
     parts.push({ strategy: bs.strategy, byMonth: suyo });
   }
-  return { byMonth, parts };
+  return { byMonth, parts, fijadoAMano };
 }
 
 /**

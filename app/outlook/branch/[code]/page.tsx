@@ -865,6 +865,17 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * `composeYear`, que rellenaría los meses cerrados con ceros.
    */
   const branchBudget = branchLevelBudget(branch, remainingMonths);
+  /*
+   * ⚠ Y LA FILA APARECE TAMBIÉN SIN PRESUPUESTO, cuando el branch no tiene a
+   * quién abrirle el editor — etapa OL27. AFFINITY tiene CERO productores en el
+   * roster: sin esta fila no hay ni un lápiz en la pantalla, que es exactamente
+   * el bug que el brief reporta. Con ella, el sujeto del presupuesto es el
+   * branch y el editor se abre desde acá.
+   *
+   * No es «mostrar una fila vacía por las dudas»: es que en ese branch la fila
+   * del presupuesto ES la única que puede existir.
+   */
+  const branchSinGente = !branch.loanOfficers.some((l) => l.primaryBranch === branch.branchCode);
   const branchBudgetYear: YearRow = (() => {
     const byMonth: Record<string, number | null> = {};
     let total = 0;
@@ -875,7 +886,8 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
     }
     return { byMonth, total, hasUnknown: true };
   })();
-  const hayBranchBudget = remainingMonths.some((m) => (branchBudget.byMonth[m] ?? 0) > 0);
+  const hayBranchBudget =
+    remainingMonths.some((m) => (branchBudget.byMonth[m] ?? 0) > 0) || branchSinGente;
 
   const loExistingYears = personRows.map((p) => p.year);
   const loHiringYears = visibleRecruitRows.map((r) => r.year);
@@ -1681,8 +1693,15 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                       `replacing them, and nobody's row carries it.`
                     }
                   >
-                    {branchBudget.parts.map((p) => p.strategy).join(' · ')}
+                    {branchBudget.parts.length > 0
+                      ? branchBudget.parts.map((p) => p.strategy).join(' · ')
+                      : 'nobody on the roster'}
                   </span>
+                  {branchBudget.fijadoAMano.length > 0 && (
+                    <span className="bp-muted ol-tag" title="Set by hand for the branch. It overrides the per-strategy budget for those months, the same way a person's total overrides their rule.">
+                      set by hand
+                    </span>
+                  )}
                 </td>
                 <td className="bp-center ol-bench"></td>
                 {monthsOfYear.map((m) => (
@@ -1693,7 +1712,23 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                 <td className="bp-center totcol">
                   {fmt(sumOfShown(monthsOfYear.map((m) => branchBudgetYear.byMonth[m] ?? null)))}
                 </td>
-                <td className="ol-rulecol bp-muted">not a person</td>
+                <td className="ol-rulecol">
+                  {/*
+                    ⚠ EL LÁPIZ QUE FALTABA. En AFFINITY el editor no se podía
+                    abrir para nadie --cero productores en el roster-- así que
+                    el presupuesto de ese branch no se podía fijar desde ningún
+                    lado. Acá el sujeto es el branch.
+                  */}
+                  <button
+                    type="button"
+                    className="ol-pill"
+                    data-ol-branch-budget=""
+                    onClick={() => setEditingBudget({ kind: 'branch', branchCode: branch.branchCode })}
+                    title={'Set the budget for branch ' + branch.branchCode + ' as a whole'}
+                  >
+                    Set budget
+                  </button>
+                </td>
               </tr>
             )}
 
@@ -2110,7 +2145,10 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
             );
           }
 
-          /* Por código, no por nombre normalizado -- ver la nota de `PersonSubject` en save.ts. */
+          /* ⚠ `=== 'realtor'` y no «lo que no es employee»: desde OL27 hay un
+             tercer sujeto, y «el resto» dejó de significar realtor. */
+          if (editingBudgetActivo.kind !== 'realtor') return null;
+          /* Por código, no por nombre normalizado -- ver la nota de `BudgetSubject` en save.ts. */
           const r = bsNppm?.realtors.find((x) => x.realtorCode === editingBudgetActivo.realtorCode);
           if (!r) return null;
           const person: BudgetEditable = {
@@ -2129,6 +2167,52 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               /* Un realtor no proyecta por la regla de crecimiento de Outlook
                  -- ver la nota de `monthsByRule` en PersonBudgetEditor. */
               ruleProjection={null}
+              data={data}
+              months={remainingMonths}
+              onClose={cerrar}
+              onSaved={reload}
+            />
+          );
+        })()}
+
+      {/*
+        ══════════════════════════════════════════════════════════════════════
+        EL PRESUPUESTO DEL BRANCH ENTERO — etapa OL27
+        ══════════════════════════════════════════════════════════════════════
+
+        El mismo editor, con el branch como sujeto. En AFFINITY es el ÚNICO que
+        se puede abrir: no hay una sola persona en su roster a quien
+        abrírselo, que es la causa medida del bug del brief.
+
+        ⚠ `ruleProjection` va con lo que YA proyecta el branch por estrategia,
+        no en `null`: es el punto de partida honesto --«hoy esto proyecta 2 por
+        mes»-- y es el mismo número que la fila de arriba muestra, porque sale
+        de `branchLevelBudget`, la misma función. Un editor que arranca en cero
+        donde hay un presupuesto vigente invita a pisarlo sin verlo.
+      */}
+      {editingBudgetActivo &&
+        editingBudgetActivo.kind === 'branch' &&
+        (() => {
+          const cerrar = () => setEditingBudget(null);
+          const person: BudgetEditable = {
+            subject: { kind: 'branch', branchCode: branch.branchCode },
+            label: 'Branch ' + branch.branchCode,
+            /* Los cuatro: la producción de un branch puede venir de cualquier
+               estrategia. `recruitment` queda afuera igual que en una persona
+               que no participa -- acá no hay a quién reclutar bajo el branch. */
+            buckets: ['own_production', 'b2b', 'nppm', 'business_plan'],
+            budgetTotal: branch.budgetTotal,
+            budgetTotalRevision: branch.budgetTotalRevision,
+            budgetBreakdown: branch.budgetBreakdown as BudgetEditable['budgetBreakdown'],
+            budgetBreakdownRevision: branch.budgetBreakdownRevision,
+          };
+          return (
+            <PersonBudgetEditor
+              person={person}
+              ownProductionRate={null}
+              ruleProjection={Object.fromEntries(
+                remainingMonths.map((m) => [m, branchBudget.byMonth[m] ?? 0])
+              )}
               data={data}
               months={remainingMonths}
               onClose={cerrar}
