@@ -2859,6 +2859,129 @@ export function projectLoanOfficer(
   return { byMonth, stepsByStrategy };
 }
 
+/** Una parte del presupuesto que se fijó para el BRANCH y no para una persona. */
+export interface BranchBudgetPart {
+  strategy: OutlookStrategy;
+  byMonth: Record<string, number>;
+}
+
+/**
+ * ============================================================================
+ * EL PRESUPUESTO QUE SE FIJÓ PARA EL BRANCH — una sola definición (etapa OL27)
+ * ============================================================================
+ *
+ * Ninguna estrategia se presupuesta a nivel branch desde OL15, pero hay DOS
+ * filas guardadas que sí --las de B2B en el 747 y el 716-- y no se pueden
+ * reasignar: cada una cubre a dos o tres Business Developers y repartirlas es
+ * una decisión de negocio. Se siguen sumando para no borrar un presupuesto
+ * real.
+ *
+ * ---------------------------------------------------------------------------
+ * ⚠ POR QUÉ ES UNA FUNCIÓN EXPORTADA Y NO UN BUCLE ADENTRO DE `projectBranch`
+ * ---------------------------------------------------------------------------
+ * Porque ahora hay que MOSTRARLO. El comentario que estaba acá decía que «la
+ * pantalla las muestra como una fila propia», y desde OL26c --que le sacó la
+ * fila a B2B-- eso dejó de ser cierto sin que nadie lo notara: el total del
+ * branch lo incluía y ninguna fila lo dibujaba, así que caía entero en la
+ * reconciliación. Medido en OL27: 2 por mes en el 747 y 2 por mes en el 716,
+ * bajo el rótulo «LO out of branch», que es otra cosa.
+ *
+ * Con una sola función, la suma del total y la fila que lo muestra no pueden
+ * discrepar. Es el mismo criterio que `projectPlan`: el número que se muestra y
+ * el que se suma salen del mismo lugar o alguno miente.
+ *
+ * ⚠ Y ES LA QUINTA FUENTE DE PRESUPUESTO de la advertencia de la fila de
+ * reconciliación, con la vuelta de tuerca que faltaba: las cuatro anteriores se
+ * revisaron porque `projectBranch` podía OLVIDARSE de sumarlas. Ésta estaba
+ * sumada y sin fila, que es el mismo agujero por el otro lado. La pregunta
+ * completa es «¿la suma la cuenta, Y hay una fila que la muestre?».
+ */
+export function branchLevelBudget(
+  branch: OutlookBranch,
+  months: string[]
+): { byMonth: Record<string, number>; parts: BranchBudgetPart[] } {
+  const byMonth: Record<string, number> = {};
+  for (const m of months) byMonth[m] = 0;
+  const parts: BranchBudgetPart[] = [];
+  for (const bs of branch.byStrategy) {
+    const hay = bs.mode === 'monthly' ? bs.targetRevision > 0 : bs.benchmarkSchedule.length > 0;
+    if (!hay) continue;
+    const steps = projectPlan(months, {
+      mode: bs.mode,
+      benchmarks: bs.benchmarkSchedule,
+      segments: bs.rules,
+      targets: bs.targets,
+    });
+    const suyo: Record<string, number> = {};
+    for (const st of steps) {
+      suyo[st.month] = st.value;
+      byMonth[st.month] += st.value;
+    }
+    parts.push({ strategy: bs.strategy, byMonth: suyo });
+  }
+  return { byMonth, parts };
+}
+
+/**
+ * ============================================================================
+ * LO QUE NPPM PROYECTA, Y CÓMO SE REPARTE ENTRE SUS REALTORS — etapa OL27
+ * ============================================================================
+ *
+ * Plano, sin regla: `growth_rule` cuelga de una persona o de un branch, y un
+ * realtor no es ninguna de las dos. Es la suma de los benchmarks vigentes,
+ * incluido el valor por defecto --que es `avg3m`, el promedio de los tres meses
+ * cerrados, y no una meta que alguien haya fijado--.
+ *
+ * ---------------------------------------------------------------------------
+ * ⚠ DOS NÚMEROS, Y LOS DOS HACEN FALTA
+ * ---------------------------------------------------------------------------
+ *   `exactByMonth`    lo que suma al total del branch. Fraccionario, porque un
+ *                     promedio de tres meses casi nunca da entero.
+ *   `roundedByMonth`  lo que se MUESTRA, y `parts` su reparto por realtor.
+ *
+ * El total del branch se redondea UNA vez al final (OL13) y sus filas se
+ * derivan de ese entero. Si la fila de NPPM mostrara el valor exacto, la
+ * reconciliación quedaría arrastrando el resto del redondeo --una fila que sólo
+ * puede mostrar ceros y decimales-- así que acá se redondea el total de NPPM y
+ * se reparte entre los realtors con `apportionByWeight`, igual que
+ * `loanOfficerRowsOf` hace con las personas.
+ *
+ * ⚠ ESO CIERRA EN CERO MIENTRAS EL RESTO SEA ENTERO: `round(A + N) = A +
+ * round(N)` sólo si `A` es entero. Hoy lo es --las proyecciones por persona y
+ * el presupuesto de branch salen de `projectPlan`, que devuelve enteros-- y por
+ * eso la sonda de OL27 verifica el residuo futuro en CERO branch por branch en
+ * vez de darlo por hecho.
+ */
+export function nppmRealtorBudget(
+  branch: OutlookBranch,
+  months: string[]
+): {
+  exactByMonth: Record<string, number>;
+  roundedByMonth: Record<string, number>;
+  parts: { realtorCode: string; byMonth: Record<string, number> }[];
+} {
+  const exactByMonth: Record<string, number> = {};
+  const roundedByMonth: Record<string, number> = {};
+  for (const m of months) {
+    exactByMonth[m] = 0;
+    roundedByMonth[m] = 0;
+  }
+  const realtors = branch.byStrategy
+    .filter((bs) => bs.opensBy === 'realtor')
+    .flatMap((bs) => bs.realtors);
+  const parts = realtors.map((r) => ({ realtorCode: r.realtorCode, byMonth: {} as Record<string, number> }));
+  if (realtors.length === 0) return { exactByMonth, roundedByMonth, parts };
+
+  const suma = realtors.reduce((a, r) => a + r.benchmark, 0);
+  for (const m of months) {
+    exactByMonth[m] = suma;
+    roundedByMonth[m] = Math.round(suma);
+    const partes = apportionByWeight(roundedByMonth[m], realtors.map((r) => r.benchmark));
+    partes.forEach((v, i) => (parts[i].byMonth[m] = v));
+  }
+  return { exactByMonth, roundedByMonth, parts };
+}
+
 /**
  * La de un branch: la suma de sus Loan Officers.
  *
@@ -2967,44 +3090,21 @@ export function projectBranch(
   }
 
   /*
-   * ⚠ Y NPPM, que proyecta desde sus REALTORS — etapa OL12.
-   *
-   * Plano, sin regla: `growth_rule` cuelga de una persona o de un branch, y un
-   * realtor no es ninguna de las dos. Suma los benchmarks vigentes, incluido el
-   * valor por defecto.
-   *
-   * Se agregó porque al hacer proyectar a NPPM el total del branch NO se movió y
-   * la fila de reconciliación absorbió la diferencia en silencio -- la SEGUNDA
-   * vez que pasa, después del presupuesto de branch en OL11. Es la advertencia
-   * que quedó escrita en esa fila, cumpliéndose.
+   * ⚠ Y NPPM, que proyecta desde sus REALTORS — etapa OL12, movido a
+   * `nppmRealtorBudget` en OL27 por lo mismo que el presupuesto de branch: la
+   * pantalla necesita mostrar ESTE número, y dos cuentas del mismo número
+   * terminan discrepando.
    */
-  for (const bs of branch.byStrategy) {
-    if (bs.opensBy !== 'realtor' || bs.realtors.length === 0) continue;
-    const suma = bs.realtors.reduce((a, r) => a + r.benchmark, 0);
-    for (const m of months) byMonth[m] += suma;
-  }
+  const deNppm = nppmRealtorBudget(branch, months);
+  for (const m of months) byMonth[m] += deNppm.exactByMonth[m] ?? 0;
   /*
-   * ⚠ Y EL PRESUPUESTO DE BRANCH QUE TODAVÍA EXISTE, que ya no es de ninguna
-   * estrategia en particular.
-   *
-   * Ninguna estrategia se presupuesta a nivel branch desde OL15, pero hay DOS
-   * filas guardadas que sí --las de B2B en el 747 y el 716, cargadas antes del
-   * cambio-- y no se pueden reasignar: cada una cubre a dos o tres Business
-   * Developers y repartirlas es una decisión de negocio. Se siguen sumando para
-   * no borrar un presupuesto real, y la pantalla las muestra como una fila propia
-   * en vez de mezclarlas con las personas.
+   * ⚠ Y EL PRESUPUESTO DE BRANCH. El cálculo se fue a `branchLevelBudget` —
+   * etapa OL27— porque ahora lo lee DOS veces: esta suma y la fila que lo
+   * muestra. Ver su nota: hasta OL27 vivía sólo acá, ninguna fila lo dibujaba,
+   * y la reconciliación se lo tragaba con el rótulo de otra cosa.
    */
-  for (const bs of branch.byStrategy) {
-    const hay = bs.mode === 'monthly' ? bs.targetRevision > 0 : bs.benchmarkSchedule.length > 0;
-    if (!hay) continue;
-    const steps = projectPlan(months, {
-      mode: bs.mode,
-      benchmarks: bs.benchmarkSchedule,
-      segments: bs.rules,
-      targets: bs.targets,
-    });
-    steps.forEach((st) => (byMonth[st.month] += st.value));
-  }
+  const delBranch = branchLevelBudget(branch, months);
+  for (const m of months) byMonth[m] += delBranch.byMonth[m] ?? 0;
   /*
    * ⚠ ENTERO POR MES — etapa OL13. Medio préstamo no existe, y el presupuesto se
    * muestra igual que el resto: sin decimales.

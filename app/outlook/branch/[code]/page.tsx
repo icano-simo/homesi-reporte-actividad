@@ -10,6 +10,9 @@ import {
   currentMonthByBranch,
   projectBranch,
   projectLoanOfficer,
+  /* Las dos fuentes que OL27 saca de la reconciliación y les da fila propia. */
+  branchLevelBudget,
+  nppmRealtorBudget,
   type BranchRecruit,
   type YearRow,
 } from '@/lib/outlook/loadData';
@@ -729,14 +732,33 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
   const visibleRecruitRows = recruitRows.filter((rr) => shouldShowRecruit(rr.recruit, data.today));
 
   /*
-   * Los realtors de NPPM: mismo cálculo de siempre. Lo único que cambia es que
-   * su benchmark ya no va pegado al nombre -- ver `BenchTag` en la fila, más
-   * abajo -- que es justo el caso que el punto 2 del brief señala como el más
-   * confuso hoy.
+   * ══════════════════════════════════════════════════════════════════════════
+   * LOS REALTORS DE NPPM, Y AHORA SÍ CON SUS MESES FUTUROS — etapa OL27
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * ⚠ ACÁ IBA `{}` COMO PROYECCIÓN, y ése era medio bug: `projectBranch` suma
+   * el benchmark de cada realtor a TODOS los meses futuros del branch desde
+   * OL12, y estas filas mostraban esos meses en blanco. El presupuesto existía
+   * en el total y no se veía en ninguna fila, así que caía en la reconciliación
+   * -- que encima lo rotulaba «LO out of branch». Medido en OL27: 2 por mes en
+   * el 733, 2 en el 776 y 1 en el 724, ninguno de ellos un cierre de nadie de
+   * otro branch.
+   *
+   * El reparto sale de `nppmRealtorBudget`, la MISMA función que `projectBranch`
+   * usa para sumar. Redondea el total de NPPM y lo reparte entre los realtors
+   * con `apportionByWeight`, por lo mismo que `loanOfficerRowsOf` con las
+   * personas: las filas tienen que sumar el entero que el total ya tiene.
    */
+  const nppmBudget = nppmRealtorBudget(branch, remainingMonths);
   const nppmRows = (bsNppm?.realtors ?? []).map((r) => ({
     r,
-    year: composeYear(monthsOfYear, currentMonth, r.actualByMonth, r.actualByMonth[currentMonth] ?? 0, {}),
+    year: composeYear(
+      monthsOfYear,
+      currentMonth,
+      r.actualByMonth,
+      r.actualByMonth[currentMonth] ?? 0,
+      nppmBudget.parts.find((p) => p.realtorCode === r.realtorCode)?.byMonth ?? {}
+    ),
   }));
 
   /*
@@ -827,6 +849,34 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
     return showing.length === 0 ? null : showing.reduce((a, y) => a + (y.byMonth[m] ?? 0), 0);
   }
 
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * EL PRESUPUESTO FIJADO PARA EL BRANCH, CON FILA PROPIA — etapa OL27
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * Dos filas guardadas en `outlook.strategy_benchmark` con `branch_code` --B2B
+   * en el 747 desde septiembre y en el 716 desde octubre, 2 por mes cada una--
+   * que `projectBranch` suma al total y ninguna fila mostraba.
+   *
+   * ⚠ LOS MESES PASADOS VAN EN `null` Y NO EN CERO. Un presupuesto no tiene
+   * historia: decir 0 en mayo afirmaría que no se cerró nada por esa vía, y lo
+   * que pasa es que la pregunta no aplica. Es la distinción que `fmt` sostiene
+   * --celda vacía contra `0`-- y por eso la fila se arma a mano en vez de con
+   * `composeYear`, que rellenaría los meses cerrados con ceros.
+   */
+  const branchBudget = branchLevelBudget(branch, remainingMonths);
+  const branchBudgetYear: YearRow = (() => {
+    const byMonth: Record<string, number | null> = {};
+    let total = 0;
+    for (const m of monthsOfYear) {
+      const v = remainingMonths.includes(m) ? (branchBudget.byMonth[m] ?? 0) : null;
+      byMonth[m] = v;
+      if (v !== null) total += v;
+    }
+    return { byMonth, total, hasUnknown: true };
+  })();
+  const hayBranchBudget = remainingMonths.some((m) => (branchBudget.byMonth[m] ?? 0) > 0);
+
   const loExistingYears = personRows.map((p) => p.year);
   const loHiringYears = visibleRecruitRows.map((r) => r.year);
   const nppmExistingYears = nppmRows.map((x) => x.year);
@@ -837,6 +887,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
     ...nppmExistingYears,
     ...nppmHiringYears,
     ...(affinityRow ? [affinityRow.year] : []),
+    ...(hayBranchBudget ? [branchBudgetYear] : []),
   ];
 
   /*
@@ -1287,6 +1338,27 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                         ›
                       </span>
                       NPPM — existing
+                      {/*
+                        ⚠ QUE EL NÚMERO DIGA QUE ES UN PROMEDIO — etapa OL27.
+                        `outlook.nppm_benchmark` está VACÍA: nadie fijó una meta
+                        para ningún realtor, así que lo que proyecta es `avg3m`,
+                        el promedio de sus tres meses cerrados. Ahora que esos
+                        meses se ven, el número puede leerse como una decisión
+                        que nadie tomó -- que es la circularidad de los 29
+                        provisionales de Business Plan, en otra pantalla.
+                      */}
+                      {nppmRows.every((x) => x.r.benchmarkIsDefault) && (
+                        <span
+                          className="bp-muted ol-tag"
+                          title={
+                            `Nobody has set a benchmark for these realtors, so what projects is the ` +
+                            `average of their closings over the 3 closed months. It is what happened, ` +
+                            `not what anyone decided should happen.`
+                          }
+                        >
+                          3-month average, not a target
+                        </span>
+                      )}
                     </td>
                     <td className="bp-center ol-bench"></td>
                     {monthsOfYear.map((m) => (
@@ -1581,6 +1653,51 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
             )}
 
             {/*
+              ══════════════════════════════════════════════════════════════
+              EL PRESUPUESTO FIJADO PARA EL BRANCH — etapa OL27
+              ══════════════════════════════════════════════════════════════
+
+              No es de nadie en particular: se fijó para el branch entero y
+              cubre a varias personas. Hasta OL27 el total lo sumaba y ninguna
+              fila lo mostraba, así que la reconciliación se lo tragaba bajo el
+              rótulo «LO out of branch» -- que hablaba de otra cosa.
+
+              Se suma ADEMÁS de las personas, no en lugar de ellas: es
+              producción que no se le atribuye a nadie del roster. Por eso tiene
+              fila propia y no se reparte: repartirla entre los Business
+              Developers que cubre es una decisión de negocio, no un cálculo.
+            */}
+            {hayBranchBudget && (
+              <tr className="metric mrow">
+                <td className="lbl">
+                  <span className="chev chev--none" aria-hidden="true" />
+                  Branch-level budget
+                  <span
+                    className="bp-muted ol-tag"
+                    title={
+                      `Set for the whole branch, not for a person: ` +
+                      branchBudget.parts.map((p) => p.strategy).join(', ') +
+                      `. It covers several people, so it adds to the rows above instead of ` +
+                      `replacing them, and nobody's row carries it.`
+                    }
+                  >
+                    {branchBudget.parts.map((p) => p.strategy).join(' · ')}
+                  </span>
+                </td>
+                <td className="bp-center ol-bench"></td>
+                {monthsOfYear.map((m) => (
+                  <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
+                    {fmt(branchBudgetYear.byMonth[m] ?? null)}
+                  </td>
+                ))}
+                <td className="bp-center totcol">
+                  {fmt(sumOfShown(monthsOfYear.map((m) => branchBudgetYear.byMonth[m] ?? null)))}
+                </td>
+                <td className="ol-rulecol bp-muted">not a person</td>
+              </tr>
+            )}
+
+            {/*
               LO QUE NINGÚN GRUPO RECLAMA. Ver `residual` arriba: es un residuo
               puro, así que el total sigue siendo la suma de las filas. No se
               muestra cuando no hay nada que reconciliar.
@@ -1601,16 +1718,20 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                       ? `${monthLabel(currentMonth)} already above forecast`
                       : `${monthLabel(currentMonth)} pipeline, no strategy yet`
                     : /*
-                       * ⚠ B2B YA NO CAE ACÁ -- etapa OL26c. Hasta esta corrección,
-                       * este residuo absorbía toda la producción de B2B --el 747
-                       * cerró 20 este año-- porque esa estrategia no tenía fila
-                       * propia ni tampoco caía en la de nadie más. Ahora cada
-                       * cierre suma en la fila del Loan Officer que lo cerró, sea
-                       * cual sea su estrategia (ver `loanOfficerRowsOf`), así que
-                       * lo único que puede quedar acá es lo mismo de siempre:
-                       * cierres de gente que no está en el roster de este branch.
+                       * ⚠ EL RÓTULO DICE LO QUE LA FILA LLEVA, Y HASTA OL27 NO ERA
+                       * CIERTO. Decía «LO out of branch» --cierres de gente que no
+                       * está en el roster-- y en los meses futuros llevaba dos
+                       * cosas que no son eso: el presupuesto de branch (747 y 716)
+                       * y lo que NPPM proyecta desde sus realtors (733, 776, 724).
+                       * El 724 lo dejó a la vista: rotulaba «LO out of branch» sin
+                       * UN SOLO cierre de otro branch en el pie.
+                       *
+                       * Las dos fuentes tienen fila propia desde OL27, así que lo
+                       * que queda acá es lo que el rótulo dice. Y lo dice entero,
+                       * porque «LO out of branch» no se entiende sin saber que el
+                       * total cuenta por préstamo y las estrategias por roster.
                        */
-                      'LO out of branch'}
+                      'Closed by loan officers from other branches'}
                   <span
                     className="bp-muted ol-tag"
                     title={
