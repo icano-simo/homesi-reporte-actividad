@@ -963,7 +963,8 @@ export default function PipelinePage() {
         filteredResolvedLoans,
         forecastRange,
         PULL_THROUGH_RATES,
-        loanOfficerResolved.index
+        loanOfficerResolved.index,
+        loanOfficerResolved.outOfDivisionIndex
       )
     : [];
 

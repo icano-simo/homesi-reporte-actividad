@@ -62,6 +62,8 @@ export interface LoanOfficerForecastRow {
   channel: BranchRow['channel'];
   loanOfficer: string;
   loanOfficerKey: string;
+  /** Ver `resolveOfficer()` -- `true` solo para el fallback de nombre crudo marcado "fuera de división" en `org.loan_officer_resolved`. */
+  outOfDivision: boolean;
   totalCount: number;
   healthyCount: number;
   closedCount: number;
@@ -76,7 +78,8 @@ export function buildLoanOfficerForecastRows(
   resolvedLoans: ResolvedLoan[],
   dateRange: DateRange,
   rates: PullThroughRates,
-  loanOfficerResolvedIndex: Map<string, LoanOfficerResolvedEntry>
+  loanOfficerResolvedIndex: Map<string, LoanOfficerResolvedEntry>,
+  outOfDivisionIndex: Map<string, boolean>
 ): LoanOfficerForecastRow[] {
   const result: LoanOfficerForecastRow[] = [];
 
@@ -89,10 +92,16 @@ export function buildLoanOfficerForecastRows(
    *    identidad es el `person_code` y el nombre a mostrar es
    *    `nombre_canonico`. `loanOfficerResolvedIndex` ya viene filtrado a
    *    solo person_code no nulo (ver ese hook), así que "está en el Map" y
-   *    "resolvió" son lo mismo acá.
+   *    "resolvió" son lo mismo acá. `outOfDivision` es siempre `false` --
+   *    una persona resuelta nunca lleva esta marca.
    * 2. Si no resuelve ahí: NO se descarta ni se fusiona con nadie -- queda
    *    como su propia identidad (key = 'raw:'+nombre), con su nombre crudo
    *    como display -- fidelidad del dato por sobre prolijidad del nombre.
+   *    `outOfDivision` sale de `outOfDivisionIndex` (mismo criterio de la
+   *    auditoría manual: `person_code IS NULL AND es_de_la_division =
+   *    false` en `org.loan_officer_resolved`) -- `false` también si el
+   *    nombre no está en ese índice (no se puede afirmar "fuera de
+   *    división" de un nombre del que no hay dato).
    *
    * Fallback a org.employee_alias QUITADO (11-sep, a pedido explícito de
    * Isa): la vista `org.loan_officer_resolved` se corrigió para cubrir
@@ -100,11 +109,11 @@ export function buildLoanOfficerForecastRows(
    * conocía Encompass), pasando de 72 a 87 filas -- ya no hace falta un
    * segundo mecanismo de resolución conviviendo con el primero.
    */
-  function resolveOfficer(rawName: string): { key: string; displayName: string } {
+  function resolveOfficer(rawName: string): { key: string; displayName: string; outOfDivision: boolean } {
     const resolved = loanOfficerResolvedIndex.get(rawName);
-    if (resolved) return { key: 'person:' + resolved.personCode, displayName: resolved.nombreCanonico };
+    if (resolved) return { key: 'person:' + resolved.personCode, displayName: resolved.nombreCanonico, outOfDivision: false };
 
-    return { key: 'raw:' + rawName, displayName: rawName };
+    return { key: 'raw:' + rawName, displayName: rawName, outOfDivision: outOfDivisionIndex.get(rawName) === true };
   }
 
   for (const branchRow of branchRows) {
@@ -116,12 +125,12 @@ export function buildLoanOfficerForecastRows(
       (loan) => loan.branch === branchRow.branch && loan.channel === branchRow.channel
     );
 
-    const officersByKey = new Map<string, { key: string; displayName: string }>();
+    const officersByKey = new Map<string, { key: string; displayName: string; outOfDivision: boolean }>();
     for (const l of openLoansForBranch) if (l.loanOfficer) officersByKey.set(resolveOfficer(l.loanOfficer).key, resolveOfficer(l.loanOfficer));
     for (const l of closedLoansForBranch) if (l.loanOfficer) officersByKey.set(resolveOfficer(l.loanOfficer).key, resolveOfficer(l.loanOfficer));
     if (officersByKey.size === 0) continue;
 
-    const perOfficer = [...officersByKey.values()].map(({ key, displayName }) => {
+    const perOfficer = [...officersByKey.values()].map(({ key, displayName, outOfDivision }) => {
       const loans = openLoansForBranch.filter((l) => l.loanOfficer && resolveOfficer(l.loanOfficer).key === key);
       const healthy = loans.filter((l) => l.healthy === true);
       const closedLoans = closedLoansForBranch.filter((l) => l.loanOfficer && resolveOfficer(l.loanOfficer).key === key);
@@ -136,7 +145,7 @@ export function buildLoanOfficerForecastRows(
         ? calculateForecast(countByMilestoneBucket(healthy), rates).forecastTotal
         : loans.length * BROKERED_FLAT_PULL_THROUGH_RATE;
 
-      return { loanOfficerKey: key, loanOfficer: displayName, loans, closedLoans: closedLoansInMonth, totalCount: loans.length, healthyCount: healthy.length, closedCount, exactForecast };
+      return { loanOfficerKey: key, loanOfficer: displayName, outOfDivision, loans, closedLoans: closedLoansInMonth, totalCount: loans.length, healthyCount: healthy.length, closedCount, exactForecast };
     });
 
     /* El entero del branch+channel, repartido. La suma de las partes ES el entero. */
@@ -150,6 +159,7 @@ export function buildLoanOfficerForecastRows(
       channel: branchRow.channel,
       loanOfficer: r.loanOfficer,
       loanOfficerKey: r.loanOfficerKey,
+      outOfDivision: r.outOfDivision,
       loans: r.loans,
       closedLoans: r.closedLoans,
       totalCount: r.totalCount,
@@ -215,6 +225,8 @@ export function buildLoanOfficerForecastRows(
 export interface LoanOfficerForecastByPerson {
   loanOfficer: string;
   loanOfficerKey: string;
+  /** Constante por `loanOfficerKey` -- ver `LoanOfficerForecastRow.outOfDivision`. */
+  outOfDivision: boolean;
   totalCount: number;
   healthyCount: number;
   closedCount: number;
@@ -238,6 +250,7 @@ export function buildLoanOfficerForecastByPerson(rows: LoanOfficerForecastRow[])
     const cur = byOfficer.get(row.loanOfficerKey) ?? {
       loanOfficer: row.loanOfficer,
       loanOfficerKey: row.loanOfficerKey,
+      outOfDivision: row.outOfDivision,
       totalCount: 0,
       healthyCount: 0,
       closedCount: 0,

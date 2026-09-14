@@ -126,7 +126,10 @@ export default function LoanOfficerForecastTable({ rows }: LoanOfficerForecastTa
             <tbody>
               {visibleRows.map((row) => (
                 <tr className="metric" key={row.loanOfficerKey}>
-                  <td className="lbl" style={{ textAlign: 'left' }}>{row.loanOfficer}</td>
+                  <td className="lbl" style={{ textAlign: 'left' }}>
+                    {row.loanOfficer}
+                    {row.outOfDivision && <span className="lo-out-of-division">LO out of branch</span>}
+                  </td>
                   <td className="val"><CountCell value={row.totalCount} onClick={() => openTotal(row)} /></td>
                   <td className="val"><CountCell value={row.healthyCount} onClick={() => openHealthy(row)} /></td>
                   <td className="val"><CountCell value={row.closedCount} onClick={() => openClosed(row)} variant="closed" /></td>

@@ -16,16 +16,19 @@ import { getSupabaseClient } from '@/lib/supabase/client';
  * (lib/pipeline/loanOfficerForecast.ts) -- no se vuelve una dependencia
  * global de otros tabs con este cambio.
  *
- * Se trae solo lo necesario para el paso 1 de `resolveOfficer()`: filas de
- * `org.loan_officer_resolved` con `person_code` NO nulo -- las filas con
- * `person_code` null (loan officer conocido en la fuente pero sin persona
- * resuelta) no aportan nada a este mecanismo, así que se descartan a nivel
- * de query (`.not('person_code', 'is', null)`), no en memoria. El resultado
- * es un Map `loan_officer_name -> { personCode, nombreCanonico }` -- ausencia
- * en el Map (nombre no vino con person_code, o no está en la tabla en
- * absoluto) es indistinguible a propósito: en los dos casos el fallback de
- * `resolveOfficer()` sigue al mecanismo actual (`org.employee_alias`), igual
- * que si esta tabla no existiera.
+ * Se trae de `org.loan_officer_resolved` lo necesario para los DOS usos de
+ * `resolveOfficer()`: el paso 1 (filas con `person_code` NO nulo -> persona
+ * resuelta) y la marca "Fuera de división" del paso 2 (filas con
+ * `person_code` NULO -> si esa fila trae `es_de_la_division = false`). Ya NO
+ * se filtra a nivel de query -- antes (`.not('person_code', 'is', null)`) las
+ * filas sin persona resuelta no aportaban nada y se descartaban en la propia
+ * consulta; ahora hacen falta para saber si el nombre crudo es un caso
+ * conocido de "fuera de división" y no simplemente un nombre ausente de la
+ * vista. El resultado son DOS Maps separados por ese mismo corte:
+ * `index` (persona resuelta) y `outOfDivisionIndex` (marca para el
+ * fallback). Un nombre ausente de los dos Maps sigue siendo indistinguible
+ * de un nombre "fuera de división" con la marca en `false` -- en ambos casos
+ * el fallback de `resolveOfficer()` muestra el nombre crudo sin marca.
  */
 
 export interface LoanOfficerResolvedEntry {
@@ -36,6 +39,13 @@ export interface LoanOfficerResolvedEntry {
 export interface LoanOfficerResolvedIndex {
   /** `loan_officer_name` (tal cual llega del export) -> persona resuelta. */
   index: Map<string, LoanOfficerResolvedEntry>;
+  /**
+   * `loan_officer_name` -> `es_de_la_division === false`, solo para las
+   * filas SIN `person_code` (las que no entran en `index`). Se consulta
+   * únicamente cuando `resolveOfficer()` ya cayó al fallback de nombre
+   * crudo -- ver lib/pipeline/loanOfficerForecast.ts.
+   */
+  outOfDivisionIndex: Map<string, boolean>;
   loading: boolean;
   error: string | null;
 }
@@ -43,6 +53,7 @@ export interface LoanOfficerResolvedIndex {
 export function useLoanOfficerResolved(): LoanOfficerResolvedIndex {
   const [state, setState] = useState<LoanOfficerResolvedIndex>({
     index: new Map(),
+    outOfDivisionIndex: new Map(),
     loading: true,
     error: null,
   });
@@ -55,17 +66,26 @@ export function useLoanOfficerResolved(): LoanOfficerResolvedIndex {
         const org = getSupabaseClient().schema('org');
         const { data, error } = await org
           .from('loan_officer_resolved')
-          .select('loan_officer_name, person_code, nombre_canonico')
-          .not('person_code', 'is', null);
+          .select('loan_officer_name, person_code, nombre_canonico, es_de_la_division');
         if (error) throw new Error('org.loan_officer_resolved: ' + error.message);
         if (cancelled) return;
 
         const index = new Map<string, LoanOfficerResolvedEntry>();
-        for (const row of (data ?? []) as { loan_officer_name: string; person_code: string; nombre_canonico: string }[]) {
-          index.set(row.loan_officer_name, { personCode: row.person_code, nombreCanonico: row.nombre_canonico });
+        const outOfDivisionIndex = new Map<string, boolean>();
+        for (const row of (data ?? []) as {
+          loan_officer_name: string;
+          person_code: string | null;
+          nombre_canonico: string;
+          es_de_la_division: boolean | null;
+        }[]) {
+          if (row.person_code !== null) {
+            index.set(row.loan_officer_name, { personCode: row.person_code, nombreCanonico: row.nombre_canonico });
+          } else {
+            outOfDivisionIndex.set(row.loan_officer_name, row.es_de_la_division === false);
+          }
         }
 
-        setState({ index, loading: false, error: null });
+        setState({ index, outOfDivisionIndex, loading: false, error: null });
       } catch (err) {
         if (cancelled) return;
         setState((prev) => ({ ...prev, loading: false, error: err instanceof Error ? err.message : String(err) }));
