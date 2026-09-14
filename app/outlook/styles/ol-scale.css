@@ -134,6 +134,30 @@ table.piv.ol-year tr.metric.drow td.lbl,
   white-space: nowrap;
 }
 
+/*
+ * ══════════════════════════════════════════════════════════════════════════
+ * QUIÉN SUMA Y QUIÉN NO, POR LA FORMA — etapa OL34
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ * Acá había dos renglones de texto explicándolo --«detail · does not add to the
+ * total» y «3-month average, not a target»-- y la jerarquía la tiene que dar la
+ * forma, no una explicación. Mismo criterio con el que salieron el párrafo del
+ * 3.1 y el aviso de la barra de revisión.
+ *
+ * ⚠ Y NO ES SÓLO COLOR. La sangría de la fila hace el trabajo estructural y lo
+ * hace sin depender de ver el color: un daltónico, una impresión en blanco y
+ * negro o una pantalla mal calibrada la dejan en pie. La negrita y el tono
+ * refuerzan; no cargan solos con la distinción.
+ */
+.ol-year tr.ol-sums td.lbl {
+  font-weight: 700;
+}
+.ol-year tr.ol-detail td,
+.ol-year tr.ol-detail td.lbl {
+  color: var(--slate-400);
+  font-weight: 400;
+}
+
 /* Los márgenes que estaban en línea en el TSX. */
 .ol-page .foot-note,
 .ol-page .ol-notice {

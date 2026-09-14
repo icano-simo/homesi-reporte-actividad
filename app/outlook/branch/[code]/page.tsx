@@ -1431,7 +1431,13 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                         */
                         <tr
                           key={'lo-' + pr.lo.employeeKey}
-                          className="metric mrow"
+                          /*
+                            ⚠ `ol-sums` — OL34: en negrita porque SUMA. Es la
+                            mitad visible de la regla de OL33; la otra es el
+                            tono tenue de las que no suman. Sin las dos, la
+                            distinción vuelve a necesitar un renglón de texto.
+                          */
+                          className="metric mrow ol-sums"
                           data-rv-lo={pr.lo.employeeKey}
                         >
                           <td className="lbl">
@@ -1511,50 +1517,42 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                 const abierta = open.has(key);
                 return (
                 <Fragment key={key}>
-                  <tr className="grp d1 togg" data-rv-grupo={key} onClick={() => toggle(key)}>
+                  {/*
+                    ══════════════════════════════════════════════════════════
+                    ⚠ LOS DOS RÓTULOS DE TEXTO SE FUERON — etapa OL34
+                    ══════════════════════════════════════════════════════════
+
+                    Decían «detail · does not add to the total» (OL33) y
+                    «3-month average, not a target» (OL27). Lo que explicaban
+                    sigue siendo cierto; lo que cambió es CÓMO se dice: la
+                    jerarquía la da la forma --sangría, tono y negrita-- y no un
+                    renglón de explicación al lado de cada grupo.
+
+                    ⚠ Y NO SE PERDIÓ: los dos textos viven en el `title` de la
+                    fila, que es donde se busca una explicación cuando la forma
+                    ya dijo lo que hay que saber. El orden importa -- la forma
+                    primero, la explicación a pedido-- y es el mismo criterio
+                    con el que salió el párrafo del paso 3.1.
+                  */}
+                  <tr
+                    className="grp d1 togg ol-detail"
+                    data-rv-grupo={key}
+                    onClick={() => toggle(key)}
+                    title={
+                      `Detail, not a sum: every closing here is already counted in the row of the loan ` +
+                      `officer who closed it, and the branch total is the sum of its loan officers. ` +
+                      (nppmRows.every((x) => x.r.benchmarkIsDefault)
+                        ? `Nobody has set a benchmark for these realtors either, so what projects is the ` +
+                          `average of their closings over the 3 closed months: what happened, not what ` +
+                          `anyone decided should happen.`
+                        : '')
+                    }
+                  >
                     <td className="lbl">
                       <span className={'chev' + (abierta ? ' open' : '')} aria-hidden="true">
                         ›
                       </span>
                       NPPM — existing
-                      {/*
-                        ⚠ LO PRIMERO QUE TIENE QUE DECIR: QUE NO SUMA — OL33.
-                        Sin esto alguien suma las filas de la tabla y no le da,
-                        y el error no se ve: los números son todos correctos.
-                        Va antes que el aviso del promedio porque cambia CÓMO SE
-                        LEE la fila, no de dónde sale su número.
-                      */}
-                      <span
-                        className="bp-muted ol-tag"
-                        title={
-                          `Detail, not a sum: every closing here is already counted in the row of the loan ` +
-                          `officer who closed it. These rows say WHO BROUGHT the business, and the branch ` +
-                          `total is the sum of its loan officers.`
-                        }
-                      >
-                        detail · does not add to the total
-                      </span>
-                      {/*
-                        ⚠ QUE EL NÚMERO DIGA QUE ES UN PROMEDIO — etapa OL27.
-                        `outlook.nppm_benchmark` está VACÍA: nadie fijó una meta
-                        para ningún realtor, así que lo que proyecta es `avg3m`,
-                        el promedio de sus tres meses cerrados. Ahora que esos
-                        meses se ven, el número puede leerse como una decisión
-                        que nadie tomó -- que es la circularidad de los 29
-                        provisionales de Business Plan, en otra pantalla.
-                      */}
-                      {nppmRows.every((x) => x.r.benchmarkIsDefault) && (
-                        <span
-                          className="bp-muted ol-tag"
-                          title={
-                            `Nobody has set a benchmark for these realtors, so what projects is the ` +
-                            `average of their closings over the 3 closed months. It is what happened, ` +
-                            `not what anyone decided should happen.`
-                          }
-                        >
-                          3-month average, not a target
-                        </span>
-                      )}
                     </td>
                     <td className="bp-center ol-bench"></td>
                     {monthsOfYear.map((m) => (
@@ -1572,7 +1570,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
 
                   {abierta &&
                     nppmRows.map(({ r, year: rYear }) => (
-                      <tr key={'nppm-' + r.realtorCode} className="metric mrow">
+                      <tr key={'nppm-' + r.realtorCode} className="metric mrow ol-detail">
                         {/*
                           ⚠ SANGRADA A LA DERECHA — OL33. La marca del grupo dice
                           que no suma; la sangría lo hace visible sin leer nada,
