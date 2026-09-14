@@ -905,13 +905,59 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
   const loHiringYears = visibleRecruitRows.map((r) => r.year);
   const nppmExistingYears = nppmRows.map((x) => x.year);
   const nppmHiringYears = nppmHiringRows.map((x) => x.year);
+
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * UNA SOLA FILA CUANDO NO HAY NADIE CON QUIEN CONFUNDIRLA — etapa OL30/OL28
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * En un branch SIN filas de persona, la fila de Affinity y la del presupuesto
+   * del branch hablan del mismo sujeto: una dice su pasado y la otra su futuro.
+   * Partirlas en dos no separa nada -- no hay filas de persona con las que el
+   * presupuesto del branch pueda competir-- y obliga a leer dos renglones para
+   * entender un branch que tiene un solo tema. Se funden.
+   *
+   * ⚠ LA CONDICIÓN ES POR EL DATO Y NO POR EL NOMBRE. No dice «si el branch es
+   * AFFINITY»: dice «si no hay ninguna fila de persona». Hoy eso son cuatro
+   * --AFFINITY, 741, 701 y 771, medidos-- y mañana puede ser otro; y el día que
+   * AFFINITY tenga un productor rosterizado, las dos filas vuelven solas.
+   *
+   * ⚠ Y EN UN BRANCH CON GENTE SIGUEN SEPARADAS, que es la otra mitad del
+   * criterio: ahí el presupuesto del branch es producción que NO se le atribuye
+   * a nadie, y mezclarlo con lo cerrado por las personas lo escondería. Es lo
+   * mismo que OL27 vino a arreglar, por la puerta de al lado.
+   */
+  const unaSolaFila = personRows.length === 0 && visibleRecruitRows.length === 0;
+  const filaUnica: YearRow | null =
+    unaSolaFila && affinityRow !== undefined
+      ? (() => {
+          const byMonth: Record<string, number | null> = {};
+          let total = 0;
+          for (const m of monthsOfYear) {
+            /* El futuro manda el presupuesto del branch --es el override de
+               OL27--; el pasado y el mes en curso, lo que Affinity cerró. */
+            const v = remainingMonths.includes(m)
+              ? (branchBudgetYear.byMonth[m] ?? affinityRow.year.byMonth[m] ?? null)
+              : (affinityRow.year.byMonth[m] ?? null);
+            byMonth[m] = v;
+            if (v !== null) total += v;
+          }
+          return { byMonth, total, hasUnknown: true };
+        })()
+      : null;
+
   const allShownYears: YearRow[] = [
     ...loExistingYears,
     ...loHiringYears,
     ...nppmExistingYears,
     ...nppmHiringYears,
-    ...(affinityRow ? [affinityRow.year] : []),
-    ...(hayBranchBudget ? [branchBudgetYear] : []),
+    /* Con la fila fundida, sus dos mitades NO se suman por separado. */
+    ...(filaUnica !== null
+      ? [filaUnica]
+      : [
+          ...(affinityRow ? [affinityRow.year] : []),
+          ...(hayBranchBudget ? [branchBudgetYear] : []),
+        ]),
   ];
 
   /*
@@ -1401,7 +1447,29 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                   {abierta &&
                     nppmRows.map(({ r, year: rYear }) => (
                       <tr key={'nppm-' + r.realtorCode} className="metric mrow">
-                        <td className="lbl">{r.displayName}</td>
+                        <td className="lbl">
+                          {r.displayName}
+                          {/*
+                            ⚠ EL QUE SE MUDÓ SIGUE ACÁ, Y SE DICE — etapa OL30.
+                            Su producción de este branch es real y ocurrió acá,
+                            así que la fila no se va; lo que se va es el
+                            presupuesto, porque un realtor proyecta donde está
+                            hoy. Sin este rótulo, una fila con pasado y sin
+                            futuro se lee como un dato que falta.
+                          */}
+                          {!r.projectsHere && (
+                            <span
+                              className="bp-muted ol-tag"
+                              title={
+                                `${r.displayName} closed here before and closes in ${r.currentBranch} now, ` +
+                                `so the budget goes there. What closed here is real and stays; a realtor ` +
+                                `projects in one branch, the one they are in today.`
+                              }
+                            >
+                              history · projects in {r.currentBranch}
+                            </span>
+                          )}
+                        </td>
                         <td className="bp-center ol-bench">
                           {/*
                             ⚠ Dos decimales: el promedio de 3 meses de un realtor
@@ -1654,7 +1722,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               AFFINITY — una sola fila total, sin abrir por Account Executive
               ══════════════════════════════════════════════════════════════
             */}
-            {affinityRow && (
+            {affinityRow && filaUnica === null && (
               <tr className="metric mrow">
                 <td className="lbl">
                   <span className="chev chev--none" aria-hidden="true" />
@@ -1678,6 +1746,60 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
 
             {/*
               ══════════════════════════════════════════════════════════════
+              LA FILA FUNDIDA — etapa OL28
+              ══════════════════════════════════════════════════════════════
+
+              Un branch sin filas de persona tiene un solo sujeto, así que tiene
+              una sola fila: lo cerrado y lo presupuestado en el mismo renglón,
+              como cualquier otra. Ver la nota de `filaUnica` arriba.
+
+              El nombre sigue siendo el de la estrategia --es de lo que habla la
+              fila-- y el lápiz del presupuesto viene con ella, porque acá el
+              sujeto del presupuesto ES el branch.
+            */}
+            {filaUnica !== null && affinityRow && (
+              <tr className="metric mrow">
+                <td className="lbl">
+                  <span className="chev chev--none" aria-hidden="true" />
+                  Affinity
+                  <span
+                    className="bp-muted ol-tag"
+                    title={
+                      `Nobody on this branch's roster, so there is nothing to tell apart: what closed ` +
+                      `and what is budgeted are the same subject and share one row. The budget is set ` +
+                      `for the branch as a whole.`
+                    }
+                  >
+                    branch total
+                  </span>
+                </td>
+                <td className="bp-center ol-bench">
+                  <BenchTag value={affinityBench} />
+                </td>
+                {monthsOfYear.map((m) => (
+                  <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
+                    {fmt(filaUnica.byMonth[m] ?? null)}
+                  </td>
+                ))}
+                <td className="bp-center totcol">
+                  {fmt(sumOfShown(monthsOfYear.map((m) => filaUnica.byMonth[m] ?? null)))}
+                </td>
+                <td className="ol-rulecol">
+                  <button
+                    type="button"
+                    className="ol-pill"
+                    data-ol-branch-budget=""
+                    onClick={() => setEditingBudget({ kind: 'branch', branchCode: branch.branchCode })}
+                    title={'Set the budget for branch ' + branch.branchCode + ' as a whole'}
+                  >
+                    Set budget
+                  </button>
+                </td>
+              </tr>
+            )}
+
+            {/*
+              ══════════════════════════════════════════════════════════════
               EL PRESUPUESTO FIJADO PARA EL BRANCH — etapa OL27
               ══════════════════════════════════════════════════════════════
 
@@ -1691,7 +1813,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               fila propia y no se reparte: repartirla entre los Business
               Developers que cubre es una decisión de negocio, no un cálculo.
             */}
-            {hayBranchBudget && (
+            {hayBranchBudget && filaUnica === null && (
               <tr className="metric mrow">
                 <td className="lbl">
                   <span className="chev chev--none" aria-hidden="true" />

@@ -541,6 +541,25 @@ export interface BranchRealtor {
   /** `true` si nadie lo fijó y el que rige es `avg3m`. */
   benchmarkIsDefault: boolean;
   /**
+   * ==========================================================================
+   * ⚠ UN REALTOR PROYECTA EN UN SOLO BRANCH — etapa OL30
+   * ==========================================================================
+   *
+   * `true` si ÉSTE es el branch donde el realtor está hoy, que es donde cerró
+   * lo último. En los demás su producción es HISTORIA: sigue contando en el
+   * pasado de ese branch --ocurrió ahí, y eso no se toca-- pero no arma
+   * presupuesto.
+   *
+   * Sin esto un realtor que se mudó proyecta en los dos, porque `avg3m` se
+   * calcula POR BRANCH: mientras el branch viejo tenga cierres suyos dentro de
+   * la ventana de tres meses le arma un benchmark ahí. Medido: Laura Delgado,
+   * 4 cierres en el 733 (mayo a julio) y 8 en el 776 (julio a septiembre),
+   * proyectando 1 por mes en uno y 2 en el otro.
+   */
+  projectsHere: boolean;
+  /** Dónde SÍ proyecta, para poder decirlo en la fila que no proyecta. */
+  currentBranch: string;
+  /**
    * El presupuesto compuesto, punto 5 de OL26 -- ver la nota en
    * `OutlookLoanOfficer`. Un realtor NPPM sólo admite `own_production` y
    * `business_plan` en el desglose (reforzado por CHECK en la base).
@@ -2524,6 +2543,44 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
   const NPPM_WINDOW = 3;
   const ventanaCerrada = mesesReales.slice(-NPPM_WINDOW);
 
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * DÓNDE ESTÁ HOY CADA REALTOR — etapa OL30
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * El branch de su CIERRE MÁS RECIENTE. Sale del dato y no de una lista a
+   * mano: un realtor que se mudó no avisa, y la única señal que deja es dónde
+   * cierra ahora.
+   *
+   * ⚠ EL DESEMPATE ESTÁ ESCRITO y no librado al orden del `Map`: mismo mes en
+   * dos branches -> gana el que más cerró ESE MES; si empatan, el de más
+   * cierres en el año; y si también empatan, el código menor. Un criterio que
+   * depende del orden de iteración da un resultado distinto cuando cambia el
+   * dato, y eso es indistinguible de un cambio de branch real.
+   */
+  const branchDeHoyPorRealtor = new Map<string, string>();
+  {
+    const mejor = new Map<string, { branch: string; mes: string; eseMes: number; anio: number }>();
+    for (const [clave, meses] of actualByBranchRealtor) {
+      const corte = clave.indexOf('|');
+      const branch = clave.slice(0, corte);
+      const code = clave.slice(corte + 1);
+      const conCierres = [...meses.entries()].filter(([, n]) => n > 0).sort((a, b) => a[0].localeCompare(b[0]));
+      if (conCierres.length === 0) continue;
+      const [mes, eseMes] = conCierres[conCierres.length - 1];
+      const anio = [...meses.values()].reduce((a, b) => a + b, 0);
+      const previo = mejor.get(code);
+      const gana =
+        previo === undefined ||
+        mes > previo.mes ||
+        (mes === previo.mes && eseMes > previo.eseMes) ||
+        (mes === previo.mes && eseMes === previo.eseMes && anio > previo.anio) ||
+        (mes === previo.mes && eseMes === previo.eseMes && anio === previo.anio && branch < previo.branch);
+      if (gana) mejor.set(code, { branch, mes, eseMes, anio });
+    }
+    for (const [code, m] of mejor) branchDeHoyPorRealtor.set(code, m.branch);
+  }
+
   /** Las cinco estrategias de un branch, con quién las abre. Ver `BranchStrategy`. */
   function strategiesOfBranch(branchCode: string): BranchStrategy[] {
     return OUTLOOK_STRATEGIES.map((strategy) => {
@@ -2559,6 +2616,15 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
                   avg3m,
                   benchmark: hayGuardado ? guardado : avg3m,
                   benchmarkIsDefault: !hayGuardado,
+                  /*
+                   * ⚠ OL30. `?? branchCode` para el caso imposible de un
+                   * realtor sin ningún cierre en ningún lado: si llegara acá
+                   * sin branch de hoy, proyecta donde está, que es lo que hacía
+                   * antes. Un `false` silencioso lo dejaría sin presupuesto en
+                   * NINGÚN branch, que es peor que el problema.
+                   */
+                  projectsHere: (branchDeHoyPorRealtor.get(realtorCode) ?? branchCode) === branchCode,
+                  currentBranch: branchDeHoyPorRealtor.get(realtorCode) ?? branchCode,
                   budgetTotal: budgetTotalOf(personBudgetKeyOf({ employee_key: null, nppm_realtor_code: realtorCode })),
                   budgetTotalRevision: budgetTotalRevisionOf(
                     personBudgetKeyOf({ employee_key: null, nppm_realtor_code: realtorCode })
@@ -3047,9 +3113,17 @@ export function nppmRealtorBudget(
     exactByMonth[m] = 0;
     roundedByMonth[m] = 0;
   }
+  /*
+   * ⚠ SÓLO LOS QUE ESTÁN HOY EN ESTE BRANCH — etapa OL30. El que se mudó sigue
+   * teniendo fila acá, con su producción real, y no suma al presupuesto: ver
+   * `BranchRealtor.projectsHere`. Se filtra ACÁ, en la única función que dice
+   * cuánto proyecta NPPM, para que la suma del total y la fila que lo muestra
+   * no puedan discrepar.
+   */
   const realtors = branch.byStrategy
     .filter((bs) => bs.opensBy === 'realtor')
-    .flatMap((bs) => bs.realtors);
+    .flatMap((bs) => bs.realtors)
+    .filter((r) => r.projectsHere);
   const parts = realtors.map((r) => ({ realtorCode: r.realtorCode, byMonth: {} as Record<string, number> }));
   if (realtors.length === 0) return { exactByMonth, roundedByMonth, parts };
 
