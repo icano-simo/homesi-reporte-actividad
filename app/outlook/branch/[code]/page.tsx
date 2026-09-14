@@ -1054,7 +1054,20 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
   /* Su total del año también se suma al mostrarlo -- ver `sumOfShown`. */
   /* Sólo se muestra si hay algo que reconciliar: 11 de 16 no la necesitan. */
   const showResidual = monthsOfYear.some((m) => Math.abs(residual[m]) > 0.001);
-  const currentAboveForecast = residual[currentMonth] < -0.001;
+  /*
+   * ⚠ ACÁ VIVÍA `currentAboveForecast`, Y SE BORRA CON SU RÓTULO — OL31.
+   *
+   * Era `residual[currentMonth] < -0.001`, o sea el SIGNO del residuo del mes en
+   * curso, y lo único que hacía era elegir entre dos frases. Medido antes de
+   * sacarlo: ese signo es negativo exactamente cuando NPPM o Affinity cerraron
+   * algo en el mes, porque sus filas muestran lo cerrado en una columna donde
+   * las de persona llevan el pronóstico repartido. No decía nada del plan del
+   * branch.
+   *
+   * Se borra en vez de quedar marcada --a diferencia de `allowsSecondFunnel`,
+   * que sigue significando algo-- porque un predicado que sólo existía para
+   * elegir un texto que se fue no significa nada sin él.
+   */
 
   /*
    * El total: la suma de las filas que la tabla MUESTRA, incluida la de
@@ -1905,9 +1918,33 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                     es peor que ninguno.
                   */}
                   {Math.abs(residual[currentMonth]) > 0.001
-                    ? currentAboveForecast
-                      ? `${monthLabel(currentMonth)} already above forecast`
-                      : `${monthLabel(currentMonth)} pipeline, no strategy yet`
+                    ? /*
+                       * ══════════════════════════════════════════════════════
+                       * ⚠ ACÁ DECÍA «already above forecast», Y SE FUE — OL31
+                       * ══════════════════════════════════════════════════════
+                       *
+                       * Nadie lo pidió: salió de `b25f1a2`, la etapa de la fila
+                       * de reconciliación, como la forma amable de mostrar un
+                       * signo menos. Y afirmaba un hecho de NEGOCIO --«este
+                       * branch ya pasó lo que se esperaba del mes»-- a partir de
+                       * un artefacto de PRESENTACIÓN.
+                       *
+                       * Medido: el residuo del mes en curso es negativo
+                       * exactamente por lo que NPPM y Affinity cerraron ese mes.
+                       * Las filas de persona llevan el pronóstico del branch
+                       * repartido y esas dos muestran lo cerrado, así que la
+                       * suma se pasa del pronóstico por el monto de esos
+                       * cierres, esté el branch adelante o atrás de su plan. El
+                       * 716 decía «18 closed against a forecast of 14», y 14 de
+                       * esos 18 no estaban cerrados: eran pronóstico.
+                       *
+                       * Lo reemplaza un nombre, no una explicación: la fila dice
+                       * QUÉ ES --la diferencia contra la lista-- y el número
+                       * queda a la vista para quien quiera leerlo. Un rótulo que
+                       * interpreta un número es una afirmación nueva, y hay que
+                       * probarla como tal.
+                       */
+                      'Difference with the branch list'
                     : /*
                        * ⚠ EL RÓTULO DICE LO QUE LA FILA LLEVA, Y HASTA OL27 NO ERA
                        * CIERTO. Decía «LO out of branch» --cierres de gente que no
@@ -1923,25 +1960,33 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                        * total cuenta por préstamo y las estrategias por roster.
                        */
                       'Closed by loan officers from other branches'}
+                  {/*
+                    ⚠ Y LA MARCA «not a strategy» SE FUE CON ÉL — OL31. Nombraba
+                    una categorización que la vista dejó de usar cuando pasó a
+                    abrirse por TIPO DE PERSONA (OL26): ya no distingue esta fila
+                    de ninguna otra, porque ninguna de las de arriba es una
+                    estrategia tampoco.
+
+                    Lo que queda es el tooltip, y dice la ARITMÉTICA sin
+                    interpretarla: los dos números y de dónde sale cada uno. La
+                    palabra «closed» no aparece, porque en el mes en curso una de
+                    las dos mitades no es lo cerrado.
+                  */}
                   <span
                     className="bp-muted ol-tag"
                     title={
                       Math.abs(residual[currentMonth]) <= 0.001
-                        ? `The branch total counts by LOAN --whatever closed here-- and the strategies open by ` +
+                        ? `The branch total counts by LOAN --whatever closed here-- and the rows above open by ` +
                           `the people on this branch's roster. Closings by loan officers who are not on it land ` +
-                          `in this row: they are real and they count in the total, but no strategy can claim ` +
+                          `in this row: they are real and they count in the total, but no row above can claim ` +
                           `them. The row carries the difference so the total matches the list.`
-                        : currentAboveForecast
-                        ? `This branch has already closed more this month than its forecast expected: ` +
-                          `${fmt(strategiesByMonth[currentMonth])} closed against a forecast of ` +
-                          `${fmt(branchYear.byMonth[currentMonth])}. The row carries the difference so the total ` +
-                          `matches the branch list.`
-                        : `The part of ${monthLabel(currentMonth)}'s forecast that no strategy can claim: Forecast ` +
-                          `projects the month from the pipeline, which does not carry the strategy. This row goes ` +
-                          `away the day it does.`
+                        : `The branch list shows ${fmt(branchYear.byMonth[currentMonth])} for ` +
+                          `${monthLabel(currentMonth)} and the rows above add up to ` +
+                          `${fmt(strategiesByMonth[currentMonth])}. This row carries the difference so the total ` +
+                          `matches the list.`
                     }
                   >
-                    not a strategy
+                    vs the list
                   </span>
                 </td>
                 <td className="bp-center ol-bench"></td>

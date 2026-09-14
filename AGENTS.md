@@ -2204,3 +2204,54 @@ resolver, y la tercera vez que el proyecto lo paga por el mismo lado --después
 de `normName` contra `realtor_code`--:
 
 > **Un cruce por nombre no dice «no está»: dice «no lo encontré así escrito».**
+
+# Un rótulo que interpreta un número es una afirmación nueva
+
+> Va aparte porque no es un error de medición ni de cálculo: el número estaba
+> bien. Lo que estaba mal era la frase que lo acompañaba, y la escribí yo.
+
+## La regla
+
+**Un rótulo que explica lo que un número SIGNIFICA hay que probarlo como se
+prueba un número.** Si dice «este branch ya pasó lo que se esperaba del mes»,
+eso es una afirmación de negocio y necesita la misma verificación que el valor:
+que sea cierta, y que sea cierta en todos los casos donde el rótulo se enciende.
+
+## El caso que la fija (OL31, de OL10)
+
+La fila de reconciliación puede dar negativo en el mes en curso. Para no mostrar
+un signo menos pelado, le puse un rótulo amable:
+
+    Sep already above forecast        →  «5 closed against a forecast of 4»
+
+Nadie lo pidió. No hay brief que lo mencione: salió de una decisión mía dentro
+de la etapa que hizo coincidir el total con la lista, y el commit la explica con
+buena intención --«lo que un manager necesita saber no es que el residuo es
+negativo»--.
+
+Medido dos semanas después, el signo negativo no significaba nada de eso. Las
+filas de persona llevan el PRONÓSTICO del branch repartido y las de NPPM y
+Affinity muestran lo REALMENTE CERRADO, así que la suma se pasa del pronóstico
+por el monto de esos cierres --esté el branch adelante o atrás de su plan--. Y
+el tooltip era peor que el rótulo: de los «5 closed», 4 no estaban cerrados.
+
+> **Un número correcto describiendo otra cosa, y esta vez el número lo puse yo.**
+
+## Lo que lo vuelve peligroso
+
+No fue el signo: fue que **una explicación amable se convirtió en una afirmación
+de negocio que nadie verificó**. Un valor raro invita a preguntar; un valor raro
+con una frase tranquilizadora al lado, no. El rótulo le sacó a la pantalla la
+única señal que tenía de que algo no cerraba.
+
+## Qué hacer
+
+- **Nombrar, no interpretar.** Una fila puede decir qué ES --«la diferencia
+  contra la lista»-- sin decir qué significa. El significado que se afirma hay
+  que poder sostenerlo en los 18 branches, no en el que se miró al escribirlo.
+- **Un tooltip que da números tiene que decir de qué son.** «5 closed» y «5 que
+  muestran las filas» se escriben parecido y son cosas distintas cuando una
+  columna mezcla pronóstico con cerrado.
+- Y al escribir un rótulo condicional, **preguntarse cuándo se enciende**: si la
+  condición es un signo, hay que buscar todos los casos que producen ese signo
+  antes de ponerle nombre a uno solo.
