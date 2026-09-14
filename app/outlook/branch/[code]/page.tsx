@@ -876,11 +876,23 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * del presupuesto ES la única que puede existir.
    */
   const branchSinGente = !branch.loanOfficers.some((l) => l.primaryBranch === branch.branchCode);
+  /*
+   * ⚠ Y UN MES SIN NINGUNA FUENTE VA EN `null`, NO EN CERO. Lo encontró la
+   * comparación contra la lista de Outlook: AFFINITY no tiene presupuesto ni
+   * gente, y la fila nueva le puso `0 0 0` donde la lista deja la celda vacía.
+   * Las dos pantallas decían cosas distintas sobre el mismo branch, y la de la
+   * tabla era la falsa: `0` afirma «no se va a cerrar nada» y lo que pasa es
+   * que nadie decidió todavía. Es la distinción que `fmt` sostiene en todo el
+   * módulo --celda vacía contra `0`-- y la fila la habría roto justo en el
+   * branch que esta etapa viene a arreglar.
+   */
+  const hayFuenteDeBranch = branchBudget.parts.length > 0 || branchBudget.fijadoAMano.length > 0;
   const branchBudgetYear: YearRow = (() => {
     const byMonth: Record<string, number | null> = {};
     let total = 0;
     for (const m of monthsOfYear) {
-      const v = remainingMonths.includes(m) ? (branchBudget.byMonth[m] ?? 0) : null;
+      const v =
+        remainingMonths.includes(m) && hayFuenteDeBranch ? (branchBudget.byMonth[m] ?? 0) : null;
       byMonth[m] = v;
       if (v !== null) total += v;
     }
