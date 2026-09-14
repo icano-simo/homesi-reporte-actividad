@@ -931,6 +931,22 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * cerró esa fila en el mes. Se saca de la COLUMNA, donde convive con números
    * de otra clase, no de la pantalla.
    */
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * ⚠ ETAPA PENDIENTE: LA COLUMNA DEL MES EN CURSO CERRADO
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * Lo cerrado de NPPM y de Affinity en el mes en curso quedó SÓLO en el
+   * tooltip de la celda vacía. El dato está y nadie lo va a ver:
+   *
+   *     Un dato que sólo vive en un tooltip está a un paso de no existir.
+   *
+   * La salida correcta cuando haga falta es una COLUMNA APARTE para el mes en
+   * curso cerrado, al lado de la del pronóstico -- no devolver el número a esta
+   * columna, que es de lo que esta etapa vino a sacarlo. Queda anotado acá, que
+   * es donde lo va a leer quien se pregunte por qué la celda está vacía, y no en
+   * un documento aparte.
+   */
   const mesEnCursoEsPronostico = !branchSinGente;
   const sinMesEnCurso = (y: YearRow): YearRow =>
     !mesEnCursoEsPronostico || y.byMonth[currentMonth] === null

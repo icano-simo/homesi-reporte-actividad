@@ -2255,3 +2255,20 @@ con una frase tranquilizadora al lado, no. El rótulo le sacó a la pantalla la
 - Y al escribir un rótulo condicional, **preguntarse cuándo se enciende**: si la
   condición es un signo, hay que buscar todos los casos que producen ese signo
   antes de ponerle nombre a uno solo.
+
+## Y la contracara, del mismo día: lo que se guarda en un tooltip
+
+Al arreglar la causa --que la columna del mes en curso mezclaba pronóstico con
+cerrado-- lo cerrado de NPPM y Affinity salió de la columna y quedó en el
+tooltip de la celda vacía. El dato está, y nadie lo va a ver:
+
+> **Un dato que sólo vive en un tooltip está a un paso de no existir.**
+
+No es lo mismo que el rótulo de arriba --aquél afirmaba de más, éste muestra de
+menos-- pero se decide en el mismo momento y con la misma pregunta: **qué ve
+alguien que sólo mira la tabla**. Un tooltip sirve para explicar un número que
+ya está a la vista; no para ser el único lugar donde vive uno.
+
+Queda como etapa anotada en el código, no en un documento: una columna aparte
+para el mes en curso cerrado, al lado de la del pronóstico. Lo que NO es salida
+es devolver el número a la columna del pronóstico, que es de donde se lo sacó.
