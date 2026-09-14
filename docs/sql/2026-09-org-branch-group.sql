@@ -103,20 +103,6 @@ comment on column org.branch_group.reason is
   'Por que estos branches son uno. Obligatorio y no vacio: un agrupamiento sin razon escrita es indistinguible de un error de carga seis meses despues.';
 
 -- ---------------------------------------------------------------------------
--- Las dos filas de hoy
--- ---------------------------------------------------------------------------
--- ⚠ EL PRINCIPAL TAMBIEN VA. Sin la fila del 710 no hay a que apuntar --la FK
--- lo exige-- y, sobre todo, no hay donde escribir por que ese grupo existe.
-insert into org.branch_group (branch_code, group_code, reason, created_by) values
-  ('710', '710',
-   'Branch principal del grupo. Jonathan Valenzuela abrio oficina propia (777) y su produccion se origino aca, asi que los dos se leen juntos.',
-   'isabella.cano@supremelending.com'),
-  ('777', '710',
-   'Jonathan abrio oficina propia; su produccion se origino en el 710 y el sigue siendo Loan Officer de ese branch. Agrupar en vez de mover prestamos: mover los 4 cierres dejaria igual a Gian Laino --un outsider de verdad, del 747-- y escondería que son dos casos distintos.',
-   'isabella.cano@supremelending.com')
-on conflict (branch_code) do nothing;
-
--- ---------------------------------------------------------------------------
 -- RLS: se lee con el claim de la app, y no se escribe desde la app
 -- ---------------------------------------------------------------------------
 -- ⚠ SIN policy de INSERT/UPDATE/DELETE a proposito: agrupar dos branches es una
@@ -129,6 +115,49 @@ grant select on org.branch_group to authenticated;
 
 create policy branch_group_select on org.branch_group
   for select to authenticated using (true);
+
+commit;
+
+-- ============================================================================
+-- ⚠ SEGUNDA TRANSACCION, Y NO ES UN CAPRICHO DE ESTILO
+-- ============================================================================
+--
+-- La version anterior de este archivo era UNA sola transaccion --create table,
+-- insert, RLS, commit-- y falla:
+--
+--     55006: cannot ALTER TABLE "branch_group" because it has pending trigger
+--            events
+--
+-- La causa es la FK auto-referencial `deferrable initially deferred`: el insert
+-- del 777 apunta al 710 y esa comprobacion queda PENDIENTE hasta el commit, asi
+-- que cualquier `alter table` posterior en la misma transaccion se topa con
+-- eventos de trigger sin resolver. Lo encontro Isabella corriendolo.
+--
+-- El orden que funciona es este: la tabla con su RLS y su policy en una
+-- transaccion, y las filas en otra. Y conviene asi ademas por otra razon: la
+-- estructura y los datos son dos decisiones distintas, y cargar otro grupo
+-- mañana es volver a correr SOLO la segunda parte.
+--
+-- ⚠ Y NO SE ARREGLA SACANDO `deferrable`: sin el, el insert de las dos filas
+-- tendria que ordenarse a mano --primero el principal, despues el miembro-- y
+-- un `insert ... values` con las dos juntas no garantiza ese orden. La FK
+-- diferida es lo que hace que el par entre como una sola decision.
+
+begin;
+
+-- ---------------------------------------------------------------------------
+-- Las dos filas de hoy
+-- ---------------------------------------------------------------------------
+-- ⚠ EL PRINCIPAL TAMBIEN VA. Sin la fila del 710 no hay a que apuntar --la FK
+-- lo exige-- y, sobre todo, no hay donde escribir por que ese grupo existe.
+insert into org.branch_group (branch_code, group_code, reason, created_by) values
+  ('710', '710',
+   'Branch principal del grupo. Jonathan Valenzuela abrio oficina propia (777) y su produccion se origino aca, asi que los dos se leen juntos.',
+   'isabella.cano@supremelending.com'),
+  ('777', '710',
+   'Jonathan abrio oficina propia; su produccion se origino en el 710 y el sigue siendo Loan Officer de ese branch. Agrupar en vez de mover prestamos: mover los 4 cierres dejaria igual a Gian Laino --un outsider de verdad, del 747-- y escondería que son dos casos distintos.',
+   'isabella.cano@supremelending.com')
+on conflict (branch_code) do nothing;
 
 commit;
 
