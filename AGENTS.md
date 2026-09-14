@@ -2148,3 +2148,59 @@ El que vale es la ausencia de las dos clases de estado reducido, que es la
 distinción que el componente hace de verdad. Y el paso que no llega a abrirse se
 declara **INDETERMINADO**, no «sin enlace»: si no, la falta de carga vuelve a
 firmar como ausencia del dato.
+
+# Una vista parcial que no se anuncia como parcial
+
+> Mecanismo nuevo, y por eso va aparte de las siete: no es medir mal ni medir
+> antes de tiempo. La medición estaba bien hecha y la pantalla contestó bien
+> --sobre lo que mostraba--. Lo que faltó fue preguntarse si mostraba todo.
+
+## La regla
+
+**Antes de concluir algo sobre TODOS los elementos de una lista, verificar que
+la pantalla los esté mostrando todos.** Una lista colapsada y una lista corta se
+leen igual desde afuera.
+
+## El caso que la fija (OL28)
+
+El brief preguntaba qué branches no tienen ninguna fila de persona. La sonda
+recorrió `tr.bp-row-link` en la lista de Outlook, encontró **14** branches y
+contestó: «el único sin gente es AFFINITY».
+
+Falso, y falso **por omisión**. La lista tiene dos bloques colapsados desde OL23
+--`Inactive` y `Not assigned yet`-- y colapsado acá no es «oculto con CSS»: esas
+filas **no existen en el DOM**. Son 19 branches, no 14. Y los cinco que faltaban
+eran justamente los del caso: 741, 701, 771 y `Branch Out of Division` son
+cuatro de los cinco branches sin una sola fila de persona.
+
+Lo delató el brief, que los nombraba. Sin esa pista, la respuesta habría pasado:
+tenía número, tenía método y no se contradecía con nada.
+
+> **Una lista que esconde parte de sí misma contesta con seguridad sobre la
+> parte que muestra.**
+
+## Qué hacer
+
+- **Expandir todo antes de censar.** En este repo alcanza con apretar cada
+  `[aria-expanded="false"]` antes de leer las filas; es una línea y va en toda
+  sonda que recorra una lista.
+- **Contrastar el conteo contra otra fuente**: la base, o el propio número que
+  la pantalla muestra. Acá había uno a la vista: OL23 dejó el SUBTOTAL de cada
+  bloque colapsado en su barra, precisamente porque «colapsado no es excluido».
+  Un censo que da 14 contra una pantalla que suma 19 se delata solo.
+- Y al escribir una pantalla: **que lo que se esconde diga cuánto esconde**. Esa
+  barra de subtotal es lo que convierte un colapso en una decisión de lectura y
+  no en una trampa.
+
+## Y el hermano del mismo día, que no es de pantallas
+
+La misma forma apareció en una consulta: buscar a una persona por el nombre que
+trae Encompass --«Adriana Julieth Szczech»-- y concluir que no está en el roster,
+cuando está como Adriana Espinoza. La consulta corrió bien y contestó sobre el
+universo que alcanzaba a ver.
+
+Es el problema de identidad que `org.loan_officer_resolved` existe para
+resolver, y la tercera vez que el proyecto lo paga por el mismo lado --después
+de `normName` contra `realtor_code`--:
+
+> **Un cruce por nombre no dice «no está»: dice «no lo encontré así escrito».**
