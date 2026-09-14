@@ -3308,19 +3308,45 @@ export function projectBranch(
    * diferirían. La decisión vive en `projectRecruit` y acá sólo se suma.
    */
   for (const bs of branch.byStrategy) {
+    /*
+     * ⚠ MENOS LOS DE NPPM — etapa OL33, y por lo mismo que los realtors: un
+     * recluta de NPPM es un realtor futuro, y lo que traiga lo va a cerrar un
+     * Loan Officer. Su fila no suma, así que su proyección tampoco.
+     *
+     * Hoy no cambia ningún número --`outlook.recruitment_projection` está
+     * vacía y ningún recluta tiene `role === 'nppm'`-- y va igual: las dos
+     * mitades tienen que decir lo mismo ANTES de que haya un caso, no después.
+     */
+    if (bs.strategy === 'NPPM') continue;
     for (const r of bs.recruits) {
       for (const m of months) byMonth[m] += r.byMonth[m] ?? 0;
     }
   }
 
   /*
-   * ⚠ Y NPPM, que proyecta desde sus REALTORS — etapa OL12, movido a
-   * `nppmRealtorBudget` en OL27 por lo mismo que el presupuesto de branch: la
-   * pantalla necesita mostrar ESTE número, y dos cuentas del mismo número
-   * terminan discrepando.
+   * ══════════════════════════════════════════════════════════════════════════
+   * ⚠ NPPM YA NO SUMA AL TOTAL DEL BRANCH — etapa OL33
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * Acá se sumaba `Σ benchmark de los realtors` (OL12). Se va, y con él la
+   * razón por la que existían las dos etapas anteriores:
+   *
+   *   · el cierre de un realtor lo cierra un Loan Officer, y desde OL33 suma
+   *     en la fila de ESE Loan Officer -- la regla es «sólo el Loan Officer
+   *     cierra, todo cierre suma en su fila y en ninguna otra»;
+   *   · la fila del realtor muestra el MISMO cierre como desagregación, así
+   *     que sumarla otra vez acá sería contar dos veces el mismo préstamo.
+   *
+   * ⚠ Y ESO BAJA EL PRESUPUESTO FUTURO de los branches con realtors: lo que
+   * proyectaba `avg3m` por realtor ya no está. Es la consecuencia buscada --el
+   * total del branch es la suma de sus Loan Officers-- y no un efecto
+   * colateral: si un realtor va a traer negocio, ese negocio lo va a cerrar
+   * alguien cuyo presupuesto sí está en la suma.
+   *
+   * `nppmRealtorBudget` NO se borra: la pantalla la sigue usando para mostrar
+   * lo que cada realtor proyecta EN SU PROPIA FILA, que ahora es información
+   * de desagregación y no parte del total.
    */
-  const deNppm = nppmRealtorBudget(branch, months);
-  for (const m of months) byMonth[m] += deNppm.exactByMonth[m] ?? 0;
   /*
    * ⚠ Y EL PRESUPUESTO DE BRANCH. El cálculo se fue a `branchLevelBudget` —
    * etapa OL27— porque ahora lo lee DOS veces: esta suma y la fila que lo

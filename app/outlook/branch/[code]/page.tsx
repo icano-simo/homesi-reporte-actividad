@@ -959,7 +959,18 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
 
   const loExistingYears = personRows.map((p) => p.year);
   const loHiringYears = visibleRecruitRows.map((r) => r.year);
-  const nppmExistingYears = nppmRows.map((x) => sinMesEnCurso(x.year));
+  /*
+   * ⚠ LAS DE NPPM NO ENTRAN A LA SUMA — etapa OL33. Muestran el MISMO cierre
+   * que ya suma en la fila del Loan Officer que lo cerró, así que sumarlas
+   * sería contar el préstamo dos veces. Siguen calculándose para dibujarse:
+   * son desagregación, no un sumando.
+   *
+   * ⚠ Y POR ESO VUELVEN A MOSTRAR SU MES EN CURSO. La celda vacía de OL32
+   * existía porque estas filas sumaban en una columna donde las de persona
+   * llevan el pronóstico; fuera de la suma, su número no descuadra nada y el
+   * dato vuelve de un tooltip a la tabla.
+   */
+  const nppmExistingYears = nppmRows.map((x) => x.year);
   const nppmHiringYears = nppmHiringRows.map((x) => x.year);
   /* La de Affinity, con el mismo criterio. `filaUnica` no la usa: esa sólo
      existe en branches sin gente, donde `sinMesEnCurso` es la identidad. */
@@ -1008,8 +1019,12 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
   const allShownYears: YearRow[] = [
     ...loExistingYears,
     ...loHiringYears,
-    ...nppmExistingYears,
-    ...nppmHiringYears,
+    /*
+     * ⚠ NPPM NO ESTÁ ACÁ, Y ES EL CAMBIO DE OL33. Sus filas se dibujan pero no
+     * suman: el cierre que muestran ya está contado en la fila del Loan Officer
+     * que lo cerró. Ver `nppmExistingYears` arriba y la marca «detail» en la
+     * fila.
+     */
     /* Con la fila fundida, sus dos mitades NO se suman por separado. */
     ...(filaUnica !== null
       ? [filaUnica]
@@ -1503,6 +1518,23 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                       </span>
                       NPPM — existing
                       {/*
+                        ⚠ LO PRIMERO QUE TIENE QUE DECIR: QUE NO SUMA — OL33.
+                        Sin esto alguien suma las filas de la tabla y no le da,
+                        y el error no se ve: los números son todos correctos.
+                        Va antes que el aviso del promedio porque cambia CÓMO SE
+                        LEE la fila, no de dónde sale su número.
+                      */}
+                      <span
+                        className="bp-muted ol-tag"
+                        title={
+                          `Detail, not a sum: every closing here is already counted in the row of the loan ` +
+                          `officer who closed it. These rows say WHO BROUGHT the business, and the branch ` +
+                          `total is the sum of its loan officers.`
+                        }
+                      >
+                        detail · does not add to the total
+                      </span>
+                      {/*
                         ⚠ QUE EL NÚMERO DIGA QUE ES UN PROMEDIO — etapa OL27.
                         `outlook.nppm_benchmark` está VACÍA: nadie fijó una meta
                         para ningún realtor, así que lo que proyecta es `avg3m`,
@@ -1541,7 +1573,14 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                   {abierta &&
                     nppmRows.map(({ r, year: rYear }) => (
                       <tr key={'nppm-' + r.realtorCode} className="metric mrow">
-                        <td className="lbl">
+                        {/*
+                          ⚠ SANGRADA A LA DERECHA — OL33. La marca del grupo dice
+                          que no suma; la sangría lo hace visible sin leer nada,
+                          que es lo que evita que alguien sume la columna de
+                          arriba a abajo. Mismo `paddingLeft` que ya usa la fila
+                          del foco de revisión, así que no hay clase nueva.
+                        */}
+                        <td className="lbl" style={{ paddingLeft: '30px' }}>
                           {r.displayName}
                           {/*
                             ⚠ EL QUE SE MUDÓ SIGUE ACÁ, Y SE DICE — etapa OL30.
@@ -1588,21 +1627,25 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                           <td
                             key={m}
                             className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}
-                            /* Lo cerrado del mes, fuera de la columna — OL32. */
+                            /*
+                              ⚠ Y EL NÚMERO VOLVIÓ — OL33. En OL32 esta celda se
+                              vaciaba en el mes en curso porque la fila SUMABA en
+                              una columna donde las de persona llevan el
+                              pronóstico. Fuera de la suma no descuadra nada, así
+                              que lo cerrado vuelve de un tooltip a la tabla.
+                            */
                             title={
-                              m === currentMonth && mesEnCursoEsPronostico
-                                ? `Closed so far in ${monthLabel(m)}: ` +
-                                  `${fmt(rYear.byMonth[m] ?? 0)}. The column shows the month's forecast, which ` +
-                                  `the pipeline does not open by realtor, so it is left blank here instead of ` +
-                                  `mixing two different things in one column.`
+                              m === currentMonth
+                                ? `Closed so far in ${monthLabel(m)}. This row is detail: the same closing is ` +
+                                  `already counted in the row of the loan officer who closed it.`
                                 : undefined
                             }
                           >
-                            {fmt(sinMesEnCurso(rYear).byMonth[m] ?? null)}
+                            {fmt(rYear.byMonth[m] ?? null)}
                           </td>
                         ))}
                         <td className="bp-center totcol">
-                          {fmt(sumOfShown(monthsOfYear.map((m) => sinMesEnCurso(rYear).byMonth[m] ?? null)))}
+                          {fmt(sumOfShown(monthsOfYear.map((m) => rYear.byMonth[m] ?? null)))}
                         </td>
                         <td className="ol-rulecol">
                           <button

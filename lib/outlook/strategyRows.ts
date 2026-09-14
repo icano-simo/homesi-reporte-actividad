@@ -233,9 +233,29 @@ export function exactoDe(
       targets: bs.targets,
     });
     remainingMonths.forEach((m, i) => (out[m] = steps[i]?.value ?? 0));
-  } else if (bs.opensBy === 'realtor' && bs.realtors.length > 0) {
-    const suma = bs.realtors.reduce((a, r) => a + r.benchmark, 0);
-    remainingMonths.forEach((m) => (out[m] = suma));
+  } else if (bs.opensBy === 'realtor') {
+    /*
+     * ══════════════════════════════════════════════════════════════════════
+     * ⚠ NPPM PESA CERO EN EL REPARTO — etapa OL33
+     * ══════════════════════════════════════════════════════════════════════
+     *
+     * Acá iba `Σ benchmark de los realtors`, y este número se usa como PESO
+     * para repartir el presupuesto del branch entre sus estrategias. Desde
+     * OL33 NPPM no suma al total del branch --sus filas son desagregación de
+     * cierres que ya cuentan en la fila del Loan Officer que los cerró-- así
+     * que darle peso le asignaba una parte de un total que ya no la incluye:
+     * el reparto quedaba corto y la diferencia reaparecía en la
+     * reconciliación.
+     *
+     * Medido antes de corregirlo: +1 por mes en el 724 y +2 en el 776, con el
+     * total del branch ya bajado. El residuo volvía justo por donde se había
+     * ido.
+     *
+     * Las filas de los realtors siguen mostrando su propia proyección --ver
+     * `nppmRealtorBudget`--; lo que no tienen es una parte del presupuesto del
+     * branch, porque ese presupuesto es de sus Loan Officers.
+     */
+    remainingMonths.forEach((m) => (out[m] = 0));
   }
 
   /*
@@ -471,6 +491,26 @@ export function loanOfficerRowsOf(
      */
     const b2bYtd = lo.strategies.find((s) => s.strategy === 'B2B');
     const affinityYtd = lo.strategies.find((s) => s.strategy === 'Affinity');
+    /*
+     * ══════════════════════════════════════════════════════════════════════
+     * ⚠ Y NPPM TAMBIÉN — LAS CINCO, NO CUATRO. Etapa OL33
+     * ══════════════════════════════════════════════════════════════════════
+     *
+     * La regla quedó en una línea: **sólo el Loan Officer cierra**. Todo cierre
+     * suma en su fila y en ninguna otra; el realtor de NPPM muestra el MISMO
+     * cierre como desagregación --quién lo trajo-- y no suma al total.
+     *
+     * Hasta acá era al revés para NPPM: el cierre no estaba en la fila de quien
+     * lo cerró y sí en la del realtor, que además sumaba. De ahí salían dos
+     * problemas que se venían atacando por separado -- el mes en curso
+     * mezclando pronóstico con cerrado (OL32) y la reconciliación teniendo que
+     * descontar la diferencia (OL31).
+     *
+     * El doble conteo que la nota de arriba temía --«una vez por realtor, otra
+     * por quien lo cerró»-- no puede pasar ahora: la fila del realtor salió de
+     * la suma. Ver `allShownYears` en la pantalla del branch.
+     */
+    const nppmYtd = lo.strategies.find((s) => s.strategy === 'NPPM');
 
     const actualByMonth: Record<string, number> = {};
     for (const m of monthsOfYear) {
@@ -478,7 +518,8 @@ export function loanOfficerRowsOf(
         (ownYtd?.actualByMonth[m] ?? 0) +
         (recYtd?.actualByMonth[m] ?? 0) +
         (b2bYtd?.actualByMonth[m] ?? 0) +
-        (affinityYtd?.actualByMonth[m] ?? 0);
+        (affinityYtd?.actualByMonth[m] ?? 0) +
+        (nppmYtd?.actualByMonth[m] ?? 0);
     }
     const projected: Record<string, number | null> = {};
     for (const m of remainingMonths) {
@@ -568,9 +609,17 @@ export function strategyRowsOf(
   const filasBase = branch.byStrategy.filter((bs) => tieneAlgo(branch, bs, currentMonth));
 
   /* El mes en curso del branch, repartido entre sus estrategias. */
-  const proyectaAlgo = filasBase.some((bs) => bs.currentMonthRaw > 0);
+  /*
+   * ⚠ Y NPPM TAMPOCO PESA EN EL MES EN CURSO — OL33, por lo mismo que en
+   * `exactoDe`: el pronóstico del mes es del branch y sus filas no lo suman.
+   */
+  const proyectaAlgo = filasBase.some((bs) => bs.opensBy !== 'realtor' && bs.currentMonthRaw > 0);
   const pesosCurrent = filasBase.map((bs) =>
-    proyectaAlgo ? bs.currentMonthRaw : (bs.actualByMonth[currentMonth] ?? 0)
+    bs.opensBy === 'realtor'
+      ? 0
+      : proyectaAlgo
+        ? bs.currentMonthRaw
+        : (bs.actualByMonth[currentMonth] ?? 0)
   );
   const currentPorEstrategia = apportionByWeight(branchCurrent, pesosCurrent);
 
