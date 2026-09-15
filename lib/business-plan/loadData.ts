@@ -1,4 +1,7 @@
 import { getSupabaseClient } from '@/lib/supabase/client';
+/* El criterio de qué fila de `budget_total` gobierna, una sola vez para los
+   dos módulos que la leen -- etapa OL41. */
+import { totalesVigentes, type FilaDeTotal } from '@/lib/outlook/gobierno';
 import { buildAliasIndex, buildExcludedIndex } from './aliasIndex';
 import { lastCompleteMonths, currentWindowMonths, currentYearMonth } from './months';
 /* BP36: `addMonths` ya existía para la línea base de impacto; se reusa para
@@ -388,17 +391,16 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
          filtro por `employee_key` no nulo ya descartaba al realtor y ahora
          descarta también al branch: acá se lee el presupuesto de UNA PERSONA. */
       .from('budget_total')
-      .select('employee_key, target_month, total, revision, confirmed_only')
+      /* ⚠ `*` Y NO UNA LISTA DE COLUMNAS — etapa OL41. `released_to_rule`
+         entra al criterio, y pedir columna por columna haría que una fila
+         liberada llegue acá sin su bandera: se leería como una fila sin
+         número, o sea como una confirmación. Con `*` la columna aparece
+         cuando el SQL se aplica, y antes no. */
+      .select('*')
       .not('employee_key', 'is', null);
     if (!error && data) {
       personBudgetTotalTableAvailable = true;
-      const rows = data as {
-        employee_key: number;
-        target_month: string;
-        total: number | null;
-        revision: number;
-        confirmed_only?: boolean;
-      }[];
+      const rows = data as (FilaDeTotal & { employee_key: number })[];
       /*
        * ⚠ UNA CONFIRMACIÓN NO ES UNA REVISIÓN VIGENTE — etapa RV15, mismo
        * criterio que `lib/outlook/loadData.ts` (`gobierna`). Una fila con
@@ -419,26 +421,26 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
        * meses -- si el mes en curso no está entre ellos, el budget de ese
        * mes es `null`, aunque una revisión vieja lo hubiera tenido.
        *
-       * ⚠⚠ DOS COPIAS DE LA MISMA DECISIÓN, EN ARCHIVOS DISTINTOS -- ver
-       * AGENTS.md, "el hermano mayor: dos copias de la misma decisión", y la
-       * nota gemela en `lib/outlook/loadData.ts` (`gobierna`, misma tabla
-       * `outlook.person_budget_total`). Verificado carácter por carácter al
-       * mergear BP49: las dos definiciones coinciden hoy, pero eso no las
-       * hace una sola -- quien cambie el criterio acá sin repetirlo allá (o
-       * al revés) las separa, igual que `rutaDelModulo`. Revisar el otro
-       * archivo antes de tocar cualquiera de las dos.
+       * ⚠⚠ Y YA NO SE DEFINE ACÁ — etapa OL41. Esta nota y su gemela en
+       * `lib/outlook/loadData.ts` decían que las dos definiciones coincidían
+       * «hoy» y que quien cambiara una sin la otra las separaba. OL41 cambió
+       * el criterio --una liberación (`released_to_rule`) SÍ gobierna, y lo
+       * que decide es que no haya número-- así que las dos, más la tercera que
+       * había aparecido en `save.ts`, importan `totalesVigentes` de
+       * `lib/outlook/gobierno.ts`. La prueba
+       * `scripts/verificacion/gobierno-del-total.test.mjs` verifica que no
+       * vuelva a haber una cuarta.
        */
-      const gobierna = (t: (typeof rows)[number]) => t.confirmed_only !== true && t.total !== null;
-      const bestRevision = new Map<number, number>();
+      const porEmpleado = new Map<number, (typeof rows)[number][]>();
       for (const r of rows) {
-        if (!gobierna(r)) continue;
-        bestRevision.set(r.employee_key, Math.max(bestRevision.get(r.employee_key) ?? 0, r.revision));
+        const ya = porEmpleado.get(r.employee_key);
+        if (ya === undefined) porEmpleado.set(r.employee_key, [r]);
+        else ya.push(r);
       }
-      for (const r of rows) {
-        if (!gobierna(r)) continue;
-        if (r.revision !== bestRevision.get(r.employee_key)) continue;
-        if (r.target_month.slice(0, 7) !== thisMonth) continue;
-        budgetThisMonthByEmployee.set(r.employee_key, Number(r.total));
+      for (const [employeeKey, filas] of porEmpleado) {
+        const { byMonth } = totalesVigentes(filas);
+        const delMes = byMonth[thisMonth];
+        if (delMes !== undefined) budgetThisMonthByEmployee.set(employeeKey, delMes);
       }
     }
   } catch {

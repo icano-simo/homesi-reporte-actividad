@@ -4,6 +4,8 @@ import { getSupabaseClient } from '@/lib/supabase/client';
 import type { Cadence, GrowthSegment, OutlookStrategy, ProjectionMode } from './project';
 import type { BudgetBucket } from './loadData';
 import { filasFueraDeVentana } from './ventana';
+/* El criterio de qué fila gobierna, una sola vez para todos -- etapa OL41. */
+import { gobierna, revisionQueGobierna, type FilaDeTotal } from './gobierno';
 
 /*
  * ============================================================================
@@ -105,7 +107,19 @@ function readable(err: { code?: string; message: string }, opts?: { sqlFile?: st
    * mensaje crudo --"Could not find the table in the schema cache"-- no le dice
    * a nadie qué hacer. Este sí.
    */
-  if (err.code === 'PGRST205' || /Could not find the table/i.test(err.message)) {
+  /*
+   * ⚠ Y LA COLUMNA QUE FALTA ES EL MISMO CASO — etapa OL41, medido. Al apretar
+   * «Back to the growth rule» con el SQL sin aplicar, PostgREST contesta
+   * PGRST204 --«Could not find the 'released_to_rule' column of 'budget_total'
+   * in the schema cache»-- y ese mensaje pasaba tal cual a la pantalla: nombra
+   * la columna y no dice qué hacer con ella. Una tabla que falta y una columna
+   * que falta son la misma situación para quien mira: falta aplicar un archivo.
+   */
+  if (
+    err.code === 'PGRST205' ||
+    err.code === 'PGRST204' ||
+    /Could not find the (table|'[^']+' column)/i.test(err.message)
+  ) {
     return new Error(
       `This stage's SQL has not been applied yet: ${opts?.sqlFile ?? 'docs/sql/2026-08-outlook-monthly-mode.sql'}. ` +
         'Nothing was saved and the projection did not change.'
@@ -702,10 +716,27 @@ export async function savePersonBudgetTotal(input: {
    * queriendo decir «este mes va por la regla», que es una decisión.
    */
   windowMonths: string[];
+  /**
+   * ⚠ LOS MESES QUE VUELVEN A LA REGLA — etapa OL41. Van en la MISMA revisión
+   * que los números, porque son la misma decisión: «estos meses los fijo así y
+   * estos otros los suelto». Un mes acá y en `targets` a la vez es un error de
+   * quien llama, y se corta antes de escribir.
+   *
+   * Hasta OL40 soltar un mes era omitirlo y nada más: la revisión nueva no lo
+   * traía y el lector lo hacía caer a la regla. Funcionaba y no dejaba rastro
+   * --nadie podía ver que alguien lo había decidido-- y no servía para
+   * soltarlos todos, porque una revisión sin ninguna fila no existe.
+   */
+  release?: string[];
   note: string | null;
 }): Promise<number> {
   const months = Object.keys(input.targets).sort();
-  if (months.length === 0) throw new Error('There is no month to set.');
+  const soltar = [...new Set(input.release ?? [])].sort();
+  if (months.length === 0 && soltar.length === 0) throw new Error('There is no month to set.');
+  const enLosDos = soltar.filter((m) => m in input.targets);
+  if (enLosDos.length > 0) {
+    throw new Error(`A month cannot be both set and released: ${enLosDos.join(', ')}.`);
+  }
 
   const set_by = await authorEmail();
   const supabase = getSupabaseClient();
@@ -720,15 +751,17 @@ export async function savePersonBudgetTotal(input: {
 
   /*
    * ⚠ LA VIGENTE ES LA MÁS ALTA QUE GOBIERNA, no la más alta a secas: una
-   * confirmación --`confirmed_only`, total nulo-- escribe revisión y no fija
-   * nada, y el lector la ignora al elegir cuál manda. Arrastrar desde ella
-   * traería ceros de la nada. Mismo criterio que `loadData.ts`, a propósito.
+   * confirmación escribe revisión y no decide nada sobre el número. El criterio
+   * NO se escribe acá -- es el de `lib/outlook/gobierno.ts`, el mismo que usan
+   * los dos lectores. Era la tercera copia (OL41).
    */
-  const gobiernan = ((existing ?? []) as { revision: number; target_month: string; total: number | null; confirmed_only: boolean | null; set_by: string | null; note: string | null }[])
-    .filter((t) => t.confirmed_only !== true && t.total !== null);
-  const revisionVigente = gobiernan.reduce((a, t) => Math.max(a, t.revision), 0);
-  const arrastradas = filasFueraDeVentana(gobiernan, revisionVigente, input.windowMonths)
-    .filter((t) => !(t.target_month.slice(0, 7) in input.targets));
+  const previas = (existing ?? []) as (FilaDeTotal & { set_by: string | null; note: string | null })[];
+  const revisionVigente = revisionQueGobierna(previas);
+  const arrastradas = filasFueraDeVentana(previas.filter(gobierna), revisionVigente, input.windowMonths)
+    .filter((t) => {
+      const m = t.target_month.slice(0, 7);
+      return !(m in input.targets) && !soltar.includes(m);
+    });
 
   const rows = [
     ...months.map((m) => ({
@@ -741,22 +774,81 @@ export async function savePersonBudgetTotal(input: {
       set_by,
       note: input.note,
     })),
+    ...soltar.map((m) => ({
+      ...personSubjectColumns(input.subject),
+      revision,
+      target_month: m + '-01',
+      total: null,
+      confirmed_only: false,
+      released_to_rule: true,
+      set_by,
+      note: input.note,
+    })),
     /* El autor y la nota son los de quien lo decidió, no los de este guardado:
-       arrastrar no es volver a decidir. */
+       arrastrar no es volver a decidir. Y una liberación arrastrada sigue
+       siendo una liberación: lo de afuera de la ventana viaja como está. */
     ...arrastradas.map((t) => ({
       ...personSubjectColumns(input.subject),
       revision,
       target_month: t.target_month,
       total: t.total,
       confirmed_only: false,
+      ...(t.released_to_rule === true ? { released_to_rule: true } : {}),
       set_by: t.set_by,
       note: t.note,
     })),
   ];
 
   const { error } = await supabase.schema('outlook').from('budget_total').insert(rows);
-  if (error) throw readable(error, { sqlFile: BUDGET_SQL_FILE });
+  if (error)
+    throw readable(error, {
+      sqlFile: soltar.length > 0 || arrastradas.some((t) => t.released_to_rule === true)
+        ? RELEASE_SQL_FILE
+        : BUDGET_SQL_FILE,
+    });
   return revision;
+}
+
+const RELEASE_SQL_FILE = 'docs/sql/2026-09-budget-soltar-a-la-regla.sql';
+
+/**
+ * ============================================================================
+ * SOLTAR EL TOTAL: QUE EL MES VUELVA A LA REGLA — etapa OL41
+ * ============================================================================
+ *
+ * Un total fijado no se podía desfijar. Soltar ALGUNOS meses era un efecto
+ * secundario --borrar sus celdas hacía que la revisión nueva los omitiera-- y
+ * soltarlos TODOS no se podía: una revisión necesita al menos una fila, así que
+ * el editor terminaba diciendo «Clearing every cell is not supported».
+ *
+ * Galo Rizzo confirmó cuatro veces en tres minutos buscando este acto. Lo que
+ * apretaba --«Confirm as reviewed»-- escribe una fila que a propósito NO toca
+ * el gobierno, así que su total siguió fijado en 4/4/4 y nadie lo vio hasta que
+ * la composición del branch de OL39 puso los dos números uno al lado del otro.
+ *
+ * Escribe una revisión gobernante con `released_to_rule` y sin número para los
+ * meses que se sueltan. No es un cero --cero es «espero cero préstamos», una
+ * decisión con número-- y no es una confirmación: es «no decido yo, decide la
+ * regla», dicho por alguien, con fecha.
+ *
+ * Devuelve la revisión escrita.
+ */
+export async function releasePersonBudgetToRule(input: {
+  subject: PersonSubject;
+  /** Los meses que vuelven a la regla. */
+  months: string[];
+  /** El horizonte que estaba en pantalla -- ver `filasFueraDeVentana`. */
+  windowMonths: string[];
+  note: string | null;
+}): Promise<number> {
+  if (input.months.length === 0) throw new Error('There is no month to release.');
+  return savePersonBudgetTotal({
+    subject: input.subject,
+    targets: {},
+    release: input.months,
+    windowMonths: input.windowMonths,
+    note: input.note,
+  });
 }
 
 const CONFIRM_SQL_FILE = 'docs/sql/2026-09-person-budget-confirm-reviewed.sql';

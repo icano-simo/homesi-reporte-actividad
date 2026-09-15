@@ -1041,11 +1041,28 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
     for (const m of remainingMonths) ownByMonth[m] = 0;
     for (const lo of suyos) {
       const efectivo = efectivoDe(lo);
-      const tieneOwnAMano = remainingMonths.some((m) => aMano(lo, 'own_production', m) !== null);
+      /* «Por regla» es ahora lo mismo que dice el cálculo de abajo: sin un
+         Own Production a mano QUE MANDE, o sea con total fijado — OL41. */
+      const tieneOwnAMano = remainingMonths.some(
+        (m) => aMano(lo, 'own_production', m) !== null && lo.budgetTotal[m] !== undefined
+      );
       if (!tieneOwnAMano && remainingMonths.some((m) => efectivo[m] > 0)) porRegla += 1;
       for (const m of remainingMonths) {
         const propio = aMano(lo, 'own_production', m);
-        if (propio !== null) {
+        /*
+         * ⚠ Y EL DESGLOSE A MANO SÓLO MANDA DONDE HAY TOTAL FIJADO — OL41.
+         *
+         * El desglose EXPLICA un total; si el mes proyecta por la regla, el
+         * número no lo decidió esta persona y su Own Production a mano es un
+         * resto de cuando sí lo decidía. Pasa en dos casos reales: un INSERT a
+         * mano que tocó el desglose y no el total, y un mes que se SOLTÓ a la
+         * regla (`released_to_rule`), donde el desglose viejo sigue guardado.
+         *
+         * Sin esta condición, soltar un mes rompería el invariante de OL39 --
+         * la fila mostraría la regla y la tarjeta el número viejo-- y el caso
+         * sería invisible, que es como empezó todo esto.
+         */
+        if (propio !== null && lo.budgetTotal[m] !== undefined) {
           ownByMonth[m] += propio;
           continue;
         }

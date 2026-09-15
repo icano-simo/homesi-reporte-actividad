@@ -18,6 +18,7 @@
     "verificar:video": "node scripts/verificacion/video.test.mjs",
     "verificar:shell": "node scripts/verificacion/sin-texto-al-shell.test.mjs",
     "verificar:ventana": "node scripts/verificacion/ventana-de-edicion.test.mjs",
+    "verificar:gobierno": "node scripts/verificacion/gobierno-del-total.test.mjs",
     "guarda:instalar": "node scripts/verificacion/instalar-guarda-shell.mjs"
   },
   "dependencies": {

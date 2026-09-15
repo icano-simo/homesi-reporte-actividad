@@ -12,6 +12,7 @@ import {
   type Ramp,
   type RecruitStage,
 } from '@/lib/outlook/recruitment';
+import { totalesVigentes } from '@/lib/outlook/gobierno';
 import { classifyBranch } from '@/lib/domain/classifyBranch';
 import { classifyStrategy } from '@/lib/pipeline/strategy';
 import { apportionByWeight } from '@/lib/pipeline/aggregate';
@@ -1550,31 +1551,25 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
        *
        * ⚠⚠ DOS COPIAS DE LA MISMA DECISIÓN, EN ARCHIVOS DISTINTOS -- ver
        * AGENTS.md, "el hermano mayor: dos copias de la misma decisión".
-       * `lib/business-plan/loadData.ts` define este MISMO `gobierna` --
-       * `t.confirmed_only !== true && t.total !== null`, con el mismo
-       * criterio de revisión más alta GOBERNANTE por sujeto, no por mes --
-       * porque el perfil del Loan Officer (BP49) también lee
-       * `outlook.person_budget_total` y tiene que coincidir en qué fila
-       * cuenta como "el budget del mes". Que hoy sean idénticas no las hace
-       * una sola: quien cambie el criterio acá (o allá) sin repetir el
-       * cambio en el otro archivo las separa, igual que pasó con
-       * `rutaDelModulo`.
+       * ⚠⚠ Y YA NO SE DEFINE ACÁ — etapa OL41. El criterio vivía TRES veces
+       * --acá, en `lib/business-plan/loadData.ts` y en el arrastre de
+       * `save.ts`-- y el comentario que ocupaba este lugar avisaba que
+       * separarlas era cuestión de que alguien cambiara una sin la otra. OL41
+       * lo cambió (`released_to_rule`), así que era cuestión de hoy: las tres
+       * importan `totalesVigentes` de `lib/outlook/gobierno.ts`, que es donde
+       * está escrito por qué una confirmación no gobierna y una liberación sí.
        */
-      const gobierna = (t: PersonBudgetTotalRow) => t.confirmed_only !== true && t.total !== null;
-      /* Sólo la revisión más alta de cada sujeto, entera -- igual que los targets. */
-      const maxTotalRev = new Map<string, number>();
+      const totalesPorSujeto = new Map<string, PersonBudgetTotalRow[]>();
       for (const t of totals) {
-        if (!gobierna(t)) continue;
         const k = personBudgetKeyOf(t);
-        maxTotalRev.set(k, Math.max(maxTotalRev.get(k) ?? 0, t.revision));
+        const ya = totalesPorSujeto.get(k);
+        if (ya === undefined) totalesPorSujeto.set(k, [t]);
+        else ya.push(t);
       }
-      for (const [k, rev] of maxTotalRev) budgetTotalRevisionByKey.set(k, rev);
-      for (const t of totals) {
-        if (!gobierna(t)) continue;
-        const k = personBudgetKeyOf(t);
-        if (t.revision !== maxTotalRev.get(k)) continue;
-        const byMonth = budgetTotalByKey.get(k) ?? {};
-        byMonth[t.target_month.slice(0, 7)] = Number(t.total);
+      for (const [k, filas] of totalesPorSujeto) {
+        const { revision, byMonth } = totalesVigentes(filas);
+        if (revision === 0) continue;
+        budgetTotalRevisionByKey.set(k, revision);
         budgetTotalByKey.set(k, byMonth);
       }
 

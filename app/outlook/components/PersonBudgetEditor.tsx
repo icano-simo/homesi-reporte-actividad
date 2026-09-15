@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Modal from '@/app/business-plan/components/Modal';
 import type { BudgetBucket, OutlookData } from '@/lib/outlook/loadData';
+import { esConfirmacion, gobierna } from '@/lib/outlook/gobierno';
 import {
   cadenceLabel,
   projectPlan,
@@ -12,6 +13,7 @@ import {
 } from '@/lib/outlook/project';
 import {
   confirmPersonBudgetReviewed,
+  releasePersonBudgetToRule,
   savePersonBudgetBreakdown,
   savePersonBudgetTotal,
   type PersonSubject,
@@ -251,7 +253,7 @@ export default function PersonBudgetEditor({
    * Vuelve solo apenas alguien toca una celda: ahí `breakdownChanged` es cierto
    * otra vez y el botón dice «Save budget».
    */
-  const [hecho, setHecho] = useState<null | 'saved' | 'confirmed'>(null);
+  const [hecho, setHecho] = useState<null | 'saved' | 'confirmed' | 'released'>(null);
 
   /* La calculadora de tasa para Own Production -- cerrada por default: el modo
      por mes (los números de la fila, tal cual) es lo que se ve al abrir. */
@@ -360,8 +362,11 @@ export default function PersonBudgetEditor({
         ? r.nppm_realtor_code === person.subject.realtorCode
         : /* El branch, tercer sujeto desde OL27. */
           r.branch_code === person.subject.branchCode;
+  /* `gobierna` y no una comparación suelta de `confirmed_only` — etapa OL41:
+     la fila que se muestra acá es la que FIJÓ la revisión vigente, que es la
+     misma pregunta que contesta el lector. Ver `lib/outlook/gobierno.ts`. */
   const lastTotalRow = data.history.personBudgetTotals
-    .filter((r) => isMine(r) && r.confirmed_only !== true && r.revision === person.budgetTotalRevision)
+    .filter((r) => isMine(r) && gobierna(r) && r.revision === person.budgetTotalRevision)
     .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
   const lastBreakdownRow = data.history.personBudgetBreakdowns
     .filter((r) => isMine(r) && r.revision === person.budgetBreakdownRevision)
@@ -373,8 +378,44 @@ export default function PersonBudgetEditor({
    * señal de que pasó sería el cartel del momento.
    */
   const lastConfirmationRow = data.history.personBudgetTotals
-    .filter((r) => isMine(r) && r.confirmed_only === true)
+    .filter((r) => isMine(r) && esConfirmacion(r))
     .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * VOLVER A LA REGLA, COMO ACTO — etapa OL41
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * Los meses de la pantalla que HOY tienen total fijado. Si no hay ninguno no
+   * hay nada que soltar --ya proyectan por la regla-- y el botón no se dibuja:
+   * ofrecer un acto que no hace nada es lo que llevó a las cuatro
+   * confirmaciones de Galo.
+   */
+  const mesesFijados = months.filter((m) => person.budgetTotal[m] !== undefined);
+
+  async function soltarALaRegla() {
+    setBusy(true);
+    setError(null);
+    setSaved(null);
+    try {
+      const rev = await releasePersonBudgetToRule({
+        subject: person.subject,
+        months: mesesFijados,
+        windowMonths: months,
+        note: note.trim() === '' ? null : note.trim(),
+      });
+      await onSaved();
+      setSaved(
+        `Back to the growth rule: ${mesesFijados.map(monthLabel).join(', ')} (revision ${rev}).`
+      );
+      setHecho('released');
+      setNote('');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function save() {
     setBusy(true);
@@ -397,10 +438,25 @@ export default function PersonBudgetEditor({
           const sum = breakdownSumOf(m);
           if (sum !== null) targets[m] = sum;
         }
-        if (Object.keys(targets).length > 0) {
+        /*
+         * ⚠ UN MES VACIADO SE SUELTA, Y SE DICE — etapa OL41. Antes de esta
+         * etapa, borrar todas las celdas de un mes que tenía total fijado lo
+         * hacía caer a la regla porque la revisión nueva lo OMITÍA: el efecto
+         * era correcto y no lo decidía nadie por escrito. Ahora va como una
+         * fila `released_to_rule`, en la misma revisión, con autor y fecha.
+         *
+         * Sólo los meses que HOY tienen total fijado: soltar un mes que ya
+         * proyecta por regla no cambia nada y ensuciaría la revisión con filas
+         * que no deciden nada.
+         */
+        const soltados = months.filter(
+          (m) => breakdownSumOf(m) === null && person.budgetTotal[m] !== undefined
+        );
+        if (Object.keys(targets).length > 0 || soltados.length > 0) {
           const rev = await savePersonBudgetTotal({
             subject: person.subject,
             targets,
+            release: soltados,
             /* La ventana que se editó, para que lo de afuera no se borre --
                etapa OL38. `months` ES la pantalla: no hay otra cosa acá. */
             windowMonths: months,
@@ -457,21 +513,21 @@ export default function PersonBudgetEditor({
 
       if (done.length === 0) {
         /*
-         * ⚠ YA NO ES «no cambió nada»: con la confirmación de arriba, esta
-         * rama sólo se alcanza de UNA forma -- que alguien haya BORRADO todas
-         * las celdas del desglose, de todos los meses. Entonces
-         * `breakdownChanged` es cierto y no hay ningún mes con un total que
-         * calcular, y un total no se puede desfijar: el lector toma la
-         * revisión vigente entera, así que la única forma de soltar un mes es
-         * escribir una revisión que lo omita, y para eso tiene que quedar
-         * algún otro mes con número.
+         * ⚠ ESTE MENSAJE ERA UN LÍMITE DEL MODELO, Y SE FUE — etapa OL41.
          *
-         * Borrar ALGUNOS meses sí funciona --los que queden con número van a
-         * la revisión nueva y los borrados caen a la regla--; borrar TODOS no
-         * tiene fila que escribir. El mensaje lo dice en vez de mentir que
-         * nada cambió.
+         * Decía: «Clearing every cell is not supported: a Total cannot be
+         * un-fixed». Era cierto -- soltar un mes se hacía omitiéndolo de la
+         * revisión nueva, y una revisión sin ninguna fila no existe, así que
+         * borrar TODAS las celdas no tenía nada que escribir. Con
+         * `released_to_rule` sí lo tiene: los meses vaciados se sueltan
+         * explícitamente arriba, incluidos todos.
+         *
+         * La rama queda porque todavía se alcanza de una forma: borrar las
+         * celdas de meses que NO tenían total fijado. Ahí no hay número que
+         * sacar ni gobierno que soltar -- ya proyectaban por la regla -- y
+         * decirlo es mejor que escribir una revisión que no decide nada.
          */
-        setSaved('Clearing every cell is not supported: a Total cannot be un-fixed, so nothing was recorded.');
+        setSaved('Those months already project by the growth rule, so there was nothing to record.');
       } else {
         await onSaved();
         /* Confirmar y guardar son actos distintos, y el cartel los distingue:
@@ -591,6 +647,29 @@ export default function PersonBudgetEditor({
             tres aserciones en rojo por el ancla, no por el código. Mismo
             idioma que `data-review-comment` y `data-bp-video-action`.
           */}
+          {/*
+            ⚠ EL ACTO QUE FALTABA — etapa OL41. Sólo cuando hay algo que
+            soltar, y separado del guardado porque es una decisión distinta:
+            guardar dice «el número es éste», soltar dice «no lo decido yo».
+            Confirmar, que es la tercera, no toca el número ni lo suelta -- y
+            creer que sí es lo que dejó cuatro filas en la tabla de Galo.
+          */}
+          {mesesFijados.length > 0 && (
+            <button
+              type="button"
+              data-ol-release=""
+              className="bp-btn bp-btn--small bp-btn--ghost"
+              onClick={soltarALaRegla}
+              disabled={busy}
+              title={
+                `Releases ${mesesFijados.length} fixed month${mesesFijados.length === 1 ? '' : 's'} ` +
+                `back to the growth rule. It is recorded as its own revision, with who did it and when — ` +
+                `it is not a zero and it is not a confirmation.`
+              }
+            >
+              Back to the growth rule
+            </button>
+          )}
           <button
             type="button"
             data-ol-save=""
@@ -603,7 +682,9 @@ export default function PersonBudgetEditor({
               nadaQueGuardar && hecho !== null
                 ? hecho === 'saved'
                   ? 'Already saved from this screen. Change a number to save again.'
-                  : 'Already confirmed from this screen. Change a number to save.'
+                  : hecho === 'released'
+                    ? 'These months were just released to the growth rule. Type a number to fix them again.'
+                    : 'Already confirmed from this screen. Change a number to save.'
                 : undefined
             }
           >
@@ -615,7 +696,9 @@ export default function PersonBudgetEditor({
                   ? 'Saved'
                   : hecho === 'confirmed'
                     ? 'Confirmed'
-                    : 'Confirm as reviewed'}
+                    : hecho === 'released'
+                      ? 'Released'
+                      : 'Confirm as reviewed'}
           </button>
           </div>
         </>
