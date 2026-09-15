@@ -3480,6 +3480,35 @@ export function currentMonthByBranch(data: {
      * pronóstico --que ya incluye lo cerrado del mes--; si no, lo cerrado, que es
      * un piso real. Ver el bloque de AFFINITY en la vista 1.
      */
+    /*
+     * ⚠ ESTA CONDICIÓN MEZCLA DOS COSAS, Y ESTÁ MEDIDO — pendiente de OL35.
+     *
+     * Pregunta «¿tiene gente rosterizada?» y la usa para decidir «¿tiene
+     * pronóstico?». En AFFINITY las dos respuestas se separan: NO tiene gente
+     * y SÍ tiene producción propia --Forecast & Pipeline le proyecta 4 para el
+     * mes en curso-- así que acá cae en lo cerrado (1) y muestra un número de
+     * otra clase que el resto de la columna.
+     *
+     * ⚠ PERO SEPARARLAS NO ALCANZA, y por eso esto sigue como está: el
+     * pronóstico que este módulo sabe calcular es `b.currentMonth`, que es la
+     * SUMA DE LAS PROYECCIONES DE SU GENTE. Sin gente da 0, así que un branch
+     * con producción propia y sin roster pasaría de mostrar 1 a mostrar 0 -- y
+     * el descuadre con Forecast, en vez de cerrarse, crecería.
+     *
+     * El pronóstico de 4 de Affinity existe en OTRA ATRIBUCIÓN: Forecast
+     * atribuye por el branch DEL PRÉSTAMO y este módulo por PERSONA. Está
+     * documentado en `lib/business-plan/loadData.ts` --«la suma de las
+     * proyecciones de los Loan Officers de un branch NO va a coincidir con el
+     * forecast de ese branch; alguien lo va a reportar como error; no lo es»--
+     * y los 4 de Affinity ya están contados adentro de la proyección de Nathan
+     * Martinez, que es del 716.
+     *
+     * Traerlos acá sin sacarlos de ahí los contaría dos veces. La salida es una
+     * decisión de negocio y no un arreglo: o el mes en curso pasa a atribuirse
+     * por branch del préstamo en todo Outlook --y entonces cuadra con Forecast
+     * por construcción-- o se queda por persona y la diferencia se explica en
+     * vez de perseguirse.
+     */
     const proyecta = b.loanOfficers.some((l) => l.primaryBranch === b.branchCode);
     return proyecta ? b.currentMonth : (b.actualByMonth[data.currentMonth] ?? 0);
   });

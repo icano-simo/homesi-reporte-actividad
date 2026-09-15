@@ -509,6 +509,26 @@ export function loanOfficerRowsOf(
      * El doble conteo que la nota de arriba temía --«una vez por realtor, otra
      * por quien lo cerró»-- no puede pasar ahora: la fila del realtor salió de
      * la suma. Ver `allShownYears` en la pantalla del branch.
+     *
+     * ══════════════════════════════════════════════════════════════════════
+     * ⚠ Y AFFINITY NO SIGUE ESTA REGLA, A PROPÓSITO — decisión de OL35
+     * ══════════════════════════════════════════════════════════════════════
+     *
+     * Parecen el mismo caso y no lo son. Los dos muestran producción que cerró
+     * un Loan Officer, pero:
+     *
+     *   NPPM      es una FUENTE DE LEADS. El realtor trae el negocio y el
+     *             préstamo es del Loan Officer que lo cerró: su fila lo cuenta
+     *             y la del realtor lo muestra sin sumar.
+     *   Affinity  es un CANAL CON P&L PROPIO. Sus cierres son suyos, sin
+     *             importar qué Loan Officer los procesó -- igual que los cuenta
+     *             Forecast & Pipeline, que atribuye por el branch del préstamo.
+     *
+     * Por eso Affinity SÍ suma y NPPM no. Queda escrito acá, al lado de la
+     * línea que los distingue, porque el día que alguien «unifique el criterio»
+     * va a estar mirando este código y no un documento: los dos criterios
+     * conviven porque las dos cosas son distintas, no porque falte terminar
+     * algo.
      */
     const nppmYtd = lo.strategies.find((s) => s.strategy === 'NPPM');
 
