@@ -226,6 +226,32 @@ export default function PersonBudgetEditor({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * ⚠ LO QUE YA SE HIZO EN ESTA PANTALLA — etapa OL40
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * Isabella cambia el presupuesto, guarda, y le vuelve a aparecer un botón:
+   * «Confirm as reviewed», justo al lado de «Saved: breakdown revision 3». Se
+   * lee como que falta un paso, así que lo aprieta. Las CUATRO confirmaciones
+   * de Galo --16:36:08, 16:36:33, 16:37:13 y 16:39:47-- son eso.
+   *
+   * El mecanismo es el de OL26g corrido un nivel: guardado el cambio, `onSaved`
+   * refresca el estado, `breakdownChanged` vuelve a `false` y el rótulo cambia
+   * solo. Aquella etapa arregló que reapareciera «Save budget» cambiando el
+   * rótulo; el rótulo nuevo reaparece en el mismo lugar y con el mismo efecto.
+   *
+   * Y no es sólo ruido: cada confirmación escribe una revisión. Confirmar
+   * después de guardar no registra nada que el guardado no haya registrado ya
+   * --la compuerta del paso 2.2 pide una fila posterior al arranque de la
+   * sesión, y el guardado ya la escribió-- así que el botón no tiene acto que
+   * ofrecer. Por eso acá se apaga, y sólo acá: apagarlo cuando NO se guardó
+   * nada es el bug que OL26g arregló, y ese caso sigue ofreciendo su acto.
+   *
+   * Vuelve solo apenas alguien toca una celda: ahí `breakdownChanged` es cierto
+   * otra vez y el botón dice «Save budget».
+   */
+  const [hecho, setHecho] = useState<null | 'saved' | 'confirmed'>(null);
 
   /* La calculadora de tasa para Own Production -- cerrada por default: el modo
      por mes (los números de la fila, tal cual) es lo que se ve al abrir. */
@@ -452,6 +478,7 @@ export default function PersonBudgetEditor({
            «Saved» sobre un presupuesto que nadie cambió se lee como que algo
            se movió. */
         setSaved((nadaQueGuardar ? 'Confirmed as reviewed: ' : 'Saved: ') + done.join(' · ') + '.');
+        setHecho(nadaQueGuardar ? 'confirmed' : 'saved');
         setNote('');
       }
     } catch (e) {
@@ -569,9 +596,26 @@ export default function PersonBudgetEditor({
             data-ol-save=""
             className="bp-btn bp-btn--small"
             onClick={save}
-            disabled={busy}
+            /* Apagado SÓLO con el acto ya hecho y nada nuevo que guardar —
+               etapa OL40. Ver la nota de `hecho`. */
+            disabled={busy || (nadaQueGuardar && hecho !== null)}
+            title={
+              nadaQueGuardar && hecho !== null
+                ? hecho === 'saved'
+                  ? 'Already saved from this screen. Change a number to save again.'
+                  : 'Already confirmed from this screen. Change a number to save.'
+                : undefined
+            }
           >
-            {busy ? '…' : nadaQueGuardar ? 'Confirm as reviewed' : 'Save budget'}
+            {busy
+              ? '…'
+              : !nadaQueGuardar
+                ? 'Save budget'
+                : hecho === 'saved'
+                  ? 'Saved'
+                  : hecho === 'confirmed'
+                    ? 'Confirmed'
+                    : 'Confirm as reviewed'}
           </button>
           </div>
         </>
