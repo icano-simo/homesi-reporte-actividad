@@ -359,12 +359,23 @@ export async function saveGrowthRuleRevision(input: {
  * Por eso los números van primero.
  */
 
-/** Los meses fijados de una estrategia. Devuelve la revisión escrita. */
+/**
+ * Los meses fijados de una estrategia. Devuelve la revisión escrita.
+ *
+ * ⚠ CON EL MISMO ARRASTRE QUE EL PRESUPUESTO — etapa OL38. Esta tabla comparte
+ * el modo de falla: el lector se queda con la revisión más alta del par
+ * (sujeto, estrategia) entera, y acá se escribían sólo los meses recibidos. Hoy
+ * no muerde --`outlook.monthly_target` está vacía, y esta función no tiene un
+ * solo llamador en el repo-- y por eso se arregla ahora: el día que alguien la
+ * llame desde una pantalla con horizonte, el mes de afuera ya no se pierde.
+ */
 export async function saveMonthlyTargets(input: {
   subject: OutlookSubject;
   strategy: OutlookStrategy;
   /** 'YYYY-MM' → número. Los meses que no vengan quedan sin fijar (0). */
   targets: Record<string, number>;
+  /** El horizonte que estaba en pantalla -- ver `filasFueraDeVentana`. */
+  windowMonths: string[];
   note: string | null;
 }): Promise<number> {
   const months = Object.keys(input.targets).sort();
@@ -380,23 +391,45 @@ export async function saveMonthlyTargets(input: {
   const { data: existing, error: readError } = await supabase
     .schema('outlook')
     .from('monthly_target')
-    .select('revision')
+    .select('*')
     .eq(subjCol, subjVal)
-    .eq('strategy', input.strategy)
-    .order('revision', { ascending: false })
-    .limit(1);
+    .eq('strategy', input.strategy);
   if (readError) throw readable(readError);
-  const revision = (existing?.[0]?.revision ?? 0) + 1;
+  const previas = (existing ?? []) as {
+    revision: number;
+    target_month: string;
+    target: number;
+    set_by: string | null;
+    note: string | null;
+  }[];
+  const revisionVigente = previas.reduce((a, t) => Math.max(a, t.revision), 0);
+  const revision = revisionVigente + 1;
+  const arrastradas = filasFueraDeVentana(previas, revisionVigente, input.windowMonths).filter(
+    (t) => !(t.target_month.slice(0, 7) in input.targets)
+  );
 
-  const rows = months.map((m) => ({
-    ...subjectColumns(input.subject),
-    strategy: input.strategy,
-    revision,
-    target_month: m + '-01',
-    target: input.targets[m],
-    set_by,
-    note: input.note,
-  }));
+  const rows = [
+    ...months.map((m) => ({
+      ...subjectColumns(input.subject),
+      strategy: input.strategy,
+      revision,
+      target_month: m + '-01',
+      target: input.targets[m],
+      set_by,
+      note: input.note,
+    })),
+    /* El autor y la nota son los de quien lo decidió: arrastrar no es volver a
+       decidir. Igual que en el desglose y el total. */
+    ...arrastradas.map((t) => ({
+      ...subjectColumns(input.subject),
+      strategy: input.strategy,
+      revision,
+      target_month: t.target_month,
+      target: t.target,
+      set_by: t.set_by,
+      note: t.note,
+    })),
+  ];
 
   const { error } = await supabase.schema('outlook').from('monthly_target').insert(rows);
   if (error) throw readable(error);
