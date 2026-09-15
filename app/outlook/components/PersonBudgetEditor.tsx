@@ -296,6 +296,29 @@ export default function PersonBudgetEditor({
   const nadaQueGuardar = !breakdownChanged;
 
   /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * LO QUE ESTE GUARDADO SE LLEVA PUESTO — etapa OL38
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * Una revisión reemplaza al desglose entero, y el borrador de `save()` no
+   * manda un bucket sin ninguna celda cargada. O sea que vaciar las celdas de
+   * B2B lo BORRA -- y eso está bien, es como se dice «este mes no hago B2B».
+   * La misma puerta sirve para salir sin querer, así que no se cierra: se
+   * avisa, con el nombre del bucket que se va.
+   *
+   * ⚠ SE COMPARA CONTRA LO GUARDADO Y DENTRO DE LA VENTANA. Contra
+   * `person.budgetBreakdown` --lo que hay en la base-- y no contra
+   * `initialBucketOf`, que prellena Own Production con la proyección de la
+   * regla: un bucket que nunca se guardó no se puede perder. Y sólo los meses
+   * de la pantalla, porque lo de afuera ya no se borra (`windowMonths`).
+   */
+  const perdidos = person.buckets.filter(
+    (b) =>
+      months.some((m) => person.budgetBreakdown[b]?.[m] !== undefined) &&
+      months.every((m) => (breakdown[b]?.[m]?.trim() ?? '') === '')
+  );
+
+  /*
    * Quién guardó la revisión vigente de cada tabla, para la línea al pie. Por
    * código, no por nombre normalizado -- ver la nota de `PersonSubject` en
    * save.ts.
@@ -349,7 +372,14 @@ export default function PersonBudgetEditor({
           if (sum !== null) targets[m] = sum;
         }
         if (Object.keys(targets).length > 0) {
-          const rev = await savePersonBudgetTotal({ subject: person.subject, targets, note: note.trim() === '' ? null : note.trim() });
+          const rev = await savePersonBudgetTotal({
+            subject: person.subject,
+            targets,
+            /* La ventana que se editó, para que lo de afuera no se borre --
+               etapa OL38. `months` ES la pantalla: no hay otra cosa acá. */
+            windowMonths: months,
+            note: note.trim() === '' ? null : note.trim(),
+          });
           done.push(`total revision ${rev}`);
         }
 
@@ -366,6 +396,7 @@ export default function PersonBudgetEditor({
           const rev = await savePersonBudgetBreakdown({
             subject: person.subject,
             breakdown: draft,
+            windowMonths: months,
             note: note.trim() === '' ? null : note.trim(),
           });
           done.push(`breakdown revision ${rev}`);
@@ -435,7 +466,20 @@ export default function PersonBudgetEditor({
       title={`${person.label} — Set budget`}
       onClose={onClose}
       footer={
-        <div className="ol-editor__row">
+        <>
+          {/*
+            El aviso va PEGADO AL BOTÓN y no arriba de la tabla: la decisión de
+            guardar se toma acá. No bloquea -- borrar un bucket es legítimo --
+            y dice QUÉ se pierde y POR QUÉ, que es lo que un «algo cambió» no
+            diría. Ver `perdidos`.
+          */}
+          {perdidos.length > 0 && (
+            <p className="bp-notice bp-notice--warn ol-editor__drop" data-ol-drop-warning="">
+              ⚠ Saving drops {perdidos.map((b) => BUCKET_LABEL[b]).join(' and ')}. A revision replaces the
+              whole breakdown, and this one does not carry {perdidos.length === 1 ? 'it' : 'them'}.
+            </p>
+          )}
+          <div className="ol-editor__row">
           <div className="bp-form__field ol-editor__grow">
             <label className="bp-form__label" htmlFor="ol-budget-note">
               Why (optional)
@@ -529,7 +573,8 @@ export default function PersonBudgetEditor({
           >
             {busy ? '…' : nadaQueGuardar ? 'Confirm as reviewed' : 'Save budget'}
           </button>
-        </div>
+          </div>
+        </>
       }
     >
       <div className="ol-editor">

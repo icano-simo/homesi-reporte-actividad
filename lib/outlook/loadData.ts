@@ -1610,15 +1610,28 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
        * respaldo que tapa una ausencia: lo que compensa que falte hace que no
        * se note.
        *
-       * Quien edite un solo bucket tiene que mandar el conjunto entero. La
-       * pantalla ya lo hace --`BudgetEditor` manda todos los buckets que tiene
-       * cargados-- pero un INSERT a mano no, y los dos casos de arriba son
-       * INSERTs a mano.
+       * ⚠ Y LA PANTALLA NO ES INMUNE, que es lo que esta nota decía mal hasta
+       * OL38. «El editor manda todos los buckets que tiene cargados» suena a
+       * que sólo un INSERT a mano puede perder algo, y no: el borrador se arma
+       * con `if (Object.keys(byMonth).length > 0) draft[b] = byMonth`, así que
+       * un bucket con todas las celdas vacías tampoco se manda. Vaciar B2B en
+       * el editor hace exactamente lo mismo que el reparto de Nathan.
+       *
+       * Y ahí está el nudo: ES LA MISMA PUERTA. Por ella se expresa «este mes
+       * no hago B2B» y por ella se sale sin querer, así que no se puede cerrar.
+       * Lo que sí se puede es avisar -- `perdidos` en `PersonBudgetEditor`
+       * nombra el bucket que se va, antes de guardar y sin impedirlo.
        *
        * No se "arregla" leyendo distinto: completar una revisión con la
        * anterior haría imposible BORRAR un bucket, que es una decisión
-       * legítima --«este mes no hago B2B»-- y hoy se expresa no repitiéndolo.
-       * El arreglo, si hace falta, va del lado de quien escribe.
+       * legítima. El arreglo va del lado de quien escribe.
+       *
+       * ⚠ LOS MESES SON OTRA COSA Y SÍ SE ARREGLAN — OL38. Nadie decide borrar
+       * enero de 2027 editando octubre: ahí la ausencia no es una decisión,
+       * es que el mes no estaba en pantalla. `savePersonBudgetBreakdown` y
+       * `savePersonBudgetTotal` reciben la ventana y arrastran lo de afuera
+       * tal cual -- ver `filasFueraDeVentana` en `save.ts`. El caso de Adriana
+       * no puede repetirse; el de Nathan sí, y por eso el aviso.
        */
       const maxBreakdownRev = new Map<string, number>();
       for (const b of breakdowns) {

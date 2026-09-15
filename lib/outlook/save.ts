@@ -3,6 +3,7 @@
 import { getSupabaseClient } from '@/lib/supabase/client';
 import type { Cadence, GrowthSegment, OutlookStrategy, ProjectionMode } from './project';
 import type { BudgetBucket } from './loadData';
+import { filasFueraDeVentana } from './ventana';
 
 /*
  * ============================================================================
@@ -629,6 +630,13 @@ function personSubjectFilter(s: BudgetSubject): [string, string | number] {
 
 const BUDGET_SQL_FILE = 'docs/sql/2026-09-outlook-budget-composition.sql';
 
+/*
+ * Lo que no estaba en pantalla no se borra — etapa OL38. La función vive en
+ * `lib/outlook/ventana.ts`, sin imports, para que su prueba la pueda cargar
+ * sin el cliente de Supabase; la nota entera está allá.
+ */
+export { filasFueraDeVentana };
+
 /**
  * La revisión que sigue para este sujeto, leída de la BASE y no de la
  * pantalla. Cuenta las confirmaciones además de los totales: el número de
@@ -653,26 +661,67 @@ export async function savePersonBudgetTotal(input: {
   subject: PersonSubject;
   /** 'YYYY-MM' → total. Los meses que no vengan quedan sin fijar. */
   targets: Record<string, number>;
+  /**
+   * El horizonte que estaba en pantalla -- mismo sentido que en
+   * `confirmPersonBudgetReviewed`. Un mes fijado que quede FUERA de esta
+   * ventana se arrastra tal cual a la revisión nueva: ver
+   * `filasFueraDeVentana`. Dentro de la ventana, un mes que no venga sigue
+   * queriendo decir «este mes va por la regla», que es una decisión.
+   */
+  windowMonths: string[];
   note: string | null;
 }): Promise<number> {
   const months = Object.keys(input.targets).sort();
   if (months.length === 0) throw new Error('There is no month to set.');
 
   const set_by = await authorEmail();
+  const supabase = getSupabaseClient();
+  const [subjCol, subjVal] = personSubjectFilter(input.subject);
+  const { data: existing, error: readError } = await supabase
+    .schema('outlook')
+    .from('budget_total')
+    .select('*')
+    .eq(subjCol, subjVal);
+  if (readError) throw readable(readError, { sqlFile: BUDGET_SQL_FILE });
   const revision = await siguienteRevisionDelTotal(input.subject, BUDGET_SQL_FILE);
 
-  const rows = months.map((m) => ({
-    ...personSubjectColumns(input.subject),
-    revision,
-    target_month: m + '-01',
-    total: input.targets[m],
-    /* Explícito, aunque la columna tenga default: esta fila SÍ gobierna. */
-    confirmed_only: false,
-    set_by,
-    note: input.note,
-  }));
+  /*
+   * ⚠ LA VIGENTE ES LA MÁS ALTA QUE GOBIERNA, no la más alta a secas: una
+   * confirmación --`confirmed_only`, total nulo-- escribe revisión y no fija
+   * nada, y el lector la ignora al elegir cuál manda. Arrastrar desde ella
+   * traería ceros de la nada. Mismo criterio que `loadData.ts`, a propósito.
+   */
+  const gobiernan = ((existing ?? []) as { revision: number; target_month: string; total: number | null; confirmed_only: boolean | null; set_by: string | null; note: string | null }[])
+    .filter((t) => t.confirmed_only !== true && t.total !== null);
+  const revisionVigente = gobiernan.reduce((a, t) => Math.max(a, t.revision), 0);
+  const arrastradas = filasFueraDeVentana(gobiernan, revisionVigente, input.windowMonths)
+    .filter((t) => !(t.target_month.slice(0, 7) in input.targets));
 
-  const { error } = await getSupabaseClient().schema('outlook').from('budget_total').insert(rows);
+  const rows = [
+    ...months.map((m) => ({
+      ...personSubjectColumns(input.subject),
+      revision,
+      target_month: m + '-01',
+      total: input.targets[m],
+      /* Explícito, aunque la columna tenga default: esta fila SÍ gobierna. */
+      confirmed_only: false,
+      set_by,
+      note: input.note,
+    })),
+    /* El autor y la nota son los de quien lo decidió, no los de este guardado:
+       arrastrar no es volver a decidir. */
+    ...arrastradas.map((t) => ({
+      ...personSubjectColumns(input.subject),
+      revision,
+      target_month: t.target_month,
+      total: t.total,
+      confirmed_only: false,
+      set_by: t.set_by,
+      note: t.note,
+    })),
+  ];
+
+  const { error } = await supabase.schema('outlook').from('budget_total').insert(rows);
   if (error) throw readable(error, { sqlFile: BUDGET_SQL_FILE });
   return revision;
 }
@@ -763,13 +812,24 @@ export async function confirmPersonBudgetReviewed(input: {
  * los buckets y meses de un mismo guardado -- es una sola decisión, "así es
  * como se explica el total", no una por bucket.
  *
- * ⚠ Y POR ESO ESTE `input.breakdown` TIENE QUE TRAER EL CONJUNTO ENTERO, no
- * sólo lo que cambió. La lectura se queda con la revisión más alta del sujeto
- * y no la completa con la anterior, así que un bucket --o un mes-- que no
- * venga acá queda borrado en silencio. Los dos casos que ya pasaron están
- * contados en `loadData.ts`, donde se elige esa revisión: el B2B de Nathan
- * Martinez, que existe en la tabla y no se ve en ninguna pantalla, y los tres
- * meses de 2027 de Adriana Espinoza. Los dos entraron por INSERT a mano.
+ * ⚠ Y POR ESO ESTE `input.breakdown` TIENE QUE TRAER EL CONJUNTO ENTERO DE LA
+ * VENTANA, no sólo lo que cambió. La lectura se queda con la revisión más alta
+ * del sujeto y no la completa con la anterior, así que un bucket que no venga
+ * acá queda borrado en silencio. El caso está contado en `loadData.ts`, donde
+ * se elige esa revisión: el B2B de Nathan Martinez existió tres semanas en la
+ * tabla sin verse en ninguna pantalla.
+ *
+ * ⚠ Y NO ES SÓLO UN RIESGO DE LOS INSERT A MANO -- corregido en OL38. La
+ * pantalla produce revisiones parciales igual, porque arma su borrador con
+ * `if (Object.keys(byMonth).length > 0) draft[b] = byMonth`: un bucket con
+ * todas las celdas vacías no se manda. Es la puerta por la que se expresa
+ * «este mes no hago B2B» y también la puerta por la que se sale sin querer.
+ * Las dos cosas pasan por el mismo lugar, y por eso no se puede cerrar -- lo
+ * que se hace es AVISAR antes de guardar (ver `perdidos` en
+ * `PersonBudgetEditor`), sin impedirlo.
+ *
+ * Lo de los MESES es otra cosa y sí se arregla: ver `windowMonths` y
+ * `filasFueraDeVentana`. Fuera de la ventana nadie decidió nada.
  *
  * ⚠ NO SE VALIDA QUE SUME EL TOTAL, a propósito: eso se muestra en pantalla
  * (ver el delta de `BudgetEditor`), no se rechaza el guardado ni se fuerza un
@@ -781,6 +841,12 @@ export async function savePersonBudgetBreakdown(input: {
   subject: PersonSubject;
   /** bucket → mes → valor. Sólo se guardan los pares presentes. */
   breakdown: Partial<Record<BudgetBucket, Record<string, number>>>;
+  /**
+   * El horizonte que estaba en pantalla. Lo vigente que caiga FUERA de esta
+   * ventana se arrastra tal cual a la revisión nueva -- ver
+   * `filasFueraDeVentana`. Dentro, la ausencia sigue siendo una decisión.
+   */
+  windowMonths: string[];
   note: string | null;
 }): Promise<number> {
   const entries: { bucket: BudgetBucket; month: string; value: number }[] = [];
@@ -808,22 +874,50 @@ export async function savePersonBudgetBreakdown(input: {
   const { data: existing, error: readError } = await supabase
     .schema('outlook')
     .from('budget_breakdown')
-    .select('revision')
-    .eq(subjCol, subjVal)
-    .order('revision', { ascending: false })
-    .limit(1);
+    .select('*')
+    .eq(subjCol, subjVal);
   if (readError) throw readable(readError, { sqlFile: BUDGET_SQL_FILE });
-  const revision = (existing?.[0]?.revision ?? 0) + 1;
+  const previas = (existing ?? []) as {
+    revision: number;
+    target_month: string;
+    bucket: BudgetBucket;
+    value: number;
+    set_by: string | null;
+    note: string | null;
+  }[];
+  const revisionVigente = previas.reduce((a, b) => Math.max(a, b.revision), 0);
+  const revision = revisionVigente + 1;
 
-  const rows = entries.map((e) => ({
-    ...personSubjectColumns(input.subject),
-    revision,
-    target_month: e.month + '-01',
-    bucket: e.bucket,
-    value: e.value,
-    set_by,
-    note: input.note,
-  }));
+  /* Lo que no estaba en pantalla viaja entero a la revisión nueva -- OL38. El
+     par (bucket, mes) que SÍ viene en el guardado manda, por si alguna vez un
+     llamador edita un mes de afuera de su propia ventana. */
+  const guardados = new Set(entries.map((e) => e.bucket + '|' + e.month));
+  const arrastradas = filasFueraDeVentana(previas, revisionVigente, input.windowMonths).filter(
+    (r) => !guardados.has(r.bucket + '|' + r.target_month.slice(0, 7))
+  );
+
+  const rows = [
+    ...entries.map((e) => ({
+      ...personSubjectColumns(input.subject),
+      revision,
+      target_month: e.month + '-01',
+      bucket: e.bucket,
+      value: e.value,
+      set_by,
+      note: input.note,
+    })),
+    /* El autor y la nota son los de quien lo decidió: arrastrar no es volver a
+       decidir, y firmar con el editor de hoy borraría de quién era. */
+    ...arrastradas.map((r) => ({
+      ...personSubjectColumns(input.subject),
+      revision,
+      target_month: r.target_month,
+      bucket: r.bucket,
+      value: r.value,
+      set_by: r.set_by,
+      note: r.note,
+    })),
+  ];
 
   const { error } = await supabase.schema('outlook').from('budget_breakdown').insert(rows);
   if (error)
