@@ -14,6 +14,7 @@ import {
   branchLevelBudget,
   nppmRealtorBudget,
   type BranchRecruit,
+  type BudgetBucket,
   type YearRow,
 } from '@/lib/outlook/loadData';
 import {
@@ -28,6 +29,8 @@ import { useOutlookDataContext } from '@/lib/outlook/useOutlookData';
 import NppmEditor from '@/app/outlook/components/NppmEditor';
 import RecruitEditor, { branchOptions } from '@/app/outlook/components/RecruitEditor';
 import PersonBudgetEditor, {
+  /* Los rótulos de los buckets viven en un solo lugar — OL37. */
+  BUCKET_LABEL,
   type BudgetEditable,
   type OwnProductionRate,
 } from '@/app/outlook/components/PersonBudgetEditor';
@@ -970,6 +973,60 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
           total: y.total - (y.byMonth[currentMonth] ?? 0),
           hasUnknown: true,
         };
+
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * LA COMPOSICIÓN DEL PRESUPUESTO DEL BRANCH — etapa OL37
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * La suma por bucket de lo que dijo cada Loan Officer del branch en SU
+   * desglose. Es una lectura, no una decisión: el presupuesto se fija por
+   * persona y acá solo se mira sumado.
+   *
+   * ⚠ SÓLO LA GENTE DEL ROSTER DE ESTE BRANCH --`primaryBranch`--, que es la
+   * misma población que dibuja las filas de persona. Sumar a quien produce acá
+   * pero pertenece a otro branch contaría su presupuesto dos veces entre los
+   * dos branches, y el presupuesto de alguien es uno solo.
+   *
+   * ⚠ Y SIN LA FILA CUANDO NO HAY NADA, no en cero: un branch donde nadie fijó
+   * su desglose no tiene una composición de ceros, no tiene composición. Es la
+   * distinción de `fmt` otra vez, a nivel de bloque.
+   */
+  const composicion = (() => {
+    const BUCKETS: BudgetBucket[] = ['own_production', 'b2b', 'nppm', 'recruitment', 'business_plan'];
+    const suyos = branch.loanOfficers.filter((l) => l.primaryBranch === branch.branchCode);
+    const filas = BUCKETS.map((bucket) => {
+      const byMonth: Record<string, number> = {};
+      for (const m of remainingMonths) {
+        byMonth[m] = suyos.reduce((a, lo) => a + (lo.budgetBreakdown[bucket]?.[m] ?? 0), 0);
+      }
+      return { bucket, byMonth, tiene: suyos.some((lo) => (lo.budgetBreakdown[bucket] ?? null) !== null) };
+    }).filter((f) => f.tiene);
+    const total: Record<string, number> = {};
+    for (const m of remainingMonths) {
+      total[m] = filas.reduce((a, f) => a + (f.byMonth[m] ?? 0), 0);
+    }
+    /*
+     * ⚠ CUÁNTOS DE CUÁNTOS, porque el total de acá NO tiene por qué dar el de
+     * la fila del branch — medido en los cinco que tienen tarjeta:
+     *
+     *     747  fila 7/7/8    tarjeta 6/6/6
+     *     716  fila 6/6/6    tarjeta 5/5/5
+     *     733  fila 4/4/4    tarjeta 4/4/4
+     *     703  fila 5/5/5    tarjeta 3/3/3
+     *     710  fila 12/15/20 tarjeta 3/2/2
+     *
+     * La fila es el presupuesto EN VIGOR --la regla de crecimiento donde nadie
+     * fijó total, las contrataciones, NPPM, el grupo del 777-- y la tarjeta es
+     * lo que las personas DESAGREGARON. Dos preguntas distintas con el mismo
+     * aspecto: sin decir a cuánta gente cubre, un «Total» debajo de la tabla de
+     * presupuesto se lee como su descomposición, y no lo es.
+     */
+    const conDesglose = suyos.filter((lo) =>
+      BUCKETS.some((b) => (lo.budgetBreakdown[b] ?? null) !== null),
+    ).length;
+    return { filas, total, conDesglose, cuantos: suyos.length, hayAlgo: filas.length > 0 };
+  })();
 
   const loExistingYears = personRows.map((p) => p.year);
   const loHiringYears = visibleRecruitRows.map((r) => r.year);
@@ -2205,6 +2262,91 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
           </tbody>
         </table>
       </div>
+
+      {/*
+        ══════════════════════════════════════════════════════════════════════
+        BUDGET COMPOSITION DEL BRANCH — etapa OL37
+        ══════════════════════════════════════════════════════════════════════
+
+        La suma, por bucket, de lo que dijeron SUS Loan Officers en su propio
+        desglose. No se edita acá: el presupuesto se fija por persona y esto
+        sólo lo mira.
+
+        ⚠ POR QUÉ ES DE SÓLO LECTURA Y NO «TODAVÍA NO EDITABLE». Si se pudiera
+        fijar acá habría dos lugares diciendo el mismo número --el del branch y
+        la suma de su gente-- y el día que difieran no habría forma de saber
+        cuál manda. Es la misma razón por la que el total del branch es la suma
+        de sus filas y no un número aparte.
+
+        ⚠ Y SUMA LA REVISIÓN VIGENTE DE CADA PERSONA, no todas sus filas: el
+        desglose es append-only y corregir una vez agrega una revisión entera.
+        Eso ya lo resuelve `budgetBreakdown` en el loader --se queda con la
+        revisión más alta por sujeto-- y por eso las diez filas de B2B de
+        Adriana no suman diez veces: cuentan las tres de su revisión 4.
+      */}
+      {composicion.hayAlgo && (
+        <div className="ol-block" data-ol-composition="">
+          <div className="ol-block__head">
+            <h2 className="ol-block__title">Budget composition</h2>
+            {/*
+              ⚠ EL ALCANCE VA EN EL RÓTULO Y NO EN UN TOOLTIP. Lo que esta
+              tarjeta suma es el desglose de ALGUNOS de los loan officers del
+              branch, y su total no da el de la fila de presupuesto de arriba.
+              Decir a cuántos cubre es lo que impide leerla como su
+              descomposición.
+            */}
+            <span className="bp-muted ol-tag">
+              {composicion.conDesglose} of {composicion.cuantos} loan officer
+              {composicion.cuantos === 1 ? '' : 's'} · read only here
+            </span>
+          </div>
+          {/* `tbl-scroll`, la misma envoltura que la tabla de arriba: la guarda
+              de clases me cazó un `table-wrap` que no existe en ninguna hoja. */}
+          <div className="tbl-scroll">
+            <table className="piv ol-year">
+              <thead>
+                <tr>
+                  <th className="lbl"></th>
+                  {remainingMonths.map((m) => (
+                    <th key={m} className="bp-center ol-m ol-m--budget">
+                      {monthLabel(m)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {composicion.filas.map((f) => (
+                  <tr key={f.bucket} className="metric mrow">
+                    <td className="lbl">{BUCKET_LABEL[f.bucket]}</td>
+                    {remainingMonths.map((m) => (
+                      <td key={m} className="bp-center ol-m ol-m--budget">
+                        {fmt(f.byMonth[m] ?? null)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+                <tr className="metric ol-total">
+                  <td
+                    className="lbl"
+                    title={
+                      `What these loan officers broke down, added up. It does not have to match ` +
+                      `the branch budget above: that one also carries the growth rule for whoever ` +
+                      `set no total, hiring, NPPM and any branch-level budget.`
+                    }
+                  >
+                    Broken down
+                  </td>
+                  {remainingMonths.map((m) => (
+                    <td key={m} className="bp-center ol-m ol-m--budget">
+                      {fmt(composicion.total[m] ?? null)}
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/*
         El aviso va DEBAJO del bloque 2, pegado a los ceros que explica. En el

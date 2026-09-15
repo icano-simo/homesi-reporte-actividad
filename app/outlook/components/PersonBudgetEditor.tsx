@@ -84,7 +84,13 @@ const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep
 const monthLabel = (ym: string) => MONTH_ABBR[Number(ym.split('-')[1]) - 1];
 const CADENCES: Cadence[] = ['monthly', 'quarterly', 'semiannual'];
 
-const BUCKET_LABEL: Record<BudgetBucket, string> = {
+/*
+ * ⚠ EXPORTADO DESDE OL37: la tarjeta del branch muestra los mismos buckets y
+ * tiene que llamarlos igual. Dos tablas de rótulos --«Own production» contra
+ * «Own Production»-- se leen como dos cosas distintas, y este módulo ya pagó
+ * esa duplicación con `fmt`.
+ */
+export const BUCKET_LABEL: Record<BudgetBucket, string> = {
   own_production: 'Own Production',
   b2b: 'B2B',
   nppm: 'NPPM',
