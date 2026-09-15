@@ -453,9 +453,32 @@ export function loanOfficerRowsOf(
   const recBudgetsPersonas = enterosRec.slice(0, recPersonas.length);
   const recBudgetsReclutas = enterosRec.slice(recPersonas.length);
 
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * EL MES EN CURSO SE REPARTE SÓLO LA PARTE PROPIA — etapa OL35
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * Antes se repartía el entero ENTERO del branch entre sus personas, así que
+   * las filas de persona se llevaban también lo que había cerrado o tenía
+   * abierto gente de otro branch. Ahora el branch trae el número partido en
+   * dos --`currentMonthOwn` y el resto-- y acá se reparte sólo el primero.
+   *
+   * ⚠ LOS DOS ENTEROS SALEN DE UN MISMO `apportionByWeight`, no de dos
+   * redondeos sueltos: así la parte propia y la de afuera suman EXACTAMENTE el
+   * entero del branch, que es lo que hace que la fila de reconciliación --que
+   * es la resta-- dé justo lo de afuera y no un resto de redondeo.
+   *
+   * ⚠ Y EL PESO ES `currentMonthHere`, no `currentMonth`: el segundo es la
+   * proyección de la PERSONA en todos sus branches. Con ése, quien produce en
+   * varios se llevaba de más en el suyo. Nathan Martinez cerró en seis.
+   */
+  const [propioEntero] = apportionByWeight(branchCurrent, [
+    branch.currentMonthOwn,
+    Math.max(0, branch.currentMonth - branch.currentMonthOwn),
+  ]);
   const partesCurrent = apportionByWeight(
-    branchCurrent,
-    los.map((lo) => lo.currentMonth)
+    propioEntero,
+    los.map((lo) => lo.currentMonthHere)
   );
 
   const personRows: PersonBudgetRow[] = los.map((lo, idx) => {

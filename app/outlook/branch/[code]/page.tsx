@@ -947,7 +947,21 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * es donde lo va a leer quien se pregunte por qué la celda está vacía, y no en
    * un documento aparte.
    */
-  const mesEnCursoEsPronostico = !branchSinGente;
+  /*
+   * ⚠ ERA `!branchSinGente` Y AHORA ES SIEMPRE — etapa OL35.
+   *
+   * La excepción existía porque un branch sin roster no tenía pronóstico y su
+   * mes en curso era lo cerrado: ahí no había dos clases de número que separar.
+   * Desde que la columna se atribuye por el BRANCH DEL PRÉSTAMO, todos los
+   * branches tienen pronóstico --AFFINITY incluido, con sus 4-- así que la
+   * regla vale en los 18 sin excepción.
+   *
+   * Y con eso el mes en curso lo llevan las filas que lo tienen: las de persona
+   * su parte propia, y la de reconciliación lo de gente de afuera. Una fila de
+   * estrategia mostrando ahí lo cerrado volvería a mezclar dos clases de número
+   * en la misma columna, que es lo que OL32 vino a deshacer.
+   */
+  const mesEnCursoEsPronostico = true;
   const sinMesEnCurso = (y: YearRow): YearRow =>
     !mesEnCursoEsPronostico || y.byMonth[currentMonth] === null
       ? y
@@ -1004,11 +1018,21 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
           const byMonth: Record<string, number | null> = {};
           let total = 0;
           for (const m of monthsOfYear) {
-            /* El futuro manda el presupuesto del branch --es el override de
-               OL27--; el pasado y el mes en curso, lo que Affinity cerró. */
-            const v = remainingMonths.includes(m)
-              ? (branchBudgetYear.byMonth[m] ?? affinityRow.year.byMonth[m] ?? null)
-              : (affinityRow.year.byMonth[m] ?? null);
+            /*
+             * El futuro manda el presupuesto del branch --es el override de
+             * OL27-- y el pasado es lo que Affinity cerró.
+             *
+             * ⚠ EL MES EN CURSO VA VACÍO — OL35. Lo lleva la fila de
+             * reconciliación, porque en un branch sin gente propia el
+             * pronóstico del mes es entero de Loan Officers de otros branches.
+             * En AFFINITY eso es literal: sus 32 cierres del año son de Nathan
+             * Martinez (716) y Gian Laino (747).
+             */
+            const v = m === currentMonth
+              ? null
+              : remainingMonths.includes(m)
+                ? (branchBudgetYear.byMonth[m] ?? affinityRow.year.byMonth[m] ?? null)
+                : (affinityRow.year.byMonth[m] ?? null);
             byMonth[m] = v;
             if (v !== null) total += v;
           }

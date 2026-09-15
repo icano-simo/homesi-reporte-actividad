@@ -15,6 +15,12 @@ import {
 import { classifyBranch } from '@/lib/domain/classifyBranch';
 import { classifyStrategy } from '@/lib/pipeline/strategy';
 import { apportionByWeight } from '@/lib/pipeline/aggregate';
+/*
+ * ⚠ LA MISMA CASCADA QUE FORECAST, IMPORTADA Y NO COPIADA — etapa OL35. Si las
+ * tasas de pull-through cambian, cambian para las dos pantallas a la vez.
+ */
+import { pullThroughWeight } from '@/lib/pipeline/branchForecast';
+import type { PipelineLoan } from '@/lib/pipeline/types';
 import { addMonths } from '@/lib/business-plan/impact';
 import { loadBusinessPlanData } from '@/lib/business-plan/loadData';
 import type { BusinessPlanData, LoanOfficerRow } from '@/lib/business-plan/types';
@@ -332,6 +338,15 @@ export interface OutlookLoanOfficer {
   actualByMonth: Record<string, number>;
   /** El PRONÓSTICO del mes en curso, que ya incluye lo cerrado del mes. */
   currentMonth: number;
+  /**
+   * Lo mismo, pero SÓLO en el branch de su roster — etapa OL35.
+   *
+   * `currentMonth` es de la PERSONA y suma sus préstamos en todos los branches
+   * donde produce; éste es lo que le corresponde al branch donde su fila se
+   * dibuja, ahora que la columna del mes se atribuye por branch del préstamo.
+   * Los dos números son correctos y distintos para quien produce en varios.
+   */
+  currentMonthHere: number;
   /**
    * La parte de `currentMonth` que ya cerró — etapa OL3.
    *
@@ -852,6 +867,13 @@ export interface OutlookBranch {
   /** Cerrados por mes — etapa OL3. */
   actualByMonth: Record<string, number>;
   currentMonth: number;
+  /**
+   * La parte del mes en curso que es de la GENTE DE ESTE BRANCH — etapa OL35.
+   * Lo que cerraron sus rosterizados más el pull-through de lo que tienen
+   * abierto. La diferencia contra `currentMonth` es lo de gente de afuera, y es
+   * lo que muestra la fila de reconciliación.
+   */
+  currentMonthOwn: number;
   /** La parte ya cerrada del pronóstico del mes en curso — etapa OL3. */
   closedToDate: number;
   /**
@@ -1808,6 +1830,94 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
   }
 
   /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * EL PRONÓSTICO DEL MES, POR EL BRANCH DEL PRÉSTAMO — etapa OL35
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * Hasta acá el mes en curso de un branch era la suma de las proyecciones de
+   * SU GENTE --atribución por PERSONA, heredada del Business Plan-- y Forecast &
+   * Pipeline atribuye por el branch DEL PRÉSTAMO. Las dos son correctas y
+   * discrepan siempre; la divergencia está documentada en
+   * `lib/business-plan/loadData.ts` desde antes de esta etapa.
+   *
+   * Isabella mira las dos pantallas juntas, así que Outlook pasa a la
+   * atribución de Forecast. Business Plan NO cambia, y eso también es una
+   * decisión: ahí se mira el desempeño de UNA PERSONA --y una persona se lleva
+   * su producción a donde la haga-- mientras acá se mira una OFICINA.
+   *
+   * ⚠ EL PESO SALE DE `pullThroughWeight`, LA MISMA FUNCIÓN QUE USA FORECAST.
+   * No se reimplementa la cascada: si las tasas cambian, cambian para las dos
+   * pantallas a la vez. Es el mismo criterio que hizo que `strategyRows` viva en
+   * un solo lugar.
+   *
+   * ⚠ Y SE PARTE EN DOS: lo de la gente del roster de ese branch y lo de gente
+   * de afuera. La segunda mitad es la que alimenta la fila «Closed by loan
+   * officers from other branches», con la regla de OL27 -- actual y pronóstico
+   * sí, presupuesto no: nadie presupuesta que alguien de afuera va a cerrar acá.
+   */
+  const finDeMes = (() => {
+    const [y, m] = currentMonth.split('-').map(Number);
+    return currentMonth + '-' + String(new Date(y, m, 0).getDate()).padStart(2, '0');
+  })();
+  const forecastPropio = new Map<string, number>();
+  const forecastAjeno = new Map<string, number>();
+  const forecastPorPersona = new Map<string, number>();
+  {
+    const pf = supabase.schema('pipeline_forecast');
+    const { data: snaps } = await pf
+      .from('pipeline_snapshots')
+      .select('id')
+      .eq('is_active', true)
+      .order('uploaded_at', { ascending: false })
+      .limit(1);
+    const snapshotId = (snaps?.[0] as { id: number } | undefined)?.id;
+    const abiertos: {
+      loan_officer: string | null;
+      branch: string | null;
+      channel: string | null;
+      milestone: string | null;
+      healthy: boolean | null;
+      est_closing_date: string | null;
+    }[] = [];
+    if (snapshotId !== undefined) {
+      for (let desde = 0; desde < 20000; desde += 1000) {
+        const { data, error } = await pf
+          .from('pipeline_loans')
+          .select('loan_officer, branch, channel, milestone, healthy, est_closing_date')
+          .eq('snapshot_id', snapshotId)
+          .range(desde, desde + 999);
+        if (error) break;
+        const lote = (data ?? []) as typeof abiertos;
+        abiertos.push(...lote);
+        if (lote.length < 1000) break;
+      }
+    }
+    for (const l of abiertos) {
+      /* La ventana del mes en curso, igual que `splitHealthyTotal`. */
+      if (l.est_closing_date === null) continue;
+      if (l.est_closing_date < currentMonth + '-01' || l.est_closing_date > finDeMes) continue;
+      const peso = pullThroughWeight({
+        channel: l.channel === 'Brokered' ? 'Brokered' : 'Banked - Retail',
+        healthy: l.healthy,
+        milestone: (l.milestone ?? 'Started') as 'Started' | 'Processing' | 'Underwriting' | 'Closing',
+      } as PipelineLoan);
+      if (peso === 0) continue;
+      const branch = grupoDe(classifyBranch(l.branch ?? '')) as string;
+      /* Por el mismo camino que el Business Plan: la fuente es `salesforce`. */
+      const nombre = l.loan_officer?.trim() ?? '';
+      const key = nombre === '' ? null : aliasIndex.lookup('salesforce', nombre).employeeKey;
+      const suBranch = key === null ? null : grupoDe(rosterByKey.get(key)?.branch_code ?? null);
+      const esPropio = suBranch !== null && suBranch === branch;
+      const mapa = esPropio ? forecastPropio : forecastAjeno;
+      mapa.set(branch, (mapa.get(branch) ?? 0) + peso);
+      if (esPropio && key !== null) {
+        const k = branch + '|' + key;
+        forecastPorPersona.set(k, (forecastPorPersona.get(k) ?? 0) + peso);
+      }
+    }
+  }
+
+  /*
    * ⚠ EL BRANCH DE UN PRÉSTAMO ES EL DEL PRÉSTAMO, NO EL DE LA PERSONA.
    *
    * La primera versión de este loader agrupaba por `lo.branchCodes` --el branch
@@ -2347,6 +2457,24 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       actualByMonth: monthsOf(actualByLo, String(lo.employeeKey)),
       currentMonth: lo.projection.projectedTotal,
       /*
+       * ⚠ SU PARTE DEL MES EN CURSO, EN SU BRANCH — etapa OL35.
+       *
+       * `currentMonth` es la proyección de la PERSONA, que suma lo que tiene en
+       * todos los branches donde produce: es el número del Business Plan y
+       * sigue siendo el correcto para mirar a alguien. Éste es el otro: lo que
+       * esa persona cerró y tiene abierto EN EL BRANCH DE SU ROSTER, que es lo
+       * que su fila tiene que mostrar ahora que la columna se atribuye por
+       * branch del préstamo.
+       *
+       * Medido: Nathan Martinez cerró en seis branches, así que los dos números
+       * son distintos para él y su fila del 716 baja.
+       */
+      currentMonthHere:
+        rosterBranch === null
+          ? 0
+          : (monthsOf(actualByBranchLo, rosterBranch + '|' + lo.employeeKey)[currentMonth] ?? 0) +
+            (forecastPorPersona.get(rosterBranch + '|' + lo.employeeKey) ?? 0),
+      /*
        * ⚠ Lo que YA CERRÓ del mes en curso, y que va DENTRO de `currentMonth`.
        *
        * `projectedTotal = closedToDate + CTC + Closing + tasa` (ver
@@ -2513,6 +2641,16 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
          * criterio que AFFINITY -- pronóstico si proyecta, y si no, lo cerrado.
          */
         currentMonth: months[currentMonth] ?? 0,
+        /*
+         * ⚠ Y SU PARTE EN ESTE BRANCH SUMA TAMBIÉN EL PIPELINE — OL35. Esta
+         * persona no está en el Business Plan, así que no tiene proyección
+         * propia; lo que sí puede tener son préstamos abiertos a su nombre en
+         * este branch, y ésos los cuenta `forecastPorPersona` igual que para
+         * cualquier otro. Dejarlo en lo cerrado dejaría su pipeline sin fila y
+         * la diferencia caería en la reconciliación con el rótulo equivocado.
+         */
+        currentMonthHere:
+          (months[currentMonth] ?? 0) + (forecastPorPersona.get(code + '|' + key) ?? 0),
         closedToDate: months[currentMonth] ?? 0,
         /* No está en el Business Plan: no tiene pronóstico que repartir. */
         currentMonthByStrategy: {},
@@ -2564,6 +2702,8 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       ytd: 0,
       actualByMonth: {},
       currentMonth: 0,
+      /* Sin producción ni identidad interna: tampoco tiene pipeline propio. */
+      currentMonthHere: 0,
       closedToDate: 0,
       currentMonthByStrategy: {},
       benchmarkTotal: 0,
@@ -2830,9 +2970,36 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
        * Sumar `l.currentMonth` de todos los que aparecen acá contaría dos veces
        * a quien produce en dos branches.
        */
-      currentMonth: los
-        .filter((l) => l.primaryBranch === branchCode)
-        .reduce((a, l) => a + l.currentMonth, 0),
+      /*
+       * ══════════════════════════════════════════════════════════════════════
+       * EL MES EN CURSO, POR EL BRANCH DEL PRÉSTAMO — etapa OL35
+       * ══════════════════════════════════════════════════════════════════════
+       *
+       * Era la suma de las proyecciones de su gente. Ahora es lo que Forecast &
+       * Pipeline llama `Forecast` para este branch, y con su misma definición:
+       *
+       *     lo YA CERRADO del mes  +  el pull-through de sus préstamos ABIERTOS
+       *
+       * ⚠ LAS DOS MITADES HACEN FALTA, y confundirlas es el error fácil: la
+       * columna `Forecast` de esa pantalla no es sólo el pipeline. Medido en el
+       * 710: Closed 3 + Projected to Close 5 = Forecast 8. Un pronóstico que
+       * ignorara lo cerrado daría menos que lo que ya pasó.
+       */
+      currentMonth:
+        (monthsOf(actualByBranch, branchCode)[currentMonth] ?? 0) +
+        (forecastPropio.get(branchCode) ?? 0) +
+        (forecastAjeno.get(branchCode) ?? 0),
+      /*
+       * La parte de ESE número que es de su propia gente: lo que cerraron y lo
+       * que tienen abierto. El resto --gente de otro branch-- es lo que la fila
+       * de reconciliación muestra, y por eso se guarda partido en vez de
+       * recalcularse en la pantalla.
+       */
+      currentMonthOwn:
+        los
+          .filter((l) => l.primaryBranch === branchCode)
+          .reduce((a, l) => a + (monthsOf(actualByBranchLo, branchCode + '|' + l.employeeKey)[currentMonth] ?? 0), 0) +
+        (forecastPropio.get(branchCode) ?? 0),
       /* La parte ya cerrada de ese pronóstico, con el mismo filtro. */
       closedToDate: los
         .filter((l) => l.primaryBranch === branchCode)
@@ -3481,36 +3648,21 @@ export function currentMonthByBranch(data: {
      * un piso real. Ver el bloque de AFFINITY en la vista 1.
      */
     /*
-     * ⚠ ESTA CONDICIÓN MEZCLA DOS COSAS, Y ESTÁ MEDIDO — pendiente de OL35.
+     * ⚠ ACÁ VIVÍA LA CONDICIÓN `proyecta ? pronóstico : cerrado`, Y SE FUE —
+     * etapa OL35.
      *
-     * Pregunta «¿tiene gente rosterizada?» y la usa para decidir «¿tiene
-     * pronóstico?». En AFFINITY las dos respuestas se separan: NO tiene gente
-     * y SÍ tiene producción propia --Forecast & Pipeline le proyecta 4 para el
-     * mes en curso-- así que acá cae en lo cerrado (1) y muestra un número de
-     * otra clase que el resto de la columna.
+     * Preguntaba «¿tiene gente rosterizada?» y con eso decidía «¿tiene
+     * pronóstico?», que son dos cosas distintas: AFFINITY no tiene gente y sí
+     * tiene producción propia, así que caía en lo cerrado y mostraba un número
+     * de otra clase que el resto de la columna.
      *
-     * ⚠ PERO SEPARARLAS NO ALCANZA, y por eso esto sigue como está: el
-     * pronóstico que este módulo sabe calcular es `b.currentMonth`, que es la
-     * SUMA DE LAS PROYECCIONES DE SU GENTE. Sin gente da 0, así que un branch
-     * con producción propia y sin roster pasaría de mostrar 1 a mostrar 0 -- y
-     * el descuadre con Forecast, en vez de cerrarse, crecería.
-     *
-     * El pronóstico de 4 de Affinity existe en OTRA ATRIBUCIÓN: Forecast
-     * atribuye por el branch DEL PRÉSTAMO y este módulo por PERSONA. Está
-     * documentado en `lib/business-plan/loadData.ts` --«la suma de las
-     * proyecciones de los Loan Officers de un branch NO va a coincidir con el
-     * forecast de ese branch; alguien lo va a reportar como error; no lo es»--
-     * y los 4 de Affinity ya están contados adentro de la proyección de Nathan
-     * Martinez, que es del 716.
-     *
-     * Traerlos acá sin sacarlos de ahí los contaría dos veces. La salida es una
-     * decisión de negocio y no un arreglo: o el mes en curso pasa a atribuirse
-     * por branch del préstamo en todo Outlook --y entonces cuadra con Forecast
-     * por construcción-- o se queda por persona y la diferencia se explica en
-     * vez de perseguirse.
+     * Ya no hace falta separarlas porque la pregunta desapareció: desde OL35
+     * `b.currentMonth` es el pronóstico del BRANCH DEL PRÉSTAMO --lo cerrado
+     * del mes más el pull-through de lo abierto-- y eso existe tenga o no tenga
+     * gente rosterizada. Un branch sin préstamos abiertos ni cerrados da 0, que
+     * es la respuesta correcta y no un hueco.
      */
-    const proyecta = b.loanOfficers.some((l) => l.primaryBranch === b.branchCode);
-    return proyecta ? b.currentMonth : (b.actualByMonth[data.currentMonth] ?? 0);
+    return b.currentMonth;
   });
   const total = Math.round(exacto.reduce((a, x) => a + x, 0));
   const partes = apportionByWeight(total, exacto);
