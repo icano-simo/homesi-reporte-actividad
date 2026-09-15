@@ -160,9 +160,27 @@ export function branchHasBudget(bs: BranchStrategy): boolean {
  * ni corregir.
  */
 export function tieneAlgo(branch: OutlookBranch, bs: BranchStrategy, currentMonth: string): boolean {
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * ⚠ `currentMonthRaw` YA NO ALCANZA PARA EXISTIR — etapa OL36
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * Ese número es la parte del pipeline de LAS PERSONAS del branch que cae en
+   * esta estrategia, y desde OL35 el mes en curso se atribuye por el BRANCH DEL
+   * PRÉSTAMO: los préstamos de Affinity que tiene Nathan Martinez son del branch
+   * AFFINITY aunque Nathan sea del 716.
+   *
+   * Sin sacarlo, el 716 seguía dibujando una fila de Affinity --con su 4 de
+   * septiembre-- por producción que ya no le pertenece. Medido: el 716 no tiene
+   * un solo cierre de Affinity en el año; los 32 están en el branch Affinity.
+   *
+   * ⚠ Y NO ES «QUE SUME CERO»: la fila NO EXISTE. Una fila en cero afirma que
+   * esa estrategia está en el branch y no produjo; acá la estrategia no es de
+   * este branch. Es la misma distinción que `fmt` sostiene entre `0` y vacío,
+   * un nivel más arriba.
+   */
   return (
     bs.ytd > 0 ||
-    bs.currentMonthRaw > 0 ||
     (bs.actualByMonth[currentMonth] ?? 0) > 0 ||
     bs.benchmarkSchedule.length > 0 ||
     bs.targetRevision > 0 ||

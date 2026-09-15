@@ -1903,9 +1903,34 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       } as PipelineLoan);
       if (peso === 0) continue;
       const branch = grupoDe(classifyBranch(l.branch ?? '')) as string;
-      /* Por el mismo camino que el Business Plan: la fuente es `salesforce`. */
+      /*
+       * ══════════════════════════════════════════════════════════════════════
+       * ⚠ TRES FUENTES, NO UNA — corregido en OL36
+       * ══════════════════════════════════════════════════════════════════════
+       *
+       * OL35 resolvía sólo por `salesforce`, que es la fuente de esta tabla, y
+       * eso dejó afuera a quien no tiene alias en ESA fuente aunque resuelva
+       * perfecto en otra. Medido: Ana Manjarres tiene alias en `roster`,
+       * `slquery` y `person_code` --employee_key 47-- y ninguno en
+       * `salesforce`, así que sus cuatro préstamos abiertos del 711 quedaron
+       * clasificados como de gente de otro branch y su pronóstico entero cayó en
+       * la fila de reconciliación en vez de la suya.
+       *
+       * > Un cruce por nombre no dice «no está»: dice «no lo encontré así
+       * > escrito». Con una sola fuente dice todavía menos -- «no lo encontré
+       * > escrito así EN ESTA FUENTE».
+       *
+       * El orden es el de siempre --la fuente propia primero, las otras de
+       * respaldo-- y un nombre que no resuelve en ninguna sigue contando como
+       * de afuera, que es lo correcto: es gente que el roster no tiene.
+       */
       const nombre = l.loan_officer?.trim() ?? '';
-      const key = nombre === '' ? null : aliasIndex.lookup('salesforce', nombre).employeeKey;
+      const key =
+        nombre === ''
+          ? null
+          : (aliasIndex.lookup('salesforce', nombre).employeeKey ??
+            aliasIndex.lookup('roster', nombre).employeeKey ??
+            aliasIndex.lookup('slquery', nombre).employeeKey);
       const suBranch = key === null ? null : grupoDe(rosterByKey.get(key)?.branch_code ?? null);
       const esPropio = suBranch !== null && suBranch === branch;
       const mapa = esPropio ? forecastPropio : forecastAjeno;

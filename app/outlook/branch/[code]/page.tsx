@@ -1022,14 +1022,23 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
              * El futuro manda el presupuesto del branch --es el override de
              * OL27-- y el pasado es lo que Affinity cerró.
              *
-             * ⚠ EL MES EN CURSO VA VACÍO — OL35. Lo lleva la fila de
-             * reconciliación, porque en un branch sin gente propia el
-             * pronóstico del mes es entero de Loan Officers de otros branches.
-             * En AFFINITY eso es literal: sus 32 cierres del año son de Nathan
-             * Martinez (716) y Gian Laino (747).
+             * ⚠ Y EL MES EN CURSO ES EL DEL BRANCH — corregido en OL36.
+             *
+             * En OL35 quedó vacío y su pronóstico cayó en la fila de
+             * reconciliación, bajo «closed by loan officers from other
+             * branches». Formalmente cierto --Nathan es del 716 y Gian del
+             * 747-- y equivocado como lectura: Affinity es un CANAL CON P&L
+             * PROPIO y sus cierres son suyos sin importar quién los procesó.
+             * Es la decisión de OL35, que faltaba aplicar al mes en curso.
+             *
+             * ⚠ La condición es «no hay NINGUNA fila de persona», no «es
+             * AFFINITY»: donde no hay a quién atribuirle nada no hay propio
+             * contra ajeno que separar, y la fila del branch es la única que
+             * puede llevarlo. Donde sí hay gente, cada uno lleva lo suyo y la
+             * reconciliación lo de afuera -- los otros diecisiete.
              */
             const v = m === currentMonth
-              ? null
+              ? branchCurrent
               : remainingMonths.includes(m)
                 ? (branchBudgetYear.byMonth[m] ?? affinityRow.year.byMonth[m] ?? null)
                 : (affinityRow.year.byMonth[m] ?? null);
