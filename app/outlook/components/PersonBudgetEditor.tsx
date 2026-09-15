@@ -161,6 +161,35 @@ export default function PersonBudgetEditor({
    * abajo), TODO se coloca en Own Production al abrir la pantalla -- es el
    * punto de partida. Durante la revisión se mira y, si hace falta, se mueve
    * parte a los otros planes.
+   *
+   * ══════════════════════════════════════════════════════════════════════════
+   * ⚠ Y NO ES LO QUE LA PANTALLA MUESTRA SIEMPRE — corregido en OL41
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * Esta nota decía que lo que se prellena «es exactamente lo que la fila de
+   * arriba muestra hoy». Es cierto sólo para quien NO tiene desglose guardado.
+   *
+   * El orden real lo fija `initialStringOf`, unas líneas más abajo:
+   *
+   *     1. el desglose guardado de esa persona, si lo hay;
+   *     2. y SÓLO si no lo hay, y el mes no tiene total fijado, esta regla.
+   *
+   * Y así está bien: abrir con el desglose guardado es abrir con lo que la
+   * persona decidió, y prellenar la regla encima lo borraría de la vista.
+   *
+   * Lo que hay que saber es que son DOS FUENTES QUE SE LEEN IGUAL. Una celda
+   * con 4 puede venir de lo que alguien escribió o de lo que la regla proyecta,
+   * y no hay nada en pantalla que las distinga -- acá no hace falta, porque
+   * esto es el editor y el número se puede cambiar; en la tarjeta del branch,
+   * que se lee sin poder tocarla, sí hace falta y por eso lleva el rótulo
+   * «from growth rule».
+   *
+   * ⚠ LO PAGUÉ MIDIENDO. Verificando OL41 leí esta celda creyendo que traía la
+   * regla para comparar contra la fila del branch: traía el desglose a mano de
+   * Galo (4/4/4) y su fila decía 4/4/5. Dos números distintos que parecían la
+   * misma pregunta mal contestada, y era una pregunta distinta bien contestada.
+   * Ninguna comparación de números lo habría distinguido: sólo leer de dónde
+   * sale cada uno.
    */
   ruleProjection: Record<string, number> | null;
   data: OutlookData;
@@ -199,6 +228,13 @@ export default function PersonBudgetEditor({
    * mirado de dos formas. `initialBucketOf` es la única fuente de verdad del
    * valor con el que abre cada celda -- se usa para el estado inicial Y para
    * saber qué cambió, así que las dos lecturas no pueden divergir.
+   */
+  /*
+   * ⚠ EL ORDEN ES EL QUE IMPORTA, y es el que la nota de `ruleProjection` no
+   * decía: PRIMERO el desglose guardado, y la regla SÓLO si no hay. Las dos
+   * fuentes producen una celda con el mismo aspecto, y saber cuál es la de
+   * cada celda no se puede desde la pantalla. Acá no hace falta --el número se
+   * puede cambiar-- pero al medir sí: leer una celda no es leer la regla.
    */
   function initialBucketOf(b: BudgetBucket, m: string): number {
     const existing = person.budgetBreakdown[b]?.[m];
