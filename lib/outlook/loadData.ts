@@ -1580,7 +1580,46 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
 
       const breakdowns = (budgetBreakdownRes.data ?? []) as PersonBudgetBreakdownRow[];
       history.personBudgetBreakdowns = breakdowns;
-      /* Una revisión cubre TODOS los buckets y meses de un mismo guardado. */
+      /*
+       * Una revisión cubre TODOS los buckets y meses de un mismo guardado.
+       *
+       * ══════════════════════════════════════════════════════════════════════
+       * ⚠ Y POR ESO UNA REVISIÓN PARCIAL BORRA LO QUE NO REPITE — OL37
+       * ══════════════════════════════════════════════════════════════════════
+       *
+       * Acá gana la revisión MÁS ALTA del sujeto, entera. No se mezclan dos
+       * revisiones ni se completa una con la anterior: la última reemplaza al
+       * conjunto. Así que guardar sólo un bucket --o sólo unos meses-- borra en
+       * silencio todo lo que ese guardado no volvió a escribir.
+       *
+       * NO ES HIPOTÉTICO, ya mordió dos veces con datos reales:
+       *
+       *   · Nathan Martinez (e3, branch 716). Su B2B de oct–dic, 1 por mes,
+       *     entró como revisión 1 el 2026-09-15 --el reparto del presupuesto
+       *     de B2B que estaba a nivel branch-- pero su revisión 2, de un día
+       *     antes y con sólo `own_production`, es la que gobierna. La fila
+       *     existe en la tabla y NO SE VE EN NINGUNA PANTALLA: el 716 muestra
+       *     B2B 1 --el de Juseth-- donde debería mostrar 2.
+       *   · Adriana Espinoza (e24). Su revisión 1 llegaba hasta marzo de 2027;
+       *     la 2 se guardó sólo con oct–dic de 2026, y los tres meses de 2027
+       *     se fueron con ella.
+       *
+       * ⚠ Y NO DEJA RASTRO, que es lo que lo hace peligroso: las filas viejas
+       * siguen ahí --el desglose es append-only-- así que una consulta las
+       * encuentra y la pantalla no las muestra. Es la misma familia que el
+       * respaldo que tapa una ausencia: lo que compensa que falte hace que no
+       * se note.
+       *
+       * Quien edite un solo bucket tiene que mandar el conjunto entero. La
+       * pantalla ya lo hace --`BudgetEditor` manda todos los buckets que tiene
+       * cargados-- pero un INSERT a mano no, y los dos casos de arriba son
+       * INSERTs a mano.
+       *
+       * No se "arregla" leyendo distinto: completar una revisión con la
+       * anterior haría imposible BORRAR un bucket, que es una decisión
+       * legítima --«este mes no hago B2B»-- y hoy se expresa no repitiéndolo.
+       * El arreglo, si hace falta, va del lado de quien escribe.
+       */
       const maxBreakdownRev = new Map<string, number>();
       for (const b of breakdowns) {
         const k = personBudgetKeyOf(b);

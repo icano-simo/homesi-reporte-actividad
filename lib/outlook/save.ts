@@ -763,6 +763,14 @@ export async function confirmPersonBudgetReviewed(input: {
  * los buckets y meses de un mismo guardado -- es una sola decisión, "así es
  * como se explica el total", no una por bucket.
  *
+ * ⚠ Y POR ESO ESTE `input.breakdown` TIENE QUE TRAER EL CONJUNTO ENTERO, no
+ * sólo lo que cambió. La lectura se queda con la revisión más alta del sujeto
+ * y no la completa con la anterior, así que un bucket --o un mes-- que no
+ * venga acá queda borrado en silencio. Los dos casos que ya pasaron están
+ * contados en `loadData.ts`, donde se elige esa revisión: el B2B de Nathan
+ * Martinez, que existe en la tabla y no se ve en ninguna pantalla, y los tres
+ * meses de 2027 de Adriana Espinoza. Los dos entraron por INSERT a mano.
+ *
  * ⚠ NO SE VALIDA QUE SUME EL TOTAL, a propósito: eso se muestra en pantalla
  * (ver el delta de `BudgetEditor`), no se rechaza el guardado ni se fuerza un
  * reescalado que inventaría de dónde sale la diferencia.
