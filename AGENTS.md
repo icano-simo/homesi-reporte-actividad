@@ -2272,3 +2272,89 @@ ya está a la vista; no para ser el único lugar donde vive uno.
 Queda como etapa anotada en el código, no en un documento: una columna aparte
 para el mes en curso cerrado, al lado de la del pronóstico. Lo que NO es salida
 es devolver el número a la columna del pronóstico, que es de donde se lo sacó.
+
+# La identidad: preguntar «¿existe?» al universo equivocado
+
+> Sección propia porque el proyecto ya tenía TRES notas sueltas sobre esto
+> --`normName` contra `realtor_code`, el cruce por nombre de OL28, y el de
+> OL36-- y las tres describen el error sin decir qué hacer. Ésta dice qué hacer.
+> Los tres casos de abajo pasaron **el mismo día**, dos los cometió Isabella y
+> uno yo.
+
+## La forma, que es la misma en los tres
+
+> **Preguntar «¿existe?» a un universo más chico que el que la pregunta
+> necesitaba, y leer el silencio como un no.**
+
+No falla nada. No hay error, ni fila rara, ni número imposible: hay una
+respuesta limpia y falsa.
+
+## La regla
+
+**Resolver una identidad por TODAS sus fuentes, la propia primero. Y que «no
+resuelve» sea una respuesta explícita, no el valor por defecto de la primera
+consulta que falla.**
+
+La segunda mitad es la que faltaba. Un `?? null` que sigue de largo convierte
+«no lo encontré» en «no existe» sin que nadie lo decida, y ahí el dato malo
+entra a un cálculo como si fuera bueno.
+
+## Los tres casos, y el tercero es de otra clase
+
+**1. Adriana Julieth Szczech** — se la buscó en `org.dim_employee` por el nombre
+que trae Encompass y no cruzó. Está en el roster como **Adriana Espinoza**. La
+conclusión fue que el 710 tenía cuatro cierres de alguien que el roster no
+conoce; en realidad es una productora activa de ese branch.
+
+**2. Galo Rizzo** — el mismo cruce, contra la misma tabla, el mismo día.
+
+Las dos tienen algo en común y es lo que las hace fáciles de encontrar: **hay
+una tabla que señalar**. Se cruzó contra `dim_employee` y había que cruzar
+contra `employee_alias`, que existe justamente para eso.
+
+**3. Ana Manjarres** — y ésta es la que va a volver. El cruce fue contra la
+tabla CORRECTA --`employee_alias`-- y contra **una sola de sus cuatro fuentes**:
+
+```
+alias de «Ana Manjarres»:  roster · slquery · person_code  → employee_key 47
+                           salesforce: NO EXISTE
+```
+
+El índice estaba bien. La consulta estaba bien. La fuente elegida era la
+correcta para esa tabla --los préstamos abiertos vienen de Salesforce-- y la
+respuesta fue falsa igual.
+
+> **No deja rastro de estar mal.** En las dos primeras hay una tabla equivocada
+> que alguien puede ver; en la tercera todo lo visible está bien.
+
+## Y no quedó en un reporte
+
+Sus cuatro préstamos abiertos del 711 se clasificaron como de gente de otro
+branch, así que **el pronóstico entero de Ana se fue a una fila que decía
+"closed by loan officers from other branches"**: un número correcto, en el lugar
+equivocado, con un rótulo que afirmaba algo falso sobre ella.
+
+Es la misma familia que `already above forecast` --un rótulo que interpreta un
+número y la interpretación es falsa-- por otra puerta: allá la interpretación
+estaba mal escrita, acá el número llegó a la fila equivocada y el rótulo, que
+era correcto para esa fila, pasó a mentir sobre una persona.
+
+## Qué hacer
+
+- **Resolver por todas las fuentes, la propia primero.** Es una línea:
+
+  ```ts
+  const key =
+    aliasIndex.lookup('salesforce', nombre).employeeKey ??
+    aliasIndex.lookup('roster', nombre).employeeKey ??
+    aliasIndex.lookup('slquery', nombre).employeeKey;
+  ```
+
+- **Que «no resuelve» sea una decisión y no un descarte.** En OL36 quien no
+  resuelve en ninguna fuente cuenta como gente de otro branch --que es lo
+  correcto: el roster no lo tiene-- y eso está escrito al lado del `??`. Lo que
+  no puede pasar es que nadie sepa por qué ese préstamo terminó donde terminó.
+- **Y al MEDIR una ausencia, probar primero con un caso conocido.** Un cruce que
+  devuelve cero no prueba que no haya: prueba que ese cruce no encontró. Un
+  control positivo --una persona que sabemos que está-- separa las dos cosas en
+  treinta segundos, y es lo que faltó las tres veces.
