@@ -992,40 +992,113 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * su desglose no tiene una composición de ceros, no tiene composición. Es la
    * distinción de `fmt` otra vez, a nivel de bloque.
    */
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * ⚠ Y LA REGLA TAMBIÉN ES PRESUPUESTO, Y ES OWN PRODUCTION — etapa OL39
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * Hasta OL38 esta tarjeta sumaba SÓLO lo desagregado a mano, y por eso decía
+   * 6 donde la fila del branch decía 7. Pero quien no desagregó nada igual
+   * tiene presupuesto --el que proyecta su regla de crecimiento-- y ese número,
+   * por definición del modelo, es Own Production: «si es por la regla
+   * predeterminada todo se aloca en own production, y de ahí en la revisión
+   * definen si está bien así o si modifican algo».
+   *
+   * Es la misma cascada que el perfil del Loan Officer ya muestra desde BP49b
+   * --`budgetSource: 'fixed' | 'rule'`, con el rótulo «from growth rule»--, del
+   * lado del branch.
+   *
+   * El presupuesto efectivo de cada persona se toma de donde lo toma la FILA:
+   * `lo.budgetTotal[m] ?? (regla de Own Production + su parte de Recruitment)`,
+   * el mismo `?? ` de `loanOfficerRowsOf`. Copiarlo con otro criterio las
+   * separaría de nuevo, que es lo que esta etapa viene a cerrar.
+   *
+   * ⚠ Y AL OWN PRODUCTION DE LA REGLA SE LE RESTAN LOS OTROS BUCKETS, que es
+   * el punto que muerde: Galo y Gian tienen `b2b 1` del reparto y su total sale
+   * de la regla. Si Own Production trajera la regla entera Y ADEMÁS estuviera
+   * el B2B, esas personas sumarían de más -- el mismo préstamo contado dos
+   * veces, en dos filas de la misma tarjeta.
+   */
   const composicion = (() => {
     const BUCKETS: BudgetBucket[] = ['own_production', 'b2b', 'nppm', 'recruitment', 'business_plan'];
+    const OTROS = BUCKETS.filter((b) => b !== 'own_production');
     const suyos = branch.loanOfficers.filter((l) => l.primaryBranch === branch.branchCode);
+
+    /* El presupuesto efectivo de la persona, mes a mes, igual que su fila. */
+    const efectivoDe = (lo: (typeof suyos)[number]) => {
+      const pr = personRows.find((x) => x.lo.employeeKey === lo.employeeKey);
+      const porMes: Record<string, number> = {};
+      for (const m of remainingMonths) porMes[m] = pr?.year.byMonth[m] ?? 0;
+      return porMes;
+    };
+    const aMano = (lo: (typeof suyos)[number], b: BudgetBucket, m: string) =>
+      lo.budgetBreakdown[b]?.[m] ?? null;
+
+    /* Cuántos aportan su Own Production por regla y no por desglose: el rótulo
+       lo dice, porque un número de otra fuente es otra afirmación. */
+    let porRegla = 0;
+    const ownByMonth: Record<string, number> = {};
+    for (const m of remainingMonths) ownByMonth[m] = 0;
+    for (const lo of suyos) {
+      const efectivo = efectivoDe(lo);
+      const tieneOwnAMano = remainingMonths.some((m) => aMano(lo, 'own_production', m) !== null);
+      if (!tieneOwnAMano && remainingMonths.some((m) => efectivo[m] > 0)) porRegla += 1;
+      for (const m of remainingMonths) {
+        const propio = aMano(lo, 'own_production', m);
+        if (propio !== null) {
+          ownByMonth[m] += propio;
+          continue;
+        }
+        const otros = OTROS.reduce((a, b) => a + (aMano(lo, b, m) ?? 0), 0);
+        /* Nunca negativo: si alguien desagregó más de lo que su presupuesto
+           dice, lo que sobra se ve en la fila de ese bucket, no como un Own
+           Production en rojo que nadie escribió. */
+        ownByMonth[m] += Math.max(0, efectivo[m] - otros);
+      }
+    }
+
     const filas = BUCKETS.map((bucket) => {
+      if (bucket === 'own_production') {
+        return {
+          bucket,
+          byMonth: ownByMonth,
+          tiene: remainingMonths.some((m) => ownByMonth[m] !== 0) ||
+            suyos.some((lo) => (lo.budgetBreakdown.own_production ?? null) !== null),
+        };
+      }
       const byMonth: Record<string, number> = {};
       for (const m of remainingMonths) {
-        byMonth[m] = suyos.reduce((a, lo) => a + (lo.budgetBreakdown[bucket]?.[m] ?? 0), 0);
+        byMonth[m] = suyos.reduce((a, lo) => a + (aMano(lo, bucket, m) ?? 0), 0);
+        /*
+         * ⚠ Y LOS QUE ESTÁN EN CONTRATACIÓN SON RECRUITMENT — etapa OL39. Su
+         * fila está en la tabla de arriba y suma al total del branch, así que
+         * sin ellos el invariante «la tarjeta es la fila» no puede valer en un
+         * branch que está contratando: en el 710 la diferencia era 1/5/8, que
+         * es exactamente su fila.
+         *
+         * Van en Recruitment y no en Own Production porque eso es lo que son:
+         * producción que se espera de gente que todavía no está. La parte de
+         * Recruitment que ya tienen las PERSONAS del roster viaja dentro de su
+         * presupuesto efectivo (`own + rec` en `loanOfficerRowsOf`), así que no
+         * se cuenta dos veces.
+         */
+        if (bucket === 'recruitment') {
+          byMonth[m] += visibleRecruitRows.reduce((x, rr) => x + (rr.year.byMonth[m] ?? 0), 0);
+        }
       }
-      return { bucket, byMonth, tiene: suyos.some((lo) => (lo.budgetBreakdown[bucket] ?? null) !== null) };
+      return {
+        bucket,
+        byMonth,
+        tiene:
+          suyos.some((lo) => (lo.budgetBreakdown[bucket] ?? null) !== null) ||
+          (bucket === 'recruitment' && remainingMonths.some((m) => byMonth[m] !== 0)),
+      };
     }).filter((f) => f.tiene);
     const total: Record<string, number> = {};
     for (const m of remainingMonths) {
       total[m] = filas.reduce((a, f) => a + (f.byMonth[m] ?? 0), 0);
     }
-    /*
-     * ⚠ CUÁNTOS DE CUÁNTOS, porque el total de acá NO tiene por qué dar el de
-     * la fila del branch — medido en los cinco que tienen tarjeta:
-     *
-     *     747  fila 7/7/8    tarjeta 6/6/6
-     *     716  fila 6/6/6    tarjeta 5/5/5
-     *     733  fila 4/4/4    tarjeta 4/4/4
-     *     703  fila 5/5/5    tarjeta 3/3/3
-     *     710  fila 12/15/20 tarjeta 3/2/2
-     *
-     * La fila es el presupuesto EN VIGOR --la regla de crecimiento donde nadie
-     * fijó total, las contrataciones, NPPM, el grupo del 777-- y la tarjeta es
-     * lo que las personas DESAGREGARON. Dos preguntas distintas con el mismo
-     * aspecto: sin decir a cuánta gente cubre, un «Total» debajo de la tabla de
-     * presupuesto se lee como su descomposición, y no lo es.
-     */
-    const conDesglose = suyos.filter((lo) =>
-      BUCKETS.some((b) => (lo.budgetBreakdown[b] ?? null) !== null),
-    ).length;
-    return { filas, total, conDesglose, cuantos: suyos.length, hayAlgo: filas.length > 0 };
+    return { filas, total, porRegla, cuantos: suyos.length, hayAlgo: filas.length > 0 };
   })();
 
   const loExistingYears = personRows.map((p) => p.year);
@@ -2289,15 +2362,15 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
           <div className="ol-block__head">
             <h2 className="ol-block__title">Budget composition</h2>
             {/*
-              ⚠ EL ALCANCE VA EN EL RÓTULO Y NO EN UN TOOLTIP. Lo que esta
-              tarjeta suma es el desglose de ALGUNOS de los loan officers del
-              branch, y su total no da el de la fila de presupuesto de arriba.
-              Decir a cuántos cubre es lo que impide leerla como su
-              descomposición.
+              ⚠ EL «2 of 9» SE FUE — etapa OL39, y por una razón y no por
+              gusto: decía a cuánta gente cubría la tarjeta porque cubría a
+              ALGUNOS. Ahora cubre a todos --quien no desagregó aporta su regla
+              como Own Production-- así que el rótulo diría siempre «9 of 9»,
+              que es ruido. Lo que sí sigue haciendo falta decir es que acá no
+              se edita.
             */}
             <span className="bp-muted ol-tag">
-              {composicion.conDesglose} of {composicion.cuantos} loan officer
-              {composicion.cuantos === 1 ? '' : 's'} · read only here
+              {composicion.cuantos} loan officer{composicion.cuantos === 1 ? '' : 's'} · read only here
             </span>
           </div>
           {/* `tbl-scroll`, la misma envoltura que la tabla de arriba: la guarda
@@ -2317,7 +2390,27 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               <tbody>
                 {composicion.filas.map((f) => (
                   <tr key={f.bucket} className="metric mrow">
-                    <td className="lbl">{BUCKET_LABEL[f.bucket]}</td>
+                    <td className="lbl">
+                      {BUCKET_LABEL[f.bucket]}
+                      {/*
+                        ⚠ DE DÓNDE SALE EL NÚMERO, cuando sale de dos lados. El
+                        mismo rótulo que el perfil del Loan Officer usa desde
+                        BP49b: un número leído de la regla y uno fijado a mano
+                        se ven igual, y no son lo mismo.
+                      */}
+                      {f.bucket === 'own_production' && composicion.porRegla > 0 && (
+                        <span
+                          className="bp-muted ol-tag"
+                          title={
+                            `${composicion.porRegla} of ${composicion.cuantos} loan officers here did not break ` +
+                            `their budget down, so what their growth rule projects counts as Own Production — ` +
+                            `minus whatever they did break out into the other plans, so nothing is counted twice.`
+                          }
+                        >
+                          from growth rule
+                        </span>
+                      )}
+                    </td>
                     {remainingMonths.map((m) => (
                       <td key={m} className="bp-center ol-m ol-m--budget">
                         {fmt(f.byMonth[m] ?? null)}
@@ -2329,12 +2422,12 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                   <td
                     className="lbl"
                     title={
-                      `What these loan officers broke down, added up. It does not have to match ` +
-                      `the branch budget above: that one also carries the growth rule for whoever ` +
-                      `set no total, hiring, NPPM and any branch-level budget.`
+                      `The branch budget above, by plan: every loan officer of this branch, with ` +
+                      `what the growth rule projects counting as Own Production for whoever set no ` +
+                      `breakdown. Hiring, NPPM and any branch-level budget are not in here.`
                     }
                   >
-                    Broken down
+                    Total
                   </td>
                   {remainingMonths.map((m) => (
                     <td key={m} className="bp-center ol-m ol-m--budget">
