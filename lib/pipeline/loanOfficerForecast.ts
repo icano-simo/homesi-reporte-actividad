@@ -94,6 +94,16 @@ export function buildLoanOfficerForecastRows(
    *    solo person_code no nulo (ver ese hook), así que "está en el Map" y
    *    "resolvió" son lo mismo acá. `outOfDivision` es siempre `false` --
    *    una persona resuelta nunca lleva esta marca.
+   *
+   *    ⚠ HOTFIX (15-sep, caso "Isabel Wagner"): `person_code` no nulo NO
+   *    garantiza `nombre_canonico` no nulo -- la fila puede tener uno y no
+   *    el otro (visto en producción: `person_code: 'isabel.wagner'`,
+   *    `nombre_canonico: null`). El identificador de fila (`key`) se queda
+   *    en `'person:' + personCode` -- la identidad SÍ está resuelta, no
+   *    hay que inventar una nueva -- pero `displayName` cae al mismo
+   *    fallback que el paso 2: el nombre crudo, nunca `null`. Antes de este
+   *    fix, un `displayName: null` llegaba intacto hasta el `.sort()` de
+   *    abajo y tiraba `TypeError` en cada carga de la vista.
    * 2. Si no resuelve ahí: NO se descarta ni se fusiona con nadie -- queda
    *    como su propia identidad (key = 'raw:'+nombre), con su nombre crudo
    *    como display -- fidelidad del dato por sobre prolijidad del nombre.
@@ -111,7 +121,7 @@ export function buildLoanOfficerForecastRows(
    */
   function resolveOfficer(rawName: string): { key: string; displayName: string; outOfDivision: boolean } {
     const resolved = loanOfficerResolvedIndex.get(rawName);
-    if (resolved) return { key: 'person:' + resolved.personCode, displayName: resolved.nombreCanonico, outOfDivision: false };
+    if (resolved) return { key: 'person:' + resolved.personCode, displayName: resolved.nombreCanonico || rawName, outOfDivision: false };
 
     return { key: 'raw:' + rawName, displayName: rawName, outOfDivision: outOfDivisionIndex.get(rawName) === true };
   }
@@ -219,7 +229,15 @@ export function buildLoanOfficerForecastRows(
     result.push(...rows);
   }
 
-  return result.sort((a, b) => a.branch.localeCompare(b.branch) || a.loanOfficer.localeCompare(b.loanOfficer));
+  /*
+   * Defensa adicional (15-sep, no reemplaza el fix de resolveOfficer() de
+   * arriba): `?? ''` para que un `loanOfficer` null/undefined que llegara
+   * por CUALQUIER otro camino no previsto ordene al principio en vez de
+   * tirar `TypeError`. El caso conocido (nombre_canonico null con
+   * person_code resuelto) ya no llega acá nulo -- esto es para el caso que
+   * todavía no se vio.
+   */
+  return result.sort((a, b) => a.branch.localeCompare(b.branch) || (a.loanOfficer ?? '').localeCompare(b.loanOfficer ?? ''));
 }
 
 export interface LoanOfficerForecastByPerson {
@@ -269,7 +287,8 @@ export function buildLoanOfficerForecastByPerson(rows: LoanOfficerForecastRow[])
     byOfficer.set(row.loanOfficerKey, cur);
   }
 
-  const result = [...byOfficer.values()].sort((a, b) => a.loanOfficer.localeCompare(b.loanOfficer));
+  /* Misma defensa adicional que en buildLoanOfficerForecastRows() -- ver ese comentario. */
+  const result = [...byOfficer.values()].sort((a, b) => (a.loanOfficer ?? '').localeCompare(b.loanOfficer ?? ''));
 
   /*
    * Mismo chequeo de desarrollo que buildLoanOfficerForecastRows() arriba
