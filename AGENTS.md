@@ -1959,3 +1959,402 @@ esa letra chica y dejar que Isabella lo descubriera en pantalla.
   inferir el acceso de una lista de personas autorizadas.** Es lo que faltó
   en BP49b y lo que contestó esta vez -- con la salvedad de arriba, sobre qué
   SÍ y qué NO contesta.
+
+# Una línea base envejece, y un invariante no
+
+> Sección aparte de la tabla de las siete: aquellas son mediciones MAL HECHAS.
+> Ésta estaba bien hecha y dejó de valer sola, porque **el dato se movió abajo**.
+> Es un mecanismo distinto y por eso no se mete ahí.
+
+## La regla
+
+**Cuando el dato puede cambiar entre la medición de antes y la de después, la
+salida no es una línea base más fresca: es una propiedad que no dependa del
+dato.**
+
+Refrescar la línea base sólo mueve la ventana. La próxima corrida vuelve a tener
+el mismo problema, y peor, porque ya se creyó una vez.
+
+## El caso que la fija (OL27)
+
+La etapa cambiaba de dónde sale el presupuesto del branch, y el criterio de
+aceptación era «los totales de los 14 branches no se mueven». Se midieron antes,
+se hizo el cambio, se midieron después: **el 710 pasó de 36 a 40.**
+
+No era el código. `outlook.budget_total` tenía filas de diez personas escritas
+ESE DÍA entre las 16:24 y las 16:37 -- Isabella fijando presupuestos mientras la
+etapa se escribía. La línea base era de la mañana.
+
+> **Una línea base de hace horas no distingue «lo rompí» de «cambió el dato».**
+
+Lo que reemplazó a la comparación fue el invariante que el módulo ya tenía y que
+nadie estaba verificando: **la tabla del branch y la lista de Outlook tienen que
+decir el mismo número, mes a mes.** Llegan por caminos distintos --una suma las
+filas que dibuja, la otra proyecta el branch entero-- así que coincidir no es
+gratis. Y no envejece: vale con los datos de hoy y con los de mañana.
+
+## Y lo que lo prueba no es el argumento, es el resultado
+
+El invariante **encontró un defecto real que la comparación contra línea base no
+habría visto**: AFFINITY mostraba `0 0 0` en la fila nueva donde la lista deja la
+celda vacía. Los dos números pasaban la prueba vieja --el total no se había
+movido-- y sin embargo las dos pantallas decían cosas distintas del mismo
+branch. La falsa era la de la tabla: `0` afirma «no se va a cerrar nada» cuando
+lo que pasa es que **nadie decidió todavía**, y habría roto la distinción que
+`fmt` sostiene en todo el módulo justo en el branch que la etapa venía a
+arreglar.
+
+## La excepción declarada, que es la otra mitad
+
+En ese mismo branch quedó una discrepancia `vacío`/`0` **pre-existente** --el
+total de AFFINITY, de la fila de Affinity de OL26c-- y no se arregló de paso:
+cambia un número en pantalla y no era lo que la etapa pedía. Lo que sí se hizo
+fue que la sonda la **afirme**:
+
+```
+a.ck(JSON.stringify(discrepan) === JSON.stringify(['AFFINITY']),
+  'la única discrepancia vacío/cero es AFFINITY, y ya estaba antes de esta etapa');
+```
+
+> **Una excepción declarada no se confunde con un fallo.** Si mañana aparece en
+> otro branch, la sonda se pone roja; si desaparece en AFFINITY, también.
+
+Tolerarla con un `filter` o un umbral habría dejado la misma pantalla y ninguna
+forma de enterarse.
+
+# «Exactamente uno» escrito de tres maneras que dicen otra cosa
+
+> Tercera vez de la misma forma, en tres lugares que no se parecen: una
+> aserción, un CHECK de SQL y una condición de fila. Por eso va como sección: lo
+> que se repite no es el lenguaje, es la intención mal escrita.
+
+## La regla
+
+**Cuando la intención es «exactamente uno de estos», escribirlo contando.** No
+encadenando comparaciones, no con un `or`, no apoyándose en que los otros casos
+no existan.
+
+## Los tres casos
+
+**1. El `||` en una aserción.** `!a.includes(b) || a.length === 3`: el segundo
+término siempre era cierto, así que la aserción no podía fallar. Pasó **dos
+veces**, las dos escribiendo la prueba de otra cosa. Está arriba, en la sección
+de las guardas: *un OR en una aserción es una pregunta sin contestar; se
+contesta armando el estado, no ampliando la condición*.
+
+**2. El XOR encadenado en un CHECK.** Con dos sujetos,
+`(a is not null) <> (b is not null)` dice «exactamente uno» y está bien. Con
+tres, `a <> b <> c` es **asociativo**: `true <> true <> true` da `true`, así que
+el CHECK dejaría entrar una fila con los tres sujetos puestos. La forma que sí
+dice lo que se quiere es `num_nonnulls(a, b, c) = 1`. Encontrado ESCRIBIENDO la
+migración de OL27, no después.
+
+**3. El `is null` que cambia de alcance cuando aparece un tercer caso.**
+`nppm_realtor_code is null or bucket in ('own_production', 'business_plan')`
+significaba «el realtor sólo tiene dos buckets» mientras los sujetos eran dos.
+Con un sujeto nuevo, ese `is null` pasa a ser verdadero también para el branch:
+**la condición no cambia de texto pero sí de alcance**. Acá el resultado era el
+deseado --un branch admite los cuatro buckets-- y por eso importa más: una
+condición que acierta por accidente se lee como una que decidió.
+
+## Qué hacer
+
+- Al agregar un caso a un conjunto que una condición discrimina, **releer la
+  condición con el caso nuevo puesto**, no sólo con los viejos. Es la misma
+  pregunta que hace la sección del `mmi_link`: qué decía la ausencia, y qué dice
+  ahora que hay un tercero.
+- Y si el resultado sigue siendo el correcto, **escribirlo igual**. Lo que se
+  deja implícito no lo hereda quien lee después.
+
+# Al quitar la fuente del dato se va la condición que el dato llevaba adentro
+
+> Sección aparte porque no es una medición mal hecha ni un caso nuevo que
+> aparece: acá **el cambio fue correcto en lo que se propuso** y se llevó de
+> paso algo que nadie había escrito como requisito, porque no estaba escrito en
+> ningún lado -- estaba en la forma del dato.
+
+## La regla
+
+**Antes de dejar de leer un dato, preguntar qué decía su AUSENCIA.** Una clave
+opcional dice dos cosas: su valor dice *qué*, y su presencia dice *dónde*. Al
+reemplazar el valor por algo mejor, la segunda se va sin aviso.
+
+## El caso que la fija (RV21 → RV22)
+
+El paso 1.2 ofrecía «Open MMI» con `gate_config.mmi_link`, un link genérico
+igual para todos. RV21 lo cambió por el perfil de MMI de la persona revisada
+--`https://new.mmi.run/nmls/<nmls efectivo>`-- que es estrictamente mejor: abre
+a quien se está revisando en vez de abrir MMI. El código quedó
+`const link = linkMmiDelLo;` y `gateLink` sin lectores.
+
+Y con eso el enlace pasó a aparecer **en los ocho pasos**. Isabella lo vio en
+las tres fases. La clave `mmi_link` existe en UNA sola fila --la del 1.2-- así
+que su ausencia en los otros siete ERA la condición «acá no va». Nadie la había
+escrito como condición porque no hacía falta: leer el dato ya la aplicaba.
+
+> **El valor decía a dónde ir; la presencia decía dónde ofrecerlo. Se reemplazó
+> el primero y se perdió la segunda.**
+
+## Qué hacer
+
+- Al reemplazar la fuente de un valor opcional, **listar las filas donde la
+  clave está y donde no**, y preguntar si esa diferencia significaba algo. Un
+  `select` de una línea lo contesta.
+- Si significaba algo, **reusar la clave como marca en vez de inventar otra**:
+  `Object.hasOwn(cfg, 'mmi_link')`. Con una clave nueva --`show_mmi`-- el
+  arreglo depende de aplicar un SQL, y hasta entonces la pantalla que sí lo
+  necesitaba se queda sin nada. Reusando la que está, **el dato de hoy ya lleva
+  la condición correcta** y el código se comporta igual antes y después de la
+  migración.
+- Y dejar dicho en el SQL que el valor pasó a dar igual, porque una URL guardada
+  que no se usa se lee como una URL que se usa.
+
+## Y la verificación que faltó las dos veces
+
+RV20 y RV21 midieron **el paso donde el enlace tiene que estar**. Un enlace
+incondicional pasa esa prueba igual de bien que uno condicionado.
+
+> **Una condición se verifica en los casos donde tiene que decir NO.**
+
+La sonda de RV22 recorre los ocho pasos, y la lista de los que deben ofrecerlo
+**sale de la base** y no de una lista escrita a mano: si mañana alguien agrega
+la clave a otro paso, la sonda espera el enlace ahí.
+
+# El mismo componente en tres formas: esperar el elemento que las tres dibujan
+
+> Octava vez de la familia «medí antes de que el dato estuviera», y la primera
+> con este mecanismo: no era que la pantalla no hubiera cargado, es que **había
+> cargado en otra de sus formas**.
+
+`ReviewStepPanel` tiene tres: `.rv-panel--buscando` --mientras busca la sección
+del paso, hasta 12s--, `.rv-panel--lejos`, y el panel completo. Las tres dibujan
+`.rv-panel__prompt`. La sonda esperaba el prompt, así que midió el panel
+reducido: **el 1.2 dio rojo estando bien, y los otros siete dieron verde por la
+razón equivocada**. Los ocho resultados eran del panel que no puede tener el
+enlace.
+
+> **Esperar «el componente apareció» no es esperar «el componente está en el
+> estado que se va a medir».**
+
+Y la corrección tuvo su propia trampa, que es la que vale anotar: el primer
+criterio nuevo fue `.rv-panel__zonas` --las tres zonas del panel completo-- y
+funcionó en siete pasos. El 3.1 abre completo por **otra rama**, la de la
+decisión de funnel, que no dibuja las zonas: quedó declarado indeterminado
+estando bien.
+
+> **Un criterio que vale para siete de ocho pasos no es el criterio.**
+
+El que vale es la ausencia de las dos clases de estado reducido, que es la
+distinción que el componente hace de verdad. Y el paso que no llega a abrirse se
+declara **INDETERMINADO**, no «sin enlace»: si no, la falta de carga vuelve a
+firmar como ausencia del dato.
+
+# Una vista parcial que no se anuncia como parcial
+
+> Mecanismo nuevo, y por eso va aparte de las siete: no es medir mal ni medir
+> antes de tiempo. La medición estaba bien hecha y la pantalla contestó bien
+> --sobre lo que mostraba--. Lo que faltó fue preguntarse si mostraba todo.
+
+## La regla
+
+**Antes de concluir algo sobre TODOS los elementos de una lista, verificar que
+la pantalla los esté mostrando todos.** Una lista colapsada y una lista corta se
+leen igual desde afuera.
+
+## El caso que la fija (OL28)
+
+El brief preguntaba qué branches no tienen ninguna fila de persona. La sonda
+recorrió `tr.bp-row-link` en la lista de Outlook, encontró **14** branches y
+contestó: «el único sin gente es AFFINITY».
+
+Falso, y falso **por omisión**. La lista tiene dos bloques colapsados desde OL23
+--`Inactive` y `Not assigned yet`-- y colapsado acá no es «oculto con CSS»: esas
+filas **no existen en el DOM**. Son 19 branches, no 14. Y los cinco que faltaban
+eran justamente los del caso: 741, 701, 771 y `Branch Out of Division` son
+cuatro de los cinco branches sin una sola fila de persona.
+
+Lo delató el brief, que los nombraba. Sin esa pista, la respuesta habría pasado:
+tenía número, tenía método y no se contradecía con nada.
+
+> **Una lista que esconde parte de sí misma contesta con seguridad sobre la
+> parte que muestra.**
+
+## Qué hacer
+
+- **Expandir todo antes de censar.** En este repo alcanza con apretar cada
+  `[aria-expanded="false"]` antes de leer las filas; es una línea y va en toda
+  sonda que recorra una lista.
+- **Contrastar el conteo contra otra fuente**: la base, o el propio número que
+  la pantalla muestra. Acá había uno a la vista: OL23 dejó el SUBTOTAL de cada
+  bloque colapsado en su barra, precisamente porque «colapsado no es excluido».
+  Un censo que da 14 contra una pantalla que suma 19 se delata solo.
+- Y al escribir una pantalla: **que lo que se esconde diga cuánto esconde**. Esa
+  barra de subtotal es lo que convierte un colapso en una decisión de lectura y
+  no en una trampa.
+
+## Y el hermano del mismo día, que no es de pantallas
+
+La misma forma apareció en una consulta: buscar a una persona por el nombre que
+trae Encompass --«Adriana Julieth Szczech»-- y concluir que no está en el roster,
+cuando está como Adriana Espinoza. La consulta corrió bien y contestó sobre el
+universo que alcanzaba a ver.
+
+Es el problema de identidad que `org.loan_officer_resolved` existe para
+resolver, y la tercera vez que el proyecto lo paga por el mismo lado --después
+de `normName` contra `realtor_code`--:
+
+> **Un cruce por nombre no dice «no está»: dice «no lo encontré así escrito».**
+
+# Un rótulo que interpreta un número es una afirmación nueva
+
+> Va aparte porque no es un error de medición ni de cálculo: el número estaba
+> bien. Lo que estaba mal era la frase que lo acompañaba, y la escribí yo.
+
+## La regla
+
+**Un rótulo que explica lo que un número SIGNIFICA hay que probarlo como se
+prueba un número.** Si dice «este branch ya pasó lo que se esperaba del mes»,
+eso es una afirmación de negocio y necesita la misma verificación que el valor:
+que sea cierta, y que sea cierta en todos los casos donde el rótulo se enciende.
+
+## El caso que la fija (OL31, de OL10)
+
+La fila de reconciliación puede dar negativo en el mes en curso. Para no mostrar
+un signo menos pelado, le puse un rótulo amable:
+
+    Sep already above forecast        →  «5 closed against a forecast of 4»
+
+Nadie lo pidió. No hay brief que lo mencione: salió de una decisión mía dentro
+de la etapa que hizo coincidir el total con la lista, y el commit la explica con
+buena intención --«lo que un manager necesita saber no es que el residuo es
+negativo»--.
+
+Medido dos semanas después, el signo negativo no significaba nada de eso. Las
+filas de persona llevan el PRONÓSTICO del branch repartido y las de NPPM y
+Affinity muestran lo REALMENTE CERRADO, así que la suma se pasa del pronóstico
+por el monto de esos cierres --esté el branch adelante o atrás de su plan--. Y
+el tooltip era peor que el rótulo: de los «5 closed», 4 no estaban cerrados.
+
+> **Un número correcto describiendo otra cosa, y esta vez el número lo puse yo.**
+
+## Lo que lo vuelve peligroso
+
+No fue el signo: fue que **una explicación amable se convirtió en una afirmación
+de negocio que nadie verificó**. Un valor raro invita a preguntar; un valor raro
+con una frase tranquilizadora al lado, no. El rótulo le sacó a la pantalla la
+única señal que tenía de que algo no cerraba.
+
+## Qué hacer
+
+- **Nombrar, no interpretar.** Una fila puede decir qué ES --«la diferencia
+  contra la lista»-- sin decir qué significa. El significado que se afirma hay
+  que poder sostenerlo en los 18 branches, no en el que se miró al escribirlo.
+- **Un tooltip que da números tiene que decir de qué son.** «5 closed» y «5 que
+  muestran las filas» se escriben parecido y son cosas distintas cuando una
+  columna mezcla pronóstico con cerrado.
+- Y al escribir un rótulo condicional, **preguntarse cuándo se enciende**: si la
+  condición es un signo, hay que buscar todos los casos que producen ese signo
+  antes de ponerle nombre a uno solo.
+
+## Y la contracara, del mismo día: lo que se guarda en un tooltip
+
+Al arreglar la causa --que la columna del mes en curso mezclaba pronóstico con
+cerrado-- lo cerrado de NPPM y Affinity salió de la columna y quedó en el
+tooltip de la celda vacía. El dato está, y nadie lo va a ver:
+
+> **Un dato que sólo vive en un tooltip está a un paso de no existir.**
+
+No es lo mismo que el rótulo de arriba --aquél afirmaba de más, éste muestra de
+menos-- pero se decide en el mismo momento y con la misma pregunta: **qué ve
+alguien que sólo mira la tabla**. Un tooltip sirve para explicar un número que
+ya está a la vista; no para ser el único lugar donde vive uno.
+
+Queda como etapa anotada en el código, no en un documento: una columna aparte
+para el mes en curso cerrado, al lado de la del pronóstico. Lo que NO es salida
+es devolver el número a la columna del pronóstico, que es de donde se lo sacó.
+
+# La identidad: preguntar «¿existe?» al universo equivocado
+
+> Sección propia porque el proyecto ya tenía TRES notas sueltas sobre esto
+> --`normName` contra `realtor_code`, el cruce por nombre de OL28, y el de
+> OL36-- y las tres describen el error sin decir qué hacer. Ésta dice qué hacer.
+> Los tres casos de abajo pasaron **el mismo día**, dos los cometió Isabella y
+> uno yo.
+
+## La forma, que es la misma en los tres
+
+> **Preguntar «¿existe?» a un universo más chico que el que la pregunta
+> necesitaba, y leer el silencio como un no.**
+
+No falla nada. No hay error, ni fila rara, ni número imposible: hay una
+respuesta limpia y falsa.
+
+## La regla
+
+**Resolver una identidad por TODAS sus fuentes, la propia primero. Y que «no
+resuelve» sea una respuesta explícita, no el valor por defecto de la primera
+consulta que falla.**
+
+La segunda mitad es la que faltaba. Un `?? null` que sigue de largo convierte
+«no lo encontré» en «no existe» sin que nadie lo decida, y ahí el dato malo
+entra a un cálculo como si fuera bueno.
+
+## Los tres casos, y el tercero es de otra clase
+
+**1. Adriana Julieth Szczech** — se la buscó en `org.dim_employee` por el nombre
+que trae Encompass y no cruzó. Está en el roster como **Adriana Espinoza**. La
+conclusión fue que el 710 tenía cuatro cierres de alguien que el roster no
+conoce; en realidad es una productora activa de ese branch.
+
+**2. Galo Rizzo** — el mismo cruce, contra la misma tabla, el mismo día.
+
+Las dos tienen algo en común y es lo que las hace fáciles de encontrar: **hay
+una tabla que señalar**. Se cruzó contra `dim_employee` y había que cruzar
+contra `employee_alias`, que existe justamente para eso.
+
+**3. Ana Manjarres** — y ésta es la que va a volver. El cruce fue contra la
+tabla CORRECTA --`employee_alias`-- y contra **una sola de sus cuatro fuentes**:
+
+```
+alias de «Ana Manjarres»:  roster · slquery · person_code  → employee_key 47
+                           salesforce: NO EXISTE
+```
+
+El índice estaba bien. La consulta estaba bien. La fuente elegida era la
+correcta para esa tabla --los préstamos abiertos vienen de Salesforce-- y la
+respuesta fue falsa igual.
+
+> **No deja rastro de estar mal.** En las dos primeras hay una tabla equivocada
+> que alguien puede ver; en la tercera todo lo visible está bien.
+
+## Y no quedó en un reporte
+
+Sus cuatro préstamos abiertos del 711 se clasificaron como de gente de otro
+branch, así que **el pronóstico entero de Ana se fue a una fila que decía
+"closed by loan officers from other branches"**: un número correcto, en el lugar
+equivocado, con un rótulo que afirmaba algo falso sobre ella.
+
+Es la misma familia que `already above forecast` --un rótulo que interpreta un
+número y la interpretación es falsa-- por otra puerta: allá la interpretación
+estaba mal escrita, acá el número llegó a la fila equivocada y el rótulo, que
+era correcto para esa fila, pasó a mentir sobre una persona.
+
+## Qué hacer
+
+- **Resolver por todas las fuentes, la propia primero.** Es una línea:
+
+  ```ts
+  const key =
+    aliasIndex.lookup('salesforce', nombre).employeeKey ??
+    aliasIndex.lookup('roster', nombre).employeeKey ??
+    aliasIndex.lookup('slquery', nombre).employeeKey;
+  ```
+
+- **Que «no resuelve» sea una decisión y no un descarte.** En OL36 quien no
+  resuelve en ninguna fuente cuenta como gente de otro branch --que es lo
+  correcto: el roster no lo tiene-- y eso está escrito al lado del `??`. Lo que
+  no puede pasar es que nadie sepa por qué ese préstamo terminó donde terminó.
+- **Y al MEDIR una ausencia, probar primero con un caso conocido.** Un cruce que
+  devuelve cero no prueba que no haya: prueba que ese cruce no encontró. Un
+  control positivo --una persona que sabemos que está-- separa las dos cosas en
+  treinta segundos, y es lo que faltó las tres veces.

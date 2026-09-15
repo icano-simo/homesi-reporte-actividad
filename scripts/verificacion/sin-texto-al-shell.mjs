@@ -87,7 +87,27 @@ const REGLAS = [
   },
   {
     nombre: 'texto redirigido a un archivo',
-    prueba: /\b(echo|printf)\b[^|;&]*>>?\s*(?!\/dev\/null|\$null|nul\b)\S/i,
+    /*
+     * ⚠ `(?<![0-9&])` Y `(?!&)`: EL PRIMER FALSO POSITIVO DE ESTA GUARDA.
+     *
+     * Bloqueó `echo "faltantes: $(npm ls --depth=0 2>&1 | grep -ciE '...')"`,
+     * que no escribe ningún archivo. El `>` que matcheaba era el de `2>&1`
+     * DENTRO de la sustitución de comando: entre el `echo` y ese `>` no hay
+     * ningún `|`, `;` ni `&`, así que `[^|;&]*` llegaba sin problema.
+     *
+     * Las dos condiciones dicen lo que faltaba: un `>` precedido por un dígito
+     * es un descriptor --`2>`-- y uno seguido de `&` es una duplicación de
+     * descriptor --`>&2`--. Ninguno de los dos escribe texto a un archivo.
+     *
+     * ⚠ Y QUEDA UN HUECO CONOCIDO, dicho acá en vez de descubierto después:
+     * `echo hola 2>&1 > salida.txt` NO se bloquea, porque `[^|;&]*` no puede
+     * cruzar el `&` de `2>&1` para llegar al segundo `>`. Es la dirección
+     * correcta para equivocarse --deja pasar una escritura rara en vez de
+     * frenar un comando legítimo-- y el motivo es el de siempre: una guarda que
+     * bloquea lo legítimo es la que alguien desengancha, y ahí se pierde
+     * también lo que sí cubría.
+     */
+    prueba: /\b(echo|printf)\b[^|;&]*(?<![0-9&])>>?\s*(?!&)(?!\/dev\/null|\$null|nul\b)\S/i,
     porque:
       'es escribir un archivo con el shell de intermediario: el contenido pasa por expansión y ' +
       'sustitución antes de llegar al disco.',

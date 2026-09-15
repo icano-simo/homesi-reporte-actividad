@@ -384,7 +384,10 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
   let personBudgetTotalTableAvailable = false;
   try {
     const { data, error } = await outlook
-      .from('person_budget_total')
+      /* Renombrada en OL27 -- `docs/sql/2026-09-budget-sujeto-branch.sql`. El
+         filtro por `employee_key` no nulo ya descartaba al realtor y ahora
+         descarta también al branch: acá se lee el presupuesto de UNA PERSONA. */
+      .from('budget_total')
       .select('employee_key, target_month, total, revision, confirmed_only')
       .not('employee_key', 'is', null);
     if (!error && data) {

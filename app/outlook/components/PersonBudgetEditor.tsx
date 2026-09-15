@@ -84,7 +84,13 @@ const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep
 const monthLabel = (ym: string) => MONTH_ABBR[Number(ym.split('-')[1]) - 1];
 const CADENCES: Cadence[] = ['monthly', 'quarterly', 'semiannual'];
 
-const BUCKET_LABEL: Record<BudgetBucket, string> = {
+/*
+ * ⚠ EXPORTADO DESDE OL37: la tarjeta del branch muestra los mismos buckets y
+ * tiene que llamarlos igual. Dos tablas de rótulos --«Own production» contra
+ * «Own Production»-- se leen como dos cosas distintas, y este módulo ya pagó
+ * esa duplicación con `fmt`.
+ */
+export const BUCKET_LABEL: Record<BudgetBucket, string> = {
   own_production: 'Own Production',
   b2b: 'B2B',
   nppm: 'NPPM',
@@ -294,10 +300,17 @@ export default function PersonBudgetEditor({
    * código, no por nombre normalizado -- ver la nota de `PersonSubject` en
    * save.ts.
    */
-  const isMine = (r: { employee_key: number | null; nppm_realtor_code: string | null }) =>
+  const isMine = (r: {
+    employee_key: number | null;
+    nppm_realtor_code: string | null;
+    branch_code: string | null;
+  }) =>
     person.subject.kind === 'employee'
       ? r.employee_key === person.subject.employeeKey
-      : r.nppm_realtor_code === person.subject.realtorCode;
+      : person.subject.kind === 'realtor'
+        ? r.nppm_realtor_code === person.subject.realtorCode
+        : /* El branch, tercer sujeto desde OL27. */
+          r.branch_code === person.subject.branchCode;
   const lastTotalRow = data.history.personBudgetTotals
     .filter((r) => isMine(r) && r.confirmed_only !== true && r.revision === person.budgetTotalRevision)
     .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
