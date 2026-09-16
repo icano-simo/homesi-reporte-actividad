@@ -131,3 +131,104 @@ export function getDistinctYears(records: LoanRecord[]): string[] {
   }
   return [...values].sort((a, b) => a.localeCompare(b));
 }
+
+export interface CommercialActivityKpiValue {
+  value: number;
+  deltaPct: number | null;
+}
+
+export interface CommercialActivityKpiRate {
+  /** 0-100. */
+  value: number;
+  /** Diferencia en puntos porcentuales (no un % change de un %) -- ver comentario de la función. */
+  deltaPp: number | null;
+}
+
+export interface CommercialActivityKpis {
+  fileCreations: CommercialActivityKpiValue;
+  applications: CommercialActivityKpiValue;
+  fcToCrRate: CommercialActivityKpiRate;
+  crToApRate: CommercialActivityKpiRate;
+}
+
+function sumField(
+  rows: CommercialActivityMonthlyRow[],
+  key: 'fileCreations' | 'creditReports' | 'applications'
+): number {
+  return rows.reduce((acc, r) => acc + r[key], 0);
+}
+
+/** 0-100, `0` si `denominator` es 0 -- nunca división por cero sin chequear. */
+function ratePct(numerator: number, denominator: number): number {
+  return denominator > 0 ? (numerator / denominator) * 100 : 0;
+}
+
+/** `null` si `previous` es 0 -- sin base real contra la cual medir un % change (mismo criterio que `computeDelta` de TabAnalytics.tsx: nunca un falso "+Infinity%" ni "0%" inventado). */
+function pctChange(current: number, previous: number): number | null {
+  if (previous === 0) return null;
+  return ((current - previous) / previous) * 100;
+}
+
+/**
+ * KPIs de Commercial Activity (Analytics) sobre un conjunto de filas YA
+ * FILTRADO por el componente (Year/All/rango default) -- esta función no
+ * sabe ni le importa de dónde salió `rows`, sólo suma sus columnas.
+ *
+ * `previousRows`: el bloque de meses INMEDIATAMENTE anterior a `rows`, de
+ * la MISMA longitud, si existe completo -- lo arma el caller
+ * (`CommercialActivityTrends.tsx`, con `contiguous()` de
+ * `lib/aggregation/months.ts` para no reescribir esa aritmética de meses)
+ * a partir del set SIN filtrar por Year. `null` = no hay bloque anterior
+ * completo (historia insuficiente, o `rows` ya cubre todo lo cargado
+ * -- "All" seleccionado) -- ahí los 4 deltas son `null`, nunca un número
+ * inventado.
+ *
+ * fileCreations/applications: delta en % CHANGE normal
+ * (`(actual-previo)/previo`). Las 2 tasas (fcToCrRate/crToApRate) usan
+ * diferencia en PUNTOS PORCENTUALES (`actual% - previo%`), no un % change
+ * del propio %: un cambio de 40% a 44% es "+4pp", nunca "+10%" (que es lo
+ * que daría un % change ahí, y confundiría una mejora de conversión con
+ * una magnitud 2.5 veces mayor a la real).
+ */
+export function computeCommercialActivityKpis(
+  rows: CommercialActivityMonthlyRow[],
+  previousRows: CommercialActivityMonthlyRow[] | null
+): CommercialActivityKpis {
+  const fc = sumField(rows, 'fileCreations');
+  const cr = sumField(rows, 'creditReports');
+  const ap = sumField(rows, 'applications');
+  const fcToCr = ratePct(cr, fc);
+  const crToAp = ratePct(ap, cr);
+
+  if (!previousRows) {
+    return {
+      fileCreations: { value: fc, deltaPct: null },
+      applications: { value: ap, deltaPct: null },
+      fcToCrRate: { value: fcToCr, deltaPp: null },
+      crToApRate: { value: crToAp, deltaPp: null },
+    };
+  }
+
+  const prevFc = sumField(previousRows, 'fileCreations');
+  const prevCr = sumField(previousRows, 'creditReports');
+  const prevAp = sumField(previousRows, 'applications');
+  /*
+   * El `0` de `ratePct` cuando su denominador es 0 es un valor de
+   * PRESENTACIÓN (la tasa actual, mostrada tal cual) -- no una tasa real
+   * con la que comparar. Si el bloque anterior tuvo 0 File Creations (o 0
+   * Credit Reports), su "tasa anterior" no es 0%, es indefinida, y restar
+   * contra ese 0 inventaría una mejora de +N pp que nunca ocurrió (mismo
+   * mecanismo que "un rótulo que interpreta un número es una afirmación
+   * nueva", AGENTS.md) -- por eso ese caso también da `deltaPp: null`, no
+   * `fcToCr - 0`.
+   */
+  const fcToCrDeltaPp = prevFc > 0 ? fcToCr - ratePct(prevCr, prevFc) : null;
+  const crToApDeltaPp = prevCr > 0 ? crToAp - ratePct(prevAp, prevCr) : null;
+
+  return {
+    fileCreations: { value: fc, deltaPct: pctChange(fc, prevFc) },
+    applications: { value: ap, deltaPct: pctChange(ap, prevAp) },
+    fcToCrRate: { value: fcToCr, deltaPp: fcToCrDeltaPp },
+    crToApRate: { value: crToAp, deltaPp: crToApDeltaPp },
+  };
+}

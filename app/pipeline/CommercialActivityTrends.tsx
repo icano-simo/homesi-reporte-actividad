@@ -4,12 +4,16 @@ import { useState } from 'react';
 import type { LoanRecord } from '@/lib/domain/types';
 import {
   buildCommercialActivityMonthlyTrends,
+  computeCommercialActivityKpis,
   getDefaultTrendsFromMonth,
   getDistinctStrategies,
   getDistinctYears,
+  type CommercialActivityMonthlyRow,
 } from '@/lib/aggregation/commercialActivityTrends';
+import { contiguous } from '@/lib/aggregation/months';
 import { businessToday } from '@/lib/pipeline/period';
 import { shortMonth } from '@/lib/business-plan/months';
+import { ArrowDownIcon, ArrowUpIcon, MinusIcon } from '@/components/ui/icons';
 import CommercialActivityLineChart from './CommercialActivityLineChart';
 
 export interface CommercialActivityTrendsProps {
@@ -32,6 +36,87 @@ function fmtInt(n: number): string {
  */
 function monthYearLabel(ym: string): string {
   return shortMonth(ym) + ' ' + ym.slice(0, 4);
+}
+
+/**
+ * Desplaza un `YearMonth` `delta` meses (negativo = hacia atrás) -- misma
+ * aritmética de calendario que ya usa `contiguous()` (lib/aggregation/
+ * months.ts), generalizada a un solo mes en vez de un rango. No vive en
+ * ese archivo compartido porque acá el único uso es interno a este
+ * componente (armar el bloque de comparación de los KPIs); si otro
+ * consumidor la necesitara, ahí sí se extraería.
+ */
+function shiftMonth(ym: string, delta: number): string {
+  const [yStr, mStr] = ym.split('-');
+  let y = Number(yStr);
+  let m = Number(mStr) + delta;
+  while (m < 1) {
+    m += 12;
+    y -= 1;
+  }
+  while (m > 12) {
+    m -= 12;
+    y += 1;
+  }
+  return y + '-' + String(m).padStart(2, '0');
+}
+
+/**
+ * El bloque de N meses INMEDIATAMENTE anterior a `currentRows` (misma
+ * longitud), tomado de `allRows` (sin filtrar por Year -- el filtro de
+ * Year sólo acota qué se MUESTRA, no qué existe para comparar). `null` si
+ * falta aunque sea un mes de esos N en `allRows` -- `buildCommercialActivityMonthlyTrends`
+ * sólo crea una fila cuando al menos una de las 3 columnas es > 0, así que
+ * un mes ausente es indistinguible de "no hay historia hasta ahí": se trata
+ * como bloque incompleto en los dos casos, nunca se rellena con ceros
+ * inventados.
+ */
+function getPreviousComparableBlock(
+  allRows: CommercialActivityMonthlyRow[],
+  currentRows: CommercialActivityMonthlyRow[]
+): CommercialActivityMonthlyRow[] | null {
+  if (currentRows.length === 0) return null;
+  const n = currentRows.length;
+  const firstMonth = currentRows[0].month;
+  const expectedMonths = contiguous(shiftMonth(firstMonth, -n), shiftMonth(firstMonth, -1));
+  const byMonth = new Map(allRows.map((r) => [r.month, r] as const));
+  const block: CommercialActivityMonthlyRow[] = [];
+  for (const m of expectedMonths) {
+    const row = byMonth.get(m);
+    if (!row) return null;
+    block.push(row);
+  }
+  return block;
+}
+
+/**
+ * Badge de delta -- MISMO patrón visual que `DeltaBadge` de
+ * `TabAnalytics.tsx` (badge suave + flecha verde/rojo/gris, "No prior
+ * period" cuando no hay base de comparación): mismas clases compartidas
+ * (`.badge`, `.badge--up/down/flat`, `.kpi-hero__sub`, iconos de
+ * `components/ui/icons.tsx`, que no es un archivo de Closing) -- no se
+ * importa esa función porque no está exportada de `TabAnalytics.tsx`, así
+ * que se reproduce acá el mismo criterio en vez de generalizar ese
+ * archivo (que sigue "sin tocar"). `suffix` es lo único que distingue el
+ * uso en % change (fileCreations/applications) del uso en puntos
+ * porcentuales (las 2 tasas) -- mismo componente para ambos casos.
+ */
+function KpiDeltaBadge({ delta, suffix }: { delta: number | null; suffix: string }) {
+  if (delta === null) {
+    return <span className="kpi-hero__sub">No prior period</span>;
+  }
+  const direction = delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat';
+  const cls = direction === 'up' ? 'badge--up' : direction === 'down' ? 'badge--down' : 'badge--flat';
+  const Icon = direction === 'up' ? ArrowUpIcon : direction === 'down' ? ArrowDownIcon : MinusIcon;
+  const sign = delta > 0 ? '+' : '';
+  return (
+    <span className={'badge ' + cls}>
+      <Icon size={9} />
+      {sign}
+      {delta.toFixed(1)}
+      {suffix}
+    </span>
+  );
 }
 
 /**
@@ -73,9 +158,42 @@ export default function CommercialActivityTrends({ records }: CommercialActivity
       : year === ''
         ? allRows.filter((r) => r.month >= defaultStartMonth)
         : allRows.filter((r) => r.month.startsWith(year + '-'));
+  const previousRows = getPreviousComparableBlock(allRows, rows);
+  const kpis = computeCommercialActivityKpis(rows, previousRows);
 
   return (
     <div>
+      <div className="hero-banner">
+        <div className="mcard">
+          <div className="m-name">File Creations</div>
+          <div className="kpi-hero__value kpi-hero__value--lg">{fmtInt(kpis.fileCreations.value)}</div>
+          <div style={{ marginTop: '8px' }}>
+            <KpiDeltaBadge delta={kpis.fileCreations.deltaPct} suffix="%" />
+          </div>
+        </div>
+        <div className="mcard">
+          <div className="m-name">Applications</div>
+          <div className="kpi-hero__value kpi-hero__value--lg">{fmtInt(kpis.applications.value)}</div>
+          <div style={{ marginTop: '8px' }}>
+            <KpiDeltaBadge delta={kpis.applications.deltaPct} suffix="%" />
+          </div>
+        </div>
+        <div className="mcard">
+          <div className="m-name">File Creation → Credit Report</div>
+          <div className="kpi-hero__value kpi-hero__value--lg">{kpis.fcToCrRate.value.toFixed(1)}%</div>
+          <div style={{ marginTop: '8px' }}>
+            <KpiDeltaBadge delta={kpis.fcToCrRate.deltaPp} suffix="pp" />
+          </div>
+        </div>
+        <div className="mcard">
+          <div className="m-name">Credit Report → Application</div>
+          <div className="kpi-hero__value kpi-hero__value--lg">{kpis.crToApRate.value.toFixed(1)}%</div>
+          <div style={{ marginTop: '8px' }}>
+            <KpiDeltaBadge delta={kpis.crToApRate.deltaPp} suffix="pp" />
+          </div>
+        </div>
+      </div>
+
       <div className="control-group">
         <span className="label-chip">Strategy</span>
         <select className="field" value={strategy} onChange={(e) => setStrategy(e.target.value)}>
