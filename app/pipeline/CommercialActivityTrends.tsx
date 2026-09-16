@@ -13,7 +13,6 @@ import {
 import { contiguous } from '@/lib/aggregation/months';
 import { businessToday } from '@/lib/pipeline/period';
 import { shortMonth } from '@/lib/business-plan/months';
-import { ArrowDownIcon, ArrowUpIcon, MinusIcon } from '@/components/ui/icons';
 import CommercialActivityLineChart from './CommercialActivityLineChart';
 
 export interface CommercialActivityTrendsProps {
@@ -90,36 +89,6 @@ function getPreviousComparableBlock(
 }
 
 /**
- * Badge de delta -- MISMO patrón visual que `DeltaBadge` de
- * `TabAnalytics.tsx` (badge suave + flecha verde/rojo/gris, "No prior
- * period" cuando no hay base de comparación): mismas clases compartidas
- * (`.badge`, `.badge--up/down/flat`, `.kpi-hero__sub`, iconos de
- * `components/ui/icons.tsx`, que no es un archivo de Closing) -- no se
- * importa esa función porque no está exportada de `TabAnalytics.tsx`, así
- * que se reproduce acá el mismo criterio en vez de generalizar ese
- * archivo (que sigue "sin tocar"). `suffix` es lo único que distingue el
- * uso en % change (fileCreations/applications) del uso en puntos
- * porcentuales (las 2 tasas) -- mismo componente para ambos casos.
- */
-function KpiDeltaBadge({ delta, suffix }: { delta: number | null; suffix: string }) {
-  if (delta === null) {
-    return <span className="kpi-hero__sub">No prior period</span>;
-  }
-  const direction = delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat';
-  const cls = direction === 'up' ? 'badge--up' : direction === 'down' ? 'badge--down' : 'badge--flat';
-  const Icon = direction === 'up' ? ArrowUpIcon : direction === 'down' ? ArrowDownIcon : MinusIcon;
-  const sign = delta > 0 ? '+' : '';
-  return (
-    <span className={'badge ' + cls}>
-      <Icon size={9} />
-      {sign}
-      {delta.toFixed(1)}
-      {suffix}
-    </span>
-  );
-}
-
-/**
  * ============================================================================
  * COMMERCIAL ACTIVITY EN ANALYTICS — Trends (File Creations / Credit Reports
  * / Applications) — ARCHIVO NUEVO, PIEZA 1
@@ -167,30 +136,18 @@ export default function CommercialActivityTrends({ records }: CommercialActivity
         <div className="mcard">
           <div className="m-name">File Creations</div>
           <div className="kpi-hero__value kpi-hero__value--lg">{fmtInt(kpis.fileCreations.value)}</div>
-          <div style={{ marginTop: '8px' }}>
-            <KpiDeltaBadge delta={kpis.fileCreations.deltaPct} suffix="%" />
-          </div>
         </div>
         <div className="mcard">
           <div className="m-name">Applications</div>
           <div className="kpi-hero__value kpi-hero__value--lg">{fmtInt(kpis.applications.value)}</div>
-          <div style={{ marginTop: '8px' }}>
-            <KpiDeltaBadge delta={kpis.applications.deltaPct} suffix="%" />
-          </div>
         </div>
         <div className="mcard">
           <div className="m-name">File Creation → Credit Report</div>
           <div className="kpi-hero__value kpi-hero__value--lg">{kpis.fcToCrRate.value.toFixed(1)}%</div>
-          <div style={{ marginTop: '8px' }}>
-            <KpiDeltaBadge delta={kpis.fcToCrRate.deltaPp} suffix="pp" />
-          </div>
         </div>
         <div className="mcard">
           <div className="m-name">Credit Report → Application</div>
           <div className="kpi-hero__value kpi-hero__value--lg">{kpis.crToApRate.value.toFixed(1)}%</div>
-          <div style={{ marginTop: '8px' }}>
-            <KpiDeltaBadge delta={kpis.crToApRate.deltaPp} suffix="pp" />
-          </div>
         </div>
       </div>
 
