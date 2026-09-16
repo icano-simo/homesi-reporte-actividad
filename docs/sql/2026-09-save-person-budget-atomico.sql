@@ -2,7 +2,13 @@
 -- LAS DOS ESCRITURAS DEL PRESUPUESTO, EN UNA SOLA TRANSACCION — etapa OL51
 -- ============================================================================
 --
--- NO EJECUTADO. Se entrega para aplicar a mano, como el resto de docs/sql.
+-- ⚠ HAY QUE VOLVER A APLICARLO. La primera version se aplico el 2026-09-16 y
+-- tiene un defecto que encontro probar las dos ramas: la comprobacion de
+-- concurrencia levantaba `errcode = '40001'` --serialization_failure-- y
+-- PostgREST reintenta ese codigo solo, asi que esa rama devolvia `504 upstream
+-- request timeout` en vez del mensaje. Es `create or replace`, asi que correr
+-- este archivo de nuevo alcanza. El detalle esta en el comentario de la
+-- comprobacion, mas abajo.
 --
 -- ---------------------------------------------------------------------------
 -- QUE PROBLEMA RESUELVE
@@ -221,17 +227,37 @@ begin
   -- ⚠ CONCURRENCIA OPTIMISTA. Si el cliente armo su arrastre sobre una revision
   -- que ya no es la ultima, otro guardado entro en el medio y arrastrar la foto
   -- vieja borraria lo que ese otro decidio. Falla ruidoso en vez de perderlo.
+  --
+  -- ⚠ SIN `errcode = '40001'`, Y LO ENCONTRO PROBARLO. La primera version usaba
+  -- `40001` --serialization_failure-- porque describe bien lo que paso. Medido
+  -- contra PostgREST, esa rama devolvia `504 upstream request timeout` en vez
+  -- del mensaje: `40001` significa «transitorio, volve a intentar», y la capa
+  -- de arriba REINTENTA sola. Este chequeo no es transitorio -- reintentarlo da
+  -- el mismo resultado siempre-- asi que reintentar solo consume el timeout.
+  --
+  -- Llamada directa desde SQL la funcion contestaba perfecto, con su mensaje.
+  -- Un error correcto por el canal equivocado se ve como una caida.
+  --
+  -- ⚠ Y NO ERA SOLO UN TIMEOUT, que es lo que lo vuelve grave. Despues de
+  -- limpiar las filas de prueba quedaron DOS que no habia puesto nadie, con
+  -- `created_at` POSTERIOR a la limpieza: el reintento seguia corriendo, y al
+  -- volver a intentar sobre una tabla ya vacia la comprobacion --que compara
+  -- contra `max(revision)`-- paso, y ESCRIBIO. O sea que la guarda que dice
+  -- «esto cambio debajo tuyo, no escribo» termino escribiendo despues de que el
+  -- cliente se rindiera. Un rechazo marcado como transitorio no es un rechazo.
+  --
+  -- Sin `using errcode`, `raise exception` es `P0001`, que PostgREST traduce a
+  -- un 400 con el mensaje visible, que es lo que tiene que leer quien guarda.
+  --
   if p_expected_total_revision is not null and p_expected_total_revision <> v_actual_total then
     raise exception
       'save_person_budget: this budget changed while you were editing (revision % is now %). Reopen and try again.',
-      p_expected_total_revision, v_actual_total
-      using errcode = '40001';
+      p_expected_total_revision, v_actual_total;
   end if;
   if p_expected_breakdown_revision is not null and p_expected_breakdown_revision <> v_actual_break then
     raise exception
       'save_person_budget: this breakdown changed while you were editing (revision % is now %). Reopen and try again.',
-      p_expected_breakdown_revision, v_actual_break
-      using errcode = '40001';
+      p_expected_breakdown_revision, v_actual_break;
   end if;
 
   v_total_rev := v_actual_total + 1;

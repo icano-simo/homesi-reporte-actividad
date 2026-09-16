@@ -18,8 +18,9 @@ import {
 import {
   confirmPersonBudgetReviewed,
   releasePersonBudgetToRule,
-  savePersonBudgetBreakdown,
-  savePersonBudgetTotal,
+  /* ⚠ UNA sola, y no las dos de antes: las dos escrituras van en una
+     transacción desde OL51. Ver el comentario en el `submit`. */
+  savePersonBudget,
   type PersonSubject,
 } from '@/lib/outlook/save';
 
@@ -489,19 +490,6 @@ export default function PersonBudgetEditor({
         const soltados = months.filter(
           (m) => breakdownSumOf(m) === null && person.budgetTotal[m] !== undefined
         );
-        if (Object.keys(targets).length > 0 || soltados.length > 0) {
-          const rev = await savePersonBudgetTotal({
-            subject: person.subject,
-            targets,
-            release: soltados,
-            /* La ventana que se editó, para que lo de afuera no se borre --
-               etapa OL38. `months` ES la pantalla: no hay otra cosa acá. */
-            windowMonths: months,
-            note: note.trim() === '' ? null : note.trim(),
-          });
-          done.push(`total revision ${rev}`);
-        }
-
         const draft: Partial<Record<BudgetBucket, Record<string, number>>> = {};
         for (const b of person.buckets) {
           const byMonth: Record<string, number> = {};
@@ -511,14 +499,39 @@ export default function PersonBudgetEditor({
           }
           if (Object.keys(byMonth).length > 0) draft[b] = byMonth;
         }
-        if (Object.keys(draft).length > 0) {
-          const rev = await savePersonBudgetBreakdown({
+
+        /*
+         * ══════════════════════════════════════════════════════════════════
+         * ⚠ UNA SOLA LLAMADA, Y NO DOS — etapa OL51
+         * ══════════════════════════════════════════════════════════════════
+         *
+         * Acá había dos `await` seguidos: uno a `savePersonBudgetTotal` y otro
+         * a `savePersonBudgetBreakdown`. Cada request de PostgREST es su propia
+         * transacción, así que si el primero entraba y el segundo fallaba, el
+         * estado quedaba partido -- el número aparecía en la fila de la persona
+         * y faltaba en la composición-- y nadie se enteraba.
+         *
+         * No es una hipótesis: construido interceptando los dos POST, el total
+         * dio 201, el desglose 403, y la pantalla dijo «your session ... can
+         * read but not save» con el total YA ESCRITO. El mensaje afirmaba lo
+         * contrario de lo que había pasado.
+         *
+         * `savePersonBudget` manda las dos listas a `outlook.save_person_budget`,
+         * que las inserta en una sola sentencia: las dos o ninguna.
+         */
+        if (Object.keys(targets).length > 0 || soltados.length > 0 || Object.keys(draft).length > 0) {
+          const rev = await savePersonBudget({
             subject: person.subject,
+            targets,
+            release: soltados,
             breakdown: draft,
+            /* La ventana que se editó, para que lo de afuera no se borre --
+               etapa OL38. `months` ES la pantalla: no hay otra cosa acá. */
             windowMonths: months,
             note: note.trim() === '' ? null : note.trim(),
           });
-          done.push(`breakdown revision ${rev}`);
+          if (rev.totalRevision !== null) done.push(`total revision ${rev.totalRevision}`);
+          if (rev.breakdownRevision !== null) done.push(`breakdown revision ${rev.breakdownRevision}`);
         }
       }
 
