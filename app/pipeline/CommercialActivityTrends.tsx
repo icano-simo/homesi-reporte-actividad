@@ -63,9 +63,17 @@ export default function CommercialActivityTrends({ records }: CommercialActivity
         </select>
       </div>
 
-      <CommercialActivityLineChart rows={rows} />
+      <div className="tbl-card" style={{ padding: '16px' }}>
+        <div className="tbl-card__head">
+          <span className="tbl-card__title">Monthly Trends — File Creations, Credit Reports, Applications</span>
+        </div>
+        <CommercialActivityLineChart rows={rows} />
+      </div>
 
       <div className="tbl-card">
+        <div className="tbl-card__head">
+          <span className="tbl-card__title">Monthly Detail</span>
+        </div>
         <div className="tbl-scroll">
           <table className="piv">
             <thead>
