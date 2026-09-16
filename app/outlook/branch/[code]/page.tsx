@@ -1125,8 +1125,17 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
      * El detalle de NPPM: un realtor por línea, debajo de su bucket — etapa
      * OL42. Se junta de las personas del branch, con el nombre de su Loan
      * Officer al lado, porque «Laura Delgado 2» sin decir de quién obliga a
-     * buscarlo en otra tabla. Sólo los que tienen algo fijado: un realtor sin
-     * presupuesto no es una línea en cero, es una línea que no existe.
+     * buscarlo en otra tabla.
+     *
+     * ⚠ SÓLO LOS QUE APORTAN ALGO. De los 28 realtors con código, 18 no tienen
+     * hoy ni un préstamo clasificado como NPPM: el vínculo los cubre igual
+     * --la marca es de la persona y la estrategia clasifica al préstamo, y el
+     * que no tiene NPPM hoy puede tenerlo mañana-- pero una tarjeta con
+     * dieciocho renglones en cero no informa, tapa.
+     *
+     * Y el costo está medido, no ignorado: un realtor con presupuesto fijado en
+     * CERO --una decisión, distinta de no tener ninguno-- tampoco se lista. Su
+     * número sigue contando en el bucket, que es donde cambia algo.
      */
     const realtors = suyos
       .flatMap((lo) =>

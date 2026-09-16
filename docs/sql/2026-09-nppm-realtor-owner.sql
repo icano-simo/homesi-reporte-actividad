@@ -65,8 +65,11 @@ create table if not exists outlook.nppm_realtor_owner (
   employee_key      integer not null,
   set_by            text,
   note              text,
-  created_at        timestamptz not null default now(),
-  updated_at        timestamptz not null default now()
+  -- ⚠ SIN `updated_at`: no hay trigger que lo mantenga, y una columna que dice
+  -- «ultima edicion» y nunca cambia miente con mas autoridad que no estar. La
+  -- fecha de la ultima edicion se sabra el dia que haya una pantalla que edite
+  -- el vinculo y escriba su propio rastro.
+  created_at        timestamptz not null default now()
 );
 
 comment on table outlook.nppm_realtor_owner is
@@ -76,21 +79,47 @@ comment on table outlook.nppm_realtor_owner is
 
 alter table outlook.nppm_realtor_owner enable row level security;
 
--- Mismo par de policies que el resto del esquema: lee quien entra, escribe
--- quien tiene el claim de `outlook`. Ver `2026-08-outlook-branch-budget.sql`.
-drop policy if exists nppm_realtor_owner_read on outlook.nppm_realtor_owner;
-create policy nppm_realtor_owner_read on outlook.nppm_realtor_owner
-  for select to authenticated using (true);
+-- ---------------------------------------------------------------------------
+-- ⚠ EL CRITERIO DE ACCESO ES `outlook.has_access()`, Y NO SE REESCRIBE ACA
+-- ---------------------------------------------------------------------------
+-- La primera version de este archivo escribia el chequeo a mano:
+--
+--     using (coalesce((auth.jwt() -> 'app_metadata' ->> 'outlook')::boolean, false))
+--
+-- y NO HABRIA FUNCIONADO NUNCA. El claim no es un objeto con claves booleanas
+-- sino `allowed_apps`, un arreglo: `app_metadata ->> 'outlook'` da null, el
+-- coalesce da false, y nadie habria podido escribir jamas -- una tabla de solo
+-- lectura sin que nadie lo decidiera.
+--
+-- `outlook.has_access()` --`(app_metadata -> 'allowed_apps') ? 'outlook'`--
+-- existe justamente para eso, y su propia nota lo dice: se define como funcion
+-- «para que el dia que el criterio cambie, cambie en un solo lugar». Escribirlo
+-- a mano habria sido la copia numero dos, con el agravante de que esta estaba
+-- mal.
+drop policy if exists nppm_realtor_owner_select on outlook.nppm_realtor_owner;
+create policy nppm_realtor_owner_select on outlook.nppm_realtor_owner
+  for select to authenticated using (outlook.has_access());
 
-drop policy if exists nppm_realtor_owner_write on outlook.nppm_realtor_owner;
-create policy nppm_realtor_owner_write on outlook.nppm_realtor_owner
-  for all to authenticated
-  using (coalesce((auth.jwt() -> 'app_metadata' ->> 'outlook')::boolean, false))
-  with check (coalesce((auth.jwt() -> 'app_metadata' ->> 'outlook')::boolean, false));
+drop policy if exists nppm_realtor_owner_insert on outlook.nppm_realtor_owner;
+create policy nppm_realtor_owner_insert on outlook.nppm_realtor_owner
+  for insert to authenticated with check (outlook.has_access());
 
--- ⚠ EL GRANT NO SE HEREDA. `business_plan.area` quedo como la unica tabla sin
--- grant de nueve y rompio una pantalla que ni la menciona. Va explicito.
-grant select, insert, update, delete on outlook.nppm_realtor_owner to authenticated;
+drop policy if exists nppm_realtor_owner_update on outlook.nppm_realtor_owner;
+create policy nppm_realtor_owner_update on outlook.nppm_realtor_owner
+  for update to authenticated
+  using (outlook.has_access()) with check (outlook.has_access());
+
+-- ⚠ NI GRANT NI POLICY DE `delete`, a proposito. El vinculo se EDITA: un
+-- realtor cambia de Loan Officer, no deja de tener uno. Y un delete sin nada
+-- que lo distinga permite vaciar la tabla entera, que es la unica operacion de
+-- esta etapa que no se puede deshacer leyendo -- las demas dejan la fila con
+-- otro valor. El dia que haga falta DESASIGNAR a alguien, eso es una decision
+-- que se modela (una columna que diga por que, o un `employee_key` nulo con su
+-- motivo), no un borrado en silencio.
+--
+-- ⚠ Y EL GRANT NO SE HEREDA del schema: `business_plan.area` quedo como la
+-- unica tabla sin grant de nueve y rompio una pantalla que ni la menciona.
+grant select, insert, update on outlook.nppm_realtor_owner to authenticated;
 
 -- El default del dato, para editar. `employee_key` y no `person_code`: es la
 -- columna con la que se une `budget_total`.
@@ -129,6 +158,22 @@ commit;
 -- ---------------------------------------------------------------------------
 -- PARA VERIFICAR, despues de aplicar
 -- ---------------------------------------------------------------------------
+-- 0. Que la policy deje escribir DE VERDAD, que es lo que la version anterior
+--    de este archivo no habria hecho:
+--
+--      select outlook.has_access();                                    -- true
+--      update outlook.nppm_realtor_owner set note = note
+--       where nppm_realtor_code = 'nppm_4b0f953d52f8';                 -- 1 fila
+--
+--    Y que borrar no se pueda:
+--
+--      delete from outlook.nppm_realtor_owner
+--       where nppm_realtor_code = 'nppm_4b0f953d52f8';                 -- 0 filas
+--
+--    ⚠ Cero filas borradas y no un error: sin policy de delete, RLS filtra en
+--    vez de rechazar. Es la misma distincion que ya mordio en este repo --cero
+--    filas con `error: null` es una policy que no aplica-- y aca juega a favor.
+--
 -- 1. Veintiseis filas, y ningun `employee_key` que no exista:
 --
 --      select count(*) from outlook.nppm_realtor_owner;                -- 26
