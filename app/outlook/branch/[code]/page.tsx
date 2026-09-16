@@ -29,6 +29,7 @@ import { fmt, sumOfShown } from '@/lib/outlook/format';
 import { useOutlookDataContext } from '@/lib/outlook/useOutlookData';
 import NppmEditor from '@/app/outlook/components/NppmEditor';
 import NppmOwnerPicker from '@/app/outlook/components/NppmOwnerPicker';
+import OlColgroup, { anchoDeLaGrilla } from '@/app/outlook/components/OlColgroup';
 import RecruitEditor, { branchOptions } from '@/app/outlook/components/RecruitEditor';
 import PersonBudgetEditor, {
   /* Los rótulos de los buckets viven en un solo lugar — OL37. */
@@ -1581,19 +1582,43 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
         Más Affinity (fila total, sin abrir) y la reconciliación de siempre.
         B2B ya no tiene fila -- ver el JSDoc de cabecera, "por qué por persona".
       */}
-      <div className="ol-block__head">
-        <h2 className="ol-block__title">Budget</h2>
-        {/*
-          ⚠ ACA ESTABA `Project through` Y SE FUE A LA BARRA DEL MODULO — OL22.
-          Elegirlo en el 747 no cambiaba nada en el 733, asi que habia que
-          repetir la seleccion trece veces para mirar la division con el mismo
-          horizonte. Ahora es uno solo y aplica a todas.
-        */}
-      </div>
+      {/*
+        ══════════════════════════════════════════════════════════════════════
+        DOS TARJETAS, Y LA GRILLA QUE LAS MANTIENE ALINEADAS — etapa OL49
+        ══════════════════════════════════════════════════════════════════════
 
+        `.tbl-scroll` sigue siendo UNO solo y envuelve a las dos tarjetas. No es
+        un detalle de maquetado: `.ol-page .tbl-scroll` tiene `overflow:
+        visible` desde OL24 --para que el total anclado se pinee al viewport y
+        no haya dos barras de scroll-- y una tarjeta con `overflow: hidden`
+        para redondear sus esquinas volvería a crear un scrollport, rompiendo a
+        la vez el anclaje y la columna del nombre, que es `position: sticky`.
+
+        ⚠ POR ESO LAS TARJETAS NO LLEVAN `overflow`. Está escrito acá y en
+        `ol-year.css`, porque es la clase de cosa que alguien agrega para que un
+        borde quede prolijo y rompe dos cosas que no se ven en esa pantalla.
+      */}
       <div className="tbl-scroll">
-        <table className="piv bp-table--los ol-year">
-          <thead>
+        <section className="ol-card">
+          <div className="ol-card__head">
+            <h2 className="ol-card__title">Budget</h2>
+            {/*
+              ⚠ ACA ESTABA `Project through` Y SE FUE A LA BARRA DEL MODULO — OL22.
+              Elegirlo en el 747 no cambiaba nada en el 733, asi que habia que
+              repetir la seleccion trece veces para mirar la division con el mismo
+              horizonte. Ahora es uno solo y aplica a todas.
+            */}
+          </div>
+          {/* ⚠ EL `width` NO ES DECORATIVO: sin un ancho definido, `table-layout:
+              fixed` se comporta como `auto` y el colgroup pasa a ser un mínimo.
+              Medido, y es lo que dejaba octubre a 84px de octubre. Sale de la
+              misma función para las dos tablas. */}
+          <table
+            className="piv bp-table--los ol-year ol-grid"
+            style={{ width: anchoDeLaGrilla(monthsOfYear, currentMonth) }}
+          >
+            <OlColgroup months={monthsOfYear} currentMonth={currentMonth} />
+            <thead>
             {/*
               ⚠ TRES BANDAS, NO DOS — etapa OL26. Hasta OL25 esta tabla no
               abría el mes en curso por estrategia, así que "Actual — closed"
@@ -2654,43 +2679,59 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               </td>
               <td className="ol-rulecol"></td>
             </tr>
-          </tbody>
+            </tbody>
+          </table>
+        </section>
 
-          {/*
-            ══════════════════════════════════════════════════════════════════
-            ⚠ LA COMPOSICIÓN ES UN `tbody` DE ESTA TABLA — etapa OL45
-            ══════════════════════════════════════════════════════════════════
+        {/*
+          ══════════════════════════════════════════════════════════════════
+          ⚠ LA COMPOSICIÓN VUELVE A SER UNA TABLA — etapas OL45 y OL49
+          ══════════════════════════════════════════════════════════════════
 
-            Vivía en una tabla aparte, con sus tres meses repartidos en todo el
-            ancho: medido, octubre caía en x=1151 y en la tabla de arriba en
-            x=1177. Dos tablas independientes calculan sus columnas por su
-            propio contenido, así que igualarlas con las mismas celdas vacías
-            las acerca y no las alinea -- quedaban a 26px.
+          OL45 la metió como `<tbody>` de la tabla de arriba por una razón
+          medida: en tablas separadas octubre caía en x=1151 en una y en x=1177
+          en la otra, a 26px, porque dos tablas con `table-layout: auto`
+          calculan sus columnas por su propio contenido y nunca coinciden.
 
-            La única forma de que octubre esté DEBAJO de octubre es que sea la
-            misma columna. Un `<tbody>` más comparte la grilla por definición, y
-            el título pasa a ser una fila de sección, que es el idioma que la
-            tabla ya usa para sus grupos.
-          */}
-          {composicion.hayAlgo && (
+          OL49 pide dos tarjetas, y eso reabre el problema. Lo que lo cierra no
+          es volver a intentar igualarlas con celdas vacías --eso ya se probó y
+          ACERCA, no alinea-- sino sacarle al navegador la decisión: las dos
+          tablas son `table-layout: fixed` y comparten `OlColgroup`, que fija
+          cada columna en píxeles medidos. Ver ese archivo para de dónde salen
+          los números y por qué es un componente y no dos listas iguales.
+
+          ⚠ Y LA TABLA DE ABAJO REPITE LA FILA DE MESES. Con las dos secciones
+          en una sola tabla, el encabezado de arriba servía para las dos; con
+          una tarjeta aparte y un margen generoso entre ellas, doce números sin
+          rótulo de columna no se leen. Alinear no es lo mismo que rotular.
+        */}
+        {composicion.hayAlgo && (
+          <section className="ol-card" data-ol-composition-card="">
+            <div className="ol-card__head">
+              <h2 className="ol-card__title">Budget composition</h2>
+              <span className="ol-card__badge">
+                {composicion.cuantos} loan officer{composicion.cuantos === 1 ? '' : 's'} · read only
+              </span>
+            </div>
+            <table
+              className="piv bp-table--los ol-year ol-grid"
+              style={{ width: anchoDeLaGrilla(monthsOfYear, currentMonth) }}
+            >
+              <OlColgroup months={monthsOfYear} currentMonth={currentMonth} />
+              <thead>
+                <tr className="mo-row">
+                  <th className="lbl">Plan</th>
+                  <th className="bp-center ol-bench"></th>
+                  {monthsOfYear.map((m) => (
+                    <th key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
+                      {monthLabel(m)}
+                    </th>
+                  ))}
+                  <th className="bp-center totcol"></th>
+                  <th className="ol-rulecol"></th>
+                </tr>
+              </thead>
             <tbody data-ol-composition="">
-              <tr className="grp d1 ol-comp-head">
-                <td className="lbl">
-                  {/* En mayúsculas y con aire arriba: comparte la grilla con la
-                      tabla --por eso los meses caen en su columna-- y tiene que
-                      leerse como otra sección, no como una fila más. */}
-                  <span className="ol-comp-title">Budget composition</span>
-                  <span className="bp-muted ol-tag">
-                    {composicion.cuantos} loan officer{composicion.cuantos === 1 ? '' : 's'} · read only here
-                  </span>
-                </td>
-                <td className="bp-center ol-bench"></td>
-                {monthsOfYear.map((m) => (
-                  <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}></td>
-                ))}
-                <td className="bp-center totcol"></td>
-                <td className="ol-rulecol"></td>
-              </tr>
               {composicion.filas.flatMap((f) => [
                 <tr key={f.bucket} className="metric mrow">
                   <td className="lbl">
@@ -2855,8 +2896,9 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                 );
               })()}
             </tbody>
-          )}
-        </table>
+            </table>
+          </section>
+        )}
       </div>
 
 
