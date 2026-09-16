@@ -81,9 +81,32 @@ const REGLAS = [
   },
   {
     nombre: 'cuerpo de PR en la línea',
-    prueba: /\bgh\b[^|;&]*\b(pr|issue)\b[^|;&]*--(body|title)\s+(?!-)/,
+    /*
+     * ⚠ `--title` NO ENTRA, Y ANTES SÍ. SEGUNDO FALSO POSITIVO DE ESTA GUARDA.
+     *
+     * El patrón era `--(body|title)` y bloqueaba esto, que está bien:
+     *
+     *   gh pr create --title "docs(outlook): el caso ya no tiene filas" \
+     *                --body-file <archivo>
+     *
+     * El cuerpo iba por archivo --o sea que no tocaba el shell-- y aun así el
+     * `--title` disparaba la regla. Un título es una línea corta de prosa sin
+     * backticks; el riesgo que esta guarda persigue es el del CUERPO, que casi
+     * siempre los tiene. Bloquear el título no evitaba nada y dejaba sin salida:
+     * `gh pr create` no tiene `--title-file`.
+     *
+     * Se agrega `-b`, que es el atajo de `--body` y faltaba.
+     *
+     * ⚠ `--body-file` NO matchea, y no por casualidad: el `\s+` de después exige
+     * un espacio, y ahí va `-file`. Si algún día se saca ese `\s+`, hay que
+     * excluirlo a mano.
+     *
+     * ⚠ `(?<![\w-])` ANTES DE `-b`: sin eso, `--base main` matchearía por el
+     * `-b` de 'base'. Con el lookbehind, sólo matchea `-b` como bandera suelta.
+     */
+    prueba: /\bgh\b[^|;&]*\b(pr|issue)\b[^|;&]*(--body|(?<![\w-])-b)\s+(?!-)/,
     porque: 'mismo mecanismo que el mensaje de commit, y el cuerpo de un PR casi siempre tiene backticks.',
-    hacer: 'usá `--body-file archivo`.',
+    hacer: 'usá `--body-file archivo`. El `--title` en la línea está bien: es una línea de prosa, no un cuerpo.',
   },
   {
     nombre: 'texto redirigido a un archivo',

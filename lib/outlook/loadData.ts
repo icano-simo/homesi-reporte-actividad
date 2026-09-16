@@ -530,16 +530,24 @@ export const UNASSIGNED_OWNER = 'unassigned owner';
  *
  * ⚠ QUÉ HACER CUANDO NO HAY CÓDIGO -- y son dos casos, no uno:
  *
- *   hay nombre y no hay código   Walter Mena: 2 préstamos marcados NPPM y no
- *                                está en la dimensión. Es un hueco de la
- *                                fuente, no un dato ausente, así que CONSERVA
- *                                SU NOMBRE en su propia fila. Se le arma una
- *                                clave local con el prefijo de abajo, que no
- *                                puede chocar con un `nppm_...` real.
+ *   hay nombre y no hay código   CONSERVA SU NOMBRE en su propia fila. Se le
+ *                                arma una clave local con el prefijo de abajo,
+ *                                que no puede chocar con un `nppm_...` real.
  *   no hay ninguno de los dos    ahí sí va `UNASSIGNED_REALTOR`.
  *
- * Colapsar los dos casos en 'unassigned realtor' perdería el nombre de Walter
- * Mena, que es el dato que permite ir a arreglarlo arriba.
+ * Colapsar los dos casos en 'unassigned realtor' perdería el nombre, que es el
+ * dato que permite ir a arreglarlo arriba.
+ *
+ * ⚠ EL PRIMER CASO HOY NO TIENE NINGUNA FILA, y conviene saber por qué está
+ * igual. Se escribió para Walter Mena, que tenía 2 préstamos NPPM y no estaba en
+ * la dimensión; el 2026-09-16 se separó la autoridad del código
+ * (`dim_realtor_code`, todas las grafías) de la pertenencia al programa
+ * (`dim_nppm_realtor_v2`, catorce personas), y desde entonces TODO préstamo NPPM
+ * trae código: 95 de 95.
+ *
+ * La rama se queda porque el hueco puede volver --un realtor nuevo que aparezca
+ * en un préstamo antes de que la dimensión lo tome-- y porque el costo de
+ * mantenerla es cero. Si vuelve a haber filas acá, lo que falta está arriba.
  */
 const SIN_CODIGO_PREFIX = 'sin-codigo:';
 
@@ -2319,8 +2327,8 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
        *
        * ⚠ Y SIGUE HABIENDO UN PRÉSTAMO SIN NINGUNO DE LOS DOS: el del 776 de
        * agosto. Ése es el único que va a `UNASSIGNED_REALTOR`, y es la verdad:
-       * su realtor no está en el dato de origen. No confundirlo con Walter Mena,
-       * que tiene nombre y no tiene código -- ver `realtorIdentity`.
+       * su realtor no está en el dato de origen. No confundirlo con el caso de
+       * "tiene nombre y no tiene código", que es otro -- ver `realtorIdentity`.
        */
       const { code, displayName } = realtorIdentity(row);
       nombrePorCodigo.set(code, displayName);
