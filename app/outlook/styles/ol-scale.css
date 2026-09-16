@@ -241,3 +241,133 @@ table.piv.ol-year tr.metric.drow td.lbl,
 .ol-page .bp-notice--warn {
   margin-bottom: 16px;
 }
+
+/*
+ * ════════════════════════════════════════════════════════════════════════════
+ * EL HISTORIAL DE REVISIONES — etapa OL50
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * ⚠ SIN `.ol-page` EN EL SELECTOR, a diferencia del resto de este archivo. El
+ * historial vive dentro de `.bp-modal`, que `Modal.tsx` monta en el árbol del
+ * componente pero cuyo respaldo --`.bp-modal-backdrop`-- es un hijo directo
+ * del body en la práctica visual: calificar con `.ol-page` funcionaría hoy
+ * --el modal se renderiza adentro-- y dejaría de funcionar el día que alguien
+ * lo mueva a un portal, sin que nada lo diga. Los nombres llevan el prefijo
+ * `ol-hist`, que no colisiona con nada: comprobado con `git grep` antes de
+ * escribir una línea, que es lo que evitó el choque de `.bp-profile` en BP50.
+ */
+.ol-hist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/*
+ * Cada revisión, con un filete a la izquierda que dice de qué clase es. Las
+ * tres clases tienen que distinguirse ANTES de leer el texto: si hay que leer
+ * para saber que fueron cuatro confirmaciones seguidas, la lista sigue
+ * pareciendo cuatro cambios.
+ */
+.ol-hist__item {
+  padding: 10px 0 10px 14px;
+  border-left: 3px solid var(--slate-200);
+}
+/* Los nombres son los que devuelve `claseDe()` en `BudgetHistory.tsx`: si acá
+   dijeran otra cosa, el filete sería el del `border-left` genérico y nadie lo
+   notaría -- una clase sin regla hereda y no rompe nada. */
+.ol-hist__item--number {
+  border-left-color: var(--navy);
+}
+.ol-hist__item--release {
+  border-left-color: var(--sky);
+}
+/* Una confirmación no decidió nada, y su filete lo dice siendo el más tenue. */
+.ol-hist__item--confirmation {
+  border-left-color: var(--slate-200);
+}
+/* El desglose es otra tabla, no otra clase de decisión. */
+.ol-hist__item--breakdown {
+  border-left-color: var(--slate-400);
+}
+
+.ol-hist__head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+.ol-hist__what {
+  font-weight: 700;
+  color: var(--navy);
+  font-size: var(--ol-text);
+}
+.ol-hist__meta {
+  font-size: var(--ol-text);
+}
+.ol-hist__nada {
+  margin: 4px 0 0;
+  font-size: var(--ol-text);
+  color: var(--slate-500);
+}
+.ol-hist__nota {
+  margin: 6px 0 0;
+  font-size: var(--ol-text);
+  color: var(--slate-600);
+  font-style: italic;
+}
+
+.ol-hist__tbl {
+  margin: 6px 0 0;
+  border-collapse: collapse;
+  font-size: var(--ol-text);
+}
+.ol-hist__tbl td {
+  padding: 2px 14px 2px 0;
+  vertical-align: baseline;
+}
+.ol-hist__mes {
+  color: var(--slate-500);
+  white-space: nowrap;
+}
+/*
+ * ⚠ `tabular-nums` acá también: una columna de valores mes a mes con cifras de
+ * distinto ancho se lee torcida, y es el mismo motivo por el que la tabla del
+ * branch las lleva desde OL49.
+ */
+.ol-hist__val {
+  font-weight: 700;
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  min-width: 34px;
+}
+.ol-hist__delta {
+  font-size: var(--ol-text);
+  white-space: nowrap;
+}
+/* «by growth rule» no es un número y no tiene que parecerlo. */
+.ol-hist__regla {
+  font-weight: 400;
+  color: var(--slate-500);
+  font-style: italic;
+}
+
+.ol-hist__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  font-size: var(--ol-text);
+}
+
+/* La línea que queda en el editor, con el botón al final. */
+.ol-editor__hist {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}

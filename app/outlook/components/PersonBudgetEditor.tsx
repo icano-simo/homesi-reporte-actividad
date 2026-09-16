@@ -2,8 +2,12 @@
 
 import { useState } from 'react';
 import Modal from '@/app/business-plan/components/Modal';
+import BudgetHistory from '@/app/outlook/components/BudgetHistory';
 import type { BudgetBucket, OutlookData } from '@/lib/outlook/loadData';
-import { esConfirmacion, gobierna, pisoDeRealtors } from '@/lib/outlook/gobierno';
+/* `gobierna` y `esConfirmacion` se fueron con el pie que los usaba — OL50: el
+   criterio de clase vive ahora en `BudgetHistory`, y sigue siendo el de
+   `gobierno.ts`. `pisoDeRealtors` se queda: lo usa el Total. */
+import { pisoDeRealtors } from '@/lib/outlook/gobierno';
 import {
   cadenceLabel,
   projectPlan,
@@ -267,6 +271,8 @@ export default function PersonBudgetEditor({
 
   /* La calculadora de tasa para Own Production -- cerrada por default: el modo
      por mes (los números de la fila, tal cual) es lo que se ve al abrir. */
+  /* El historial, que es una ventana aparte y no una sección de ésta — OL50. */
+  const [verHistorial, setVerHistorial] = useState(false);
   const [rateOpen, setRateOpen] = useState(false);
   const [rateSegments, setRateSegments] = useState<GrowthSegment[]>(
     ownProductionRate && ownProductionRate.savedSegments.length > 0
@@ -390,24 +396,27 @@ export default function PersonBudgetEditor({
         ? r.nppm_realtor_code === person.subject.realtorCode
         : /* El branch, tercer sujeto desde OL27. */
           r.branch_code === person.subject.branchCode;
-  /* `gobierna` y no una comparación suelta de `confirmed_only` — etapa OL41:
-     la fila que se muestra acá es la que FIJÓ la revisión vigente, que es la
-     misma pregunta que contesta el lector. Ver `lib/outlook/gobierno.ts`. */
-  const lastTotalRow = data.history.personBudgetTotals
-    .filter((r) => isMine(r) && gobierna(r) && r.revision === person.budgetTotalRevision)
-    .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
-  const lastBreakdownRow = data.history.personBudgetBreakdowns
-    .filter((r) => isMine(r) && r.revision === person.budgetBreakdownRevision)
-    .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
   /*
-   * Y la última confirmación, que no es una revisión vigente de nada -- por eso
-   * no sale de `budgetTotalRevision`, que las ignora. Va aparte en el pie: sin
-   * esto, revisar y aceptar no deja ninguna huella en la pantalla, y la única
-   * señal de que pasó sería el cartel del momento.
+   * ⚠ ACÁ HABÍA TRES LECTURAS Y SE FUERON CON EL PIE QUE LAS MOSTRABA — OL50.
+   * Eran «la fila que fijó la revisión vigente», «la del desglose vigente» y
+   * «la última confirmación», y cada una se quedaba con UNA fila. El historial
+   * necesita lo contrario: todas, sin filtrar por revisión vigente, porque la
+   * pregunta que contesta es qué pasó y no qué manda hoy.
+   *
+   * El criterio de clase --número, confirmación, liberación-- no se pierde: se
+   * mudó a `BudgetHistory`, y sigue saliendo de `lib/outlook/gobierno.ts`.
+   *
+   * Se filtra por el MISMO `isMine`, así que el panel no puede mostrar las
+   * filas de otro sujeto por usar un criterio propio.
    */
-  const lastConfirmationRow = data.history.personBudgetTotals
-    .filter((r) => isMine(r) && esConfirmacion(r))
-    .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+  const filasDeEstaPersona = {
+    totals: data.history.personBudgetTotals.filter(isMine),
+    breakdowns: data.history.personBudgetBreakdowns.filter(isMine),
+  };
+  /* La última actividad de cualquier clase: es lo único que queda a la vista. */
+  const ultimaActividad = [...filasDeEstaPersona.totals, ...filasDeEstaPersona.breakdowns].sort((a, b) =>
+    b.created_at.localeCompare(a.created_at)
+  )[0] ?? null;
 
   /*
    * ══════════════════════════════════════════════════════════════════════════
@@ -966,35 +975,61 @@ export default function PersonBudgetEditor({
           </section>
         )}
 
-        {(lastTotalRow || lastBreakdownRow) && (
-          <p className="ol-editor__hint">
-            {lastTotalRow && (
-              <>
-                Total set by <b>{lastTotalRow.set_by}</b> on {stamp(lastTotalRow.created_at)} (revision{' '}
-                {person.budgetTotalRevision}).
-              </>
-            )}
-            {lastTotalRow && lastBreakdownRow ? ' ' : ''}
-            {lastBreakdownRow && (
-              <>
-                Breakdown set by <b>{lastBreakdownRow.set_by}</b> on {stamp(lastBreakdownRow.created_at)} (revision{' '}
-                {person.budgetBreakdownRevision}).
-              </>
-            )}
-          </p>
-        )}
-        {!lastTotalRow && !lastBreakdownRow && (
-          <p className="ol-editor__hint">Nobody has set a composed budget for this person yet.</p>
-        )}
-        {lastConfirmationRow && (
-          <p className="ol-editor__hint">
-            Last reviewed as is by <b>{lastConfirmationRow.set_by}</b> on {stamp(lastConfirmationRow.created_at)} —
-            nothing was changed then.
-          </p>
-        )}
+        {/*
+          ══════════════════════════════════════════════════════════════════
+          EL HISTORIAL, DETRÁS DE UN BOTÓN — etapa OL50
+          ══════════════════════════════════════════════════════════════════
+
+          Acá vivían tres frases sueltas --quién fijó el total, quién el
+          desglose, quién confirmó por última vez-- y competían con el dato
+          que la gente viene a leer. Y decían MENOS que esto: sólo la última
+          de cada clase, cuando las tablas son append-only y guardan todas.
+
+          Queda una línea que dice si hay algo y cuándo fue lo último, y el
+          resto se abre. Lo que NO se hace es esconderlo entero: sin la línea,
+          nadie sabría que el botón tiene algo detrás.
+
+          ⚠ Y la línea no clasifica: dice «última actividad». Decir «total
+          fijado» cuando lo último fue una confirmación sería el error que el
+          panel viene a arreglar, cometido en su propio resumen.
+        */}
+        <p className="ol-editor__hint ol-editor__hist">
+          {ultimaActividad === null ? (
+            'Nobody has set a composed budget for this person yet.'
+          ) : (
+            <>
+              Last activity by <b>{ultimaActividad.set_by}</b> on {stamp(ultimaActividad.created_at)}.
+            </>
+          )}
+          <button
+            type="button"
+            className="bp-linkish"
+            data-ol-history-open=""
+            onClick={() => setVerHistorial(true)}
+            disabled={filasDeEstaPersona.totals.length === 0 && filasDeEstaPersona.breakdowns.length === 0}
+          >
+            Change history
+          </button>
+        </p>
 
         {error && <div className="bp-notice bp-notice--warn ol-editor__msg">{error}</div>}
         {saved && !error && <div className="bp-notice ol-editor__msg">{saved}</div>}
+
+        {/*
+          ⚠ UN MODAL DENTRO DE OTRO, y no una tercera pantalla: el historial se
+          mira un segundo y se cierra, que es el criterio que `Modal.tsx`
+          declara para su excepción. Va como hijo de este cuerpo para que al
+          cerrar el editor se cierre con él -- un historial huérfano encima de
+          la tabla sería una ventana sin dueño.
+        */}
+        {verHistorial && (
+          <BudgetHistory
+            title={person.label}
+            totals={filasDeEstaPersona.totals}
+            breakdowns={filasDeEstaPersona.breakdowns}
+            onClose={() => setVerHistorial(false)}
+          />
+        )}
       </div>
     </Modal>
   );
