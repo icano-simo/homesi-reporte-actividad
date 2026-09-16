@@ -1063,7 +1063,23 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
          * sería invisible, que es como empezó todo esto.
          */
         if (propio !== null && lo.budgetTotal[m] !== undefined) {
-          ownByMonth[m] += propio;
+          /*
+           * ⚠ MENOS LO QUE APORTAN SUS REALTORS — etapa OL42, y lo encontró el
+           * primer uso real: Isabella le fijó 1 a Santiago Jaraba Chacon y el
+           * 733 pasó a mostrar tarjeta 5 contra fila 4 en octubre.
+           *
+           * El Own Production a mano de Aimmee (4) se escribió cuando el bucket
+           * `nppm` no existía como número aparte; su TOTAL sigue siendo 4. El
+           * NPPM no se suma encima del total --explica, no suma-- así que sale
+           * de adentro de lo que ella había puesto como propio.
+           *
+           * Y no contradice la regla de OL39 --«lo que desagregó a mano, si lo
+           * hizo»--: lo que desagregó a mano sigue siendo la base. Lo que se
+           * descuenta es un número que ella NO escribió y que ya no puede
+           * escribir, porque el bucket dejó de ser editable en esta etapa.
+           */
+          const deSusRealtors = lo.nppmRealtors.reduce((x, r) => x + (r.byMonth[m] ?? 0), 0);
+          ownByMonth[m] += Math.max(0, propio - deSusRealtors);
           continue;
         }
         const otros = OTROS.reduce((a, b) => a + (aMano(lo, b, m) ?? 0), 0);
@@ -1079,8 +1095,18 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
         return {
           bucket,
           byMonth: ownByMonth,
-          tiene: remainingMonths.some((m) => ownByMonth[m] !== 0) ||
-            suyos.some((lo) => (lo.budgetBreakdown.own_production ?? null) !== null),
+          /*
+           * ⚠ Y SE DECIDE ABAJO, con las otras filas ya armadas — etapa OL42.
+           * Own Production es el RESTO: si otro bucket muestra algo, un cero
+           * acá no es «no hay dato», es «lo que queda después de ese otro es
+           * cero», y sacarlo obliga a quien lee a sumar las filas visibles y
+           * preguntarse dónde está el resto.
+           *
+           * Lo encontró la cadena de Laura Delgado: al fijarle 1, el Own
+           * Production de Silvio pasó a 0 y la fila DESAPARECIÓ, dejando una
+           * tarjeta donde NPPM y el Total eran el mismo número sin explicación.
+           */
+          tiene: true,
         };
       }
       const byMonth: Record<string, number> = {};
@@ -1116,7 +1142,19 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
           suyos.some((lo) => (lo.budgetBreakdown[bucket] ?? null) !== null) ||
           (bucket === 'recruitment' && remainingMonths.some((m) => byMonth[m] !== 0)),
       };
-    }).filter((f) => f.tiene);
+    })
+      /*
+       * Own Production entra si tiene número propio, si alguien lo desglosó a
+       * mano, o si hay OTRA fila que mostrar -- ver su `tiene: true` arriba.
+       * Las demás, sólo con dato: una tarjeta de ceros no dice nada.
+       */
+      .filter((f, _i, todas) =>
+        f.bucket === 'own_production'
+          ? remainingMonths.some((m) => (f.byMonth[m] ?? 0) !== 0) ||
+            suyos.some((lo) => (lo.budgetBreakdown.own_production ?? null) !== null) ||
+            todas.some((o) => o.bucket !== 'own_production' && o.tiene)
+          : f.tiene
+      );
     const total: Record<string, number> = {};
     for (const m of remainingMonths) {
       total[m] = filas.reduce((a, f) => a + (f.byMonth[m] ?? 0), 0);
