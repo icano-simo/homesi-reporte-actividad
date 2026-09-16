@@ -12,7 +12,7 @@ import {
   type Ramp,
   type RecruitStage,
 } from '@/lib/outlook/recruitment';
-import { totalesVigentes } from '@/lib/outlook/gobierno';
+import { pisoDeRealtors, presupuestoDePersona, totalesVigentes } from '@/lib/outlook/gobierno';
 import { classifyBranch } from '@/lib/domain/classifyBranch';
 import { classifyStrategy } from '@/lib/pipeline/strategy';
 import { apportionByWeight } from '@/lib/pipeline/aggregate';
@@ -3806,7 +3806,23 @@ export function projectBranch(
     const { byMonth: loMonths } = projectLoanOfficer(lo, months);
     for (const m of months) {
       const regla = loMonths[m] ?? 0;
-      byMonth[m] += applyBudgetOverrides ? (lo.budgetTotal[m] ?? regla) : regla;
+      /*
+       * ⚠ Y EL PISO DE SUS REALTORS — etapa OL48. Un realtor NPPM no cierra:
+       * cierra su Loan Officer, así que lo que el realtor proyecta pasa por él
+       * y su total no puede ser menor. Se usa la MISMA función que la fila de
+       * la persona (`loanOfficerRowsOf`): si el piso subiera sólo en una de las
+       * dos, la fila de reconciliación se comería la diferencia y nadie se
+       * enteraría -- que es justo lo que pasó con el benchmark de branch.
+       *
+       * ⚠ NO cuando `applyBudgetOverrides` es `false`: ahí este total es el
+       * PESO que se reparte entre estrategias, y el piso de UNA persona
+       * inflaría la torta entera. Mismo motivo por el que tampoco entra el
+       * total fijado -- ver la nota grande de arriba.
+       */
+      const piso = pisoDeRealtors(lo.nppmRealtors, m);
+      byMonth[m] += applyBudgetOverrides
+        ? presupuestoDePersona({ fijado: lo.budgetTotal[m], regla, pisoDeRealtors: piso }).valor
+        : regla;
     }
   }
   /*

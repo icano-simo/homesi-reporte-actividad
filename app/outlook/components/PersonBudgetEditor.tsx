@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Modal from '@/app/business-plan/components/Modal';
 import type { BudgetBucket, OutlookData } from '@/lib/outlook/loadData';
-import { esConfirmacion, gobierna } from '@/lib/outlook/gobierno';
+import { esConfirmacion, gobierna, pisoDeRealtors } from '@/lib/outlook/gobierno';
 import {
   cadenceLabel,
   projectPlan,
@@ -291,8 +291,12 @@ export default function PersonBudgetEditor({
    * menor y la composición mostraría el bucket -- y el invariante de OL39 se
    * rompería justo donde esta etapa agrega el dato.
    */
-  const nppmDeSusRealtors = (m: string) =>
-    (person.nppmRealtors ?? []).reduce((a, r) => a + (r.byMonth[m] ?? 0), 0);
+  /* ⚠ Y SALE DE `gobierno.ts` — OL48. Era la CUARTA escritura de la misma suma
+     en el repo, y lo encontró la guarda, no yo: acá se suma al total, en
+     `projectBranch` y en `loanOfficerRowsOf` es el piso, y en la composición se
+     resta. Cuatro correctas hoy, y la primera que alguien edite deja a las
+     otras tres diciendo otra cosa. */
+  const nppmDeSusRealtors = (m: string) => pisoDeRealtors(person.nppmRealtors ?? [], m);
 
   function breakdownSumOf(m: string): number | null {
     const tocado =
@@ -866,9 +870,11 @@ export default function PersonBudgetEditor({
                     </td>
                     {months.map((m) => (
                       <td key={m} className="bp-center">
-                        {fmtNum(
-                          (person.nppmRealtors ?? []).reduce((a, r) => a + (r.byMonth[m] ?? 0), 0)
-                        )}
+                        {/* La misma suma que el Total de más abajo: si esta
+                            celda y el Total no salieran de la misma línea, el
+                            editor podría mostrar un NPPM que no es el que
+                            suma. */}
+                        {fmtNum(nppmDeSusRealtors(m))}
                       </td>
                     ))}
                   </tr>

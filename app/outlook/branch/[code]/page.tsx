@@ -23,6 +23,7 @@ import {
   type NotProjectingReason,
   type RecruitStage,
 } from '@/lib/outlook/recruitment';
+import { pisoDeRealtors } from '@/lib/outlook/gobierno';
 import { remainingMonthsFor } from '@/lib/outlook/horizon';
 import { fmt, sumOfShown } from '@/lib/outlook/format';
 import { useOutlookDataContext } from '@/lib/outlook/useOutlookData';
@@ -1107,7 +1108,12 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
            * descuenta es un número que ella NO escribió y que ya no puede
            * escribir, porque el bucket dejó de ser editable en esta etapa.
            */
-          const deSusRealtors = lo.nppmRealtors.reduce((x, r) => x + (r.byMonth[m] ?? 0), 0);
+          /* ⚠ LA MISMA SUMA QUE EL PISO DE OL48, y por eso sale de la misma
+             función: acá se RESTA para no contarla dos veces y allá se usa como
+             piso, pero las dos contestan «cuánto de esta persona ya viene por
+             sus realtors». Con dos escrituras, un cambio en una rompe el
+             invariante de OL39 desde la otra. */
+          const deSusRealtors = pisoDeRealtors(lo.nppmRealtors, m);
           ownByMonth[m] += Math.max(0, propio - deSusRealtors);
           continue;
         }
@@ -1727,6 +1733,46 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                               <span className="bp-muted ol-tag">{STATE_TAG[pr.lo.rosterState].text}</span>
                             )}
                             {!pr.lo.hasIdentity && <span className="bp-muted ol-tag">no internal identity</span>}
+                            {/*
+                              ══════════════════════════════════════════════
+                              ⚠ CUANDO EL NÚMERO NO ES SUYO — etapa OL48
+                              ══════════════════════════════════════════════
+
+                              Su total subió porque sus realtors NPPM piden más:
+                              un realtor no cierra --cierra esta persona-- así
+                              que lo que el realtor proyecta ya pasa por ella y
+                              su presupuesto no puede quedar debajo.
+
+                              Se dice porque ese número se MUEVE solo: el
+                              benchmark de un realtor sale de su promedio de
+                              cierres, así que cambia cuando cambian los
+                              cierres. Sin el rótulo, alguien lo lee como un
+                              presupuesto que esta persona decidió.
+                            */}
+                            {pr.subioPorNppm.length > 0 && (
+                              <span
+                                /* ⚠ SIN `bp-muted`: las otras etiquetas de esta
+                                   celda describen a la persona --su cargo, su
+                                   estado-- y ésta describe de dónde salió su
+                                   número. Con el mismo gris se lee como un
+                                   cargo más. Ver `ol-tag--nppm` en
+                                   `ol-year.css`. */
+                                className="ol-tag ol-tag--nppm"
+                                /* El atributo lleva los meses para que la sonda
+                                   pueda exigir CUÁLES subieron y no sólo que el
+                                   rótulo esté. */
+                                data-ol-raised-nppm={pr.subioPorNppm.join(',')}
+                                title={
+                                  `${pr.lo.fullName}'s budget in ` +
+                                  `${pr.subioPorNppm.map(monthLabel).join(', ')} is what their NPPM realtors ` +
+                                  `project, which is more than their own total. A realtor does not close — ` +
+                                  `this person does — so their budget cannot sit below what already comes ` +
+                                  `through them. It moves when the realtor's 3-month average moves.`
+                                }
+                              >
+                                raised by NPPM
+                              </span>
+                            )}
                           </td>
                           <td className="bp-center ol-bench">
                             <BenchTag
@@ -2710,18 +2756,30 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                 >
                   Total
                   {/*
-                    ⚠ CUANDO LA DESCOMPOSICIÓN NO ENTRA EN EL PRESUPUESTO —
-                    etapa OL46. La proyección de un realtor puede ser mayor que
-                    todo lo que su Loan Officer tiene presupuestado: en el 776,
-                    Laura Delgado proyecta 2 por mes y Silvio Arteaga tiene 1.
+                    ⚠ DE EXCEPCIÓN DECLARADA A GUARDA QUE NO DEBERÍA MORDER —
+                    etapas OL46, OL47 y OL48.
+                    ────────────────────────────────────────────────────────────
+                    OL46 la descubrió: la proyección de un realtor podía ser
+                    mayor que todo lo que su Loan Officer tenía presupuestado
+                    --el 776, con Laura Delgado proyectando 2 y Silvio Arteaga
+                    presupuestado en 1--. OL47 la explicó en una línea en vez de
+                    recortarla, porque recortar inventa un número que nadie
+                    proyectó.
 
-                    No se recorta ni se esconde. Recortarla inventaría un
-                    número que nadie proyectó, y esconderla dejaría la misma
-                    pregunta sin hacer. Lo que corresponde es que la fila lo
-                    DIGA: la composición dice más que el presupuesto, y eso es
-                    un dato sobre el branch --su NPPM proyecta más de lo que sus
-                    Loan Officers tienen presupuestado cerrar--, no un error de
-                    la tarjeta.
+                    OL48 le sacó la causa: un realtor no cierra --cierra su Loan
+                    Officer-- así que el total de él no puede quedar debajo de la
+                    suma de sus realtors, y `presupuestoDePersona` lo sube. Con
+                    eso `composicion.total` no PUEDE pasarse del presupuesto del
+                    branch, porque el branch suma exactamente esos totales ya
+                    levantados.
+
+                    ⚠ Y POR ESO ESTO SE QUEDA, con otro texto. Es la única señal
+                    de que las dos mitades --`projectBranch` y `loanOfficerRowsOf`,
+                    que llaman a la misma función justamente para no separarse--
+                    dejaron de coincidir. Un respaldo que nunca se ejerce es
+                    sospechoso; una guarda que no debería morder y lo dice fuerte
+                    cuando muerde es lo contrario. Si aparece, es un error de
+                    cableado, no un dato del branch.
                   */}
                   {(() => {
                     const sobran = remainingMonths.filter(
@@ -2733,13 +2791,13 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                         className="bp-notice bp-notice--warn ol-tag"
                         title={
                           `The plans below add up to more than the branch budget in ` +
-                          `${sobran.map(monthLabel).join(', ')}. It is not a rounding gap: an NPPM realtor ` +
-                          `projects from their own benchmark, and that projection can be larger than what ` +
-                          `their loan officer is budgeted to close. Either their budget goes up, or the ` +
-                          `realtor's projection is not all theirs to bring.`
+                          `${sobran.map(monthLabel).join(', ')}, and they cannot: a loan officer's budget ` +
+                          `already rises to contain their NPPM realtors, so the branch budget already ` +
+                          `includes every number below. This is a wiring error, not something about ` +
+                          `this branch — please report it.`
                         }
                       >
-                        ⚠ more than the branch budget in {sobran.map(monthLabel).join(', ')}
+                        ⚠ does not match the branch budget in {sobran.map(monthLabel).join(', ')}
                       </span>
                     );
                   })()}
@@ -2755,18 +2813,22 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               </tr>
               {/*
                 ══════════════════════════════════════════════════════════════
-                LA LÍNEA QUE EXPLICA EL DESCUADRE — etapa OL47
+                LA LÍNEA QUE EXPLICA — OL47 el descuadre, OL48 su ausencia
                 ══════════════════════════════════════════════════════════════
 
-                Un rótulo de tres palabras decía QUE no cuadra; lo que hacía
-                falta es por qué, con los dos nombres y los dos números. Isabella
-                no tiene por qué reconstruir que un realtor proyecta por su
-                benchmark, que su Loan Officer proyecta por la regla, y que la
-                regla no sube porque abajo pidan más.
+                OL47 la escribió para que Isabella no tuviera que reconstruir
+                por qué la composición decía más que el presupuesto. OL48 hizo
+                que eso no pueda pasar --el total del Loan Officer sube para
+                contener a sus realtors-- así que la frase de OL47 quedaría
+                afirmando lo contrario de lo que hoy hace el código: que la
+                regla no sube porque abajo pidan más. Ahora sube.
 
-                Va como fila y no como tooltip: un dato que sólo vive en un
-                tooltip está a un paso de no existir, y éste es el que decide si
-                alguien mueve un presupuesto.
+                Lo que queda es la misma fila diciendo lo que corresponde al
+                estado nuevo: si aparece, algo se desincronizó entre las dos
+                mitades --la fila del branch y la tarjeta-- y hay que mirarlo.
+
+                Va como fila y no como tooltip, por lo mismo que en OL47: un
+                dato que sólo vive en un tooltip está a un paso de no existir.
               */}
               {(() => {
                 const sobran = remainingMonths.filter(
@@ -2778,27 +2840,16 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                    que explican el número de arriba. */
                 const aportan = composicion.realtors.filter((r) => (r.byMonth[mes] ?? 0) > 0);
                 const duenos = [...new Set(aportan.map((r) => r.loanOfficer))].join(', ');
-                /* «2 al mes» si es el mismo número todos los meses, y la lista
-                   sólo si cambia: una frase con tres meses iguales se lee peor
-                   que el número, y el caso de hoy es justamente constante. */
-                const constante = (valores: number[]) => valores.every((x) => x === valores[0]);
-                const suyos = sobran.map((m) => aportan.reduce((a, r) => a + (r.byMonth[m] ?? 0), 0));
-                const presu = sobran.map((m) => totalByMonth[m] ?? 0);
-                const cuanto = constante(suyos)
-                  ? `${suyos[0]} a month`
-                  : sobran.map((m, i) => `${suyos[i]} in ${monthLabel(m)}`).join(', ');
-                const contra = constante(presu)
-                  ? `${presu[0]}`
-                  : sobran.map((m, i) => `${presu[i]} in ${monthLabel(m)}`).join(', ');
                 const nombres = aportan.map((r) => r.displayName).join(', ');
                 return (
                   <tr className="metric ol-comp-nota" data-ol-comp-nota="">
                     <td className="lbl" colSpan={monthsOfYear.length + 4}>
-                      ⚠ {nombres} {aportan.length === 1 ? 'projects' : 'project'} {cuanto} from their own
-                      benchmark, and {duenos} {aportan.length === 1 ? 'is' : 'are'} budgeted {contra} — projecting
-                      by growth rule, which a realtor&apos;s projection does not raise. That is why the number is
-                      here and not in the branch budget: either the loan officer&apos;s budget goes up, or that
-                      projection is not all theirs to bring.
+                      ⚠ The rows above add up to more than the branch budget in{' '}
+                      {sobran.map(monthLabel).join(', ')}, and they should not be able to: a loan
+                      officer&apos;s budget already rises to contain their NPPM realtors
+                      {nombres === '' ? '' : ` (${nombres} → ${duenos})`}, so every number here is
+                      already inside the branch budget above. This is a wiring error between the branch
+                      row and this card, not something about this branch — please report it.
                     </td>
                   </tr>
                 );

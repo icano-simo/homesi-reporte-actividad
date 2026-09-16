@@ -441,6 +441,36 @@ table.piv.ol-year thead .yr-row th.ol-band {
 }
 
 /*
+ * ══════════════════════════════════════════════════════════════════════════
+ * `raised by NPPM`: LA ETIQUETA QUE DICE QUE EL NÚMERO NO ES SUYO — OL48
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ * `.ol-tag` es TENUE a propósito --gris, peso 400-- porque las otras etiquetas
+ * de esa celda son descripciones de la persona: el cargo, su estado en el
+ * roster. Ésta no describe a la persona: describe de dónde salió su número, y
+ * es lo único que impide leer ese 2 como un presupuesto que Silvio Arteaga
+ * decidió. Con el tono de `.ol-tag` queda al lado de `Production Manager`
+ * pesando lo mismo que un cargo -- medido en la captura, no deducido.
+ *
+ * Así que se destaca, y lo menos posible: el tinte de la banda de presupuesto
+ * --el mismo `--sky` que ya dice «esto es presupuesto» en las tres columnas de
+ * la derecha-- y el texto en `--navy` como el resto de los números que suman.
+ * Sin rojo: no es un aviso ni un error. Es una atribución.
+ *
+ * ⚠ Y VA ACÁ, con cuatro clases y un descendiente, por lo mismo que el total de
+ * OL47: `.ol-tag` vive en `ol-scale.css` y una regla más corta escrita en otro
+ * archivo es una intención, no un estilo. Medido con `getComputedStyle` sobre
+ * la etiqueta de verdad, en la fila de verdad.
+ */
+.ol-page table.piv.ol-year td.lbl .ol-tag--nppm {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--sky) 38%, transparent);
+  color: var(--navy);
+  font-weight: 700;
+}
+
+/*
  * LA PÍLDORA DE LA REGLA. La columna decía `25% quarterly from Sep · 1st raise
  * in Dec` en cada fila; con diez filas era una pared de texto. La píldora dice
  * cuánto y cada cuánto, que es lo que se compara de un vistazo, y el resto vive

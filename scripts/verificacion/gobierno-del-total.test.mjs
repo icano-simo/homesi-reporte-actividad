@@ -25,10 +25,11 @@ import { fileURLToPath } from 'node:url';
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const { crearArnes } = await import(
   pathToFileURL(resolve(RAIZ, 'scripts/verificacion/guardas.mjs')).href);
-const { gobierna, revisionQueGobierna, totalesVigentes } = await import(
-  pathToFileURL(resolve(RAIZ, 'lib/outlook/gobierno.ts')).href);
+const { gobierna, revisionQueGobierna, totalesVigentes, presupuestoDePersona, pisoDeRealtors } =
+  await import(pathToFileURL(resolve(RAIZ, 'lib/outlook/gobierno.ts')).href);
 
-const a = crearArnes({ minimo: 14 });
+/* 14 de OL41 + 9 del piso de realtors + 1 de que tampoco tiene copias — OL48. */
+const a = crearArnes({ minimo: 14 + 10 });
 const mes = (m) => m + '-01';
 const numero = (rev, m, total) => ({ revision: rev, target_month: mes(m), total, confirmed_only: false });
 const confirmacion = (rev, m) => ({ revision: rev, target_month: mes(m), total: null, confirmed_only: true });
@@ -80,6 +81,47 @@ const sinColumna = [{ revision: 1, target_month: mes('2026-10'), total: 3, confi
 a.ck(totalesVigentes(sinColumna).byMonth['2026-10'] === 3,
   'sin la columna `released_to_rule` el criterio es el de siempre');
 
+/* ── 1b. El piso de los realtors, transversal a los tres — OL48 ─────────── */
+/*
+ * ⚠ LAS TRES PUERTAS Y EL PISO QUE LAS ATRAVIESA. Un realtor NPPM no cierra:
+ * cierra su Loan Officer. Así que lo que el realtor proyecta ya pasa por él y
+ * un total menor que la suma de sus realtors afirma algo imposible. No es una
+ * preferencia entre dos números -- es que uno de los dos no puede ser cierto.
+ */
+const p = (fijado, regla, piso) => presupuestoDePersona({ fijado, regla, pisoDeRealtors: piso });
+
+a.ck(p(5, 3, 0).valor === 5 && p(5, 3, 0).subioPorRealtors === false,
+  'sin realtors, el total fijado manda sobre la regla');
+a.ck(p(undefined, 3, 0).valor === 3, 'y sin total fijado manda la regla');
+a.ck(p(5, 3, 2).valor === 5 && p(5, 3, 2).subioPorRealtors === false,
+  'un piso menor que el total fijado no lo toca');
+a.ck(p(1, 3, 2).valor === 2 && p(1, 3, 2).subioPorRealtors === true,
+  '⚠ pero un piso mayor LEVANTA un total fijado, y lo dice');
+a.ck(p(undefined, 1, 2).valor === 2 && p(undefined, 1, 2).subioPorRealtors === true,
+  '⚠ y levanta también a quien proyecta por regla: es el caso del 776');
+/*
+ * ⚠ IGUAL NO ES MAYOR, y la distinción no es cosmética: con `>=` el rótulo
+ * `raised by NPPM` aparecería en toda persona cuyo número coincide con su piso
+ * por cualquier motivo, y un rótulo que sale cuando no pasa nada enseña a
+ * ignorarlo. Medido en pantalla: Matthew Gomez Bruckner está en 1 con un piso
+ * de 1, y no lleva rótulo.
+ */
+a.ck(p(2, 1, 2).valor === 2 && p(2, 1, 2).subioPorRealtors === false,
+  '⚠ un piso IGUAL al total no lo levanta: sube sólo cuando pide MÁS');
+/*
+ * ⚠ Y UN CERO FIJADO CON PISO CERO SIGUE SIENDO CERO. Cero es una decisión
+ * --«este mes espero cero préstamos»-- y el piso no la borra si nadie pide
+ * más. Es la misma distinción que sostiene el módulo entero.
+ */
+a.ck(p(0, 4, 0).valor === 0 && p(0, 4, 0).subioPorRealtors === false,
+  'un cero fijado con piso cero sigue en cero: el piso no inventa producción');
+
+/* Y la suma del piso, que vive acá porque la leen tres lugares. */
+const rs = [{ byMonth: { '2026-10': 2, '2026-11': 1 } }, { byMonth: { '2026-10': 1 } }];
+a.ck(pisoDeRealtors(rs, '2026-10') === 3, 'el piso suma a todos los realtors del mes (3)');
+a.ck(pisoDeRealtors(rs, '2026-12') === 0 && pisoDeRealtors([], '2026-10') === 0,
+  'y un mes sin nada, o una persona sin realtors, da 0 y no `NaN`');
+
 /* ── 2. Que no haya una segunda definición ──────────────────────────────── */
 const fuentes = [];
 const recorrer = (dir) => {
@@ -110,5 +152,29 @@ console.log('archivos que deciden sobre `confirmed_only` fuera de gobierno.ts: '
 a.ck(copias.length === 0,
   '⚠ el criterio vive en UN solo archivo: ' + JSON.stringify(copias.map((p) => p.slice(RAIZ.length + 1))));
 a.ck(fuentes.length > 100, 'y se recorrió el repo de verdad: ' + fuentes.length + ' archivos');
+
+/*
+ * ⚠ Y LO MISMO CON EL PISO — OL48. Llegó escrito TRES veces en el mismo turno
+ * --`projectBranch`, `loanOfficerRowsOf` y la composición de la pantalla-- y
+ * las tres contestan «cuánto de esta persona ya viene por sus realtors»: dos lo
+ * usan como piso y una lo resta. Eran correctas las tres, que es exactamente lo
+ * que las hace divergir en el primer cambio.
+ *
+ * Se busca la SUMA sobre `nppmRealtors` y no la palabra --los comentarios la
+ * nombran a propósito y tienen que poder seguir nombrándola--, así que se piden
+ * las dos mitades en la misma línea de código.
+ */
+const sumas = fuentes.filter((ruta) => {
+  if (ruta.endsWith(join('lib', 'outlook', 'gobierno.ts'))) return false;
+  return readFileSync(ruta, 'utf8')
+    .split(/\r?\n/)
+    .filter((l) => !l.trimStart().startsWith('*') && !l.trimStart().startsWith('//'))
+    .some((l) => /nppmRealtors/.test(l) && /\.reduce\(/.test(l));
+});
+console.log('archivos que suman `nppmRealtors` fuera de gobierno.ts: ' +
+  JSON.stringify(sumas.map((ruta) => ruta.slice(RAIZ.length + 1))));
+a.ck(sumas.length === 0,
+  '⚠ el piso de los realtors también vive en UN solo archivo: ' +
+    JSON.stringify(sumas.map((ruta) => ruta.slice(RAIZ.length + 1))));
 
 process.exitCode = a.resumen();
