@@ -41,16 +41,43 @@ const SERIES: Series[] = [
   { key: 'applications', label: 'Applications', color: 'var(--amber-700)' },
 ];
 
+/**
+ * Etiqueta de tick del eje X: el año sólo en el primer tick y cada vez que
+ * cambia respecto del anterior -- nunca repetido en cada mes, pero nunca
+ * ausente por más de 11 ticks seguidos (el rango real hoy cruza 2024/2025/
+ * 2026). No hay ninguna función ya escrita en el repo para este caso --
+ * revisado antes de escribirla: todo lo demás que usa `shortMonth` (Business
+ * Plan, Outlook) dibuja los 12 meses de UN año fijo (`monthsOfYear`), nunca
+ * un eje continuo que cruce años, así que ninguno necesitó nunca distinguir
+ * "primer tick o cambio de año" de "mismo año que el tick anterior".
+ */
+function tickLabel(rows: CommercialActivityMonthlyRow[], i: number): string {
+  const month = shortMonth(rows[i].month);
+  const year = rows[i].month.slice(0, 4);
+  const isFirstOrYearChange = i === 0 || rows[i - 1].month.slice(0, 4) !== year;
+  return isFirstOrYearChange ? month + ' ' + year : month;
+}
+
 export interface CommercialActivityLineChartProps {
   rows: CommercialActivityMonthlyRow[];
 }
 
 export default function CommercialActivityLineChart({ rows }: CommercialActivityLineChartProps) {
-  const width = 640;
   const plotHeight = 110;
   const bottomReserve = 18;
   const leftPad = 8;
   const rightPad = 8;
+  /*
+   * Ancho por mes fijo (40px) en vez de un `width` total fijo -- medido:
+   * con 21 meses en 640px (el paso viejo, ~31px) los ticks con año
+   * ("Nov 2024", "Mar 2025", "Jan 2026", ~50px de ancho) se solapaban 2-4px
+   * contra el tick vecino. 40px por mes deja margen (mitad-larga 25px +
+   * mitad-corta 10px = 35px < 40px) sin importar cuántos meses tenga el
+   * rango -- que sólo va a crecer, un mes por vez. El contenedor ya tenía
+   * `overflow-x: auto` (más abajo), así que un ancho mayor que el viewport
+   * ya se resolvía con scroll, no con un rediseño.
+   */
+  const width = Math.max(640, leftPad + rightPad + Math.max(0, rows.length - 1) * 40);
   const innerWidth = width - leftPad - rightPad;
   const step = rows.length > 1 ? innerWidth / (rows.length - 1) : 0;
 
@@ -81,7 +108,7 @@ export default function CommercialActivityLineChart({ rows }: CommercialActivity
             )}
             {rows.map((r, i) => (
               <text key={r.month} x={x(i)} y={plotHeight + 14} textAnchor="middle" fontSize="10.5" fill="var(--slate-500)">
-                {shortMonth(r.month)}
+                {tickLabel(rows, i)}
               </text>
             ))}
           </g>

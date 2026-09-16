@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import type { LoanRecord } from '@/lib/domain/types';
 import { buildCommercialActivityMonthlyTrends, getDistinctStrategies } from '@/lib/aggregation/commercialActivityTrends';
+import { shortMonth } from '@/lib/business-plan/months';
 import CommercialActivityLineChart from './CommercialActivityLineChart';
 
 export interface CommercialActivityTrendsProps {
@@ -11,6 +12,20 @@ export interface CommercialActivityTrendsProps {
 
 function fmtInt(n: number): string {
   return n.toLocaleString('en-US');
+}
+
+/**
+ * "2024-11" -> "Nov 2024" -- SOLO presentación, la clave interna (`row.month`,
+ * el `YearMonth` crudo) sigue siendo la de orden/join, sin tocar. No hay una
+ * función ya armada para este formato exacto en el repo: `monthYearLabel`
+ * (components/report/LoanDetailModal.tsx) es privada de ese módulo Y usa
+ * `MONTH_NAMES` completo ("November", config/metrics.ts) en vez de
+ * abreviado. Se compone acá con `shortMonth` (lib/business-plan/months.ts,
+ * ya exportada y ya importada por CommercialActivityLineChart en este mismo
+ * directorio) en vez de duplicar un array de nombres de mes.
+ */
+function monthYearLabel(ym: string): string {
+  return shortMonth(ym) + ' ' + ym.slice(0, 4);
 }
 
 /**
@@ -65,7 +80,7 @@ export default function CommercialActivityTrends({ records }: CommercialActivity
               {rows.map((row) => (
                 <tr className="metric" key={row.month}>
                   <td className="lbl" style={{ textAlign: 'left' }}>
-                    {row.month}
+                    {monthYearLabel(row.month)}
                   </td>
                   <td className="val">{fmtInt(row.fileCreations)}</td>
                   <td className="val">{fmtInt(row.creditReports)}</td>
