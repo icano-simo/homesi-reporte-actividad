@@ -809,6 +809,43 @@ export async function savePersonBudgetTotal(input: {
   return revision;
 }
 
+const NPPM_OWNER_SQL_FILE = 'docs/sql/2026-09-nppm-realtor-owner.sql';
+
+/**
+ * ============================================================================
+ * A QUÉ LOAN OFFICER SE LE SUMA ESTE REALTOR — etapa OL44
+ * ============================================================================
+ *
+ * Hasta acá el vínculo se cargaba con un `insert` a mano. Con trece NPPM en el
+ * roster, cinco sin dueño y uno que ya hubo que corregir, eso no se sostiene:
+ * el que decide es quien mira la pantalla del branch, y tiene que poder
+ * decidirlo ahí.
+ *
+ * Es un `upsert` y no una revisión nueva, a propósito: el vínculo se EDITA. Un
+ * realtor cambia de Loan Officer, no acumula una historia de a quién le sumó
+ * -- por eso la tabla no tiene `revision` y por eso no hay `delete` (ver el SQL
+ * de OL42: sin dueño es un estado que se ve, no una fila que se borra).
+ */
+export async function saveNppmRealtorOwner(input: {
+  realtorCode: string;
+  employeeKey: number;
+}): Promise<void> {
+  const set_by = await authorEmail();
+  const { error } = await getSupabaseClient()
+    .schema('outlook')
+    .from('nppm_realtor_owner')
+    .upsert(
+      {
+        nppm_realtor_code: input.realtorCode,
+        employee_key: input.employeeKey,
+        set_by,
+        note: null,
+      },
+      { onConflict: 'nppm_realtor_code' }
+    );
+  if (error) throw readable(error, { sqlFile: NPPM_OWNER_SQL_FILE });
+}
+
 const RELEASE_SQL_FILE = 'docs/sql/2026-09-budget-soltar-a-la-regla.sql';
 
 /**

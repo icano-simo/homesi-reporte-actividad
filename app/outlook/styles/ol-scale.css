@@ -135,6 +135,30 @@ table.piv.ol-year tr.metric.drow td.lbl,
 }
 
 /*
+ * El selector de dueño de un NPPM — etapa OL44. Va dentro de una `.ol-tag`, así
+ * que hereda su tamaño y su tono: es parte del rótulo de la fila y no un
+ * control que compita con los números.
+ *
+ * ⚠ SIN `white-space: nowrap` PROPIO: lo hereda de `.ol-tag`, y un `<select>`
+ * con nombres de largo variable adentro de una celda angosta es exactamente el
+ * caso que ya desbordó la página --ver la nota del `nowrap` en AGENTS.md--. Por
+ * eso lleva `max-width` y recorta con puntos suspensivos en vez de empujar.
+ */
+.ol-owner-picker {
+  max-width: 160px;
+  padding: 1px 4px;
+  font-size: var(--ol-text);
+  color: var(--slate-500);
+  text-overflow: ellipsis;
+}
+
+/* La línea del NPPM sin pantalla, debajo de la lista — etapa OL44. Hereda de
+   `.bp-hint`; lo único propio es separarla de la tabla. */
+.ol-nppm-huerfano {
+  margin-top: 12px;
+}
+
+/*
  * ══════════════════════════════════════════════════════════════════════════
  * QUIÉN SUMA Y QUIÉN NO, POR LA FORMA — etapa OL34
  * ══════════════════════════════════════════════════════════════════════════

@@ -27,6 +27,7 @@ import { remainingMonthsFor } from '@/lib/outlook/horizon';
 import { fmt, sumOfShown } from '@/lib/outlook/format';
 import { useOutlookDataContext } from '@/lib/outlook/useOutlookData';
 import NppmEditor from '@/app/outlook/components/NppmEditor';
+import NppmOwnerPicker from '@/app/outlook/components/NppmOwnerPicker';
 import RecruitEditor, { branchOptions } from '@/app/outlook/components/RecruitEditor';
 import PersonBudgetEditor, {
   /* Los rótulos de los buckets viven en un solo lugar — OL37. */
@@ -1019,6 +1020,16 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * el B2B, esas personas sumarían de más -- el mismo préstamo contado dos
    * veces, en dos filas de la misma tarjeta.
    */
+  /*
+   * Los Loan Officers a los que se puede vincular un NPPM de este branch —
+   * etapa OL44. Los del roster de acá, y con identidad: un `employeeKey`
+   * sintético (negativo) no se puede guardar en `nppm_realtor_owner`.
+   */
+  const losDelBranch = branch.loanOfficers
+    .filter((l) => l.primaryBranch === branch.branchCode && l.hasIdentity)
+    .map((l) => ({ employeeKey: l.employeeKey, fullName: l.fullName }))
+    .sort((a, b) => a.fullName.localeCompare(b.fullName));
+
   const composicion = (() => {
     const BUCKETS: BudgetBucket[] = ['own_production', 'b2b', 'nppm', 'recruitment', 'business_plan'];
     const OTROS = BUCKETS.filter((b) => b !== 'own_production');
@@ -1762,7 +1773,15 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               Los realtors del branch. Mismo cálculo de siempre -- ver
               `nppmRows` más arriba --, sólo cambia dónde vive el benchmark.
             */}
-            {nppmRows.length > 0 &&
+            {/*
+              ⚠ Y EL GRUPO ABRE TAMBIÉN SIN PRODUCCIÓN — etapa OL44. La
+              condición era `nppmRows.length > 0`, o sea «hay realtors que
+              cerraron algo acá», y con eso el 716 y el 760 --que tienen NPPM
+              del roster y ninguna producción-- no dibujaban el grupo, así que
+              las filas nuevas no tenían dónde entrar. Medido: los dos daban
+              cero filas cuando debían dar dos y una.
+            */}
+            {(nppmRows.length > 0 || branch.nppmRoster.length > 0) &&
               (() => {
                 const key = 'g:nppm-existing';
                 const abierta = open.has(key);
@@ -1814,8 +1833,30 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                     <td className="bp-center totcol">
                       {fmt(sumOfShown(monthsOfYear.map((m) => sumYears(nppmExistingYears, m))))}
                     </td>
+                    {/*
+                      ⚠ CUENTA LAS FILAS QUE HAY DEBAJO, no sólo las que
+                      producen — etapa OL44. Decía «0 realtors» en el 716 con
+                      dos filas colgando: un contador que no cuenta lo que se
+                      ve enseña a no creerle.
+                    */}
                     <td className="ol-rulecol bp-muted">
-                      {nppmRows.length} realtor{nppmRows.length === 1 ? '' : 's'}
+                      {(() => {
+                        const sinProd = branch.nppmRoster.filter((x) => !x.tieneProduccion).length;
+                        const total = nppmRows.length + sinProd;
+                        return (
+                          <span
+                            title={
+                              sinProd === 0
+                                ? undefined
+                                : `${sinProd} of them are contracted NPPMs with no loan of their own yet. They are ` +
+                                  `here so their budget has somewhere to go.`
+                            }
+                          >
+                            {total} realtor{total === 1 ? '' : 's'}
+                            {sinProd > 0 ? ` · ${sinProd} without production` : ''}
+                          </span>
+                        );
+                      })()}
                     </td>
                   </tr>
 
@@ -1851,6 +1892,39 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                               history · projects in {r.currentBranch}
                             </span>
                           )}
+                          {/*
+                            ⚠ EL SELECTOR SÓLO PARA LOS DEL PROGRAMA — etapa OL44.
+                            Una fila de realtor no prueba que sea un NPPM
+                            contratado: de los 30 con producción, 23 no lo son.
+                            A ésos no se les asigna dueño --su presupuesto no es
+                            un bucket de NPPM de nadie-- y la fila lo DICE, en
+                            vez de no ofrecer nada y dejar la pregunta abierta.
+                          */}
+                          {(() => {
+                            const enRoster = branch.nppmRoster.find((x) => x.realtorCode === r.realtorCode);
+                            if (enRoster === undefined) {
+                              return (
+                                <span
+                                  className="bp-muted ol-tag"
+                                  title={
+                                    `${r.displayName} closes with this division but is not a contracted NPPM ` +
+                                    `(org.nppm_realtor). Their production counts here; their budget does not ` +
+                                    `add to anyone's NPPM plan.`
+                                  }
+                                >
+                                  not in the NPPM program
+                                </span>
+                              );
+                            }
+                            return (
+                              <NppmOwnerPicker
+                                realtorCode={r.realtorCode}
+                                ownerEmployeeKey={enRoster.ownerEmployeeKey}
+                                loanOfficers={losDelBranch}
+                                onSaved={reload}
+                              />
+                            );
+                          })()}
                         </td>
                         <td className="bp-center ol-bench">
                           {/*
@@ -1919,6 +1993,60 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                                 ? 'This realtor has a composed budget set (a fixed total, with an informational breakdown by plan). Click to review or edit it.'
                                 : 'No composed budget set yet for this realtor. Click to set one -- informational, separate from the projection above.'
                             }
+                          >
+                            Set budget
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  {/*
+                    ══════════════════════════════════════════════════════════
+                    LOS NPPM SIN PRODUCCIÓN, QUE HASTA HOY NO ESTABAN — OL44
+                    ══════════════════════════════════════════════════════════
+
+                    Cinco de los trece del roster no tienen ni un préstamo, así
+                    que ninguna fila los dibujaba: sin fila no hay dónde
+                    asignarles un dueño, y sin dueño su presupuesto no suma en
+                    ningún lado. Una pantalla que los esconde convierte «falta
+                    decidir» en «no existe».
+
+                    ⚠ Las celdas van VACÍAS y no en cero. No cerraron nada y
+                    nadie les fijó nada: un cero afirmaría que se espera cero.
+                  */}
+                  {branch.nppmRoster
+                    .filter((x) => !x.tieneProduccion)
+                    .map((x) => (
+                      <tr key={'nppm-roster-' + x.realtorCode} className="metric mrow ol-detail" data-ol-nppm-sin-produccion="">
+                        <td className="lbl" style={{ paddingLeft: '30px' }}>
+                          {x.displayName}
+                          <span
+                            className="bp-muted ol-tag"
+                            title={
+                              `${x.displayName} is a contracted NPPM on this branch's roster (org.nppm_realtor) ` +
+                              `with no loan of their own yet — closed or open. They are here so their budget ` +
+                              `has somewhere to go.`
+                            }
+                          >
+                            no production yet
+                          </span>
+                          <NppmOwnerPicker
+                            realtorCode={x.realtorCode}
+                            ownerEmployeeKey={x.ownerEmployeeKey}
+                            loanOfficers={losDelBranch}
+                            onSaved={reload}
+                          />
+                        </td>
+                        <td className="bp-center ol-bench"></td>
+                        {monthsOfYear.map((m) => (
+                          <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}></td>
+                        ))}
+                        <td className="bp-center totcol"></td>
+                        <td className="ol-rulecol">
+                          <button
+                            type="button"
+                            className="ol-pill ol-pill--empty"
+                            onClick={() => setEditingBudget({ kind: 'realtor', realtorCode: x.realtorCode })}
+                            title="No composed budget set yet for this NPPM. Click to set one — it adds to their loan officer's NPPM plan."
                           >
                             Set budget
                           </button>

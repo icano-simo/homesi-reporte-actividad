@@ -279,6 +279,38 @@ export interface NppmRealtorOwnerRow {
   note: string | null;
 }
 
+/**
+ * Una fila de `org.nppm_realtor` — quién ES un NPPM contratado. Ver la nota de
+ * `nppmRosterPromise`: el criterio es `estado` y `is_active`, y ni la bandera
+ * de Salesforce ni la fecha de contrato deciden.
+ */
+export interface NppmRealtorRow {
+  realtor_code: string;
+  display_name: string;
+  person_code: string | null;
+  branch_code: string | null;
+  cargo: string | null;
+  estado: string | null;
+  is_active: boolean | null;
+}
+
+/**
+ * Un NPPM del roster, en la pantalla de su branch — etapa OL44.
+ *
+ * ⚠ ESTÁ AUNQUE NO TENGA PRODUCCIÓN. Cinco de los trece no tienen un solo
+ * préstamo, y hasta esta etapa no aparecían en ningún lado: sin fila no hay
+ * dónde asignarles un dueño, y sin dueño su presupuesto no suma. Una pantalla
+ * que los esconde convierte «falta decidir» en «no existe».
+ */
+export interface BranchNppmRoster {
+  realtorCode: string;
+  displayName: string;
+  /** `null` = nadie decidió a quién se le suma. No es un cero: es una decisión que falta. */
+  ownerEmployeeKey: number | null;
+  /** `true` si además tiene fila de producción en este branch. */
+  tieneProduccion: boolean;
+}
+
 export interface PersonBudgetBreakdownRow {
   budget_breakdown_key: number;
   employee_key: number | null;
@@ -977,6 +1009,11 @@ export interface OutlookBranch {
    */
   outsiders: { name: string; closings: number }[];
   loanOfficers: OutlookLoanOfficer[];
+  /**
+   * Los NPPM contratados que el roster pone en este branch — etapa OL44, con o
+   * sin producción. Ver `BranchNppmRoster`.
+   */
+  nppmRoster: BranchNppmRoster[];
   /** Las cinco estrategias del branch — etapa OL8. */
   byStrategy: BranchStrategy[];
   /**
@@ -1037,6 +1074,12 @@ export interface OutlookData {
   /** Los meses cerrados: anteriores al mes en curso. Vacío en enero. */
   actualMonths: string[];
   branches: OutlookBranch[];
+  /**
+   * Los NPPM contratados del roster, con su branch — etapa OL44. La lista los
+   * usa para DECIR cuáles quedaron en un branch que el módulo no dibuja: sin
+   * pantalla no hay fila, y sin fila no hay dónde asignarles un dueño.
+   */
+  nppmSinBranch: { realtorCode: string; displayName: string; branchCode: string | null }[];
   /** El mes desde el que rige cualquier benchmark editado hoy. */
   effectiveFrom: string;
   /**
@@ -1372,6 +1415,38 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
 
   /*
    * ==========================================================================
+   * QUIÉN ES UN NPPM — etapa OL43/OL44
+   * ==========================================================================
+   *
+   * `org.nppm_realtor` y no el histórico de préstamos. La diferencia no es de
+   * matiz: de los 26 vínculos que OL42 cargó del histórico, DIECINUEVE no eran
+   * del programa --Santiago Jaraba Chacon con 53 préstamos, Walter Mena con
+   * 29-- y cinco de los trece que sí lo son no tienen ni un préstamo, así que
+   * para el histórico no existían.
+   *
+   * ⚠ EL CRITERIO ES `estado` Y `is_active`, nada más. `sf_nppm_flag` es
+   * contraste --cuatro de los doce con cargo NPPM no lo tienen y son NPPM
+   * igual-- y `contracted_date` tampoco decide: cuatro contratados la tienen
+   * nula. Y `cargo` se compara en mayúsculas, porque tiene tres grafías entre
+   * el roster y el tablero.
+   */
+  const nppmRosterPromise = (async (): Promise<NppmRealtorRow[]> => {
+    try {
+      const { data, error } = await supabase
+        .schema('org')
+        .from('nppm_realtor')
+        .select('realtor_code, display_name, person_code, branch_code, cargo, estado, is_active');
+      if (error) return [];
+      return ((data ?? []) as NppmRealtorRow[]).filter(
+        (r) => r.estado === 'contratado' && r.is_active === true
+      );
+    } catch {
+      return [];
+    }
+  })();
+
+  /*
+   * ==========================================================================
    * ⚠ LA GENTE EN PROCESO DE CONTRATACIÓN — etapa OL20
    * ==========================================================================
    *
@@ -1448,13 +1523,14 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
     supabase.schema('org').from('branch_group').select('branch_code, group_code'),
   ]);
 
-  const [bp, rows, outlookTables, orgTables, recruitTables, nppmOwners] = await Promise.all([
+  const [bp, rows, outlookTables, orgTables, recruitTables, nppmOwners, nppmRoster] = await Promise.all([
     loadBusinessPlanData(reference) as Promise<BusinessPlanData>,
     activityPromise,
     outlookPromise,
     orgPromise,
     recruitPromise,
     nppmOwnerPromise,
+    nppmRosterPromise,
   ]);
 
   const currentMonth = bp.diagnostics.pipelineMonths.current;
@@ -3175,7 +3251,14 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
   }
 
   const branches: OutlookBranch[] = [...branchMap.entries()]
-    .map(([branchCode, los]) => ({
+    .map(([branchCode, los]) => {
+      const estrategias = strategiesOfBranch(branchCode);
+      /* Los realtors que YA tienen fila de producción en este branch: la fila
+         del roster de OL44 es para los que no la tienen. */
+      const realtorsConFila = new Set(
+        estrategias.flatMap((bs) => bs.realtors).map((r) => r.realtorCode)
+      );
+      return {
       branchCode,
       /* El YTD del branch sale de las FILAS, no de sumar personas: así no
          depende de que la atribución por persona esté completa. */
@@ -3277,7 +3360,21 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
         }))
         .sort((a, b) => b.closings - a.closings || a.name.localeCompare(b.name)),
       loanOfficers: los.sort((a, b) => b.ytd - a.ytd || a.fullName.localeCompare(b.fullName)),
-      byStrategy: strategiesOfBranch(branchCode),
+      /*
+       * Los NPPM del roster de este branch — etapa OL44. `grupoDe` porque el
+       * 777 se lee dentro del 710 (OL29): un NPPM de un branch agrupado tiene
+       * que aparecer donde se lee su branch, no en una pantalla que no existe.
+       */
+      nppmRoster: nppmRoster
+        .filter((r) => grupoDe(r.branch_code ?? '') === branchCode)
+        .map((r) => ({
+          realtorCode: r.realtor_code,
+          displayName: r.display_name,
+          ownerEmployeeKey: nppmOwners.find((o) => o.nppm_realtor_code === r.realtor_code)?.employee_key ?? null,
+          tieneProduccion: realtorsConFila.has(r.realtor_code),
+        }))
+        .sort((a, b) => a.displayName.localeCompare(b.displayName)),
+      byStrategy: estrategias,
       /* Quiénes se leen acá adentro — OL29. */
       groupMembers: [...grupoPorBranch.entries()]
         .filter(([, g]) => g === branchCode)
@@ -3297,7 +3394,8 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       budgetBreakdownRevision: budgetBreakdownRevisionOf(
         personBudgetKeyOf({ employee_key: null, nppm_realtor_code: null, branch_code: branchCode })
       ),
-    }))
+      };
+    })
     .sort((a, b) => b.ytd - a.ytd || a.branchCode.localeCompare(b.branchCode));
 
   return {
@@ -3307,6 +3405,12 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
     monthsOfYear,
     actualMonths: monthsOfYear.filter((m) => m < currentMonth),
     branches,
+    /* `grupoDe` otra vez: un NPPM del 777 no está huérfano, se lee en el 710. */
+    nppmSinBranch: nppmRoster.map((r) => ({
+      realtorCode: r.realtor_code,
+      displayName: r.display_name,
+      branchCode: r.branch_code === null ? null : grupoDe(r.branch_code),
+    })),
     effectiveFrom: addMonths(currentMonth, 1) + '-01',
     recruitRamp: rampa,
     history,
