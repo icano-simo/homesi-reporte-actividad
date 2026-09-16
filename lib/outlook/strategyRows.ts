@@ -12,6 +12,7 @@ import {
   type YearRow,
 } from '@/lib/outlook/loadData';
 import { projectPlan, type OutlookStrategy } from '@/lib/outlook/project';
+import { pisoDeRealtors, presupuestoDePersona } from '@/lib/outlook/gobierno';
 
 /**
  * ============================================================================
@@ -348,6 +349,13 @@ export interface PersonBudgetRow {
   lo: OutlookLoanOfficer;
   /** `true` si esta persona participa de Recruitment (ver `participa`). */
   participatesInRecruitment: boolean;
+  /**
+   * Los meses en que su total NO es el que ella decidió sino el piso que le
+   * imponen sus realtors NPPM — etapa OL48. Vacío es el caso normal, y la fila
+   * lo rotula `raised by NPPM` cuando no lo es: quien lo lea tiene que saber que
+   * ese número no salió de una decisión suya.
+   */
+  subioPorNppm: string[];
   /** Own Production + Recruitment combinados: real, mes en curso, presupuesto futuro. */
   year: YearRow;
 }
@@ -583,6 +591,8 @@ export function loanOfficerRowsOf(
         (nppmYtd?.actualByMonth[m] ?? 0);
     }
     const projected: Record<string, number | null> = {};
+    /* Los meses que su piso de realtors levantó — etapa OL48. */
+    const subioPorNppm: string[] = [];
     for (const m of remainingMonths) {
       const own = ownIdx >= 0 ? (ownBudgets[ownIdx]?.[m] ?? 0) : 0;
       const rec = recIdx >= 0 ? (recBudgetsPersonas[recIdx]?.[m] ?? 0) : 0;
@@ -600,12 +610,29 @@ export function loanOfficerRowsOf(
        * para que el total del branch (que sale de `projectBranch`) cierre
        * con lo que esta fila muestra por persona.
        */
-      projected[m] = lo.budgetTotal[m] ?? (own + rec);
+      /*
+       * ⚠ Y EL PISO DE SUS REALTORS — etapa OL48. Un realtor NPPM no cierra:
+       * cierra esta persona, así que lo que el realtor proyecta ya pasa por
+       * ella y su total no puede quedar por debajo. `presupuestoDePersona` es
+       * la MISMA función que usa `projectBranch`, por lo mismo que dice la nota
+       * de arriba: los dos números tienen que coincidir.
+       */
+      const piso = pisoDeRealtors(lo.nppmRealtors, m);
+      const { valor, subioPorRealtors } = presupuestoDePersona({
+        fijado: lo.budgetTotal[m],
+        regla: own + rec,
+        pisoDeRealtors: piso,
+      });
+      projected[m] = valor;
+      if (subioPorRealtors) subioPorNppm.push(m);
     }
 
     return {
       lo,
       participatesInRecruitment: recIdx >= 0,
+      /* Los meses en que su total lo levantaron sus realtors — etapa OL48. La
+         fila lo dice: ese número no lo decidió esta persona. */
+      subioPorNppm,
       year: composeYear(monthsOfYear, currentMonth, actualByMonth, partesCurrent[idx], projected),
     };
   });
