@@ -133,6 +133,23 @@ table.piv.ol-year tr.grp.togg:hover td.ol-m {
   font-weight: 700;
 }
 
+/*
+ * ══════════════════════════════════════════════════════════════════════════
+ * LOS TOTALES DE SECCIÓN, EN NEGRITA — etapa OL47
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ * La fila de un grupo --«Loan Officers — existing», «NPPM — existing»-- lleva
+ * la SUMA de lo que esconde, y sus doce meses venían en 400. Medido: el nombre
+ * en 700 y los números en 400, así que la fila que resume se leía igual que una
+ * fila de dato y las secciones no se separaban.
+ *
+ * La regla de arriba ya ponía en negrita la columna del año de esos grupos; lo
+ * que faltaba eran los meses, que es donde se mira.
+ */
+.ol-page table.piv.ol-year tr.grp td.ol-m {
+  font-weight: 700;
+}
+
 /* La fila del total del branch: cierra el bloque, así que se separa. */
 .ol-page table.piv.ol-year tr.ol-total td {
   border-top: 2px solid var(--slate-300);
@@ -396,6 +413,31 @@ table.piv.ol-year thead .yr-row th.ol-band {
 .ol-page table.piv.ol-year td.ol-m--budget:first-of-type,
 .ol-page table.piv.ol-year th.ol-m--budget:first-of-type {
   border-left: 1px solid var(--accent-border);
+}
+
+/*
+ * ══════════════════════════════════════════════════════════════════════════
+ * EL TOTAL DE LA COMPOSICIÓN, CON SU PROPIO FONDO — etapa OL47
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ * Va ACÁ y no en `ol-scale.css`, y con `tr.metric` en el selector, porque la
+ * banda de presupuesto se pinta tres líneas más arriba con
+ * `tr.metric:nth-child(odd) td.ol-m--budget` -- seis clases-- y cualquier
+ * regla más corta pierde. Medido antes de moverla: los meses de octubre a
+ * diciembre seguían con el `0.16` de la banda mientras el resto de la fila ya
+ * tenía el `0.38`, o sea la fila pintada a medias.
+ *
+ * Es el mismo mecanismo que la separación de un centímetro que no se aplicaba:
+ * una regla escrita y no medida es una intención, no un estilo.
+ */
+.ol-page table.piv.ol-year tr.metric.ol-comp-total td,
+.ol-page table.piv.ol-year tr.metric.ol-comp-total td.ol-m--budget,
+.ol-page table.piv.ol-year tr.metric.ol-comp-total td.ol-m--forecast,
+.ol-page table.piv.ol-year tr.metric.ol-comp-total td.ol-m--actual {
+  background: color-mix(in srgb, var(--sky) 38%, transparent);
+  border-top: 2px solid var(--accent-border);
+  font-weight: 700;
+  color: var(--navy);
 }
 
 /*

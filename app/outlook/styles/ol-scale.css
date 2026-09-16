@@ -168,9 +168,20 @@ table.piv.ol-year tr.metric.drow td.lbl,
  * (OL45). Así que la separación es aire y una línea, no un contenedor aparte:
  * un centímetro de padding en su primera fila y un borde que la corta.
  */
-.ol-comp-head td {
-  padding-top: 34px;
-  border-top: 2px solid var(--slate-200);
+/*
+ * ⚠ CON EL MISMO PREFIJO QUE LA REGLA QUE PIERDE CONTRA ELLA — etapa OL47.
+ *
+ * Acá decía `.ol-comp-head td { padding-top: 34px }` y NO SE APLICABA:
+ * `.ol-page table.piv.ol-year td { padding: 11px 10px }` tiene más
+ * especificidad, así que la separación medía CERO píxeles. Yo había escrito
+ * «34px de padding» en el reporte sin medirlo, y el pedido volvió dos veces.
+ *
+ * Un centímetro es 37.8px a 96dpi: 38 arriba de la fila, que es lo que se pidió
+ * en centímetros y se verifica en píxeles.
+ */
+.ol-page table.piv.ol-year tr.ol-comp-head td {
+  padding-top: 38px;
+  border-top: 2px solid var(--slate-300);
 }
 .ol-comp-title {
   text-transform: uppercase;
@@ -189,13 +200,20 @@ table.piv.ol-year tr.metric.drow td.lbl,
  * tinte sale de `--sky`, el mismo de la banda de presupuesto, con más carga
  * para que la fila se note sin cambiar de familia.
  */
-.ol-page table.piv.ol-year tr.ol-comp-total td {
-  background: color-mix(in srgb, var(--sky) 34%, transparent);
-  border-top: 1px solid var(--accent-border);
-}
-.ol-comp-total td.lbl {
-  font-weight: 700;
-  color: var(--navy);
+/* El fondo del total de la composición vive en `ol-year.css`, al lado de la
+   banda de presupuesto que le ganaba en especificidad — ver la nota de ahí. */
+
+/* La línea que explica el descuadre — etapa OL47. Ocupa el ancho entero porque
+   es una frase, no una fila de datos: tono de nota y sin tinte de banda. */
+.ol-page table.piv.ol-year tr.ol-comp-nota td {
+  padding-top: 4px;
+  padding-bottom: 14px;
+  font-size: var(--ol-text);
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--slate-500);
+  background: transparent;
+  white-space: normal;
 }
 
 /*

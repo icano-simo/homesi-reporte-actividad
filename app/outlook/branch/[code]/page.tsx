@@ -2753,6 +2753,56 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                 <td className="bp-center totcol"></td>
                 <td className="ol-rulecol"></td>
               </tr>
+              {/*
+                ══════════════════════════════════════════════════════════════
+                LA LÍNEA QUE EXPLICA EL DESCUADRE — etapa OL47
+                ══════════════════════════════════════════════════════════════
+
+                Un rótulo de tres palabras decía QUE no cuadra; lo que hacía
+                falta es por qué, con los dos nombres y los dos números. Isabella
+                no tiene por qué reconstruir que un realtor proyecta por su
+                benchmark, que su Loan Officer proyecta por la regla, y que la
+                regla no sube porque abajo pidan más.
+
+                Va como fila y no como tooltip: un dato que sólo vive en un
+                tooltip está a un paso de no existir, y éste es el que decide si
+                alguien mueve un presupuesto.
+              */}
+              {(() => {
+                const sobran = remainingMonths.filter(
+                  (m) => (composicion.total[m] ?? 0) > (totalByMonth[m] ?? 0)
+                );
+                if (sobran.length === 0) return null;
+                const mes = sobran[0];
+                /* Los realtors que aportan en ese mes, con su dueño: son los
+                   que explican el número de arriba. */
+                const aportan = composicion.realtors.filter((r) => (r.byMonth[mes] ?? 0) > 0);
+                const duenos = [...new Set(aportan.map((r) => r.loanOfficer))].join(', ');
+                /* «2 al mes» si es el mismo número todos los meses, y la lista
+                   sólo si cambia: una frase con tres meses iguales se lee peor
+                   que el número, y el caso de hoy es justamente constante. */
+                const constante = (valores: number[]) => valores.every((x) => x === valores[0]);
+                const suyos = sobran.map((m) => aportan.reduce((a, r) => a + (r.byMonth[m] ?? 0), 0));
+                const presu = sobran.map((m) => totalByMonth[m] ?? 0);
+                const cuanto = constante(suyos)
+                  ? `${suyos[0]} a month`
+                  : sobran.map((m, i) => `${suyos[i]} in ${monthLabel(m)}`).join(', ');
+                const contra = constante(presu)
+                  ? `${presu[0]}`
+                  : sobran.map((m, i) => `${presu[i]} in ${monthLabel(m)}`).join(', ');
+                const nombres = aportan.map((r) => r.displayName).join(', ');
+                return (
+                  <tr className="metric ol-comp-nota" data-ol-comp-nota="">
+                    <td className="lbl" colSpan={monthsOfYear.length + 4}>
+                      ⚠ {nombres} {aportan.length === 1 ? 'projects' : 'project'} {cuanto} from their own
+                      benchmark, and {duenos} {aportan.length === 1 ? 'is' : 'are'} budgeted {contra} — projecting
+                      by growth rule, which a realtor&apos;s projection does not raise. That is why the number is
+                      here and not in the branch budget: either the loan officer&apos;s budget goes up, or that
+                      projection is not all theirs to bring.
+                    </td>
+                  </tr>
+                );
+              })()}
             </tbody>
           )}
         </table>
