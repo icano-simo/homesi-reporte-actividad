@@ -26,6 +26,9 @@ const BLOQUEA = [
   ['git commit -m "RV: el boton `disabled={busy}` y nada mas"', 'mensaje de commit en la línea'],
   ['git commit -am "algo"', 'mensaje de commit en la línea'],
   ['gh pr create --body "texto con `backticks`"', 'cuerpo de PR en la línea'],
+  /* `-b` es el atajo de `--body` y faltaba en el patrón. */
+  ['gh pr create -b "texto con `backticks`"', 'cuerpo de PR en la línea'],
+  ['gh issue create --body "otro texto"', 'cuerpo de PR en la línea'],
   ["printf 'contenido' > archivo.txt", 'texto redirigido a un archivo'],
   ['echo "una nota" >> notas.md', 'texto redirigido a un archivo'],
   ["sed -i 's/CLAVES = \\[5, 29\\]/CLAVES = [5]/' sonda.mjs", 'sed -i con escapes'],
@@ -49,6 +52,18 @@ const DEJA_PASAR = [
   'ls node_modules | wc -l',
   'echo "ruido" > /dev/null',
   'node scripts/verificacion/sin-texto-al-shell.test.mjs',
+  /*
+   * ⚠ EL SEGUNDO FALSO POSITIVO: `--title` con el cuerpo en un archivo.
+   *
+   * El patrón era `--(body|title)` y bloqueaba esto, que está bien. El cuerpo
+   * iba por archivo --no tocaba el shell-- y aun así el título disparaba la
+   * regla. Un título es una línea de prosa sin backticks, y `gh pr create` no
+   * tiene `--title-file`, así que bloquearlo no dejaba salida.
+   */
+  'gh pr create --base main --title "docs(outlook): el caso ya no tiene filas" --body-file C:/tmp/pr.md',
+  'gh pr create --title "feat: algo" --body-file cuerpo.md',
+  /* `--base` lleva un `-b` adentro y no debe matchear el atajo de `--body`. */
+  'gh pr create --base main --head rama --body-file cuerpo.md',
   /*
    * ⚠ EL FALSO POSITIVO QUE LA GUARDA SE COMIÓ, y las variantes de la misma
    * forma. El `>` que matcheaba era el de `2>&1` dentro de una sustitución de
