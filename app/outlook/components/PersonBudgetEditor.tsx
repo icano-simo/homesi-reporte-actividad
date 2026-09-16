@@ -118,7 +118,17 @@ function fmtNum(n: number): string {
 export interface BudgetEditable {
   subject: PersonSubject;
   label: string;
+  /**
+   * Los buckets EDITABLES. Desde OL42 `nppm` no está entre ellos para un Loan
+   * Officer: su número es la suma de sus realtors y se fija en la fila de cada
+   * realtor. Se muestra igual, de sólo lectura -- ver `nppmRealtors`.
+   */
   buckets: BudgetBucket[];
+  /**
+   * Los realtors NPPM a cargo de esta persona, con lo que cada uno tiene
+   * fijado — etapa OL42. Vacío para un realtor o un branch.
+   */
+  nppmRealtors?: { realtorCode: string; displayName: string; byMonth: Record<string, number> }[];
   budgetTotal: Record<string, number>;
   budgetTotalRevision: number;
   budgetBreakdown: Partial<Record<BudgetBucket, Record<string, number>>>;
@@ -274,9 +284,23 @@ export default function PersonBudgetEditor({
    * un cero afirmaría que se espera cero producción, y acá lo que pasa es
    * que nadie cargó nada.
    */
+  /*
+   * ⚠ Y EL NPPM ENTRA AUNQUE NO SE EDITE — etapa OL42. Es parte del total de
+   * esta persona: si el Total lo dejara afuera, el número que se guarda sería
+   * menor que la suma de sus planes, la fila del branch mostraría ese número
+   * menor y la composición mostraría el bucket -- y el invariante de OL39 se
+   * rompería justo donde esta etapa agrega el dato.
+   */
+  const nppmDeSusRealtors = (m: string) =>
+    (person.nppmRealtors ?? []).reduce((a, r) => a + (r.byMonth[m] ?? 0), 0);
+
   function breakdownSumOf(m: string): number | null {
-    const tocado = person.buckets.some((b) => (breakdown[b]?.[m]?.trim() ?? '') !== '');
-    return tocado ? person.buckets.reduce((a, b) => a + bucketOf(b, m), 0) : null;
+    const tocado =
+      person.buckets.some((b) => (breakdown[b]?.[m]?.trim() ?? '') !== '') ||
+      nppmDeSusRealtors(m) > 0;
+    return tocado
+      ? person.buckets.reduce((a, b) => a + bucketOf(b, m), 0) + nppmDeSusRealtors(m)
+      : null;
   }
 
   /**
@@ -782,6 +806,48 @@ export default function PersonBudgetEditor({
                     ))}
                   </tr>
                 ))}
+                {/*
+                  ══════════════════════════════════════════════════════════
+                  NPPM SE MUESTRA Y NO SE ESCRIBE — etapa OL42
+                  ══════════════════════════════════════════════════════════
+
+                  Es la suma de los realtors a cargo de esta persona, y cada
+                  uno se fija en SU fila del branch. Se sigue mostrando --el
+                  número es parte de su presupuesto y sin él la tabla mentiría
+                  por omisión-- pero sin celda: el mismo criterio que la
+                  composición del branch, donde se lee lo que otros decidieron.
+
+                  Sólo para un Loan Officer: un realtor no tiene bucket `nppm`
+                  --el CHECK de la base lo prohíbe-- y un branch tampoco.
+                */}
+                {person.subject.kind === 'employee' && (
+                  <tr className="metric" data-ol-nppm-readonly="">
+                    <td className="lbl bp-muted">
+                      {BUCKET_LABEL.nppm}
+                      <span
+                        className="bp-muted ol-tag"
+                        title={
+                          (person.nppmRealtors ?? []).length === 0
+                            ? 'No NPPM realtor is assigned to this loan officer, so this is zero. It is set on each realtor, not here.'
+                            : 'The sum of their NPPM realtors: ' +
+                              (person.nppmRealtors ?? []).map((r) => r.displayName).join(', ') +
+                              '. Set it on each realtor, in the branch table.'
+                        }
+                      >
+                        {(person.nppmRealtors ?? []).length === 0
+                          ? 'no realtors assigned'
+                          : `${(person.nppmRealtors ?? []).length} realtor${(person.nppmRealtors ?? []).length === 1 ? '' : 's'} · read only`}
+                      </span>
+                    </td>
+                    {months.map((m) => (
+                      <td key={m} className="bp-center">
+                        {fmtNum(
+                          (person.nppmRealtors ?? []).reduce((a, r) => a + (r.byMonth[m] ?? 0), 0)
+                        )}
+                      </td>
+                    ))}
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

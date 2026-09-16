@@ -1085,6 +1085,12 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
       }
       const byMonth: Record<string, number> = {};
       for (const m of remainingMonths) {
+        /*
+         * `aMano` sirve igual para `nppm` — etapa OL42: ese bucket ya no se
+         * escribe a mano, el loader lo deja calculado como la suma de los
+         * realtors de cada persona. Acá se suma lo mismo que cualquier otro
+         * bucket, y el detalle por realtor sale de `nppmRealtors`.
+         */
         byMonth[m] = suyos.reduce((a, lo) => a + (aMano(lo, bucket, m) ?? 0), 0);
         /*
          * ⚠ Y LOS QUE ESTÁN EN CONTRATACIÓN SON RECRUITMENT — etapa OL39. Su
@@ -1115,7 +1121,25 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
     for (const m of remainingMonths) {
       total[m] = filas.reduce((a, f) => a + (f.byMonth[m] ?? 0), 0);
     }
-    return { filas, total, porRegla, cuantos: suyos.length, hayAlgo: filas.length > 0 };
+    /*
+     * El detalle de NPPM: un realtor por línea, debajo de su bucket — etapa
+     * OL42. Se junta de las personas del branch, con el nombre de su Loan
+     * Officer al lado, porque «Laura Delgado 2» sin decir de quién obliga a
+     * buscarlo en otra tabla. Sólo los que tienen algo fijado: un realtor sin
+     * presupuesto no es una línea en cero, es una línea que no existe.
+     */
+    const realtors = suyos
+      .flatMap((lo) =>
+        lo.nppmRealtors.map((r) => ({
+          realtorCode: r.realtorCode,
+          displayName: r.displayName,
+          loanOfficer: lo.fullName,
+          byMonth: r.byMonth,
+        }))
+      )
+      .filter((r) => remainingMonths.some((m) => (r.byMonth[m] ?? 0) !== 0))
+      .sort((a, b) => a.loanOfficer.localeCompare(b.loanOfficer) || a.displayName.localeCompare(b.displayName));
+    return { filas, total, porRegla, cuantos: suyos.length, realtors, hayAlgo: filas.length > 0 };
   })();
 
   const loExistingYears = personRows.map((p) => p.year);
@@ -2405,7 +2429,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                 </tr>
               </thead>
               <tbody>
-                {composicion.filas.map((f) => (
+                {composicion.filas.flatMap((f) => [
                   <tr key={f.bucket} className="metric mrow">
                     <td className="lbl">
                       {BUCKET_LABEL[f.bucket]}
@@ -2433,8 +2457,33 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                         {fmt(f.byMonth[m] ?? null)}
                       </td>
                     ))}
-                  </tr>
-                ))}
+                  </tr>,
+                  /*
+                    Los realtors, debajo de SU bucket — etapa OL42. Van acá y no
+                    en un bloque aparte porque son la desagregación de esta
+                    fila: el NPPM de un branch es la suma de sus realtors, y
+                    verlos pegados es lo que lo hace evidente sin explicarlo.
+                    El estilo `ol-detail` es el de OL34, el mismo que ya
+                    distingue un renglón de detalle de uno que suma.
+                  */
+                  ...(f.bucket === 'nppm'
+                    ? composicion.realtors.map((r) => (
+                        <tr key={'r-' + r.realtorCode} className="metric ol-detail" data-ol-realtor="">
+                          <td className="lbl">
+                            {'↳ ' + r.displayName}
+                            <span className="bp-muted ol-tag" title="The loan officer this realtor adds to. Set in the realtor's own row.">
+                              {r.loanOfficer}
+                            </span>
+                          </td>
+                          {remainingMonths.map((m) => (
+                            <td key={m} className="bp-center ol-m ol-m--budget">
+                              {fmt(r.byMonth[m] ?? null)}
+                            </td>
+                          ))}
+                        </tr>
+                      ))
+                    : []),
+                ])}
                 <tr className="metric ol-total">
                   <td
                     className="lbl"
@@ -2713,9 +2762,21 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
             const person: BudgetEditable = {
               subject: { kind: 'employee', employeeKey: lo.employeeKey },
               label: lo.fullName,
+              /*
+               * ⚠ SIN `nppm` — etapa OL42. Ese bucket dejó de escribirse acá:
+               * es la suma de los realtors que esta persona tiene a cargo, y
+               * el presupuesto de cada uno se fija en la fila del realtor. Dos
+               * lugares para el mismo número es lo que esta serie viene
+               * desarmando -- y el día que difieran no habría forma de saber
+               * cuál manda.
+               *
+               * No se pierde nada al sacarlo: `nppm` tiene CERO filas en toda
+               * la historia de `budget_breakdown`, medido antes de tocarlo.
+               */
               buckets: pr?.participatesInRecruitment
-                ? ['own_production', 'b2b', 'nppm', 'recruitment', 'business_plan']
-                : ['own_production', 'b2b', 'nppm', 'business_plan'],
+                ? ['own_production', 'b2b', 'recruitment', 'business_plan']
+                : ['own_production', 'b2b', 'business_plan'],
+              nppmRealtors: lo.nppmRealtors,
               budgetTotal: lo.budgetTotal,
               budgetTotalRevision: lo.budgetTotalRevision,
               budgetBreakdown: lo.budgetBreakdown,
