@@ -744,6 +744,31 @@ export default function PersonBudgetEditor({
           </p>
         )}
 
+        {/*
+          ══════════════════════════════════════════════════════════════════
+          DE DÓNDE SALEN LOS NÚMEROS DE UN REALTOR — etapa OL45
+          ══════════════════════════════════════════════════════════════════
+
+          Su editor abría en cero teniendo presupuesto proyectado en la tabla:
+          `ruleProjection` venía en `null` con la nota «un realtor no proyecta
+          por la regla de crecimiento», que es cierta y llevaba a una conclusión
+          falsa -- proyecta por su BENCHMARK.
+
+          ⚠ Y NO LLEVA EL AVISO DE GOBIERNO, a propósito. Ese dice «guardar un
+          total reemplaza a la regla», y para un realtor eso no pasa: su fila
+          sigue proyectando por el benchmark aunque se le fije un total. Lo que
+          el total SÍ hace desde OL42 es entrar al bucket NPPM de su Loan
+          Officer, y eso es lo que esta línea dice. Un aviso que nombra un
+          mecanismo que no es el suyo es la familia de `already above forecast`.
+        */}
+        {person.subject.kind === 'realtor' && (
+          <p className="ol-editor__hint ol-editor__gov">
+            These months start from what this realtor projects — their benchmark, which is what the branch table
+            shows. Saving a Total does not change that projection: it sets what their loan officer&apos;s NPPM plan
+            counts.
+          </p>
+        )}
+
         {months.length === 0 ? (
           <p className="ol-editor__hint">There is no month left to set this year.</p>
         ) : (

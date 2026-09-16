@@ -309,6 +309,22 @@ export interface BranchNppmRoster {
   ownerEmployeeKey: number | null;
   /** `true` si además tiene fila de producción en este branch. */
   tieneProduccion: boolean;
+  /**
+   * ⚠ EL VÍNCULO NO SIGUE AL REALTOR CUANDO SE MUDA — etapa OL45.
+   *
+   * `org.nppm_realtor` lo actualiza RRHH y `outlook.nppm_realtor_owner` no se
+   * entera: un NPPM que cambia de branch queda atado a un Loan Officer del
+   * branch anterior. Y entonces su presupuesto sumaría en un branch donde el
+   * realtor ya no está -- exactamente lo que OL30 decidió que no pasara con su
+   * producción.
+   *
+   * Cuando eso pasa, el vínculo NO SUMA y la fila lo dice. No se reasigna solo:
+   * a quién se le suma es una decisión de negocio, y adivinarla sería inventar
+   * una que nadie tomó. Acá va el branch del dueño para poder nombrarlo.
+   */
+  ownerBranch: string | null;
+  /** `true` si el dueño ya no es del branch del realtor: el vínculo quedó viejo. */
+  ownerFueraDeBranch: boolean;
 }
 
 export interface PersonBudgetBreakdownRow {
@@ -1780,51 +1796,10 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       }
     }
 
-    /*
-     * ══════════════════════════════════════════════════════════════════════
-     * EL BUCKET `nppm` ES LA SUMA DE SUS REALTORS — etapa OL42
-     * ══════════════════════════════════════════════════════════════════════
-     *
-     * El presupuesto de NPPM se fija POR REALTOR --`budget_total` ya lo acepta
-     * como sujeto-- y el bucket del Loan Officer deja de escribirse a mano:
-     * pasa a ser la suma de los realtors que tiene a cargo, según
-     * `outlook.nppm_realtor_owner`.
-     *
-     * ⚠ EXPLICA, NO SUMA. Es parte del total de esa persona, no algo encima:
-     * el préstamo lo cierra el Loan Officer y ya está contado en su fila --
-     * OL33--, así que fijarle 2 a un realtor significa «de lo tuyo, 2 vienen
-     * por él». La resta de OL39 le baja el Own Production en 2 y el
-     * presupuesto del branch no se mueve.
-     *
-     * ⚠ SIN DUEÑO NO SUMA EN NINGÚN LADO, y eso es a propósito: un realtor
-     * cuyo Loan Officer no está en el roster --hoy Lizandra Diaz y Jesus
-     * García-- no se le cuelga a nadie por default. Repartirlo o colgarlo del
-     * branch sería inventar una decisión que nadie tomó.
-     *
-     * ⚠ Y NO SE PISA UN DESGLOSE CARGADO A MANO... porque no hay ninguno:
-     * medido, `nppm` tiene CERO filas en toda la historia de
-     * `budget_breakdown`. Si algún día hubiera, esta línea lo reemplazaría, y
-     * por eso el editor deja de ofrecer la celda en la misma etapa: dos
-     * lugares para el mismo número es lo que esta serie viene desarmando.
-     */
-    for (const o of nppmOwners) {
-      const delRealtor = budgetTotalByKey.get('r' + o.nppm_realtor_code);
-      if (delRealtor === undefined) continue;
-      nppmRealtorsPorLo.set(o.employee_key, [
-        ...(nppmRealtorsPorLo.get(o.employee_key) ?? []),
-        { realtorCode: o.nppm_realtor_code, byMonth: { ...delRealtor } },
-      ]);
-    }
-    for (const [employeeKey, partes] of nppmRealtorsPorLo) {
-      const byMonth: Record<string, number> = {};
-      for (const p of partes) {
-        for (const [m, n] of Object.entries(p.byMonth)) byMonth[m] = (byMonth[m] ?? 0) + n;
-      }
-      const k = 'e' + employeeKey;
-      const byBucket = budgetBreakdownByKey.get(k) ?? {};
-      byBucket.nppm = byMonth;
-      budgetBreakdownByKey.set(k, byBucket);
-    }
+    /* ⚠ EL BUCKET `nppm` SE DERIVA MÁS ABAJO — etapa OL45. Necesita
+       `rosterByKey` y `grupoDe` para saber si el dueño sigue siendo del branch
+       del realtor, y las dos se arman después de este bloque. Buscar «EL
+       BUCKET `nppm` ES LA SUMA DE SUS REALTORS». */
 
     if (!nppmRes.error) {
       const nppmRows = (nppmRes.data ?? []) as NppmBenchmarkRow[];
@@ -2018,6 +1993,62 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       continue;
     }
     rosterByKey.set(key, r);
+  }
+
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * EL BUCKET `nppm` ES LA SUMA DE SUS REALTORS — etapa OL42
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * El presupuesto de NPPM se fija POR REALTOR --`budget_total` ya lo acepta
+   * como sujeto-- y el bucket del Loan Officer deja de escribirse a mano: pasa
+   * a ser la suma de los realtors que tiene a cargo, según
+   * `outlook.nppm_realtor_owner`.
+   *
+   * ⚠ EXPLICA, NO SUMA. Es parte del total de esa persona, no algo encima: el
+   * préstamo lo cierra el Loan Officer y ya está contado en su fila --OL33--,
+   * así que fijarle 2 a un realtor significa «de lo tuyo, 2 vienen por él». La
+   * resta de OL39 le baja el Own Production en 2 y el presupuesto del branch no
+   * se mueve.
+   *
+   * ⚠ SIN DUEÑO NO SUMA EN NINGÚN LADO, y eso es a propósito: repartirlo o
+   * colgarlo del branch sería inventar una decisión que nadie tomó.
+   *
+   * ⚠ Y UN VÍNCULO VIEJO TAMPOCO SUMA — etapa OL45. `org.nppm_realtor` lo
+   * mueve RRHH y `nppm_realtor_owner` no se entera, así que un NPPM que cambia
+   * de branch queda atado a un Loan Officer del branch anterior: su
+   * presupuesto sumaría donde el realtor ya no está. Se descarta acá y la fila
+   * lo dice --`ownerFueraDeBranch`--; reasignarlo solo sería inventar la
+   * decisión que falta.
+   *
+   * Vive acá abajo, y no junto a la lectura de `budget_total`, porque necesita
+   * `rosterByKey` y `grupoDe`.
+   */
+  for (const o of nppmOwners) {
+    const delRealtor = budgetTotalByKey.get('r' + o.nppm_realtor_code);
+    if (delRealtor === undefined) continue;
+    const delRoster = nppmRoster.find((r) => r.realtor_code === o.nppm_realtor_code);
+    const branchDelDueno = rosterByKey.get(o.employee_key)?.branch_code ?? null;
+    if (
+      delRoster !== undefined &&
+      grupoDe(branchDelDueno ?? '') !== grupoDe(delRoster.branch_code ?? '')
+    ) {
+      continue;
+    }
+    nppmRealtorsPorLo.set(o.employee_key, [
+      ...(nppmRealtorsPorLo.get(o.employee_key) ?? []),
+      { realtorCode: o.nppm_realtor_code, byMonth: { ...delRealtor } },
+    ]);
+  }
+  for (const [employeeKey, partes] of nppmRealtorsPorLo) {
+    const byMonth: Record<string, number> = {};
+    for (const p of partes) {
+      for (const [m, n] of Object.entries(p.byMonth)) byMonth[m] = (byMonth[m] ?? 0) + n;
+    }
+    const k = 'e' + employeeKey;
+    const byBucket = budgetBreakdownByKey.get(k) ?? {};
+    byBucket.nppm = byMonth;
+    budgetBreakdownByKey.set(k, byBucket);
   }
 
   /** El estado de una persona segun el roster. Ver `RosterState`. */
@@ -3367,12 +3398,23 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
        */
       nppmRoster: nppmRoster
         .filter((r) => grupoDe(r.branch_code ?? '') === branchCode)
-        .map((r) => ({
-          realtorCode: r.realtor_code,
-          displayName: r.display_name,
-          ownerEmployeeKey: nppmOwners.find((o) => o.nppm_realtor_code === r.realtor_code)?.employee_key ?? null,
-          tieneProduccion: realtorsConFila.has(r.realtor_code),
-        }))
+        .map((r) => {
+          const ownerEmployeeKey =
+            nppmOwners.find((o) => o.nppm_realtor_code === r.realtor_code)?.employee_key ?? null;
+          const ownerBranch =
+            ownerEmployeeKey === null ? null : (rosterByKey.get(ownerEmployeeKey)?.branch_code ?? null);
+          return {
+            realtorCode: r.realtor_code,
+            displayName: r.display_name,
+            ownerEmployeeKey,
+            tieneProduccion: realtorsConFila.has(r.realtor_code),
+            ownerBranch,
+            /* Se compara por GRUPO: el 777 se lee dentro del 710, así que un
+               dueño del 777 no está fuera del branch de un realtor del 710. */
+            ownerFueraDeBranch:
+              ownerEmployeeKey !== null && grupoDe(ownerBranch ?? '') !== grupoDe(r.branch_code ?? ''),
+          };
+        })
         .sort((a, b) => a.displayName.localeCompare(b.displayName)),
       byStrategy: estrategias,
       /* Quiénes se leen acá adentro — OL29. */

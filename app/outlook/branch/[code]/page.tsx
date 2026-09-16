@@ -754,7 +754,25 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * personas: las filas tienen que sumar el entero que el total ya tiene.
    */
   const nppmBudget = nppmRealtorBudget(branch, remainingMonths);
-  const nppmRows = (bsNppm?.realtors ?? []).map((r) => ({
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * EL GRUPO DE NPPM ES EL PROGRAMA, NO TODO EL QUE TRAJO UN PRÉSTAMO — OL45
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * De los 30 realtors con producción, 23 NO son NPPM contratados: son agentes
+   * con los que la división cierra. Su producción es real y sigue contando en
+   * el total del branch --que sale de `projectBranch` y no de estas filas--,
+   * pero no son del programa, así que el grupo que lo explica no es el suyo.
+   *
+   * ⚠ Y LA MEMBRESÍA ES GLOBAL, NO DE ESTE BRANCH. Laura Delgado es NPPM del
+   * 776 y tiene historia en el 733: su fila del 733 se queda --OL30: lo que
+   * cerró acá ocurrió acá-- con el rótulo que dice dónde proyecta. Preguntarle
+   * la membresía a `branch.nppmRoster` la daba por ajena y le ponía «not in the
+   * NPPM program», que es falso. La misma confusión que ya costó dos veces:
+   * «no está acá» leído como «no existe».
+   */
+  const miembroNppm = new Map(data.nppmSinBranch.map((x) => [x.realtorCode, x]));
+  const nppmRows = (bsNppm?.realtors ?? []).filter((r) => miembroNppm.has(r.realtorCode)).map((r) => ({
     r,
     year: composeYear(
       monthsOfYear,
@@ -1901,28 +1919,50 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                             vez de no ofrecer nada y dejar la pregunta abierta.
                           */}
                           {(() => {
-                            const enRoster = branch.nppmRoster.find((x) => x.realtorCode === r.realtorCode);
-                            if (enRoster === undefined) {
+                            /*
+                              ⚠ TRES CASOS Y NO DOS — etapa OL45. «Es de este
+                              branch» y «es del programa» son preguntas
+                              distintas, y contestarlas con la misma lista dejó
+                              a Laura Delgado marcada como ajena al programa en
+                              el 733, donde sólo tiene historia.
+                            */
+                            const enEsteBranch = branch.nppmRoster.find((x) => x.realtorCode === r.realtorCode);
+                            if (enEsteBranch === undefined) {
+                              const suyo = miembroNppm.get(r.realtorCode);
                               return (
                                 <span
                                   className="bp-muted ol-tag"
                                   title={
-                                    `${r.displayName} closes with this division but is not a contracted NPPM ` +
-                                    `(org.nppm_realtor). Their production counts here; their budget does not ` +
-                                    `add to anyone's NPPM plan.`
+                                    `${r.displayName} is a contracted NPPM on branch ${suyo?.branchCode ?? '—'}. ` +
+                                    `Their budget and their loan officer are decided there; what shows here is ` +
+                                    `what they closed here.`
                                   }
                                 >
-                                  not in the NPPM program
+                                  NPPM of {suyo?.branchCode ?? '—'}
                                 </span>
                               );
                             }
                             return (
-                              <NppmOwnerPicker
-                                realtorCode={r.realtorCode}
-                                ownerEmployeeKey={enRoster.ownerEmployeeKey}
-                                loanOfficers={losDelBranch}
-                                onSaved={reload}
-                              />
+                              <>
+                                {enEsteBranch.ownerFueraDeBranch && (
+                                  <span
+                                    className="bp-notice bp-notice--warn ol-tag"
+                                    title={
+                                      `The loan officer this realtor was linked to is on branch ` +
+                                      `${enEsteBranch.ownerBranch ?? '—'}, and ${r.displayName} is on this one. ` +
+                                      `The link is stale, so their budget is not adding anywhere — pick someone here.`
+                                    }
+                                  >
+                                    ⚠ owner is on {enEsteBranch.ownerBranch ?? 'another branch'} · not adding
+                                  </span>
+                                )}
+                                <NppmOwnerPicker
+                                  realtorCode={r.realtorCode}
+                                  ownerEmployeeKey={enEsteBranch.ownerFueraDeBranch ? null : enEsteBranch.ownerEmployeeKey}
+                                  loanOfficers={losDelBranch}
+                                  onSaved={reload}
+                                />
+                              </>
                             );
                           })()}
                         </td>
@@ -2013,7 +2053,13 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                     ⚠ Las celdas van VACÍAS y no en cero. No cerraron nada y
                     nadie les fijó nada: un cero afirmaría que se espera cero.
                   */}
-                  {branch.nppmRoster
+                  {/* ⚠ DENTRO DEL `abierta` — corregido en OL45. Estaban
+                      afuera, así que se veían con el grupo cerrado y el
+                      acordeón parecía no cerrar: en el 703 Valeria quedaba
+                      colgando debajo del agrupador. Medido: con el grupo
+                      cerrado el 733 mostraba dos filas de más y el 703 una. */}
+                  {abierta &&
+                    branch.nppmRoster
                     .filter((x) => !x.tieneProduccion)
                     .map((x) => (
                       <tr key={'nppm-roster-' + x.realtorCode} className="metric mrow ol-detail" data-ol-nppm-sin-produccion="">
@@ -2029,9 +2075,20 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                           >
                             no production yet
                           </span>
+                          {x.ownerFueraDeBranch && (
+                            <span
+                              className="bp-notice bp-notice--warn ol-tag"
+                              title={
+                                `The loan officer this realtor was linked to is on branch ${x.ownerBranch ?? '—'}. ` +
+                                `The link is stale, so their budget is not adding anywhere — pick someone here.`
+                              }
+                            >
+                              ⚠ owner is on {x.ownerBranch ?? 'another branch'} · not adding
+                            </span>
+                          )}
                           <NppmOwnerPicker
                             realtorCode={x.realtorCode}
-                            ownerEmployeeKey={x.ownerEmployeeKey}
+                            ownerEmployeeKey={x.ownerFueraDeBranch ? null : x.ownerEmployeeKey}
                             loanOfficers={losDelBranch}
                             onSaved={reload}
                           />
@@ -2549,138 +2606,118 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               <td className="ol-rulecol"></td>
             </tr>
           </tbody>
+
+          {/*
+            ══════════════════════════════════════════════════════════════════
+            ⚠ LA COMPOSICIÓN ES UN `tbody` DE ESTA TABLA — etapa OL45
+            ══════════════════════════════════════════════════════════════════
+
+            Vivía en una tabla aparte, con sus tres meses repartidos en todo el
+            ancho: medido, octubre caía en x=1151 y en la tabla de arriba en
+            x=1177. Dos tablas independientes calculan sus columnas por su
+            propio contenido, así que igualarlas con las mismas celdas vacías
+            las acerca y no las alinea -- quedaban a 26px.
+
+            La única forma de que octubre esté DEBAJO de octubre es que sea la
+            misma columna. Un `<tbody>` más comparte la grilla por definición, y
+            el título pasa a ser una fila de sección, que es el idioma que la
+            tabla ya usa para sus grupos.
+          */}
+          {composicion.hayAlgo && (
+            <tbody data-ol-composition="">
+              <tr className="grp d1">
+                <td className="lbl">
+                  Budget composition
+                  <span className="bp-muted ol-tag">
+                    {composicion.cuantos} loan officer{composicion.cuantos === 1 ? '' : 's'} · read only here
+                  </span>
+                </td>
+                <td className="bp-center ol-bench"></td>
+                {monthsOfYear.map((m) => (
+                  <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}></td>
+                ))}
+                <td className="bp-center totcol"></td>
+                <td className="ol-rulecol"></td>
+              </tr>
+              {composicion.filas.flatMap((f) => [
+                <tr key={f.bucket} className="metric mrow">
+                  <td className="lbl">
+                    {BUCKET_LABEL[f.bucket]}
+                    {f.bucket === 'own_production' && composicion.porRegla > 0 && (
+                      <span
+                        className="bp-muted ol-tag"
+                        title={
+                          `${composicion.porRegla} of ${composicion.cuantos} loan officers here did not break ` +
+                          `their budget down, so what their growth rule projects counts as Own Production — ` +
+                          `minus whatever they did break out into the other plans, so nothing is counted twice.`
+                        }
+                      >
+                        from growth rule
+                      </span>
+                    )}
+                  </td>
+                  <td className="bp-center ol-bench"></td>
+                  {/* La misma banda que la tabla de arriba: si la columna de
+                      octubre está teñida de presupuesto, la de la composición
+                      también -- si no, la fila parece de otra tabla aunque
+                      esté en la misma. */}
+                  {monthsOfYear.map((m) => (
+                    <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
+                      {remainingMonths.includes(m) ? fmt(f.byMonth[m] ?? null) : ''}
+                    </td>
+                  ))}
+                  <td className="bp-center totcol"></td>
+                  <td className="ol-rulecol"></td>
+                </tr>,
+                ...(f.bucket === 'nppm'
+                  ? composicion.realtors.map((r) => (
+                      <tr key={'r-' + r.realtorCode} className="metric ol-detail" data-ol-realtor="">
+                        <td className="lbl" style={{ paddingLeft: '30px' }}>
+                          {r.displayName}
+                          <span
+                            className="bp-muted ol-tag"
+                            title="The loan officer this realtor adds to. Set in the realtor's own row."
+                          >
+                            {r.loanOfficer}
+                          </span>
+                        </td>
+                        <td className="bp-center ol-bench"></td>
+                        {monthsOfYear.map((m) => (
+                          <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
+                            {remainingMonths.includes(m) ? fmt(r.byMonth[m] ?? null) : ''}
+                          </td>
+                        ))}
+                        <td className="bp-center totcol"></td>
+                        <td className="ol-rulecol"></td>
+                      </tr>
+                    ))
+                  : []),
+              ])}
+              <tr className="metric ol-total">
+                <td
+                  className="lbl"
+                  title={
+                    `The branch budget above, by plan: every loan officer of this branch, with ` +
+                    `what the growth rule projects counting as Own Production for whoever set no ` +
+                    `breakdown. Hiring, NPPM and any branch-level budget are not in here.`
+                  }
+                >
+                  Total
+                </td>
+                <td className="bp-center ol-bench"></td>
+                {monthsOfYear.map((m) => (
+                  <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
+                    {remainingMonths.includes(m) ? fmt(composicion.total[m] ?? null) : ''}
+                  </td>
+                ))}
+                <td className="bp-center totcol"></td>
+                <td className="ol-rulecol"></td>
+              </tr>
+            </tbody>
+          )}
         </table>
       </div>
 
-      {/*
-        ══════════════════════════════════════════════════════════════════════
-        BUDGET COMPOSITION DEL BRANCH — etapa OL37
-        ══════════════════════════════════════════════════════════════════════
-
-        La suma, por bucket, de lo que dijeron SUS Loan Officers en su propio
-        desglose. No se edita acá: el presupuesto se fija por persona y esto
-        sólo lo mira.
-
-        ⚠ POR QUÉ ES DE SÓLO LECTURA Y NO «TODAVÍA NO EDITABLE». Si se pudiera
-        fijar acá habría dos lugares diciendo el mismo número --el del branch y
-        la suma de su gente-- y el día que difieran no habría forma de saber
-        cuál manda. Es la misma razón por la que el total del branch es la suma
-        de sus filas y no un número aparte.
-
-        ⚠ Y SUMA LA REVISIÓN VIGENTE DE CADA PERSONA, no todas sus filas: el
-        desglose es append-only y corregir una vez agrega una revisión entera.
-        Eso ya lo resuelve `budgetBreakdown` en el loader --se queda con la
-        revisión más alta por sujeto-- y por eso las diez filas de B2B de
-        Adriana no suman diez veces: cuentan las tres de su revisión 4.
-      */}
-      {composicion.hayAlgo && (
-        <div className="ol-block" data-ol-composition="">
-          <div className="ol-block__head">
-            <h2 className="ol-block__title">Budget composition</h2>
-            {/*
-              ⚠ EL «2 of 9» SE FUE — etapa OL39, y por una razón y no por
-              gusto: decía a cuánta gente cubría la tarjeta porque cubría a
-              ALGUNOS. Ahora cubre a todos --quien no desagregó aporta su regla
-              como Own Production-- así que el rótulo diría siempre «9 of 9»,
-              que es ruido. Lo que sí sigue haciendo falta decir es que acá no
-              se edita.
-            */}
-            <span className="bp-muted ol-tag">
-              {composicion.cuantos} loan officer{composicion.cuantos === 1 ? '' : 's'} · read only here
-            </span>
-          </div>
-          {/* `tbl-scroll`, la misma envoltura que la tabla de arriba: la guarda
-              de clases me cazó un `table-wrap` que no existe en ninguna hoja. */}
-          <div className="tbl-scroll">
-            <table className="piv ol-year">
-              <thead>
-                <tr>
-                  <th className="lbl"></th>
-                  {remainingMonths.map((m) => (
-                    <th key={m} className="bp-center ol-m ol-m--budget">
-                      {monthLabel(m)}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {composicion.filas.flatMap((f) => [
-                  <tr key={f.bucket} className="metric mrow">
-                    <td className="lbl">
-                      {BUCKET_LABEL[f.bucket]}
-                      {/*
-                        ⚠ DE DÓNDE SALE EL NÚMERO, cuando sale de dos lados. El
-                        mismo rótulo que el perfil del Loan Officer usa desde
-                        BP49b: un número leído de la regla y uno fijado a mano
-                        se ven igual, y no son lo mismo.
-                      */}
-                      {f.bucket === 'own_production' && composicion.porRegla > 0 && (
-                        <span
-                          className="bp-muted ol-tag"
-                          title={
-                            `${composicion.porRegla} of ${composicion.cuantos} loan officers here did not break ` +
-                            `their budget down, so what their growth rule projects counts as Own Production — ` +
-                            `minus whatever they did break out into the other plans, so nothing is counted twice.`
-                          }
-                        >
-                          from growth rule
-                        </span>
-                      )}
-                    </td>
-                    {remainingMonths.map((m) => (
-                      <td key={m} className="bp-center ol-m ol-m--budget">
-                        {fmt(f.byMonth[m] ?? null)}
-                      </td>
-                    ))}
-                  </tr>,
-                  /*
-                    Los realtors, debajo de SU bucket — etapa OL42. Van acá y no
-                    en un bloque aparte porque son la desagregación de esta
-                    fila: el NPPM de un branch es la suma de sus realtors, y
-                    verlos pegados es lo que lo hace evidente sin explicarlo.
-                    El estilo `ol-detail` es el de OL34, el mismo que ya
-                    distingue un renglón de detalle de uno que suma.
-                  */
-                  ...(f.bucket === 'nppm'
-                    ? composicion.realtors.map((r) => (
-                        <tr key={'r-' + r.realtorCode} className="metric ol-detail" data-ol-realtor="">
-                          <td className="lbl">
-                            {'↳ ' + r.displayName}
-                            <span className="bp-muted ol-tag" title="The loan officer this realtor adds to. Set in the realtor's own row.">
-                              {r.loanOfficer}
-                            </span>
-                          </td>
-                          {remainingMonths.map((m) => (
-                            <td key={m} className="bp-center ol-m ol-m--budget">
-                              {fmt(r.byMonth[m] ?? null)}
-                            </td>
-                          ))}
-                        </tr>
-                      ))
-                    : []),
-                ])}
-                <tr className="metric ol-total">
-                  <td
-                    className="lbl"
-                    title={
-                      `The branch budget above, by plan: every loan officer of this branch, with ` +
-                      `what the growth rule projects counting as Own Production for whoever set no ` +
-                      `breakdown. Hiring, NPPM and any branch-level budget are not in here.`
-                    }
-                  >
-                    Total
-                  </td>
-                  {remainingMonths.map((m) => (
-                    <td key={m} className="bp-center ol-m ol-m--budget">
-                      {fmt(composicion.total[m] ?? null)}
-                    </td>
-                  ))}
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
 
       {/*
         El aviso va DEBAJO del bloque 2, pegado a los ceros que explica. En el
@@ -3012,13 +3049,34 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
             budgetBreakdown: r.budgetBreakdown,
             budgetBreakdownRevision: r.budgetBreakdownRevision,
           };
+          /*
+           * ══════════════════════════════════════════════════════════════════
+           * ⚠ UN REALTOR SÍ PROYECTA, Y SU EDITOR ABRÍA EN CERO — etapa OL45
+           * ══════════════════════════════════════════════════════════════════
+           *
+           * Acá decía «un realtor no proyecta por la regla de crecimiento de
+           * Outlook» y pasaba `null`. Es cierto a medias --no tiene
+           * `growth_rule`-- y la conclusión era falsa: proyecta por su
+           * BENCHMARK, que es lo que su fila muestra en los meses futuros. Jose
+           * Boggio tiene presupuesto proyectado en la tabla y su «Set budget»
+           * abría en cero, como si nadie hubiera proyectado nada.
+           *
+           * El punto de partida sale de `nppmRealtorBudget` --la MISMA función
+           * que arma su fila, no una copia-- así que el editor abre con lo que
+           * la fila de arriba muestra. Y `PersonBudgetEditor` ya sabe decir de
+           * dónde viene un número que no fijó nadie.
+           */
+          const proyeccionDelRealtor = Object.fromEntries(
+            remainingMonths.map((m) => [
+              m,
+              nppmBudget.parts.find((p) => p.realtorCode === r.realtorCode)?.byMonth[m] ?? 0,
+            ])
+          );
           return (
             <PersonBudgetEditor
               person={person}
               ownProductionRate={null}
-              /* Un realtor no proyecta por la regla de crecimiento de Outlook
-                 -- ver la nota de `monthsByRule` en PersonBudgetEditor. */
-              ruleProjection={null}
+              ruleProjection={proyeccionDelRealtor}
               data={data}
               months={remainingMonths}
               onClose={cerrar}
