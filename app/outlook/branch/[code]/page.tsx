@@ -2064,16 +2064,19 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                     .map((x) => (
                       <tr key={'nppm-roster-' + x.realtorCode} className="metric mrow ol-detail" data-ol-nppm-sin-produccion="">
                         <td className="lbl" style={{ paddingLeft: '30px' }}>
-                          {x.displayName}
+                          {/* ⚠ SIN EL RÓTULO «no production yet» — OL46. La
+                              fila entera está vacía: decirlo además era repetir
+                              con palabras lo que las doce celdas ya dicen. El
+                              porqué sigue en el tooltip del nombre, que es
+                              donde se busca una explicación. */}
                           <span
-                            className="bp-muted ol-tag"
                             title={
                               `${x.displayName} is a contracted NPPM on this branch's roster (org.nppm_realtor) ` +
                               `with no loan of their own yet — closed or open. They are here so their budget ` +
                               `has somewhere to go.`
                             }
                           >
-                            no production yet
+                            {x.displayName}
                           </span>
                           {x.ownerFueraDeBranch && (
                             <span
@@ -2625,9 +2628,12 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
           */}
           {composicion.hayAlgo && (
             <tbody data-ol-composition="">
-              <tr className="grp d1">
+              <tr className="grp d1 ol-comp-head">
                 <td className="lbl">
-                  Budget composition
+                  {/* En mayúsculas y con aire arriba: comparte la grilla con la
+                      tabla --por eso los meses caen en su columna-- y tiene que
+                      leerse como otra sección, no como una fila más. */}
+                  <span className="ol-comp-title">Budget composition</span>
                   <span className="bp-muted ol-tag">
                     {composicion.cuantos} loan officer{composicion.cuantos === 1 ? '' : 's'} · read only here
                   </span>
@@ -2693,7 +2699,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                     ))
                   : []),
               ])}
-              <tr className="metric ol-total">
+              <tr className="metric ol-total ol-comp-total">
                 <td
                   className="lbl"
                   title={
@@ -2703,6 +2709,40 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                   }
                 >
                   Total
+                  {/*
+                    ⚠ CUANDO LA DESCOMPOSICIÓN NO ENTRA EN EL PRESUPUESTO —
+                    etapa OL46. La proyección de un realtor puede ser mayor que
+                    todo lo que su Loan Officer tiene presupuestado: en el 776,
+                    Laura Delgado proyecta 2 por mes y Silvio Arteaga tiene 1.
+
+                    No se recorta ni se esconde. Recortarla inventaría un
+                    número que nadie proyectó, y esconderla dejaría la misma
+                    pregunta sin hacer. Lo que corresponde es que la fila lo
+                    DIGA: la composición dice más que el presupuesto, y eso es
+                    un dato sobre el branch --su NPPM proyecta más de lo que sus
+                    Loan Officers tienen presupuestado cerrar--, no un error de
+                    la tarjeta.
+                  */}
+                  {(() => {
+                    const sobran = remainingMonths.filter(
+                      (m) => (composicion.total[m] ?? 0) > (totalByMonth[m] ?? 0)
+                    );
+                    if (sobran.length === 0) return null;
+                    return (
+                      <span
+                        className="bp-notice bp-notice--warn ol-tag"
+                        title={
+                          `The plans below add up to more than the branch budget in ` +
+                          `${sobran.map(monthLabel).join(', ')}. It is not a rounding gap: an NPPM realtor ` +
+                          `projects from their own benchmark, and that projection can be larger than what ` +
+                          `their loan officer is budgeted to close. Either their budget goes up, or the ` +
+                          `realtor's projection is not all theirs to bring.`
+                        }
+                      >
+                        ⚠ more than the branch budget in {sobran.map(monthLabel).join(', ')}
+                      </span>
+                    );
+                  })()}
                 </td>
                 <td className="bp-center ol-bench"></td>
                 {monthsOfYear.map((m) => (

@@ -160,6 +160,46 @@ table.piv.ol-year tr.metric.drow td.lbl,
 
 /*
  * ══════════════════════════════════════════════════════════════════════════
+ * LA COMPOSICIÓN, SEPARADA SIN SALIRSE DE LA TABLA — etapa OL46
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ * Es otra cosa que la tabla de arriba y tiene que leerse así, pero vive en la
+ * MISMA tabla porque es la única forma de que octubre caiga debajo de octubre
+ * (OL45). Así que la separación es aire y una línea, no un contenedor aparte:
+ * un centímetro de padding en su primera fila y un borde que la corta.
+ */
+.ol-comp-head td {
+  padding-top: 34px;
+  border-top: 2px solid var(--slate-200);
+}
+.ol-comp-title {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  color: var(--slate-600);
+}
+
+/*
+ * El total de la composición es el presupuesto del branch por otra vía, así
+ * que se marca como lo que es: la fila que cierra la cuenta.
+ *
+ * ⚠ CON TOKENS QUE EXISTEN, y sin respaldo. `var(--sky-50, #eff6ff)` habría
+ * funcionado igual --con el color del fallback-- y ese token no existe en
+ * `tokens.css`: es exactamente el caso de `--white` que este repo ya pagó. El
+ * tinte sale de `--sky`, el mismo de la banda de presupuesto, con más carga
+ * para que la fila se note sin cambiar de familia.
+ */
+.ol-page table.piv.ol-year tr.ol-comp-total td {
+  background: color-mix(in srgb, var(--sky) 34%, transparent);
+  border-top: 1px solid var(--accent-border);
+}
+.ol-comp-total td.lbl {
+  font-weight: 700;
+  color: var(--navy);
+}
+
+/*
+ * ══════════════════════════════════════════════════════════════════════════
  * QUIÉN SUMA Y QUIÉN NO, POR LA FORMA — etapa OL34
  * ══════════════════════════════════════════════════════════════════════════
  *

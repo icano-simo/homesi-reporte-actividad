@@ -1591,13 +1591,6 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
   let personBudgetTablesAvailable = false;
   /* Los cuatro campos del presupuesto compuesto, para un sujeto -- se usan en
      las tres construcciones de OutlookLoanOfficer y en la de BranchRealtor. */
-  /*
-   * Los realtors de cada Loan Officer, con su presupuesto — etapa OL42. Se
-   * llena más abajo, cuando ya se leyó `budget_total`; la tarjeta del branch la
-   * usa para abrir la fila de NPPM en sus realtors, y el bucket `nppm` de la
-   * persona sale de acá.
-   */
-  const nppmRealtorsPorLo = new Map<number, { realtorCode: string; byMonth: Record<string, number> }[]>();
   const budgetTotalOf = (key: string) => budgetTotalByKey.get(key) ?? {};
   const budgetTotalRevisionOf = (key: string) => budgetTotalRevisionByKey.get(key) ?? 0;
   const budgetBreakdownOf = (key: string) => budgetBreakdownByKey.get(key) ?? {};
@@ -2024,32 +2017,9 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
    * Vive acá abajo, y no junto a la lectura de `budget_total`, porque necesita
    * `rosterByKey` y `grupoDe`.
    */
-  for (const o of nppmOwners) {
-    const delRealtor = budgetTotalByKey.get('r' + o.nppm_realtor_code);
-    if (delRealtor === undefined) continue;
-    const delRoster = nppmRoster.find((r) => r.realtor_code === o.nppm_realtor_code);
-    const branchDelDueno = rosterByKey.get(o.employee_key)?.branch_code ?? null;
-    if (
-      delRoster !== undefined &&
-      grupoDe(branchDelDueno ?? '') !== grupoDe(delRoster.branch_code ?? '')
-    ) {
-      continue;
-    }
-    nppmRealtorsPorLo.set(o.employee_key, [
-      ...(nppmRealtorsPorLo.get(o.employee_key) ?? []),
-      { realtorCode: o.nppm_realtor_code, byMonth: { ...delRealtor } },
-    ]);
-  }
-  for (const [employeeKey, partes] of nppmRealtorsPorLo) {
-    const byMonth: Record<string, number> = {};
-    for (const p of partes) {
-      for (const [m, n] of Object.entries(p.byMonth)) byMonth[m] = (byMonth[m] ?? 0) + n;
-    }
-    const k = 'e' + employeeKey;
-    const byBucket = budgetBreakdownByKey.get(k) ?? {};
-    byBucket.nppm = byMonth;
-    budgetBreakdownByKey.set(k, byBucket);
-  }
+  /* ⚠ SE ARMA DESPUÉS DE LOS BRANCHES — etapa OL46. El número de cada realtor
+     sale de `nppmRealtorBudget(branch, …)`, que necesita el branch ya
+     construido. Buscar «LO QUE APORTA CADA REALTOR». */
 
   /** El estado de una persona segun el roster. Ver `RosterState`. */
   function rosterStateOf(employeeKey: number): RosterState {
@@ -2275,11 +2245,14 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
    * que se llena recorriendo los préstamos: el código es la identidad y el
    * nombre es de la pantalla, la misma separación de siempre.
    */
-  const nppmRealtorsDe = (employeeKey: number) =>
-    (nppmRealtorsPorLo.get(employeeKey) ?? []).map((r) => ({
-      ...r,
-      displayName: nombreDeRealtor.get(r.realtorCode) ?? r.realtorCode,
-    }));
+  /*
+   * ⚠ ARRANCA VACÍO Y SE LLENA DESPUÉS DE LOS BRANCHES — etapa OL46. La
+   * proyección de un realtor es por branch, así que hasta que el branch no
+   * existe no hay número que poner. Dejarlo vacío acá es «todavía no se sabe»,
+   * y lo que lo llena es el bloque «LO QUE APORTA CADA REALTOR».
+   */
+  const nppmRealtorsDe = () =>
+    [] as { realtorCode: string; displayName: string; byMonth: Record<string, number> }[];
   /*
    * ⚠ Y NO SIRVE `nombrePorCodigo` PARA ESTO, medido: ese mapa se llena SÓLO
    * dentro de `if (strategy === 'NPPM')`, así que un realtor cuyos préstamos
@@ -2843,7 +2816,7 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       budgetBreakdownRevision: budgetBreakdownRevisionOf(
         personBudgetKeyOf({ employee_key: lo.employeeKey, nppm_realtor_code: null })
       ),
-      nppmRealtors: nppmRealtorsDe(lo.employeeKey),
+      nppmRealtors: nppmRealtorsDe(),
       /* Placeholder: se reemplaza por branch al armar el mapa, abajo. */
       strategies: [],
       rulesByStrategy,
@@ -2997,7 +2970,7 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
         budgetBreakdownRevision: budgetBreakdownRevisionOf(
           personBudgetKeyOf({ employee_key: key, nppm_realtor_code: null })
         ),
-        nppmRealtors: nppmRealtorsDe(key),
+        nppmRealtors: nppmRealtorsDe(),
       });
       branchMap.set(code, list);
     }
@@ -3439,6 +3412,66 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       };
     })
     .sort((a, b) => b.ytd - a.ytd || a.branchCode.localeCompare(b.branchCode));
+
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * LO QUE APORTA CADA REALTOR: SU TOTAL FIJADO, Y SI NO, SU PROYECCIÓN — OL46
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * El bucket `nppm` leía SÓLO los totales fijados, y de los trece NPPM del
+   * roster hay exactamente UNO con filas en `budget_total`. Los otros doce
+   * proyectan por su benchmark --la pantalla lo muestra en su fila-- y ese
+   * número no llegaba a ningún bucket: Jose Boggio proyecta 1/1/1 y el NPPM de
+   * Mariano daba cero.
+   *
+   * ⚠ Y LO QUE LO HACÍA PEOR es que el número SE VE en la fila del realtor, así
+   * que la ausencia en el bucket se leía como «el guardado falló» --el reporte
+   * decía justamente eso-- cuando no había nada que guardar. Un número visible
+   * y un bucket vacío no se contradicen a la vista: hay que preguntarles de
+   * dónde sale cada uno.
+   *
+   * La regla es la MISMA que OL39 para las personas: manda lo fijado, y si no
+   * hay, manda lo que se proyecta. Y el número proyectado sale de
+   * `nppmRealtorBudget`, la misma función que arma la fila del realtor -- no
+   * una copia, por lo mismo de siempre.
+   *
+   * ⚠ POR BRANCH Y NO POR PERSONA, porque la proyección de un realtor es por
+   * branch: `nppmRealtorBudget` sólo cuenta a los que proyectan ACÁ (OL30). Y
+   * se asigna sólo en el branch primario del dueño, porque un mismo Loan
+   * Officer puede tener fila en dos branches y el bucket es de la persona.
+   */
+  for (const b of branches) {
+    const proyeccion = nppmRealtorBudget(b, remainingMonths);
+    const porLo = new Map<number, { realtorCode: string; displayName: string; byMonth: Record<string, number>; fuente: 'fixed' | 'projection' }[]>();
+    for (const r of b.nppmRoster) {
+      if (r.ownerEmployeeKey === null || r.ownerFueraDeBranch) continue;
+      const fijado = budgetTotalByKey.get('r' + r.realtorCode);
+      const proyectado = proyeccion.parts.find((p) => p.realtorCode === r.realtorCode)?.byMonth;
+      const byMonth = fijado ?? proyectado ?? {};
+      if (Object.keys(byMonth).length === 0) continue;
+      porLo.set(r.ownerEmployeeKey, [
+        ...(porLo.get(r.ownerEmployeeKey) ?? []),
+        {
+          realtorCode: r.realtorCode,
+          displayName: r.displayName,
+          byMonth: { ...byMonth },
+          fuente: fijado === undefined ? 'projection' : 'fixed',
+        },
+      ]);
+    }
+    for (const lo of b.loanOfficers) {
+      if (lo.primaryBranch !== b.branchCode) continue;
+      const partes = porLo.get(lo.employeeKey) ?? [];
+      lo.nppmRealtors = partes;
+      const byMonth: Record<string, number> = {};
+      for (const p of partes) {
+        for (const [m, n] of Object.entries(p.byMonth)) byMonth[m] = (byMonth[m] ?? 0) + n;
+      }
+      /* Objeto nuevo y no mutación: el mismo `lo` puede estar en la lista de
+         otro branch, y pisarle el desglose allá sería el bug de al lado. */
+      lo.budgetBreakdown = { ...lo.budgetBreakdown, nppm: byMonth };
+    }
+  }
 
   return {
     remainingMonths,
