@@ -13,6 +13,10 @@ import {
   type RecruitStage,
 } from '@/lib/outlook/recruitment';
 import { pisoDeRealtors, presupuestoDePersona, totalesVigentes } from '@/lib/outlook/gobierno';
+/* El aporte de los realtors, en un módulo puro que también lee el perfil del
+   Business Plan — etapa BP54. Ver el JSDoc de `nppmPiso.ts` para el ciclo de
+   imports que lo hizo necesario. */
+import { aportesPorPersona, proyeccionPorRealtor, type AporteDeRealtor } from '@/lib/outlook/nppmPiso';
 import { classifyBranch } from '@/lib/domain/classifyBranch';
 import { classifyStrategy } from '@/lib/pipeline/strategy';
 import { apportionByWeight } from '@/lib/pipeline/aggregate';
@@ -3440,25 +3444,57 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
    * se asigna sólo en el branch primario del dueño, porque un mismo Loan
    * Officer puede tener fila en dos branches y el bucket es de la persona.
    */
-  for (const b of branches) {
-    const proyeccion = nppmRealtorBudget(b, remainingMonths);
-    const porLo = new Map<number, { realtorCode: string; displayName: string; byMonth: Record<string, number>; fuente: 'fixed' | 'projection' }[]>();
-    for (const r of b.nppmRoster) {
-      if (r.ownerEmployeeKey === null || r.ownerFueraDeBranch) continue;
-      const fijado = budgetTotalByKey.get('r' + r.realtorCode);
-      const proyectado = proyeccion.parts.find((p) => p.realtorCode === r.realtorCode)?.byMonth;
-      const byMonth = fijado ?? proyectado ?? {};
-      if (Object.keys(byMonth).length === 0) continue;
-      porLo.set(r.ownerEmployeeKey, [
-        ...(porLo.get(r.ownerEmployeeKey) ?? []),
-        {
+  /*
+   * ⚠ LA DERIVACIÓN SE FUE A `lib/outlook/nppmPiso.ts` — etapa BP54. No por
+   * estética: el perfil del Loan Officer tiene que mostrar el MISMO número, y
+   * no puede pedírselo a este loader porque `loadData.ts` importa
+   * `loadBusinessPlanData` --línea 26-- y llamarlo desde allá cerraría el
+   * ciclo. El módulo nuevo es puro y lo importan los dos.
+   *
+   * Acá sólo se arman sus entradas desde lo que este loader ya tiene.
+   */
+  let aportes: Map<number, AporteDeRealtor[]> = new Map();
+  {
+    const realtorsParaPiso = branches.flatMap((b) =>
+      b.byStrategy
+        .filter((bs) => bs.opensBy === 'realtor')
+        .flatMap((bs) => bs.realtors)
+        .filter((r) => r.projectsHere)
+        .map((r) => ({
           realtorCode: r.realtorCode,
           displayName: r.displayName,
-          byMonth: { ...byMonth },
-          fuente: fijado === undefined ? 'projection' : 'fixed',
-        },
-      ]);
+          branchCode: b.branchCode,
+          benchmark: r.benchmark,
+        }))
+    );
+    const duenosParaPiso = branches.flatMap((b) =>
+      b.nppmRoster
+        .filter((r) => r.ownerEmployeeKey !== null)
+        .map((r) => ({
+          realtorCode: r.realtorCode,
+          ownerEmployeeKey: r.ownerEmployeeKey as number,
+          /* El branch del dueño. Si no coincide con el del realtor, el módulo
+             descarta el vínculo -- la regla de OL45, ahora en un solo lugar. */
+          ownerPrimaryBranch: r.ownerBranch ?? b.branchCode,
+        }))
+    );
+    const fijadosParaPiso: Record<string, Record<string, number>> = {};
+    for (const b of branches) {
+      for (const r of b.nppmRoster) {
+        const fijado = budgetTotalByKey.get('r' + r.realtorCode);
+        if (fijado !== undefined) fijadosParaPiso[r.realtorCode] = fijado;
+      }
     }
+    aportes = aportesPorPersona({
+      realtors: realtorsParaPiso,
+      duenos: duenosParaPiso,
+      fijados: fijadosParaPiso,
+      months: remainingMonths,
+    });
+  }
+
+  for (const b of branches) {
+    const porLo = aportes;
     for (const lo of b.loanOfficers) {
       if (lo.primaryBranch !== b.branchCode) continue;
       const partes = porLo.get(lo.employeeKey) ?? [];
@@ -3760,11 +3796,32 @@ export function nppmRealtorBudget(
   if (realtors.length === 0) return { exactByMonth, roundedByMonth, parts };
 
   const suma = realtors.reduce((a, r) => a + r.benchmark, 0);
+  /*
+   * ⚠ EL REPARTO LO HACE `proyeccionPorRealtor`, NO ESTA FUNCIÓN — etapa BP54.
+   *
+   * Y no es una preferencia: al extraer el módulo para que el perfil del
+   * Business Plan pudiera calcular el piso, quedaron DOS implementaciones del
+   * mismo reparto --ésta, que arma la fila del realtor, y la del módulo, que
+   * arma el piso--. Las dos eran correctas el día que se escribieron, que es
+   * exactamente cómo divergen después. Lo encontró la prueba del módulo
+   * buscando copias, no yo.
+   *
+   * Acá queda lo que esta función agrega y el módulo no: el exacto sin
+   * redondear y el total del branch, que la pantalla usa para su fila.
+   */
+  const porCodigo = proyeccionPorRealtor(
+    realtors.map((r) => ({
+      realtorCode: r.realtorCode,
+      displayName: r.displayName,
+      branchCode: branch.branchCode,
+      benchmark: r.benchmark,
+    })),
+    months
+  );
+  for (const p of parts) p.byMonth = { ...(porCodigo.get(p.realtorCode) ?? {}) };
   for (const m of months) {
     exactByMonth[m] = suma;
     roundedByMonth[m] = Math.round(suma);
-    const partes = apportionByWeight(roundedByMonth[m], realtors.map((r) => r.benchmark));
-    partes.forEach((v, i) => (parts[i].byMonth[m] = v));
   }
   return { exactByMonth, roundedByMonth, parts };
 }

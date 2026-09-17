@@ -384,6 +384,10 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
    * un error que tumbe la pantalla.
    */
   const budgetThisMonthByEmployee = new Map<number, number>();
+  /* De qué mes es ese número — BP54. Sin esto la pantalla diría «budget» sin
+     decir de cuándo, y un presupuesto de diciembre leído como del mes que viene
+     es un número correcto de la fuente equivocada. */
+  const mesDelBudgetByEmployee = new Map<number, string>();
   let personBudgetTotalTableAvailable = false;
   try {
     const { data, error } = await outlook
@@ -437,10 +441,38 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
         if (ya === undefined) porEmpleado.set(r.employee_key, [r]);
         else ya.push(r);
       }
+      /*
+       * ══════════════════════════════════════════════════════════════════
+       * ⚠ EL PRÓXIMO MES PRESUPUESTADO, NO EL MES EN CURSO — etapa BP54
+       * ══════════════════════════════════════════════════════════════════
+       *
+       * Acá decía `byMonth[thisMonth]`, y por eso el cableado de BP49b NUNCA
+       * podía dispararse. Medido en la base: `outlook.budget_total` tiene filas
+       * de 2026-10 en adelante y CERO para 2026-09, porque `remainingMonthsFor`
+       * arranca en `i = 1` -- Outlook presupuesta desde el mes que viene. El
+       * perfil preguntaba por el mes en curso, así que los dos nunca hablaban
+       * del mismo mes y `budgetSource` era `'rule'` o `null` para las 35
+       * personas, jamás `'fixed'`.
+       *
+       * No es que el criterio estuviera mal: `totalesVigentes` ya resolvía
+       * `confirmed_only` y `released_to_rule` desde OL41. Lo que no coincidía
+       * era el MES.
+       *
+       * ⚠ Y UN MES LIBERADO SE SALTA SOLO: liberar significa que no hay número,
+       * así que ese mes no está en `byMonth` y el `find` sigue al siguiente. No
+       * hace falta --ni conviene-- volver a preguntar por `released_to_rule`
+       * acá: sería una segunda copia del criterio.
+       */
+      const desde = addMonths(thisMonth, 1);
       for (const [employeeKey, filas] of porEmpleado) {
         const { byMonth } = totalesVigentes(filas);
-        const delMes = byMonth[thisMonth];
-        if (delMes !== undefined) budgetThisMonthByEmployee.set(employeeKey, delMes);
+        const proximo = Object.keys(byMonth)
+          .filter((m) => m >= desde)
+          .sort()[0];
+        if (proximo !== undefined) {
+          budgetThisMonthByEmployee.set(employeeKey, byMonth[proximo]);
+          mesDelBudgetByEmployee.set(employeeKey, proximo);
+        }
       }
     }
   } catch {
