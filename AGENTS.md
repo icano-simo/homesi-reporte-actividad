@@ -985,6 +985,47 @@ cinco, que es donde se la va a agarrar. Y si el patrón se repite igual, la
 respuesta no es otra nota tampoco -- es que la comprobación corra sola, en el
 lint o en un `pretest`, sin que nadie tenga que acordarse.
 
+### Y se repitió igual: van TRES herramientas propias que existían y no se usaron
+
+La predicción de arriba se cumplió, y por eso esto ya no es una nota:
+
+| la herramienta | existía desde | qué pasó |
+|---|---|---|
+| `exigirAusente` | la tercera vez de seis | se agarró en la sexta; y volvió en OL51, sobre `pg_proc` |
+| `sin-comentarios` | antes del renombre de rótulos | el inventario se hizo por heurística igual |
+| `esperarDato` | RV-algo, con su `descripcion` obligatoria | una sonda esperó a mano y dio un `11 de 12` falso |
+
+Las tres veces la nota estaba escrita. Las tres veces no alcanzó.
+
+> **Con el shell, lo que funcionó no fue la regla escrita: fue la guarda que
+> frena el comando antes de que corra.** Para una herramienta que no se agarra,
+> la respuesta no es explicarla mejor.
+
+Por eso hay una segunda guarda de hook, `scripts/verificacion/esperar-al-dato.mjs`,
+y por eso intercepta **la escritura** y no un comando: una sonda no es un
+comando. Se escribe como archivo y se corre con `node sonda.mjs`, y ese comando
+no contiene el código -- la única forma de verlo es al escribirlo.
+
+Su predicado es deliberadamente estrecho:
+
+> `page.waitForFunction(` en un archivo que YA IMPORTA `guardas.mjs`.
+
+O sea: el autor tenía la herramienta en la mano y esperó a mano igual. Y lo que
+NO bloquea es la mitad que decide si sobrevive: `waitForTimeout` se usa
+legítimamente para dejar asentar un clic, y bloquearlo sería la guarda que
+alguien desengancha -- y ahí se pierde también lo que sí cubría.
+
+⚠ **Y su límite está escrito en la guarda misma:** no cubre un archivo que no
+importe `guardas.mjs`. Sin ese import no hay señal que distinga una espera a
+mano legítima de una que debería usar la herramienta, y estirarlo a «cualquier
+`waitForFunction`» sería una regla sobre la FORMA del texto -- el error que este
+archivo lleva documentado siete veces. Un límite declarado no se confunde con un
+agujero.
+
+Las dos guardas se instalan juntas con `npm run guarda:instalar`, que es una
+lista y no dos scripts: copiar el instalador y cambiarle el nombre habría sido
+la segunda copia de la misma decisión.
+
 Y hay un primo más chico del mismo error, que apareció cuatro veces en el mismo
 turno: **retipear de memoria la cadena que se va a buscar**, en vez de leerla
 del archivo. El import de un test, un `MINIMO` que era 14 y no 17, un `.message`
