@@ -1576,6 +1576,27 @@ general es ésta:
 El umbral no es la longitud. Las cuatro veces el texto era corto -- por eso
 pareció que no hacía falta.
 
+### Y una del CONTENIDO del mensaje, no de cómo viaja
+
+> **Un diff de 491 líneas para un cambio de 25 se lee como un cambio grande, y
+> un cambio grande no lo revisa nadie. Si el diff es mucho más grande que el
+> cambio, el mensaje tiene que decir por qué.**
+
+El caso: editar `guardas.test.mjs` --el único archivo de código del repo, junto
+con `app/business-plan/library/page.tsx`, que estaba versionado con CRLF
+mezclado con CR sueltos-- lo normaliza entero a LF, así que git lo ve reescrito.
+Se intentó restaurarlo dos veces, y la edición siguiente lo volvía a normalizar.
+
+Lo que corresponde no es pelearlo: **la normalización es la correcta**, porque
+este repo tiene `core.autocrlf = true` y no tiene `.gitattributes`, o sea que lo
+esperado es guardar LF. Lo que corresponde es que el mensaje lo diga, para que
+quien abra el diff sepa en dos líneas que son dos bloques nuevos y no un archivo
+rehecho.
+
+Vale para cualquier ruido que infle un diff --un `prettier` que pasa por un
+archivo entero, un renombre masivo, un archivo generado-- y es la misma familia
+que el resto de esta nota: lo que no se explica, se lee mal.
+
 ## La QUINTA vez, y la guarda que frena la mano
 
 Pasó una quinta vez: un `cat > archivo.mjs << 'XEOF'` en el mismo turno en que
