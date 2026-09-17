@@ -373,82 +373,37 @@ export async function saveGrowthRuleRevision(input: {
  * Por eso los números van primero.
  */
 
-/**
- * Los meses fijados de una estrategia. Devuelve la revisión escrita.
+/*
+ * ============================================================================
+ * ⚠ ACÁ VIVÍA `saveMonthlyTargets`, Y SE BORRÓ — etapa OL52
+ * ============================================================================
  *
- * ⚠ CON EL MISMO ARRASTRE QUE EL PRESUPUESTO — etapa OL38. Esta tabla comparte
- * el modo de falla: el lector se queda con la revisión más alta del par
- * (sujeto, estrategia) entera, y acá se escribían sólo los meses recibidos. Hoy
- * no muerde --`outlook.monthly_target` está vacía, y esta función no tiene un
- * solo llamador en el repo-- y por eso se arregla ahora: el día que alguien la
- * llame desde una pantalla con horizonte, el mes de afuera ya no se pierde.
+ * Escribía `outlook.monthly_target`, la tabla de los meses fijados de una
+ * ESTRATEGIA (no de una persona). Se va por tres cosas juntas, y ninguna sola
+ * habría alcanzado:
+ *
+ *   · cero llamadores en `main` desde que se borró `StrategyEditor.tsx`;
+ *   · `outlook.monthly_target` está VACÍA -- nunca se escribió una fila;
+ *   · y ya se la arregló DOS veces preventivamente --el arrastre de OL38 y el
+ *     de la ventana-- sobre un camino que nadie recorre. Mantener código que
+ *     nadie ejerce cuesta cada vez que algo cambia alrededor, y lo que se
+ *     arregla sin poder probarlo no se sabe si quedó bien.
+ *
+ * ⚠ Y NO ES HUÉRFANA EN TODOS LOS ÁRBOLES. Contado el 2026-09-16:
+ *
+ *     origin/main                      0 llamadores
+ *     origin/feat/rv1-modo-revision    1 -- `app/outlook/components/StrategyEditor.tsx`
+ *     origin/feat/outlook-realtor-code 1 -- el mismo archivo
+ *
+ * Ese archivo NO existe en `main`: se fue con el reagrupamiento por persona de
+ * OL26. O sea que las otras dos ramas llaman a una función desde una pantalla
+ * que `main` ya no tiene. Si alguna de las dos se mergea, `tsc` va a decirlo
+ * fuerte --y esa es la forma de fallo que se elige: la alternativa era
+ * mantenerla viva para una pantalla que este árbol ya no dibuja.
+ *
+ * Si algún día hace falta, se escribe con lo que se sepa entonces. Está en el
+ * historial: `git log -S saveMonthlyTargets`.
  */
-export async function saveMonthlyTargets(input: {
-  subject: OutlookSubject;
-  strategy: OutlookStrategy;
-  /** 'YYYY-MM' → número. Los meses que no vengan quedan sin fijar (0). */
-  targets: Record<string, number>;
-  /** El horizonte que estaba en pantalla -- ver `filasFueraDeVentana`. */
-  windowMonths: string[];
-  note: string | null;
-}): Promise<number> {
-  const months = Object.keys(input.targets).sort();
-  if (months.length === 0) {
-    throw new Error('There is no month to set.');
-  }
-
-  const set_by = await authorEmail();
-  const supabase = getSupabaseClient();
-
-  /* La revisión siguiente se lee de la BASE, no de la pantalla -- ver arriba. */
-  const [subjCol, subjVal] = subjectFilter(input.subject);
-  const { data: existing, error: readError } = await supabase
-    .schema('outlook')
-    .from('monthly_target')
-    .select('*')
-    .eq(subjCol, subjVal)
-    .eq('strategy', input.strategy);
-  if (readError) throw readable(readError);
-  const previas = (existing ?? []) as {
-    revision: number;
-    target_month: string;
-    target: number;
-    set_by: string | null;
-    note: string | null;
-  }[];
-  const revisionVigente = previas.reduce((a, t) => Math.max(a, t.revision), 0);
-  const revision = revisionVigente + 1;
-  const arrastradas = filasFueraDeVentana(previas, revisionVigente, input.windowMonths).filter(
-    (t) => !(t.target_month.slice(0, 7) in input.targets)
-  );
-
-  const rows = [
-    ...months.map((m) => ({
-      ...subjectColumns(input.subject),
-      strategy: input.strategy,
-      revision,
-      target_month: m + '-01',
-      target: input.targets[m],
-      set_by,
-      note: input.note,
-    })),
-    /* El autor y la nota son los de quien lo decidió: arrastrar no es volver a
-       decidir. Igual que en el desglose y el total. */
-    ...arrastradas.map((t) => ({
-      ...subjectColumns(input.subject),
-      strategy: input.strategy,
-      revision,
-      target_month: t.target_month,
-      target: t.target,
-      set_by: t.set_by,
-      note: t.note,
-    })),
-  ];
-
-  const { error } = await supabase.schema('outlook').from('monthly_target').insert(rows);
-  if (error) throw readable(error);
-  return revision;
-}
 
 /**
  * Qué modo rige para (persona, estrategia).

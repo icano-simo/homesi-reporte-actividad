@@ -2395,3 +2395,139 @@ era correcto para esa fila, pasó a mentir sobre una persona.
   devuelve cero no prueba que no haya: prueba que ese cruce no encontró. Un
   control positivo --una persona que sabemos que está-- separa las dos cosas en
   treinta segundos, y es lo que faltó las tres veces.
+
+# Un número correcto de la fuente equivocada
+
+> Prima de la sección de identidad, y por eso va justo después, pero el error no
+> es el mismo. Allá se le pregunta «¿existe?» a un universo más chico y el
+> silencio se lee como un no. **Acá la respuesta llega, es un número, y es
+> CORRECTO** -- para la fuente de la que salió, que no es la que la pregunta
+> necesitaba. No hay silencio que interpretar mal: hay un número que se cree.
+
+## La regla
+
+**Dos números que se leen igual pueden venir de fuentes distintas, y ninguno
+lleva escrito de dónde salió.** Antes de comparar dos, o de concluir algo de
+uno, hay que preguntarle a cada uno de dónde viene.
+
+## Los tres casos, y los tres del mismo día
+
+**1. El prellenado del editor.** Al medir si «Set budget» abría mostrando la
+regla de crecimiento, leí el campo, vi el número de la regla y lo di por bueno.
+`initialStringOf` prefiere **el desglose guardado** y sólo cae a la regla si no
+hay ninguno. Los dos daban lo mismo para la persona que miré, así que la
+medición no podía distinguirlos -- y la conclusión que saqué («abre por regla»)
+era falsa para todos los que sí tenían desglose.
+
+> Es «dos estados que hoy dan el mismo número» con otra cara: allá los dos
+> gobiernos coincidían en el instante, acá las dos FUENTES coinciden en el caso
+> que se miró.
+
+**2. Laura Delgado, «not in the NPPM program».** La pantalla preguntaba la
+membresía a `branch.nppmRoster` --el roster DE ESE BRANCH-- y Laura cerró en el
+733 y proyecta en el 776. La respuesta era correcta sobre el universo
+consultado: no está en el roster del 733. Y lo que la pantalla afirmaba con
+ella era falso sobre la persona.
+
+**3. Los tres números de Fred Gomez.** El caso que lo nombra mejor, porque son
+TRES fuentes para lo que se lee como un solo dato:
+
+| dónde se ve | de dónde sale |
+|---|---|
+| su fila en la tabla del branch | `budget_total` -- el total fijado, y si está liberado, vacío |
+| el bucket `nppm` de su Loan Officer | su PROYECCIÓN, que sale de `nppm_benchmark` |
+| y cuando esa tabla está vacía | el promedio de sus 3 meses cerrados |
+
+El brief decía que el guardado había escrito el desglose y no el total. Medido:
+las dos escrituras salieron bien, con un segundo de diferencia. Su fila estaba
+vacía porque alguien lo **liberó a la regla** tres horas después, y el `1` del
+bucket no salía del desglose sino de su promedio de cierres. Tres sitios, tres
+números que se escriben igual, y ninguno era el que el reporte suponía.
+
+## Qué hacer
+
+- **Al comparar dos números de la pantalla, escribir al lado de cada uno de
+  dónde viene.** Si los dos dicen `1`, la comparación no dice nada hasta que se
+  sepa si son el mismo `1`.
+- **Y cuando una medición confirma lo esperado, preguntarse si podría haber
+  dicho otra cosa.** El prellenado dio el número de la regla y yo buscaba el
+  número de la regla: una medición que no puede fallar no es una medición. Es la
+  misma familia que el `||` que siempre es cierto.
+- **Un rótulo que afirma algo sobre una persona se verifica contra la persona,
+  no contra la fila.** «not in the NPPM program» es una afirmación sobre Laura;
+  `nppmRoster` del 733 contesta sobre el 733.
+- Y la barata, que las tres veces habría alcanzado: **buscar la función que
+  produce el número y leer su primera línea.** `initialStringOf`,
+  `nppmRealtorBudget` y `gobierna` dicen en una línea cuál es su fuente.
+
+# Un número escrito en un reporte se lee como medido
+
+> Y ésta es la que más cuesta, porque **el que recibe el número no tiene cómo
+> distinguir uno medido de uno escrito.** Las dos direcciones pasaron el mismo
+> día: el usuario aceptó mis 34px, y yo casi acepto su cuatro.
+
+## La regla
+
+**Un número en un reporte es una aserción, y quien lo lee no puede correrla.**
+Así que sólo se escribe lo que se midió, y cuando no se midió, se dice.
+
+La asimetría es lo que la hace cara: **escribir un número recordado cuesta nada
+y descubrirlo cuesta una medición**. Por eso no alcanza con la buena fe de los
+dos lados -- el emisor mide antes de escribir, y el receptor no acepta un número
+sin preguntarle de dónde salió.
+
+## Los tres casos
+
+**1. Mis 34px, que eran 11, y volvieron tres veces.** Escribí «34px de padding»
+en el reporte de OL46 leyendo la declaración que acababa de poner, no la
+pantalla. `.ol-page table.piv.ol-year td { padding: 11px 10px }` tiene más
+clases y ganaba, así que la separación computada era **11px**. El usuario lo
+aceptó --no tenía cómo no aceptarlo-- y el mismo pedido volvió en OL47 y otra
+vez después. Tres turnos por un número que costaba un `getComputedStyle`.
+
+**2. El cuatro de `crearArnes`, que eran dos.** El usuario contó cuatro turnos
+salvados por esa guarda y pidió anotarlo en la tabla. Documentadas hay dos. Si
+lo escribía, la tabla de guardas --que es el registro que este repo consulta
+para decidir qué guarda vale-- pasaba a tener un número que nadie podía
+comprobar. Lo dijo él mismo al corregirse: «los recordaba, no los tenía
+medidos».
+
+**3. Las «cero filas» de Fred, que eran nueve.** Un brief urgente decía que
+`budget_total` no tenía ni una fila de ese realtor. Tiene nueve, en tres
+revisiones. La consulta que las buscaba devolvió vacío y no se repitió.
+
+## La parte incómoda
+
+Los tres son la misma forma y **ninguno es descuido**: las tres veces el número
+se recordaba, se deducía de la declaración, o salía de una consulta que no se
+volvió a correr. Un número mal medido y uno bien medido se escriben con los
+mismos caracteres.
+
+> **La única diferencia entre un número medido y uno recordado está del lado de
+> quien lo escribe, y desaparece al escribirlo.**
+
+De ahí que la responsabilidad no se pueda delegar al lector. Y de ahí también
+que el segundo caso valga más que los otros dos: es el único donde el número
+**no llegó a escribirse**, y lo único que lo frenó fue preguntar cuáles eran los
+cuatro.
+
+## Qué hacer
+
+- **Un número de estilo sale de `getComputedStyle` sobre el elemento de verdad,
+  en la pantalla levantada.** La declaración dice la intención; la cascada dice
+  el valor -- una regla en otro archivo con menos clases es una intención, no un
+  estilo.
+- **Un número sobre el dato sale de una consulta que se corre al escribir el
+  reporte**, no de una que se corrió antes. El dato se mueve: hay una sección
+  entera sobre eso.
+- **Un número que llega de otra persona se trata como un dato de entrada, no
+  como un hecho.** Si va a quedar escrito en el repo, se mide o se atribuye:
+  «el usuario cuenta cuatro; documentadas hay dos» es una frase honesta y
+  completa.
+- **Y cuando un número no se pudo medir, escribir eso en su lugar.** «No lo
+  medí» es información; un número aproximado no se distingue de uno exacto una
+  vez escrito.
+- La guarda barata, que salió de acá: **verificar los números propios antes de
+  escribirlos**. Ya salvó un reporte entero -- comprobar un «31 archivos» que yo
+  mismo había puesto obligó a medir de nuevo, y la medición trajo el archivo que
+  yo decía que no existía.
