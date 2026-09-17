@@ -650,6 +650,34 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
   const { personRows, recruitRows } = loanOfficerRowsOf(data, branch, monthsOfYear, remainingMonths);
 
   /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * QUIEN YA NO ESTÁ SALE DEL GRUPO, PERO SUS CIERRES NO SE VAN — etapa BP54
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * Isabel Wagner y Ludwig Aguillon están inactivas en las DOS fuentes y sin
+   * embargo tenían fila entre los Loan Officers del 716, contadas en «7 loan
+   * officers» como si estuvieran.
+   *
+   * ⚠ Y NO SE PUEDEN BORRAR: tienen seis cierres reales en ese branch --Isabel
+   * 4 en mayo y junio, Ludwig 2 en febrero--. Sacar sus filas se lleva esos
+   * cierres del año y el 716 deja de cuadrar contra Commercial Activity. El
+   * JSDoc de `resolveOfficerKey` ya lo decía: con sus filas afuera, el branch
+   * 716 no existía en el módulo.
+   *
+   * Así que salen del GRUPO --dejan de contarse como gente-- y sus cierres
+   * siguen en la tabla, en una fila propia que entra en `allShownYears`. El
+   * total del branch es la suma de lo que se muestra, así que no se mueve.
+   *
+   * ⚠ Y EL RÓTULO DICE CUÁL DE LAS DOS COSAS ES. Alguien que se fue y alguien
+   * de otro branch se ven parecido en una fila y no son lo mismo: la línea del
+   * pie ya dice «closed here by loan officers from OTHER BRANCHES», y ésta
+   * tiene que decir que estas personas YA NO ESTÁN. Un rótulo que no distingue
+   * las dos causas es un número correcto con una explicación falsa.
+   */
+  const seFueron = personRows.filter((p) => p.lo.rosterState === 'left');
+  const personRowsActivos = personRows.filter((p) => p.lo.rosterState !== 'left');
+
+  /*
    * ══════════════════════════════════════════════════════════════════
    * EL FOCO DE LA REVISIÓN: UNA SOLA PERSONA A LA VISTA — etapa RV7
    * ══════════════════════════════════════════════════════════════════
@@ -1225,7 +1253,27 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
     return { filas, total, porRegla, cuantos: suyos.length, realtors, hayAlgo: filas.length > 0 };
   })();
 
-  const loExistingYears = personRows.map((p) => p.year);
+  /* Sólo los que están: el grupo cuenta gente, y quien se fue no es gente del
+     branch. Sus cierres viajan en `yaNoEstanYear`, más abajo — BP54. */
+  const loExistingYears = personRowsActivos.map((p) => p.year);
+  /*
+   * Los cierres de quienes ya no están, en UNA fila. Se arma con `composeYear`
+   * sobre la suma de sus meses reales, y sin pronóstico ni presupuesto: eso es
+   * lo que significa haberse ido, y es lo que su etiqueta `left` ya decía.
+   */
+  const yaNoEstanYear: YearRow | null =
+    seFueron.length === 0
+      ? null
+      : (() => {
+          const byMonth: Record<string, number | null> = {};
+          let total = 0;
+          for (const m of monthsOfYear) {
+            const v = sumYears(seFueron.map((p) => p.year), m);
+            byMonth[m] = v;
+            if (v !== null) total += v;
+          }
+          return { byMonth, total, hasUnknown: false };
+        })();
   const loHiringYears = visibleRecruitRows.map((r) => r.year);
   /*
    * ⚠ LAS DE NPPM NO ENTRAN A LA SUMA — etapa OL33. Muestran el MISMO cierre
@@ -1306,6 +1354,10 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
   const allShownYears: YearRow[] = [
     ...loExistingYears,
     ...loHiringYears,
+    /* ⚠ ENTRA EN LA SUMA — BP54. Si no entrara, sus seis cierres caerían en la
+       fila de reconciliación, que dice «lo que ninguna estrategia reclama»: un
+       número correcto con una explicación falsa. */
+    ...(yaNoEstanYear !== null ? [yaNoEstanYear] : []),
     /*
      * ⚠ NPPM NO ESTÁ ACÁ, Y ES EL CAMBIO DE OL33. Sus filas se dibujan pero no
      * suman: el cierre que muestran ya está contado en la fila del Loan Officer
@@ -1539,7 +1591,10 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                                  su fila está allá. Nuevo en OL8.
           */}
           <p className="page-head__subtitle">
-            {branch.loanOfficers.length} loan officer{branch.loanOfficers.length === 1 ? '' : 's'} · closed {branch.ytd}
+            {/* ⚠ LOS QUE ESTÁN, igual que el grupo — BP54. Si el encabezado
+                dijera 7 y el grupo 5, la misma pantalla se contradiría, y quien
+                la lea no tiene forma de saber cuál de los dos cuenta bien. */}
+            {personRowsActivos.length} loan officer{personRowsActivos.length === 1 ? '' : 's'} · closed {branch.ytd}
             {branch.closedByOutsiders > 0 ? (
               <span title="Closed in this branch by loan officers whose roster branch is another one. Their production counts here, because the loan closed here; their row lives in their own branch.">
                 {' '}
@@ -1680,7 +1735,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               Own Production + Recruitment combinados por persona. Ver
               `loanOfficerRowsOf` y el JSDoc de cabecera del archivo.
             */}
-            {personRows.length > 0 &&
+            {personRowsActivos.length > 0 &&
               (() => {
                 const key = 'g:lo-existing';
                 const abierta = open.has(key);
@@ -1693,7 +1748,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                  * en `focus.ts` (rama ajena) ni en `PersonBudgetRow` (usado
                  * por media pantalla).
                  */
-                const focoRows = personRows.map((pr) => ({ ...pr, employeeKey: pr.lo.employeeKey }));
+                const focoRows = personRowsActivos.map((pr) => ({ ...pr, employeeKey: pr.lo.employeeKey }));
                 return (
                 <Fragment key={key}>
                   <tr className="grp d1 togg" data-rv-grupo={key} onClick={() => toggle(key)}>
@@ -1712,8 +1767,12 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                     <td className="bp-center totcol">
                       {fmt(sumOfShown(monthsOfYear.map((m) => sumYears(loExistingYears, m))))}
                     </td>
+                    {/* ⚠ CUENTA LOS QUE ESTÁN — BP54. Decía
+                        `branch.loanOfficers.length`, que incluye a quien ya no
+                        está: el 716 decía «7 loan officers» con dos bajas
+                        adentro. */}
                     <td className="ol-rulecol bp-muted">
-                      {branch.loanOfficers.length} loan officer{branch.loanOfficers.length === 1 ? '' : 's'}
+                      {personRowsActivos.length} loan officer{personRowsActivos.length === 1 ? '' : 's'}
                     </td>
                   </tr>
 
@@ -1854,6 +1913,49 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                 </Fragment>
               );
             })()}
+
+            {/*
+              ══════════════════════════════════════════════════════════════
+              LO QUE CERRÓ GENTE QUE YA NO ESTÁ — etapa BP54
+              ══════════════════════════════════════════════════════════════
+
+              Una fila, sin abrir, como la de Affinity. No es un grupo: no hay
+              nadie a quien desplegar, porque estas personas ya no son del
+              branch. Lo que queda de ellas es lo que cerraron.
+
+              ⚠ EL RÓTULO NOMBRA LA CAUSA. La línea del pie dice «closed here by
+              loan officers from OTHER BRANCHES»; ésta dice que ya no están. Las
+              dos filas se ven parecidas y son cosas distintas, y un rótulo que
+              no las distingue es un número correcto con una explicación falsa.
+            */}
+            {yaNoEstanYear !== null && (
+              <tr className="metric mrow ol-detail" data-ol-ya-no-estan="">
+                <td className="lbl">
+                  Closed by people no longer at this branch
+                  <span
+                    className="bp-muted ol-tag"
+                    title={
+                      `${seFueron.map((p) => p.lo.fullName).join(', ')} ` +
+                      `${seFueron.length === 1 ? 'is' : 'are'} no longer with the company, per the roster. ` +
+                      `Their closings are real and already happened, which is why they are still in the ` +
+                      `branch total. What changed is that they will not produce from now on, so there is no ` +
+                      `forecast and no budget — and they no longer count as loan officers of this branch. ` +
+                      `This is not the same as the footer line below, which is about people from OTHER branches.`
+                    }
+                  >
+                    {seFueron.length} {seFueron.length === 1 ? 'person' : 'people'}, left
+                  </span>
+                </td>
+                <td className="bp-center ol-bench"></td>
+                {monthsOfYear.map((m) => (
+                  <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
+                    {fmt(yaNoEstanYear.byMonth[m] ?? null)}
+                  </td>
+                ))}
+                <td className="bp-center totcol">{fmt(yaNoEstanYear.total)}</td>
+                <td className="ol-rulecol bp-muted">no forecast</td>
+              </tr>
+            )}
 
             {/*
               ══════════════════════════════════════════════════════════════
