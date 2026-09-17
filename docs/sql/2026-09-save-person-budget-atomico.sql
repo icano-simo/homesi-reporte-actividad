@@ -2,13 +2,19 @@
 -- LAS DOS ESCRITURAS DEL PRESUPUESTO, EN UNA SOLA TRANSACCION — etapa OL51
 -- ============================================================================
 --
--- ⚠ HAY QUE VOLVER A APLICARLO. La primera version se aplico el 2026-09-16 y
--- tiene un defecto que encontro probar las dos ramas: la comprobacion de
--- concurrencia levantaba `errcode = '40001'` --serialization_failure-- y
--- PostgREST reintenta ese codigo solo, asi que esa rama devolvia `504 upstream
--- request timeout` en vez del mensaje. Es `create or replace`, asi que correr
--- este archivo de nuevo alcanza. El detalle esta en el comentario de la
--- comprobacion, mas abajo.
+-- APLICADO el 2026-09-16, y REAPLICADO el mismo dia sin el `errcode = '40001'`.
+--
+-- La primera version levantaba `errcode = '40001'` --serialization_failure-- en
+-- la comprobacion de concurrencia, y PostgREST reintenta ese codigo solo: esa
+-- rama devolvia `504 upstream request timeout` en vez del mensaje, y el
+-- reintento seguia corriendo hasta escribir. El detalle esta en el comentario
+-- de la comprobacion, mas abajo.
+--
+-- ⚠ LA FUNCION VIVA NO ES BYTE A BYTE ESTE ARCHIVO: el usuario la reaplico con
+-- la correccion escrita en sus palabras. El codigo es el mismo --medido: mismo
+-- `security invoker`, misma firma, y la rama de concurrencia contesta `P0001`
+-- con su mensaje en 413ms-- y lo que difiere son los comentarios. Correr este
+-- archivo de nuevo la reemplaza por esta redaccion, sin cambiar comportamiento.
 --
 -- ---------------------------------------------------------------------------
 -- QUE PROBLEMA RESUELVE
