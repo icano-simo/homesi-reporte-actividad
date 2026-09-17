@@ -1,7 +1,9 @@
 import { getSupabaseClient } from '@/lib/supabase/client';
 /* El criterio de qué fila de `budget_total` gobierna, una sola vez para los
    dos módulos que la leen -- etapa OL41. */
-import { totalesVigentes, type FilaDeTotal } from '@/lib/outlook/gobierno';
+import { presupuestoDePersona, totalesVigentes, type FilaDeTotal } from '@/lib/outlook/gobierno';
+/* El piso de los realtors NPPM, compartido con Outlook — etapa BP54. */
+import { aportesPorPersona, benchmarkDeRealtor } from '@/lib/outlook/nppmPiso';
 import { buildAliasIndex, buildExcludedIndex } from './aliasIndex';
 import { lastCompleteMonths, currentWindowMonths, currentYearMonth } from './months';
 /* BP36: `addMonths` ya existía para la línea base de impacto; se reusa para
@@ -14,7 +16,7 @@ import { DEFAULT_RATES, toRateSettings, type RateKey, type RateSettings } from '
  * importa de `lib/outlook/project.ts` y no se reimplementa acá: ver la nota
  * en el bloque "EL BUDGET, CUANDO NADIE LO FIJÓ A MANO" más abajo.
  */
-import { projectPlan, type Cadence, type GrowthSegment, type ProjectionMode, type StrategyPlan } from '@/lib/outlook/project';
+import { benchmarkAt, projectPlan, type Cadence, type GrowthSegment, type ProjectionMode, type StrategyPlan } from '@/lib/outlook/project';
 import { branchStatus } from './intervention';
 import type {
   ActivePlanSummary,
@@ -96,6 +98,8 @@ interface ActivityRow {
   credit_report_date: string | null;
   app_date: string | null;
   closing_month: string | null;
+  /** ⚠ BP54 — sólo para el promedio de cierres del realtor, ver el piso NPPM. */
+  nppm_realtor_code?: string | null;
   branch: string | null;
   total_loan_amount: number | string | null;
   loan_number: string | null;
@@ -389,6 +393,15 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
      es un número correcto de la fuente equivocada. */
   const mesDelBudgetByEmployee = new Map<number, string>();
   let personBudgetTotalTableAvailable = false;
+
+  /*
+   * El piso de los realtors NPPM — etapa BP54. Se DECLARA acá, junto al
+   * budget que modifica, y se CALCULA más abajo: necesita los cierres por
+   * realtor y el branch primario de cada dueño, que todavía no existen.
+   */
+  const pisoPorEmpleado = new Map<number, Record<string, number>>();
+  /** `realtor_code` → mes → cierres. Se llena en el recuento de actividad. */
+  const cierresPorRealtor = new Map<string, Record<string, number>>();
   try {
     const { data, error } = await outlook
       /* Renombrada en OL27 -- `docs/sql/2026-09-budget-sujeto-branch.sql`. El
@@ -640,7 +653,13 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
     supabase
       .from('loan_records_v2')
       .select(
-        'loan_officer, loan_officer_person_code, file_creation_date, credit_report_date, app_date, closing_month, branch, total_loan_amount, loan_number, loan_program, loan_folder_name, loan_channel'
+        /* ⚠ `nppm_realtor_code` SE AGREGA EN BP54 y no lo usa el Business Plan
+           para nada suyo: hace falta para el promedio de cierres de cada
+           realtor, que es de dónde sale su benchmark cuando `nppm_benchmark`
+           está vacía -- que hoy es siempre. Sin esta columna el perfil no
+           puede calcular el piso, y sin el piso diría un número distinto que
+           Outlook. */
+        'loan_officer, loan_officer_person_code, file_creation_date, credit_report_date, app_date, closing_month, branch, total_loan_amount, loan_number, loan_program, loan_folder_name, loan_channel, nppm_realtor_code'
       )
       // Sin orden explícito, PostgREST no garantiza que dos páginas seguidas
       // no repitan ni salteen filas. `loan_number` es único en esta tabla.
@@ -835,6 +854,20 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
      * 4.573 nombres que v2 trae en minúscula resuelven igual.
      */
     const officerRaw = row.loan_officer?.trim() ? row.loan_officer : BLANK_OFFICER;
+    /*
+     * ⚠ EL CIERRE DEL REALTOR SE CUENTA ANTES DEL `continue` — BP54. Un
+     * préstamo con realtor cuyo Loan Officer no resuelve igual cerró, y su
+     * promedio de 3 meses es lo que da el benchmark del realtor. Contarlo
+     * después del `continue` le bajaría el piso a alguien por una razón que no
+     * tiene nada que ver con él.
+     */
+    const rc = row.nppm_realtor_code?.trim();
+    const cm = monthOf(row.closing_month);
+    if (rc && cm) {
+      const porMes = cierresPorRealtor.get(rc) ?? {};
+      porMes[cm] = (porMes[cm] ?? 0) + 1;
+      cierresPorRealtor.set(rc, porMes);
+    }
     const key = resolveActivityOfficer(row, officerRaw);
     if (key === null) continue;
     let m = activityByEmployee.get(key);
@@ -1055,6 +1088,110 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
     overrideDetail.set(employeeKey, { forcedBranchCode: code, reason: forced.reason });
   }
 
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * EL PISO DE LOS REALTORS NPPM, TAMBIÉN ACÁ — etapa BP54
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * Desde OL48 el presupuesto de una persona puede venir del piso de sus
+   * realtors, no de lo que ella fijó. Si el perfil no lo aplicara, diría un
+   * número y Outlook otro el día que el piso supere al total -- que es
+   * exactamente lo que esta etapa viene a cerrar.
+   *
+   * ⚠ LAS TRES LECTURAS SON PROPIAS, y tienen que serlo: `loadOutlookData` no
+   * se puede llamar desde acá --`lib/outlook/loadData.ts` importa este archivo,
+   * así que sería un ciclo-- y por eso la DERIVACIÓN vive en `nppmPiso.ts`, que
+   * es puro. Lo que se comparte es el cálculo, no la consulta.
+   *
+   * ⚠ Y EL FILTRO DEL ROSTER ES EL MISMO QUE EL DE OUTLOOK: `estado ===
+   * 'contratado' && is_active`. Está escrito igual en los dos lados a
+   * propósito -- es una condición sobre filas crudas, no una decisión de
+   * producto, y meterla en el módulo obligaría a pasarle la tabla entera.
+   * Si algún día deja de coincidir, lo dice la prueba de paridad.
+   */
+  /* Los meses del piso: el reparto no depende del mes --el benchmark de un
+     realtor es constante-- pero se calculan los doce siguientes para que el
+     perfil pueda pedir cualquiera sin volver a derivar. */
+  const mesesDelPiso = Array.from({ length: 12 }, (_, k) => addMonths(nextMonth, k));
+  try {
+    const [rosterRes, ownersRes, benchRes] = await Promise.all([
+      supabase
+        .schema('org')
+        .from('nppm_realtor')
+        .select('realtor_code, display_name, branch_code, estado, is_active'),
+      outlook.from('nppm_realtor_owner').select('realtor_code, employee_key'),
+      outlook.from('nppm_benchmark').select('realtor_code, effective_from, monthly_benchmark'),
+    ]);
+    if (!rosterRes.error && !ownersRes.error) {
+      const roster = ((rosterRes.data ?? []) as {
+        realtor_code: string;
+        display_name: string;
+        branch_code: string | null;
+        estado: string | null;
+        is_active: boolean | null;
+      }[]).filter((r) => r.estado === 'contratado' && r.is_active === true);
+
+      const scheduleDe = new Map<string, { fromMonth: string; value: number }[]>();
+      for (const b of (benchRes.data ?? []) as {
+        realtor_code: string;
+        effective_from: string;
+        monthly_benchmark: number | string;
+      }[]) {
+        scheduleDe.set(b.realtor_code, [
+          ...(scheduleDe.get(b.realtor_code) ?? []),
+          { fromMonth: String(b.effective_from).slice(0, 7), value: Number(b.monthly_benchmark) },
+        ]);
+      }
+
+      const realtorsParaPiso = roster
+        .filter((r) => r.branch_code !== null)
+        .map((r) => {
+          const schedule = scheduleDe.get(r.realtor_code) ?? [];
+          const { benchmark } = benchmarkDeRealtor({
+            guardado: schedule.length > 0 ? benchmarkAt(schedule, thisMonth) : null,
+            cierresPorMes: cierresPorRealtor.get(r.realtor_code) ?? {},
+            ventanaCerrada: windowMonths,
+          });
+          return {
+            realtorCode: r.realtor_code,
+            displayName: r.display_name,
+            branchCode: r.branch_code as string,
+            benchmark,
+          };
+        });
+
+      const duenos = ((ownersRes.data ?? []) as { realtor_code: string; employee_key: number }[])
+        .map((o) => ({
+          realtorCode: o.realtor_code,
+          ownerEmployeeKey: o.employee_key,
+          /* El branch primario del dueño: el primero de su lista, igual que
+             Outlook. Si no coincide con el del realtor, el módulo descarta el
+             vínculo -- la regla de OL45. */
+          ownerPrimaryBranch: (loBranchCodes.get(o.employee_key) ?? [])[0] ?? '',
+        }));
+
+      const aportes = aportesPorPersona({
+        realtors: realtorsParaPiso,
+        duenos,
+        /* El perfil no lee los totales FIJADOS de un realtor: su consulta de
+           `budget_total` filtra `employee_key` no nulo. Un realtor con total
+           fijado proyecta igual acá, y eso lo dice la prueba de paridad. */
+        fijados: {},
+        months: mesesDelPiso,
+      });
+      for (const [employeeKey, lista] of aportes) {
+        const byMonth: Record<string, number> = {};
+        for (const p of lista) {
+          for (const [m, n] of Object.entries(p.byMonth)) byMonth[m] = (byMonth[m] ?? 0) + n;
+        }
+        pisoPorEmpleado.set(employeeKey, byMonth);
+      }
+    }
+  } catch {
+    /* Sin las tablas o sin acceso: nadie tiene piso, que es el estado correcto
+       -- no un cero que se lea como una decisión. */
+  }
+
   const loanOfficers: LoanOfficerRow[] = [];
   for (const [employeeKey, branchCodes] of loBranchCodes) {
     const employee = employeeByKey.get(employeeKey);
@@ -1072,8 +1209,46 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
      * segundo nunca sobreescribe al primero, y ninguno de los dos se escribe.
      */
     const fixedBudget = budgetThisMonthByEmployee.get(employeeKey) ?? null;
-    const budgetThisMonth = fixedBudget ?? ruleProjectionThisMonth.get(employeeKey) ?? null;
-    const budgetSource: 'fixed' | 'rule' | null = fixedBudget !== null ? 'fixed' : budgetThisMonth !== null ? 'rule' : null;
+    const budgetSinPiso = fixedBudget ?? ruleProjectionThisMonth.get(employeeKey) ?? null;
+    /*
+     * ══════════════════════════════════════════════════════════════════════
+     * ⚠ Y EL PISO DE SUS REALTORS — etapas OL48 y BP54
+     * ══════════════════════════════════════════════════════════════════════
+     *
+     * Un realtor NPPM no cierra: cierra su Loan Officer. Así que lo que el
+     * realtor proyecta ya pasa por él y su presupuesto no puede quedar debajo.
+     * Es la MISMA función que usa Outlook --`presupuestoDePersona`-- con el
+     * piso derivado por el MISMO módulo, así que las dos pantallas no pueden
+     * decir números distintos por construcción.
+     *
+     * ⚠ EL MES ES EL DEL BUDGET, no el mes en curso: el piso se lee del mismo
+     * mes del que salió el número, o serían dos meses distintos comparados
+     * como si fueran uno.
+     */
+    const mesDelBudget = mesDelBudgetByEmployee.get(employeeKey) ?? nextMonth;
+    const pisoDelMes = pisoPorEmpleado.get(employeeKey)?.[mesDelBudget] ?? 0;
+    const conPiso =
+      budgetSinPiso === null && pisoDelMes === 0
+        ? null
+        : presupuestoDePersona({
+            fijado: fixedBudget ?? undefined,
+            regla: budgetSinPiso ?? 0,
+            pisoDeRealtors: pisoDelMes,
+          });
+    const budgetThisMonth = conPiso === null ? null : conPiso.valor;
+    /*
+     * ⚠ UNA CUARTA FUENTE, Y SE DICE. Quien lea «fixed» sobre un número que la
+     * persona no decidió se lleva una afirmación falsa -- que es justo lo que
+     * el rótulo `raised by NPPM` evita en Outlook.
+     */
+    const budgetSource: 'fixed' | 'rule' | 'nppm' | null =
+      conPiso === null
+        ? null
+        : conPiso.subioPorRealtors
+          ? 'nppm'
+          : fixedBudget !== null
+            ? 'fixed'
+            : 'rule';
     const q1 = evaluateQualifier1(activity.closingsByMonth, windowMonths, projection, benchmark, budgetThisMonth, budgetSource);
 
     /*
@@ -1143,6 +1318,10 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
         .filter(([m]) => m.startsWith(yearPrefix))
         .reduce((sum, [, n]) => sum + n, 0),
       q1,
+      /* ⚠ De qué mes sale `q1.budget` — BP54. Sin esto el rótulo dice «this
+         month» sobre un número de octubre, que es una afirmación falsa sobre el
+         dato y la familia de error que este repo lleva anotada. */
+      budgetMonth: mesDelBudgetByEmployee.get(employeeKey) ?? null,
       q2,
       verdict: combineVerdict(q1, q2),
       intervention: interventionByEmployee.get(employeeKey) ?? null,

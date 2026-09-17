@@ -346,7 +346,17 @@ export function Q1Panel({ lo, benchmarkSlot }: { lo: LoanOfficerRow; benchmarkSl
           rule", alguien va a ver un budget y creer que se decidió.
         */}
         <div className="bp-stat">
-          <span className="bp-stat__label">Budget (this month)</span>
+          {/*
+            ⚠ EL RÓTULO NOMBRA EL MES — BP54. Decía «this month», y desde esta
+            etapa el número es el del PRÓXIMO MES PRESUPUESTADO: Outlook
+            presupuesta desde el mes que viene y `budget_total` no tiene una sola
+            fila del mes en curso -- por eso el cableado de BP49b nunca se
+            disparaba. Un número de octubre rotulado «este mes» es correcto y
+            afirma algo falso, que es la forma más cara de equivocarse acá.
+          */}
+          <span className="bp-stat__label">
+            Budget{lo.budgetMonth === null ? '' : ' (' + shortMonth(lo.budgetMonth) + ')'}
+          </span>
           {budget === null ? (
             <span className="bp-muted" title="Nobody set a budget for this month, and there's no growth rule for Own Production to read either.">
               Not set

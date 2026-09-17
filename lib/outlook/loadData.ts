@@ -16,7 +16,7 @@ import { pisoDeRealtors, presupuestoDePersona, totalesVigentes } from '@/lib/out
 /* El aporte de los realtors, en un módulo puro que también lee el perfil del
    Business Plan — etapa BP54. Ver el JSDoc de `nppmPiso.ts` para el ciclo de
    imports que lo hizo necesario. */
-import { aportesPorPersona, proyeccionPorRealtor, type AporteDeRealtor } from '@/lib/outlook/nppmPiso';
+import { aportesPorPersona, benchmarkDeRealtor, proyeccionPorRealtor, type AporteDeRealtor } from '@/lib/outlook/nppmPiso';
 import { classifyBranch } from '@/lib/domain/classifyBranch';
 import { classifyStrategy } from '@/lib/pipeline/strategy';
 import { apportionByWeight } from '@/lib/pipeline/aggregate';
@@ -3108,18 +3108,26 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
                  * cierres en el 776 y promedio 0,67, porque sólo 2 caen en la
                  * ventana.
                  */
-                const avg3m = ventanaCerrada.reduce((a, m) => a + (meses[m] ?? 0), 0) / NPPM_WINDOW;
+                /* ⚠ LA ELECCIÓN Y EL PROMEDIO VIVEN EN `nppmPiso.ts` — BP54. El
+                   perfil del Business Plan necesita el mismo número, y
+                   derivarlo allá sería la segunda copia. Acá sólo se arma la
+                   entrada. */
                 /* Por código, igual que en `strategiesOf`. */
                 const schedule = nppmScheduleByRealtor.get(realtorCode) ?? [];
-                const guardado = benchmarkAt(schedule, displayMonth);
                 const hayGuardado = schedule.length > 0;
+                const { benchmark: benchmarkVigente } = benchmarkDeRealtor({
+                  guardado: hayGuardado ? benchmarkAt(schedule, displayMonth) : null,
+                  cierresPorMes: meses,
+                  ventanaCerrada,
+                });
+                const avg3m = ventanaCerrada.reduce((a, m) => a + (meses[m] ?? 0), 0) / NPPM_WINDOW;
                 return {
                   realtorCode,
                   displayName: nombrePorCodigo.get(realtorCode) ?? realtorCode,
                   ytd: totalOf(actualByBranchRealtor, rk),
                   actualByMonth: meses,
                   avg3m,
-                  benchmark: hayGuardado ? guardado : avg3m,
+                  benchmark: benchmarkVigente,
                   benchmarkIsDefault: !hayGuardado,
                   /*
                    * ⚠ OL30. `?? branchCode` para el caso imposible de un

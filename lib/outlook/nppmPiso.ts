@@ -53,6 +53,42 @@ import { apportionByWeight } from '../pipeline/aggregate.ts';
  * forma exacta en que este proyecto ya pagó dos cascadas de redondeo.
  */
 
+/**
+ * Cuántos meses cerrados entran en el benchmark por defecto de un realtor.
+ *
+ * ⚠ SE DIVIDE SIEMPRE POR ESTE NÚMERO, no por los meses con cierres. Un mes sin
+ * cerrar nada es un cero real, y promediar sólo los meses activos inflaría el
+ * número: Laura Delgado tiene 5 cierres en el 776 y promedio 0,67, porque sólo
+ * 2 caen en la ventana.
+ */
+export const NPPM_WINDOW = 3;
+
+/**
+ * El benchmark vigente de un realtor: el guardado, o el promedio de sus meses
+ * cerrados.
+ *
+ * ⚠ ENTRA AL MÓDULO EN BP54 porque es la otra mitad que podía divergir. El
+ * perfil del Business Plan necesita el mismo número que Outlook, y si derivara
+ * el promedio por su cuenta serían dos cálculos del mismo dato -- correctos los
+ * dos el día que se escriben. `benchmarkAt` no hace falta traerlo: ya vive en
+ * `project.ts`, que no tiene imports, y los dos módulos ya lo importan.
+ *
+ * `guardado` es `null` cuando `outlook.nppm_benchmark` no tiene ningún punto
+ * para ese realtor -- que hoy es el caso de los trece, porque la tabla está
+ * vacía. No es lo mismo que un cero guardado: cero sería una decisión.
+ */
+export function benchmarkDeRealtor(input: {
+  guardado: number | null;
+  /** Cierres del realtor por mes. */
+  cierresPorMes: Readonly<Record<string, number>>;
+  /** Los meses cerrados que entran en el promedio. */
+  ventanaCerrada: readonly string[];
+}): { benchmark: number; esDefault: boolean } {
+  if (input.guardado !== null) return { benchmark: input.guardado, esDefault: false };
+  const suma = input.ventanaCerrada.reduce((a, m) => a + (input.cierresPorMes[m] ?? 0), 0);
+  return { benchmark: suma / NPPM_WINDOW, esDefault: true };
+}
+
 /** Un realtor NPPM, con lo que hace falta para proyectar su aporte. */
 export interface RealtorParaPiso {
   realtorCode: string;

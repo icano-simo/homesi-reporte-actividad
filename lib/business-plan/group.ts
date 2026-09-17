@@ -245,6 +245,11 @@ export function aggregateGroup(
 
   const yearPrefix = thisMonth.slice(0, 5);
   const row: LoanOfficerRow = {
+    /* ⚠ `budgetMonth` en `null` — BP54. Un grupo suma los budgets de varias
+       personas, y cada una puede tener presupuestado un mes distinto: poner uno
+       sería afirmar que todas hablan del mismo. En `null` el rótulo dice
+       «Budget» a secas, que es lo único cierto para un grupo. */
+    budgetMonth: null,
     /* ── Identidad: del grupo, no de nadie ── */
     employeeKey: -1,
     fullName: members.length + ' loan officers',
