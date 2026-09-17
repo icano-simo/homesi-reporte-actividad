@@ -456,35 +456,38 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
       }
       /*
        * ══════════════════════════════════════════════════════════════════
-       * ⚠ EL PRÓXIMO MES PRESUPUESTADO, NO EL MES EN CURSO — etapa BP54
+       * ⚠ EL MES EN CURSO, Y NO EL PRÓXIMO PRESUPUESTADO — BP54b
        * ══════════════════════════════════════════════════════════════════
        *
-       * Acá decía `byMonth[thisMonth]`, y por eso el cableado de BP49b NUNCA
-       * podía dispararse. Medido en la base: `outlook.budget_total` tiene filas
-       * de 2026-10 en adelante y CERO para 2026-09, porque `remainingMonthsFor`
-       * arranca en `i = 1` -- Outlook presupuesta desde el mes que viene. El
-       * perfil preguntaba por el mes en curso, así que los dos nunca hablaban
-       * del mismo mes y `budgetSource` era `'rule'` o `null` para las 35
-       * personas, jamás `'fixed'`.
+       * BP54 hizo que esto leyera el próximo mes con presupuesto, razonando que
+       * si septiembre está vacío el número útil es el de octubre. Está mal, y
+       * el motivo es de negocio y no de código:
        *
-       * No es que el criterio estuviera mal: `totalesVigentes` ya resolvía
-       * `confirmed_only` y `released_to_rule` desde OL41. Lo que no coincidía
-       * era el MES.
+       *   **El gap se mide contra la meta que HABÍA para este mes, no contra la
+       *   del mes que viene.** El número de octubre nunca fue la meta de
+       *   septiembre, así que mostrarlo acá afirma algo falso sobre el mes que
+       *   se está evaluando -- y encima en la línea que alimenta el GAP.
        *
-       * ⚠ Y UN MES LIBERADO SE SALTA SOLO: liberar significa que no hay número,
-       * así que ese mes no está en `byMonth` y el `find` sigue al siguiente. No
-       * hace falta --ni conviene-- volver a preguntar por `released_to_rule`
-       * acá: sería una segunda copia del criterio.
+       * ⚠ Y SEPTIEMBRE VA A QUEDAR SIN PRESUPUESTO PARA SIEMPRE, que es
+       * correcto: nadie lo fijó, y ya no se puede. `remainingMonthsFor` arranca
+       * en `i = 1` a propósito --ver su JSDoc en `lib/outlook/horizon.ts`-- así
+       * que el presupuesto de un mes se fija ANTES de que empiece. No se
+       * perdió: nunca existió. De octubre en adelante sí va a estar.
+       *
+       * Lo que la pantalla tiene que hacer con eso es DECIRLO --«not
+       * budgeted»-- y no rellenar el hueco con un número de otro mes.
+       *
+       * ⚠ Y UN MES LIBERADO NO ESTÁ EN `byMonth`: liberar significa que no hay
+       * número, así que cae solo al mismo «no hay». No hace falta --ni
+       * conviene-- volver a preguntar por `released_to_rule` acá: sería una
+       * segunda copia del criterio.
        */
-      const desde = addMonths(thisMonth, 1);
       for (const [employeeKey, filas] of porEmpleado) {
         const { byMonth } = totalesVigentes(filas);
-        const proximo = Object.keys(byMonth)
-          .filter((m) => m >= desde)
-          .sort()[0];
-        if (proximo !== undefined) {
-          budgetThisMonthByEmployee.set(employeeKey, byMonth[proximo]);
-          mesDelBudgetByEmployee.set(employeeKey, proximo);
+        const delMes = byMonth[thisMonth];
+        if (delMes !== undefined) {
+          budgetThisMonthByEmployee.set(employeeKey, delMes);
+          mesDelBudgetByEmployee.set(employeeKey, thisMonth);
         }
       }
     }
@@ -1109,10 +1112,11 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
    * producto, y meterla en el módulo obligaría a pasarle la tabla entera.
    * Si algún día deja de coincidir, lo dice la prueba de paridad.
    */
-  /* Los meses del piso: el reparto no depende del mes --el benchmark de un
-     realtor es constante-- pero se calculan los doce siguientes para que el
-     perfil pueda pedir cualquiera sin volver a derivar. */
-  const mesesDelPiso = Array.from({ length: 12 }, (_, k) => addMonths(nextMonth, k));
+  /* Los meses del piso. Arranca en el MES EN CURSO --BP54b-- porque es el mes
+     del que el perfil lee el presupuesto; el reparto no depende del mes, pero
+     pedirle un mes que no calculó devolvería 0 y eso se leería como «sus
+     realtors no aportan nada». */
+  const mesesDelPiso = Array.from({ length: 13 }, (_, k) => addMonths(thisMonth, k));
   try {
     const [rosterRes, ownersRes, benchRes] = await Promise.all([
       supabase
@@ -1225,7 +1229,9 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
      * mes del que salió el número, o serían dos meses distintos comparados
      * como si fueran uno.
      */
-    const mesDelBudget = mesDelBudgetByEmployee.get(employeeKey) ?? nextMonth;
+    /* El mes en curso: es el mes que esta pantalla evalúa, y el piso tiene que
+       ser el de ESE mes -- BP54b. */
+    const mesDelBudget = mesDelBudgetByEmployee.get(employeeKey) ?? thisMonth;
     const pisoDelMes = pisoPorEmpleado.get(employeeKey)?.[mesDelBudget] ?? 0;
     const conPiso =
       budgetSinPiso === null && pisoDelMes === 0

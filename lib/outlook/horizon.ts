@@ -54,10 +54,36 @@ export function horizonOptions(currentMonth: string): HorizonOption[] {
   return opciones;
 }
 
-/** La lista de meses futuros que corresponde a un horizonte. */
+/**
+ * La lista de meses futuros que corresponde a un horizonte.
+ *
+ * ============================================================================
+ * ⚠ ARRANCA EN `i = 1`, Y ESO ES UNA REGLA — NO UN OFF-BY-ONE
+ * ============================================================================
+ *
+ * El mes EN CURSO no está, así que su presupuesto no se puede fijar ni
+ * corregir. Desde afuera parece una limitación y es la decisión:
+ *
+ *   **El presupuesto de un mes se fija ANTES de que el mes empiece, y una vez
+ *   que arrancó es la meta contra la que se mide. Poder corregirlo durante el
+ *   mes sería mover la vara mientras se juega.**
+ *
+ * Queda escrito acá, en la condición misma, porque desde afuera se lee como un
+ * descuido. Y ya costó una etapa: BP54 midió que `outlook.budget_total` no
+ * tenía UNA SOLA fila de septiembre, lo leyó como un hueco que había que
+ * rellenar, e hizo que el perfil del Loan Officer mostrara el presupuesto del
+ * PRÓXIMO mes en su lugar. El número era correcto y afirmaba algo falso -- el
+ * de octubre nunca fue la meta de septiembre -- y encima alimentaba el GAP.
+ *
+ * La consecuencia que hay que saber, y que NO es un problema: los meses
+ * anteriores a que esto se empezara a cargar quedan sin presupuesto PARA
+ * SIEMPRE. No se perdió ninguno; nunca existieron. Lo que corresponde es que la
+ * pantalla lo DIGA --«not budgeted»-- y no que lo rellene con otro mes.
+ */
 export function remainingMonthsFor(currentMonth: string, horizonMonths: number | null): string[] {
   const n = horizonMonths ?? monthsToDecember(currentMonth);
   const out: string[] = [];
+  /* `i = 1` y no `0`: ver el JSDoc. El mes en curso ya no se presupuesta. */
   for (let i = 1; i <= n; i++) out.push(addMonths(currentMonth, i));
   return out;
 }

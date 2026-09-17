@@ -347,19 +347,28 @@ export function Q1Panel({ lo, benchmarkSlot }: { lo: LoanOfficerRow; benchmarkSl
         */}
         <div className="bp-stat">
           {/*
-            ⚠ EL RÓTULO NOMBRA EL MES — BP54. Decía «this month», y desde esta
-            etapa el número es el del PRÓXIMO MES PRESUPUESTADO: Outlook
-            presupuesta desde el mes que viene y `budget_total` no tiene una sola
-            fila del mes en curso -- por eso el cableado de BP49b nunca se
-            disparaba. Un número de octubre rotulado «este mes» es correcto y
-            afirma algo falso, que es la forma más cara de equivocarse acá.
+            ⚠ EL RÓTULO NOMBRA EL MES — BP54, corregido en BP54b. El número es
+            el del MES EN CURSO: el gap se mide contra la meta que HABÍA para
+            este mes, no contra la del que viene. BP54 mostró acá el próximo mes
+            presupuestado y eso afirmaba algo falso -- el número de octubre nunca
+            fue la meta de septiembre.
           */}
           <span className="bp-stat__label">
             Budget{lo.budgetMonth === null ? '' : ' (' + shortMonth(lo.budgetMonth) + ')'}
           </span>
+          {/*
+            ⚠ «NOT BUDGETED» NO ES «NOT SET» — BP54b, y la diferencia importa.
+            «Not set» se lee como un descuido que alguien puede arreglar; para el
+            mes en curso ya no se puede: un presupuesto se fija ANTES de que el
+            mes empiece (ver `remainingMonthsFor`). Septiembre va a quedar sin
+            presupuesto para siempre, y eso es correcto -- nadie lo fijó.
+          */}
           {budget === null ? (
-            <span className="bp-muted" title="Nobody set a budget for this month, and there's no growth rule for Own Production to read either.">
-              Not set
+            <span
+              className="bp-muted"
+              title="Nobody fixed a budget for this month, and there is no growth rule for Own Production to read either. A month's budget is set before the month starts, so this one can no longer be filled in — the number would not be the target this month was measured against."
+            >
+              Not budgeted
             </span>
           ) : (
             <span className="bp-stat__value">
