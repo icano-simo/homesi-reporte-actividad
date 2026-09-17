@@ -883,11 +883,27 @@ fuera del repo.
 | `leerTexto` | `innerText` con `text-transform`, y leer texto de un `<input>` | **4** |
 | `esperarDato` | medir antes de que el dato llegue, y esperar a la señal equivocada | 1, con 11 falsos |
 | `medirRuta` | atribuirle al cambio el compile en frío | 1, casi público |
-| `crearArnes` | un resumen que dice verde sin haber corrido | 1 |
+| `crearArnes` | un resumen que dice verde sin haber corrido | **2**, y ver la nota |
 | `exigirSinChoques` | redefinir una clase de CSS que ya existía | 1 |
-| `exigirAusente` | comprobar una ausencia sobre el archivo y no sobre el código | **6** |
+| `exigirAusente` | comprobar una ausencia sobre el texto y no sobre el código | **7** |
 | `exigirDefinidos` | probar una mitad de un contrato cuya otra mitad no existe | **3** |
 | `estados-ambiguos` | reescribir el valor «no lo sé» de un estado de tres | **1**, con 3 personas trabadas |
+
+⚠ **Y el número de `crearArnes` es el que se puede señalar, no el que se
+recuerda.** Están documentadas dos: el `SIN FALLAS` sobre cero aserciones que le
+dio origen, y el `RESUMEN INVALIDO, 4 de 6` de la segunda corrida de RV16 --el
+caso del estado que dejó la primera--. El usuario cuenta **cuatro** turnos
+salvados; las otras dos no están escritas en ningún lado, así que el número de
+la tabla se queda en lo verificable hasta que se nombren. Escribir cuatro porque
+alguien lo dijo es el mismo movimiento que aceptar un hallazgo sin medirlo, que
+en este proyecto ya costó dos veces.
+
+Y una corrección de la misma familia, sobre un reporte mío de OL48: dije que «lo
+cortó el mínimo del arnés, no las aserciones» cuando la sonda leyó cero filas de
+persona. Medido en la salida, decía `2 FALLAS de 27` -- o sea que corrieron las
+27 y lo que se puso rojo fueron dos aserciones explícitas. El mínimo no llegó a
+invalidar nada. La lección de fondo no cambia --tres aserciones dieron verde
+sobre listas vacías-- pero quién la atrapó, sí.
 
 **Por qué están en el repo y no en el scratchpad de una sesión:** una guarda que
 se muere con la sesión es *peor* que una nota acá, porque la nota al menos

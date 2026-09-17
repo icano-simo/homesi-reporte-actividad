@@ -292,9 +292,10 @@ export function exigirSinChoques(cssExistente, cssNuevo) {
    6. exigirAusente — comprobar una ausencia sobre el CODIGO, no sobre el archivo
    ═══════════════════════════════════════════════════════════════════════
 
-   Seis veces en una sola serie una guarda mia busco un nombre prohibido sobre
-   el archivo y lo encontro EN EL COMENTARIO QUE EXPLICA POR QUE ESTA PROHIBIDO.
-   Las seis veces el archivo estaba bien y la guarda dijo que no:
+   SIETE veces --seis en una sola serie, y la septima en OL51 sobre `pg_proc`--
+   una comprobacion mia busco un nombre prohibido sobre el TEXTO y lo encontro
+   EN EL COMENTARIO QUE EXPLICA POR QUE ESTA PROHIBIDO. Las siete veces lo
+   comprobado estaba bien y la comprobacion dijo que no:
 
      `max-width: 46%`     en la nota que explica por que se saco
      `bp-field__label`    en la nota que dice que estaba inventada
@@ -305,6 +306,20 @@ export function exigirSinChoques(cssExistente, cssNuevo) {
    > Una guarda que comprueba una AUSENCIA tiene que mirar el codigo, no el
    > archivo: los comentarios son justamente donde el nombre prohibido aparece
    > a proposito.
+
+   ⚠ Y LA SEPTIMA NO FUE SOBRE UN ARCHIVO — etapa OL51, y por eso vale
+   anotarla aparte. Para saber si una funcion ya aplicada todavia levantaba
+   `errcode = '40001'`, corri un regex sobre `pg_proc.prosrc`. Dio `true` y casi
+   reporte que no se habia reaplicado: la version viva traia la correccion Y el
+   comentario que la explica --«SIN `using errcode = '40001'`, a proposito...»--
+   asi que el patron matcheo el comentario que dice por que el codigo NO esta.
+
+   > `prosrc` es el cuerpo de la funcion CON sus comentarios adentro. Leer un
+   > catalogo de Postgres es leer un archivo, y vale la misma regla:
+   > `exigirAusente(prosrc, [...], { lenguaje: 'sql' })`.
+
+   Lo delato que el comportamiento decia lo contrario que la lectura --la
+   funcion contestaba `400 P0001` en 413ms-- y reconciliar en vez de reportar.
 
    ⚠ Y ESTA EN EL REPO Y NO EN UN SCRATCHPAD por una razon concreta: el helper
    existia desde la tercera vez, escrito, y no lo agarre hasta la sexta. La
