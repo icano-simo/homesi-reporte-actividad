@@ -189,6 +189,15 @@ function pctChange(current: number, previous: number): number | null {
  * del propio %: un cambio de 40% a 44% es "+4pp", nunca "+10%" (que es lo
  * que daría un % change ahí, y confundiría una mejora de conversión con
  * una magnitud 2.5 veces mayor a la real).
+ *
+ * ⚠ `fcToCrRate`/`crToApRate` son por MES CALENDARIO, no por cohorte: dividen
+ * sumas del MISMO rango de meses (`creditReports` del período / `fileCreations`
+ * del período), sin rastrear al préstamo individual desde su File Creation
+ * hasta su Credit Report. Un préstamo creado en el mes N que saca crédito en
+ * el mes N+1 aporta a `fileCreations` de N y a `creditReports` de N+1 -- dos
+ * períodos distintos, cada uno con su propio denominador/numerador. No es un
+ * bug: es la definición actual de la métrica (documentado, no para cambiar
+ * acá).
  */
 export function computeCommercialActivityKpis(
   rows: CommercialActivityMonthlyRow[],

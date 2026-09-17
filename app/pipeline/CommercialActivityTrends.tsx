@@ -129,9 +129,23 @@ export default function CommercialActivityTrends({ records }: CommercialActivity
         : allRows.filter((r) => r.month.startsWith(year + '-'));
   const previousRows = getPreviousComparableBlock(allRows, rows);
   const kpis = computeCommercialActivityKpis(rows, previousRows);
+  /*
+   * Mes en curso (hora de negocio, Bogotá) -- `businessToday()`, nunca
+   * `new Date()` suelto acá (mismo criterio que `defaultStartMonth` arriba).
+   * `rows` puede o no incluirlo según Year/rango elegido: sólo entonces sus
+   * totales son parciales (el mes real todavía no cerró).
+   */
+  const today = businessToday();
+  const partialMonth = `${today.year}-${String(today.month).padStart(2, '0')}`;
+  const partialMonthVisible = rows.some((r) => r.month === partialMonth);
 
   return (
     <div>
+      {partialMonthVisible && (
+        <div className="kpi-hero__sub" style={{ marginBottom: '8px' }}>
+          {shortMonth(partialMonth)} is in progress — totals include partial data.
+        </div>
+      )}
       <div className="hero-banner">
         <div className="mcard">
           <div className="m-name">File Creations</div>
@@ -144,10 +158,12 @@ export default function CommercialActivityTrends({ records }: CommercialActivity
         <div className="mcard">
           <div className="m-name">File Creation → Credit Report</div>
           <div className="kpi-hero__value kpi-hero__value--lg">{kpis.fcToCrRate.value.toFixed(1)}%</div>
+          <div className="kpi-hero__sub">Same calendar month, not cohort-tracked</div>
         </div>
         <div className="mcard">
           <div className="m-name">Credit Report → Application</div>
           <div className="kpi-hero__value kpi-hero__value--lg">{kpis.crToApRate.value.toFixed(1)}%</div>
+          <div className="kpi-hero__sub">Same calendar month, not cohort-tracked</div>
         </div>
       </div>
 
@@ -178,7 +194,7 @@ export default function CommercialActivityTrends({ records }: CommercialActivity
         <div className="tbl-card__head">
           <span className="tbl-card__title">Monthly Trends — File Creations, Credit Reports, Applications</span>
         </div>
-        <CommercialActivityLineChart rows={rows} />
+        <CommercialActivityLineChart rows={rows} partialMonth={partialMonth} />
       </div>
 
       <div className="tbl-card">
@@ -200,6 +216,7 @@ export default function CommercialActivityTrends({ records }: CommercialActivity
                 <tr className="metric" key={row.month}>
                   <td className="lbl" style={{ textAlign: 'left' }}>
                     {monthYearLabel(row.month)}
+                    {row.month === partialMonth ? ' (partial)' : ''}
                   </td>
                   <td className="val">{fmtInt(row.fileCreations)}</td>
                   <td className="val">{fmtInt(row.creditReports)}</td>

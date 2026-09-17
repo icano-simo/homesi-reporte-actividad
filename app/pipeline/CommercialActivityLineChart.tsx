@@ -102,10 +102,22 @@ function niceTicks(maxValue: number, targetCount: number): number[] {
 
 export interface CommercialActivityLineChartProps {
   rows: CommercialActivityMonthlyRow[];
+  /** 'YYYY-MM' del mes en curso (hora de negocio) -- ver comentario de `isLastPartial` más abajo. */
+  partialMonth?: string;
 }
 
-export default function CommercialActivityLineChart({ rows }: CommercialActivityLineChartProps) {
+export default function CommercialActivityLineChart({ rows, partialMonth }: CommercialActivityLineChartProps) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const lastIndex = rows.length - 1;
+  /*
+   * El ÚLTIMO punto de la serie es el mes en curso -- por construcción, es
+   * el único caso que puede pasar (los meses son cronológicos y no hay
+   * datos de meses futuros): se marca hueco/punteado sólo si es
+   * específicamente el último, nunca uno intermedio.
+   */
+  const isLastPartial = partialMonth !== undefined && lastIndex >= 0 && rows[lastIndex].month === partialMonth;
+  /* Para la nota de la leyenda -- más laxo que `isLastPartial`: sólo pregunta si el mes en curso está VISIBLE en este rango, sin asumir que es el último (ej. un Year pasado seleccionado nunca lo incluye). */
+  const partialMonthInRows = partialMonth !== undefined && rows.some((r) => r.month === partialMonth);
 
   const plotHeight = 110;
   const bottomReserve = 18;
@@ -184,19 +196,47 @@ export default function CommercialActivityLineChart({ rows }: CommercialActivity
               </g>
             ))}
             {SERIES.map((series) => {
+              /*
+               * Tramo final punteado -- separado en su PROPIO <polyline> (del
+               * penúltimo al último punto) en vez de un `strokeDasharray` en
+               * la línea entera: así sólo ese segmento se ve punteado, el
+               * resto de la serie (meses ya cerrados) sigue sólido.
+               */
+              if (isLastPartial && lastIndex > 0) {
+                const solidPoints = rows
+                  .slice(0, lastIndex)
+                  .map((r, i) => `${x(i)},${y(r[series.key])}`)
+                  .join(' ');
+                const dashedPoints = [
+                  `${x(lastIndex - 1)},${y(rows[lastIndex - 1][series.key])}`,
+                  `${x(lastIndex)},${y(rows[lastIndex][series.key])}`,
+                ].join(' ');
+                return (
+                  <g key={series.key}>
+                    <polyline points={solidPoints} fill="none" stroke={series.color} strokeWidth={2} />
+                    <polyline points={dashedPoints} fill="none" stroke={series.color} strokeWidth={2} strokeDasharray="4 3" />
+                  </g>
+                );
+              }
               const points = rows.map((r, i) => `${x(i)},${y(r[series.key])}`).join(' ');
               return <polyline key={series.key} points={points} fill="none" stroke={series.color} strokeWidth={2} />;
             })}
             {SERIES.map((series) =>
-              rows.map((r, i) => (
-                <circle
-                  key={series.key + r.month}
-                  cx={x(i)}
-                  cy={y(r[series.key])}
-                  r={hoverIndex === i ? 4.5 : 3}
-                  fill={series.color}
-                />
-              ))
+              rows.map((r, i) => {
+                /* Círculo hueco en el mes en curso -- mismo radio que el resto, sin relleno sólido (avisa "todavía no cerró" sin ocultar el punto). */
+                const isPartialPoint = isLastPartial && i === lastIndex;
+                return (
+                  <circle
+                    key={series.key + r.month}
+                    cx={x(i)}
+                    cy={y(r[series.key])}
+                    r={hoverIndex === i ? 4.5 : 3}
+                    fill={isPartialPoint ? 'var(--canvas)' : series.color}
+                    stroke={isPartialPoint ? series.color : undefined}
+                    strokeWidth={isPartialPoint ? 2 : undefined}
+                  />
+                );
+              })
             )}
             {rows.map((r, i) => (
               <text key={r.month} x={x(i)} y={plotHeight + 14} textAnchor="middle" fontSize="10.5" fill="var(--slate-500)">
@@ -275,6 +315,11 @@ export default function CommercialActivityLineChart({ rows }: CommercialActivity
           </div>
         ))}
       </div>
+      {partialMonthInRows && (
+        <div style={{ fontSize: '11px', color: 'var(--slate-500)', marginTop: '4px' }}>
+          ○ hollow marker = month in progress (partial)
+        </div>
+      )}
     </div>
   );
 }
