@@ -329,3 +329,153 @@ table.piv.adm-tbl th.bp-center {
   border-color: var(--accent-border);
   color: var(--navy);
 }
+
+/*
+ * ============================================================================
+ * ADM1 — el roster por cargo
+ * ============================================================================
+ *
+ * ⚠ Las reglas de arriba --`.adm-tag*`, `.adm-branch*`, `.adm-tbl`, `.adm-estado`,
+ * `.adm-hand`, `.adm-produce`-- son de la pantalla anterior, agrupada por branch,
+ * y hoy no las pide ningún JSX. Se dejan en pie a propósito: darlas de baja es
+ * un cambio aparte y reversible, y borrarlas junto con el rediseño mezclaría dos
+ * diffs en uno. `verificar:clases` no se queja de una regla sin consumidor --
+ * pregunta lo contrario, si lo que el JSX pide existe.
+ *
+ * ⚠ Prefijos nuevos verificados con `git grep` antes de escribir una línea:
+ * `adm-kpi`, `adm-seccion`, `adm-persona`, `adm-ingreso` y `adm-sello` no
+ * existían. Es el paso que en este proyecto ya evitó el séptimo choque de
+ * nombres.
+ */
+
+.adm-sello {
+  color: var(--slate-500);
+  font-size: var(--adm-text);
+  margin: 0;
+  align-self: flex-end;
+}
+
+/* ── Los indicadores ─────────────────────────────────────────────────────── */
+
+.adm-kpis {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+/*
+ * Siete en fila entran a 1440 y a 1280; abajo de 980 se apilan de a cuatro y
+ * después de a dos. Medido cruzando los dos breakpoints, no supuesto: un
+ * desborde que sólo aparece apilado no lo ve nadie que mida en desktop.
+ */
+@media (max-width: 980px) {
+  .adm-kpis {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@media (max-width: 560px) {
+  .adm-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.adm-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  background: #fff;
+}
+.adm-kpi__valor {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--navy);
+  /* Los números de esta pantalla se comparan entre sí: ancho de dígito fijo. */
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.adm-kpi__rotulo {
+  color: var(--slate-500);
+  /*
+   * ⚠ Sin `white-space: nowrap`. «Personas activas» y «Loan Officers» crecen si
+   * mañana alguien renombra un rótulo, y `nowrap` dentro de una celda de grilla
+   * no recorta: EMPUJA. Ya costó una página 27px más ancha que el viewport.
+   */
+  overflow-wrap: anywhere;
+}
+
+/* ── Una sección de cargo ────────────────────────────────────────────────── */
+
+.adm-seccion {
+  margin-top: 16px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  background: #fff;
+  overflow: hidden;
+}
+.adm-seccion__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0;
+  padding: 10px 14px;
+  background: var(--slate-50);
+  border-bottom: 1px solid var(--slate-200);
+}
+.adm-seccion__cargo {
+  font-family: var(--font-display);
+  font-size: var(--adm-lg);
+  font-weight: 700;
+  color: var(--navy);
+  letter-spacing: 0.02em;
+}
+.adm-seccion__n {
+  color: var(--slate-500);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Una persona: el nombre y el branch. Nada más. ───────────────────────── */
+
+.adm-personas {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.adm-persona,
+.adm-ingreso {
+  display: grid;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--slate-100);
+}
+.adm-persona {
+  grid-template-columns: 1fr 80px;
+}
+/* Los próximos ingresos llevan cargo propio: todavía no tienen sección. */
+.adm-ingreso {
+  grid-template-columns: 1fr 1fr 80px;
+}
+.adm-persona:last-child,
+.adm-ingreso:last-child {
+  border-bottom: 0;
+}
+.adm-persona__nombre {
+  color: var(--slate-800);
+}
+.adm-persona__branch {
+  font-family: var(--font-display);
+  font-size: var(--adm-lg);
+  font-weight: 700;
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.adm-ingreso__cargo {
+  color: var(--slate-500);
+}

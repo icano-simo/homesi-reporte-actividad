@@ -5,47 +5,50 @@ import {
   acknowledgeChange,
   loadAdminData,
   shortDate,
+  shortDateTime,
+  SIN_BRANCH,
   type AdminData,
-  type RosterPerson,
 } from '@/lib/admin/loadRoster';
 
 /**
  * ============================================================================
- * ADMIN — el roster de RRHH y los cambios entre cargas (etapa ADMIN-1)
+ * ADMIN — el roster, por cargo (etapa ADM1)
  * ============================================================================
  *
- * Para que se pueda ver quién está en cada branch, quién entró o salió y desde
- * cuándo, sin preguntarle a nadie.
+ * Reemplaza la pantalla agrupada por branch. Ahora es un roster con
+ * indicadores, secciones por cargo, y una seccion aparte de contrataciones.
  *
  * ---------------------------------------------------------------------------
- * ⚠ ESTA PANTALLA REPORTA. NO DA NI QUITA DE BAJA A NADIE.
+ * ⚠ NINGUN TEXTO AL LADO DE UNA PERSONA
  * ---------------------------------------------------------------------------
- * Decisión explícita: un archivo de RRHH incompleto desactivaría a quien sí
- * está trabajando, así que la baja se decide a mano y fuera de acá. Lo único
- * que se escribe es el `acknowledged` de una fila del log -- "ya lo vi", nunca
- * "ya lo apliqué".
+ * Pedido explicito, y es la regla que gobierna el marcado de abajo: una fila de
+ * persona lleva EL NOMBRE Y EL BRANCH, y nada mas. Sin etiquetas de estado, sin
+ * avisos, sin `title` que explique algo, sin marcas de NPPM ni de "lo fijo una
+ * persona". El cargo lo dice el encabezado de su seccion.
+ *
+ * La version anterior tenia seis marcas distintas colgando de los nombres
+ * --`user_addition`, `has_override`, NPPM, los dos `set_by_hand`, el estado--,
+ * cada una con su `title` explicativo. Las seis se fueron.
+ *
+ * Lo que la pantalla necesite decir se dice UNA vez, en el encabezado de su
+ * seccion o en el pie, donde no le cuelga a nadie.
+ *
+ * ---------------------------------------------------------------------------
+ * ⚠ EL ROSTER VIVO ES `is_active`, Y LAS BAJAS SE CONSERVAN
+ * ---------------------------------------------------------------------------
+ * Las 4 personas inactivas no se listan: `left_detected_at` guarda cuando se
+ * detecto que dejaron de venir en el archivo, asi que el dato no se pierde por
+ * no mostrarlo. El indicador las cuenta, que es como se ven sin que aparezcan
+ * mezcladas con quien si trabaja. Una seccion aparte para ellas esta a un
+ * `filter` de distancia y no se hizo porque no esta decidido.
  *
  * ---------------------------------------------------------------------------
  * ⚠ EL BRANCH DE ESTA PANTALLA ES EL DEL ROSTER
  * ---------------------------------------------------------------------------
- * Dónde RRHH tiene asignada a la persona, NO dónde produce. Un loan officer
- * puede originar préstamos en otro branch. Está dicho en la nota al pie y en el
- * encabezado de la sección, porque es la confusión más fácil de esta pantalla y
- * la que en Outlook ya costó un doble conteo.
+ * Donde RRHH tiene asignada a la persona, no donde produce. Se dice en el pie,
+ * una vez -- no al lado de cada branch, que seria exactamente lo que esta
+ * pantalla no hace.
  */
-
-type Pais = 'todos' | 'CO' | 'US' | 'CO-US';
-type Estado = 'activos' | 'inactivos' | 'todos';
-
-function matchesPais(p: RosterPerson, filtro: Pais): boolean {
-  if (filtro === 'todos') return true;
-  return (p.country ?? '').trim().toUpperCase() === filtro;
-}
-
-function matchesEstado(p: RosterPerson, filtro: Estado): boolean {
-  if (filtro === 'todos') return true;
-  return filtro === 'activos' ? p.is_active : !p.is_active;
-}
 
 /** Los tipos de cambio, en español legible. */
 function changeLabel(t: string): string {
@@ -62,8 +65,6 @@ function changeLabel(t: string): string {
 export default function AdminPage() {
   const [data, setData] = useState<AdminData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [pais, setPais] = useState<Pais>('todos');
-  const [estado, setEstado] = useState<Estado>('activos');
   const [saving, setSaving] = useState<number | null>(null);
 
   const reload = useCallback(
@@ -88,18 +89,24 @@ export default function AdminPage() {
     };
   }, []);
 
-  if (error) return <div className="hub-container"><div className="bp-empty">Could not load Admin: {error}</div></div>;
-  if (!data) return <div className="hub-container"><div className="bp-empty">Loading the roster…</div></div>;
+  if (error) {
+    return (
+      <div className="hub-container adm-page">
+        <div className="bp-notice bp-notice--warn adm-notice">No se pudo cargar el roster: {error}</div>
+      </div>
+    );
+  }
+  if (!data) {
+    return (
+      <div className="hub-container adm-page">
+        <p className="adm-muted" data-adm-cargando="">
+          Cargando el roster…
+        </p>
+      </div>
+    );
+  }
 
-  const { hayHistoriaDeCargas, hayEstadoDeBranches, diagnostics } = data;
-
-  /* El filtro se aplica acá y los branches vacíos desaparecen: una sección con
-     un título y cero filas se lee como un branch sin gente, no como un filtro. */
-  const branches = data.branches
-    .map((b) => ({ ...b, people: b.people.filter((p) => matchesPais(p, pais) && matchesEstado(p, estado)) }))
-    .filter((b) => b.people.length > 0);
-  const totalVisible = branches.reduce((a, b) => a + b.people.length, 0);
-
+  const { indicadores: k, diagnostics, secciones, proximosIngresos, actualizado } = data;
   const pendientes = data.changes.filter((c) => !c.acknowledged);
   const revisados = data.changes.filter((c) => c.acknowledged);
 
@@ -115,34 +122,44 @@ export default function AdminPage() {
     }
   }
 
-  /** `—` cuando no se puede saber; el valor cuando sí. Nunca una celda vacía. */
-  function fecha(valor: string | null, motivo: string) {
-    const d = shortDate(valor);
-    if (d) return <>{d}</>;
-    return (
-      <span className="adm-muted" title={motivo}>
-        sin registro
-      </span>
-    );
-  }
+  /*
+   * Los indicadores. Todos sobre las ACTIVAS salvo el ultimo, y el encuadre va
+   * escrito en el rotulo: "activas" no es decoracion, es lo que hace que los
+   * numeros se puedan sumar sin que el lector tenga que adivinar cual incluye
+   * las bajas. Ver la nota de `Indicadores` en el loader.
+   */
+  const tarjetas: { clave: string; rotulo: string; valor: number }[] = [
+    { clave: 'activas', rotulo: 'Personas activas', valor: k.activas },
+    { clave: 'loan-officers', rotulo: 'Loan Officers', valor: k.loanOfficers },
+    { clave: 'nppm', rotulo: 'NPPM', valor: k.nppm },
+    { clave: 'colombia', rotulo: 'Colombia', valor: k.colombia },
+    { clave: 'usa', rotulo: 'USA', valor: k.usa },
+    { clave: 'co-us', rotulo: 'CO/US', valor: k.coUs },
+    { clave: 'inactivas', rotulo: 'Inactivas', valor: k.inactivas },
+  ];
 
   return (
     <div className="hub-container adm-page">
       <div className="page-head">
         <div>
-          <h1 className="page-head__title">Admin</h1>
+          <h1 className="page-head__title">Roster</h1>
           <p className="page-head__subtitle">
-            Roster de RRHH y cambios detectados entre cargas — {totalVisible} de {diagnostics.rosterRows} persona
-            {diagnostics.rosterRows === 1 ? '' : 's'}
+            {k.activas} personas activas en {secciones.length} cargos
           </p>
         </div>
+        <p className="adm-sello" data-adm-sello="">
+          Actualizado {shortDateTime(actualizado.roster) ?? 'sin registro'}
+          {actualizado.contrataciones && actualizado.contrataciones.slice(0, 10) !== actualizado.roster?.slice(0, 10)
+            ? ` · contrataciones ${shortDateTime(actualizado.contrataciones)}`
+            : ''}
+        </p>
       </div>
 
       {/*
-        ⚠ Los tres avisos de abajo son distintos entre sí a propósito. Con RLS,
-        una tabla sin política devuelve CERO FILAS y no un error, así que "no
-        tengo permiso", "todavía no hay datos" y "falló la lectura" se ven
-        exactamente igual en la pantalla si uno no los separa.
+        ⚠ Los avisos de abajo son distintos entre si a proposito. Con RLS, una
+        tabla sin politica devuelve CERO FILAS y no un error, asi que "no tengo
+        permiso", "todavia no hay datos" y "fallo la lectura" se ven igual en la
+        pantalla si uno no los separa.
       */}
       {diagnostics.rosterError && (
         <div className="bp-notice bp-notice--warn adm-notice">
@@ -152,352 +169,121 @@ export default function AdminPage() {
       {!diagnostics.rosterError && diagnostics.rosterRows === 0 && (
         <div className="bp-notice bp-notice--warn adm-notice">
           <b>El roster viene vacío.</b> La lectura de <code>org.roster_current</code> no dio error y devolvió cero
-          filas. El permiso está bien —la tabla tiene su <code>GRANT</code> y su política por el claim{' '}
-          <code>admin</code>—, así que lo que falta son los datos: el roster todavía no se sincroniza desde{' '}
-          <code>hr_centralizado.roster_for_admin</code>. Son 108 personas.
+          filas, que es lo que se ve cuando la tabla tiene <code>GRANT</code> pero ninguna política de RLS le aplica a
+          esta sesión. No es lo mismo que una tabla vacía.
+        </div>
+      )}
+      {diagnostics.hiringError && (
+        <div className="bp-notice bp-notice--warn adm-notice">
+          No se pudo leer <code>org.hiring_tracking</code>: {diagnostics.hiringError}
         </div>
       )}
 
-      {/* ── 1. El roster, por branch ──────────────────────────────────── */}
+      {/* ── 1. Los indicadores ────────────────────────────────────────── */}
       <section className="adm-block">
-        <div className="adm-head">
-          <h2 className="adm-h">Roster por branch</h2>
-          <div className="adm-filtros">
-            <div className="seg" role="group" aria-label="País">
-              {(['todos', 'CO', 'US', 'CO-US'] as Pais[]).map((k) => (
-                <button key={k} type="button" className={pais === k ? 'on' : ''} onClick={() => setPais(k)}>
-                  {k === 'todos' ? 'Todos' : k}
-                </button>
+        <ul className="adm-kpis" data-adm-kpis="">
+          {tarjetas.map((t) => (
+            <li className="adm-kpi" key={t.clave} data-adm-kpi={t.clave}>
+              <span className="adm-kpi__valor">{t.valor}</span>
+              <span className="adm-kpi__rotulo">{t.rotulo}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      {/* ── 2. El roster, por cargo ───────────────────────────────────── */}
+      <section className="adm-block">
+        {secciones.map((s) => (
+          <div className="adm-seccion" key={s.cargo} data-adm-seccion={s.cargo}>
+            <h2 className="adm-seccion__head">
+              <span className="adm-seccion__cargo">{s.cargo}</span>
+              <span className="adm-seccion__n">{s.people.length}</span>
+            </h2>
+            <ul className="adm-personas">
+              {s.people.map((p) => (
+                <li className="adm-persona" key={p.person_code} data-adm-persona={p.person_code}>
+                  <span className="adm-persona__nombre">{p.display_name}</span>
+                  <span className="adm-persona__branch">{p.branch_code?.trim() || SIN_BRANCH}</span>
+                </li>
               ))}
-            </div>
-            <div className="seg" role="group" aria-label="Estado">
-              {(['activos', 'inactivos', 'todos'] as Estado[]).map((k) => (
-                <button key={k} type="button" className={estado === k ? 'on' : ''} onClick={() => setEstado(k)}>
-                  {k[0].toUpperCase() + k.slice(1)}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <p className="adm-hint">
-          <b>El branch de esta pantalla es el del roster</b>: dónde RRHH tiene asignada a la persona, no dónde produce.
-          Un loan officer puede originar préstamos en otro branch.
-        </p>
-
-        {/*
-          Estado transitorio, y por eso se dice una vez y no en cada grupo: las
-          columnas de branch existen en la tabla desde antes de que el sync
-          las llenara. Desaparece solo con la primera corrida. Sin este aviso,
-          16 encabezados sin chip se leerían como que la función no llegó.
-        */}
-        {!hayEstadoDeBranches && diagnostics.rosterRows > 0 && (
-          <p className="adm-hint">
-            <b>El estado de los branches todavía no llegó</b>: el roster se sincronizó antes de que
-            el sync trajera esa columna. Aparece en la próxima corrida. Que no haya chip no significa
-            que el branch esté cerrado.
-          </p>
-        )}
-
-        {branches.length === 0 && diagnostics.rosterRows > 0 && (
-          <div className="bp-empty">Ninguna persona cumple estos filtros.</div>
-        )}
-
-        {branches.map((b) => (
-          <div key={b.branchCode} className="adm-branch">
-            {/*
-              ⚠ ACÁ CONVIVEN DOS ESTADOS QUE NO SON EL MISMO.
-              El chip habla del BRANCH; la columna "Estado" de la tabla, de
-              cada PERSONA. Por eso el chip dice "Branch activo" y no sólo
-              "Activa": sin esa palabra, el encabezado de un grupo con gente
-              adentro se lee como si describiera a la gente.
-
-              `null` no pinta chip. No es "inactiva", es que el sync todavía no
-              trajo el dato; el aviso de arriba lo explica una vez para toda la
-              pantalla en vez de repetirlo en cada grupo.
-            */}
-            <div className="adm-branch__head">
-              <span className="adm-branch__code">{b.branchCode}</span>
-
-              {b.branchIsActive === true && (
-                <span className="adm-branch__state adm-branch__state--on">Branch activo</span>
-              )}
-              {b.branchIsActive === false && (
-                <span className="adm-branch__state adm-branch__state--off">Branch inactivo</span>
-              )}
-              {b.branchNote && <span className="adm-muted">{b.branchNote}</span>}
-
-              <span className="adm-muted">
-                {b.people.length} persona{b.people.length === 1 ? '' : 's'}
-              </span>
-
-              {/*
-                Cuántas producen, al lado de cuántas son. Es la respuesta a
-                "quién produce en este branch" sin abrir una sola fila, y la
-                diferencia entre los dos números es la que explica por qué un
-                branch de 37 personas proyecta como uno de 2.
-
-                Se cuenta sobre las ACTIVAS: un productor que ya no trabaja no
-                produce, y sumarlo daría un número que no corresponde a nadie.
-              */}
-              <span
-                className={'adm-prod-count' + (b.activeProducers === 0 ? ' is-zero' : '')}
-                title={
-                  b.activeProducers === 0
-                    ? 'Nadie produce en este branch. No es un dato faltante: son personas de soporte, corporativo u otra función.'
-                    : `${b.activeProducers} de las activas de este branch producen. Los demás son soporte, operaciones o corporativo.`
-                }
-              >
-                {b.activeProducers} produce{b.activeProducers === 1 ? '' : 'n'}
-              </span>
-
-              {/*
-                El caso Robert Kravitz. Se dice explícito porque es justo donde
-                alguien concluiría que la persona ya no trabaja, y es falso: la
-                branch cerró, el empleado sigue. Decirlo acá cuesta una línea;
-                deducirlo mal cuesta una baja que nadie pidió.
-              */}
-              {b.activePeopleInInactiveBranch > 0 && (
-                <span className="adm-branch__mixed">
-                  {b.activePeopleInInactiveBranch === 1
-                    ? '1 persona activa acá'
-                    : `${b.activePeopleInInactiveBranch} personas activas acá`}
-                </span>
-              )}
-            </div>
-            <div className="tbl-scroll">
-              <table className="piv adm-tbl">
-                <thead>
-                  <tr className="mo-row">
-                    <th className="lbl">Nombre</th>
-                    <th className="lbl">Cargo</th>
-                    <th className="lbl">Área</th>
-                    <th className="bp-center">País</th>
-                    <th className="bp-center">Estado</th>
-                    <th className="bp-center">Produce</th>
-                    <th className="bp-center">Ingreso</th>
-                    <th className="bp-center">Primera carga</th>
-                    <th className="bp-center">Última carga</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {b.people.map((p) => (
-                    <tr key={p.person_code} className="metric">
-                      <td className="lbl">
-                        {p.display_name}
-                        {/*
-                          Las dos marcas que se pidieron. Van al lado del nombre
-                          y no en una columna propia: son excepciones, y una
-                          columna que está vacía en 106 de 108 filas ocupa
-                          ancho para no decir nada.
-                        */}
-                        {p.source_kind === 'user_addition' && (
-                          <span
-                            className="adm-tag adm-tag--add"
-                            title="La agregó la usuaria: RRHH no la tiene en sus archivos, así que no va a venir en la próxima carga."
-                          >
-                            agregada a mano
-                          </span>
-                        )}
-                        {p.has_override && (
-                          <span
-                            className="adm-tag adm-tag--fix"
-                            title="Un dato del archivo se corrigió a mano. Al lado va el valor original tal como vino."
-                          >
-                            corregida
-                            {p.name_in_file && p.name_in_file !== p.display_name && (
-                              <> · el archivo dice &ldquo;{p.name_in_file}&rdquo;</>
-                            )}
-                          </span>
-                        )}
-                        {/*
-                          Realtor NPPM: 7 de 110, así que va como marca y no
-                          como columna. Y no es lo mismo que producir -- un
-                          realtor NPPM trae préstamos sin ser Loan Officer de
-                          la división.
-                        */}
-                        {p.is_nppm_realtor && (
-                          <span
-                            className="adm-tag adm-tag--nppm"
-                            title="Realtor del programa NPPM. No es lo mismo que producir: trae préstamos sin ser Loan Officer de la división."
-                          >
-                            realtor NPPM
-                          </span>
-                        )}
-                      </td>
-                      <td className="lbl">{p.position ?? <span className="adm-muted">—</span>}</td>
-                      <td className="lbl">{p.area ?? <span className="adm-muted">—</span>}</td>
-                      <td className="bp-center">{p.country ?? <span className="adm-muted">—</span>}</td>
-                      <td className="bp-center">
-                        <span className={'adm-estado' + (p.is_active ? ' is-on' : '')}>
-                          {p.is_active ? 'activo' : 'inactivo'}
-                        </span>
-                        {/*
-                          `active_set_by_hand`: el estado lo fijó una persona, no
-                          el archivo. Va como marca sobre el valor y no como
-                          columna, porque es la PROCEDENCIA del dato, no otro
-                          dato -- mismo criterio que `corregida`.
-                        */}
-                        {p.active_set_by_hand && (
-                          <span
-                            className="adm-hand"
-                            title="Este estado lo fijó una persona, no el archivo de RRHH: no se recalcula cuando el archivo cambia."
-                            aria-label="fijado a mano"
-                          >
-                            ✋
-                          </span>
-                        )}
-                      </td>
-                      {/*
-                        ⚠ TRES COSAS DISTINTAS QUE SE CONFUNDEN FÁCIL: esta
-                        columna dice si la persona PRODUCE; la de al lado, si
-                        sigue empleada; y la cabecera del grupo, si el branch
-                        está abierto. Son independientes -- hay productores
-                        inactivos y activos que no producen.
-                      */}
-                      <td className="bp-center">
-                        <span className={'adm-produce' + (p.is_producer ? ' is-on' : '')}>
-                          {p.is_producer ? 'sí' : 'no'}
-                        </span>
-                        {p.producer_set_by_hand && (
-                          <span
-                            className="adm-hand"
-                            title="Lo decidió una persona, no el archivo de RRHH: no se recalcula cuando el archivo cambia. Es lo que evita que alguien 'arregle' una decisión deliberada."
-                            aria-label="fijado a mano"
-                          >
-                            ✋
-                          </span>
-                        )}
-                      </td>
-                      {/*
-                        ⚠ `date_started` es real pero SÓLO en Colombia: el archivo
-                        de USA no trae la fecha de ingreso. Un vacío en una fila
-                        de US no es un dato que falte, es un dato que la fuente
-                        nunca tuvo -- y decir eso es distinto de dejar la celda
-                        en blanco.
-                      */}
-                      <td className="bp-center">
-                        {fecha(
-                          p.date_started,
-                          (p.country ?? '').toUpperCase() === 'US'
-                            ? 'El archivo de RRHH de USA no trae fecha de ingreso. No es un dato que falte: la fuente nunca lo tuvo.'
-                            : 'Esta persona no tiene fecha de ingreso en el archivo.'
-                        )}
-                      </td>
-                      <td className="bp-center">
-                        {fecha(
-                          p.first_seen_at,
-                          hayHistoriaDeCargas
-                            ? 'No apareció en ninguna carga registrada.'
-                            : 'La historia de cargas empieza con la próxima subida del roster: hasta entonces nadie tiene primera ni última carga.'
-                        )}
-                      </td>
-                      <td className="bp-center">
-                        {fecha(
-                          p.last_seen_at,
-                          hayHistoriaDeCargas
-                            ? 'No apareció en ninguna carga registrada.'
-                            : 'La historia de cargas empieza con la próxima subida del roster.'
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            </ul>
           </div>
         ))}
       </section>
 
-      {/* ── 2. Los cambios ────────────────────────────────────────────── */}
+      {/* ── 3. Contrataciones ─────────────────────────────────────────── */}
       <section className="adm-block">
-        <h2 className="adm-h">Cambios detectados</h2>
+        <div className="adm-seccion" data-adm-seccion="__ingresos">
+          <h2 className="adm-seccion__head">
+            <span className="adm-seccion__cargo">Próximos ingresos</span>
+            <span className="adm-seccion__n">{proximosIngresos.length}</span>
+          </h2>
+          {proximosIngresos.length === 0 ? (
+            <p className="adm-muted">
+              {diagnostics.hiringError
+                ? 'No se pudo leer el tablero de contrataciones.'
+                : 'El tablero de contrataciones no tiene ingresos próximos.'}
+            </p>
+          ) : (
+            <ul className="adm-personas">
+              {proximosIngresos.map((h) => (
+                <li className="adm-ingreso" key={h.person_code ?? h.nombre} data-adm-ingreso="">
+                  <span className="adm-persona__nombre">{h.nombre}</span>
+                  <span className="adm-ingreso__cargo">{h.cargo?.trim() || SIN_BRANCH}</span>
+                  <span className="adm-persona__branch">{h.branch_en_el_tablero?.trim() || SIN_BRANCH}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </section>
 
-        {data.changes.length === 0 ? (
-          /*
-            El estado vacío EXPLICA en vez de decir "no hay datos". Va a estar
-            vacío hasta la segunda carga, y "no hay cambios" se lee como "nadie
-            entró ni salió", que es una afirmación distinta y falsa.
-          */
-          <div className="bp-notice adm-notice">
-            <b>Todavía no hay cambios que mostrar.</b> Los cambios se detectan comparando una carga de roster con la
-            anterior, así que aparecerán tras el próximo roster. No significa que nadie haya entrado o salido: significa
-            que todavía no hay dos cargas que comparar.
-          </div>
-        ) : (
-          <>
-            {pendientes.length > 0 && <h3 className="adm-h3">Sin revisar ({pendientes.length})</h3>}
-            {[...pendientes, ...revisados].map((c) => (
-              <div key={c.id} className={'adm-cambio' + (c.acknowledged ? ' is-done' : '')}>
-                <div className="adm-cambio__main">
-                  <b>{c.display_name ?? c.person_code}</b>
-                  <span className="adm-tag">{changeLabel(c.change_type)}</span>
-                  {c.branch_code && <span className="adm-muted">branch {c.branch_code}</span>}
-                  {c.country && <span className="adm-muted">{c.country}</span>}
-                </div>
-                {(c.old_value || c.new_value) && (
-                  <div className="adm-cambio__valores">
-                    <span className="adm-muted">{c.old_value ?? '—'}</span>
-                    <span aria-hidden="true">→</span>
-                    <span>{c.new_value ?? '—'}</span>
-                  </div>
-                )}
-                <div className="adm-cambio__pie">
-                  <span className="adm-muted">detectado {shortDate(c.detected_at)}</span>
-                  {c.acknowledged ? (
-                    <span className="adm-muted">
-                      revisado por {c.acknowledged_by} el {shortDate(c.acknowledged_at)}
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      className="bp-btn bp-btn--small"
-                      onClick={() => marcar(c.id)}
-                      disabled={saving !== null}
-                    >
-                      {saving === c.id ? '…' : 'Marcar revisado'}
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </>
-        )}
-
+      {/* ── 4. Los cambios entre cargas ───────────────────────────────── */}
+      <section className="adm-block">
+        <div className="adm-head">
+          <h2 className="adm-h">Cambios detectados entre cargas</h2>
+        </div>
         {diagnostics.changeError && (
           <div className="bp-notice bp-notice--warn adm-notice">
             No se pudo leer <code>org.roster_change_log</code>: {diagnostics.changeError}
           </div>
         )}
+        {!diagnostics.changeError && data.changes.length === 0 && (
+          <p className="adm-muted">Ningún cambio registrado todavía.</p>
+        )}
+        {[...pendientes, ...revisados].map((c) => (
+          <div className="adm-cambio" key={c.id}>
+            <div className="adm-cambio__main">
+              <b>{c.display_name ?? c.person_code}</b> — {changeLabel(c.change_type)}
+              {c.old_value || c.new_value ? (
+                <span className="adm-cambio__valores">
+                  {c.old_value ?? '—'} → {c.new_value ?? '—'}
+                </span>
+              ) : null}
+            </div>
+            <div className="adm-cambio__pie">
+              <span className="adm-muted">{shortDate(c.detected_at)}</span>
+              {c.acknowledged ? (
+                <span className="adm-muted">revisado por {c.acknowledged_by ?? '—'}</span>
+              ) : (
+                <button type="button" onClick={() => marcar(c.id)} disabled={saving === c.id}>
+                  {saving === c.id ? 'Guardando…' : 'Marcar como revisado'}
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
       </section>
 
-      <div className="foot-note adm-foot">
-        <b>Esta pantalla no da ni quita de baja a nadie.</b> Reporta lo que dicen los archivos de RRHH; la decisión de
-        desactivar a alguien se toma fuera y a mano, porque un archivo incompleto desactivaría a quien sí está
-        trabajando. Lo único que se escribe acá es <b>marcar un cambio como revisado</b> — &ldquo;ya lo vi&rdquo;, no
-        &ldquo;ya lo apliqué&rdquo;.{' '}
-        <b>Las tres fechas no son la misma clase de dato</b>: <b>Ingreso</b> es real, pero sólo en Colombia — el archivo
-        de USA no la trae. <b>Primera</b> y <b>última carga</b> salen de comparar subidas del roster.{' '}
-        {!hayHistoriaDeCargas && (
-          <>
-            Hoy dicen <span className="adm-muted">sin registro</span> en todas: los rosters cargaban en modo{' '}
-            <i>replace</i> y recién pasaron a <i>append</i>, así que la historia empieza con la próxima subida.{' '}
-          </>
-        )}
-        <b>El branch es el del roster</b>, no el de producción: un loan officer puede originar en otro branch, y esta
-        pantalla no lee <code>loan_records_v2</code> ni cruza las dos fuentes.
-      </div>
-
-      <div className="bp-diagnostics adm-diag">
-        <div>
-          <code>{diagnostics.rosterRows}</code> personas en <code>org.roster_current</code> ·{' '}
-          <code>{diagnostics.activeRows}</code> activas · <code>{diagnostics.producerRows}</code> producen (
-          <code>{diagnostics.activeProducerRows}</code> de ellas activas, que es lo que suman las cabeceras) ·{' '}
-          <code>{diagnostics.nppmRealtorRows}</code> realtors NPPM · <code>{diagnostics.changeRows}</code> filas en{' '}
-          <code>org.roster_change_log</code> · historia de cargas:{' '}
-          <code>{hayHistoriaDeCargas ? 'sí' : 'no'}</code>
-        </div>
-      </div>
+      {/*
+        El pie. Todo lo que hay que aclarar vive acá: una vez, y lejos de los
+        nombres.
+      */}
+      <p className="adm-foot">
+        El branch es el del <b>roster</b> —dónde RRHH tiene asignada a la persona—, no dónde produce. Los Loan
+        Officers se cuentan por quién produce y no por el cargo. Las {k.inactivas} personas inactivas se conservan y no
+        se listan acá.
+      </p>
     </div>
   );
 }

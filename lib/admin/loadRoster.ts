@@ -4,70 +4,66 @@ import { getSupabaseClient } from '@/lib/supabase/client';
 
 /*
  * ============================================================================
- * EL ROSTER DE RRHH Y LOS CAMBIOS ENTRE CARGAS — etapa ADMIN-1
+ * EL ROSTER — etapa ADM1
  * ============================================================================
  *
- * Lee dos tablas y no calcula nada: `org.roster_current` (el roster vigente) y
- * `org.roster_change_log` (altas, bajas y cambios detectados al comparar una
- * carga con la anterior).
+ * Lee tres tablas y no calcula nada que la base pueda contestar:
+ *
+ *   org.roster_current    el roster canonico. Se refresca cuando RRHH sube su
+ *                         archivo (`roster_us` / `roster_co` en `uploads.load_log`).
+ *   org.hiring_tracking   el tablero de contrataciones, que se refresca al
+ *                         subir el tablero de Monday.
+ *   org.roster_change_log altas, bajas y cambios detectados entre dos cargas.
  *
  * ---------------------------------------------------------------------------
- * ⚠ `branch_code` ACÁ ES EL BRANCH DEL ROSTER, NO DONDE LA PERSONA PRODUCE
+ * ⚠ LAS DOS TABLAS QUE NO SE USAN, Y POR QUE NO
  * ---------------------------------------------------------------------------
- * Es dónde RRHH tiene asignada a la persona. Un loan officer puede originar
- * préstamos en otro branch, y de hecho pasa: Outlook ya tuvo que separar las
- * dos cosas --el YTD se atribuye al branch DEL PRÉSTAMO y la proyección al
- * branch del ROSTER-- porque mezclarlas producía un doble conteo que nadie veía
+ * `org.dim_employee` y `public.hr_active_roster` son rosters viejos mantenidos
+ * A MANO: no se refrescan con las cargas, asi que una pantalla que se mantiene
+ * sola no puede leerlos. Medido el 2026-09-17:
+ *
+ *   dim_employee        `synced_from_bigquery_at` en NULL en las 127 filas
+ *   hr_active_roster    ultima subida 2026-08-07, y su `status` esta pegado al
+ *                       pais -- Active/CO 44, Inactive/US 34, o sea que las 34
+ *                       personas de USA figuran inactivas por venir de USA
+ *
+ * ⚠ Y `dim_employee` NO es lo mismo que un roster viejo a secas: sigue siendo
+ * la fuente canonica para ATRIBUIR PRODUCCION, que es por donde cruzan Business
+ * Plan y Outlook (`employee_key`). Lo que no es, es un roster de RRHH. Son dos
+ * preguntas distintas y la respuesta correcta a una es falsa para la otra.
+ *
+ * ---------------------------------------------------------------------------
+ * ⚠ `branch_code` ACA ES EL BRANCH DEL ROSTER, NO DONDE LA PERSONA PRODUCE
+ * ---------------------------------------------------------------------------
+ * Es donde RRHH tiene asignada a la persona. Un loan officer puede originar
+ * prestamos en otro branch, y de hecho pasa: Outlook ya tuvo que separar las
+ * dos cosas --el YTD se atribuye al branch DEL PRESTAMO y la proyeccion al
+ * branch del ROSTER-- porque mezclarlas producia un doble conteo que nadie veia
  * (ver `lib/outlook/loadData.ts`).
  *
- * Esta pantalla NO lee `loan_records_v2` y no cruza las dos fuentes. Si algún
- * día lo hiciera, cada columna tiene que decir de cuál de los dos branches
- * habla, porque el mismo número con dos significados es el error más caro que
- * este proyecto ya cometió.
- *
  * ---------------------------------------------------------------------------
- * ⚠ SE LLAMA `roster_current`, Y ANTES SE LLAMABA `roster_v2`
+ * ⚠ SI ESTA PANTALLA APARECE VACIA, SON TRES CAUSAS DISTINTAS Y SE VEN IGUAL
  * ---------------------------------------------------------------------------
- * El renombre no fue cosmético: "v2" sugería que venía a reemplazar un "v1", y
- * el candidato obvio era `org.dim_employee`. No lo reemplaza -- resuelven cosas
- * distintas, y `dim_employee` sigue siendo el roster canónico que usan Business
- * Plan y Outlook para atribuir producción. Un nombre que insinúa una migración
- * que no existe cuesta más caro que uno largo.
- *
- * ---------------------------------------------------------------------------
- * ⚠ SI ESTA PANTALLA APARECE VACÍA, SON TRES CAUSAS DISTINTAS Y SE VEN IGUAL
- * ---------------------------------------------------------------------------
- * Medido contra la base, en este orden:
- *
  *   sin GRANT a `authenticated`  ->  error "Could not find the table ... in the
  *                                    schema cache". PostgREST arma su cache con
- *                                    lo que el rol puede ver: sin permiso, la
- *                                    tabla no entra y la API contesta como si
- *                                    no existiera.
- *   con GRANT, sin política RLS  ->  CERO FILAS y `error: null`. Indistinguible
- *                                    de una tabla vacía. ESTE es el peligroso.
+ *                                    lo que el rol puede ver.
+ *   con GRANT, sin politica RLS  ->  CERO FILAS y `error: null`. Indistinguible
+ *                                    de una tabla vacia. ESTE es el peligroso.
  *   con las dos                  ->  las filas.
  *
- * RLS no rechaza: FILTRA. Por eso el loader guarda el error de cada lectura por
- * separado y la pantalla dice cuál de los tres casos está viendo, en vez de
- * mostrar una tabla vacía que no distingue ninguno.
- *
- * Hoy las dos tablas tienen GRANT y política correctas; lo que falta es que
- * alguien las llene. Ver el bloque de `AdminData.diagnostics`.
+ * RLS no rechaza: FILTRA. Por eso se guarda el error de cada lectura por
+ * separado y la pantalla dice cual de los tres casos esta viendo.
  *
  * ---------------------------------------------------------------------------
  * ⚠ ESTA PANTALLA NO DA NI QUITA DE BAJA A NADIE
  * ---------------------------------------------------------------------------
- * Reporta. La decisión de desactivar a alguien se toma fuera, a mano, y es una
- * decisión pedida explícitamente: un archivo de RRHH incompleto desactivaría a
- * quien sí está trabajando. Lo único que esta pantalla escribe es el
- * `acknowledged` de una fila del log -- "ya lo vi", nunca "ya lo apliqué".
+ * Reporta. Lo unico que escribe es el `acknowledged` de una fila del log --
+ * "ya lo vi", nunca "ya lo apliqué".
  */
 
 export interface RosterPerson {
   person_code: string;
   display_name: string;
-  /** El nombre tal como venía en el archivo, cuando se corrigió a mano. */
   name_in_file: string | null;
   country: string | null;
   branch_code: string | null;
@@ -76,66 +72,59 @@ export interface RosterPerson {
   supervisor: string | null;
   supreme_email: string | null;
   is_active: boolean;
-  /** 'user_addition' = la agregó la usuaria; RRHH no la tiene en sus archivos. */
   source_kind: string | null;
-  /** true = algún campo del archivo se corrigió a mano. Ver `name_in_file`. */
   has_override: boolean;
-  /** Fecha real de ingreso. ⚠ SÓLO Colombia: el archivo de USA no la trae. */
+  /** ⚠ SOLO Colombia: el archivo de USA no la trae (0 de 64 medido). */
   date_started: string | null;
   first_seen_at: string | null;
   last_seen_at: string | null;
+  /** Cuando se detecto que ya no venia en el archivo. Por eso las bajas se conservan. */
   left_detected_at: string | null;
   synced_at: string;
-  /**
-   * ⚠ ESTADO DEL BRANCH, NO DE LA PERSONA. No confundir con `is_active`,
-   * que está unas líneas más arriba y significa otra cosa.
-   *
-   * Son independientes, y hoy hay un caso real: Robert Kravitz está activo en
-   * la 709, que no lo está. Ni él deja de ser empleado ni el branch reabre.
-   *
-   * No se deriva de la actividad: es una decisión de la usuaria --15 branches
-   * de 27--, así que uno cerrado puede tener préstamos en vuelo y uno nuevo
-   * puede estar activo sin producir todavía.
-   *
-   * `null` NO ES "inactiva": es "todavía no sincronizado". La columna existe en
-   * la tabla desde antes de que el sync empezara a llenarla, así que hasta la
-   * primera corrida con el mapeo nuevo las 108 filas vienen en null. Tratarlo
-   * como `false` mostraría los 15 branches activos como cerrados.
-   */
   branch_is_active: boolean | null;
-  /** Por qué, cuando aplica: 'Corporativo', 'pendiente de confirmar'... */
   branch_note: string | null;
-
   /**
-   * ⚠ ¿ESTA PERSONA PRODUCE? — la columna que le da sentido a esta pantalla.
+   * ⚠ QUIEN PRODUCE — y NO se deduce del cargo.
    *
-   * Es lo que separa a un Loan Officer de las otras 70 personas del roster, y
-   * hasta ahora no se veía: las filas llegaban con `select('*')` y la pantalla
-   * no las mostraba, así que "quién produce en este branch" no se podía
-   * contestar desde acá.
-   *
-   * No confundir con `is_active`, que dice si sigue empleada, ni con
-   * `branch_is_active`, que habla del branch. Son tres cosas independientes y
-   * las tres viven en esta interfaz.
+   * El cargo se equivoca en las dos direcciones, con un caso real de cada lado:
+   * Aimmee Buendia Hinojosa es `LO ASSISTANT` y produce; July Castro es
+   * `NonProducing Branch Manager` y produce. Por eso el indicador de Loan
+   * Officers cuenta `is_producer` y no `position`.
    */
   is_producer: boolean;
-  /**
-   * `true` = alguien lo decidió a mano, no salió del archivo de RRHH.
-   *
-   * ⚠ Y por eso NO se recalcula: un archivo que mañana venga distinto no lo
-   * cambia. Es la diferencia entre "el archivo dice esto" y "una persona
-   * confirmó esto", y es justo el dato que evita que alguien "arregle" una
-   * decisión deliberada -- la misma idea que `has_override`.
-   */
   producer_set_by_hand: boolean;
-  /** Ídem para `is_active`. */
   active_set_by_hand: boolean;
   /**
-   * Realtor del programa NPPM. Hoy son 7 de 110, así que se muestra como marca
-   * al lado del nombre y no como columna: una columna vacía en 103 filas ocupa
-   * ancho para no decir nada.
+   * Realtor del programa NPPM.
+   *
+   * ⚠ Los 7 que lo tienen vienen con `is_producer = false` --medido, cero
+   * solapamiento-- asi que NO se cuentan entre los Loan Officers: sumarlos en
+   * los dos lados duplicaria el branch.
    */
   is_nppm_realtor: boolean;
+}
+
+/**
+ * Una fila del tablero de contrataciones.
+ *
+ * ⚠ SE FILTRA POR `cuenta_como_proximo_ingreso` Y POR NADA MAS.
+ *
+ * Esa columna ya aplica la regla completa. Las otras dos que parecen servir, no
+ * sirven, y medido hoy la diferencia no es teorica:
+ *
+ *   cuenta_como_proximo_ingreso    7      <- la que va
+ *   es_nuevo                      17      <- 10 de mas: incluye canceladas y
+ *                                            completadas, y el nombre invita a
+ *                                            usarlo mal
+ *   seccion                              texto del tablero, no una condicion
+ */
+export interface HiringRow {
+  nombre: string;
+  cargo: string | null;
+  branch_en_el_tablero: string | null;
+  fecha_inicio: string | null;
+  person_code: string | null;
+  synced_at: string;
 }
 
 export interface RosterChange {
@@ -153,75 +142,48 @@ export interface RosterChange {
   acknowledged_at: string | null;
 }
 
-export interface RosterBranch {
-  branchCode: string;
+/** Un cargo y su gente. El orden lo decide la cantidad, no el alfabeto. */
+export interface SeccionDeCargo {
+  cargo: string;
   people: RosterPerson[];
-  /**
-   * Estado del BRANCH. Ver `RosterPerson.branch_is_active` -- `null` es
-   * "sin sincronizar", no "inactiva".
-   *
-   * Sale de las filas del grupo porque todas comparten el mismo valor: la vista
-   * lo trae de un LEFT JOIN contra `dim_branch_status` por `branch_code`, que
-   * es justamente lo que agrupa. Se toma de la primera fila y no se "vota"
-   * entre ellas: si alguna vez difirieran, promediarlas escondería el problema.
-   */
-  branchIsActive: boolean | null;
-  branchNote: string | null;
-  /**
-   * Personas activas en un branch inactivo -- el caso Robert Kravitz.
-   *
-   * Se precalcula acá para que la pantalla pueda decir las dos cosas juntas sin
-   * que ninguna se lea como consecuencia de la otra. Es el punto exacto donde
-   * alguien podría concluir "el branch está cerrado, entonces esta persona ya
-   * no trabaja acá", que es falso.
-   */
-  activePeopleInInactiveBranch: number;
-  /**
-   * Cuántas personas ACTIVAS de este branch producen.
-   *
-   * Va en la cabecera del grupo para que "quién produce acá" se conteste
-   * barriendo la página, sin abrir cada fila. Se cuenta sobre las activas: un
-   * productor que ya no trabaja no produce, y sumarlo daría un número que no
-   * corresponde a nadie.
-   */
-  activeProducers: number;
+}
+
+/**
+ * Los indicadores.
+ *
+ * ⚠ TODOS SOBRE LAS PERSONAS ACTIVAS, salvo `inactivas`, que es su complemento.
+ *
+ * El encuadre se nombra porque mezclarlo es facil y da un total que cuadra por
+ * casualidad: `colombia (43) + usa incluyendo bajas (68)` da 111, que es
+ * exactamente el total de activas -- por dos errores que se compensan, las 4
+ * personas `CO/US` que quedarian afuera y las 4 bajas que entrarian. Dos
+ * numeros correctos, una suma correcta, y una composicion que no es la que
+ * dice ser.
+ */
+export interface Indicadores {
+  activas: number;
+  loanOfficers: number;
+  nppm: number;
+  colombia: number;
+  usa: number;
+  coUs: number;
+  inactivas: number;
 }
 
 export interface AdminData {
-  branches: RosterBranch[];
+  /** Solo activas, agrupadas por cargo. Las bajas se conservan y no se listan. */
+  secciones: SeccionDeCargo[];
+  indicadores: Indicadores;
+  proximosIngresos: HiringRow[];
   changes: RosterChange[];
-  /**
-   * ⚠ ¿Hay historia de cargas? — la única forma honesta de leer las fechas.
-   *
-   * `first_seen_at` y `last_seen_at` se llenan comparando cargas sucesivas del
-   * roster. Los rosters cargaban en modo REPLACE y recién se pasaron a APPEND,
-   * así que la historia arranca con la próxima subida y hoy las 108 filas las
-   * tienen vacías.
-   *
-   * Una celda vacía se lee como un error de la pantalla. Mientras esto sea
-   * `false`, la pantalla dice "sin registro" y explica por qué -- que es una
-   * afirmación verdadera, a diferencia del blanco.
-   */
-  hayHistoriaDeCargas: boolean;
-  /**
-   * ¿Ya llegó el estado de los branches?
-   *
-   * Las columnas `branch_is_active` / `branch_note` existen en la tabla desde
-   * antes de que el sync las mapeara, así que hasta la primera corrida con el
-   * mapeo nuevo vienen todas en null. Con esto la pantalla lo dice UNA vez, en
-   * lugar de repetir un "sin dato" en cada uno de los 16 grupos -- y en vez de
-   * no mostrar nada, que se leería como que la función no llegó.
-   */
-  hayEstadoDeBranches: boolean;
+  /** `max(synced_at)` de cada fuente, que es lo que la pantalla muestra como "actualizado". */
+  actualizado: { roster: string | null; contrataciones: string | null };
   diagnostics: {
     rosterRows: number;
-    activeRows: number;
-    producerRows: number;
-    activeProducerRows: number;
-    nppmRealtorRows: number;
+    hiringRows: number;
     changeRows: number;
-    /** El error de lectura, si lo hubo. Ver el bloque de abajo. */
     rosterError: string | null;
+    hiringError: string | null;
     changeError: string | null;
   };
 }
@@ -231,110 +193,112 @@ export function shortDate(iso: string | null): string | null {
   return iso ? iso.slice(0, 10) : null;
 }
 
+/** Fecha y hora, para el sello de actualizacion. */
+export function shortDateTime(iso: string | null): string | null {
+  return iso ? iso.slice(0, 16).replace('T', ' ') : null;
+}
+
+export const SIN_CARGO = '(sin cargo en el roster)';
+export const SIN_BRANCH = '—';
+
 export async function loadAdminData(): Promise<AdminData> {
   const org = getSupabaseClient().schema('org');
 
   /*
-   * ⚠ Los dos errores se capturan y se MUESTRAN, no se tragan.
-   *
-   * Con RLS, una tabla sin política devuelve cero filas y no un error, así que
-   * "no hay datos" y "no tengo permiso" se ven igual en la pantalla. Se guarda
-   * el error de cada lectura por separado para poder distinguir los tres casos
-   * --sin permiso, sin datos, error real-- en vez de mostrar una tabla vacía
-   * que no dice cuál de los tres es.
+   * ⚠ Los tres errores se capturan y se MUESTRAN, no se tragan. Ver la nota de
+   * las tres causas en la cabecera: cero filas con `error: null` es una policy
+   * que no aplica, no una tabla vacia.
    */
-  const [rosterRes, changeRes] = await Promise.all([
-    org.from('roster_current').select('*').order('branch_code', { ascending: true }).order('display_name', { ascending: true }),
+  const [rosterRes, hiringRes, changeRes] = await Promise.all([
+    org
+      .from('roster_current')
+      .select('*')
+      .order('position', { ascending: true })
+      .order('display_name', { ascending: true }),
+    org
+      .from('hiring_tracking')
+      .select('nombre, cargo, branch_en_el_tablero, fecha_inicio, person_code, synced_at')
+      .eq('cuenta_como_proximo_ingreso', true)
+      .order('fecha_inicio', { ascending: true, nullsFirst: false })
+      .order('nombre', { ascending: true }),
     org.from('roster_change_log').select('*').order('detected_at', { ascending: false }),
   ]);
 
   const people = (rosterRes.data ?? []) as RosterPerson[];
+  const proximosIngresos = (hiringRes.data ?? []) as HiringRow[];
   const changes = (changeRes.data ?? []) as RosterChange[];
 
+  const activas = people.filter((p) => p.is_active);
+
   /*
-   * Agrupado por branch y ordenado por CANTIDAD DE GENTE, como se pidió: el 700
-   * es corporativo y tiene 35, el resto van de 1 a 15. Ordenar alfabéticamente
-   * dejaría al más grande en el medio.
+   * Las secciones salen del cargo tal como viene, sin normalizar.
    *
-   * Los que no traen branch van al final bajo una etiqueta explícita: un grupo
-   * sin nombre se lee como un branch que se llama vacío.
+   * ⚠ Normalizarlo --mayusculas, plurales, sinonimos-- seria una regla sobre la
+   * FORMA del texto, y juntaria cargos que RRHH escribe distinto porque SON
+   * distintos: `Producing Branch Manager` y `NonProducing Branch Manager` se
+   * parecen mas entre si que muchos de los que si son el mismo. Lo unico que se
+   * hace es recortar los espacios del borde, que el archivo trae de mas.
    */
-  const byBranch = new Map<string, RosterPerson[]>();
-  for (const p of people) {
-    const code = p.branch_code?.trim() || SIN_BRANCH;
-    byBranch.set(code, [...(byBranch.get(code) ?? []), p]);
+  const porCargo = new Map<string, RosterPerson[]>();
+  for (const p of activas) {
+    const cargo = p.position?.trim() || SIN_CARGO;
+    porCargo.set(cargo, [...(porCargo.get(cargo) ?? []), p]);
   }
-  const branches: RosterBranch[] = [...byBranch.entries()]
-    .map(([branchCode, list]) => {
-      const people = list.sort((a, b) => a.display_name.localeCompare(b.display_name));
-      /*
-       * El grupo de los que no traen branch NO es un branch, así que no tiene
-       * estado: marcarlo como inactivo diría que existe uno cerrado que se
-       * llama "(sin branch en el roster)".
-       */
-      const isReal = branchCode !== SIN_BRANCH;
-      const branchIsActive = isReal ? (people[0]?.branch_is_active ?? null) : null;
-      return {
-        branchCode,
-        people,
-        branchIsActive,
-        branchNote: isReal ? (people[0]?.branch_note ?? null) : null,
-        activePeopleInInactiveBranch:
-          branchIsActive === false ? people.filter((p) => p.is_active).length : 0,
-        activeProducers: people.filter((p) => p.is_active && p.is_producer).length,
-      };
-    })
+
+  const secciones: SeccionDeCargo[] = [...porCargo.entries()]
+    .map(([cargo, list]) => ({
+      cargo,
+      people: [...list].sort((a, b) => a.display_name.localeCompare(b.display_name)),
+    }))
     .sort((a, b) => {
-      if (a.branchCode === SIN_BRANCH) return 1;
-      if (b.branchCode === SIN_BRANCH) return -1;
-      return b.people.length - a.people.length || a.branchCode.localeCompare(b.branchCode);
+      /* El grupo sin cargo va ultimo: no es un cargo que se llame vacio. */
+      if (a.cargo === SIN_CARGO) return 1;
+      if (b.cargo === SIN_CARGO) return -1;
+      return b.people.length - a.people.length || a.cargo.localeCompare(b.cargo);
     });
 
+  const pais = (p: RosterPerson) => (p.country ?? '').trim().toUpperCase();
+
   return {
-    branches,
+    secciones,
+    indicadores: {
+      activas: activas.length,
+      loanOfficers: activas.filter((p) => p.is_producer).length,
+      nppm: activas.filter((p) => p.is_nppm_realtor).length,
+      colombia: activas.filter((p) => pais(p) === 'CO').length,
+      usa: activas.filter((p) => pais(p) === 'US').length,
+      coUs: activas.filter((p) => pais(p) === 'CO/US').length,
+      inactivas: people.length - activas.length,
+    },
+    proximosIngresos,
     changes,
-    /* Basta con que UNA fila tenga la marca para que la historia haya empezado. */
-    hayHistoriaDeCargas: people.some((p) => p.first_seen_at !== null || p.last_seen_at !== null),
-    /* Basta con que UNA fila lo traiga: el sync escribe todas en la misma corrida. */
-    hayEstadoDeBranches: people.some((p) => p.branch_is_active !== null),
+    actualizado: {
+      roster: people.reduce<string | null>((max, p) => (max === null || p.synced_at > max ? p.synced_at : max), null),
+      contrataciones: proximosIngresos.reduce<string | null>(
+        (max, h) => (max === null || h.synced_at > max ? h.synced_at : max),
+        null
+      ),
+    },
     diagnostics: {
       rosterRows: people.length,
-    /*
-     * Los tres totales que se pueden cotejar contra un `select count(*)`. Están
-     * en el pie de diagnóstico por eso: son la forma de saber, sin abrir la
-     * base, si la pantalla está viendo lo mismo que el sync escribió.
-     */
-    activeRows: people.filter((p) => p.is_active).length,
-    producerRows: people.filter((p) => p.is_producer).length,
-    /*
-     * ⚠ Los productores ACTIVOS, aparte del total.
-     *
-     * Sin este segundo número el pie decía "38 producen" y las cabeceras de los
-     * branches sumaban 35, porque ellas cuentan sólo activos. Dos números
-     * correctos que se leen como una inconsistencia. La diferencia son los
-     * productores que ya no trabajan.
-     */
-    activeProducerRows: people.filter((p) => p.is_producer && p.is_active).length,
-    nppmRealtorRows: people.filter((p) => p.is_nppm_realtor).length,
+      hiringRows: proximosIngresos.length,
       changeRows: changes.length,
       rosterError: rosterRes.error?.message ?? null,
+      hiringError: hiringRes.error?.message ?? null,
       changeError: changeRes.error?.message ?? null,
     },
   };
 }
 
-export const SIN_BRANCH = '(sin branch en el roster)';
-
 /**
  * Marca una fila del log como revisada.
  *
- * ⚠ `acknowledged_by` sale de la SESIÓN, no de un campo -- mismo criterio que
- * `lib/outlook/save.ts`: si viniera del formulario, cualquiera podría firmar
- * con el nombre de otro, y la firma es la mitad del valor de guardar quién lo
- * revisó.
+ * ⚠ `acknowledged_by` sale de la SESION, no de un campo -- mismo criterio que
+ * `lib/outlook/save.ts`: si viniera del formulario, cualquiera podria firmar
+ * con el nombre de otro, y la firma es la mitad del valor de guardar quien lo
+ * reviso.
  *
- * Es lo ÚNICO que esta pantalla escribe, y no cambia el roster: dice "ya lo vi",
- * no "ya lo apliqué".
+ * Es lo UNICO que esta pantalla escribe, y no cambia el roster.
  */
 export async function acknowledgeChange(id: number): Promise<void> {
   const supabase = getSupabaseClient();
