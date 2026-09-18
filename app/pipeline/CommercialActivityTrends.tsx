@@ -5,7 +5,6 @@ import type { LoanRecord } from '@/lib/domain/types';
 import {
   buildCommercialActivityMonthlyTrends,
   computeCommercialActivityKpis,
-  getDefaultTrendsFromMonth,
   getDistinctStrategies,
   getDistinctYears,
   type CommercialActivityMonthlyRow,
@@ -107,26 +106,16 @@ function getPreviousComparableBlock(
 export default function CommercialActivityTrends({ records }: CommercialActivityTrendsProps) {
   const [strategy, setStrategy] = useState<string>('all');
   /*
-   * `year === ''` -- sentinel de "sin selección explícita todavía", nunca
-   * una opción visible del <select> (mismo criterio que el `start` de
-   * components/report/Toolbar.tsx: un valor fuera de la lista, no un
-   * elemento más de ella). Mientras esté en ese estado se aplica la regla
-   * de mínimo 6 meses (`getDefaultTrendsFromMonth`); al elegir "All" pasa a
-   * `'all'` (sin límite inferior) y al elegir un año puntual pasa a ese
-   * año como string ('2026'), igual que `availableYears`/`year` de
-   * app/page.tsx -- sin tocar ese archivo, solo el mismo formato de valor.
+   * Arranca en el año actual (hora de negocio, Bogotá) -- nunca hardcodeado,
+   * así que en enero de 2027 este mismo código arranca en 2027 sin tocar
+   * nada. `businessToday()` ya se usa en el resto del archivo (ver
+   * `partialMonth` más abajo) -- mismo criterio, sin `new Date()` suelto.
    */
-  const [year, setYear] = useState<string>('');
+  const [year, setYear] = useState<string>(() => String(businessToday().year));
   const strategies = getDistinctStrategies(records);
   const years = getDistinctYears(records);
   const allRows = buildCommercialActivityMonthlyTrends(records, strategy);
-  const defaultStartMonth = getDefaultTrendsFromMonth(businessToday());
-  const rows =
-    year === 'all'
-      ? allRows
-      : year === ''
-        ? allRows.filter((r) => r.month >= defaultStartMonth)
-        : allRows.filter((r) => r.month.startsWith(year + '-'));
+  const rows = year === 'all' ? allRows : allRows.filter((r) => r.month.startsWith(year + '-'));
   const previousRows = getPreviousComparableBlock(allRows, rows);
   const kpis = computeCommercialActivityKpis(rows, previousRows);
   /*
@@ -180,7 +169,6 @@ export default function CommercialActivityTrends({ records }: CommercialActivity
 
         <span className="label-chip">Year</span>
         <select className="field" value={year} onChange={(e) => setYear(e.target.value)}>
-          <option value="">{'Recent (' + shortMonth(defaultStartMonth) + ' ' + defaultStartMonth.slice(0, 4) + '+)'}</option>
           {years.map((y) => (
             <option key={y} value={y}>
               {y}

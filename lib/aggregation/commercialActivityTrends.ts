@@ -90,31 +90,6 @@ export function getDistinctStrategies(records: LoanRecord[]): string[] {
 }
 
 /**
- * Mes de arranque por defecto de Monthly Trends, sin ninguna selección
- * explícita del usuario -- garantiza mínimo 6 meses visibles sin importar
- * en qué mes del año se abra la pantalla:
- *   - mes actual >= junio: enero del año en curso (6 a 12 meses visibles,
- *     nunca menos de 6 -- de junio a diciembre).
- *   - mes actual < junio: el mes (7 + mes actual) del año ANTERIOR -- ej.
- *     mayo (5) arranca en diciembre (7+5=12) del año anterior: dic, ene,
- *     feb, mar, abr, may = exactamente 6 meses.
- *
- * Función PURA -- recibe `today` como parámetro en vez de leer el reloj del
- * sistema, para poder testearla con cualquier fecha sin mockear nada. El
- * caller (CommercialActivityTrends.tsx) es quien calcula "hoy" -- con
- * `businessToday()` de `lib/pipeline/period.ts` (FIX-BUSINESS-TODAY, ya
- * existente en el repo: hora de negocio Bogotá UTC-5 fijo, no `new Date()`
- * en UTC puro -- ese bug ya costó un salto de mes real el 31 de agosto).
- * Este archivo no importa `businessToday()` ni llama al reloj del sistema
- * directamente, para no perder esa pureza.
- */
-export function getDefaultTrendsFromMonth(today: { year: number; month: number }): YearMonth {
-  const pad2 = (n: number) => String(n).padStart(2, '0');
-  if (today.month >= 6) return `${today.year}-01`;
-  return `${today.year - 1}-${pad2(7 + today.month)}`;
-}
-
-/**
  * Años ('YYYY') presentes en los 3 campos de fecha de `records`, para el
  * selector "Year" de Monthly Trends -- nunca hardcodeados. Mismo criterio
  * que `getDistinctStrategies`: se deriva de TODOS los registros cargados,
