@@ -8574,3 +8574,59 @@ que uno se acuerda que mostraba la pantalla no es una comparación.
 Y la recomendación que además vuelve inocuo el borrado: **un desglose sin total
 sigue gobernado por la regla**, mismo criterio que «lo que ya pasó no se
 recalcula». Si se adopta, los dos meses de Aimmee dejan de ser una decisión.
+
+## Commercial Activity en Analytics — Monthly Trends
+
+Se agregó un toggle ("Closing" / "Commercial Activity") junto al título de la
+pestaña Analytics. En modo "Closing" no cambia nada -- sigue siendo
+`TabAnalytics.tsx` con `resolvedLoans` de Forecast, sin tocar. En modo
+"Commercial Activity" se muestra una vista nueva: selector de estrategia,
+gráfico de líneas y tabla mensual, sobre `LoanRecord[]` (no `ResolvedLoan[]`).
+
+**Fuente de datos**: `app/analytics/page.tsx` ahora hace un SEGUNDO fetch
+independiente, llamando a `loadCurrentReport()` (`lib/supabase/loadCurrent.ts`)
+con su propio `useState<LoanRecord[] | null>` -- mismo patrón que ya usa
+`app/page.tsx` (Commercial Activity), sin compartir hook ni cache con el fetch
+de Forecast (`/api/pipeline/latest`) que ya hacía esta página. Mismo criterio
+que el resto de la app: cada ruta de nivel superior es independiente. `null`
+(nadie subió nada aún, o Supabase sin configurar) se distingue de `[]` (hubo
+reporte, cero préstamos) -- estado explícito de carga/vacío/error, no una tabla
+en blanco sin explicación.
+
+**El filtro de estrategia usa `record.strategy`, YA RESUELTO en BigQuery --
+NO `classifyStrategy()`.** Son dos mecanismos distintos a propósito:
+`classifyStrategy()` (`lib/pipeline/strategy.ts`) clasifica en TypeScript a
+partir de 3 campos crudos de Salesforce (`branch`, `strategyRaw`,
+`opportunityOwnerTitle`) que sólo existen en `ResolvedLoan`/`PipelineLoan`
+(Forecast) -- `LoanRecord` (Commercial Activity) no tiene ninguno de los dos
+últimos, sólo la estrategia ya resuelta. `getDistinctStrategies()`
+(`lib/aggregation/commercialActivityTrends.ts`) deriva las opciones del
+selector directamente de los valores presentes en `records`, sin hardcodear
+`STRATEGY_ORDER` de ningún lado.
+
+**El gráfico de líneas es un componente NUEVO** (`CommercialActivityLineChart`,
+3 series: File Creations/Credit Reports/Applications) y no una generalización
+de `AvgTicketChart` (TabAnalytics.tsx, usado por Closing) -- se evaluó y no
+aplica sin modificar ese archivo: es de una sola serie, con una escala de
+dominio recortada al rango real (pensada para montos, donde 0 es un centinela
+de "sin dato"); acá las 3 series son CONTEOS, donde 0 es un valor real, así
+que la escala es 0-based, al revés de esa otra. No se tocó ningún archivo de
+Closing.
+
+⚠ **PENDIENTE/BLOQUEADO -- el mapa (equivalente a "Subject Property State") no
+se hizo.** `loan_records_v2` (la tabla que sincroniza BigQuery para Commercial
+Activity) no tiene ninguna columna de property state/dirección hoy --
+confirmado en el código (`LoanRecordV2Row`/`LoanRecord`, sin ningún campo de
+ese tipo). Para tener el mapa acá hace falta que el sync de BigQuery agregue
+esa columna -- a confirmar con Isa antes de escribir nada de esa pieza.
+
+### Archivos
+
+`app/analytics/page.tsx` (toggle Closing/Commercial Activity, segundo fetch
+con `loadCurrentReport()`, estados de carga/vacío/error). `lib/aggregation/
+commercialActivityTrends.ts` (`buildCommercialActivityMonthlyTrends`,
+`getDistinctStrategies` -- archivo nuevo). `app/pipeline/
+CommercialActivityTrends.tsx` (selector + tabla, archivo nuevo).
+`app/pipeline/CommercialActivityLineChart.tsx` (gráfico de 3 series, archivo
+nuevo, independiente de `AvgTicketChart`). Ningún archivo de Closing
+(`TabAnalytics.tsx` incluido) fue tocado.

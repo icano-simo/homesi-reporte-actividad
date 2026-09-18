@@ -174,6 +174,13 @@ export async function loadCurrentReport(): Promise<CurrentReport | null> {
     loanInfoChannel: row.loan_channel ?? '',
     fileCreationMonth: monthOf(row.file_creation_date),
     creditReportMonth: monthOf(row.credit_report_date),
+    /*
+     * `app_date` es columna propia de `loan_records_v2` (no derivada de
+     * ninguna otra fecha) -- fuente directa de la serie "Applications" y de
+     * la tasa Credit Report → Application en Commercial Activity Trends
+     * (Analytics), ver `computeCommercialActivityKpis` en
+     * lib/aggregation/commercialActivityTrends.ts.
+     */
     appDateMonth: monthOf(row.app_date),
     /*
      * `closing_month` y no `closing_date`: es el mes canónico que ya resolvió
