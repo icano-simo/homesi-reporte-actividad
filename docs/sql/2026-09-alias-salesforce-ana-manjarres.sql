@@ -1,0 +1,102 @@
+-- ============================================================================
+-- URGENTE — El pipeline de Ana Manjarres no llega a su perfil: falta UN alias
+-- ============================================================================
+--
+-- NO EJECUTAR desde el repo. Lo aplica quien administra la base.
+--
+-- ── EL SINTOMA ──────────────────────────────────────────────────────────────
+--
+-- Ana Manjarres tiene 4 prestamos en el pipeline, 2 healthy, los 4 cerrando en
+-- septiembre, y su perfil de Business Plan no los muestra.
+--
+-- ── LA CAUSA, MEDIDA ────────────────────────────────────────────────────────
+--
+-- El snapshot activo es el 207 (2026-09-18 15:03) y SI los tiene:
+--
+--   pipeline_loans · snapshot 207 · loan_officer = 'Ana Manjarres'  ->  4 filas, 2 healthy
+--
+-- El nombre esta escrito igual que en el roster. Lo que falla es la atadura:
+-- `lib/business-plan/loadData.ts:922` resuelve las filas del pipeline con la
+-- fuente **`salesforce`**
+--
+--     const key = resolve('salesforce', row.loan_officer);
+--
+-- y bajo esa fuente el unico alias de Ana es «Ana Manjarrez», CON Z:
+--
+--   roster       Ana Manjarres        -> 47
+--   slquery      Ana Manjarres        -> 47
+--   slquery      ANA MANJARRES        -> 47
+--   salesforce   Ana Manjarrez        -> 47     <- la unica de salesforce
+--   person_code  ana.manjarres        -> 47
+--
+-- `aliasIndex` normaliza trim + espacios + MAYUSCULAS, y eso no convierte una
+-- `z` en una `s`. Asi que sus 4 filas caen en `unmapped` y su pipeline no se
+-- suma a ninguna persona.
+--
+-- ⚠ ES UNA SOLA PERSONA, NO UNA ETAPA. De los 125 prestamos del snapshot
+-- activo, el UNICO `loan_officer` sin alias de `salesforce` es ella -- y no
+-- esta en `source_name_excluded`, o sea que no es una exclusion a proposito.
+--
+-- ⚠ Y NO ES QUE NADIE PUDIERA VERLO: el panel de diagnostico de Business Plan
+-- ya lo imprime, en rojo, como `Unclassified source names (1): salesforce:"Ana
+-- Manjarres" (4)`. Estaba a la vista y se lee como plomeria.
+--
+-- ── LO QUE ESTO NO ES ───────────────────────────────────────────────────────
+--
+-- No es el caso de `dim_employee` de esta misma serie: la fila 47 existe, esta
+-- activa y es loan officer. Y no son sus 15 prestamos de `loan_records_v2`,
+-- que estan todos ABIERTOS y ninguno cerrado -- «sin cierres» es correcto.
+-- Esto es el PIPELINE, que es otra fuente y otra pregunta.
+--
+-- ── POR QUE SE AGREGA Y NO SE CORRIGE LA QUE ESTA ───────────────────────────
+--
+-- Las dos grafias existen en el mundo: Salesforce la tiene como «Manjarrez» en
+-- algun lado --por eso ese alias se cargo-- y el archivo del pipeline la trae
+-- como «Manjarres». Corregir la vieja romperia lo que hoy resuelve por ella.
+-- Para eso existe esta tabla: la PK es `(source_system, name_raw)`, y ya hay
+-- dos personas con mas de un alias de `salesforce`.
+--
+-- ============================================================================
+
+insert into org.employee_alias (source_system, name_raw, employee_key, match_method)
+values ('salesforce', 'Ana Manjarres', 47, 'variante-Manjarres-con-s')
+on conflict (source_system, name_raw) do nothing
+returning source_system, name_raw, employee_key, match_method;
+
+-- ⚠ `employee_key` va a mano y es la unica constante escrita de este archivo.
+-- Se leyo, no se recordo: `select employee_key from org.dim_employee where
+-- person_code = 'ana.manjarres'` da 47. El `returning` dice si entro; con el
+-- `on conflict` una segunda corrida devuelve cero filas en vez de fallar.
+
+-- ============================================================================
+-- COMO COMPROBARLO — EN OTRA SENTENCIA
+-- ============================================================================
+--
+-- 1. El alias quedo:
+--
+--      select employee_key, match_method from org.employee_alias
+--       where source_system = 'salesforce' and name_raw = 'Ana Manjarres';
+--      -- 47 · variante-Manjarres-con-s
+--
+-- 2. Y ya no queda NINGUN loan officer del snapshot activo sin alias de
+--    salesforce. Tiene que dar cero filas -- antes de aplicar da una, la de Ana:
+--
+--      with norm as (
+--        select upper(btrim(regexp_replace(loan_officer, '\s+', ' ', 'g'))) n, count(*) filas
+--          from pipeline_forecast.pipeline_loans
+--         where snapshot_id = (select id from pipeline_forecast.pipeline_snapshots
+--                               where is_active order by uploaded_at desc limit 1)
+--           and loan_officer is not null
+--         group by 1
+--      ), sf as (
+--        select upper(btrim(regexp_replace(name_raw, '\s+', ' ', 'g'))) n
+--          from org.employee_alias where source_system = 'salesforce'
+--      )
+--      select * from norm where n not in (select n from sf);
+--
+--    ⚠ El snapshot NO se escribe a mano: sale de `is_active`. Clavar el 207
+--    haria que esta comprobacion siga dando verde cuando el activo sea otro.
+--
+-- 3. Y en pantalla, que es donde se ve: el perfil de Ana tiene que mostrar sus
+--    4 prestamos --2 healthy-- y el panel de diagnostico de Business Plan tiene
+--    que dejar de decir `Unclassified source names`.
