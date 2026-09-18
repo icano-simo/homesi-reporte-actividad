@@ -154,6 +154,105 @@ export async function esperarDato(page, descripcion, predicadoEnElNavegador, opt
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   2b. exigirElArbol — ¿este servidor sirve el código que estoy midiendo?
+   ═══════════════════════════════════════════════════════════════════════════
+
+   Una sonda midió `main` durante 300 segundos. El `next dev` de la etapa había
+   muerto con EADDRINUSE y el puerto lo tenía un proceso viejo, que respondió
+   perfecto sobre otro árbol: la sonda conectó bien, la página cargó bien, y
+   contestó sobre una pantalla anterior.
+
+   Es la familia de «la operación tuvo éxito sobre el objeto equivocado», y sin
+   esta comprobación sus dos síntomas se ven idénticos:
+
+     el dato no llegó      ->  `esperarDato` vence a los 120s
+     el servidor es otro   ->  `esperarDato` vence a los 120s
+
+   Lo que lo cortó aquella vez fue el mínimo de `crearArnes` y volcar el DOM.
+   Esto lo convierte en una línea, y falla en segundos en vez de gastar el
+   timeout. Va ANTES de cualquier espera.
+
+   ─────────────────────────────────────────────────────────────────────────
+   ⚠ EL LÍMITE, Y HAY QUE LEERLO ANTES DE CONFIAR: LA MARCA SÓLO DISTINGUE LO
+     QUE LA MARCA DISTINGUE.
+   ─────────────────────────────────────────────────────────────────────────
+   `[data-adm-kpi]` separa la pantalla anterior a ADM1 de todo lo que vino
+   después -- pero ADM1 y ADM2 la tienen las dos, así que un servidor viejo
+   sirviendo ADM1 habría pasado el control igual.
+
+   Para separar DOS ETAPAS SEGUIDAS hay que elegir una marca DE LA ETAPA y no
+   del módulo: un atributo que sólo exista en el trabajo de hoy. Esta función no
+   puede comprobar eso por vos, y prometer más que esto la haría peor que la
+   nota que reemplaza.
+
+   ⚠ Y LA MARCA TIENE QUE DIBUJARSE ANTES QUE EL DATO. Si sólo aparece cuando la
+   carga terminó, vuelve a confundir «el servidor es otro» con «el dato no
+   llegó», que es justo la distinción que esto existe para hacer. Un envoltorio
+   de la pantalla sirve; un número que llena una consulta, no. */
+
+/**
+ * Falla si la página servida no trae la marca de este código.
+ *
+ * @param {import('playwright-core').Page} page
+ * @param {string} marca  Selector que SÓLO existe en el código bajo prueba, y
+ *   que se dibuja antes de que llegue el dato. Ver el límite de arriba.
+ * @param {string} etapa  Cómo se llama lo que se está midiendo. Obligatorio, y
+ *   por la misma razón que `descripcion` en `esperarDato`: nombrarlo obliga a
+ *   preguntarse si la marca es de la etapa o del módulo.
+ * @param {{ timeout?: number }} [opts]  Corto a propósito: no es una espera por
+ *   el dato, es una comprobación de identidad. 8s alcanzan para el primer
+ *   pintado y no para esconder un árbol equivocado.
+ * @returns {Promise<void>}
+ */
+export async function exigirElArbol(page, marca, etapa, opts = {}) {
+  const { timeout = 8000 } = opts;
+  if (typeof marca !== 'string' || marca.trim() === '') {
+    throw new Error('exigirElArbol: falta `marca`, el selector que sólo existe en este código.');
+  }
+  if (typeof etapa !== 'string' || etapa.trim() === '') {
+    throw new Error(
+      'exigirElArbol: falta `etapa`. Nombrar lo que se mide es lo que obliga a preguntarse ' +
+        'si la marca distingue ESTA etapa o sólo el módulo -- ver el límite en la cabecera.'
+    );
+  }
+  try {
+    await page.waitForSelector(marca, { timeout, state: 'attached' });
+    return;
+  } catch {
+    /* Cae abajo: lo que importa no es que no estuviera, es QUÉ había. */
+  }
+  /*
+   * ⚠ El informe dice qué está sirviendo el puerto, no «no encontré el
+   * selector». El DOM dice qué pasó; el selector sólo dice si encontró lo que
+   * buscaba -- y las cuatro veces que esto costó una tarde, la respuesta estaba
+   * a la vista en el `body` y ninguna medición preguntaba eso.
+   */
+  let que = { url: '(sin página)', titulo: '', h1: '(sin h1)', cuerpo: '' };
+  try {
+    que = await page.evaluate(() => ({
+      url: location.href,
+      titulo: document.title,
+      h1: document.querySelector('h1')?.textContent?.trim() || '(sin h1)',
+      cuerpo: (document.body?.innerText ?? '').split('\n').map((l) => l.trim())
+        .filter((l) => l !== '').slice(0, 8).join(' · ').slice(0, 400),
+    }));
+  } catch {
+    /* Si ni eso se puede leer, el mensaje de abajo igual dice más que un
+       timeout: la marca no está y la página no contesta. */
+  }
+  throw new Error(
+    `exigirElArbol: la página servida NO trae la marca de «${etapa}» (${marca}).\n` +
+      `  url    ${que.url}\n` +
+      `  título ${que.titulo}\n` +
+      `  h1     ${que.h1}\n` +
+      `  body   ${que.cuerpo}\n` +
+      'Esto NO es «el dato no llegó»: es que el puerto sirve otro árbol. Revisar si el ' +
+      '`next dev` de esta etapa arrancó -- un EADDRINUSE deja el puerto en manos de un ' +
+      'proceso viejo, que responde perfecto sobre el código anterior.'
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
    3. medirRuta — el compile en frío se cobra en la primera medición
    ═══════════════════════════════════════════════════════════════════════════
 

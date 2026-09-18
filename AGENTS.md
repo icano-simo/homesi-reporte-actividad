@@ -871,7 +871,7 @@ Y el corolario que duele: el número que lo delató —69 de 75— se podía hab
 calculado en cualquier momento con una consulta de treinta segundos. No hacía
 falta descubrirlo, hacía falta preguntarlo.
 
-## Ocho de estas lecciones son código, no nota
+## Nueve de estas lecciones son código, no nota
 
 `scripts/verificacion/guardas.mjs`. Se importan desde cualquier script de
 verificación y no tocan la base — reciben el `page` o el `locator` por
@@ -882,6 +882,7 @@ fuera del repo.
 |---|---|---|
 | `leerTexto` | `innerText` con `text-transform`, y leer texto de un `<input>` | **4** |
 | `esperarDato` | medir antes de que el dato llegue, y esperar a la señal equivocada | 1, con 11 falsos |
+| `exigirElArbol` | medir un puerto que sirve OTRO árbol — y leerlo como «el dato no llegó» | **1**, 300s sobre `main` |
 | `medirRuta` | atribuirle al cambio el compile en frío | 1, casi público |
 | `crearArnes` | un resumen que dice verde sin haber corrido | **2**, y ver la nota |
 | `exigirSinChoques` | redefinir una clase de CSS que ya existía | 1 |
@@ -908,6 +909,35 @@ sobre listas vacías-- pero quién la atrapó, sí.
 **Por qué están en el repo y no en el scratchpad de una sesión:** una guarda que
 se muere con la sesión es *peor* que una nota acá, porque la nota al menos
 sobrevive para que alguien la lea.
+
+### Y la novena, que es sobre medir el árbol equivocado
+
+Una sonda midió `main` durante **300 segundos**. El `next dev` de la etapa había
+muerto con `EADDRINUSE` y el puerto lo tenía un proceso viejo, que respondió
+perfecto sobre otro árbol: conectó bien, la página cargó bien, y contestó sobre
+una pantalla anterior. Es la familia de «la operación tuvo éxito sobre el objeto
+equivocado», y lo que la hace cara es que sus dos síntomas son el mismo:
+
+    el dato no llegó      ->  la espera vence
+    el servidor es otro   ->  la espera vence
+
+`exigirElArbol(page, marca, etapa)` va **antes** de cualquier espera y falla en
+segundos diciendo qué está sirviendo el puerto —la URL, el `h1` y las primeras
+líneas del `body`— en vez de gastar el timeout.
+
+Aquella vez la cortaron el mínimo de `crearArnes` —dijo `RESUMEN INVALIDO, 7 de
+22` en vez de verde— y **volcar el DOM en vez de probar otro selector**. Las dos
+siguen siendo las que encuentran lo que la guarda no busca.
+
+> ⚠ **Y su límite, que está escrito en su cabecera: la marca sólo distingue lo
+> que la marca distingue.** `[data-adm-kpi]` separa la pantalla anterior a ADM1
+> de todo lo que vino después, pero ADM1 y ADM2 la tienen las dos — un servidor
+> viejo sirviendo ADM1 habría pasado el control igual. Para separar dos etapas
+> seguidas hay que elegir una marca **de la etapa** y no del módulo, y la marca
+> tiene que dibujarse ANTES que el dato: si sólo aparece cuando la carga
+> terminó, vuelve a confundir los dos síntomas que viene a separar.
+
+Una guarda que prometiera más que eso sería peor que la nota que reemplaza.
 
 Y sus propias pruebas verifican que **atrapen**, no que pasen —
 `guardas.test.mjs` y `guardas.browser.test.mjs` construyen el error que cada una

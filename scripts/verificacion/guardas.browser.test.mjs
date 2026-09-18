@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * PRUEBA DE LAS TRES GUARDAS QUE NECESITAN NAVEGADOR
+ * PRUEBA DE LAS CUATRO GUARDAS QUE NECESITAN NAVEGADOR
  * ============================================================================
  *
  *   node scripts/verificacion/guardas.browser.test.mjs <ruta a playwright-core>
@@ -17,7 +17,7 @@
  */
 import { existsSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { crearArnes, leerTexto, diagnosticarTexto, esperarDato, medirRuta } from './guardas.mjs';
+import { crearArnes, leerTexto, diagnosticarTexto, esperarDato, exigirElArbol, medirRuta } from './guardas.mjs';
 
 const rutaPlaywright = process.argv[2];
 if (!rutaPlaywright) {
@@ -39,7 +39,7 @@ const { chromium } = await import(
   /^file:\/\//.test(rutaPlaywright) ? rutaPlaywright : pathToFileURL(rutaPlaywright).href
 );
 
-const a = crearArnes({ minimo: 21 });
+const a = crearArnes({ minimo: 28 });
 const browser = await chromium.launch({
   executablePath: process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe',
   headless: true,
@@ -193,6 +193,57 @@ try {
     () => document.getElementById('d'), { timeout: 8000 });
   a.ck(typeof nodo === 'string' && nodo.startsWith('ref:'),
      'un nodo del DOM vuelve como marcador, NO como el nodo: ' + JSON.stringify(nodo));
+
+  /* ── exigirElArbol ────────────────────────────────────────────────────────
+     Las dos ramas, y la que decide si sirve es la del ARBOL EQUIVOCADO: tiene
+     que decir QUE esta sirviendo el puerto, no «no encontre el selector». */
+
+  await page.setContent(
+    '<h1>Roster</h1><ul><li data-adm-kpi="activas"><span>111</span></li></ul>');
+  let paso = true;
+  try {
+    await exigirElArbol(page, '[data-adm-kpi]', 'ADM2', { timeout: 3000 });
+  } catch {
+    paso = false;
+  }
+  a.ck(paso, 'deja pasar cuando la marca de la etapa esta en la pagina');
+
+  /* El arbol equivocado: una pantalla anterior, que carga perfecto y no es esta. */
+  await page.setContent(
+    '<h1>Admin</h1><p>Roster de RRHH y cambios detectados entre cargas</p>' +
+    '<div class="seg"><button>Todos</button><button>CO</button></div>');
+  let msg = '';
+  try {
+    await exigirElArbol(page, '[data-adm-kpi]', 'ADM2', { timeout: 1500 });
+  } catch (e) {
+    msg = e.message;
+  }
+  a.ck(msg !== '', 'ATRAPA un arbol que no trae la marca');
+  a.ck(/h1\s+Admin/.test(msg),
+     'y dice que `h1` esta sirviendo el puerto, que es lo que un timeout no dice: ' +
+     JSON.stringify(msg.split('\n').find((l) => /h1/.test(l)) ?? ''));
+  a.ck(/Roster de RRHH/.test(msg),
+     'y las primeras lineas del body, que son las que nombran la pantalla equivocada');
+  a.ck(/NO es «el dato no llego»|NO es «el dato no llegó»/.test(msg),
+     'y separa explicitamente los dos sintomas que se ven iguales');
+
+  /* Y los dos argumentos obligatorios, por la misma razon que `descripcion`. */
+  let faltaMarca = '';
+  try {
+    await exigirElArbol(page, '', 'ADM2');
+  } catch (e) {
+    faltaMarca = e.message;
+  }
+  a.ck(/falta `marca`/.test(faltaMarca), 'exige la marca: ' + faltaMarca.slice(0, 60));
+  let faltaEtapa = '';
+  try {
+    await exigirElArbol(page, '[data-adm-kpi]', '');
+  } catch (e) {
+    faltaEtapa = e.message;
+  }
+  a.ck(/falta `etapa`/.test(faltaEtapa),
+     'y exige nombrar la etapa, que es lo que obliga a preguntarse si la marca ' +
+     'distingue la etapa o solo el modulo');
 
 } finally {
   await browser.close();
