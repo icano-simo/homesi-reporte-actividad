@@ -556,12 +556,6 @@ export default function PipelinePage() {
    */
   const branchRows: BranchForecastRow[] = data ? buildBranchForecastRows(data.openLoans, pipelineDateRange) : [];
 
-  // Etapa NEXTMONTH-2: mismo selector de mes que ya usan Cerrados/Forecast
-  // (forecastMonthParsed), no un rango derivado -- ver lib/pipeline/nextMonth.ts.
-  const nextMonthPopulations = data
-    ? buildNextMonthPopulations(data.openLoans, forecastMonthParsed)
-    : { estClosingNextMonth: [], outOfScope: [], combined: [] };
-
   // Etapa F6h, extendido en ajuste posterior: filtro de branch para TODA la
   // página (banner, Executive, Matrix, Adverse) -- no solo Executive como se
   // había interpretado en F6h. filteredBranchRows/filteredResolvedLoans son
@@ -569,6 +563,23 @@ export default function PipelinePage() {
   const filteredBranchRows = selectedBranch === 'ALL' ? branchRows : branchRows.filter((r) => r.branch === selectedBranch);
   const filteredResolvedLoans =
     selectedBranch === 'ALL' ? (data?.resolvedLoans ?? []) : (data?.resolvedLoans ?? []).filter((l) => l.branch === selectedBranch);
+  /*
+   * FIX: `nextMonthPopulations` (Next Month -- Est Closing/Out of Scope/
+   * Combined, y sus 3 tablas "By branch") leía `data.openLoans` sin pasar
+   * por el filtro de branch de arriba, a diferencia del resto de la página.
+   * `filteredResolvedLoans` no sirve como fuente acá: filtra
+   * `data.resolvedLoans` (cerrados), y `buildNextMonthPopulations` necesita
+   * abiertos (`PipelineLoan[]`, el tipo de `data.openLoans`) -- mismo
+   * patrón que esa variable, aplicado al array que en verdad hace falta.
+   */
+  const filteredOpenLoans =
+    selectedBranch === 'ALL' ? (data?.openLoans ?? []) : (data?.openLoans ?? []).filter((l) => l.branch === selectedBranch);
+
+  // Etapa NEXTMONTH-2: mismo selector de mes que ya usan Cerrados/Forecast
+  // (forecastMonthParsed), no un rango derivado -- ver lib/pipeline/nextMonth.ts.
+  const nextMonthPopulations = data
+    ? buildNextMonthPopulations(filteredOpenLoans, forecastMonthParsed)
+    : { estClosingNextMonth: [], outOfScope: [], combined: [] };
 
   const grandTotalCount = filteredBranchRows.reduce((sum, r) => sum + r.totalCount, 0);
   const grandHealthyCount = filteredBranchRows.reduce((sum, r) => sum + r.healthyCount, 0);
