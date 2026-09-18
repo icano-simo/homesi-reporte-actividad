@@ -8641,3 +8641,32 @@ de Brokered lee `cells.forecastAtCutoff`, el mismo cálculo que ya usa el
 dashboard en vivo (`buildBranchForecastRows`/`pullThroughWeight`,
 `lib/pipeline/monthlyReport.ts`), que ya viajaba en el modelo sin que nadie
 lo leyera ahí. Banked y sus constantes manuales quedaron sin ningún cambio.
+
+## Filtro de branch no llegaba a las 3 poblaciones de "Next Month", 2026-09-18
+
+En `app/pipeline/page.tsx`, el selector "BRANCH" de la página filtra
+`branchRows`/`resolvedLoans` para el resto de la pantalla
+(`filteredBranchRows`/`filteredResolvedLoans`), pero `nextMonthPopulations`
+(las 3 poblaciones de la pestaña "Next Month" -- Est Closing Next Month,
+Out of Scope, Combined -- y sus 3 tablas "By branch") se armaba desde
+`data.openLoans` sin pasar por ese filtro: mostraba todos los branches sin
+importar cuál estuviera seleccionado.
+
+**Causa:** esa variable se calculaba ANTES del bloque que declara
+`filteredBranchRows`/`filteredResolvedLoans` (la fuente ya filtrada de la
+página) y nunca se migró a leer de ahí cuando ese filtro se extendió a
+"toda la página" (etapa F6h).
+
+**Fix:** se agregó `filteredOpenLoans`, mismo patrón que
+`filteredResolvedLoans` (filtra por `selectedBranch`, o el array completo
+si es `'ALL'`) pero sobre `data.openLoans` -- el array de abiertos que
+`buildNextMonthPopulations()` necesita, no el de cerrados que ya filtraba
+`filteredResolvedLoans`. Se reordenó el bloque para que
+`nextMonthPopulations` se calcule después de que esa variable ya existe.
+
+**Verificación de integridad hecha antes del merge**, sobre el snapshot
+activo real: para las 3 poblaciones, la suma de conteo/monto filtrando uno
+por uno por cada branch del selector coincidió exacto con el total sin
+filtrar (`selectedBranch = 'ALL'`), y ningún valor de `branch` presente en
+`data.openLoans` quedó fuera de las opciones del selector (cero branches
+huérfanos que se hubieran perdido al iterar branch por branch).
