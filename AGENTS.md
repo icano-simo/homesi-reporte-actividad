@@ -1024,7 +1024,9 @@ agujero.
 
 Las dos guardas se instalan juntas con `npm run guarda:instalar`, que es una
 lista y no dos scripts: copiar el instalador y cambiarle el nombre habría sido
-la segunda copia de la misma decisión.
+la segunda copia de la misma decisión. Y **sacar una fila de esa lista la
+desengancha**, que es lo que hace que revertir una guarda alcance con revertir
+su commit — el porqué está abajo, en «la mitad que faltaba».
 
 Y hay un primo más chico del mismo error, que apareció cuatro veces en el mismo
 turno: **retipear de memoria la cadena que se va a buscar**, en vez de leerla
@@ -1649,9 +1651,10 @@ Una regla que hay que acordarse funciona igual que una nota que nadie consulta.
 Así que ahora hay una guarda que **bloquea el comando antes de que corra**:
 
     scripts/verificacion/sin-texto-al-shell.mjs        la lógica y el porqué
-    scripts/verificacion/sin-texto-al-shell.test.mjs   31 aserciones
+    scripts/verificacion/sin-texto-al-shell.test.mjs   40 aserciones
     npm run verificar:shell     corre la prueba
-    npm run guarda:instalar     la engancha, y dice si la copia estaba vieja
+    npm run guarda:instalar     la engancha o la da de baja, y dice si la copia
+                                estaba vieja
 
 Se engancha como hook `PreToolUse` de Bash: lee el comando por stdin y sale con
 código 2 --que el agente lee como «no se ejecutó, y por qué»-- con el motivo y
@@ -1671,8 +1674,14 @@ Y deja pasar lo que hay que dejar pasar, que es la mitad que decide si la guarda
 sobrevive: `cmd //c` --la única vía para borrar una junction--, `git commit -F`,
 `echo` sin redirección, `sed -n`, `grep -c`, los pipes y las sustituciones de
 comandos. **Una guarda que bloquea todo es la que alguien desengancha**, y ahí
-se pierde también lo que sí cubría; por eso su prueba tiene 17 casos de «esto
-tiene que pasar» y no sólo los 14 de «esto tiene que frenar».
+se pierde también lo que sí cubría; por eso su prueba tiene **24** casos de
+«esto tiene que pasar» y no sólo los **15** de «esto tiene que frenar».
+
+⚠ Esos dos números decían 17 y 14, y la prueba decía 31 aserciones: eran los de
+cuando se escribió la sección, y la guarda creció después. Medidos al contar las
+dos listas, hoy son 15, 24 y 40. **Un número escrito en una nota envejece igual
+que uno escrito en un reporte**, con el agravante de que nadie vuelve a
+verificar una nota -- que es exactamente lo que hizo durar el caso de `bp-hint`.
 
 ### ⚠ Vive en dos lugares, y eso es a propósito
 
@@ -1686,6 +1695,52 @@ agente desde `~/.claude`. Así que:
 copia estaba distinta**: una copia vieja enganchada es peor que ninguna, porque
 frena con reglas que ya no son las de la fuente. Es «dos copias de la misma
 decisión» resuelto con un script en vez de con memoria.
+
+#### Y la mitad que faltaba: desenganchar
+
+Enganchar sin poder desenganchar deja un hueco con forma conocida — **una
+guarda revertida sigue corriendo**. El commit que la saca borra su archivo del
+repo y no toca `settings.json`, así que la copia queda enganchada, bloqueando
+con una regla que el proyecto ya decidió que no quiere.
+
+La baja **no es una opción del comando**, y es a propósito: en el momento del
+revert nadie está pensando en los hooks, y una opción que hay que acordarse de
+usar funciona igual que una nota. Así que la baja es lo que pasa solo cuando la
+guarda no está en la lista `GUARDAS` — sacar la fila **es** desengancharla.
+
+> **Un reconciliador desengancha lo suyo y sólo lo suyo.** Sólo toca hooks cuyo
+> comando apunta a `~/.claude/hooks/`; uno que el usuario puso a mano, apuntando
+> a cualquier otro lado, no se mira ni se cuenta. Uno que borra lo ajeno es el
+> que alguien desengancha entero, y ahí se pierde también lo que sí cubría.
+
+Y no borra la copia huérfana: desenganchar no es destruir. Dice dónde quedó.
+
+`npm run verificar:instalador` lo prueba con la baja inyectada --una guarda que
+no está en la lista, enganchada-- y con un hook ajeno al lado, que es el caso
+que no se puede tocar. Y se ejercitó además el script entero contra un `HOME`
+de mentira, porque una función pura en verde no dice que el script escriba bien
+el `settings.json`: 11 aserciones, con el `~/.claude` de verdad comparado byte a
+byte antes y después.
+
+#### ⚠ Y el aviso que casi se vuelve ruido: `core.autocrlf`
+
+La primera vez que el «⚠ la copia estaba DISTINTA» sirvió fue real — la copia
+tenía la lógica anterior al arreglo. La **segunda** vez fue mentira, y por un
+mecanismo que no tiene nada que ver con la lógica: este repo tiene
+`core.autocrlf = true`, así que un archivo escrito en LF vuelve del checkout en
+CRLF. Medido sobre `esperar-al-dato.mjs`: **8661 bytes contra 8487, 174 CRLF
+contra 0, y la misma cadena exacta al normalizar** — idénticos línea por línea.
+
+O sea que comparando byte a byte, el aviso salta después de cualquier merge que
+toque una guarda, sobre una copia que no cambió.
+
+> **Un aviso que aparece cuando no falta nada enseña a ignorarlo** — y éste es
+> el único aviso que hay de que una copia enganchada quedó vieja.
+
+Por eso la comparación normaliza los finales de línea: «DISTINTA» tiene que
+significar «la lógica cambió», no «pasaste por un checkout». Es la misma regla
+que la del aviso de la barra de la revisión, con la misma cara: la condición
+tiene que nombrar lo que importa, no lo que se mide fácil.
 
 Dos cosas más antes de tocarla:
 
