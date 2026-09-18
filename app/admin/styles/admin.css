@@ -447,23 +447,41 @@ table.piv.adm-tbl th.bp-center {
   padding: 0;
 }
 .adm-persona,
-.adm-ingreso {
+.adm-ingreso,
+.adm-recluta {
   display: grid;
   align-items: baseline;
   gap: 10px;
   padding: 7px 14px;
   border-bottom: 1px solid var(--slate-100);
 }
+/*
+ * ADM2: la fila del roster pasó a ser NOMBRE + CARGO, porque ahora el branch lo
+ * dice la cabecera de la tarjeta. La segunda columna ya no es un código de tres
+ * dígitos sino un cargo que puede ser largo --`LOAN SETUP/APPRAISAL/DISCLOSURE
+ * DESK MANAGER` tiene 43 caracteres--, así que se le da la mitad del ancho y se
+ * la deja envolver. Fijarla en una línea no recortaría el texto: EMPUJARÍA la
+ * tarjeta, que es el desborde que este proyecto ya pagó tres veces.
+ */
 .adm-persona {
-  grid-template-columns: 1fr 80px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
 /* Los próximos ingresos llevan cargo propio: todavía no tienen sección. */
 .adm-ingreso {
   grid-template-columns: 1fr 1fr 80px;
 }
+/* Nombre · cargo · branch · fecha. */
+.adm-recluta {
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) 56px 120px;
+}
 .adm-persona:last-child,
-.adm-ingreso:last-child {
+.adm-ingreso:last-child,
+.adm-recluta:last-child {
   border-bottom: 0;
+}
+.adm-persona__cargo {
+  color: var(--slate-500);
+  overflow-wrap: anywhere;
 }
 .adm-persona__nombre {
   color: var(--slate-800);
@@ -478,4 +496,91 @@ table.piv.adm-tbl th.bp-center {
 }
 .adm-ingreso__cargo {
   color: var(--slate-500);
+}
+
+/*
+ * ============================================================================
+ * ADM2 — el tablero: branches y reclutamiento como tarjetas
+ * ============================================================================
+ *
+ * ⚠ Nombres verificados contra el ARBOL COMMITEADO y no contra la copia de
+ * trabajo: un `git grep` que incluye el archivo que uno acaba de escribir se
+ * contesta a si mismo. `adm-bcard`, `adm-grid`, `adm-grupo` y `adm-recluta` no
+ * existian; `adm-branch`, `adm-branch__head` y `adm-branch__code` SI --son de la
+ * pantalla anterior-- y por eso las tarjetas nuevas NO las usan: combinarlas con
+ * `.tbl-card` habria dejado dos reglas peleando por el mismo borde y un
+ * `margin-top: 16px` dentro de una grilla.
+ *
+ * La caja, la cabecera y el titulo salen de `.tbl-card` --global, en
+ * `components.css`-- que es el mismo lenguaje de Analytics. Aca solo va lo que
+ * esa tarjeta no trae.
+ */
+
+.adm-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+/*
+ * Dos columnas a 1440 y a 1280; una sola abajo de 1080. Medido cruzando el
+ * breakpoint y no supuesto: un desborde que solo aparece apilado no lo ve nadie
+ * que mida en desktop.
+ */
+@media (max-width: 1080px) {
+  .adm-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.adm-bcard {
+  /* `.tbl-card` ya trae fondo, borde, radio y sombra. */
+  min-width: 0;
+}
+.adm-bcard__code {
+  font-family: var(--font-display);
+  font-size: var(--adm-lg);
+  font-weight: 700;
+  color: var(--navy);
+  letter-spacing: 0.02em;
+}
+.adm-bcard__n {
+  color: var(--slate-500);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Un grupo de reclutamiento ───────────────────────────────────────────── */
+
+.adm-grupo__titulo {
+  font-family: var(--font-display);
+  font-size: var(--adm-lg);
+  font-weight: 700;
+  color: var(--navy);
+}
+/*
+ * QUÉ es la fecha de este grupo. Va en la tarjeta y no al lado de cada fila:
+ * dentro de un grupo la respuesta es siempre la misma, y repetirla en cada
+ * persona seria justamente el texto colgado de un nombre que esta pantalla no
+ * pone.
+ */
+.adm-grupo__que {
+  margin: 0;
+  padding: 6px 14px;
+  background: var(--slate-50);
+  border-bottom: 1px solid var(--slate-200);
+  color: var(--slate-500);
+  text-align: right;
+}
+.adm-recluta__fecha {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--slate-700);
+}
+/*
+ * «hace 15 meses», debajo de la fecha. Nombra, no interpreta: que 15 meses sea
+ * mucho lo decide quien mira. En bloque propio para que no empuje la columna.
+ */
+.adm-recluta__hace {
+  display: block;
+  color: var(--slate-400);
 }

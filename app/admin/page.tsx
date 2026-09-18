@@ -3,51 +3,57 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   acknowledgeChange,
+  haceCuanto,
   loadAdminData,
   shortDate,
   shortDateTime,
   SIN_BRANCH,
   type AdminData,
+  type GrupoDeReclutamiento,
 } from '@/lib/admin/loadRoster';
 
 /**
  * ============================================================================
- * ADMIN — el roster, por cargo (etapa ADM1)
+ * ADMIN — el tablero del roster (etapa ADM2)
  * ============================================================================
  *
- * Reemplaza la pantalla agrupada por branch. Ahora es un roster con
- * indicadores, secciones por cargo, y una seccion aparte de contrataciones.
+ * Tres bloques: los indicadores, los branches como tarjetas, y el reclutamiento
+ * en el suyo. El lenguaje visual es el de Analytics --`.mcard` para un
+ * indicador, `.tbl-card` para una tarjeta con cabecera-- y por eso esas clases
+ * NO se redefinen acá: viven en `app/styles/components.css`, que es global.
+ *
+ * ⚠ Se usan las CLASES y no se importa el componente `KpiCard` de Business
+ * Plan. Compartir la decision visual es lo que hace falta, y esa decision ya
+ * vive en el CSS; importar el componente arrastraria `qualifiers`, `rates` y
+ * `months` del otro modulo al bundle de Admin por tres lineas de JSX.
  *
  * ---------------------------------------------------------------------------
  * ⚠ NINGUN TEXTO AL LADO DE UNA PERSONA
  * ---------------------------------------------------------------------------
- * Pedido explicito, y es la regla que gobierna el marcado de abajo: una fila de
- * persona lleva EL NOMBRE Y EL BRANCH, y nada mas. Sin etiquetas de estado, sin
- * avisos, sin `title` que explique algo, sin marcas de NPPM ni de "lo fijo una
- * persona". El cargo lo dice el encabezado de su seccion.
+ * Pedido explicito, y gobierna el marcado: una fila del roster lleva EL NOMBRE
+ * Y EL CARGO, y nada mas. Sin etiquetas de estado, sin avisos, sin `title`, sin
+ * marcas de NPPM ni de "lo fijo una persona". El branch lo dice la cabecera de
+ * su tarjeta.
  *
- * La version anterior tenia seis marcas distintas colgando de los nombres
- * --`user_addition`, `has_override`, NPPM, los dos `set_by_hand`, el estado--,
- * cada una con su `title` explicativo. Las seis se fueron.
- *
- * Lo que la pantalla necesite decir se dice UNA vez, en el encabezado de su
- * seccion o en el pie, donde no le cuelga a nadie.
+ * Lo que la pantalla necesite decir se dice UNA vez, en la cabecera de su
+ * bloque o en el pie, donde no le cuelga a nadie.
  *
  * ---------------------------------------------------------------------------
- * ⚠ EL ROSTER VIVO ES `is_active`, Y LAS BAJAS SE CONSERVAN
+ * ⚠ LAS DOS FECHAS DEL RECLUTAMIENTO NO SON LA MISMA COSA
  * ---------------------------------------------------------------------------
- * Las 4 personas inactivas no se listan: `left_detected_at` guarda cuando se
- * detecto que dejaron de venir en el archivo, asi que el dato no se pierde por
- * no mostrarlo. El indicador las cuenta, que es como se ven sin que aparezcan
- * mezcladas con quien si trabaja. Una seccion aparte para ellas esta a un
- * `filter` de distancia y no se hizo porque no esta decidido.
+ * `fecha_inicio` es el dia que la persona empieza --solo la traen los 7 de
+ * RRHH--; `close_date` es la fecha ESPERADA de cierre de una oportunidad de
+ * Salesforce --solo la traen los 14 de ahi--. Por eso el bloque va agrupado por
+ * fuente, con la fecha rotulada en cada grupo, y no como una lista de 21 con
+ * una columna "fecha": esa columna haria que 21 filas se lean como 21 ingresos.
  *
  * ---------------------------------------------------------------------------
- * ⚠ EL BRANCH DE ESTA PANTALLA ES EL DEL ROSTER
+ * ⚠ `date_started` NO SE MUESTRA, Y NO ES QUE ESTE VACIA
  * ---------------------------------------------------------------------------
- * Donde RRHH tiene asignada a la persona, no donde produce. Se dice en el pie,
- * una vez -- no al lado de cada branch, que seria exactamente lo que esta
- * pantalla no hace.
+ * Medido el 2026-09-18: la tienen 45 de las 111 activas -- 41 de Colombia y las
+ * 4 de CO/US, y CERO de las 64 de USA. O sea que la columna llega llena desde
+ * el archivo de Colombia y vacia desde el de USA. No se muestra por decision de
+ * la etapa; si mañana se mostrara, el hueco seria de USA y no del dato.
  */
 
 /** Los tipos de cambio, en español legible. */
@@ -60,6 +66,21 @@ function changeLabel(t: string): string {
     reactivated: 'reactivación',
   };
   return map[t] ?? t;
+}
+
+/** El nombre de la fuente, como se lee. El dato crudo dice `hr_pipeline`. */
+function fuenteLabel(origen: string): string {
+  return origen === 'hr_pipeline' ? 'RRHH' : origen === 'salesforce' ? 'Salesforce' : origen;
+}
+
+/**
+ * Qué es la fecha de este grupo, dicho en la cabecera.
+ *
+ * Es la unica forma de que las dos convivan en la pantalla sin que alguien las
+ * sume: el rotulo no dice "fecha", dice cuál.
+ */
+function fechaLabel(g: GrupoDeReclutamiento): string {
+  return g.fecha === 'inicio' ? 'Fecha de inicio' : 'Cierre esperado';
 }
 
 export default function AdminPage() {
@@ -106,9 +127,10 @@ export default function AdminPage() {
     );
   }
 
-  const { indicadores: k, diagnostics, secciones, proximosIngresos, actualizado } = data;
+  const { indicadores: k, diagnostics, branches, reclutamiento, actualizado } = data;
   const pendientes = data.changes.filter((c) => !c.acknowledged);
   const revisados = data.changes.filter((c) => c.acknowledged);
+  const enProceso = reclutamiento.reduce((a, g) => a + g.gente.length, 0);
 
   async function marcar(id: number) {
     setSaving(id);
@@ -123,10 +145,14 @@ export default function AdminPage() {
   }
 
   /*
-   * Los indicadores. Todos sobre las ACTIVAS salvo el ultimo, y el encuadre va
-   * escrito en el rotulo: "activas" no es decoracion, es lo que hace que los
-   * numeros se puedan sumar sin que el lector tenga que adivinar cual incluye
-   * las bajas. Ver la nota de `Indicadores` en el loader.
+   * Los indicadores, todos sobre las ACTIVAS salvo el ultimo, y el encuadre va
+   * escrito en el rotulo. Ver la nota de `Indicadores` en el loader: `colombia`
+   * mas `usa incluyendo bajas` da 111 por dos errores que se compensan.
+   *
+   * ⚠ Y los 21 en proceso NO estan acá. Un octavo indicador al lado de los de
+   * personas se sumaria con ellos, que es exactamente lo que el bloque de
+   * reclutamiento viene a evitar: su conteo vive en su propio bloque, separado
+   * por fuente, donde no se puede leer como "21 ingresos".
    */
   const tarjetas: { clave: string; rotulo: string; valor: number }[] = [
     { clave: 'activas', rotulo: 'Personas activas', valor: k.activas },
@@ -144,22 +170,18 @@ export default function AdminPage() {
         <div>
           <h1 className="page-head__title">Roster</h1>
           <p className="page-head__subtitle">
-            {k.activas} personas activas en {secciones.length} cargos
+            {k.activas} personas activas en {branches.length} branches
           </p>
         </div>
         <p className="adm-sello" data-adm-sello="">
           Actualizado {shortDateTime(actualizado.roster) ?? 'sin registro'}
-          {actualizado.contrataciones && actualizado.contrataciones.slice(0, 10) !== actualizado.roster?.slice(0, 10)
-            ? ` · contrataciones ${shortDateTime(actualizado.contrataciones)}`
-            : ''}
         </p>
       </div>
 
       {/*
-        ⚠ Los avisos de abajo son distintos entre si a proposito. Con RLS, una
-        tabla sin politica devuelve CERO FILAS y no un error, asi que "no tengo
-        permiso", "todavia no hay datos" y "fallo la lectura" se ven igual en la
-        pantalla si uno no los separa.
+        ⚠ Los avisos son distintos entre si a proposito. Con RLS, una tabla sin
+        politica devuelve CERO FILAS y no un error, asi que "no tengo permiso",
+        "todavia no hay datos" y "fallo la lectura" se ven igual si no se separan.
       */}
       {diagnostics.rosterError && (
         <div className="bp-notice bp-notice--warn adm-notice">
@@ -173,9 +195,9 @@ export default function AdminPage() {
           esta sesión. No es lo mismo que una tabla vacía.
         </div>
       )}
-      {diagnostics.hiringError && (
+      {diagnostics.reclutaError && (
         <div className="bp-notice bp-notice--warn adm-notice">
-          No se pudo leer <code>org.hiring_tracking</code>: {diagnostics.hiringError}
+          No se pudo leer <code>activity_report.future_loan_officer</code>: {diagnostics.reclutaError}
         </div>
       )}
 
@@ -183,58 +205,93 @@ export default function AdminPage() {
       <section className="adm-block">
         <ul className="adm-kpis" data-adm-kpis="">
           {tarjetas.map((t) => (
-            <li className="adm-kpi" key={t.clave} data-adm-kpi={t.clave}>
-              <span className="adm-kpi__valor">{t.valor}</span>
-              <span className="adm-kpi__rotulo">{t.rotulo}</span>
+            <li className="mcard adm-kpi" key={t.clave} data-adm-kpi={t.clave}>
+              <span className="m-name">{t.rotulo}</span>
+              <span className="kpi-hero__value adm-kpi__valor">{t.valor}</span>
             </li>
           ))}
         </ul>
       </section>
 
-      {/* ── 2. El roster, por cargo ───────────────────────────────────── */}
+      {/* ── 2. Los branches ───────────────────────────────────────────── */}
       <section className="adm-block">
-        {secciones.map((s) => (
-          <div className="adm-seccion" key={s.cargo} data-adm-seccion={s.cargo}>
-            <h2 className="adm-seccion__head">
-              <span className="adm-seccion__cargo">{s.cargo}</span>
-              <span className="adm-seccion__n">{s.people.length}</span>
-            </h2>
-            <ul className="adm-personas">
-              {s.people.map((p) => (
-                <li className="adm-persona" key={p.person_code} data-adm-persona={p.person_code}>
-                  <span className="adm-persona__nombre">{p.display_name}</span>
-                  <span className="adm-persona__branch">{p.branch_code?.trim() || SIN_BRANCH}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
+        <div className="adm-grid">
+          {branches.map((b) => (
+            <div className="tbl-card adm-bcard" key={b.branchCode} data-adm-branch={b.branchCode}>
+              <div className="tbl-card__head">
+                <span className="tbl-card__title adm-bcard__code">{b.branchCode}</span>
+                <span className="adm-bcard__n">{b.people.length}</span>
+              </div>
+              <ul className="adm-personas">
+                {b.people.map((p) => (
+                  <li className="adm-persona" key={p.person_code} data-adm-persona={p.person_code}>
+                    <span className="adm-persona__nombre">{p.display_name}</span>
+                    <span className="adm-persona__cargo">{p.position?.trim() || SIN_BRANCH}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
       </section>
 
-      {/* ── 3. Contrataciones ─────────────────────────────────────────── */}
+      {/* ── 3. Reclutamiento ──────────────────────────────────────────── */}
       <section className="adm-block">
-        <div className="adm-seccion" data-adm-seccion="__ingresos">
-          <h2 className="adm-seccion__head">
-            <span className="adm-seccion__cargo">Próximos ingresos</span>
-            <span className="adm-seccion__n">{proximosIngresos.length}</span>
-          </h2>
-          {proximosIngresos.length === 0 ? (
-            <p className="adm-muted">
-              {diagnostics.hiringError
-                ? 'No se pudo leer el tablero de contrataciones.'
-                : 'El tablero de contrataciones no tiene ingresos próximos.'}
-            </p>
-          ) : (
-            <ul className="adm-personas">
-              {proximosIngresos.map((h) => (
-                <li className="adm-ingreso" key={h.person_code ?? h.nombre} data-adm-ingreso="">
-                  <span className="adm-persona__nombre">{h.nombre}</span>
-                  <span className="adm-ingreso__cargo">{h.cargo?.trim() || SIN_BRANCH}</span>
-                  <span className="adm-persona__branch">{h.branch_en_el_tablero?.trim() || SIN_BRANCH}</span>
-                </li>
-              ))}
-            </ul>
-          )}
+        <div className="adm-head">
+          <h2 className="adm-h">En proceso de contratación</h2>
+          <span className="adm-muted" data-adm-en-proceso="">
+            {enProceso} en {reclutamiento.length} grupos ·{' '}
+            {shortDateTime(actualizado.reclutamiento) ?? 'sin registro'}
+          </span>
+        </div>
+
+        {/*
+          Se dice una vez, acá arriba, y no al lado de cada persona: las dos
+          fechas miden cosas distintas y los grupos no se suman entre si.
+        */}
+        <p className="adm-hint">
+          <b>Los grupos no se suman.</b> Los de RRHH tienen <b>fecha de inicio</b>: empiezan ese día. Los de
+          Salesforce tienen <b>cierre esperado</b>, que es la fecha en que se espera cerrar la oportunidad, no el día
+          que alguien entra.
+        </p>
+
+        {reclutamiento.length === 0 && !diagnostics.reclutaError && (
+          <p className="adm-muted">No hay nadie en proceso de contratación.</p>
+        )}
+
+        <div className="adm-grid">
+          {reclutamiento.map((g) => (
+            <div
+              className="tbl-card adm-bcard adm-grupo"
+              key={g.origen + g.confianza}
+              data-adm-grupo={g.origen + '/' + g.confianza}
+            >
+              <div className="tbl-card__head">
+                <span className="tbl-card__title adm-grupo__titulo">
+                  {fuenteLabel(g.origen)} · {g.confianza}
+                </span>
+                <span className="adm-bcard__n">{g.gente.length}</span>
+              </div>
+              <p className="adm-grupo__que">{fechaLabel(g)}</p>
+              <ul className="adm-personas">
+                {g.gente.map((r) => {
+                  const fecha = g.fecha === 'inicio' ? r.fecha_inicio : r.close_date;
+                  const hace = g.fecha === 'close' ? haceCuanto(r.close_date) : null;
+                  return (
+                    <li className="adm-recluta" key={r.nombre} data-adm-recluta="">
+                      <span className="adm-persona__nombre">{r.nombre}</span>
+                      <span className="adm-persona__cargo">{r.cargo?.trim() || SIN_BRANCH}</span>
+                      <span className="adm-persona__branch">{r.branch_code?.trim() || SIN_BRANCH}</span>
+                      <span className="adm-recluta__fecha">
+                        {shortDate(fecha) ?? SIN_BRANCH}
+                        {hace ? <span className="adm-recluta__hace">{hace}</span> : null}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
         </div>
       </section>
 

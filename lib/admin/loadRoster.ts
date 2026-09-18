@@ -127,6 +127,52 @@ export interface HiringRow {
   synced_at: string;
 }
 
+/**
+ * Una persona en proceso de contratacion — `activity_report.future_loan_officer`.
+ *
+ * ⚠ ESA TABLA YA JUNTA LAS DOS FUENTES, y por eso se lee ella y no las dos por
+ * separado: `origen` dice de cual viene y `confianza` que tan firme es. Medido
+ * el 2026-09-18, los 21:
+ *
+ *   hr_pipeline · confirmado    7    los 7 con `fecha_inicio`, ninguno con close
+ *   salesforce  · probable      9    los 9 con `close_date`, ninguno con inicio
+ *   salesforce  · ganado        2    idem
+ *   salesforce  · tentative     3    idem, y sus close son de 2024 y 2025
+ *
+ * ⚠ LAS DOS FECHAS NO SON LA MISMA COSA Y NO SE PUEDEN MEZCLAR EN UNA COLUMNA.
+ * `fecha_inicio` es el dia que la persona empieza; `close_date` es la fecha
+ * ESPERADA de cierre de una oportunidad de Salesforce. Ponerlas juntas bajo un
+ * rotulo comun --"fecha"-- haria que 21 filas se lean como 21 ingresos, que es
+ * exactamente lo que este bloque tiene que evitar.
+ */
+export interface ReclutaRow {
+  nombre: string;
+  origen: string;
+  confianza: string;
+  cargo: string | null;
+  branch_code: string | null;
+  /** Solo `hr_pipeline`: el dia que empieza. */
+  fecha_inicio: string | null;
+  /** Solo `salesforce`: la fecha ESPERADA de cierre, no de ingreso. */
+  close_date: string | null;
+  synced_at: string;
+}
+
+/**
+ * Un grupo del bloque de reclutamiento: una fuente y una confianza.
+ *
+ * El grupo es la unidad porque la fuente decide QUE FECHA se muestra. Una lista
+ * plana con una columna de fecha obligaria a elegir una de las dos, y la que
+ * quede afuera se leeria como un dato faltante y no como otro dato.
+ */
+export interface GrupoDeReclutamiento {
+  origen: string;
+  confianza: string;
+  /** `inicio` = empieza ese dia. `close` = se espera cerrar ese dia. */
+  fecha: 'inicio' | 'close';
+  gente: ReclutaRow[];
+}
+
 export interface RosterChange {
   id: number;
   person_code: string;
@@ -142,9 +188,17 @@ export interface RosterChange {
   acknowledged_at: string | null;
 }
 
-/** Un cargo y su gente. El orden lo decide la cantidad, no el alfabeto. */
-export interface SeccionDeCargo {
-  cargo: string;
+/**
+ * Un branch y su gente. El orden lo decide la cantidad, no el alfabeto.
+ *
+ * ⚠ AGRUPAR POR BRANCH Y NO POR CARGO tiene una consecuencia buena que conviene
+ * dejar dicha: son 15 grupos y no 42. Agrupar por cargo daba 24 secciones de una
+ * sola persona sobre 42, o sea media pagina de encabezados -- y juntarlos habria
+ * pedido una regla sobre como se ESCRIBE el cargo, que es el error que este repo
+ * lleva documentado cuatro veces. El branch no tiene ese problema: es un codigo.
+ */
+export interface BranchDelRoster {
+  branchCode: string;
   people: RosterPerson[];
 }
 
@@ -171,19 +225,20 @@ export interface Indicadores {
 }
 
 export interface AdminData {
-  /** Solo activas, agrupadas por cargo. Las bajas se conservan y no se listan. */
-  secciones: SeccionDeCargo[];
+  /** Solo activas, agrupadas por branch. Las bajas se conservan y no se listan. */
+  branches: BranchDelRoster[];
   indicadores: Indicadores;
-  proximosIngresos: HiringRow[];
+  /** Los 21 en proceso, agrupados por fuente y confianza. */
+  reclutamiento: GrupoDeReclutamiento[];
   changes: RosterChange[];
   /** `max(synced_at)` de cada fuente, que es lo que la pantalla muestra como "actualizado". */
-  actualizado: { roster: string | null; contrataciones: string | null };
+  actualizado: { roster: string | null; reclutamiento: string | null };
   diagnostics: {
     rosterRows: number;
-    hiringRows: number;
+    reclutaRows: number;
     changeRows: number;
     rosterError: string | null;
-    hiringError: string | null;
+    reclutaError: string | null;
     changeError: string | null;
   };
 }
@@ -199,68 +254,121 @@ export function shortDateTime(iso: string | null): string | null {
 }
 
 export const SIN_CARGO = '(sin cargo en el roster)';
+/** Lo que se dibuja en el lugar de un dato que no vino. */
 export const SIN_BRANCH = '—';
+/** El grupo de quien no trae branch. Hoy no hay ninguno, y la rama se queda. */
+export const SIN_BRANCH_GRUPO = '(sin branch en el roster)';
+
+/**
+ * Cuanto hace de una fecha, en meses redondeados hacia abajo.
+ *
+ * ⚠ NOMBRA, NO INTERPRETA. Devuelve "hace 15 meses", no "probablemente
+ * abandonado": lo segundo es una afirmacion de negocio, y una afirmacion al
+ * lado de un numero hay que poder sostenerla en todos los casos donde se
+ * enciende. Que 15 meses es mucho lo decide quien mira.
+ */
+export function haceCuanto(iso: string | null, hoy = new Date()): string | null {
+  if (!iso) return null;
+  const d = new Date(iso.slice(0, 10) + 'T00:00:00Z');
+  if (Number.isNaN(d.getTime())) return null;
+  const meses =
+    (hoy.getUTCFullYear() - d.getUTCFullYear()) * 12 + (hoy.getUTCMonth() - d.getUTCMonth());
+  /* ⚠ Una fecha futura no es "hace 0 meses". Hoy los 14 `close_date` van de
+     2024-06 a 2026-09, pero nada impide que manana entre una de 2027, y
+     "hace -3 meses" seria un numero que dice lo contrario de lo que pasa. */
+  if (meses < 0) return meses === -1 ? 'en 1 mes' : 'en ' + -meses + ' meses';
+  if (meses === 0) return 'este mes';
+  if (meses === 1) return 'hace 1 mes';
+  return 'hace ' + meses + ' meses';
+}
+
+/**
+ * El orden de los grupos de reclutamiento, del mas firme al mas dudoso.
+ *
+ * ⚠ ESCRITO A MANO Y NO DERIVADO DEL DATO. Ordenar por cantidad pondria los 9
+ * `probable` arriba de los 7 `confirmado`, y lo que decide la lectura no es
+ * cuantos hay sino que tan firme es cada grupo. Un valor que no este en esta
+ * lista va al final y se ve: no se descarta.
+ */
+const ORDEN_CONFIANZA = ['confirmado', 'ganado', 'probable', 'tentative'];
 
 export async function loadAdminData(): Promise<AdminData> {
-  const org = getSupabaseClient().schema('org');
+  const supabase = getSupabaseClient();
+  const org = supabase.schema('org');
 
   /*
    * ⚠ Los tres errores se capturan y se MUESTRAN, no se tragan. Ver la nota de
    * las tres causas en la cabecera: cero filas con `error: null` es una policy
    * que no aplica, no una tabla vacia.
    */
-  const [rosterRes, hiringRes, changeRes] = await Promise.all([
+  const [rosterRes, reclutaRes, changeRes] = await Promise.all([
     org
       .from('roster_current')
       .select('*')
-      .order('position', { ascending: true })
+      .order('branch_code', { ascending: true })
       .order('display_name', { ascending: true }),
-    org
-      .from('hiring_tracking')
-      .select('nombre, cargo, branch_en_el_tablero, fecha_inicio, person_code, synced_at')
-      .eq('cuenta_como_proximo_ingreso', true)
-      .order('fecha_inicio', { ascending: true, nullsFirst: false })
+    supabase
+      .schema('activity_report')
+      .from('future_loan_officer')
+      .select('nombre, origen, confianza, cargo, branch_code, fecha_inicio, close_date, synced_at')
       .order('nombre', { ascending: true }),
     org.from('roster_change_log').select('*').order('detected_at', { ascending: false }),
   ]);
 
   const people = (rosterRes.data ?? []) as RosterPerson[];
-  const proximosIngresos = (hiringRes.data ?? []) as HiringRow[];
+  const reclutas = (reclutaRes.data ?? []) as ReclutaRow[];
   const changes = (changeRes.data ?? []) as RosterChange[];
 
   const activas = people.filter((p) => p.is_active);
 
-  /*
-   * Las secciones salen del cargo tal como viene, sin normalizar.
-   *
-   * ⚠ Normalizarlo --mayusculas, plurales, sinonimos-- seria una regla sobre la
-   * FORMA del texto, y juntaria cargos que RRHH escribe distinto porque SON
-   * distintos: `Producing Branch Manager` y `NonProducing Branch Manager` se
-   * parecen mas entre si que muchos de los que si son el mismo. Lo unico que se
-   * hace es recortar los espacios del borde, que el archivo trae de mas.
-   */
-  const porCargo = new Map<string, RosterPerson[]>();
+  const porBranch = new Map<string, RosterPerson[]>();
   for (const p of activas) {
-    const cargo = p.position?.trim() || SIN_CARGO;
-    porCargo.set(cargo, [...(porCargo.get(cargo) ?? []), p]);
+    const code = p.branch_code?.trim() || SIN_BRANCH_GRUPO;
+    porBranch.set(code, [...(porBranch.get(code) ?? []), p]);
   }
 
-  const secciones: SeccionDeCargo[] = [...porCargo.entries()]
-    .map(([cargo, list]) => ({
-      cargo,
+  const branches: BranchDelRoster[] = [...porBranch.entries()]
+    .map(([branchCode, list]) => ({
+      branchCode,
       people: [...list].sort((a, b) => a.display_name.localeCompare(b.display_name)),
     }))
     .sort((a, b) => {
-      /* El grupo sin cargo va ultimo: no es un cargo que se llame vacio. */
-      if (a.cargo === SIN_CARGO) return 1;
-      if (b.cargo === SIN_CARGO) return -1;
-      return b.people.length - a.people.length || a.cargo.localeCompare(b.cargo);
+      /* El grupo sin branch va ultimo: no es un branch que se llame vacio. */
+      if (a.branchCode === SIN_BRANCH_GRUPO) return 1;
+      if (b.branchCode === SIN_BRANCH_GRUPO) return -1;
+      return b.people.length - a.people.length || a.branchCode.localeCompare(b.branchCode);
+    });
+
+  /*
+   * Los grupos de reclutamiento. La clave es `origen + confianza` porque las dos
+   * juntas son lo que decide que fecha significa algo, y el grupo se queda con
+   * la que su fuente llena: `hr_pipeline` trae inicio, `salesforce` trae close.
+   */
+  const porGrupo = new Map<string, ReclutaRow[]>();
+  for (const r of reclutas) {
+    const clave = (r.origen ?? '?') + ' ' + (r.confianza ?? '?');
+    porGrupo.set(clave, [...(porGrupo.get(clave) ?? []), r]);
+  }
+  const reclutamiento: GrupoDeReclutamiento[] = [...porGrupo.entries()]
+    .map(([clave, gente]) => {
+      const [origen, confianza] = clave.split(' ');
+      return {
+        origen,
+        confianza,
+        fecha: (origen === 'hr_pipeline' ? 'inicio' : 'close') as 'inicio' | 'close',
+        gente: [...gente].sort((a, b) => (a.fecha_inicio ?? a.close_date ?? '').localeCompare(b.fecha_inicio ?? b.close_date ?? '')),
+      };
+    })
+    .sort((a, b) => {
+      const ia = ORDEN_CONFIANZA.indexOf(a.confianza);
+      const ib = ORDEN_CONFIANZA.indexOf(b.confianza);
+      return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib) || a.origen.localeCompare(b.origen);
     });
 
   const pais = (p: RosterPerson) => (p.country ?? '').trim().toUpperCase();
 
   return {
-    secciones,
+    branches,
     indicadores: {
       activas: activas.length,
       loanOfficers: activas.filter((p) => p.is_producer).length,
@@ -270,21 +378,21 @@ export async function loadAdminData(): Promise<AdminData> {
       coUs: activas.filter((p) => pais(p) === 'CO/US').length,
       inactivas: people.length - activas.length,
     },
-    proximosIngresos,
+    reclutamiento,
     changes,
     actualizado: {
       roster: people.reduce<string | null>((max, p) => (max === null || p.synced_at > max ? p.synced_at : max), null),
-      contrataciones: proximosIngresos.reduce<string | null>(
-        (max, h) => (max === null || h.synced_at > max ? h.synced_at : max),
+      reclutamiento: reclutas.reduce<string | null>(
+        (max, r) => (max === null || r.synced_at > max ? r.synced_at : max),
         null
       ),
     },
     diagnostics: {
       rosterRows: people.length,
-      hiringRows: proximosIngresos.length,
+      reclutaRows: reclutas.length,
       changeRows: changes.length,
       rosterError: rosterRes.error?.message ?? null,
-      hiringError: hiringRes.error?.message ?? null,
+      reclutaError: reclutaRes.error?.message ?? null,
       changeError: changeRes.error?.message ?? null,
     },
   };
