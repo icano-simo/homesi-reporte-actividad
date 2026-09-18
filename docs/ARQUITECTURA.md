@@ -8630,3 +8630,14 @@ CommercialActivityTrends.tsx` (selector + tabla, archivo nuevo).
 `app/pipeline/CommercialActivityLineChart.tsx` (gráfico de 3 series, archivo
 nuevo, independiente de `AvgTicketChart`). Ningún archivo de Closing
 (`TabAnalytics.tsx` incluido) fue tocado.
+
+## Forecast de Brokered en el monthly report (Summary), 2026-09-18
+
+`buildSummary()` (`app/api/pipeline/monthly-report/route.ts`) escribía el
+Forecast de la hoja Summary bajo Brokered como celda vacía a propósito
+(etapa RPT4: Banked usa la tabla manual `FORECAST_AT_CUTOFF`/
+`FORECAST_DIVISION`, y esa tabla nunca contempló Brokered). Ahora la celda
+de Brokered lee `cells.forecastAtCutoff`, el mismo cálculo que ya usa el
+dashboard en vivo (`buildBranchForecastRows`/`pullThroughWeight`,
+`lib/pipeline/monthlyReport.ts`), que ya viajaba en el modelo sin que nadie
+lo leyera ahí. Banked y sus constantes manuales quedaron sin ningún cambio.
