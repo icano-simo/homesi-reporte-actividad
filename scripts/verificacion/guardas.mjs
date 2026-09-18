@@ -233,8 +233,37 @@ export async function exigirElArbol(page, marca, etapa, opts = {}) {
       url: location.href,
       titulo: document.title,
       h1: document.querySelector('h1')?.textContent?.trim() || '(sin h1)',
-      cuerpo: (document.body?.innerText ?? '').split('\n').map((l) => l.trim())
-        .filter((l) => l !== '').slice(0, 8).join(' · ').slice(0, 400),
+      /*
+       * ⚠ SE DESCARTA EL MENU ANTES DE RECORTAR. Medido en campo: con las
+       * primeras 8 lineas el mensaje traia «ANALYTICS PORTAL · el email · los
+       * seis modulos» y ni una palabra de la pantalla equivocada -- todas las
+       * lineas que la nombraban estaban abajo del recorte. Un mensaje que
+       * describe el cromo de la app no distingue un arbol de otro, que es lo
+       * unico que este mensaje tiene que hacer.
+       */
+      cuerpo: (() => {
+        const nav = new Set(
+          [...document.querySelectorAll('nav a, nav button, header a, header button')]
+            .map((e) => (e.textContent ?? '').trim()).filter((t) => t !== '')
+        );
+        /*
+         * ⚠ Y se descarta la linea a la que, SACANDOLE los rotulos del menu, no
+         * le queda nada -- no la que es igual a uno de ellos. Comparar la linea
+         * entera es una regla sobre la FORMA y se cae sola: tres enlaces en
+         * linea sin espacio entre ellos vienen en UN solo nodo de texto
+         * --`Commercial ActivityAnalyticsAdmin`-- que no es igual a ninguno de
+         * los tres. Lo encontro la prueba, no el campo.
+         */
+        const soloMenu = (linea) => {
+          let resto = linea;
+          for (const rotulo of nav) resto = resto.split(rotulo).join('');
+          return resto.trim() === '';
+        };
+        return (document.body?.innerText ?? '')
+          .split('\n').map((l) => l.trim())
+          .filter((l) => l !== '' && !soloMenu(l))
+          .slice(0, 10).join(' · ').slice(0, 500);
+      })(),
     }));
   } catch {
     /* Si ni eso se puede leer, el mensaje de abajo igual dice más que un

@@ -39,7 +39,7 @@ const { chromium } = await import(
   /^file:\/\//.test(rutaPlaywright) ? rutaPlaywright : pathToFileURL(rutaPlaywright).href
 );
 
-const a = crearArnes({ minimo: 28 });
+const a = crearArnes({ minimo: 29 });
 const browser = await chromium.launch({
   executablePath: process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe',
   headless: true,
@@ -226,6 +226,23 @@ try {
      'y las primeras lineas del body, que son las que nombran la pantalla equivocada');
   a.ck(/NO es «el dato no llego»|NO es «el dato no llegó»/.test(msg),
      'y separa explicitamente los dos sintomas que se ven iguales');
+
+  /* ⚠ EL MENU NO CUENTA COMO CUERPO. Salio de campo: con las primeras lineas a
+     secas el mensaje traia el cromo de la app --el portal, el email, los seis
+     modulos-- y ni una palabra de la pantalla equivocada. Un mensaje que
+     describe el cromo no distingue un arbol de otro. */
+  await page.setContent(
+    '<header><a>Commercial Activity</a><a>Analytics</a><a>Admin</a></header>' +
+    '<h1>Admin</h1><p>Roster de RRHH y cambios detectados entre cargas</p>');
+  let conMenu = '';
+  try {
+    await exigirElArbol(page, '[data-adm-kpi]', 'ADM2', { timeout: 1500 });
+  } catch (e) {
+    conMenu = e.message;
+  }
+  a.ck(/Roster de RRHH/.test(conMenu) && !/Commercial Activity/.test(conMenu),
+     'el cuerpo descarta el menu y deja lo que nombra la pantalla: ' +
+     JSON.stringify((conMenu.split('\n').find((l) => /body/.test(l)) ?? '').slice(0, 90)));
 
   /* Y los dos argumentos obligatorios, por la misma razon que `descripcion`. */
   let faltaMarca = '';
