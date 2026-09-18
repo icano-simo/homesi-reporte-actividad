@@ -83,6 +83,32 @@ const ESTADOS = [
       'first»: una afirmación sobre el roster, con una instrucción accionable, ' +
       'dicha sin haber leído el roster.',
   },
+  {
+    archivo: 'app/admin/page.tsx',
+    estado: 'la fecha de ingreso de una persona del roster',
+    /*
+     * ⚠ SE PROHÍBE EL NOMBRE ENTERO, y en la PANTALLA, no en el loader.
+     *
+     * El loader lo declara en `RosterPerson` porque la columna existe y viene en
+     * el `select('*')` -- prohibirlo ahí marcaría código correcto. Lo que no
+     * puede pasar es que la pantalla lo LEA, porque el único uso que se le
+     * ocurre a alguien mirando una columna de guiones es rellenarla con esto.
+     *
+     * Prohibir en cambio un fragmento exacto --`date_started ?? first_seen_at`--
+     * sería una regla sobre la FORMA: no atraparía `|| p.first_seen_at`, ni un
+     * `const ingreso = p.first_seen_at` tres líneas más arriba. El nombre no
+     * tiene esa salida.
+     */
+    prohibidos: ['first_seen_at'],
+    porque:
+      '`date_started` es la fecha real de ingreso y la trae el archivo de RRHH; ' +
+      '`first_seen_at` es cuándo la persona apareció por primera vez en un archivo ' +
+      'que subimos nosotros, y ese histórico empezó el 2026-08-28. Rellenar una ' +
+      'con la otra haría que alguien con diez años en la empresa figure como ' +
+      'ingresado en agosto de 2026: peor que el vacío, porque un vacío se ve y ' +
+      'una fecha falsa no. Hoy la fecha real la traen 45 de 111 --las de Colombia ' +
+      'y las 4 de CO/US--, y el archivo de USA no la trae en absoluto.',
+  },
 ];
 
 /**

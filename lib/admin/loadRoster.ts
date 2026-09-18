@@ -222,6 +222,14 @@ export interface Indicadores {
   usa: number;
   coUs: number;
   inactivas: number;
+  /**
+   * Cuantas activas traen `date_started`.
+   *
+   * ⚠ NO ES UN INDICADOR DE LA FILA DE ARRIBA: no va como tarjeta. Sirve para
+   * que el pie diga «la tienen 45 de 111» con el numero medido y no con uno
+   * escrito a mano, que envejeceria con la proxima carga.
+   */
+  conFechaDeIngreso: number;
 }
 
 export interface AdminData {
@@ -377,6 +385,7 @@ export async function loadAdminData(): Promise<AdminData> {
       usa: activas.filter((p) => pais(p) === 'US').length,
       coUs: activas.filter((p) => pais(p) === 'CO/US').length,
       inactivas: people.length - activas.length,
+      conFechaDeIngreso: activas.filter((p) => p.date_started !== null).length,
     },
     reclutamiento,
     changes,

@@ -463,8 +463,18 @@ table.piv.adm-tbl th.bp-center {
  * la deja envolver. Fijarla en una línea no recortaría el texto: EMPUJARÍA la
  * tarjeta, que es el desborde que este proyecto ya pagó tres veces.
  */
+/*
+ * ADM3: entra la fecha de ingreso como tercera columna, de ancho fijo porque
+ * siempre es `AAAA-MM-DD` o un guion -- no crece con los datos, asi que fijarla
+ * no es la apuesta que `nowrap` seria sobre un cargo.
+ */
 .adm-persona {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 84px;
+}
+.adm-persona__ingreso {
+  color: var(--slate-500);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 /* Los próximos ingresos llevan cargo propio: todavía no tienen sección. */
 .adm-ingreso {

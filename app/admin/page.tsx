@@ -48,12 +48,22 @@ import {
  * una columna "fecha": esa columna haria que 21 filas se lean como 21 ingresos.
  *
  * ---------------------------------------------------------------------------
- * ⚠ `date_started` NO SE MUESTRA, Y NO ES QUE ESTE VACIA
+ * ⚠ LA FECHA DE INGRESO SE MUESTRA DONDE EXISTE, Y NO SE DEDUCE
  * ---------------------------------------------------------------------------
  * Medido el 2026-09-18: la tienen 45 de las 111 activas -- 41 de Colombia y las
- * 4 de CO/US, y CERO de las 64 de USA. O sea que la columna llega llena desde
- * el archivo de Colombia y vacia desde el de USA. No se muestra por decision de
- * la etapa; si mañana se mostrara, el hueco seria de USA y no del dato.
+ * 4 de CO/US, y CERO de las 64 de USA. No es que el sync no la mapee: el
+ * archivo de USA no la trae, porque son dos sistemas de RRHH distintos.
+ *
+ * ⚠ Y NO SE RELLENA CON `first_seen_at`. Esa columna dice cuando la persona
+ * aparecio por primera vez en un archivo que subimos NOSOTROS, y el historico
+ * empezo el 2026-08-28: alguien con diez años en la empresa figuraria como
+ * ingresado en agosto de 2026. Es peor que el vacio, porque un vacio se ve y
+ * una fecha falsa no. `verificar:estados` prohibe que `first_seen_at` vuelva a
+ * entrar a esta pantalla.
+ *
+ * ⚠ Y LOS 4 DE `CO/US` VAN A PARECER INCONSISTENTES con el resto de USA: la
+ * tienen completa porque vienen del archivo de Colombia. No es un error de la
+ * pantalla ni de esas cuatro personas -- es de que fuente salio cada fila.
  */
 
 /** Los tipos de cambio, en español legible. */
@@ -227,6 +237,13 @@ export default function AdminPage() {
                   <li className="adm-persona" key={p.person_code} data-adm-persona={p.person_code}>
                     <span className="adm-persona__nombre">{p.display_name}</span>
                     <span className="adm-persona__cargo">{p.position?.trim() || SIN_BRANCH}</span>
+                    {/*
+                      La fecha de ingreso donde existe, y un guion donde no. El
+                      guion no es un aviso ni un mensaje: es el valor ausente.
+                      Ver la nota de la cabecera -- nunca se rellena con
+                      `first_seen_at`.
+                    */}
+                    <span className="adm-persona__ingreso">{shortDate(p.date_started) ?? SIN_BRANCH}</span>
                   </li>
                 ))}
               </ul>
@@ -340,6 +357,15 @@ export default function AdminPage() {
         El branch es el del <b>roster</b> —dónde RRHH tiene asignada a la persona—, no dónde produce. Los Loan
         Officers se cuentan por quién produce y no por el cargo. Las {k.inactivas} personas inactivas se conservan y no
         se listan acá.
+      </p>
+      {/*
+        Por qué falta la fecha de ingreso en la mayoría de USA. Va acá, una vez,
+        y no al lado de cada guion: son 64 filas y sería el mismo texto 64 veces.
+      */}
+      <p className="adm-foot">
+        La <b>fecha de ingreso</b> sale del archivo de RRHH, y hoy sólo la trae el de Colombia: la tienen{' '}
+        {k.conFechaDeIngreso} de las {k.activas} personas activas. Las cuatro de <b>CO/US</b> la tienen porque vienen
+        de ese mismo archivo, así que se ven distintas del resto de USA.
       </p>
     </div>
   );
