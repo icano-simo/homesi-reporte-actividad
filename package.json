@@ -12,6 +12,8 @@
     "verificar:guardas": "node scripts/verificacion/guardas.test.mjs",
     "verificar:foco": "node scripts/verificacion/focus.test.mjs",
     "verificar:estados": "node scripts/verificacion/estados-ambiguos.mjs",
+    "verificar:productores": "node scripts/verificacion/productores-sin-dim.mjs",
+    "verificar:productores:test": "node scripts/verificacion/productores-sin-dim.test.mjs",
     "verificar:pasos": "node scripts/verificacion/pasos.test.mjs",
     "verificar:desenlace": "node scripts/verificacion/desenlace.test.mjs",
     "verificar:coach": "node scripts/verificacion/coach-rotulos.mjs",

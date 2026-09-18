@@ -1,0 +1,59 @@
+-- ============================================================================
+-- `service_role` necesita LEER `org.dim_employee` — y sólo leer
+-- ============================================================================
+--
+-- NO EJECUTAR desde el repo. Lo aplica quien administra la base.
+--
+-- ⚠ ARCHIVO APARTE A PROPOSITO. Esto es un permiso, no un dato. El alta de las
+-- seis personas va en `2026-09-roster-sin-dim-employee.sql` y no depende de
+-- esto: se pueden aplicar en cualquier orden, o uno y el otro no.
+--
+-- ── LA RAZON, ESCRITA, QUE ES LA CONDICION PARA OTORGARLO ───────────────────
+--
+-- `npm run verificar:productores` cuenta una sola cosa: personas activas del
+-- roster con `is_producer` que no tienen fila en `org.dim_employee`. Es el
+-- estado que nadie ve hasta que alguien cierra un prestamo -- funciona perfecto
+-- mientras la persona no cierre, y el dia que cierra el numero ya salio mal en
+-- una pantalla.
+--
+-- Hoy ese chequeo NO PUEDE CORRER. Medido el 2026-09-18:
+--
+--   service_role select sobre org.roster_current   si
+--   service_role select sobre org.dim_employee     NO  -> 42501
+--
+-- y son 6 de 17 las tablas de `org` que `service_role` puede leer. El chequeo
+-- sale con 2 y dice «NO PUDE MEDIR», que es correcto y no sirve para nada.
+--
+-- ── POR QUE SELECT Y NADA MAS ───────────────────────────────────────────────
+--
+-- El chequeo lee y compara. No escribe, y no tiene por que poder: el alta de
+-- una persona la decide alguien, no un script. Un `grant all` seria permiso
+-- permanente que nadie vuelve a revisar, que es justo lo que la decision del
+-- 2026-09-09 sobre este rol viene a evitar.
+--
+-- ⚠ Y NO TOCA `outlook`, `business_plan` NI `review`. Esos tres siguen sin
+-- `usage` para `service_role` por esa misma decision, y este archivo no los
+-- menciona. `org` es anterior a esa serie y `service_role` ya tiene `usage`
+-- sobre el esquema -- lo que falta es el `select` de esta tabla.
+--
+-- ── SI SE DECIDE QUE NO ─────────────────────────────────────────────────────
+--
+-- Es una respuesta valida y el chequeo lo tolera: sigue saliendo con 2 y
+-- diciendo por que. Lo que NO hay que hacer es que salga con 0 -- un «no pude
+-- preguntar» disfrazado de «no hay ninguno» es peor que no tener el chequeo.
+--
+-- ============================================================================
+
+grant select on org.dim_employee to service_role;
+
+-- ── COMO COMPROBARLO, DESPUES ───────────────────────────────────────────────
+--
+--   select has_table_privilege('service_role', 'org.dim_employee', 'SELECT');
+--   -- tiene que dar true; antes de aplicar da false
+--
+-- Y de punta a punta, que es lo que importa:
+--
+--   npm run verificar:productores
+--   -- antes:   ** NO PUDE MEDIR ** ... 42501 permission denied
+--   -- despues: 1 PRODUCTOR DEL ROSTER SIN FILA  (Arnaldo Ortega, branch 710)
+--   -- y una vez aplicada el alta: SIN FALLAS
