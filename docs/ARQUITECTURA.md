@@ -8670,3 +8670,15 @@ por uno por cada branch del selector coincidió exacto con el total sin
 filtrar (`selectedBranch = 'ALL'`), y ningún valor de `branch` presente en
 `data.openLoans` quedó fuera de las opciones del selector (cero branches
 huérfanos que se hubieran perdido al iterar branch por branch).
+
+## Resolución de identidad de Loan Officer — fallback defensivo de nombre canónico
+
+La tabla de origen para resolver identidad de Loan Officer garantiza hoy que
+toda fila con person_code no nulo también trae un nombre canónico. Ese
+invariante lo sostiene una vista que se puede reescribir, no una constraint
+de base de datos -- así que el código mantiene un fallback defensivo: si
+algún día aparece un person_code sin nombre canónico, se muestra el nombre
+crudo en vez de romper. No quitar este fallback asumiendo que el invariante
+"siempre" se cumple -- ya falló una vez (fila aislada, corregida en origen)
+y el guard queda como red de seguridad barata (una línea) contra una futura
+regresión del mismo tipo.
