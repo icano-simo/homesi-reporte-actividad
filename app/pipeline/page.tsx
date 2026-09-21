@@ -27,7 +27,7 @@ import {
   buildBranchForecastRows,
   type BranchForecastRow,
 } from '@/lib/pipeline/branchForecast';
-import { buildLoanOfficerForecastRows } from '@/lib/pipeline/loanOfficerForecast';
+import { buildLoanOfficerForecastRows, buildLoanOfficerForecastByPerson } from '@/lib/pipeline/loanOfficerForecast';
 import { buildStrategyBranchRows } from '@/lib/pipeline/strategyBranchRows';
 import {
   buildNextMonthPopulations,
@@ -41,8 +41,10 @@ import Topbar from './Topbar';
 import TabNavigation, { type TabType } from './TabNavigation';
 import TabMilestoneMatrix from './TabMilestoneMatrix';
 import TabNextMonth from './TabNextMonth';
+import LoanOfficerForecastTable from './LoanOfficerForecastTable';
 import { getForecastDb, isSupabaseConfigured } from '@/lib/supabase/client';
 import { DownloadIcon, FileSheetIcon } from '@/components/ui/icons';
+import { useLoanOfficerResolved } from './useLoanOfficerResolved';
 
 /**
  * ⚠ Cuándo se actualizó el snapshot, en la zona de quien mira.
@@ -191,6 +193,7 @@ function parseSnapshotId(value: unknown): number | null {
  * sesión.
  */
 export default function PipelinePage() {
+  const loanOfficerResolved = useLoanOfficerResolved();
   const [data, setData] = useState<ParseApiResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   /*
@@ -966,8 +969,23 @@ export default function PipelinePage() {
    * armó con ese rango).
    */
   const loanOfficerForecastRows = data
-    ? buildLoanOfficerForecastRows(branchRowsForSummary, filteredResolvedLoans, forecastRange, PULL_THROUGH_RATES)
+    ? buildLoanOfficerForecastRows(
+        branchRowsForSummary,
+        filteredResolvedLoans,
+        forecastRange,
+        PULL_THROUGH_RATES,
+        loanOfficerResolved.index,
+        loanOfficerResolved.outOfDivisionIndex
+      )
     : [];
+
+  /**
+   * Etapa PDF-INVESTIGACIÓN, ahora con UI: mismo `loanOfficerForecastRows`
+   * de arriba, colapsado por Loan Officer solo (un Loan Officer con filas
+   * en varios branches/canales queda en una sola fila) -- ver
+   * `buildLoanOfficerForecastByPerson()` (lib/pipeline/loanOfficerForecast.ts).
+   */
+  const loanOfficerForecastByPerson = buildLoanOfficerForecastByPerson(loanOfficerForecastRows);
 
   /**
    * Etapa PDF-INVESTIGACIÓN -- mismo resumen por estrategia de arriba,
@@ -1626,6 +1644,7 @@ export default function PipelinePage() {
               knownBranches={knownBranches}
               selectedBranch={selectedBranch}
               onActiveStrategyFilterChange={setActiveStrategyFilter}
+              loanOfficerContent={<LoanOfficerForecastTable rows={loanOfficerForecastByPerson} />}
             />
           )}
 

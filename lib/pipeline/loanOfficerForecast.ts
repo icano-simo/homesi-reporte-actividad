@@ -5,10 +5,12 @@ import {
   calculateForecast,
   calculateTotalForecastWithClosed,
   countByMilestoneBucket,
+  isClosedInMonth,
   type DateRange,
   type PullThroughRates,
 } from './aggregate';
-import type { ResolvedLoan } from './types';
+import type { LoanOfficerResolvedEntry } from '@/app/pipeline/useLoanOfficerResolved';
+import type { PipelineLoan, ResolvedLoan } from './types';
 
 /**
  * ============================================================================
@@ -59,20 +61,70 @@ export interface LoanOfficerForecastRow {
   branch: string;
   channel: BranchRow['channel'];
   loanOfficer: string;
+  loanOfficerKey: string;
+  /** Ver `resolveOfficer()` -- `true` solo para el fallback de nombre crudo marcado "fuera de división" en `org.loan_officer_resolved`. */
+  outOfDivision: boolean;
   totalCount: number;
   healthyCount: number;
   closedCount: number;
   projectedToClose: number;
   totalForecast: number;
+  loans: PipelineLoan[];
+  closedLoans: ResolvedLoan[];
 }
 
 export function buildLoanOfficerForecastRows(
   branchRows: BranchRow[],
   resolvedLoans: ResolvedLoan[],
   dateRange: DateRange,
-  rates: PullThroughRates
+  rates: PullThroughRates,
+  loanOfficerResolvedIndex: Map<string, LoanOfficerResolvedEntry>,
+  outOfDivisionIndex: Map<string, boolean>
 ): LoanOfficerForecastRow[] {
   const result: LoanOfficerForecastRow[] = [];
+
+  /**
+   * Resuelve un nombre crudo de "Loan Officers" (Salesforce), en 2 pasos,
+   * la primera que resuelva gana:
+   *
+   * 1. `org.loan_officer_resolved` (fuente ÚNICA desde 11-sep, ver
+   *    useLoanOfficerResolved.ts) -- si el nombre trae `person_code`, la
+   *    identidad es el `person_code` y el nombre a mostrar es
+   *    `nombre_canonico`. `loanOfficerResolvedIndex` ya viene filtrado a
+   *    solo person_code no nulo (ver ese hook), así que "está en el Map" y
+   *    "resolvió" son lo mismo acá. `outOfDivision` es siempre `false` --
+   *    una persona resuelta nunca lleva esta marca.
+   *
+   *    ⚠ HOTFIX (15-sep, caso "Isabel Wagner"): `person_code` no nulo NO
+   *    garantiza `nombre_canonico` no nulo -- la fila puede tener uno y no
+   *    el otro (visto en producción: `person_code: 'isabel.wagner'`,
+   *    `nombre_canonico: null`). El identificador de fila (`key`) se queda
+   *    en `'person:' + personCode` -- la identidad SÍ está resuelta, no
+   *    hay que inventar una nueva -- pero `displayName` cae al mismo
+   *    fallback que el paso 2: el nombre crudo, nunca `null`. Antes de este
+   *    fix, un `displayName: null` llegaba intacto hasta el `.sort()` de
+   *    abajo y tiraba `TypeError` en cada carga de la vista.
+   * 2. Si no resuelve ahí: NO se descarta ni se fusiona con nadie -- queda
+   *    como su propia identidad (key = 'raw:'+nombre), con su nombre crudo
+   *    como display -- fidelidad del dato por sobre prolijidad del nombre.
+   *    `outOfDivision` sale de `outOfDivisionIndex` (mismo criterio de la
+   *    auditoría manual: `person_code IS NULL AND es_de_la_division =
+   *    false` en `org.loan_officer_resolved`) -- `false` también si el
+   *    nombre no está en ese índice (no se puede afirmar "fuera de
+   *    división" de un nombre del que no hay dato).
+   *
+   * Fallback a org.employee_alias QUITADO (11-sep, a pedido explícito de
+   * Isa): la vista `org.loan_officer_resolved` se corrigió para cubrir
+   * también las grafías que vienen del PIPELINE del Forecast (antes solo
+   * conocía Encompass), pasando de 72 a 87 filas -- ya no hace falta un
+   * segundo mecanismo de resolución conviviendo con el primero.
+   */
+  function resolveOfficer(rawName: string): { key: string; displayName: string; outOfDivision: boolean } {
+    const resolved = loanOfficerResolvedIndex.get(rawName);
+    if (resolved) return { key: 'person:' + resolved.personCode, displayName: resolved.nombreCanonico || rawName, outOfDivision: false };
+
+    return { key: 'raw:' + rawName, displayName: rawName, outOfDivision: outOfDivisionIndex.get(rawName) === true };
+  }
 
   for (const branchRow of branchRows) {
     const isBanked = branchRow.channel === 'Banked - Retail';
@@ -83,15 +135,16 @@ export function buildLoanOfficerForecastRows(
       (loan) => loan.branch === branchRow.branch && loan.channel === branchRow.channel
     );
 
-    const loanOfficers = new Set<string>();
-    for (const l of openLoansForBranch) if (l.loanOfficer) loanOfficers.add(l.loanOfficer);
-    for (const l of closedLoansForBranch) if (l.loanOfficer) loanOfficers.add(l.loanOfficer);
-    if (loanOfficers.size === 0) continue;
+    const officersByKey = new Map<string, { key: string; displayName: string; outOfDivision: boolean }>();
+    for (const l of openLoansForBranch) if (l.loanOfficer) officersByKey.set(resolveOfficer(l.loanOfficer).key, resolveOfficer(l.loanOfficer));
+    for (const l of closedLoansForBranch) if (l.loanOfficer) officersByKey.set(resolveOfficer(l.loanOfficer).key, resolveOfficer(l.loanOfficer));
+    if (officersByKey.size === 0) continue;
 
-    const perOfficer = [...loanOfficers].map((loanOfficer) => {
-      const loans = openLoansForBranch.filter((l) => l.loanOfficer === loanOfficer);
+    const perOfficer = [...officersByKey.values()].map(({ key, displayName, outOfDivision }) => {
+      const loans = openLoansForBranch.filter((l) => l.loanOfficer && resolveOfficer(l.loanOfficer).key === key);
       const healthy = loans.filter((l) => l.healthy === true);
-      const closedLoans = closedLoansForBranch.filter((l) => l.loanOfficer === loanOfficer);
+      const closedLoans = closedLoansForBranch.filter((l) => l.loanOfficer && resolveOfficer(l.loanOfficer).key === key);
+      const closedLoansInMonth = closedLoans.filter((loan) => isClosedInMonth(loan, dateRange));
 
       /* Mismo criterio de fecha y de status que la fila del branch. */
       const { closedCount } = calculateTotalForecastWithClosed(closedLoans, 0, dateRange);
@@ -102,7 +155,7 @@ export function buildLoanOfficerForecastRows(
         ? calculateForecast(countByMilestoneBucket(healthy), rates).forecastTotal
         : loans.length * BROKERED_FLAT_PULL_THROUGH_RATE;
 
-      return { loanOfficer, totalCount: loans.length, healthyCount: healthy.length, closedCount, exactForecast };
+      return { loanOfficerKey: key, loanOfficer: displayName, outOfDivision, loans, closedLoans: closedLoansInMonth, totalCount: loans.length, healthyCount: healthy.length, closedCount, exactForecast };
     });
 
     /* El entero del branch+channel, repartido. La suma de las partes ES el entero. */
@@ -115,6 +168,10 @@ export function buildLoanOfficerForecastRows(
       branch: branchRow.branch,
       channel: branchRow.channel,
       loanOfficer: r.loanOfficer,
+      loanOfficerKey: r.loanOfficerKey,
+      outOfDivision: r.outOfDivision,
+      loans: r.loans,
+      closedLoans: r.closedLoans,
       totalCount: r.totalCount,
       healthyCount: r.healthyCount,
       closedCount: r.closedCount,
@@ -148,8 +205,116 @@ export function buildLoanOfficerForecastRows(
       }
     }
 
+    /*
+     * Red de seguridad en desarrollo: `rows[i].closedLoans` (ahora
+     * `closedLoansInMonth`) tiene que tener EXACTAMENTE `closedCount`
+     * préstamos -- si no, el modal mostraría un conjunto de préstamos
+     * distinto del número que dice la celda. No debería dispararse nunca
+     * si el fix es correcto.
+     */
+    if (process.env.NODE_ENV !== 'production') {
+      for (const r of rows) {
+        if (r.closedLoans.length !== r.closedCount) {
+          console.warn('PDF-INVESTIGACIÓN: closedLoans del modal no coincide con closedCount de la celda', {
+            branch: r.branch,
+            channel: r.channel,
+            loanOfficer: r.loanOfficer,
+            closedLoansLength: r.closedLoans.length,
+            closedCount: r.closedCount,
+          });
+        }
+      }
+    }
+
     result.push(...rows);
   }
 
-  return result.sort((a, b) => a.branch.localeCompare(b.branch) || a.loanOfficer.localeCompare(b.loanOfficer));
+  /*
+   * Defensa adicional (15-sep, no reemplaza el fix de resolveOfficer() de
+   * arriba): `?? ''` para que un `loanOfficer` null/undefined que llegara
+   * por CUALQUIER otro camino no previsto ordene al principio en vez de
+   * tirar `TypeError`. El caso conocido (nombre_canonico null con
+   * person_code resuelto) ya no llega acá nulo -- esto es para el caso que
+   * todavía no se vio.
+   */
+  return result.sort((a, b) => a.branch.localeCompare(b.branch) || (a.loanOfficer ?? '').localeCompare(b.loanOfficer ?? ''));
+}
+
+export interface LoanOfficerForecastByPerson {
+  loanOfficer: string;
+  loanOfficerKey: string;
+  /** Constante por `loanOfficerKey` -- ver `LoanOfficerForecastRow.outOfDivision`. */
+  outOfDivision: boolean;
+  totalCount: number;
+  healthyCount: number;
+  closedCount: number;
+  projectedToClose: number;
+  totalForecast: number;
+  loans: PipelineLoan[];
+  closedLoans: ResolvedLoan[];
+}
+
+/**
+ * Agrupa `LoanOfficerForecastRow[]` (una fila por branch+channel+Loan
+ * Officer) por Loan Officer solo -- un mismo Loan Officer con filas en
+ * varios branches/canales queda en UNA sola fila acá, con los 5 campos
+ * numéricos sumados. NO recalcula ningún forecast ni vuelve a redondear
+ * nada -- suma directa de lo que ya devolvió `buildLoanOfficerForecastRows()`,
+ * mismo criterio de "aporcionar, no recalcular" documentado arriba.
+ */
+export function buildLoanOfficerForecastByPerson(rows: LoanOfficerForecastRow[]): LoanOfficerForecastByPerson[] {
+  const byOfficer = new Map<string, LoanOfficerForecastByPerson>();
+  for (const row of rows) {
+    const cur = byOfficer.get(row.loanOfficerKey) ?? {
+      loanOfficer: row.loanOfficer,
+      loanOfficerKey: row.loanOfficerKey,
+      outOfDivision: row.outOfDivision,
+      totalCount: 0,
+      healthyCount: 0,
+      closedCount: 0,
+      projectedToClose: 0,
+      totalForecast: 0,
+      loans: [],
+      closedLoans: [],
+    };
+    cur.totalCount += row.totalCount;
+    cur.healthyCount += row.healthyCount;
+    cur.closedCount += row.closedCount;
+    cur.projectedToClose += row.projectedToClose;
+    cur.totalForecast += row.totalForecast;
+    cur.loans.push(...row.loans);
+    cur.closedLoans.push(...row.closedLoans);
+    byOfficer.set(row.loanOfficerKey, cur);
+  }
+
+  /* Misma defensa adicional que en buildLoanOfficerForecastRows() -- ver ese comentario. */
+  const result = [...byOfficer.values()].sort((a, b) => (a.loanOfficer ?? '').localeCompare(b.loanOfficer ?? ''));
+
+  /*
+   * Mismo chequeo de desarrollo que buildLoanOfficerForecastRows() arriba
+   * -- agrupar por persona no debe cambiar ninguna suma total, solo
+   * colapsar filas. Si no cuadra, algún Loan Officer quedó contado dos
+   * veces o se perdió una fila al agrupar.
+   */
+  if (process.env.NODE_ENV !== 'production') {
+    const sumRows = (pick: (r: LoanOfficerForecastRow) => number) => rows.reduce((a, r) => a + pick(r), 0);
+    const sumResult = (pick: (r: LoanOfficerForecastByPerson) => number) => result.reduce((a, r) => a + pick(r), 0);
+    const checks: [string, number, number][] = [
+      ['totalCount', sumResult((r) => r.totalCount), sumRows((r) => r.totalCount)],
+      ['healthyCount', sumResult((r) => r.healthyCount), sumRows((r) => r.healthyCount)],
+      ['closedCount', sumResult((r) => r.closedCount), sumRows((r) => r.closedCount)],
+      ['projectedToClose', sumResult((r) => r.projectedToClose), sumRows((r) => r.projectedToClose)],
+    ];
+    for (const [name, got, want] of checks) {
+      if (got !== want) {
+        console.warn('PDF-INVESTIGACIÓN: el agrupado por persona no cuadra contra las filas sin agrupar', {
+          field: name,
+          groupedSum: got,
+          rowsSum: want,
+        });
+      }
+    }
+  }
+
+  return result;
 }
