@@ -9,6 +9,15 @@
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",
+    // ⚠ BP54 — los módulos PUROS de `lib/outlook` (`gobierno.ts`, `ventana.ts`,
+    // `nppmPiso.ts`) los cargan sus pruebas con Node pelado, y Node ESM exige la
+    // extensión en un import relativo. Medido: sin ella, «Cannot find module».
+    // Sin esta opción un módulo puro no puede importar a otro, y la única salida
+    // sería copiar `apportionByWeight` — una segunda copia de una decisión, que
+    // es lo que este repo lleva nueve casos de pagar.
+    // Es seguro porque `noEmit` es true: no hay salida que pueda quedar con una
+    // ruta `.ts` adentro.
+    "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "react-jsx",

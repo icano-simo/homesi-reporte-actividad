@@ -81,13 +81,56 @@ const REGLAS = [
   },
   {
     nombre: 'cuerpo de PR en la línea',
-    prueba: /\bgh\b[^|;&]*\b(pr|issue)\b[^|;&]*--(body|title)\s+(?!-)/,
+    /*
+     * ⚠ `--title` NO ENTRA, Y ANTES SÍ. SEGUNDO FALSO POSITIVO DE ESTA GUARDA.
+     *
+     * El patrón era `--(body|title)` y bloqueaba esto, que está bien:
+     *
+     *   gh pr create --title "docs(outlook): el caso ya no tiene filas" \
+     *                --body-file <archivo>
+     *
+     * El cuerpo iba por archivo --o sea que no tocaba el shell-- y aun así el
+     * `--title` disparaba la regla. Un título es una línea corta de prosa sin
+     * backticks; el riesgo que esta guarda persigue es el del CUERPO, que casi
+     * siempre los tiene. Bloquear el título no evitaba nada y dejaba sin salida:
+     * `gh pr create` no tiene `--title-file`.
+     *
+     * Se agrega `-b`, que es el atajo de `--body` y faltaba.
+     *
+     * ⚠ `--body-file` NO matchea, y no por casualidad: el `\s+` de después exige
+     * un espacio, y ahí va `-file`. Si algún día se saca ese `\s+`, hay que
+     * excluirlo a mano.
+     *
+     * ⚠ `(?<![\w-])` ANTES DE `-b`: sin eso, `--base main` matchearía por el
+     * `-b` de 'base'. Con el lookbehind, sólo matchea `-b` como bandera suelta.
+     */
+    prueba: /\bgh\b[^|;&]*\b(pr|issue)\b[^|;&]*(--body|(?<![\w-])-b)\s+(?!-)/,
     porque: 'mismo mecanismo que el mensaje de commit, y el cuerpo de un PR casi siempre tiene backticks.',
-    hacer: 'usá `--body-file archivo`.',
+    hacer: 'usá `--body-file archivo`. El `--title` en la línea está bien: es una línea de prosa, no un cuerpo.',
   },
   {
     nombre: 'texto redirigido a un archivo',
-    prueba: /\b(echo|printf)\b[^|;&]*>>?\s*(?!\/dev\/null|\$null|nul\b)\S/i,
+    /*
+     * ⚠ `(?<![0-9&])` Y `(?!&)`: EL PRIMER FALSO POSITIVO DE ESTA GUARDA.
+     *
+     * Bloqueó `echo "faltantes: $(npm ls --depth=0 2>&1 | grep -ciE '...')"`,
+     * que no escribe ningún archivo. El `>` que matcheaba era el de `2>&1`
+     * DENTRO de la sustitución de comando: entre el `echo` y ese `>` no hay
+     * ningún `|`, `;` ni `&`, así que `[^|;&]*` llegaba sin problema.
+     *
+     * Las dos condiciones dicen lo que faltaba: un `>` precedido por un dígito
+     * es un descriptor --`2>`-- y uno seguido de `&` es una duplicación de
+     * descriptor --`>&2`--. Ninguno de los dos escribe texto a un archivo.
+     *
+     * ⚠ Y QUEDA UN HUECO CONOCIDO, dicho acá en vez de descubierto después:
+     * `echo hola 2>&1 > salida.txt` NO se bloquea, porque `[^|;&]*` no puede
+     * cruzar el `&` de `2>&1` para llegar al segundo `>`. Es la dirección
+     * correcta para equivocarse --deja pasar una escritura rara en vez de
+     * frenar un comando legítimo-- y el motivo es el de siempre: una guarda que
+     * bloquea lo legítimo es la que alguien desengancha, y ahí se pierde
+     * también lo que sí cubría.
+     */
+    prueba: /\b(echo|printf)\b[^|;&]*(?<![0-9&])>>?\s*(?!&)(?!\/dev\/null|\$null|nul\b)\S/i,
     porque:
       'es escribir un archivo con el shell de intermediario: el contenido pasa por expansión y ' +
       'sustitución antes de llegar al disco.',

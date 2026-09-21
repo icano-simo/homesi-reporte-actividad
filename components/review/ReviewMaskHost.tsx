@@ -374,9 +374,10 @@ export default function ReviewMaskHost() {
           .gte('created_at', arranco)
           .limit(1);
       const tablas = [
-        /* Primero las de OL26, que son donde escribe el editor de hoy. */
-        'person_budget_breakdown',
-        'person_budget_total',
+        /* Primero las de OL26, que son donde escribe el editor de hoy.
+           Renombradas en OL27 -- `docs/sql/2026-09-budget-sujeto-branch.sql`. */
+        'budget_breakdown',
+        'budget_total',
         /* Y las tres viejas, como respaldo. */
         'strategy_benchmark',
         'growth_rule',

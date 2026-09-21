@@ -95,6 +95,13 @@
   margin: 0;
 }
 
+/* El aviso de lo que un guardado se lleva puesto, arriba de la fila del botón
+   -- OL38. Ancho entero para que no compita con el campo de la nota. */
+.ol-editor__drop {
+  margin: 0 0 10px;
+  width: 100%;
+}
+
 /* ── Una revisión de la regla, como tarjeta ──────────────────────────────── */
 .ol-editor__rev-card {
   border: 1px solid var(--slate-200);
