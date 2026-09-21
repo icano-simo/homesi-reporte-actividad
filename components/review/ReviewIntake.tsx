@@ -48,7 +48,7 @@ export interface ReviewIntakeProps {
 const dia = (iso: string) => iso.slice(0, 10);
 
 export default function ReviewIntake({ loEmployeeKey, loName, habilitado }: ReviewIntakeProps) {
-  const { sessions, isLoading, unavailable, error, visible } = useIntake(loEmployeeKey, habilitado);
+  const { sessions, enCurso, isLoading, unavailable, error } = useIntake(loEmployeeKey, habilitado);
   /*
    * Cuál revisión está abierta. La más nueva por defecto, y las otras
    * colapsadas: con tres revisiones de ocho pasos son 24 comentarios, y
@@ -149,25 +149,48 @@ export default function ReviewIntake({ loEmployeeKey, loName, habilitado }: Revi
   const lista = sessions ?? [];
 
   /*
-   * ⚠ TRES VACÍOS DISTINTOS, Y SE DICEN DISTINTO.
+   * ══════════════════════════════════════════════════════════════════════════
+   * ⚠ TRES VACÍOS DISTINTOS, Y SE DICEN DISTINTO — reescritos en RV23
+   * ══════════════════════════════════════════════════════════════════════════
    *
-   *   · no hay revisiones de esta persona     → no se dibuja nada
-   *   · hay revisiones y RLS no las deja ver  → se dice que falta permiso
-   *   · hay revisiones sin comentarios        → se dice que no contestó nada
+   *   · ni cerradas ni abiertas          → no se dibuja nada
+   *   · ninguna cerrada y alguna abierta → «hay una revisión sin cerrar»
+   *   · cerradas sin un solo comentario  → «se cerró sin comentarios»
    *
    * El primero no dibuja NADA a propósito: un encabezado «Coach intake» vacío
    * en el perfil de las 30 personas sin revisión es ruido en 30 pantallas.
+   *
+   * ⚠ EL QUE SE FUE ES «no podés leer los comentarios». Decía que faltaba
+   * permiso mirando cero respuestas, y hoy esa causa NO PUEDE pasar:
+   * `session_select` y `response_select` son el mismo predicado
+   * --`has_access()`--, así que quien ve la sesión ve sus respuestas, y quien
+   * no tiene el claim no ve ninguna de las dos ni entra a Business Plan.
+   *
+   * Lo que sí pasaba era el otro caso, y el mensaje lo tapaba: la sesión 62 de
+   * Luis Silva se cerró sin una sola respuesta, y el perfil decía «no tenés
+   * permiso» en vez de «se cerró vacía». Es la familia de siempre --dos causas
+   * con el mismo síntoma-- con el agravante de que el código eligió la que ya
+   * no ocurre.
+   *
+   * ⚠ SI `response_select` VUELVE A SER MÁS ESTRECHA que `session_select`, el
+   * estado tiene que volver: ahí cero respuestas significa dos cosas otra vez.
    */
-  if (lista.length === 0) return null;
+  const abiertas =
+    enCurso === 0 ? null : (
+      <>
+        {' '}
+        {enCurso} coaching session{enCurso === 1 ? ' is' : 's are'} in progress and not closed yet
+        {enCurso === 1 ? '; its' : '; their'} comments appear here once closed.
+      </>
+    );
 
-  if (!visible) {
+  if (lista.length === 0) {
+    if (enCurso === 0) return null;
     return (
       <section className="rv-intake">
         <h2 className="rv-intake__head">Coach intake</h2>
         <p className="rv-hint">
-          {loName} has {lista.length} coaching session{lista.length === 1 ? '' : 's'} on record, but you
-          cannot read the comments: they are visible to the coach and to the Business Plan leads.
-          This is a permission, not an empty record.
+          {loName} has no closed coaching sessions yet.{abiertas}
         </p>
       </section>
     );
@@ -175,12 +198,16 @@ export default function ReviewIntake({ loEmployeeKey, loName, habilitado }: Revi
 
   const conComentarios = lista.filter((s) => s.fases.length > 0);
   if (conComentarios.length === 0) {
+    /* El dato que explica el vacío: cuándo se cerró. Sin eso, «sin comentarios»
+       se lee como un error de la pantalla y no como lo que pasó ese día. */
+    const cuando = dia(lista[0].session.completed_at ?? lista[0].session.started_at);
     return (
       <section className="rv-intake">
         <h2 className="rv-intake__head">Coach intake</h2>
         <p className="rv-hint">
-          {loName} has {lista.length} coaching session{lista.length === 1 ? '' : 's'} started and no comments
-          answered yet.
+          {loName} has {lista.length} closed coaching session{lista.length === 1 ? '' : 's'} with no
+          comments recorded: {lista.length === 1 ? 'it was' : 'the last one was'} closed on {cuando}{' '}
+          without a single answer.{abiertas}
         </p>
       </section>
     );
@@ -205,6 +232,17 @@ export default function ReviewIntake({ loEmployeeKey, loName, habilitado }: Revi
         <span className="rv-intake__n">
           {cuantas} session{cuantas === 1 ? '' : 's'}
         </span>
+        {/*
+          La abierta se ANUNCIA acá y no se abre: su contenido se está
+          escribiendo --la regla de RV4-- pero quien mira el perfil tiene que
+          saber que lo que lee no es todo. Se reusa la clase de las pestañas: el
+          mismo significado se ve igual, y no hay una clase nueva que definir.
+        */}
+        {enCurso > 0 && (
+          <span className="rv-intake__wip">
+            {enCurso} in progress
+          </span>
+        )}
       </span>
       <span className="rv-intake__openwhen">
         last {dia(ultima.completed_at ?? ultima.started_at)}
@@ -239,6 +277,13 @@ export default function ReviewIntake({ loEmployeeKey, loName, habilitado }: Revi
               onClick={() => setAbierta(s.session.session_key)}
             >
               {dia(s.session.completed_at ?? s.session.started_at)}
+              {/*
+                ⚠ ESTA RAMA NO SE ALCANZA desde RV4: el hook devuelve sólo
+                cerradas, así que ninguna pestaña puede estar en curso. Se deja
+                --y no se borra-- porque el día que el intake muestre una
+                abierta, la pestaña tiene que decirlo; lo que hoy lo dice es la
+                fila de arriba, con el conteo.
+              */}
               {s.session.status === 'in_progress' && <span className="rv-intake__wip">in progress</span>}
             </button>
           ))}

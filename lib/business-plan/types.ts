@@ -404,7 +404,8 @@ export interface Qualifier1 {
    * rule"), porque sin la distinción alguien va a ver un budget y creer que
    * se decidió -- la misma razón por la que `confirmed_only` existe.
    */
-  budgetSource: 'fixed' | 'rule' | null;
+  /** ⚠ `'nppm'` desde BP54: el numero es el piso de sus realtors, no algo que la persona decidio. Ver `presupuestoDePersona`. */
+  budgetSource: 'fixed' | 'rule' | 'nppm' | null;
 }
 
 /**
@@ -513,6 +514,8 @@ export interface LoanOfficerRow {
   /** Cierres del año en curso. */
   ytdClosings: number;
   q1: Qualifier1;
+  /** El mes del que sale `q1.budget` — BP54. `null` si nadie fijó ninguno. */
+  budgetMonth: string | null;
   q2: Qualifier2;
   verdict: Verdict;
   intervention: InterventionRow | null;

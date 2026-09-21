@@ -9,7 +9,10 @@
 import '@/app/pipeline/styles/forecast-visual.css';
 import { useEffect, useState } from 'react';
 import type { PipelineLoan, ResolvedLoan } from '@/lib/pipeline/types';
+import type { LoanRecord } from '@/lib/domain/types';
+import { loadCurrentReport } from '@/lib/supabase/loadCurrent';
 import TabAnalytics from '@/app/pipeline/TabAnalytics';
+import CommercialActivityTrends from '@/app/pipeline/CommercialActivityTrends';
 import { FileSheetIcon } from '@/components/ui/icons';
 
 /**
@@ -60,6 +63,26 @@ export default function AnalyticsPage() {
   const [data, setData] = useState<LatestApiResponse | null>(null);
   const [isLoadingInitial, setIsLoadingInitial] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Etapa ANALYTICS-CA-TRENDS-1 -- primera pieza que necesita distinguir
+   * entre datos de Forecast (Closing, ya cargados arriba) y de Commercial
+   * Activity (`LoanRecord[]`, ver comentario más abajo en el render: TODAVÍA
+   * no se cargan en esta página). Selector local, sin persistir en URL --
+   * mismo criterio que el resto de los toggles de esta pestaña.
+   */
+  const [analyticsView, setAnalyticsView] = useState<'closing' | 'commercialActivity'>('closing');
+
+  /*
+   * Etapa ANALYTICS-CA-TRENDS-2 -- estado PROPIO de esta página para
+   * Commercial Activity, independiente del de Forecast de arriba. Mismos
+   * 3 estados que ya usa `app/page.tsx` (records/isLoadingInitial/error),
+   * sin compartir ningún hook -- son dos fetches separados a propósito
+   * (ver comentario de cabecera: "cada ruta de nivel superior es
+   * independiente").
+   */
+  const [caRecords, setCaRecords] = useState<LoanRecord[] | null>(null);
+  const [caLoadingInitial, setCaLoadingInitial] = useState(true);
+  const [caError, setCaError] = useState<string | null>(null);
 
   // Mismo patrón que el fetch inicial de app/pipeline/page.tsx -- un GET, sin
   // POST/upload acá (esta página no lo ofrece). {snapshot: null} (nadie subió
@@ -91,11 +114,52 @@ export default function AnalyticsPage() {
     };
   }, []);
 
+  /*
+   * Etapa ANALYTICS-CA-TRENDS-2 -- segundo fetch independiente, mismo
+   * `loadCurrentReport()` que ya usa `app/page.tsx` (lib/supabase/
+   * loadCurrent.ts), con su propio try/catch -- no comparte estado ni
+   * cache con el efecto de Forecast de arriba. `null` (nadie subió nada /
+   * Supabase no configurado) es un resultado válido, no un error --
+   * mismo criterio que ya documenta `loadCurrentReport()` en su propio
+   * archivo.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    loadCurrentReport()
+      .then((current) => {
+        if (cancelled) return;
+        if (current) setCaRecords(current.records);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setCaError(errorMessage(err));
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setCaLoadingInitial(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <div className="hub-container">
       <div className="page-head">
         <div>
           <h1 className="page-head__title">Analytics</h1>
+        </div>
+        <div className="seg">
+          <button type="button" className={analyticsView === 'closing' ? 'on' : ''} onClick={() => setAnalyticsView('closing')}>
+            Closing
+          </button>
+          <button
+            type="button"
+            className={analyticsView === 'commercialActivity' ? 'on' : ''}
+            onClick={() => setAnalyticsView('commercialActivity')}
+          >
+            Commercial Activity
+          </button>
         </div>
       </div>
 
@@ -118,7 +182,44 @@ export default function AnalyticsPage() {
         </div>
       )}
 
-      {data && <TabAnalytics resolvedLoans={data.resolvedLoans} />}
+      {data && analyticsView === 'closing' && <TabAnalytics resolvedLoans={data.resolvedLoans} />}
+
+      {/*
+       * Etapa ANALYTICS-CA-TRENDS-2 -- los 3 estados posibles de
+       * `loadCurrentReport()`, mismo criterio que `app/page.tsx`: error real
+       * (caError), "todavía no hay datos" (caRecords === null, después de
+       * cargar), y datos reales (aunque sea un array vacío -- eso lo maneja
+       * la tabla de CommercialActivityTrends con su propio "No records for
+       * this strategy", no acá).
+       */}
+      {analyticsView === 'commercialActivity' && (
+        <>
+          {caError && <span className="pill warn">{caError}</span>}
+
+          {caRecords === null && caLoadingInitial && !caError && (
+            <div className="empty">
+              <h2>Loading…</h2>
+              <p>Looking for the last saved Commercial Activity report.</p>
+            </div>
+          )}
+
+          {caRecords === null && !caLoadingInitial && !caError && (
+            <div className="empty">
+              <div className="drop-ic">
+                <FileSheetIcon size={24} />
+              </div>
+              <h2>Todavía no hay datos de actividad</h2>
+              <p>
+                La actividad se sincroniza desde BigQuery cada vez que se sube Encompass por la app de cargas. Si esta
+                pantalla sigue vacía después de una carga, avisá al equipo de datos: el que falló es el sync, no esta
+                vista.
+              </p>
+            </div>
+          )}
+
+          {caRecords !== null && <CommercialActivityTrends records={caRecords} />}
+        </>
+      )}
     </div>
   );
 }
