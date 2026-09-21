@@ -4,7 +4,6 @@ import {
   businessToday,
   getDefaultQuarterSelection,
   getDefaultYtdSelection,
-  periodLabel,
   type PeriodSelection,
 } from '@/lib/pipeline/period';
 
@@ -98,9 +97,16 @@ export default function PeriodSelector({ value, onChange }: PeriodSelectorProps)
       )}
 
       {value.mode === 'ytd' && (
-        <span className="foot-note" style={{ margin: 0 }}>
-          {periodLabel(value)}
-        </span>
+        <input
+          type="number"
+          className="field"
+          style={{ width: '90px' }}
+          value={value.year}
+          onChange={(e) => {
+            const y = Number(e.target.value);
+            if (y) onChange({ mode: 'ytd', year: y });
+          }}
+        />
       )}
     </div>
   );
