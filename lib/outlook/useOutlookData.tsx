@@ -113,8 +113,8 @@ export function OutlookDataProvider({ children }: { children: ReactNode }) {
 
   /*
    * `reload` devuelve una promesa y los editores la ESPERAN antes de anunciar
-   * el guardado -- ver la nota en `StrategyEditor`. Sin eso la pantalla decía
-   * "guardada la revisión 2" mientras el título seguía mostrando la 1.
+   * el guardado -- ver la nota en `PersonBudgetEditor`. Sin eso la pantalla
+   * decía "guardada la revisión 2" mientras el título seguía mostrando la 1.
    */
   const reload = useCallback(() => {
     invalidateOutlookData();

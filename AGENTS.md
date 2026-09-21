@@ -107,6 +107,600 @@ mecanismo completamente distinto**. Confiar en que el número cuadraba habría
 escondido la causa real. La coincidencia de dos números no es evidencia de que
 el razonamiento sea el mismo.
 
+## Cuando la medición falla y no se entiende por qué: volcar, no reintentar
+
+Las secciones de arriba son sobre mediciones que dieron un resultado falso.
+Ésta es sobre qué hacer cuando la medición **no da ningún resultado** y no se
+sabe por qué — el caso en que la tentación es probar otro selector.
+
+> **Cuando una medición falla y no se entiende por qué, volcar lo que hay antes
+> de intentar un quinto selector. El DOM dice qué pasó; el selector sólo dice
+> si encontró lo que buscabas.**
+
+El caso que la fija costó cuatro intentos. Una espera por el aviso de una
+pantalla vencía a los 120s, y el mismo aviso apareciía perfecto en un script
+suelto. Pasé por cuatro hipótesis —el predicado, el `arg`, la cookie, el
+claim— y ninguna era. Al volcar el DOM, el `body` decía:
+
+    Email
+    Password
+    Sign In
+
+La sesión de la sonda no valía. **La pantalla decía la respuesta y la medición
+no preguntaba eso**: ningún selector mío miraba el formulario de login, así que
+todos daban «no está».
+
+Y la causa tenía una asimetría que la hacía peor que un fallo: dos sondas del
+mismo repo comparten email —el sufijo es un hash de la ruta— así que la segunda
+borra y recrea al usuario de la primera. Y los dos caminos respondieron distinto:
+
+| | qué verifica | qué dijo |
+|---|---|---|
+| `rest()` | sólo la **firma** del JWT | 200 |
+| el navegador | `getUser()` pregunta al servidor de auth | `/login` |
+
+**La sonda «funcionaba» por el camino que no comprueba**, y el 200 daba
+confianza. Es la novena de la familia: la respuesta estaba a la vista y la
+pregunta era otra.
+
+## Una herramienta puede contestar de menos sin decir que contestó de menos
+
+Los casos de arriba son mediciones que midieron mal, un arnés que no midió, y
+una conclusión construida a partir de verdades. Éste es otro mecanismo: la
+herramienta **contestó**, contestó bien lo que contestó, y contestó **menos de
+lo que hay** — sin ninguna señal de que la respuesta estaba recortada.
+
+Busqué si este repo tenía un despliegue en Vercel, por tres vías:
+
+| vía | qué dijo |
+|---|---|
+| `.vercel/project.json` en el repo | no existe |
+| `list_projects` del conector MCP | **un** proyecto del equipo, y no es éste |
+| una URL `.vercel.app` en el código | ninguna |
+
+Y reporté que el repo no estaba conectado a Vercel. Era falso: el proyecto se
+llama `homesi-performance` —otro nombre que el repo— y la app está publicada en
+internet desde hace semanas. `npx vercel project ls` lista **cinco** proyectos
+del mismo equipo; el MCP listó uno.
+
+> **Cuando una búsqueda por varias vías da un negativo, eso puede significar que
+> ninguna de las vías podía verlo. La herramienta no falló — devolvió menos de
+> lo que hay, que es peor.**
+
+Peor porque un fallo se ve. Tres vías coincidiendo en «no» se siente como
+evidencia, y era una sola fuente incompleta y dos que nunca podían responder
+— no hay `.vercel/` en este repo y la URL no está en el código, así que esas dos
+dan «no» también cuando la respuesta es «sí».
+
+Las dos reglas operativas:
+
+- **Un negativo sobre la existencia de algo externo vale menos que un negativo
+  sobre su contenido.** «No hay proyecto» hay que confirmarlo con la
+  herramienta que ENUMERA, no con las que consultan por clave.
+- Y cuando dos de las tres vías sólo pueden decir «no», **no son vías**: son la
+  misma vía contada tres veces. Es el problema de la celda que no dice nada de
+  las otras once, en la dirección contraria.
+
+## Un comentario correcto para su caso puede engañar en el siguiente
+
+Cinco archivos de `docs/sql/` dicen alguna versión de:
+
+> `business_plan` ya está expuesto en PostgREST desde BP6. Esta migración **no
+> necesita** tocar `pgrst.db_schemas`.
+
+Los cinco dicen la verdad — los cinco agregan tablas a un esquema que ya estaba
+expuesto. Pero leídos juntos construyen una conclusión que ninguno afirma: que
+nunca hace falta tocar esa lista. Y el sexto archivo fue el primero que **crea**
+un esquema, así que la frase repetida es lo que hizo que no me lo preguntara.
+Resultado: el modelo aplicado, las policies correctas, y la app viendo un 406.
+
+> **Una nota que dice «esto no hace falta acá» envejece distinto que una que
+> dice «esto no hace falta nunca», y se leen igual.**
+
+La regla operativa: al escribir una nota de la forma «no hace falta X», decir
+**por qué** no hace falta en este caso. `business_plan ya está expuesto, así que
+esta migración no toca la lista` se sigue leyendo bien desde un archivo que crea
+un esquema nuevo; `esta migración no necesita tocar la lista` no.
+
+Es primo del caso del claim `outlook` —un comentario que enumeraba cuatro
+personas cuando eran dos— pero el mecanismo es otro: ahí la nota se volvió
+falsa, acá las cinco siguen siendo ciertas.
+
+## El rol que no estaba en la cabeza al escribir la migración
+
+Tercer caso del mismo mecanismo, y el que lo nombra. Los otros dos son la lista
+`pgrst.db_schemas` de la sección de arriba y el GRANT de `business_plan.area`.
+Seis esquemas en este proyecto, y `service_role` tiene `usage` sobre exactamente
+la mitad:
+
+| esquema | quién lo creó | `service_role` tiene `usage` |
+|---|---|---|
+| `activity_report` | anterior a esta serie | sí |
+| `org` | anterior a esta serie | sí |
+| `pipeline_forecast` | anterior a esta serie | sí |
+| `business_plan` | esta serie | **no** |
+| `outlook` | esta serie | **no** |
+| `review` | esta serie | **no** |
+
+El corte no es por antigüedad ni por casualidad: **son los tres que creamos
+nosotros los que no lo tienen.** Y el diagnóstico, en las palabras del usuario:
+
+> al crear un esquema nuevo doy `usage` a `authenticated` y no a
+> `service_role`, porque `authenticated` es el que estoy pensando.
+
+Y se comprueba en los archivos, sin mirar la base: `docs/sql/` tiene **siete**
+`grant usage on schema … to …`, y los siete van a `authenticated`. Cero a
+`service_role`. Las únicas tres veces que ese rol aparece en todo `docs/sql/` es
+para decir que **no** se usa.
+
+> **Lo que uno tiene en la cabeza al escribir la migración se cubre, y lo demás
+> no.** El GRANT de `business_plan.area` y la lista `pgrst.db_schemas` son el
+> mismo hueco, y en los tres no se olvidó nada — nunca entró en la frase.
+
+### ⚠ Y ESTO ESTÁ ANOTADO, NO APLICADO
+
+Decisión del usuario, 2026-09-09: **no se otorga.** Nada usa `service_role`
+contra esos tres esquemas hoy, y el único archivo autorizado a tocar ese rol es
+el del cambio de contraseña. Cuando algo lo necesite, se otorga **con la razón
+escrita en la migración** — no «para que esté».
+
+### Y la vez que lo redescubrí por las malas, con la tabla ya escrita
+
+La predicción de arriba se cumplió, y el que la pagó fui yo. Al borrar unas
+filas de prueba mandé un `DELETE` con `service_role` a `review` y a `outlook`,
+y las dos contestaron `42501 permission denied for schema`. Reporté al usuario
+que **la brecha era «más ancha de lo que decía la nota, que sólo hablaba de
+`business_plan`»**.
+
+La nota decía los tres. Están en la tabla de arriba, medidos, cada uno con su
+«no». No estaba incompleta: **no la leí.**
+
+> **Una nota que ya contesta la pregunta no sirve de nada si uno la escribe y
+> después no la consulta.**
+
+Es el peor caso de esta sección entera, porque no es un hueco de conocimiento:
+es un hueco de consulta, y no lo arregla escribir mejor. Lo único que lo
+arregla es el reflejo de mirar la nota ANTES de gastar un intento -- y en este
+repo eso cuesta un `grep service_role AGENTS.md`.
+
+Y hay un agravante que conviene ver: reporté una conclusión falsa **sobre mi
+propio registro**, y el usuario la aceptó y me pidió que la anotara. Si no
+hubiera ido a buscar dónde escribirla, la corrección habría quedado
+contradiciendo a la tabla en el mismo archivo. La forma de la nota fue lo que
+salvó el reporte: la tabla estaba ahí para desmentirme.
+
+Y la razón por la que un hueco conocido se puede dejar abierto, que es lo que
+distingue este caso de «Lo que compensa una ausencia hace que la ausencia no se
+note»: **esta ausencia no está
+compensada.** El día que algo pida `service_role` sobre uno de los tres, la base
+contesta `42501` y lo dice fuerte. Un `grant` de más, en cambio, es permiso
+permanente que nadie vuelve a revisar. Un respaldo silencioso sería el problema;
+un error ruidoso es la señal.
+
+Los tres síntomas no se parecen entre sí, y por eso conviene tenerlos juntos:
+
+| lo que contesta | qué falta |
+|---|---|
+| `403` / `42501` | el GRANT — el rol no tiene `usage` o `select` |
+| `406` / `PGRST106` | el esquema no está en `pgrst.db_schemas` |
+| cero filas con `error: null` | nada: es una policy de RLS que no aplica |
+
+### Y el corolario operativo: el editor SQL es la única vía y no deja rastro
+
+De ese cierre sale algo que hay que tener escrito, porque **ya costó una
+pregunta**. Un día las tres tablas transaccionales de `review` --`session`,
+`assignment`, `response`-- aparecieron en **cero**, con una sesión completa de
+Isabella entre lo que faltaba. Reconstruirlo llevó cinco consultas:
+
+| lo que se preguntó | lo que contestó |
+|---|---|
+| ¿un `cascade` o un trigger? | los siete FK son planos y `review` no tiene ni un trigger |
+| ¿pasó por la API? | `edge_logs`: 4.543 filas en la ventana, **cero** con método `DELETE` |
+| ¿quién lo corrió? | `postgres_logs`: 38 filas en 90 minutos, sólo errores — **no hay log de sentencias** |
+| ¿se perdió algo más? | sólo esas tres: `step` 8, `growth_rule` 190, enrollments 5, empleados 127 |
+
+Era un borrado deliberado del usuario desde el **editor SQL**, después de que
+Isabella cerrara la revisión de prueba. Y ésa es justamente la conclusión que
+conviene dejar por escrito:
+
+> **El editor SQL es la única vía que puede borrar de `review` --no hay policy
+> de DELETE y `service_role` no tiene `usage`-- y es la única que no deja
+> rastro.**
+
+Las dos mitades importan. La primera es una buena noticia: un borrado ahí
+**no puede** venir de la app ni de un script con la clave de servicio, así que
+la lista de sospechosos es corta. La segunda es la que hay que recordar: no se
+enciende el log de sentencias --decisión del usuario, 2026-09-10-- así que
+**preguntar es más rápido que investigar**, y es el mismo movimiento que la
+regla de «cuando un reporte no coincide con lo que uno hizo, pedir que se
+confirme antes de actuar».
+
+Y una regla operativa para el que borra: **dejar el rastro en el repo si no lo
+deja la base.** Un `returning` en el `delete` y el número en el mensaje de
+commit o en el reporte cuesta un segundo; reconstruirlo después costó cinco
+consultas y una pregunta.
+
+## El doceavo: una medición correcta sobre un momento equivocado
+
+Los anteriores son mediciones **mal escritas** —el elemento equivocado, la
+columna equivocada, el timeout corto— o un arnés que no corrió. Éste es un
+mecanismo que no estaba, y por eso va aparte: la medición estaba **bien
+escrita, sobre el elemento correcto, leyendo la propiedad correcta**. Lo que
+estaba mal era el instante.
+
+`.rv-target` declara `transition: outline-color 160ms, box-shadow 160ms`.
+Poniendo la clase y leyendo `getComputedStyle` en el mismo tick, el navegador
+devuelve el valor **en curso** de la transición, que al arrancar es el viejo.
+Así que reportaba `outlineColor` navy —que es `currentColor`, el color del
+texto— y la sombra que la tarjeta ya tenía, mientras el CSS decía coral.
+
+> **Una medición correcta sobre un momento equivocado.**
+
+Costó cuatro sondas persiguiendo a un culpable que no existía: busqué qué regla
+pisaba a `.rv-target`, si los tokens estaban definidos, qué decía el CSS
+servido, y llegué a inyectar `!important` — que tampoco «ganaba», porque no
+había ninguna pelea que ganar.
+
+**Y la firma que lo identifica es lo que vale**, porque es lo que habría
+ahorrado las cuatro:
+
+> **Dos propiedades «perdidas» y el resto puestas es una transición, no una
+> cascada.**
+
+Una cascada perdida se lleva la declaración entera: si otra regla gana, gana con
+todo lo que declara. Cuando `outline-width`, `outline-style`, `outline-offset` y
+`border-radius` ya muestran los valores nuevos y sólo `outline-color` y
+`box-shadow` muestran los viejos, la lista de las dos «perdidas» es exactamente
+la lista del `transition`. Eso la especificidad no lo puede producir.
+
+Y hay una señal de segundo orden que apunta al mismo lado: **`!important` que no
+cambia nada no es una cascada difícil, es que no hay cascada.** Si la
+declaración más fuerte del lenguaje no mueve el valor, el valor no lo está
+decidiendo el cascade.
+
+Las reglas operativas: **al medir un estilo que se anima, esperar más que la
+duración de la transición antes de leer**; y si aparece la firma —un
+subconjunto de propiedades que no cambia— **mirar el `transition` de la regla
+antes de buscar quién la pisa**.
+## Dos estados que hoy dan el mismo número
+
+El doceavo es una medición correcta sobre el instante equivocado. Éste es sobre
+el **momento del que se lee la consecuencia**, y es más difícil de ver porque la
+medición puede estar perfecta y el número ser el correcto.
+
+En RV15 había que hacer que «Confirm as reviewed» escribiera una fila. Lo obvio
+—y lo que el pedido decía— era repetir los números que ya estaban: *una fila
+igual*. Medido, no había ninguno: `outlook.person_budget_total` estaba en **cero
+filas** y `growth_rule` tenía **190**, así que toda persona proyectaba por
+regla. El único número disponible era el que proyecta la regla, y fijarlo
+transfiere el gobierno de la proyección —«`person_budget_total` manda cuando
+existe, la regla cuando no»— con un botón que dice «lo revisé».
+
+Y acá está la trampa: **fijar hoy el número que proyecta la regla no cambia el
+número de hoy.** Los dos gobiernos dan exactamente el mismo valor en el
+instante en que se escribe. Difieren después, cuando el benchmark se mueva y uno
+lo siga y el otro no.
+
+> **Dos estados que hoy dan el mismo número no se distinguen midiendo el número
+> de hoy.**
+
+Así que la sonda que comparaba la proyección antes y después habría dado
+**verde sobre un gobierno transferido**, y con toda razón: el número no cambió.
+
+Lo que sí los distingue es de **dónde sale** el número, y eso la pantalla lo
+dice: el aviso de gobierno se calcula con lo que el lector considera vigente
+(`person.budgetTotal[m] === undefined`). Comparar ese texto antes y después
+mide el estado, no su valor de hoy.
+
+Las dos reglas operativas:
+
+- **Cuando dos estados difieren en el futuro, medir el estado y no su
+  consecuencia de hoy.** Casi siempre hay algo en la pantalla que ya nombra el
+  estado, porque a alguien le hizo falta explicárselo al usuario.
+- **Y un control que ejerza la otra rama**, o «no cambió» no dice nada: con una
+  fila que sí gobierna, el aviso pasó de «Every month» a «Nov, Dec». Sin eso,
+  «el aviso no cambió» no distingue «la confirmación no gobierna» de «este
+  aviso nunca cambia». Es la misma sospecha que la sección del respaldo que
+  nunca se ejerció, aplicada a una aserción.
+
+### Un criterio de aceptación que depende de la geometría de otra pantalla
+
+RV18 convirtió el panel de la revisión en una barra al pie, con un criterio de
+aceptación explícito: **la tarjeta de métricas visible al 100%, sin nada
+encima.** Se midió sobre los ocho pasos del guion y pasó: cruce 0px², 0 de 9
+puntos tapados.
+
+Y lo perdió sin que nadie tocara el código que lo cumplía. BP52 --otra rama,
+otra etapa, sobre la misma pantalla-- reagrupó esa tarjeta y la hizo más alta:
+**260x301 a 280x419**. Con 118px más, en el paso 1.5 dejó de existir una
+posición de scroll que muestre el objetivo del paso Y la tarjeta entera:
+
+    banda libre            747 - 54 = 693px
+    verdict panel (1.5)     67px
+    hueco hasta la tarjeta 424px
+    tarjeta                419px
+                           910px > 693
+
+> **Un criterio de aceptación que depende de la geometría de OTRA pantalla se
+> rompe sin que nadie toque el código que lo cumplía.**
+
+Ninguna de las dos etapas estaba mal, y ninguna prueba de las dos podía verlo:
+cada una pasaba sola. Sólo aparece **midiendo después del merge**, con la misma
+sonda que midió antes -- que es la razón por la que esa sonda se guarda con
+etiquetas (`antes`, `despues`, `mergeado`) en vez de correrse y tirarse.
+
+Las reglas operativas:
+
+- **Un criterio que se expresa en píxeles hay que volver a medirlo después de
+  cada merge que toque esa pantalla**, aunque el diff no toque una línea del
+  código que lo cumple.
+- Y cuando la aritmética dice que ya no entra --910 contra 693-- **no se busca
+  una posición mejor**: se elige qué se sacrifica. Acá la barra pasó a DECIRLO
+  («Part of the numbers is behind this bar», con el botón de minimizar al lado)
+  en vez de mover la pantalla para todos por un paso de ocho.
+
+Y una que salió de escribir ese aviso: **un aviso que aparece cuando no falta
+nada enseña a ignorarlo.** La primera condición era «hay algún bloque cortado
+por la barra», y medida se cumplía casi siempre --una página larga siempre sigue
+debajo-- así que el aviso salía también en un paso donde la tarjeta estaba
+entera a la vista. La condición pasó a nombrar el elemento que importa y a
+medirlo: cortada o no. Nombrar un ELEMENTO no es clavar un caso; clavar el
+paso 1.5 sí lo habría sido, y habría quedado viejo con el próximo cambio de
+alto.
+
+### La tercera de la familia: un rectángulo que se cruza no es un botón tapado
+
+Misma forma, otro número. En RV17 reporté que el panel de la revisión tapaba el
+botón de guardar del modal de `Set budget`, y lo medí como **cruce de los
+rectángulos** del panel y del botón: 1680px².
+
+Estaba arreglado desde antes. La corrección urgente de OL26g había subido
+`.bp-modal-backdrop` a `z-index: 130` para que el modal quede arriba de la
+máscara mientras está abierto, y ese arreglo **no mueve nada de lugar**: cambia
+el apilado. Así que el cruce de rectángulos es **1680px² antes y 1680px²
+después**.
+
+> **Un rectángulo que se cruza no es un botón tapado.**
+
+Es la tercera de la familia, y la que la nombra mejor: un número que no cambia
+entre el defecto y el arreglo **no puede distinguirlos**, y leerlo como
+confirmación del defecto es afirmar lo contrario de la verdad.
+
+Lo que contesta la pregunta es **quién pinta en ese punto**:
+
+```js
+const b = btn.getBoundingClientRect();
+const en = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+en === btn || btn.contains(en)   // true = está arriba y se puede clickear
+```
+
+Cuarta vez que «está en el DOM y no se puede usar» se resuelve preguntando quién
+pinta ahí --antes en OL23 y en el panel del catálogo--. Y algo que explica por
+qué se redescubre: **`elementFromPoint` no aparece ni una vez en el repo**; las
+tres veces anteriores vivió en una sonda de scratchpad, que se muere con la
+sesión. Por eso está acá.
+
+Y el corolario que vale para cualquier defecto de apilado: **la geometría no
+distingue el z-index.** Si la pregunta es «¿se ve?» o «¿se puede clickear?», la
+medición es el punto, no el rectángulo — y la captura, que fue la que mostró el
+botón entero con el panel atenuado detrás.
+
+## Y en la misma sonda: una comparación entre dos ausencias da verde
+
+La primera versión de esa sonda comparaba la fila de la persona en la tabla del
+branch, leída con `[data-rv-lo="16"]`. La fila **no estaba en el DOM**: hay una
+asignación de coaching activa sobre otra persona y el foco filtra el roster, así
+que el grupo se abre con una sola fila explicativa y ninguna de LO.
+
+Las dos lecturas devolvieron `null`, y la comparación —`JSON.stringify(antes)
+=== JSON.stringify(después)`— dio **OK**. Segunda vez en la serie que una
+comparación entre dos ausencias sale verde.
+
+Lo que hace este caso peor que la tautología del `||` es que el arnés **ya
+tenía la aserción del ancla, y estaba en rojo**. El resumen dijo `1 FALLAS de
+11`, que se lee como «diez bien y una rota». Pero la que estaba rota era el
+ancla de otra, así que:
+
+> **Una aserción en rojo invalida a todas las que dependen de su ancla, no sólo
+> a sí misma.**
+
+Las reglas operativas:
+
+- **Comparar dos lecturas exige afirmar primero que cada una encontró algo.** No
+  `a === b`, sino `a !== null && a === b`.
+- Y al leer un resumen con fallas, **mirar de qué depende cada aserción antes de
+  creerle a las verdes**. Un contador no sabe que dos aserciones estaban
+  encadenadas.
+
+## El peor de la familia: la medición que concluyó lo contrario de la verdad
+
+Los otros casos terminan en «no medí» o en «medí mal y no vi el bug». Éste
+terminó en **«medí y está roto»**, sobre algo que estaba bien. Es peor porque
+una conclusión falsa se actúa, y una duda no.
+
+Al comprobar tres `check` recién aplicados, probé con `where funnel_key = 1`.
+Las claves reales de esa tabla son 13..21. Los seis `UPDATE` tocaron **cero
+filas**, PostgREST contestó `204` sin error, y los `check` **nunca se
+evaluaron**. Reporté que ninguna de las tres restricciones rechazaba nada.
+Existían las tres, validadas, y funcionaban.
+
+> **Un `UPDATE` que no matchea nada se parece a uno que funcionó.**
+
+Es «cero filas con `error: null` es una policy de RLS que no aplica» corrido a
+la escritura, y por eso conviene tener las dos juntas: en la lectura la
+ausencia se disfraza de tabla vacía; en la escritura, de éxito.
+
+Y hay una vuelta que lo cierra: **el mismo error estaba en el SQL que ya se
+había aplicado**, en su propia sección de «cómo comprobarlo», con la misma
+clave inventada. Lo escribí yo y lo leyó el usuario, y ninguno de los dos lo
+vio. Una clave escrita a mano en una prueba es indistinguible de una correcta
+hasta que se cuenta lo que tocó.
+
+### Las dos reglas operativas
+
+- **Un `update` de verificación sin `returning` no verifica.** El `returning`
+  convierte «no pasó nada» en una lista vacía, que sí se ve. Lo mismo del lado
+  del cliente: `Prefer: return=representation` y contar las filas.
+- **No inventar la clave.** `where funnel_key = (select min(funnel_key) from …)`
+  o leerla antes. Una constante escrita a mano en una prueba es una suposición
+  sobre los datos disfrazada de dato.
+
+Y la guarda barata, que es la que faltaba: antes de las aserciones, **una sonda
+que confirme que la escritura de prueba alcanza una fila**. Si esa no pasa,
+todo lo de abajo mide el vacío.
+
+## La familia entera: la operación tuvo éxito sobre el objeto equivocado
+
+El caso de arriba no está solo. Ya van **seis**, y conviene tenerlos juntos
+porque de lejos parecen seis errores distintos y son uno:
+
+| la operación | el objeto equivocado | cómo se leyó el resultado |
+|---|---|---|
+| `update` sin `returning` | `where funnel_key = 1`, y las claves eran 13..21 | «los tres `check` no rechazan nada» |
+| `cmd /c rmdir` | dijo que sí y no borró el enlace | «la junction ya no está» |
+| `git diff` | contra la punta de la rama, no contra el `merge-base` | «ese cambio no está en la rama» |
+| lectura de un roster | una clave de persona que no existe | «el editor no abre» |
+| `git merge <rama>` | la ref **local**, vieja desde el rebase | «el rebase no sirvió» |
+| `npx tsc` después de un `checkout` | la ref **local**, vieja desde el push propio | «el merge quedó limpio» |
+
+En los seis el comando **salió bien**. Nada falló, nada avisó. Lo que estaba
+mal era a qué se le aplicó, y el resultado siempre se pudo leer como un
+diagnóstico sobre el código.
+
+**Y el sexto cierra la vuelta del quinto**, porque es la misma ref local vieja
+por la causa contraria. En el quinto la envejeció **un rebase ajeno**; en el
+sexto, **un push propio**:
+
+```
+git push origin HEAD:main     # mueve la rama en el REMOTO
+git rev-parse --short main    # 13752e7   <- la local no se movió
+git checkout main             # deja el árbol en el código anterior
+npx tsc --noEmit              # 0 errores... sobre lo que había antes del merge
+```
+
+Un `push HEAD:<rama>` mueve la rama del remoto y **deja la ref local atrás**,
+así que cualquier verificación posterior a ese push --un `tsc`, una sonda, una
+lectura de archivo-- corre sobre el código anterior. Y da verde, porque ese
+código también estaba bien.
+
+> **Después de un `push HEAD:<rama>`, la ref local es la vieja. Adelantarla
+> antes de verificar: `git merge --ff-only origin/<rama>`.**
+
+Lo que lo delató fue el hash impreso al lado del nombre de la rama, y no el
+resultado: `git rev-parse --short HEAD` decía `13752e7` cuando lo mergeado era
+`270e20d`. **Imprimir el hash junto a cada verificación** es lo que hace que
+esto se vea sin buscarlo.
+
+> **Una operación exitosa sobre el objeto equivocado no se distingue de una
+> fallida sobre el correcto — salvo por el mecanismo.**
+
+Y el quinto es el más caro de los cinco, no por el tiempo sino por a quién
+manda a trabajar: «el rebase no sirvió» habría mandado a otra persona a rehacer
+un rebase que estaba perfecto. Un diagnóstico falso sobre trabajo ajeno cuesta
+el doble.
+
+### El diagnóstico falso sobre trabajo ajeno, que ya casi pasó dos veces
+
+Y es la parte que no es sobre medir. En una sola serie de trabajo estuvo a
+punto de salir dos veces, **desde los dos lados**, y los dos casos son
+distintos — y una tercera vez SALIÓ, la de RV17: reporté como pendiente un
+defecto que OL26g ya había arreglado, midiendo sobre una base anterior a su
+merge. La regla que sale de ésa está arriba, en las operativas: antes de
+reportar algo de otra rama, traer `main`.
+
+| | de dónde salió | qué decía |
+|---|---|---|
+| el del rebase | **desde el código** — una medición sobre el objeto equivocado | «el rebase no sirvió» |
+| el de B | **desde afuera** — un reporte que le llegó y no era suyo | que había borrado un plan que no borró |
+| el del modal | **desde una base vieja** — la medición era correcta sobre un árbol que no tenía el arreglo | «el panel tapa el botón de guardar» |
+
+Los dos **viajan igual**, y ahí está el problema: del otro lado no se
+distinguen de un reporte real. Quien lo recibe no tiene el objeto que se midió
+ni la sesión donde se midió; tiene una frase que suena a hallazgo.
+
+Pero el segundo agrega algo que el primero no tiene, y es lo que hay que
+copiar. **B lo resolvió pidiendo que se confirmara antes de actuar.** Si
+hubiera aceptado la acusación habría hecho las dos cosas peores a la vez:
+«arreglar» algo que estaba bien, y perder tiempo defendiéndose de algo que no
+hizo.
+
+> **Cuando un reporte de un problema no coincide con lo que uno hizo, pedir que
+> se confirme antes de actuar es más rápido que investigar el problema.**
+
+No es desconfianza y no es demorar: es el mismo movimiento que el resto de esta
+nota, del lado de quien recibe. El emisor contrasta el resultado con el
+mecanismo; el receptor contrasta el reporte con lo que efectivamente tocó. Si
+no coinciden, uno de los dos está midiendo otra cosa, y averiguar cuál cuesta
+una pregunta.
+
+Y del lado del que reporta, la obligación es la simétrica: **decir sobre qué
+objeto se midió** --qué rama, qué clave, qué archivo, qué sesión-- para que la
+pregunta se pueda contestar sin repetir el trabajo.
+
+Lo que lo delató, las cinco veces, fue lo mismo — y es la regla de la sección
+del `3×`, en la dirección contraria:
+
+> **Cuando el resultado no se explica por el mecanismo, tenía razón el
+> mecanismo.**
+
+Una rama que ya contiene `main` **no puede** conflictuar con `main`. Tres
+conflictos y 58 errores de `tsc` no eran un dato sobre el rebase: eran la
+prueba de que eso no era la rama rebasada.
+
+### Las reglas operativas, una por caso
+
+- **Nombrar el objeto leyéndolo, no recordándolo.** Claves, ids y códigos de
+  branch salen de una consulta.
+- **Después de un `rebase --force-with-lease` hecho en otra máquina, la ref
+  local está vieja por definición.** Se mergea `origin/<rama>`, nunca
+  `<rama>` — y si hay duda, `git log --oneline -1` de las dos antes de tocar.
+- **Y después de un `push HEAD:<rama>` propio, también.** `git merge --ff-only
+  origin/<rama>` antes de verificar, y el hash impreso al lado de cada
+  medición: una ref local vieja no se distingue de una al día, salvo por el
+  hash.
+- **Comparar contra el `merge-base`**, no contra la punta.
+- **Y pedirle a la operación que diga cuánto tocó**: `returning`, `Prefer:
+  return=representation`, `Test-Path` después del `rmdir`. Un cero explícito se
+  ve; un éxito silencioso no.
+- **Y la verificación va en OTRA sentencia.** Pedí los conteos junto al `delete`
+  en una sentencia con CTE --`with r as (delete … returning …) select (select
+  count(*) from review.session) …`-- y me dio `1` sobre una tabla que quedaba en
+  `0`: los `select` de la misma sentencia ven el snapshot **anterior**, porque
+  los efectos de un CTE que modifica no son visibles al resto de su propia
+  sentencia. Es la misma familia que el `UPDATE` sin `returning`: la operación
+  salió bien y el número que la acompaña habla de otro momento.
+- **Antes de reportar algo de otra rama, traer `main`.** Reporté como pendiente
+  un defecto que OL26g ya había arreglado, porque la medición corrió sobre una
+  base anterior a ese merge. Lo que se mide sobre una base vieja se reporta como
+  abierto aunque esté resuelto — y es la mitad de la sección de abajo que
+  faltaba escrita: no alcanza con no acusar, hay que medir sobre lo que la otra
+  persona ya entregó.
+
+## Un párrafo roto en columnas dice lo mismo que uno bien armado
+
+Segunda vez con el mismo defecto, y las dos veces con las aserciones de texto
+en verde.
+
+Un contenedor `display: flex` con prosa como hijo directo convierte **cada nodo
+de texto y cada `<strong>` en un ítem flex**. La frase sale partida en columnas
+con huecos, ilegible. Pasó en `.rv-panel__gate` --un `<strong>` en dos
+columnas-- y volvió a pasar en `.bp-video-hint--warn`, donde la frase quedó en
+cinco.
+
+Lo que lo hace repetible es que **`innerText` no cambia**: una frase partida en
+cinco columnas devuelve exactamente el mismo texto que una bien armada. Ninguna
+aserción sobre el contenido lo puede ver.
+
+> **Medirlo por geometría es lo único que lo distingue.**
+
+En concreto: contar los **hijos directos** del contenedor flex --tienen que ser
+los que uno puso a propósito, no los que quedaron sueltos-- y comprobar que los
+`<strong>` caen **dentro del ancho** del envoltorio y no al lado.
+
+La regla al escribir: **un contenedor flex no lleva prosa como hijo directo.**
+O la prosa va envuelta en un `<span>`, o el contenedor no es flex. Y las dos
+veces lo encontró la captura, no la medición.
+
 ## Qué cuenta como «otra vía»
 
 - Un `.xlsx` generado: abrirlo con **openpyxl en `data_only=True`**, no sólo con
@@ -120,6 +714,75 @@ el razonamiento sea el mismo.
   filas que no deberían existir suman perfectamente.
 - Una consulta a Supabase: **cero filas con `error: null` es una policy de RLS
   que no aplica**, no una tabla vacía. RLS filtra, no rechaza.
+- Y su complemento, que apunta a otro lado: **un `403 permission denied for
+  table X` no es RLS, es un `GRANT` que falta.** Las policies deciden QUÉ FILAS;
+  el grant decide si se puede tocar la tabla. Los dos fallos son distinguibles,
+  y conviene: cero filas manda a mirar las policies, un 403 manda a mirar los
+  grants.
+
+  Un `create table` nuevo **no hereda** el grant del esquema. Y es fácil
+  escribir las políticas y olvidarlo, porque las políticas son lo que uno está
+  pensando: `business_plan.area` quedó como la única de nueve tablas sin grant,
+  y eso rompió una pantalla que ni la menciona — un trigger `security invoker`
+  la leía, así que asignar un área devolvía 403.
+
+## Una ausencia medida en el árbol equivocado, reportada como hallazgo
+
+Reporté dos cosas en RV15, las dos con la forma de un hallazgo y las dos
+**falsas**:
+
+| lo que reporté | lo que era |
+|---|---|
+| «`sqlFile` apunta a `docs/sql/2026-09-outlook-budget-composition.sql`, que no está en el repo» | está en `main`, con las dos tablas, sus policies y sus índices |
+| «no hay ningún índice único, dos escrituras concurrentes pueden compartir `revision`» | hay uno: `unique (employee_key, revision, target_month) where employee_key is not null` |
+
+**La primera: `ls` y `grep` corrieron en el worktree equivocado.** El directorio
+principal de la sesión está en `feat/outlook-realtor-code`, una rama anterior a
+los ocho merges, y ahí `docs/sql/` tiene 30 archivos. En `main` tiene 43, y el
+que buscaba es uno de los 13 que faltan. La rama del checkout contestó por el
+repo.
+
+Es la misma lección que «una clase es huérfana en un árbol y no en otro», en la
+dirección de la ausencia — y por eso duele: ya estaba escrita, con dos worktrees
+vivos, en esta misma serie.
+
+> **Un `ls` contesta sobre el checkout, no sobre el repo.**
+
+**La segunda: `pg_constraint` no ve un `create unique index`.** Pedí los
+`constraint` de la tabla, vi seis y ninguno único, y concluí que no había
+unicidad. Los índices únicos que no nacen de un `constraint` viven en
+`pg_indexes`, y estaban los cuatro.
+
+> **Un catálogo que no lista algo no dice que no exista: dice que eso no vive
+> ahí.**
+
+**Y la señal que no leí, que estaba en la salida.** Antes del `ls` corrí
+`grep -rln "person_budget_total" --include=*.sql .` y no devolvió **nada**, en
+un repo cuyas tablas se crean con archivos de SQL versionados. Cero menciones no
+se explica por el mecanismo, y esa regla ya está arriba: cuando el resultado no
+se explica por el mecanismo, tenía razón el mecanismo. Lo leí como «no está
+versionado» en vez de «estoy mirando donde no está».
+
+Las reglas operativas:
+
+- **Un hecho sobre el repo se mide contra una rama, nombrándola**:
+  `git cat-file -e main:<ruta>`, `git grep <patrón> main`, `git ls-tree`. Con
+  dos worktrees en ramas distintas, el `cwd` del shell no puede decidir la
+  respuesta.
+- **Para el catálogo de Postgres, `pg_constraint` y `pg_indexes` contestan cosas
+  distintas.** Un `check` y un `not null` están en el primero; un `create unique
+  index` sólo en el segundo.
+- Y la que salvó el reporte, que vale más que las dos: **verificar los números
+  propios antes de escribirlos**. Esto se cayó al comprobar un «31 archivos» que
+  yo mismo había puesto en la nota — el número obligó a medir de nuevo, y la
+  medición trajo el archivo que supuestamente no existía. Un número escrito es
+  una aserción que se puede correr; una afirmación en prosa, no.
+
+⚠ Y el costo: el usuario aceptó el hallazgo falso y pidió anotarlo. Es la misma
+forma que la nota del `service_role` del turno anterior --una conclusión falsa
+sobre nuestro propio registro, aceptada-- y van dos turnos seguidos. Un
+diagnóstico falso sobre trabajo ajeno cuesta el doble; uno sobre el propio
+registro cuesta la confianza en el registro.
 
 ## Antes que todo lo anterior: que el arnés haya corrido
 
@@ -192,6 +855,13 @@ Las dos reglas operativas que salen de acá:
   regla es «sólo el responsable puede», la prueba que importa es la de alguien
   que no lo es — y hay que mirar si le queda algún camino, no si el control
   respeta la regla.
+- **Y después de arreglarlo, como el PROPIO.** Es la mitad que falta y se olvida
+  porque el hallazgo ya se siente cerrado. La máscara de la revisión se prendía
+  con la sesión en curso de otra persona; el arreglo fue filtrar por «soy el
+  revisor», y **un filtro de más le apaga la barra justo a quien sí la
+  necesita** — que era la persona a punto de recorrer el flujo. Las nueve
+  aserciones del caso ajeno daban verde con la pantalla del propio en blanco:
+  «ya no la ve el que no debe» y «no la ve nadie» se miden igual.
 - **Al menos una verificación por pantalla tiene que salir del OBJETIVO y no de
   la implementación.** No «el desplegable ofrece los estados permitidos» sino
   «¿alguien puede registrar que esto se hizo?». La primera se contesta leyendo
@@ -200,6 +870,329 @@ Las dos reglas operativas que salen de acá:
 Y el corolario que duele: el número que lo delató —69 de 75— se podía haber
 calculado en cualquier momento con una consulta de treinta segundos. No hacía
 falta descubrirlo, hacía falta preguntarlo.
+
+## Ocho de estas lecciones son código, no nota
+
+`scripts/verificacion/guardas.mjs`. Se importan desde cualquier script de
+verificación y no tocan la base — reciben el `page` o el `locator` por
+argumento, así que la sonda que se autentica contra producción sigue viviendo
+fuera del repo.
+
+| Guarda | Qué impide | Veces que mordió |
+|---|---|---|
+| `leerTexto` | `innerText` con `text-transform`, y leer texto de un `<input>` | **4** |
+| `esperarDato` | medir antes de que el dato llegue, y esperar a la señal equivocada | 1, con 11 falsos |
+| `medirRuta` | atribuirle al cambio el compile en frío | 1, casi público |
+| `crearArnes` | un resumen que dice verde sin haber corrido | **2**, y ver la nota |
+| `exigirSinChoques` | redefinir una clase de CSS que ya existía | 1 |
+| `exigirAusente` | comprobar una ausencia sobre el texto y no sobre el código | **7** |
+| `exigirDefinidos` | probar una mitad de un contrato cuya otra mitad no existe | **3** |
+| `estados-ambiguos` | reescribir el valor «no lo sé» de un estado de tres | **1**, con 3 personas trabadas |
+
+⚠ **Y el número de `crearArnes` es el que se puede señalar, no el que se
+recuerda.** Están documentadas dos: el `SIN FALLAS` sobre cero aserciones que le
+dio origen, y el `RESUMEN INVALIDO, 4 de 6` de la segunda corrida de RV16 --el
+caso del estado que dejó la primera--. El usuario cuenta **cuatro** turnos
+salvados; las otras dos no están escritas en ningún lado, así que el número de
+la tabla se queda en lo verificable hasta que se nombren. Escribir cuatro porque
+alguien lo dijo es el mismo movimiento que aceptar un hallazgo sin medirlo, que
+en este proyecto ya costó dos veces.
+
+Y una corrección de la misma familia, sobre un reporte mío de OL48: dije que «lo
+cortó el mínimo del arnés, no las aserciones» cuando la sonda leyó cero filas de
+persona. Medido en la salida, decía `2 FALLAS de 27` -- o sea que corrieron las
+27 y lo que se puso rojo fueron dos aserciones explícitas. El mínimo no llegó a
+invalidar nada. La lección de fondo no cambia --tres aserciones dieron verde
+sobre listas vacías-- pero quién la atrapó, sí.
+
+**Por qué están en el repo y no en el scratchpad de una sesión:** una guarda que
+se muere con la sesión es *peor* que una nota acá, porque la nota al menos
+sobrevive para que alguien la lea.
+
+Y sus propias pruebas verifican que **atrapen**, no que pasen —
+`guardas.test.mjs` y `guardas.browser.test.mjs` construyen el error que cada una
+existe para detectar. Escribiendo esa prueba apareció una aserción mía que era
+una **tautología**: `!a.includes(b) || a.length === 3`, cuyo segundo término
+siempre era cierto. Una aserción que no puede fallar es peor que ninguna, porque
+ocupa el lugar de una que sí mide.
+
+Pasó **dos veces**, y las dos escribiendo la prueba de otra cosa. La segunda fue
+`/is-current/.test(...) || st.some((x) => x.punto !== null && !/is-current|is-done/.test(x.clases))`,
+para verificar que un punto de “trabado” convive con el contorno de estado del
+botón: el segundo término se cumplía solo, porque un nodo trabado y sin estado
+siempre hay. Las dos veces la forma fue la misma, y es buscable:
+
+> **Un OR en una aserción es una pregunta sin contestar; se contesta armando el
+> estado, no ampliando la condición.**
+
+Un `||` se escribe cuando no se sabe cuál de los dos casos va a venir — y esa
+incertidumbre es justo la señal de que hay que **construir** el caso. La versión
+válida eligió el nodo trabado para que quedara en curso y completó su step con
+el antecesor sin terminar: el botón quedó `is-done is-current` con el punto
+puesto, que es lo que un cuarto estado no podría representar. Así la prueba
+justifica la decisión de diseño además de verificarla.
+
+### Y el mínimo de aserciones cazó el caso que más importa: la segunda corrida
+
+> **El estado que deja una medición es entrada de la siguiente.**
+>
+> Una sonda que corre dos veces no mide lo mismo la segunda vez: la primera
+> dejó una respuesta, un cursor movido, una fila. Y el resultado distinto se
+> lee como que el código cambió entre las dos corridas.
+
+El caso: en RV16 la misma sonda corrió dos veces sobre el paso 2.1 --con las
+flechas y sin ellas-- y lo único que tenía que cambiar era el dato. La corrida
+`sin` **no encontró el campo de comentario**, porque la corrida `con` ya había
+contestado el paso y el panel salió en modo «contestado», que no dibuja el
+campo.
+
+Lo cortó el mínimo de `crearArnes`: dijo **`RESUMEN INVALIDO, 4 de 6`** en vez
+de verde. Sin esa guarda las cuatro primeras aserciones --las que miran que no
+haya flecha, texto ni OK-- habrían dado verde midiendo un panel en un modo que
+no era el de la prueba, y el informe habría dicho «sin `arrows` no queda nada»
+con la mitad de la evidencia.
+
+Y es el caso que la guarda del mínimo vino a cubrir, no un caso raro: **una
+segunda corrida sobre un estado que dejó la primera.**
+
+La regla operativa, y las dos mitades sirven:
+
+- **o la sonda limpia lo que escribe antes de terminar**, y entonces empieza
+  igual siempre;
+- **o declara qué estado necesita encontrar** y falla ruidosamente si no está.
+
+Lo que no sirve es suponer que empieza limpia.
+
+## Y la sexta, que es sobre por qué no basta con saberlo
+
+`exigirAusente` mordió **seis veces en una sola serie**, y las seis del mismo
+modo: una guarda mía buscaba un nombre prohibido sobre el ARCHIVO y lo
+encontraba **en el comentario que explica por qué está prohibido**. Las seis
+veces el archivo estaba bien y la guarda dijo que no.
+
+> **Una guarda que comprueba una AUSENCIA tiene que mirar el código, no el
+> archivo: los comentarios son justamente donde el nombre prohibido aparece a
+> propósito.**
+
+Pero la parte que la hace distinta de las nueve lecciones anteriores es otra:
+**el helper existía escrito desde la tercera vez**, en el scratchpad, y no lo
+agarré hasta la sexta. No faltó saber algo. Saberlo no bastó.
+
+> **Una herramienta que hay que recordar que existe se usa igual que una nota.**
+
+De ahí que esté en `guardas.mjs` y no en un scratchpad: al lado de las otras
+cinco, que es donde se la va a agarrar. Y si el patrón se repite igual, la
+respuesta no es otra nota tampoco -- es que la comprobación corra sola, en el
+lint o en un `pretest`, sin que nadie tenga que acordarse.
+
+### Y se repitió igual: van TRES herramientas propias que existían y no se usaron
+
+La predicción de arriba se cumplió, y por eso esto ya no es una nota:
+
+| la herramienta | existía desde | qué pasó |
+|---|---|---|
+| `exigirAusente` | la tercera vez de seis | se agarró en la sexta; y volvió en OL51, sobre `pg_proc` |
+| `sin-comentarios` | antes del renombre de rótulos | el inventario se hizo por heurística igual |
+| `esperarDato` | RV-algo, con su `descripcion` obligatoria | una sonda esperó a mano y dio un `11 de 12` falso |
+
+Las tres veces la nota estaba escrita. Las tres veces no alcanzó.
+
+> **Con el shell, lo que funcionó no fue la regla escrita: fue la guarda que
+> frena el comando antes de que corra.** Para una herramienta que no se agarra,
+> la respuesta no es explicarla mejor.
+
+Por eso hay una segunda guarda de hook, `scripts/verificacion/esperar-al-dato.mjs`,
+y por eso intercepta **la escritura** y no un comando: una sonda no es un
+comando. Se escribe como archivo y se corre con `node sonda.mjs`, y ese comando
+no contiene el código -- la única forma de verlo es al escribirlo.
+
+Su predicado es deliberadamente estrecho:
+
+> `page.waitForFunction(` en un archivo que YA IMPORTA `guardas.mjs`.
+
+O sea: el autor tenía la herramienta en la mano y esperó a mano igual. Y lo que
+NO bloquea es la mitad que decide si sobrevive: `waitForTimeout` se usa
+legítimamente para dejar asentar un clic, y bloquearlo sería la guarda que
+alguien desengancha -- y ahí se pierde también lo que sí cubría.
+
+⚠ **Y su límite está escrito en la guarda misma:** no cubre un archivo que no
+importe `guardas.mjs`. Sin ese import no hay señal que distinga una espera a
+mano legítima de una que debería usar la herramienta, y estirarlo a «cualquier
+`waitForFunction`» sería una regla sobre la FORMA del texto -- el error que este
+archivo lleva documentado siete veces. Un límite declarado no se confunde con un
+agujero.
+
+Las dos guardas se instalan juntas con `npm run guarda:instalar`, que es una
+lista y no dos scripts: copiar el instalador y cambiarle el nombre habría sido
+la segunda copia de la misma decisión. Y **sacar una fila de esa lista la
+desengancha**, que es lo que hace que revertir una guarda alcance con revertir
+su commit — el porqué está abajo, en «la mitad que faltaba».
+
+Y hay un primo más chico del mismo error, que apareció cuatro veces en el mismo
+turno: **retipear de memoria la cadena que se va a buscar**, en vez de leerla
+del archivo. El import de un test, un `MINIMO` que era 14 y no 17, un `.message`
+sobre algo que ya era una cadena, y un `**negrita**` que en el archivo era un
+`##`. Las cuatro las atrapó el `assert` --que para eso está-- pero las cuatro
+eran evitables leyendo tres líneas.
+
+## Y la séptima: probar una mitad de un contrato
+
+Las siete de la tabla grande son mediciones que midieron mal. La del arnés es
+una que no midió. La del desplegable es una que **nadie escribió**. Ésta es de
+otra familia: la prueba **estaba, era correcta, y no podía ver el problema.**
+
+El paso 4 de la revisión no se podía cerrar. Pedía abrir dos números de la
+pantalla, y el panel los contaba escuchando los clics sobre cualquier elemento
+con `data-review-click`. **Ese atributo no estaba escrito en ningún elemento de
+la app** — cero en todo el árbol. El paso era insatisfacible POR CONSTRUCCIÓN:
+no existía forma de cerrarlo, nunca, para nadie.
+
+Y las 38 aserciones de las compuertas estaban en verde. No estaban mal: probában
+**la lógica** — que con los dos clics abre, que con uno pide el que falta, que un
+`gate_kind` desconocido cae en el caso seguro. Ninguna preguntaba si existía algo
+capaz de disparar el primer clic.
+
+> **Un contrato tiene dos mitades. Cada mitad puede estar bien y no conocerse.**
+> Probar una no dice nada de que la otra exista.
+
+El mismo mecanismo, en chico, dio otros dos: `bp-hint` con siete usos y ninguna
+regla de CSS, y `rv-intake__body` — que lo encontró este chequeo en su primera
+corrida. En los tres casos las dos mitades eran correctas por separado y nadie
+comprobaba que se conocieran.
+
+Y es primo de la tautología y del OR sin contestar, pero **un nivel más arriba**:
+ahí la aserción no podía fallar; acá la aserción sí podía fallar, y medía una
+mitad sola.
+
+Las dos reglas operativas:
+
+- **La quinta guarda pregunta «esto que defino, ¿pisa algo?»; la séptima pregunta
+  lo contrario, «esto que pido, ¿existe?».** Hacen falta las dos, y la segunda
+  se corre al revés de como se escribió: los nombres se leen del código que los
+  usa y se buscan donde deberían estar definidos.
+- **Y cuando el contrato cruza a otro módulo, que el producto lo diga.** El panel
+  ahora avisa en pantalla si un paso pide un clic cuya marca no está, con los
+  identificadores y aclarando que es un error de cableado y no algo que la
+  persona hizo. Sin eso, el próximo paso mal cableado vuelve a parecer que
+  alguien no abrió el número.
+
+**Las otras cuatro se quedan como nota, y por buenas razones.** El timeout corto
+no tiene un número correcto general — depende de la ruta. La columna equivocada
+del Excel se evita leyendo por nombre, que es una convención y no una función. Y
+la estimación propia usada como medición es un error de criterio: ninguna guarda
+impide que alguien confíe en su propio cálculo.
+
+## Y cómo se escribe el predicado: la forma del texto no es su significado
+
+Las guardas de arriba dicen QUÉ preguntar. Esta sección es sobre CÓMO se escribe
+la pregunta, y sale de cuatro intentos fallidos en una sola tarea — un renombre
+de rótulo que parecía mecánico.
+
+Cada vez que hubo que separar «texto que alguien lee» de «identificador», escribí
+una regla sobre cómo se ve la línea, y cada vez falló:
+
+| la regla que escribí | lo que se llevó puesto |
+|---|---|
+| «es texto si la línea tiene una cadena» | contó los `import` como texto visible |
+| «no es texto si la línea tiene `className=`» | descartó **la línea del rótulo**, que es la única que había que cambiar |
+| «es texto si está entre `>` y `<`» | no vio `Coach progress`, que va en su propia línea porque la etiqueta abre arriba |
+| «es identificador si `Coach` toca otra letra» | marcó `Coaching`, que es el nombre de un área del Business Plan |
+
+Las cuatro son la misma forma, y el usuario la nombró:
+
+> **Una regla sobre la FORMA del texto en vez de sobre su SIGNIFICADO.**
+
+«Está entre estos caracteres», «la línea contiene esta otra cosa», «empieza
+así»: todas describen cómo se ve, y ninguna dice qué ES. La pregunta que hay
+que contestar no es dónde está la cadena, es **qué papel cumple**: ¿es un
+rótulo que alguien lee, o un nombre que el programa resuelve?
+
+⚠ Y no es la primera vez: el usuario cuenta al menos una anterior de la misma
+familia — el caso del `current_step` con la coma — que no está en este archivo.
+Se anota la procedencia para que quien la busque sepa que existe y dónde
+preguntar.
+
+### Qué hacer en su lugar
+
+- **Buscar la FRASE EXACTA, no el patrón.** El inventario del rótulo por
+  heurística daba 374 líneas para clasificar; buscar `review mode` sobre el
+  código sin comentarios dio **dos**, y una sola en código. Un inventario de dos
+  líneas se decide a mano y no se equivoca; uno de 374 necesita una heurística, y
+  la heurística es el problema.
+- **Cuando haga falta una regla de forma igual, que sea sobre el TOKEN y no
+  sobre la posición.** «`Coach` pegado a otro carácter de palabra» sobrevive a
+  que la etiqueta abra en otra línea; «entre `>` y `<`» no.
+- **Y la excepción se escribe como palabra exacta, nunca como prefijo.**
+  `Coaching` se exime porque es esa palabra; `Coach` pegado a cualquier otra cosa
+  — `CoachMode`, `coachKey`, `rv-coach` — sigue prohibido. Un prefijo exento
+  habría dejado pasar justo lo que la guarda existe para atrapar.
+- **Y una exención se justifica con evidencia, no con molestia.** `Coaching` se
+  excluyó después de confirmar con `git show` que ya estaba dos commits antes del
+  renombre. Eso es lo que distingue eximir algo de silenciarlo.
+
+### Y la guarda también se escribe mal — dos formas nuevas, las dos en la etapa que las cazaba
+
+La sección de arriba es sobre escribir el predicado. Estas dos son sobre
+escribir **la guarda que lo comprueba**, y salen de haberla roto de dos maneras
+distintas en la misma tarde, escribiéndola justamente contra estos errores.
+
+**1. La misma trampa de la forma, cometida en la guarda contra la trampa de la
+forma.** `verificar:coach` prohíbe que «coach» aparezca en una clase, y el
+primer patrón fue `/className\s*=\s*[^\n]{0,200}?[Cc]oach/`: «lo que hay
+después de `className` en la línea». Dio **dieciocho falsos**, todos de la
+misma forma:
+
+```
+<h1 className="page-head__title">My coachees</h1>
+```
+
+La palabra está en el TEXTO, no en la clase. El patrón que sirve entra a las
+comillas del atributo —`className\s*=\s*"[^"]*coach`— porque pregunta por el
+valor y no por la vecindad. Es exactamente la lección de arriba, y no alcanzó
+con haberla escrito: **una regla de posición se cuela también cuando uno está
+escribiendo la regla contra las reglas de posición.**
+
+**2. La guarda que marca el código ya arreglado.** `verificar:estados` prohíbe
+el valor ambiguo de `lo`, y la primera versión prohibía el fragmento
+`loanOfficers.find(...) ?? null`. Falló sobre el código **ya corregido**,
+porque el arreglo contiene ese mismo fragmento: lo que colapsaba los dos
+estados no era el `?? null` sino el `bpData?.` de adelante — con la población
+en viaje devuelve `undefined`, y el `??` lo pasa a `null` como si se hubiera
+leído. Sin la cadena opcional, ese `?? null` significa «se leyó y no está», que
+es justo lo que se quiere.
+
+> **Una guarda que no distingue el arreglo del defecto no sirve.**
+
+Y de ahí la comprobación que corresponde, que es barata y no la hacía:
+**probar la guarda con una violación inyectada.** Un archivo desechable con
+`className="coach-panel" href="/coaching/1" data-coach-step="1"`, correrla, ver
+que falla las tres, borrarlo. Una guarda que sólo se vio dar verde no está
+probada — es el mismo agujero que el arnés que imprimía `SIN FALLAS` sin
+ejecutar una aserción, un nivel más arriba.
+
+### Y el inventario de lo visible sale del DOM, no del grep
+
+La pregunta de un renombre de rótulos no es «¿dónde aparece la palabra?» sino
+**«¿qué ve la persona que usa esto?»**, y el código no la contesta: `review`
+aparece **381 veces** en el código sin comentarios de este repo, y casi todo es
+`import`, tipos como `ReviewStep`, rutas, clases `rv-*`… y `preview`, que la
+contiene adentro.
+
+Lo que la contesta es levantar la app, recorrer las pantallas y recoger los
+nodos de texto y los atributos que se leen —`title`, `aria-label`,
+`placeholder`, `alt`—. Eso dio **diez cadenas** en cuatro pantallas, cada una
+con su etiqueta y su clase para poder ir al código por la frase exacta. Diez se
+deciden a mano; 381 piden una heurística, y la heurística es el problema.
+
+Y sirve dos veces, porque el mismo volcado es la verificación del final:
+después del cambio, cero texto visible con la palabra vieja salvo el que se
+declaró que se quedaba.
+
+⚠ Con una limitación que hay que decir: **el DOM sólo muestra lo que está en
+pantalla en ese momento**. Los rótulos de la máscara en curso —`Finish
+coaching`, `Close coaching`— no salieron en el volcado porque no había sesión
+abierta, y se verificaron por conteo exacto sobre el código. Un inventario del
+DOM no exime de recorrer los estados que el DOM todavía no dibujó.
 
 # Un caso nuevo activa bugs que nadie escribió hoy
 
@@ -248,6 +1241,77 @@ No alcanza con verificar que el caso nuevo **aparezca**. Hay que usarlo:
 El costo es un clic. Lo que evita es entregar una etapa correcta con una puerta
 que da a una pared, y que la encuentre quien la use.
 
+> **Recorrerlo ES la prueba. Verificar que el caso nuevo aparezca no prueba
+> nada del camino que abre.**
+
+Y ya van **tres veces**, las tres con la misma forma — el código no cambió,
+cambió el conjunto de entradas que lo alcanza:
+
+| el caso nuevo | el camino que abrió |
+|---|---|
+| `Branch Out of Division` ganó fila | su link llevaba a `Branch%20Out%20of%20Division has no production` — faltaba `decodeURIComponent` desde siempre |
+| dos nodos declararon el mismo antecesor | el cuarto nodo arrancaba encima del segundo, que todavía corría |
+| `Review` entró al sidebar de Business Plan | la entrada **SALE** del módulo, y el sidebar lo monta el layout del módulo: `/review` quedó con cero `.bp-nav-item`, o sea sin menú para volver |
+
+Las tres se veían bien en la lista, y las tres rompían una línea después. En la
+tercera la fila del menú existía, decía `Review`, apuntaba a la ruta correcta y
+quedaba resaltada — cuatro cosas ciertas, y al hacer clic el menú desaparecía.
+
+La regla operativa afinada: la prueba de una entrada nueva **no es que esté**,
+es **usarla y mirar dónde quedás**. Y si lo nuevo saca a alguien del contexto
+donde vive el control, mirar también **cómo vuelve**.
+
+## El hermano mayor: dos copias de la misma decisión
+
+**Una copia no se extrae por cantidad de llamadores. Se extrae porque las dos
+son la misma decisión.**
+
+`rutaDelModulo` --a dónde manda cada módulo de una revisión-- estaba escrita dos
+veces, con esta nota puesta a propósito:
+
+> Duplicado a propósito: son dos momentos distintos --entrar y avanzar-- y
+> compartirlo obligaría a un archivo más para tres líneas. **Si aparece un tercer
+> llamador, se extrae.**
+
+No apareció un tercer llamador. **Apareció un cambio.** Una etapa le enseñó a una
+de las copias que Outlook tiene una pantalla por branch, y a la otra no. Desde
+ahí, AVANZAR a la fase 2 llevaba al branch de la persona y RETOMAR la misma
+revisión llevaba a la lista de los trece branches -- con el panel diciendo que
+esa no era la pantalla del paso.
+
+> **Las dos copias eran correctas cuando se escribieron. Lo que las separó fue
+> editar una.**
+
+Y por eso la condición de la nota vieja mira lo que no importa: **dos copias con
+un solo llamador cada una divergen igual.** El disparador no es el tercer
+llamador, es el primer `edit`.
+
+Van **ocho** de esta familia en el proyecto, y la lista deja ver que el número de
+llamadores nunca fue el problema:
+
+| las dos copias | qué las separó |
+|---|---|
+| `rutaDelModulo` en el anfitrión y en la pantalla de arranque | una aprendió del branch de Outlook |
+| el `insert` del benchmark en el perfil y en el paso 2 | el paso 2 necesitaba su propio manejo de error |
+| tres `find` de «la sesión en curso» en el mismo componente | uno pasó a `myReviews` y los otros no |
+| el conteo del avance guardado y derivado | se decidió derivarlo antes de que divergiera |
+| `enrollmentsByFunnel` contado dos veces | BP40, misma decisión en dos lugares |
+| `endsDay` sumado aparte de `nodeDayRanges` | idem |
+| el branch de la persona, leído en el efecto y en la navegación | la navegación tenía que esperarlo |
+| `.bp-pill` definida dos veces en el CSS | la segunda le ganó a la primera |
+| el `z-index` del modal (`bp-visual.css`) y el de la máscara de la revisión (`review.css`) | RV4 subió la máscara sin saber que el modal dependía de estar por encima de ella |
+
+La regla operativa: **al escribir la segunda copia de algo, la pregunta no es
+cuántos la llaman, es si las dos tienen que decidir lo mismo.** Si la respuesta
+es sí, se extrae ahora -- cuesta un archivo. Si es no, la nota tiene que decir
+**qué las hace distintas**, no cuántos llamadores hay: así la próxima persona
+puede comprobar si esa diferencia sigue siendo cierta.
+
+Y el corolario, que es el que hace falta cuando ya hay dos: **al editar una
+copia, la pregunta es si la otra necesita el mismo cambio.** Es la misma forma
+que la clase de CSS redefinida --el daño no aparece donde escribiste, aparece
+donde ya estaba-- y por eso este caso va justo antes.
+
 ## Y el caso hermano: redefinir un nombre que ya existía
 
 Antes de definir una clase de CSS, **verificar que el nombre no exista**. Un
@@ -275,11 +1339,70 @@ usa no está en la pantalla que se está mirando. Y al medir un cambio de estilo
 medir **la cascada** y no sólo el elemento nuevo: un elemento inyectado con la
 clase ajena dice si le pegaste, sin tener que navegar hasta ahí.
 
+### La séptima vez, y la primera que se EVITÓ
+
+`.bp-pill`, `.bp-hint`, `table.piv`, `--ol-text`… van siete choques de nombre en
+este proyecto, y los seis primeros se descubrieron DESPUÉS, mirando por qué algo
+ajeno se había movido.
+
+El séptimo no: al escribir el perfil del Loan Officer (BP50) el `git grep`
+previo mostró que `.bp-profile` YA EXISTÍA --es la ficha del encabezado, con el
+avatar y el nombre, en esa misma pantalla-- y que `.bp-profile__meta` es su
+subtítulo. Con ese prefijo la sección nueva habría heredado un `display: flex`
+y le habría cambiado el subtítulo al nombre. El prefijo pasó a `bp-cv` antes de
+escribir una línea de CSS.
+
+> **El grep previo dejó de ser un chequeo y pasó a ser el primer paso.** Es la
+> diferencia entre una regla escrita y una costumbre.
+
+Y hay una segunda mitad, que la encontró la HERRAMIENTA y no yo: al mergear,
+`npm run verificar:clases` avisó que `.rv-panel__zona--ctx` y
+`.rv-panel__zona--in` las pedía el JSX y no existían en ninguna hoja. No fallaba
+nada --una clase sin regla hereda-- así que no había síntoma. Las dos se ganaron
+su regla, porque las dos eran necesidades reales: una medida para la prosa y un
+apilado para las entradas.
+
+**Las dos mitades juntas son la lección:** el grep evita el choque, y la guarda
+encuentra lo que el grep no busca. Una clase que no choca con nada puede igual
+no existir.
+
+### Y el reverso, que sólo aparece con dos ramas vivas
+
+Lo de arriba dice cuándo un nombre YA está tomado. Esto es lo contrario:
+cuándo un nombre dejó de estar usado — y la respuesta no está en el código.
+
+El caso: resolviendo un merge, dos clases quedaron sin ningún consumidor,
+porque la rama que se traía había borrado el único archivo que las usaba. La
+conclusión parecía obvia --sin usos, se borran, es el caso `.bp-pill`-- y era
+falsa. En `main` ese archivo seguía vivo y las usaba en dos líneas. Borrarlas
+ahí habría deshecho un arreglo de dos etapas antes: el botón «Save» volvía a
+caer en la fila del comentario de al lado, que es exactamente el bug que había
+motivado ese arreglo.
+
+> **Una clase es huérfana en un árbol y no en otro, y la respuesta depende de
+> cuál se está mirando.**
+
+Todo lo demás de esta nota supone UN árbol. Con dos ramas vivas, «no tiene
+consumidores» deja de ser una propiedad del código y pasa a ser una propiedad
+de la rama, y hay tres respuestas en vez de dos: sin usos en las dos --se
+borra--, con usos en las dos --se queda--, y **sin usos en una y con usos en la
+otra**, que es la que engaña.
+
+La regla operativa: **antes de borrar algo por no tener usos, decir en qué
+árbol se contó.** Y si el conteo salió de un árbol de merge --uno que todavía
+no existe en ningún lado--, la baja no va en la rama de hoy: va **en el mismo
+commit que borra al consumidor**, para que las dos cosas lleguen juntas o no
+lleguen.
+
+Vale para clases de CSS y para todo lo que se dé de baja por desuso: una
+función exportada, un token, una columna. `git grep` contesta sobre el árbol
+que está en el disco, y con varias ramas en vuelo ése es uno de varios.
+
 # Lo que compensa una ausencia hace que la ausencia no se note
 
-> Tercera sección aparte, y sale de haberlo visto **tres veces**. Un patrón se
-> reconoce por repetición, no por descripción: por eso van los tres casos con
-> nombre y no una definición general.
+> Tercera sección aparte, y sale de haberlo visto **siete veces**. Un patrón se
+> reconoce por repetición, no por descripción: por eso van los casos con nombre
+> y no una definición general.
 
 ## La regla
 
@@ -290,7 +1413,7 @@ Y de ahí lo que hay que mirar: **un respaldo que nunca se ejerció es sospechos
 O el original siempre estuvo, y el respaldo sobra; o el original nunca estuvo, y
 lo que se está usando es el respaldo sin saberlo.
 
-## Los tres casos
+## Los siete casos
 
 **1. `--white`, con su fallback.** El token no estaba definido en ninguna parte, y
 los cuatro usos del módulo Outlook lo pedían como `var(--white, #fff)` o
@@ -312,6 +1435,112 @@ parser cae a cadena vacía y no a `null`, así que **«no vino la columna» y «
 vacía» se guardan igual** y no se pueden distinguir después. Está documentado en
 `docs/ARQUITECTURA.md` y no se cambió, porque tocar esa coerción afecta a otras
 etapas — pero saberlo es lo que evita leer un `''` como una decisión.
+
+**4. `bp-hint`, una clase que no existía.** Siete usos en cuatro archivos, y la
+regla no estaba definida en **ninguna** hoja del árbol. Nunca se vio: un párrafo
+sin regla no queda invisible, hereda los 14px del documento y se lee igual — sin
+el tamaño, el color ni el interlineado que le tocaban. Es el mecanismo del caso
+2 con otro disfraz, y por eso va acá y no en una sección propia.
+
+Lo que lo hizo durar: el comentario del layout **afirmaba** que la hoja del
+Business Plan la traía. Una nota correcta sobre las otras tres clases de la
+misma lista, falsa sobre la cuarta, y nadie vuelve a verificar una nota.
+
+Y la vuelta operativa que sale de este caso, porque el `git grep` de la sección
+anterior no lo agarra: ese grep pregunta **«esta clase ya existe?»** para no
+pisarla, y éste pregunta lo contrario, **«las clases que escribo existen?»**. Se
+leen del JSX y se buscan en las hojas — al revés de como se escribieron. Son dos
+chequeos distintos sobre el mismo `grep`, y el segundo encontró un
+`rv-intake__body` sin regla en la primera corrida.
+
+**5. El estado inicial capturado antes de que el dato llegue.** El campo del
+benchmark arrancaba en `''` porque el valor vivía en un `useState` que se
+evaluaba antes de que el anfitrión lo leyera de la base -- y `''` es
+exactamente lo que se ve cuando nadie fijó ninguno. Adriana tenía 1 desde el 21
+de agosto y el campo decía que no había. Mismo mecanismo en el aviso LEJOS del
+panel: mientras la sección del paso no había aparecido, `enSitio` era `false`,
+o sea «esto se contesta en otra pantalla» dicho EN la pantalla correcta.
+
+**6. `funnelActual` arrancando en `null`.** Y `null` es lo que significa «no
+tiene funnel activo». Al atar el LUGAR del paso a ese estado --sin funnel el
+paso se hace en el catálogo, con funnel se confirma en el perfil-- la primera
+lectura mandaba al catálogo a quien ya tenía uno. Se arregló con el tercer
+estado: `undefined` = todavía no se leyó.
+
+**7. Y el mismo `funnelActual`, otra vez -- por un camino que lo REESCRIBE.** El
+caso 6 arregló el valor inicial, y quedó esta línea en el efecto que lo lee:
+
+```ts
+if (loEnCurso === null) {
+  setFunnelActual(null);   // «todavía no sé a quién se revisa»
+  return;
+}
+```
+
+`loEnCurso === null` significa que la lista de revisiones no llegó, y se
+escribía con el mismo `null` que significa «no tiene funnel». Así que en CADA
+carga la secuencia real era `undefined → null → valor`, y otro efecto leía ese
+`null → valor` como «el funnel se acaba de activar»: en el catálogo sacaba a la
+persona de la pantalla donde tenía que elegir, y en el perfil navegaba a la
+pantalla donde ya estaba -- remontando el árbol y reiniciando la búsqueda en
+bucle. Tres personas se trabaron en el mismo paso antes de que se viera.
+
+## La línea que une a los siete
+
+Los cuatro primeros se leen como problemas de RESPALDO: un fallback, una
+herencia de CSS, una coerción a `''`. El quinto y el sexto no tienen respaldo
+ninguno. Lo que comparten es otra cosa, y es la forma buscable:
+
+> **Un valor que significa «no lo sé» indistinguible de uno que significa «no
+> hay».**
+
+De ahí que la respuesta sea siempre la misma y siempre cueste un estado más:
+`undefined` contra `null`, `null` contra `0`, `NULL` contra array vacío,
+`buscando` contra `enSitio === false`. Y de ahí también por qué duelen tanto:
+el valor de «no lo sé» es el que está durante el primer cuadro de CADA carga,
+así que el error aparece siempre y se ve una sola vez -- justo antes de que el
+dato llegue y lo tape.
+
+### Y lo que agrega el séptimo: no alcanza con el valor inicial
+
+El caso 6 y el 7 son el MISMO estado, arreglado dos veces. La primera se le
+cambió el valor inicial --`undefined` en vez de `null`-- y el defecto siguió
+vivo, porque otro camino seguía escribiendo el `null` ambiguo. Un tercer estado
+que se introduce en la declaración y no en las asignaciones no existe: cualquier
+`set` que use el valor viejo lo reintroduce entero.
+
+> **Un estado que significa «no lo sé» no se arregla en su valor inicial. Se
+> arregla eliminando TODOS los lugares que pueden escribirlo.**
+
+La regla operativa, y es un `grep` de treinta segundos: al darle un tercer
+estado a algo, **buscar cada llamada a su `set` y decidir qué significa cada
+una**. `git grep 'setFunnelActual('` daba tres sitios; dos eran lecturas reales
+y el tercero era «todavía no sé» disfrazado de «no hay». Y después dejarlo
+comprobable: una aserción sobre el código --sin comentarios-- de que el valor
+ambiguo no se escribe en ninguna parte vale más que acordarse.
+
+Es primo del caso de la clase de CSS redefinida, en la otra dirección: aquel
+dice que el daño no aparece donde escribís, y éste que el arreglo no alcanza
+donde escribís.
+
+### El octavo y el noveno no están escritos acá: viven como guardas
+
+El título dice siete porque siete se contaron a mano. Los dos siguientes se
+arreglaron y se dejaron **comprobables** en vez de narrados, que es lo que esta
+sección venía pidiendo:
+
+- **el octavo** — `funnelActual` y `pasosDelPlan` publicados en momentos
+  distintos desde una misma lectura, que dejó una evidencia con el nombre nuevo
+  y la clave de un enrolamiento ya borrado;
+- **el noveno** — `lo`, la persona de la población del módulo, con
+  `bpData?.…find(…) ?? null`: la pantalla contestaba «This person is not in the
+  Business Plan population… They need a branch assignment first» mientras la
+  población todavía viajaba. Una afirmación sobre el roster, con instrucción
+  accionable, dicha sin haber leído el roster.
+
+Los dos están en `scripts/verificacion/estados-ambiguos.mjs`, con su motivo
+escrito en la fila. Si hace falta la historia, está ahí; y si alguien la
+reintroduce, no hace falta que alguien se acuerde.
 
 ## El contraejemplo, que es el que enseña
 
@@ -335,3 +1564,1066 @@ sin fijar se guarda como `null` y no como `0`.
 - Y cuando dos estados significan cosas distintas —no vino contra vino vacío, no
   se decidió contra se decidió cero— **no darles el mismo valor**, aunque cueste
   una columna nullable más.
+
+# Ningún texto pasa por el shell, y ahora hay una guarda
+
+> La regla vive en la nota global del usuario. Esto es su versión mecánica y el
+> registro de por qué hizo falta: **cuatro veces en una sola serie de trabajo**,
+> y las cuatro en comandos que parecían demasiado cortos para merecer un
+> archivo.
+
+## Lo que pasó las cuatro veces
+
+Un backtick es sustitución de comandos. No falla: **reemplaza por vacío**. Un
+mensaje de commit con cinco identificadores entre backticks quedó con cinco
+huecos, y el único rastro fue un `command not found` que se lee como ruido.
+
+Y no es sólo el heredoc: pasó con `git commit -m`, con `python - <<'X'` --dos
+veces, las dos colgando el comando-- y con un `node -e "…"`. El común no es la
+herramienta: es **texto viajando como argumento**.
+
+## La guarda, y qué garantiza
+
+    node scripts/commit.mjs <archivo-con-el-mensaje> [--amend]
+    npm run commit -- <archivo>
+
+Dos mecanismos:
+
+1. el mensaje **no pasa por un shell** -- `execFile` con `-F archivo`, sin
+   expansión, sin backticks, sin comillas que balancear;
+2. después del commit **se lee el mensaje de vuelta** y se compara con el
+   archivo, diciendo en qué línea difieren.
+
+Detectar el daño por la FORMA del texto --un hueco donde iba un
+identificador-- sería una regla sobre cómo se ve la línea, que es el error que
+este archivo lleva documentado cuatro veces. Comparar contra la fuente no
+depende de reconocer el daño.
+
+⚠ **Y la comparación es sospechosa, dicho por su autor:** el mismo script
+escribe y lee, así que no puede detectar el caso que le importa -- si el
+mecanismo 1 funciona, nunca hay nada que comparar. Lo que previene el defecto
+es el 1. El 2 es una guarda redundante para una causa que todavía no conocemos,
+y su rama de fallo **nunca se ejerció**. Queda dicho así, porque por la regla
+de este repo un respaldo que nunca se ejerció es exactamente lo que hay que
+mirar con desconfianza.
+
+## Y lo que ESA guarda no cubre: sólo mensajes de commit
+
+`scripts/commit.mjs` cubre un caso, y lo cubre DESPUÉS de escribir. La regla
+general es ésta:
+
+> **Nada de `-e` ni de `-c` con texto. Nunca un heredoc. Si el texto tiene un
+> backtick, un `$`, una comilla o un salto de línea, va a un archivo con la
+> herramienta de escritura y se ejecuta el archivo.**
+
+El umbral no es la longitud. Las cuatro veces el texto era corto -- por eso
+pareció que no hacía falta.
+
+### Y una del CONTENIDO del mensaje, no de cómo viaja
+
+> **Un diff de 491 líneas para un cambio de 25 se lee como un cambio grande, y
+> un cambio grande no lo revisa nadie. Si el diff es mucho más grande que el
+> cambio, el mensaje tiene que decir por qué.**
+
+El caso: editar `guardas.test.mjs` --el único archivo de código del repo, junto
+con `app/business-plan/library/page.tsx`, que estaba versionado con CRLF
+mezclado con CR sueltos-- lo normaliza entero a LF, así que git lo ve reescrito.
+Se intentó restaurarlo dos veces, y la edición siguiente lo volvía a normalizar.
+
+Lo que corresponde no es pelearlo: **la normalización es la correcta**, porque
+este repo tiene `core.autocrlf = true` y no tiene `.gitattributes`, o sea que lo
+esperado es guardar LF. Lo que corresponde es que el mensaje lo diga, para que
+quien abra el diff sepa en dos líneas que son dos bloques nuevos y no un archivo
+rehecho.
+
+Vale para cualquier ruido que infle un diff --un `prettier` que pasa por un
+archivo entero, un renombre masivo, un archivo generado-- y es la misma familia
+que el resto de esta nota: lo que no se explica, se lee mal.
+
+## La QUINTA vez, y la guarda que frena la mano
+
+Pasó una quinta vez: un `cat > archivo.mjs << 'XEOF'` en el mismo turno en que
+se estaba escribiendo esta sección. No rompió nada --creó un archivo vacío que
+después se reescribió con la herramienta-- pero el veredicto cierra el asunto:
+**«ya no es que falte saberlo».**
+
+Una regla que hay que acordarse funciona igual que una nota que nadie consulta.
+Así que ahora hay una guarda que **bloquea el comando antes de que corra**:
+
+    scripts/verificacion/sin-texto-al-shell.mjs        la lógica y el porqué
+    scripts/verificacion/sin-texto-al-shell.test.mjs   40 aserciones
+    npm run verificar:shell     corre la prueba
+    npm run guarda:instalar     la engancha o la da de baja, y dice si la copia
+                                estaba vieja
+
+Se engancha como hook `PreToolUse` de Bash: lee el comando por stdin y sale con
+código 2 --que el agente lee como «no se ejecutó, y por qué»-- con el motivo y
+qué hacer en su lugar. Verificado en vivo, no sólo con su prueba: un `node -e`
+**rebotó antes de correr**.
+
+| bloquea | por el caso que ya costó |
+|---|---|
+| heredoc y here-string | los backslashes, el segundo heredoc, los backticks que se ejecutan |
+| `node -e`, `python -c`, `bash -c`, `powershell -Command` | el código como argumento, que es el mismo mecanismo con otra cara |
+| `git commit -m` / `-am` | los cinco identificadores que se comió un mensaje |
+| `gh pr create --body` | igual, y un cuerpo de PR casi siempre tiene backticks |
+| `echo`/`printf` redirigido a un archivo | escribir un archivo con el shell de intermediario |
+| `sed -i` con backtick, `$` o `\` | una sustitución que llega distinta, y que al no matchear **no falla** |
+
+Y deja pasar lo que hay que dejar pasar, que es la mitad que decide si la guarda
+sobrevive: `cmd //c` --la única vía para borrar una junction--, `git commit -F`,
+`echo` sin redirección, `sed -n`, `grep -c`, los pipes y las sustituciones de
+comandos. **Una guarda que bloquea todo es la que alguien desengancha**, y ahí
+se pierde también lo que sí cubría; por eso su prueba tiene **24** casos de
+«esto tiene que pasar» y no sólo los **15** de «esto tiene que frenar».
+
+⚠ Esos dos números decían 17 y 14, y la prueba decía 31 aserciones: eran los de
+cuando se escribió la sección, y la guarda creció después. Medidos al contar las
+dos listas, hoy son 15, 24 y 40. **Un número escrito en una nota envejece igual
+que uno escrito en un reporte**, con el agravante de que nadie vuelve a
+verificar una nota -- que es exactamente lo que hizo durar el caso de `bp-hint`.
+
+### ⚠ Vive en dos lugares, y eso es a propósito
+
+`.gitignore` ignora `.claude/` --«config local del agente»-- y el hook lo lee el
+agente desde `~/.claude`. Así que:
+
+    el repo      es la fuente: la lógica, su prueba y el porqué
+    ~/.claude    es la copia que corre, enganchada en `settings.json`
+
+`npm run guarda:instalar` es lo que las mantiene de acuerdo, y **avisa si la
+copia estaba distinta**: una copia vieja enganchada es peor que ninguna, porque
+frena con reglas que ya no son las de la fuente. Es «dos copias de la misma
+decisión» resuelto con un script en vez de con memoria.
+
+#### Y la mitad que faltaba: desenganchar
+
+Enganchar sin poder desenganchar deja un hueco con forma conocida — **una
+guarda revertida sigue corriendo**. El commit que la saca borra su archivo del
+repo y no toca `settings.json`, así que la copia queda enganchada, bloqueando
+con una regla que el proyecto ya decidió que no quiere.
+
+La baja **no es una opción del comando**, y es a propósito: en el momento del
+revert nadie está pensando en los hooks, y una opción que hay que acordarse de
+usar funciona igual que una nota. Así que la baja es lo que pasa solo cuando la
+guarda no está en la lista `GUARDAS` — sacar la fila **es** desengancharla.
+
+> **Un reconciliador desengancha lo suyo y sólo lo suyo.** Sólo toca hooks cuyo
+> comando apunta a `~/.claude/hooks/`; uno que el usuario puso a mano, apuntando
+> a cualquier otro lado, no se mira ni se cuenta. Uno que borra lo ajeno es el
+> que alguien desengancha entero, y ahí se pierde también lo que sí cubría.
+
+Y no borra la copia huérfana: desenganchar no es destruir. Dice dónde quedó.
+
+`npm run verificar:instalador` lo prueba con la baja inyectada --una guarda que
+no está en la lista, enganchada-- y con un hook ajeno al lado, que es el caso
+que no se puede tocar. Y se ejercitó además el script entero contra un `HOME`
+de mentira, porque una función pura en verde no dice que el script escriba bien
+el `settings.json`: 11 aserciones, con el `~/.claude` de verdad comparado byte a
+byte antes y después.
+
+#### ⚠ Y el aviso que casi se vuelve ruido: `core.autocrlf`
+
+La primera vez que el «⚠ la copia estaba DISTINTA» sirvió fue real — la copia
+tenía la lógica anterior al arreglo. La **segunda** vez fue mentira, y por un
+mecanismo que no tiene nada que ver con la lógica: este repo tiene
+`core.autocrlf = true`, así que un archivo escrito en LF vuelve del checkout en
+CRLF. Medido sobre `esperar-al-dato.mjs`: **8661 bytes contra 8487, 174 CRLF
+contra 0, y la misma cadena exacta al normalizar** — idénticos línea por línea.
+
+O sea que comparando byte a byte, el aviso salta después de cualquier merge que
+toque una guarda, sobre una copia que no cambió.
+
+> **Un aviso que aparece cuando no falta nada enseña a ignorarlo** — y éste es
+> el único aviso que hay de que una copia enganchada quedó vieja.
+
+Por eso la comparación normaliza los finales de línea: «DISTINTA» tiene que
+significar «la lógica cambió», no «pasaste por un checkout». Es la misma regla
+que la del aviso de la barra de la revisión, con la misma cara: la condición
+tiene que nombrar lo que importa, no lo que se mide fácil.
+
+Dos cosas más antes de tocarla:
+
+- **Un cambio de hooks se toma al arrancar la sesión**, no en el momento --
+  salvo el primer enganche, que fue lo que permitió medirla en la misma sesión.
+- **Si no entiende su propia entrada, no bloquea**: el `catch` del JSON sale con
+  0. Una guarda que rompe todos los comandos cuando cambia el formato del hook
+  es peor que la falla que viene a evitar, porque la primera reacción de
+  cualquiera sería desengancharla.
+
+# Worktrees en Windows: la junction de `node_modules`
+
+> Sección aparte porque no es sobre el código de este repo sino sobre el entorno
+> donde se lo edita, y porque cualquiera que abra un worktree acá se va a topar
+> con lo mismo.
+
+## Por qué existe la junction
+
+Un worktree de este repo no puede correr nada sin `node_modules`, y volver a
+instalarlo por worktree cuesta minutos y gigas. La salida es un **enlace de
+directorio** (junction) que apunta al `node_modules` del checkout principal:
+
+```
+C:\Users\...\rv9\node_modules  ->  C:\Users\...\homesi-reporte-actividad\node_modules
+```
+
+Y hay una segunda restricción del entorno, no del repo: **el worktree tiene que
+vivir en una ruta corta** —`C:\Users\<usuario>\rv9` y no dentro del repo— o
+Turbopack falla por largo de ruta.
+
+## La regla
+
+**Un `node_modules` que es junction se borra con `cmd /c rmdir`, nunca con
+`rm -rf` ni con `Remove-Item -Recurse`.**
+
+`rmdir` borra el enlace. Las otras dos **entran por el enlace** y borran el
+`node_modules` del checkout principal, que es el entorno de trabajo de todos los
+worktrees y del checkout real.
+
+Y al desarmar un worktree, el orden es: sacar la junction, **confirmar que se
+fue**, y sólo entonces borrar el directorio.
+
+## El caso que la fija, y no es el que parece
+
+Al desarmar el worktree de RV12, el `cmd /c rmdir` **salió con éxito y no borró
+nada**. El `&& echo` de la línea imprimió su mensaje, así que la salida decía
+que había funcionado.
+
+Es la regla de siempre —que un comando salga con 0 no prueba que se aplicó— pero
+lo que la hace grave acá es lo de después: el paso siguiente era borrar el
+directorio, y **un `Remove-Item -Recurse` con la junction todavía puesta habría
+entrado al `node_modules` del repo real**. El falso éxito no era el daño; era el
+permiso para el daño.
+
+Lo que lo delató no fue un error sino una forma: `git worktree remove --force`
+dejó el directorio con **exactamente un hijo**, y ese hijo era la junction.
+
+> **Git no atraviesa un reparse point.** Así que un worktree que queda con un
+> solo hijo después de un `remove` está diciendo cuál es: el que git no pudo
+> tocar.
+
+Es el tipo de señal que sólo se lee si uno está mirando, y por eso no alcanza
+con recordarla. Lo que corresponde es la verificación explícita:
+
+```powershell
+$p = "C:\Users\<usuario>\rv9\node_modules"
+if (Test-Path $p) { cmd /c rmdir $p }
+Test-Path $p            # tiene que dar False ANTES de borrar el directorio
+```
+
+Y después de borrar, confirmar el destino y no el origen: que el
+`node_modules` del checkout principal sigue teniendo sus ~393 entradas. Es
+redundante a propósito, igual que la guarda de las columnas sensibles: cuando un
+paso puede destruir el entorno de trabajo, la comprobación va aunque «no haga
+falta».
+
+## El desarme completo, en orden
+
+1. `git status` en el worktree y `git log` contra el remoto: que **nada viva sólo
+   ahí**. Si hay commits sin subir, subirlos primero.
+2. `cmd /c rmdir <worktree>\node_modules`, y `Test-Path` en falso.
+3. `git worktree remove --force <worktree>` y `git worktree prune`.
+4. Borrar lo que haya quedado del directorio, **después** de verificar que no
+   queda ningún reparse point adentro.
+5. `git worktree list` para confirmar que sólo está el checkout del usuario, y
+   que su rama y su árbol quedaron sin tocar.
+
+# `apportionByWeight` reparte una diferencia que no le pertenece
+
+> Cuarta variante de un modo de falla que ya tenía tres casos en el código,
+> todos de la misma familia pero con la forma invertida. OL11 (B2B sin
+> presupuesto propio), OL12 (NPPM sin proyectar desde sus realtors) y OL22
+> (reclutas sin peso) son los tres de "una fuente que FALTA en los pesos": un
+> peso que falta se redistribuye en silencio entre los que sí están, y el
+> síntoma es un residuo que crece sin que nada lo explique. Ésta es la
+> inversa, y es más difícil de ver porque no falta nada en los pesos —sobra
+> algo en el TOTAL que ningún peso explica.
+
+## La regla
+
+**Un total que cambia por una razón que el peso no conoce se reparte igual
+que si todos los pesos hubieran cambiado.**
+
+`apportionByWeight` no distingue "esta plata de más es de una persona
+puntual" de "esta plata de más es genérica, repártanla entre todos" — un
+total más grande siempre se ve como lo segundo.
+
+## El caso que la fija
+
+OL26e agregó una precedencia a Outlook: si una persona fija un presupuesto
+para un mes, ese número gobierna en vez de su regla de crecimiento
+(`projectBranch`, en `lib/outlook/loadData.ts`). El total del branch pasó a
+incluir ese presupuesto fijo.
+
+Pero `strategyRowsOf` (`lib/outlook/strategyRows.ts`) usa ESE MISMO total
+como el número a repartir entre las estrategias del branch —
+`apportionByWeight(branchYear.byMonth[m], exactoDe_de_cada_estrategia)`— y de
+ahí en cascada cada estrategia reparte su parte entre sus personas
+(`personBudgetsOf`). Los pesos de ese reparto son puro `growth_rule`, sin
+tocar: no tenían por qué cambiar, porque nadie les fijó nada.
+
+Verificado con un branch sintético (Gian fija 15 en vez de su regla —10—;
+Galo no toca nada, regla 8, sin presupuesto propio; B2B es una estrategia sin
+ninguna persona con presupuesto fijo):
+
+| | antes del fix | después |
+|---|---|---|
+| fila de Galo | **10** | 8 |
+| estrategia B2B | **7** | 6 |
+
+La torta entera creció 5 —la diferencia entre el presupuesto de Gian y su
+regla— y `apportionByWeight` la repartió proporcionalmente entre TODOS los
+pesos, incluidos dos que no cambiaron nada: Galo y B2B.
+
+> **El override es del total, no del peso.**
+
+## Qué hacer
+
+- Cuando un total que alimenta un `apportionByWeight` puede moverse por una
+  razón que ALGUNOS de los pesos no reflejan —un override, un ajuste manual,
+  una excepción puntual—, separar las dos cosas: un total para lo que se
+  MUESTRA y un total distinto, sin ese override, para lo que se REPARTE.
+  Nunca el mismo número para las dos si pueden divergir (acá,
+  `projectBranch(branch, months, { applyBudgetOverrides })`).
+- Verificarlo con un caso donde alguien SÍ cambia algo y otro que NO. Si el
+  que no tocó nada se mueve, el total y el peso se están confundiendo.
+- Y las aserciones que prueban el NÚMERO EXACTO de la fuga —no sólo que el
+  fix "da bien" hoy— son las que evitan que alguien deshaga el parámetro
+  después sin saber por qué estaba ahí. Sin ellas, el bug vuelve en silencio
+  la próxima vez que alguien lo toque.
+
+# Un agregado que cancela esconde que las partes están mal
+
+> Familia reconocida por repetición, con nombre puesto por Isabella: el
+> progreso promediado de dos planes, el forecast redondeado por branch, y
+> ahora OL26f. Los tres tienen la misma forma: un número que resume varios
+> se ve bien aunque las partes que lo componen NO estén bien, porque los
+> errores tienen signo opuesto y se cancelan antes de llegar a la pantalla.
+
+## La regla
+
+**Un promedio, una suma neta o un redondeo por conjunto puede dar bien
+aunque cada parte esté mal.** El agregado no es prueba de que las partes
+estén bien -- sólo prueba que, sumadas con signo, dan un número chico.
+
+## El caso que lo fija (OL26f)
+
+`Set budget` mostraba una fila `Difference` por mes, pero el botón resumía
+todos los meses en un solo número antes de decidir si avisar. La primera
+versión sumó el NETO: enero +5 (falta) y febrero −5 (sobra) daban 0, y el
+botón decía `Save budget`, sin avisar, con los dos meses mal.
+
+> **El neto esconde exactamente el caso que hay que ver.**
+
+La corrección: sumar el valor ABSOLUTO de cada mes, no el neto -- `Save with
+a difference of 10`, no `Save budget`. Ver `pendingDifference()` en
+`app/outlook/components/PersonBudgetEditor.tsx`.
+
+## Qué hacer
+
+- Antes de agregar varios números en uno para responder "¿está todo bien?",
+  preguntarse si dos errores de signo opuesto podrían cancelarse en el
+  camino. Si la respuesta es sí, el neto no sirve para esa pregunta.
+- Cuando el objetivo es AVISAR (¿hay algo mal?), usar el valor absoluto, el
+  máximo, o listar las partes -- nunca el neto. El neto sólo tiene sentido
+  cuando la pregunta es "¿cuánto sobra o falta en total", no "¿algo está
+  mal".
+
+# El ancho de la página se mueve solo — tres veces, tres mecanismos
+
+> Tercera vez en pocos días que una pantalla termina más ancha que su
+> contenedor, sin que nadie haya tocado un `width` a mano. Van juntas porque
+> el síntoma se repite -- una tabla o una tarjeta que de golpe necesita
+> scroll horizontal, o columnas que dejan de alinear -- pero el MECANISMO no
+> es el mismo las tres veces, y por eso el título no promete uno solo.
+
+## Los tres casos
+
+| caso | mecanismo | cómo se notó |
+|---|---|---|
+| La columna Position (OL26b, Outlook) | Una columna nueva con `min-width: 140px` en una tabla cuyo ancho ya sumaba exacto contra la página fija -- nadie sumó ese ancho al presupuesto, y la tabla pasó a necesitar scroll horizontal, cosa que no pasaba antes | Isabella, en pantalla |
+| La columna fantasma (OL26c, Outlook) | Dos filas -- reconciliación y total -- tenían una celda `bp-center` vacía de más que el resto de las filas no tenía. El diff de anchos contra `main` ya daba cero: no era un ancho de más, era una CELDA de más | Isabella, en pantalla |
+| La tarjeta de Performance summary (BP51, Business Plan) | `white-space: nowrap` sobre contenido de ancho variable (badges, un botón, una frase) pegado a una columna fija de 260px | Medido con Chromium real -- `scrollWidth` 1467 contra un viewport de 1440 -- antes de reportar, no después |
+
+Ninguno de los tres tocaba un `width` fijo a propósito. El de Position
+agregó un `min-width` que nadie sumó al ancho total. El de la columna
+fantasma no tenía ningún ancho de más -- tenía una celda de más, que
+desalineó todo lo que venía después en esas dos filas. Y éste no fijaba
+ningún ancho: dejaba que el texto lo pidiera, sin techo.
+
+## La regla de éste, que es la que vale escribir
+
+**Un `white-space: nowrap` sobre contenido cuyo largo depende de los datos,
+puesto dentro de una columna de ancho fijo, no recorta el texto -- lo
+empuja.** `nowrap` no dice "no ocupes más lugar del que tenés": dice "no te
+partas en dos líneas", y si no entra en una, el elemento crece más allá de
+su contenedor. El navegador no avisa -- el elemento simplemente sale.
+
+Acá pasó en `.bp-stat__value` (la fila de Starting benchmark, con su badge
+de "provisional" y su enlace de "edit") y en `.bp-stat__flag` (el
+"Forecast is below it" que colgaba de esa misma fila): los dos podían
+crecer con los datos, los dos estaban fijados a una sola línea, y los dos
+vivían dentro de una columna de 260px. Medido antes del arreglo, contra el
+CSS real de esa etapa: `.bp-stats` entera con `scrollWidth` 348px contra
+258px de `clientWidth`; la fila de Starting benchmark, 340 contra 242. La
+página entera terminaba 27px más ancha que el viewport -- 1467 contra
+1440 -- por una sola fila de una tarjeta.
+
+> **Cualquier `nowrap` sobre algo que crece con los datos es un desborde
+> esperando el dato largo.**
+
+Ese día no rompía porque el dato de prueba era corto -- un badge, un
+número de un dígito. El mismo CSS con una regla de crecimiento con nombre
+más largo, o una segunda etiqueta, lo habría roto en cualquier carga
+futura, sin que nadie tocara esa línea.
+
+## Qué hacer
+
+- **Antes de escribir `white-space: nowrap`, preguntarse si el contenido
+  puede crecer con los datos** -- un badge condicional, una frase que
+  cambia de largo según el estado, un número con más dígitos de los que
+  hay en el caso que se está mirando. Si puede, `nowrap` no es una decisión
+  de estilo: es una apuesta a que el dato largo nunca va a llegar.
+- Si la fila tiene que quedarse de verdad en una sola línea -- un ancla, un
+  ticker, una columna angosta a propósito -- **medir el peor caso de
+  contenido, no el que está a la vista**, y dimensionar para ese peor caso
+  en vez de confiar en que el texto se va a achicar solo.
+- Verificar con `scrollWidth > clientWidth`, en el elemento Y en el
+  documento entero: un elemento puede desbordar su propia fila sin que la
+  fila desborde la tarjeta, pero cuando la tarjeta desborda, arrastra a la
+  página con ella.
+
+## Y las dos decisiones de método que valieron la pena
+
+**Medir "antes" contra el CSS de antes, no contra el archivo ya editado.**
+Con el CSS del módulo viviendo en un solo archivo, editarlo en el disco
+borra el "antes": cualquier medición posterior del DOM viejo, hecha contra
+ese mismo archivo, en realidad compara DOM viejo con CSS nuevo -- que no es
+ni el estado real de antes ni el de después, y puede dar cualquier cosa por
+casualidad. La salida fue simple: `git show HEAD:<ruta> > archivo-aparte`
+antes de tocar el original, y apuntar la medición "antes" a esa copia. Es
+la misma familia que "la operación tuvo éxito sobre el objeto equivocado" y
+"una ausencia medida en el árbol equivocado" -- acá el objeto que cambiaba
+de estado por debajo era el propio archivo contra el que se estaba
+comparando.
+
+**Medir en varios anchos, cruzando el breakpoint.** `.bp-q1-grid` pasa de
+dos columnas a una a los 900px (`@media (max-width: 900px)`) -- un desborde
+que sólo aparece apilado no lo ve nadie que mida sólo en desktop. Medido en
+1440, 1280, 1024 y 800px: los cuatro sin desborde, con el apilado del
+breakpoint incluido y no supuesto.
+
+# Un caveat que no se mide es una hipótesis con forma de hallazgo
+
+> Y la novena vez, en este proyecto, de "cero filas con `error: null` es una
+> policy de RLS que no aplica, no una tabla vacía" -- la tabla del corolario
+> ya tenía ocho.
+
+## El caso
+
+BP49b reportó que 34 de 37 personas iban a pasar de "Not set" a un budget
+real, leyendo la proyección de la regla de crecimiento cuando nadie fija un
+total a mano. El número salió de contar contra la base con acceso sin
+restricción -- correcto, para la pregunta que contestaba. Y el reporte
+llevaba un caveat, escrito y no verificado:
+
+> "si un viewer de Business Plan no tiene el claim `outlook`, esto devuelve
+> vacío, igual que ya pasa con `person_budget_total`"
+
+Isabella lo revisó en pantalla: **0 de 37**, no 34. El caveat parecía la
+explicación obvia -- BP49b nunca le había preguntado a la base qué ve una
+sesión de Business Plan, sólo qué hay en las tablas. Así que lo medí de
+verdad, simulando el claim exacto:
+
+```sql
+select set_config('request.jwt.claims',
+  '{"app_metadata":{"allowed_apps":["commercial_activity"]}}', true);
+select outlook.has_access();  -- false
+```
+
+Con `["outlook"]` en vez de `["commercial_activity"]`, la misma consulta da
+`true` y ve las 40 filas de `growth_rule`. El mecanismo cuadraba perfecto:
+`outlook.has_access()` en `false`, las cuatro tablas devolviendo cero filas
+con `error: null`, `employeesWithRule` vacío, budget `null` para las 37 --
+exactamente lo que Isabella veía. Reporté la causa con esa evidencia.
+
+**Y el caveat era falso.** El claim ya estaba otorgado -- Isabella se lo
+había dado a las 19 personas de `commercial_activity` esa misma mañana. La
+simulación no medía "nunca tuvo acceso": medía un JWT sin el claim, y ESE
+JWT sin el claim también es el que lleva cualquiera cuya sesión sea más
+vieja que el otorgamiento. Los claims viajan en el token, no se consultan en
+cada request -- un `grant` en la base no llega a una sesión ya abierta hasta
+que el token se renueva.
+
+> **Simular el mecanismo correctamente no es lo mismo que haber encontrado la
+> causa correcta.** Las dos versiones de la historia -- "nunca tuvo el
+> claim" y "lo tiene, pero su token es de antes"-- producen el mismo
+> `outlook.has_access() = false` en la misma sesión. La simulación no
+> distingue una de la otra; sólo confirma que ESE es el mecanismo que
+> bloquea, no CUÁNDO empezó a bloquear.
+
+## La regla
+
+**Un caveat escrito y no medido es una hipótesis con forma de hallazgo.**
+"Esto podría fallar si X" se lee como diligencia -- se dijo, quedó anotado,
+parece que se consideró el caso. Pero un caveat sin verificar tiene el mismo
+valor que no haberlo escrito: nadie volvió a mirar si X era cierto hasta que
+el síntoma obligó. Si BP49b hubiera corrido la misma simulación de JWT que
+corrió este reporte, habría sabido en ese momento que 19 personas SÍ tenían
+el claim y unas pocas no --y por qué-- en vez de reportar "34 de 37" sin
+esa letra chica y dejar que Isabella lo descubriera en pantalla.
+
+> Cita textual, porque es la que lo resume mejor: **"La dejé anotada como
+> caveat y seguí, en vez de probarla."**
+
+## Qué hacer
+
+- **Un caveat sobre acceso, permisos o disponibilidad no es opcional de
+  verificar.** Si se puede escribir la condición ("si no tiene el claim X"),
+  se puede simular -- `set_config('request.jwt.claims', …)` seguido de la
+  función de policy, en el mismo string de SQL. Cuesta una consulta.
+- **Y un `has_access() = false` medido así confirma el MECANISMO, no la
+  CAUSA.** Antes de reportar "nunca tuvo acceso", preguntar también si el
+  acceso se otorgó recientemente -- y si la sesión en cuestión es más vieja
+  que el otorgamiento. Un token viejo y un permiso nunca dado se ven
+  exactamente igual desde adentro de la sesión bloqueada.
+- Y agregar a las vías de verificación de Supabase: **simular el JWT exacto
+  de la sesión que importa, contra la función de `has_access()`, en vez de
+  inferir el acceso de una lista de personas autorizadas.** Es lo que faltó
+  en BP49b y lo que contestó esta vez -- con la salvedad de arriba, sobre qué
+  SÍ y qué NO contesta.
+
+# Una línea base envejece, y un invariante no
+
+> Sección aparte de la tabla de las siete: aquellas son mediciones MAL HECHAS.
+> Ésta estaba bien hecha y dejó de valer sola, porque **el dato se movió abajo**.
+> Es un mecanismo distinto y por eso no se mete ahí.
+
+## La regla
+
+**Cuando el dato puede cambiar entre la medición de antes y la de después, la
+salida no es una línea base más fresca: es una propiedad que no dependa del
+dato.**
+
+Refrescar la línea base sólo mueve la ventana. La próxima corrida vuelve a tener
+el mismo problema, y peor, porque ya se creyó una vez.
+
+## El caso que la fija (OL27)
+
+La etapa cambiaba de dónde sale el presupuesto del branch, y el criterio de
+aceptación era «los totales de los 14 branches no se mueven». Se midieron antes,
+se hizo el cambio, se midieron después: **el 710 pasó de 36 a 40.**
+
+No era el código. `outlook.budget_total` tenía filas de diez personas escritas
+ESE DÍA entre las 16:24 y las 16:37 -- Isabella fijando presupuestos mientras la
+etapa se escribía. La línea base era de la mañana.
+
+> **Una línea base de hace horas no distingue «lo rompí» de «cambió el dato».**
+
+Lo que reemplazó a la comparación fue el invariante que el módulo ya tenía y que
+nadie estaba verificando: **la tabla del branch y la lista de Outlook tienen que
+decir el mismo número, mes a mes.** Llegan por caminos distintos --una suma las
+filas que dibuja, la otra proyecta el branch entero-- así que coincidir no es
+gratis. Y no envejece: vale con los datos de hoy y con los de mañana.
+
+## Y lo que lo prueba no es el argumento, es el resultado
+
+El invariante **encontró un defecto real que la comparación contra línea base no
+habría visto**: AFFINITY mostraba `0 0 0` en la fila nueva donde la lista deja la
+celda vacía. Los dos números pasaban la prueba vieja --el total no se había
+movido-- y sin embargo las dos pantallas decían cosas distintas del mismo
+branch. La falsa era la de la tabla: `0` afirma «no se va a cerrar nada» cuando
+lo que pasa es que **nadie decidió todavía**, y habría roto la distinción que
+`fmt` sostiene en todo el módulo justo en el branch que la etapa venía a
+arreglar.
+
+## La excepción declarada, que es la otra mitad
+
+En ese mismo branch quedó una discrepancia `vacío`/`0` **pre-existente** --el
+total de AFFINITY, de la fila de Affinity de OL26c-- y no se arregló de paso:
+cambia un número en pantalla y no era lo que la etapa pedía. Lo que sí se hizo
+fue que la sonda la **afirme**:
+
+```
+a.ck(JSON.stringify(discrepan) === JSON.stringify(['AFFINITY']),
+  'la única discrepancia vacío/cero es AFFINITY, y ya estaba antes de esta etapa');
+```
+
+> **Una excepción declarada no se confunde con un fallo.** Si mañana aparece en
+> otro branch, la sonda se pone roja; si desaparece en AFFINITY, también.
+
+Tolerarla con un `filter` o un umbral habría dejado la misma pantalla y ninguna
+forma de enterarse.
+
+# «Exactamente uno» escrito de tres maneras que dicen otra cosa
+
+> Tercera vez de la misma forma, en tres lugares que no se parecen: una
+> aserción, un CHECK de SQL y una condición de fila. Por eso va como sección: lo
+> que se repite no es el lenguaje, es la intención mal escrita.
+
+## La regla
+
+**Cuando la intención es «exactamente uno de estos», escribirlo contando.** No
+encadenando comparaciones, no con un `or`, no apoyándose en que los otros casos
+no existan.
+
+## Los tres casos
+
+**1. El `||` en una aserción.** `!a.includes(b) || a.length === 3`: el segundo
+término siempre era cierto, así que la aserción no podía fallar. Pasó **dos
+veces**, las dos escribiendo la prueba de otra cosa. Está arriba, en la sección
+de las guardas: *un OR en una aserción es una pregunta sin contestar; se
+contesta armando el estado, no ampliando la condición*.
+
+**2. El XOR encadenado en un CHECK.** Con dos sujetos,
+`(a is not null) <> (b is not null)` dice «exactamente uno» y está bien. Con
+tres, `a <> b <> c` es **asociativo**: `true <> true <> true` da `true`, así que
+el CHECK dejaría entrar una fila con los tres sujetos puestos. La forma que sí
+dice lo que se quiere es `num_nonnulls(a, b, c) = 1`. Encontrado ESCRIBIENDO la
+migración de OL27, no después.
+
+**3. El `is null` que cambia de alcance cuando aparece un tercer caso.**
+`nppm_realtor_code is null or bucket in ('own_production', 'business_plan')`
+significaba «el realtor sólo tiene dos buckets» mientras los sujetos eran dos.
+Con un sujeto nuevo, ese `is null` pasa a ser verdadero también para el branch:
+**la condición no cambia de texto pero sí de alcance**. Acá el resultado era el
+deseado --un branch admite los cuatro buckets-- y por eso importa más: una
+condición que acierta por accidente se lee como una que decidió.
+
+## Qué hacer
+
+- Al agregar un caso a un conjunto que una condición discrimina, **releer la
+  condición con el caso nuevo puesto**, no sólo con los viejos. Es la misma
+  pregunta que hace la sección del `mmi_link`: qué decía la ausencia, y qué dice
+  ahora que hay un tercero.
+- Y si el resultado sigue siendo el correcto, **escribirlo igual**. Lo que se
+  deja implícito no lo hereda quien lee después.
+
+# Al quitar la fuente del dato se va la condición que el dato llevaba adentro
+
+> Sección aparte porque no es una medición mal hecha ni un caso nuevo que
+> aparece: acá **el cambio fue correcto en lo que se propuso** y se llevó de
+> paso algo que nadie había escrito como requisito, porque no estaba escrito en
+> ningún lado -- estaba en la forma del dato.
+
+## La regla
+
+**Antes de dejar de leer un dato, preguntar qué decía su AUSENCIA.** Una clave
+opcional dice dos cosas: su valor dice *qué*, y su presencia dice *dónde*. Al
+reemplazar el valor por algo mejor, la segunda se va sin aviso.
+
+## El caso que la fija (RV21 → RV22)
+
+El paso 1.2 ofrecía «Open MMI» con `gate_config.mmi_link`, un link genérico
+igual para todos. RV21 lo cambió por el perfil de MMI de la persona revisada
+--`https://new.mmi.run/nmls/<nmls efectivo>`-- que es estrictamente mejor: abre
+a quien se está revisando en vez de abrir MMI. El código quedó
+`const link = linkMmiDelLo;` y `gateLink` sin lectores.
+
+Y con eso el enlace pasó a aparecer **en los ocho pasos**. Isabella lo vio en
+las tres fases. La clave `mmi_link` existe en UNA sola fila --la del 1.2-- así
+que su ausencia en los otros siete ERA la condición «acá no va». Nadie la había
+escrito como condición porque no hacía falta: leer el dato ya la aplicaba.
+
+> **El valor decía a dónde ir; la presencia decía dónde ofrecerlo. Se reemplazó
+> el primero y se perdió la segunda.**
+
+## Qué hacer
+
+- Al reemplazar la fuente de un valor opcional, **listar las filas donde la
+  clave está y donde no**, y preguntar si esa diferencia significaba algo. Un
+  `select` de una línea lo contesta.
+- Si significaba algo, **reusar la clave como marca en vez de inventar otra**:
+  `Object.hasOwn(cfg, 'mmi_link')`. Con una clave nueva --`show_mmi`-- el
+  arreglo depende de aplicar un SQL, y hasta entonces la pantalla que sí lo
+  necesitaba se queda sin nada. Reusando la que está, **el dato de hoy ya lleva
+  la condición correcta** y el código se comporta igual antes y después de la
+  migración.
+- Y dejar dicho en el SQL que el valor pasó a dar igual, porque una URL guardada
+  que no se usa se lee como una URL que se usa.
+
+## Y la verificación que faltó las dos veces
+
+RV20 y RV21 midieron **el paso donde el enlace tiene que estar**. Un enlace
+incondicional pasa esa prueba igual de bien que uno condicionado.
+
+> **Una condición se verifica en los casos donde tiene que decir NO.**
+
+La sonda de RV22 recorre los ocho pasos, y la lista de los que deben ofrecerlo
+**sale de la base** y no de una lista escrita a mano: si mañana alguien agrega
+la clave a otro paso, la sonda espera el enlace ahí.
+
+# El mismo componente en tres formas: esperar el elemento que las tres dibujan
+
+> Octava vez de la familia «medí antes de que el dato estuviera», y la primera
+> con este mecanismo: no era que la pantalla no hubiera cargado, es que **había
+> cargado en otra de sus formas**.
+
+`ReviewStepPanel` tiene tres: `.rv-panel--buscando` --mientras busca la sección
+del paso, hasta 12s--, `.rv-panel--lejos`, y el panel completo. Las tres dibujan
+`.rv-panel__prompt`. La sonda esperaba el prompt, así que midió el panel
+reducido: **el 1.2 dio rojo estando bien, y los otros siete dieron verde por la
+razón equivocada**. Los ocho resultados eran del panel que no puede tener el
+enlace.
+
+> **Esperar «el componente apareció» no es esperar «el componente está en el
+> estado que se va a medir».**
+
+Y la corrección tuvo su propia trampa, que es la que vale anotar: el primer
+criterio nuevo fue `.rv-panel__zonas` --las tres zonas del panel completo-- y
+funcionó en siete pasos. El 3.1 abre completo por **otra rama**, la de la
+decisión de funnel, que no dibuja las zonas: quedó declarado indeterminado
+estando bien.
+
+> **Un criterio que vale para siete de ocho pasos no es el criterio.**
+
+El que vale es la ausencia de las dos clases de estado reducido, que es la
+distinción que el componente hace de verdad. Y el paso que no llega a abrirse se
+declara **INDETERMINADO**, no «sin enlace»: si no, la falta de carga vuelve a
+firmar como ausencia del dato.
+
+# Una vista parcial que no se anuncia como parcial
+
+> Mecanismo nuevo, y por eso va aparte de las siete: no es medir mal ni medir
+> antes de tiempo. La medición estaba bien hecha y la pantalla contestó bien
+> --sobre lo que mostraba--. Lo que faltó fue preguntarse si mostraba todo.
+
+## La regla
+
+**Antes de concluir algo sobre TODOS los elementos de una lista, verificar que
+la pantalla los esté mostrando todos.** Una lista colapsada y una lista corta se
+leen igual desde afuera.
+
+## El caso que la fija (OL28)
+
+El brief preguntaba qué branches no tienen ninguna fila de persona. La sonda
+recorrió `tr.bp-row-link` en la lista de Outlook, encontró **14** branches y
+contestó: «el único sin gente es AFFINITY».
+
+Falso, y falso **por omisión**. La lista tiene dos bloques colapsados desde OL23
+--`Inactive` y `Not assigned yet`-- y colapsado acá no es «oculto con CSS»: esas
+filas **no existen en el DOM**. Son 19 branches, no 14. Y los cinco que faltaban
+eran justamente los del caso: 741, 701, 771 y `Branch Out of Division` son
+cuatro de los cinco branches sin una sola fila de persona.
+
+Lo delató el brief, que los nombraba. Sin esa pista, la respuesta habría pasado:
+tenía número, tenía método y no se contradecía con nada.
+
+> **Una lista que esconde parte de sí misma contesta con seguridad sobre la
+> parte que muestra.**
+
+## Qué hacer
+
+- **Expandir todo antes de censar.** En este repo alcanza con apretar cada
+  `[aria-expanded="false"]` antes de leer las filas; es una línea y va en toda
+  sonda que recorra una lista.
+- **Contrastar el conteo contra otra fuente**: la base, o el propio número que
+  la pantalla muestra. Acá había uno a la vista: OL23 dejó el SUBTOTAL de cada
+  bloque colapsado en su barra, precisamente porque «colapsado no es excluido».
+  Un censo que da 14 contra una pantalla que suma 19 se delata solo.
+- Y al escribir una pantalla: **que lo que se esconde diga cuánto esconde**. Esa
+  barra de subtotal es lo que convierte un colapso en una decisión de lectura y
+  no en una trampa.
+
+## Y el hermano del mismo día, que no es de pantallas
+
+La misma forma apareció en una consulta: buscar a una persona por el nombre que
+trae Encompass --«Adriana Julieth Szczech»-- y concluir que no está en el roster,
+cuando está como Adriana Espinoza. La consulta corrió bien y contestó sobre el
+universo que alcanzaba a ver.
+
+Es el problema de identidad que `org.loan_officer_resolved` existe para
+resolver, y la tercera vez que el proyecto lo paga por el mismo lado --después
+de `normName` contra `realtor_code`--:
+
+> **Un cruce por nombre no dice «no está»: dice «no lo encontré así escrito».**
+
+# Un rótulo que interpreta un número es una afirmación nueva
+
+> Va aparte porque no es un error de medición ni de cálculo: el número estaba
+> bien. Lo que estaba mal era la frase que lo acompañaba, y la escribí yo.
+
+## La regla
+
+**Un rótulo que explica lo que un número SIGNIFICA hay que probarlo como se
+prueba un número.** Si dice «este branch ya pasó lo que se esperaba del mes»,
+eso es una afirmación de negocio y necesita la misma verificación que el valor:
+que sea cierta, y que sea cierta en todos los casos donde el rótulo se enciende.
+
+## El caso que la fija (OL31, de OL10)
+
+La fila de reconciliación puede dar negativo en el mes en curso. Para no mostrar
+un signo menos pelado, le puse un rótulo amable:
+
+    Sep already above forecast        →  «5 closed against a forecast of 4»
+
+Nadie lo pidió. No hay brief que lo mencione: salió de una decisión mía dentro
+de la etapa que hizo coincidir el total con la lista, y el commit la explica con
+buena intención --«lo que un manager necesita saber no es que el residuo es
+negativo»--.
+
+Medido dos semanas después, el signo negativo no significaba nada de eso. Las
+filas de persona llevan el PRONÓSTICO del branch repartido y las de NPPM y
+Affinity muestran lo REALMENTE CERRADO, así que la suma se pasa del pronóstico
+por el monto de esos cierres --esté el branch adelante o atrás de su plan--. Y
+el tooltip era peor que el rótulo: de los «5 closed», 4 no estaban cerrados.
+
+> **Un número correcto describiendo otra cosa, y esta vez el número lo puse yo.**
+
+## Lo que lo vuelve peligroso
+
+No fue el signo: fue que **una explicación amable se convirtió en una afirmación
+de negocio que nadie verificó**. Un valor raro invita a preguntar; un valor raro
+con una frase tranquilizadora al lado, no. El rótulo le sacó a la pantalla la
+única señal que tenía de que algo no cerraba.
+
+## Qué hacer
+
+- **Nombrar, no interpretar.** Una fila puede decir qué ES --«la diferencia
+  contra la lista»-- sin decir qué significa. El significado que se afirma hay
+  que poder sostenerlo en los 18 branches, no en el que se miró al escribirlo.
+- **Un tooltip que da números tiene que decir de qué son.** «5 closed» y «5 que
+  muestran las filas» se escriben parecido y son cosas distintas cuando una
+  columna mezcla pronóstico con cerrado.
+- Y al escribir un rótulo condicional, **preguntarse cuándo se enciende**: si la
+  condición es un signo, hay que buscar todos los casos que producen ese signo
+  antes de ponerle nombre a uno solo.
+
+## Y la contracara, del mismo día: lo que se guarda en un tooltip
+
+Al arreglar la causa --que la columna del mes en curso mezclaba pronóstico con
+cerrado-- lo cerrado de NPPM y Affinity salió de la columna y quedó en el
+tooltip de la celda vacía. El dato está, y nadie lo va a ver:
+
+> **Un dato que sólo vive en un tooltip está a un paso de no existir.**
+
+No es lo mismo que el rótulo de arriba --aquél afirmaba de más, éste muestra de
+menos-- pero se decide en el mismo momento y con la misma pregunta: **qué ve
+alguien que sólo mira la tabla**. Un tooltip sirve para explicar un número que
+ya está a la vista; no para ser el único lugar donde vive uno.
+
+Queda como etapa anotada en el código, no en un documento: una columna aparte
+para el mes en curso cerrado, al lado de la del pronóstico. Lo que NO es salida
+es devolver el número a la columna del pronóstico, que es de donde se lo sacó.
+
+# La identidad: preguntar «¿existe?» al universo equivocado
+
+> Sección propia porque el proyecto ya tenía TRES notas sueltas sobre esto
+> --`normName` contra `realtor_code`, el cruce por nombre de OL28, y el de
+> OL36-- y las tres describen el error sin decir qué hacer. Ésta dice qué hacer.
+> Los tres casos de abajo pasaron **el mismo día**, dos los cometió Isabella y
+> uno yo.
+
+## La forma, que es la misma en los tres
+
+> **Preguntar «¿existe?» a un universo más chico que el que la pregunta
+> necesitaba, y leer el silencio como un no.**
+
+No falla nada. No hay error, ni fila rara, ni número imposible: hay una
+respuesta limpia y falsa.
+
+## La regla
+
+**Resolver una identidad por TODAS sus fuentes, la propia primero. Y que «no
+resuelve» sea una respuesta explícita, no el valor por defecto de la primera
+consulta que falla.**
+
+La segunda mitad es la que faltaba. Un `?? null` que sigue de largo convierte
+«no lo encontré» en «no existe» sin que nadie lo decida, y ahí el dato malo
+entra a un cálculo como si fuera bueno.
+
+## Los tres casos, y el tercero es de otra clase
+
+**1. Adriana Julieth Szczech** — se la buscó en `org.dim_employee` por el nombre
+que trae Encompass y no cruzó. Está en el roster como **Adriana Espinoza**. La
+conclusión fue que el 710 tenía cuatro cierres de alguien que el roster no
+conoce; en realidad es una productora activa de ese branch.
+
+**2. Galo Rizzo** — el mismo cruce, contra la misma tabla, el mismo día.
+
+Las dos tienen algo en común y es lo que las hace fáciles de encontrar: **hay
+una tabla que señalar**. Se cruzó contra `dim_employee` y había que cruzar
+contra `employee_alias`, que existe justamente para eso.
+
+**3. Ana Manjarres** — y ésta es la que va a volver. El cruce fue contra la
+tabla CORRECTA --`employee_alias`-- y contra **una sola de sus cuatro fuentes**:
+
+```
+alias de «Ana Manjarres»:  roster · slquery · person_code  → employee_key 47
+                           salesforce: NO EXISTE
+```
+
+El índice estaba bien. La consulta estaba bien. La fuente elegida era la
+correcta para esa tabla --los préstamos abiertos vienen de Salesforce-- y la
+respuesta fue falsa igual.
+
+> **No deja rastro de estar mal.** En las dos primeras hay una tabla equivocada
+> que alguien puede ver; en la tercera todo lo visible está bien.
+
+## Y no quedó en un reporte
+
+Sus cuatro préstamos abiertos del 711 se clasificaron como de gente de otro
+branch, así que **el pronóstico entero de Ana se fue a una fila que decía
+"closed by loan officers from other branches"**: un número correcto, en el lugar
+equivocado, con un rótulo que afirmaba algo falso sobre ella.
+
+Es la misma familia que `already above forecast` --un rótulo que interpreta un
+número y la interpretación es falsa-- por otra puerta: allá la interpretación
+estaba mal escrita, acá el número llegó a la fila equivocada y el rótulo, que
+era correcto para esa fila, pasó a mentir sobre una persona.
+
+## Qué hacer
+
+- **Resolver por todas las fuentes, la propia primero.** Es una línea:
+
+  ```ts
+  const key =
+    aliasIndex.lookup('salesforce', nombre).employeeKey ??
+    aliasIndex.lookup('roster', nombre).employeeKey ??
+    aliasIndex.lookup('slquery', nombre).employeeKey;
+  ```
+
+- **Que «no resuelve» sea una decisión y no un descarte.** En OL36 quien no
+  resuelve en ninguna fuente cuenta como gente de otro branch --que es lo
+  correcto: el roster no lo tiene-- y eso está escrito al lado del `??`. Lo que
+  no puede pasar es que nadie sepa por qué ese préstamo terminó donde terminó.
+- **Y al MEDIR una ausencia, probar primero con un caso conocido.** Un cruce que
+  devuelve cero no prueba que no haya: prueba que ese cruce no encontró. Un
+  control positivo --una persona que sabemos que está-- separa las dos cosas en
+  treinta segundos, y es lo que faltó las tres veces.
+
+# Un número correcto de la fuente equivocada
+
+> Prima de la sección de identidad, y por eso va justo después, pero el error no
+> es el mismo. Allá se le pregunta «¿existe?» a un universo más chico y el
+> silencio se lee como un no. **Acá la respuesta llega, es un número, y es
+> CORRECTO** -- para la fuente de la que salió, que no es la que la pregunta
+> necesitaba. No hay silencio que interpretar mal: hay un número que se cree.
+
+## La regla
+
+**Dos números que se leen igual pueden venir de fuentes distintas, y ninguno
+lleva escrito de dónde salió.** Antes de comparar dos, o de concluir algo de
+uno, hay que preguntarle a cada uno de dónde viene.
+
+## Los tres casos, y los tres del mismo día
+
+**1. El prellenado del editor.** Al medir si «Set budget» abría mostrando la
+regla de crecimiento, leí el campo, vi el número de la regla y lo di por bueno.
+`initialStringOf` prefiere **el desglose guardado** y sólo cae a la regla si no
+hay ninguno. Los dos daban lo mismo para la persona que miré, así que la
+medición no podía distinguirlos -- y la conclusión que saqué («abre por regla»)
+era falsa para todos los que sí tenían desglose.
+
+> Es «dos estados que hoy dan el mismo número» con otra cara: allá los dos
+> gobiernos coincidían en el instante, acá las dos FUENTES coinciden en el caso
+> que se miró.
+
+**2. Laura Delgado, «not in the NPPM program».** La pantalla preguntaba la
+membresía a `branch.nppmRoster` --el roster DE ESE BRANCH-- y Laura cerró en el
+733 y proyecta en el 776. La respuesta era correcta sobre el universo
+consultado: no está en el roster del 733. Y lo que la pantalla afirmaba con
+ella era falso sobre la persona.
+
+**3. Los tres números de Fred Gomez.** El caso que lo nombra mejor, porque son
+TRES fuentes para lo que se lee como un solo dato:
+
+| dónde se ve | de dónde sale |
+|---|---|
+| su fila en la tabla del branch | `budget_total` -- el total fijado, y si está liberado, vacío |
+| el bucket `nppm` de su Loan Officer | su PROYECCIÓN, que sale de `nppm_benchmark` |
+| y cuando esa tabla está vacía | el promedio de sus 3 meses cerrados |
+
+El brief decía que el guardado había escrito el desglose y no el total. Medido:
+las dos escrituras salieron bien, con un segundo de diferencia. Su fila estaba
+vacía porque alguien lo **liberó a la regla** tres horas después, y el `1` del
+bucket no salía del desglose sino de su promedio de cierres. Tres sitios, tres
+números que se escriben igual, y ninguno era el que el reporte suponía.
+
+## Qué hacer
+
+- **Al comparar dos números de la pantalla, escribir al lado de cada uno de
+  dónde viene.** Si los dos dicen `1`, la comparación no dice nada hasta que se
+  sepa si son el mismo `1`.
+- **Y cuando una medición confirma lo esperado, preguntarse si podría haber
+  dicho otra cosa.** El prellenado dio el número de la regla y yo buscaba el
+  número de la regla: una medición que no puede fallar no es una medición. Es la
+  misma familia que el `||` que siempre es cierto.
+- **Un rótulo que afirma algo sobre una persona se verifica contra la persona,
+  no contra la fila.** «not in the NPPM program» es una afirmación sobre Laura;
+  `nppmRoster` del 733 contesta sobre el 733.
+- Y la barata, que las tres veces habría alcanzado: **buscar la función que
+  produce el número y leer su primera línea.** `initialStringOf`,
+  `nppmRealtorBudget` y `gobierna` dicen en una línea cuál es su fuente.
+
+# Un número escrito en un reporte se lee como medido
+
+> Y ésta es la que más cuesta, porque **el que recibe el número no tiene cómo
+> distinguir uno medido de uno escrito.** Las dos direcciones pasaron el mismo
+> día: el usuario aceptó mis 34px, y yo casi acepto su cuatro.
+
+## La regla
+
+**Un número en un reporte es una aserción, y quien lo lee no puede correrla.**
+Así que sólo se escribe lo que se midió, y cuando no se midió, se dice.
+
+La asimetría es lo que la hace cara: **escribir un número recordado cuesta nada
+y descubrirlo cuesta una medición**. Por eso no alcanza con la buena fe de los
+dos lados -- el emisor mide antes de escribir, y el receptor no acepta un número
+sin preguntarle de dónde salió.
+
+## Los tres casos
+
+**1. Mis 34px, que eran 11, y volvieron tres veces.** Escribí «34px de padding»
+en el reporte de OL46 leyendo la declaración que acababa de poner, no la
+pantalla. `.ol-page table.piv.ol-year td { padding: 11px 10px }` tiene más
+clases y ganaba, así que la separación computada era **11px**. El usuario lo
+aceptó --no tenía cómo no aceptarlo-- y el mismo pedido volvió en OL47 y otra
+vez después. Tres turnos por un número que costaba un `getComputedStyle`.
+
+**2. El cuatro de `crearArnes`, que eran dos.** El usuario contó cuatro turnos
+salvados por esa guarda y pidió anotarlo en la tabla. Documentadas hay dos. Si
+lo escribía, la tabla de guardas --que es el registro que este repo consulta
+para decidir qué guarda vale-- pasaba a tener un número que nadie podía
+comprobar. Lo dijo él mismo al corregirse: «los recordaba, no los tenía
+medidos».
+
+**3. Las «cero filas» de Fred, que eran nueve.** Un brief urgente decía que
+`budget_total` no tenía ni una fila de ese realtor. Tiene nueve, en tres
+revisiones. La consulta que las buscaba devolvió vacío y no se repitió.
+
+## La parte incómoda
+
+Los tres son la misma forma y **ninguno es descuido**: las tres veces el número
+se recordaba, se deducía de la declaración, o salía de una consulta que no se
+volvió a correr. Un número mal medido y uno bien medido se escriben con los
+mismos caracteres.
+
+> **La única diferencia entre un número medido y uno recordado está del lado de
+> quien lo escribe, y desaparece al escribirlo.**
+
+De ahí que la responsabilidad no se pueda delegar al lector. Y de ahí también
+que el segundo caso valga más que los otros dos: es el único donde el número
+**no llegó a escribirse**, y lo único que lo frenó fue preguntar cuáles eran los
+cuatro.
+
+## Qué hacer
+
+- **Un número de estilo sale de `getComputedStyle` sobre el elemento de verdad,
+  en la pantalla levantada.** La declaración dice la intención; la cascada dice
+  el valor -- una regla en otro archivo con menos clases es una intención, no un
+  estilo.
+- **Un número sobre el dato sale de una consulta que se corre al escribir el
+  reporte**, no de una que se corrió antes. El dato se mueve: hay una sección
+  entera sobre eso.
+- **Un número que llega de otra persona se trata como un dato de entrada, no
+  como un hecho.** Si va a quedar escrito en el repo, se mide o se atribuye:
+  «el usuario cuenta cuatro; documentadas hay dos» es una frase honesta y
+  completa.
+- **Y cuando un número no se pudo medir, escribir eso en su lugar.** «No lo
+  medí» es información; un número aproximado no se distingue de uno exacto una
+  vez escrito.
+- La guarda barata, que salió de acá: **verificar los números propios antes de
+  escribirlos**. Ya salvó un reporte entero -- comprobar un «31 archivos» que yo
+  mismo había puesto obligó a medir de nuevo, y la medición trajo el archivo que
+  yo decía que no existía.

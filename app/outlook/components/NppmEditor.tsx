@@ -39,17 +39,24 @@ function stamp(iso: string): string {
 }
 
 export default function NppmEditor({
-  realtor,
+  realtorCode,
+  displayName,
   ytd,
   data,
   onClose,
   onSaved,
 }: {
-  realtor: string;
+  /**
+   * La identidad: filtra el historial y se guarda como clave. NO se muestra --
+   * es `nppm_a7cea027d81e`, no un nombre.
+   */
+  realtorCode: string;
+  /** Lo único que va en pantalla. */
+  displayName: string;
   ytd: number;
   data: OutlookData;
   onClose: () => void;
-  /* Se espera la recarga antes de anunciar -- ver `StrategyEditor`. */
+  /* Se espera la recarga antes de anunciar -- ver `PersonBudgetEditor`. */
   onSaved: () => Promise<void> | void;
 }) {
   const [value, setValue] = useState('');
@@ -58,18 +65,21 @@ export default function NppmEditor({
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
 
-  /* Mismo criterio de normalización que el loader: trim, espacios, mayúsculas. */
-  const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toUpperCase();
+  /*
+   * POR `realtor_code`. Acá había un normalizador de nombres --trim, espacios,
+   * mayúsculas-- y se fue con la clave: unía 'fred gomez' con 'FRED GOMEZ' pero
+   * no 'FRED A GOMEZ' con 'FRED GOMEZ', que es el caso que trae el dato.
+   */
   const history = data.history.nppmBenchmarks
-    .filter((r) => norm(r.nppm_realtor) === norm(realtor))
+    .filter((r) => r.realtor_code === realtorCode)
     .sort((a, b) => b.effective_from.localeCompare(a.effective_from) || b.created_at.localeCompare(a.created_at));
 
   /*
-   * Las formas distintas del mismo nombre que ya están guardadas. Si aparecen
-   * dos, es que alguien guardó desde una fila con otra capitalización: la app
-   * las une al leer, pero mostrarlo evita que parezca que el dato se duplicó.
+   * ⚠ ACÁ SE MOSTRABAN LAS GRAFÍAS GUARDADAS DEL MISMO NOMBRE, y ese bloque se
+   * fue: con una clave estable no puede haber dos. Existía como síntoma --"la
+   * app las une al leer, pero mostrarlo evita que parezca que el dato se
+   * duplicó"-- de que la clave era el nombre. Resuelta la causa, el aviso sobra.
    */
-  const spellings = [...new Set(history.map((r) => r.nppm_realtor))];
 
   async function save() {
     const parsed = Number(value);
@@ -81,7 +91,8 @@ export default function NppmEditor({
     setError(null);
     try {
       await saveNppmBenchmark({
-        nppmRealtor: realtor,
+        realtorCode,
+        displayName,
         monthlyBenchmark: parsed,
         effectiveFrom: data.effectiveFrom,
         note: note.trim() === '' ? null : note.trim(),
@@ -98,7 +109,7 @@ export default function NppmEditor({
   }
 
   return (
-    <Modal title={`${realtor} — NPPM benchmark`} onClose={onClose}>
+    <Modal title={`${displayName} — NPPM benchmark`} onClose={onClose}>
       <div className="ol-editor">
         <div className="ol-editor__row">
           <div className="bp-form__field">
@@ -148,13 +159,6 @@ export default function NppmEditor({
 
         {error && <div className="bp-notice bp-notice--warn ol-editor__msg">{error}</div>}
         {saved && !error && <div className="bp-notice ol-editor__msg">{saved}</div>}
-
-        {spellings.length > 1 && (
-          <p className="ol-editor__hint">
-            This realtor is stored under {spellings.length} different spellings ({spellings.join(' · ')}). The app
-            treats them as the same person when reading.
-          </p>
-        )}
 
         <table className="piv ol-editor__tbl">
           <thead>

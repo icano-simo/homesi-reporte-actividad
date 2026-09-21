@@ -212,7 +212,15 @@ export function aggregateGroup(
     applications: appsByMonth[thisMonth] ?? 0,
   };
 
-  const q1 = evaluateQualifier1(closings.byMonth, windowMonths, projection, benchmark);
+  /*
+   * ⚠ SIN BUDGET -- etapa BP49. El budget es del perfil individual
+   * (`outlook.person_budget_total` es por persona, nunca por grupo) y no se
+   * suma entre miembros como sí se hace con el benchmark: sumar budgets de
+   * gente que puede no tener ninguno fijado inventaría una meta de grupo que
+   * nadie decidió. El gap del grupo sigue midiéndose sólo contra el
+   * benchmark, igual que antes de BP49.
+   */
+  const q1 = evaluateQualifier1(closings.byMonth, windowMonths, projection, benchmark, null);
   /* ⚠ El MISMO motor que una persona sola, con el día del mes: por eso el
      veredicto del grupo sale de las bandas de ritmo, igual que el individual. */
   const q2 = evaluateQualifier2(currentActivity, trailingActivityAvg, benchmark, rates, dayOfMonth);
@@ -237,12 +245,20 @@ export function aggregateGroup(
 
   const yearPrefix = thisMonth.slice(0, 5);
   const row: LoanOfficerRow = {
+    /* ⚠ `budgetMonth` en `null` — BP54. Un grupo suma los budgets de varias
+       personas, y cada una puede tener presupuestado un mes distinto: poner uno
+       sería afirmar que todas hablan del mismo. En `null` el rótulo dice
+       «Budget» a secas, que es lo único cierto para un grupo. */
+    budgetMonth: null,
     /* ── Identidad: del grupo, no de nadie ── */
     employeeKey: -1,
     fullName: members.length + ' loan officers',
     branchCodes: [...new Set(members.flatMap((m) => m.branchCodes))].sort(),
     attributionOverride: null,
     tier: null,
+    /* Un grupo no tiene NMLS, y `null` acá significa eso: no es que falte el
+       dato de alguien, es que el sujeto no es una persona -- etapa BP50. */
+    nmls: null,
     rosterStatus: null,
     isBranchManager: false,
     isProducing: false,

@@ -1,97 +1,113 @@
 'use client';
 
 import { Fragment, use, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { apportionByWeight } from '@/lib/pipeline/aggregate';
+import { focusIndexed, focusIsAbsent, hiddenCount } from '@/lib/review/focus';
+import { useReview } from '@/components/review/ReviewProvider';
 import {
   composeYear,
   currentMonthByBranch,
-  projectLoanOfficer,
   projectBranch,
-  type OutlookLoanOfficer,
-  type BranchStrategy,
+  projectLoanOfficer,
+  /* Las dos fuentes que OL27 saca de la reconciliación y les da fila propia. */
+  branchLevelBudget,
+  nppmRealtorBudget,
   type BranchRecruit,
+  type BudgetBucket,
+  type YearRow,
 } from '@/lib/outlook/loadData';
-import { STAGE_LABEL, type NotProjectingReason, type RecruitStage } from '@/lib/outlook/recruitment';
 import {
-  cadenceLabel,
-  projectPlan,
-  type GrowthSegment,
-  type OutlookStrategy,
-  type ProjectionMode,
-} from '@/lib/outlook/project';
+  STAGE_LABEL,
+  shouldShowRecruit,
+  type NotProjectingReason,
+  type RecruitStage,
+} from '@/lib/outlook/recruitment';
+import { pisoDeRealtors } from '@/lib/outlook/gobierno';
 import { remainingMonthsFor } from '@/lib/outlook/horizon';
 import { fmt, sumOfShown } from '@/lib/outlook/format';
 import { useOutlookDataContext } from '@/lib/outlook/useOutlookData';
-import StrategyEditor, { type OutlookEditable } from '@/app/outlook/components/StrategyEditor';
 import NppmEditor from '@/app/outlook/components/NppmEditor';
+import NppmOwnerPicker from '@/app/outlook/components/NppmOwnerPicker';
+import OlColgroup, { anchoDeLaGrilla } from '@/app/outlook/components/OlColgroup';
 import RecruitEditor, { branchOptions } from '@/app/outlook/components/RecruitEditor';
+import PersonBudgetEditor, {
+  /* Los rótulos de los buckets viven en un solo lugar — OL37. */
+  BUCKET_LABEL,
+  type BudgetEditable,
+  type OwnProductionRate,
+} from '@/app/outlook/components/PersonBudgetEditor';
 import OutlookTopBar from '@/app/outlook/components/OutlookTopBar';
+import type { PersonSubject } from '@/lib/outlook/save';
 /*
  * ⚠ UNA SOLA IMPLEMENTACION del calculo por estrategia — etapa OL22. Esta
  * pantalla tenia su propia copia y la vista 1 otra; ahora las dos leen de acá.
  * Ver la nota de la migración donde estaban los helpers.
  */
-import {
-  branchHasBudget,
-  esDelBranch,
-  personasDe as personasDeBranch,
-  strategyRowsOf,
-} from '@/lib/outlook/strategyRows';
+import { loanOfficerRowsOf, strategyRowsOf } from '@/lib/outlook/strategyRows';
 
 /**
  * ============================================================================
- * OUTLOOK — VISTA 2: dentro de un branch (etapas OL1b, OL2, OL3 y OL7)
+ * OUTLOOK — VISTA 2: dentro de un branch (etapa OL26, rehecha)
  * ============================================================================
  *
- * DOS BLOQUES, y la razón por la que son dos — etapa OL7:
+ * ⚠ HISTORIA: hasta OL25 esto se abría por ESTRATEGIA (Own Production, B2B,
+ * NPPM, Recruitment, Affinity) -- ver el historial de este archivo si hace
+ * falta esa versión. OL26 lo cambia a agruparse por TIPO DE PERSONA:
  *
- *   1. LOAN OFFICERS DEL BRANCH, en filas planas. Quiénes son y cuánto hace
- *      cada uno. Se lee de un barrido, sin abrir nada.
- *   2. PRESUPUESTO POR ESTRATEGIA, cada estrategia abriéndose a las personas
- *      que la aportan, con el editor adentro. Acá se decide.
+ *   Loan Officers — existing    el roster: Own Production + Recruitment
+ *                                COMBINADOS, una fila por persona.
+ *   NPPM — existing              los realtors del branch (sin cambios).
+ *   Loan Officers — in hiring    reclutas `role==='loan_officer'` que pasan
+ *                                `shouldShowRecruit`.
+ *   NPPM — in hiring             ídem, `role==='nppm'` (vacío hoy: nadie
+ *                                editó ningún recluta con ese rol todavía).
  *
- * ⚠ ANTES ERA UNA SOLA TABLA con la jerarquía al revés: persona → estrategia.
- * Para saber cuánto NPPM tenía el branch había que abrir las ocho personas y
- * sumar a mano ocho filas, y la pregunta "¿cuánto vale esta estrategia acá?"
- * --que es la que se hace al fijar un presupuesto-- no tenía respuesta en la
- * pantalla. Invertir el segundo bloque la contesta directo, y el primero sigue
- * contestando "¿quién hace cuánto?".
+ * Más una fila `Affinity` (total, sin abrir por Account Executive) y la de
+ * reconciliación de siempre. B2B ya NO tiene fila propia -- su presupuesto
+ * sigue contando en el total del branch, absorbido por la reconciliación,
+ * igual que ya pasaba con Own Production en AFFINITY desde OL22.
  *
- * Los dos bloques miran los MISMOS números por la misma fórmula: la celda de una
- * persona en una estrategia se calcula en `cellOf` y las dos jerarquías la suman.
- * No hay una segunda cuenta que pueda divergir.
+ * ⚠ POR QUÉ POR PERSONA Y NO POR ESTRATEGIA: Own Production y Recruitment se
+ * abren por la MISMA unidad de decisión -- la persona --, así que "cuánto
+ * hace Fulano" quedaba respondido en dos filas que había que sumar a mano.
+ * En el 710, donde Recruitment es buena parte de la producción real de
+ * varias personas, esa suma manual era justo la que escondía el error de
+ * reparto que esta etapa corrige (ver `loanOfficerRowsOf`,
+ * `lib/outlook/strategyRows.ts`).
+ *
+ * Los números sigue siendo LOS MISMOS que sumaba `strategyRowsOf`: el reparto
+ * del presupuesto POR ESTRATEGIA (Own Production, Recruitment) no cambió, lo
+ * que cambia es que `loanOfficerRowsOf` los combina por persona DESPUÉS de
+ * calculados, y reparte el mes en curso directo entre personas (por su propio
+ * pronóstico individual, `lo.currentMonth`) en vez de heredar el reparto por
+ * estrategia. No hay una segunda cuenta que pueda divergir: es la misma
+ * fuente, reagrupada.
  *
  * ---------------------------------------------------------------------------
- * ETAPA OL2 — acá se DECIDE, no sólo se mira
+ * SE DECIDE ACÁ, NO SÓLO SE MIRA
  * ---------------------------------------------------------------------------
- * Cada fila de persona dentro de una estrategia abre su editor (benchmark +
- * regla de crecimiento) y cada fila de realtor abre el suyo. La edición vive
- * donde está el número que cambia, no en una pantalla de configuración aparte:
- * quien mira una proyección en cero y quiere arreglarla ya está en la fila
- * correcta.
+ * Cada fila de persona abre su editor (benchmark + regla de crecimiento) y
+ * cada fila de realtor abre el suyo. Un Loan Officer que participa de
+ * Recruitment tiene DOS controles de edición en su fila -- uno por
+ * estrategia, porque el editor sigue guardando por estrategia, sin cambios.
  *
- * ⚠ Al guardar se RECARGA todo con `loadOutlookData`, no se parchea el estado en
- * memoria. Es más lento y es a propósito: lo que queda en la pantalla es lo que
- * la base devuelve, así que un guardado que no tuvo el efecto esperado se ve
- * acá y no en el próximo refresh de alguien más.
+ * ⚠ Al guardar se RECARGA todo con `loadOutlookData`, no se parchea el estado
+ * en memoria. Es más lento y es a propósito: lo que queda en la pantalla es
+ * lo que la base devuelve, así que un guardado que no tuvo el efecto esperado
+ * se ve acá y no en el próximo refresh de alguien más.
  *
  * ---------------------------------------------------------------------------
- * ETAPA OL3 — los doce meses, y LA ÚNICA FILA QUE NO CIERRA
+ * LOS DOCE MESES
  * ---------------------------------------------------------------------------
  * Las tres bandas (real · pronóstico · presupuesto) son las mismas que en la
- * vista 1 y se rotulan igual.
+ * vista 1 y se rotulan igual -- y ahora dicen explícitamente qué mes es cuál
+ * en la cabecera de cada grupo (antes sólo lo decía el color de fondo).
  *
- * ⚠ El bloque de estrategias NO suma el mes en curso, y el de personas sí: la
- * diferencia entre los dos totales es exactamente ese mes. Forecast lo calcula
- * sobre el pipeline, que no lleva la estrategia consigo, así que por estrategia
- * ese mes dice `no data` -- no 0, que sería afirmar que no va a cerrar nada.
- *
- * Es la única excepción a "cada nivel es la suma del de abajo" en todo el
- * módulo, y está dicha en la pantalla --en los tooltips de los dos totales y en
- * el rótulo del bloque-- porque una jerarquía que casi siempre cierra y una vez
- * no, sin explicación, se reporta como bug. Se cierra el día que el mes en curso
- * se pueda abrir por estrategia (ver la etapa pendiente en `project.ts`).
+ * A diferencia de la versión OL7-OL25, el mes en curso de "Loan Officers —
+ * existing" SÍ es un pronóstico (no sólo lo cerrado): cada persona tiene el
+ * suyo, propio, y la fila total suma exacto por construcción (ver el reparto
+ * en `loanOfficerRowsOf`).
  */
 
 const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -99,35 +115,6 @@ const monthLabel = (ym: string) => MONTH_ABBR[Number(ym.split('-')[1]) - 1];
 
 function bandOf(month: string, currentMonth: string): 'actual' | 'forecast' | 'budget' {
   return month < currentMonth ? 'actual' : month === currentMonth ? 'forecast' : 'budget';
-}
-
-/**
- * Cómo se está fijando esta estrategia PARA ESTA PERSONA, en una línea.
- *
- * ⚠ Dice el MODO primero, porque es lo que decide si el resto de la línea
- * significa algo — etapa OL4. Una regla de crecimiento en una estrategia fijada
- * mes a mes está guardada y no se aplica, y mostrarla sin decirlo haría pensar
- * que los meses salieron de ella.
- *
- * En modo `growth` la línea lleva CUÁNDO cae el primer aumento: sin eso, "25%
- * trimestral desde septiembre" con Sep/Oct/Nov todos iguales al benchmark se lee
- * como un error de la tabla. El benchmark ES el objetivo de septiembre y el
- * primer aumento cae al cumplirse el trimestre -- en diciembre.
- */
-function ruleLabel(lo: OutlookLoanOfficer, strategy: OutlookStrategy, months: string[]): string {
-  if ((lo.modeByStrategy[strategy] ?? 'growth') === 'monthly') {
-    const rev = lo.targetRevision[strategy] ?? 0;
-    return rev === 0 ? 'month by month · no numbers set' : 'month by month · numbers set by hand';
-  }
-  const segments = lo.rulesByStrategy[strategy] ?? [];
-  if (segments.length === 0) return 'no rule';
-  const steps = projectLoanOfficer(lo, months).stepsByStrategy[strategy] ?? [];
-  const firstRaise = steps.find((s) => s.periods >= 1);
-  const s = segments[0];
-  const base = `${s.growthPct}% ${cadenceLabel(s.cadence)} from ${monthLabel(s.fromMonth)}`;
-  const extra = segments.length > 1 ? ` (+${segments.length - 1} segment${segments.length > 2 ? 's' : ''})` : '';
-  const raise = firstRaise ? ` · 1st raise in ${monthLabel(firstRaise.month)}` : ' · no raise this year';
-  return base + extra + raise;
 }
 
 /**
@@ -232,55 +219,6 @@ function monthsApart(desde: string, hasta: string): number {
  * ⚠ `esDelBranch` Y `branchHasBudget` SE FUERON A `lib/outlook/strategyRows.ts`
  * — etapa OL22. Se importan de ahí. Ver la nota de la migración más abajo.
  */
-
-/**
- * ⚠ LA PÍLDORA: la regla en cuatro caracteres, no en una frase — etapa OL11.
- *
- * La columna decía `25% quarterly from Sep · 1st raise in Dec` en cada fila, y
- * con diez filas era una pared de texto que había que leer entera para ver que
- * todas decían lo mismo. Lo que se compara de un vistazo es CUÁNTO y CADA CUÁNTO;
- * el resto --desde qué mes, cuándo cae el primer aumento, los meses proyectados--
- * vive en el tooltip, que es donde se busca cuando hace falta.
- */
-function pillOf(plan: {
-  mode: ProjectionMode;
-  rules: GrowthSegment[];
-  hasBenchmark: boolean;
-  targetRevision: number;
-}): string {
-  if (plan.mode === 'monthly') return plan.targetRevision === 0 ? 'set months' : 'by month';
-  if (plan.rules.length === 0) return plan.hasBenchmark ? 'no rule' : 'set budget';
-  const seg = plan.rules[0];
-  const cada = seg.cadence === 'monthly' ? 'mo' : seg.cadence === 'quarterly' ? 'qtr' : 'sem';
-  const extra = plan.rules.length > 1 ? ` +${plan.rules.length - 1}` : '';
-  return `${seg.growthPct}% / ${cada}${extra}`;
-}
-
-/** La píldora de una PERSONA en una estrategia. Mismo formato, otro sujeto. */
-function pillOfLo(lo: OutlookLoanOfficer, s: OutlookStrategy): string {
-  return pillOf({
-    mode: lo.modeByStrategy[s] ?? 'growth',
-    rules: lo.rulesByStrategy[s] ?? [],
-    hasBenchmark: (lo.benchmarkSchedules[s] ?? []).length > 0 || (lo.strategyBenchmarks[s] ?? 0) > 0,
-    targetRevision: lo.targetRevision[s] ?? 0,
-  });
-}
-
-/**
- * Cómo se está fijando una estrategia DEL BRANCH, en una línea — etapa OL11.
- *
- * Mismo criterio que `ruleLabel` para una persona: el MODO primero, porque es lo
- * que decide si el resto significa algo.
- */
-function branchRuleLabel(bs: BranchStrategy): string {
-  if (bs.mode === 'monthly') {
-    return bs.targetRevision === 0 ? 'month by month · no numbers set' : 'month by month · numbers set by hand';
-  }
-  if (bs.rules.length === 0) return bs.benchmarkSchedule.length === 0 ? 'no budget set' : 'no rule';
-  const seg = bs.rules[0];
-  const extra = bs.rules.length > 1 ? ` (+${bs.rules.length - 1} segment${bs.rules.length > 2 ? 's' : ''})` : '';
-  return `${seg.growthPct}% ${cadenceLabel(seg.cadence)} from ${monthLabel(seg.fromMonth)}${extra}`;
-}
 
 /**
  * Qué dice el estado del roster, y por qué son cuatro rótulos y no dos.
@@ -446,10 +384,74 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * el presupuesto es de la división, y obligaba a repetir la selección trece
    * veces. Ver `OutlookTopBar` y `lib/outlook/horizon.ts`.
    */
-  const [editing, setEditing] = useState<
-    { kind: 'employee'; employeeKey: number; strategy: OutlookStrategy } | { kind: 'branch'; strategy: OutlookStrategy } | null
-  >(null);
-  const [editingNppm, setEditingNppm] = useState<{ realtor: string; ytd: number } | null>(null);
+  /*
+   * ══════════════════════════════════════════════════════════════════
+   * ⚠ EL EDITOR PUEDE VENIR PEDIDO POR LA URL — etapa RV4, re-cableada en
+   * OL26b cuando "Set budget" pasó a ser UNA pantalla por persona (antes
+   * era por estrategia -- ver el historial de este archivo antes de OL26b)
+   * ══════════════════════════════════════════════════════════════════
+   *
+   *   ?rvOpen=budget&rvLo=24
+   *
+   * El modo revisión lleva a esta pantalla y necesita que el editor del
+   * presupuesto esté abierto: Isabella llegó al lugar correcto y el paso no
+   * decía qué hacer, y lo que había que revisar estaba detrás de un clic.
+   *
+   * ⚠ ESTA PANTALLA NO IMPORTA NADA DE LA REVISIÓN, y es la mitad que importa:
+   * lee dos parámetros de su propia URL, como cualquier pantalla. La misma
+   * dirección que la nota de `focus.ts` -- Outlook no tiene por qué saber que
+   * existe un modo que lo enfoca, sólo contesta lo que le preguntan.
+   *
+   * ⚠ `rvOpen` YA NO ES UNA ESTRATEGIA. Antes validaba contra
+   * `OUTLOOK_STRATEGIES` porque el editor era por estrategia (`StrategyEditor`,
+   * uno por Own Production/B2B/NPPM/Recruitment/Affinity); ahora hay un único
+   * editor por persona (`PersonBudgetEditor`, ver más abajo), así que lo único
+   * que la URL necesita decir es "abrí el editor de presupuesto de esta
+   * persona" -- de ahí el string fijo `'budget'` en vez de un nombre de
+   * estrategia. `gate_config.open_editor` tiene que decir `'budget'` para esto
+   * (antes decía `'Own Production'`) -- ver
+   * `docs/sql/2026-09-review-open-editor-budget.sql`.
+   *
+   * `useState` con inicializador y no un efecto: el valor está disponible en el
+   * primer render, así que copiarlo con un efecto sería un render de más -- y es
+   * el error que ya costó dos veces en esta serie (el benchmark, los clics).
+   */
+  const searchParams = useSearchParams();
+  /*
+   * ⚠ Y QUÉ CERRÓ LA PERSONA. Sin esto, cerrar el editor que la URL pide lo
+   * volvería a abrir en el render siguiente: el parámetro sigue ahí. Se guarda
+   * la CLAVE de lo descartado (acá, el `employeeKey` -- ya no hace falta
+   * componerla con la estrategia, porque el editor es uno solo por persona) y
+   * no un booleano, así que si el paso siguiente pide otro editor, ese sí se
+   * abre.
+   */
+  const [rvDescartado, setRvDescartado] = useState<number | null>(null);
+
+  /*
+   * Lo que la URL pide, validado. `null` si no pide nada o pide algo que no
+   * existe: `rvOpen`/`rvLo` son texto de una barra de direcciones. Ya en la
+   * forma de `PersonSubject`, para poder compararse y combinarse directo con
+   * `editingBudget` más abajo.
+   */
+  const rvPedido: { kind: 'employee'; employeeKey: number } | null = (() => {
+    const abre = searchParams.get('rvOpen');
+    const dePersona = Number(searchParams.get('rvLo'));
+    if (abre !== 'budget' || !Number.isInteger(dePersona) || dePersona <= 0) return null;
+    return { kind: 'employee', employeeKey: dePersona };
+  })();
+
+  /*
+   * ⚠ CON LA LÓGICA DE ARRIBA --de la rama de revisión-- Y LA FORMA NUEVA
+   * DE `editingNppm`, que vino con el `realtor_code`. Los dos cambios son de
+   * dominios distintos: uno decide QUÉ editor se abre, el otro CÓMO se
+   * identifica a un realtor. Ninguno anula al otro.
+   */
+  /* La identidad es el codigo; `displayName` es lo unico que se muestra. */
+  const [editingNppm, setEditingNppm] = useState<{
+    realtorCode: string;
+    displayName: string;
+    ytd: number;
+  } | null>(null);
   /*
    * Lo que se esta editando de reclutamiento -- etapa OL20.
    *
@@ -465,6 +467,32 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * que nada puede alcanzar.
    */
   const [editingRecruit, setEditingRecruit] = useState<string | null>(null);
+  /*
+   * ⚠ ARRIBA DE LOS CORTES, PORQUE ES UN HOOK. Lo había puesto al lado de
+   * `personasDe`, que vive después de los tres `return` tempranos --sin datos,
+   * cargando, branch inexistente-- así que en esas tres ramas no corría y el
+   * orden de hooks cambiaba entre renders. Lo dijo `react-hooks/rules-of-hooks`.
+   *
+   * Lo que SÍ puede quedar abajo es todo lo derivado de esto: `focoKey`,
+   * `focoNombre` y `avisoDelFoco` no son hooks, y el último necesita
+   * `monthsOfYear`, que se calcula después de los cortes.
+   */
+  const { recorriendo } = useReview();
+  /*
+   * El presupuesto compuesto que se está editando -- punto 5 de OL26. Mismo
+   * criterio que `editingRecruit`: se guarda el SUJETO (empleado o realtor),
+   * no la fila, y se resuelve fresco de `branch` en cada render.
+   */
+  const [editingBudget, setEditingBudget] = useState<PersonSubject | null>(null);
+  /*
+   * ⚠ SE DERIVA, NO SE COPIA AL MONTAR -- mismo mecanismo que tenía
+   * `editingActivo` en la versión por estrategia (ver la nota de `rvPedido`
+   * más arriba), re-cableado sobre `editingBudget`/`PersonSubject` en vez de
+   * `editing`/estrategia. Y el estado local le GANA a la URL: lo que la
+   * persona abre a mano manda.
+   */
+  const editingBudgetActivo: PersonSubject | null =
+    editingBudget ?? (rvPedido !== null && rvPedido.employeeKey !== rvDescartado ? rvPedido : null);
 
   if (error) return <div className="hub-container"><div className="bp-empty">Could not load Outlook: {error}</div></div>;
   if (!data) return <div className="hub-container"><div className="bp-empty">Loading…</div></div>;
@@ -576,56 +604,6 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
   }
 
   /*
-   * ⚠ SIEMPRE TRUE DESDE OL8, y se deja escrito en vez de borrado.
-   *
-   * El roster da UN branch por persona, y una fila sólo aparece en ese branch,
-   * así que `primaryBranch` y el branch de la fila son el mismo. Hasta OL7 esto
-   * podía ser falso --una persona aparecía en cada branch donde había cerrado y
-   * su presupuesto se cargaba a uno solo-- y de ahí venía la etiqueta "budget in
-   * X", que ya no puede ocurrir.
-   *
-   * Queda como una sola expresión para que el día que la regla vuelva a admitir
-   * varias filas por persona haya UN lugar donde mirarlo, en vez de un supuesto
-   * repartido por la pantalla.
-   */
-  const isHere = (lo: OutlookLoanOfficer) => lo.primaryBranch === branch.branchCode;
-
-  /**
-   * ⚠ LA CELDA DE UNA PERSONA EN UNA ESTRATEGIA, EN UN SOLO LUGAR.
-   *
-   * Los dos bloques la usan y las dos jerarquías la suman, así que no hay una
-   * segunda cuenta que pueda divergir. Antes vivía dentro del `map` de la única
-   * tabla, y al partir la pantalla en dos habría quedado duplicada -- que es el
-   * modo de falla que este módulo evita en todos lados: dos fórmulas para el
-   * mismo número, y la de arriba que no da la suma de la de abajo.
-   *
-   * El mes en curso va en `null` --y sale como `no data`-- porque Forecast
-   * proyecta el mes desde el pipeline, que no lleva la estrategia consigo.
-   */
-  function cellOf(lo: OutlookLoanOfficer, s: OutlookStrategy, presupuesto?: Record<string, number>) {
-    const here = isHere(lo);
-    const st = lo.strategies.find((x) => x.strategy === s);
-    const steps = projectLoanOfficer(lo, remainingMonths).stepsByStrategy[s] ?? [];
-    /* Si viene el reparto en enteros, manda ése -- ver la cascada. */
-    const proj: Record<string, number | null> = {};
-    remainingMonths.forEach((m, i) => (proj[m] = presupuesto ? (presupuesto[m] ?? 0) : here ? (steps[i]?.value ?? 0) : 0));
-    return {
-      here,
-      steps,
-      /* El mes en curso: lo real cerrado. Ver la nota de `sYear`, misma razón. */
-      year: composeYear(
-        monthsOfYear,
-        currentMonth,
-        st?.actualByMonth ?? {},
-        st?.actualByMonth[currentMonth] ?? 0,
-        proj
-      ),
-      realtors: st?.byRealtor ?? [],
-    };
-  }
-
-
-  /*
    * ==========================================================================
    * LAS CINCO FILAS, CALCULADAS UNA VEZ — etapa OL9
    * ==========================================================================
@@ -658,235 +636,761 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    */
   /*
    * ==========================================================================
-   * LOS HELPERS DE ESTRATEGIA VIVEN EN `lib/outlook/strategyRows.ts` — OL22
+   * LOS CUATRO GRUPOS — etapa OL26, ver el JSDoc de cabecera del archivo
    * ==========================================================================
    *
-   * Estaban acá y se copiaron a ese modulo en OL21 para que la vista 1 pudiera
-   * filtrar por estrategia. Quedaron DOS implementaciones del mismo calculo, lo
-   * que este mismo archivo ya vio pasar con `fmt`, con 'Sin tipo' y con el tono
-   * del icono: empiezan iguales y se separan en el primer arreglo que se haga en
-   * una sola, sin que nada avise porque cada una suma bien por su cuenta.
-   *
-   * ⚠ QUE SE BORRO DE ACA, y donde esta ahora:
-   *
-   *   tienePresupuestoPropio  la trampa de OL8: un benchmark o un mes fijado,
-   *                           NUNCA una regla. Las 185 reglas de la siembra
-   *                           hacen que "tiene regla" sea verdad para todos.
-   *   participa               quien abre Recruitment -- OL19. Own Production es
-   *                           pertenencia por defecto; Recruitment es un
-   *                           programa en el que se participa.
-   *   personasDe             el conjunto UNICO que leen el presupuesto exacto,
-   *                           el benchmark sumado, el "N of M" y las filas hijas.
-   *   tieneAlgo              que estrategias muestra el branch -- OL12.
-   *   exactoDe               el presupuesto exacto, que es el peso del reparto.
-   *   esDelBranch, branchHasBudget
-   *
-   * ⚠ COMO SE VERIFICO LA MIGRACION, porque un refactor de esta pantalla no se
-   * declara equivalente, se mide: se volco la vista 2 ENTERA a JSON --los 19
-   * branches, todas las estrategias abiertas, 183 filas-- antes y despues, y se
-   * comparo con `diff`. La comparacion vive afuera del script que la genera, a
-   * proposito: si viviera adentro, un bug del script podria dar verde sobre dos
-   * salidas distintas.
-   *
-   * `personasDe` se queda como un cierre de una linea sobre `branch` porque lo
-   * llaman cuatro lugares de esta pantalla y cambiar la firma en todos no agrega
-   * nada -- la implementacion ya es una sola.
+   * Own Production y Recruitment ya no se calculan acá: `loanOfficerRowsOf`
+   * (`lib/outlook/strategyRows.ts`) hace el reparto por persona, reusando el
+   * mismo presupuesto por estrategia que ya calculaba `strategyRowsOf`. NPPM y
+   * Affinity siguen leyendo directo de `branch.byStrategy`, sin cambios en el
+   * cálculo -- lo único nuevo es dónde vive el benchmark (columna propia) y,
+   * en Affinity, que ya no se abre por Account Executive.
    */
-  const personasDe = (bs: BranchStrategy) => personasDeBranch(branch, bs);
+  const bsNppm = branch.byStrategy.find((b) => b.strategy === 'NPPM');
+  const { personRows, recruitRows } = loanOfficerRowsOf(data, branch, monthsOfYear, remainingMonths);
+
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * QUIEN YA NO ESTÁ SALE DEL GRUPO, PERO SUS CIERRES NO SE VAN — etapa BP54
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * Isabel Wagner y Ludwig Aguillon están inactivas en las DOS fuentes y sin
+   * embargo tenían fila entre los Loan Officers del 716, contadas en «7 loan
+   * officers» como si estuvieran.
+   *
+   * ⚠ Y NO SE PUEDEN BORRAR: tienen seis cierres reales en ese branch --Isabel
+   * 4 en mayo y junio, Ludwig 2 en febrero--. Sacar sus filas se lleva esos
+   * cierres del año y el 716 deja de cuadrar contra Commercial Activity. El
+   * JSDoc de `resolveOfficerKey` ya lo decía: con sus filas afuera, el branch
+   * 716 no existía en el módulo.
+   *
+   * Así que salen del GRUPO --dejan de contarse como gente-- y sus cierres
+   * siguen en la tabla, en una fila propia que entra en `allShownYears`. El
+   * total del branch es la suma de lo que se muestra, así que no se mueve.
+   *
+   * ⚠ Y EL RÓTULO DICE CUÁL DE LAS DOS COSAS ES. Alguien que se fue y alguien
+   * de otro branch se ven parecido en una fila y no son lo mismo: la línea del
+   * pie ya dice «closed here by loan officers from OTHER BRANCHES», y ésta
+   * tiene que decir que estas personas YA NO ESTÁN. Un rótulo que no distingue
+   * las dos causas es un número correcto con una explicación falsa.
+   */
+  const seFueron = personRows.filter((p) => p.lo.rosterState === 'left');
+  const personRowsActivos = personRows.filter((p) => p.lo.rosterState !== 'left');
+
+  /*
+   * ══════════════════════════════════════════════════════════════════
+   * EL FOCO DE LA REVISIÓN: UNA SOLA PERSONA A LA VISTA — etapa RV7
+   * ══════════════════════════════════════════════════════════════════
+   *
+   * `recorriendo` y no «hay una sesión abierta»: es la distinción de RV5, y con
+   * ella el foco SE APAGA SOLO al dar `Save and exit`, sin trabajo extra.
+   *
+   * `null` deja la app idéntica -- la nota de `focus.ts` lo dice: `null` no es
+   * «mostrar a nadie». Es el peor error posible acá, que una pantalla de Outlook
+   * se quede sin gente porque nadie arrancó una revisión.
+   *
+   * ⚠ Y EL FOCO NO ENTRA EN NINGÚN CÁLCULO. `personRows` sigue completa en la
+   * suma del branch y en el reparto de `loanOfficerRowsOf` -- sólo se filtra acá,
+   * al dibujar. La pregunta que lo gobierna es «esto es un número del branch, o
+   * una fila de una persona?» -- y sólo las filas se enfocan.
+   *
+   * ⚠ RE-CABLEADO AL REBASAR SOBRE MAIN (OL26 → OL26f, contra RV7-RV13). RV7
+   * enfocaba `personasDe(bs)` y `bs.owners`, las listas de la vista POR
+   * ESTRATEGIA que esta etapa reemplaza por `personRows` (Own Production y
+   * Recruitment combinados por persona). B2B y Affinity dejaron de abrirse por
+   * dueño (OL26c: Affinity es una fila total, sin AE; B2B no tiene fila propia),
+   * así que el foco por `bs.owners` ya no tiene superficie donde aplicarse -- se
+   * pierde ese caso puntual del foco, y queda dicho acá en vez de haber
+   * desaparecido sin que nadie lo viera. `personRows` es la única lista que
+   * sigue enfocable, y es donde se aplica más abajo.
+   */
+  const focoKey = recorriendo?.session?.lo_employee_key ?? null;
+  const focoNombre = recorriendo?.loName ?? null;
+
+  /*
+   * ⚠ ENFOCAR SIN DECIRLO ES PEOR QUE NO ENFOCAR.
+   *
+   * Quien mire va a ver una fila donde había ocho y no va a saber si el branch
+   * se quedó sin gente o si la vista está filtrada. Dos casos, y son distintos:
+   *
+   *   · la persona ESTÁ y el resto se escondió  → cuántas, y por quién
+   *   · la persona NO participa de la estrategia → eso, con esas palabras. Una
+   *     tabla vacía se lee como un dato que falta, y acá el dato está: la
+   *     estrategia tiene presupuesto y nada de él es suyo. Es una conversación
+   *     válida de una revisión, así que la estrategia se muestra y se explica en
+   *     vez de esconderse.
+   *
+   * Sin clases nuevas: `lbl` y `bp-muted` ya existen.
+   *
+   * ⚠ `colSpan` en `monthsOfYear.length + 4`, no `+3` -- esta etapa (OL26)
+   * agregó la columna Benchmark a la tabla (lbl, bench, N meses, total,
+   * rule); la vista por estrategia de la que viene este aviso no la tenía.
+   * (Hubo también una columna Position, agregada y sacada de nuevo dentro de
+   * la misma etapa -- ver OL26b -- así que el número final es +4 y no +5.)
+   */
+  const avisoDelFoco = (lista: readonly { employeeKey: number | null }[], s: string) => {
+    if (focoKey === null) return null;
+    const ausente = focusIsAbsent(lista, focoKey);
+    const ocultos = hiddenCount(lista, focoKey);
+    if (!ausente && ocultos === 0) return null;
+    const quien = focoNombre ?? 'the coachee';
+    return (
+      <tr className="metric mrow" key={'s-' + s + '-foco'}>
+        <td className="lbl bp-muted" colSpan={monthsOfYear.length + 4} style={{ paddingLeft: '30px' }}>
+          {ausente
+            ? `${quien} takes no part in ${s} \u2014 this budget is the branch's, and none of it is theirs.`
+            : `${ocultos} more row${ocultos === 1 ? '' : 's'} hidden while coaching ${quien}.`}
+        </td>
+      </tr>
+    );
+  };
 
   /*
    * ==========================================================================
    * LAS FILAS DE ESTRATEGIA, CON SUS DOS REPARTOS — una sola implementacion
    * ==========================================================================
+   * ⚠ EL FILTRO DE "QUIÉN SE MUESTRA" VA ACÁ, DESPUÉS DEL REPARTO — punto 6 del
+   * brief, mismo principio que ya usaba AFFINITY con Own Production más arriba
+   * en el historial de este archivo: `loanOfficerRowsOf` reparte el presupuesto
+   * de Recruitment entre TODOS los reclutas, se muestren o no, porque un
+   * recluta que aporta al total y queda fuera de los PESOS es exactamente el
+   * modo de falla que el punto 7 pide vigilar. Filtrar antes del reparto haría
+   * eso mismo con el filtro de visibilidad en vez de con un bug.
    *
-   * ⚠ ACA HABIA 121 LINEAS y son las que la vista 1 necesitaba para su filtro.
-   * Las dos cascadas de redondeo --el mes en curso repartido entre estrategias, y
-   * el presupuesto entero de cada mes futuro-- viven en `strategyRowsOf`.
-   *
-   * ⚠ LO QUE LAS CASCADAS GARANTIZAN, y por lo que no se pueden hacer celda por
-   * celda: medio prestamo no existe, asi que ninguna celda muestra decimales;
-   * pero redondear cada una por separado rompe las dos sumas que la tabla
-   * promete --la de la columna, donde las estrategias dan el total del branch, y
-   * la de la fila--. `apportionByWeight` garantiza que las partes sumen el total
-   * y nada mas, asi que la lista que entra tiene que ser LA MISMA que se dibuja.
-   * De ahi que `filasBase` salga de la misma funcion y no de un filtro aparte.
+   * Si un recluta oculto por este filtro tuviera una parte del presupuesto
+   * --hoy no ocurre: `tentative` y `stale` no proyectan (`stageProjects` en
+   * `recruitment.ts`), así que su peso ya es cero-- esa parte no se pierde: la
+   * fila de reconciliación la absorbe, porque `strategiesByMonth` más abajo
+   * suma sólo lo que efectivamente se muestra.
    */
+  const visibleRecruitRows = recruitRows.filter((rr) => shouldShowRecruit(rr.recruit, data.today));
+
   /*
    * ══════════════════════════════════════════════════════════════════════════
-   * ⚠ AFFINITY NO MUESTRA OWN PRODUCTION — etapa OL22
+   * LOS REALTORS DE NPPM, Y AHORA SÍ CON SUS MESES FUTUROS — etapa OL27
    * ══════════════════════════════════════════════════════════════════════════
    *
-   * Su producción la abren dos Account Executives --Shirley Camargo y David
-   * Álvarez-- y una sección de Own Production que casi siempre está en cero
-   * compite con la que sí tiene algo que decir.
+   * ⚠ ACÁ IBA `{}` COMO PROYECCIÓN, y ése era medio bug: `projectBranch` suma
+   * el benchmark de cada realtor a TODOS los meses futuros del branch desde
+   * OL12, y estas filas mostraban esos meses en blanco. El presupuesto existía
+   * en el total y no se veía en ninguna fila, así que caía en la reconciliación
+   * -- que encima lo rotulaba «LO out of branch». Medido en OL27: 2 por mes en
+   * el 733, 2 en el 776 y 1 en el 724, ninguno de ellos un cierre de nadie de
+   * otro branch.
    *
-   * ⚠ EL CASO QUE NO ES CERO, Y QUÉ PASA CON ÉL. Medido: AFFINITY cerró 32 en
-   * 2026, y son 31 de estrategia `Affinity` + 1 de `Own Production` -- un
-   * préstamo de enero de Nathan Martinez (`n.martinez`), cuyo `opportunity_owner`
-   * ES Shirley Camargo pero que BigQuery clasifica como Own Production.
+   * El reparto sale de `nppmRealtorBudget`, la MISMA función que `projectBranch`
+   * usa para sumar. Redondea el total de NPPM y lo reparte entre los realtors
+   * con `apportionByWeight`, por lo mismo que `loanOfficerRowsOf` con las
+   * personas: las filas tienen que sumar el entero que el total ya tiene.
+   */
+  const nppmBudget = nppmRealtorBudget(branch, remainingMonths);
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * EL GRUPO DE NPPM ES EL PROGRAMA, NO TODO EL QUE TRAJO UN PRÉSTAMO — OL45
+   * ══════════════════════════════════════════════════════════════════════════
    *
-   * Al sacar la sección ese cierre no desaparece: el total del branch sigue en
-   * 32 --sale de `actualByBranch`, por préstamo-- y la diferencia cae en la fila
-   * de reconciliación, que desde OL22 se llama `LO out of branch`. Y la etiqueta
-   * es literal acá: AFFINITY no tiene NI UNA fila en `org.roster_current`, así
-   * que todo lo que cierra ahí es de alguien de otro branch.
+   * De los 30 realtors con producción, 23 NO son NPPM contratados: son agentes
+   * con los que la división cierra. Su producción es real y sigue contando en
+   * el total del branch --que sale de `projectBranch` y no de estas filas--,
+   * pero no son del programa, así que el grupo que lo explica no es el suyo.
    *
-   * ⚠ SE FILTRA DESPUÉS DE `strategyRowsOf` Y NO ANTES, y la diferencia importa:
-   * los pesos que entran al reparto tienen que ser los de TODAS las estrategias
-   * del branch. Filtrando antes, `apportionByWeight` repartiría el entero del
-   * branch entre las que quedan y les daría de más -- el cierre de enero no
-   * desaparecería, se disolvería adentro de Affinity, que es peor que dejarlo
-   * afuera con nombre.
+   * ⚠ Y LA MEMBRESÍA ES GLOBAL, NO DE ESTE BRANCH. Laura Delgado es NPPM del
+   * 776 y tiene historia en el 733: su fila del 733 se queda --OL30: lo que
+   * cerró acá ocurrió acá-- con el rótulo que dice dónde proyecta. Preguntarle
+   * la membresía a `branch.nppmRoster` la daba por ajena y le ponía «not in the
+   * NPPM program», que es falso. La misma confusión que ya costó dos veces:
+   * «no está acá» leído como «no existe».
+   */
+  const miembroNppm = new Map(data.nppmSinBranch.map((x) => [x.realtorCode, x]));
+  const nppmRows = (bsNppm?.realtors ?? []).filter((r) => miembroNppm.has(r.realtorCode)).map((r) => ({
+    r,
+    year: composeYear(
+      monthsOfYear,
+      currentMonth,
+      r.actualByMonth,
+      r.actualByMonth[currentMonth] ?? 0,
+      nppmBudget.parts.find((p) => p.realtorCode === r.realtorCode)?.byMonth ?? {}
+    ),
+  }));
+
+  /*
+   * ⚠ NPPM — IN HIRING: VACÍO HOY, Y A PROPÓSITO SIN EL REPARTO CONJUNTO DE
+   * `loanOfficerRowsOf`. `outlook.recruitment_projection` está vacía por
+   * completo, así que ningún recluta tiene `role === 'nppm'` todavía --el rol
+   * cae siempre a `'loan_officer'` por default, ver `loadData.ts`--. El día que
+   * aparezca el primero, su presupuesto va a necesitar el MISMO reparto
+   * conjunto que ya tiene Recruitment (realtors + recluta en un solo
+   * `apportionByWeight`, para no repetir el error que el punto 7 corrige), pero
+   * construirlo y verificarlo hoy sería sobre cero casos reales. Mientras tanto
+   * se muestra su valor EXACTO sin repartir, que es lo que ya hacía la pantalla
+   * anterior con cualquier recluta.
+   */
+  const nppmRecruitsVisible = (bsNppm?.recruits ?? []).filter((r) => shouldShowRecruit(r, data.today));
+  const nppmHiringRows = nppmRecruitsVisible.map((r) => ({
+    r,
+    year: composeYear(monthsOfYear, currentMonth, {}, null, r.byMonth),
+  }));
+
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * ⚠ AFFINITY: UNA SOLA FILA TOTAL, SIN ABRIR POR ACCOUNT EXECUTIVE — OL26
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * Confirmado con Isabella: "affinity debería venir en una línea total sin
+   * abrir por lo o ae". Reusa el `year` que ya calcula `strategyRowsOf` para
+   * esta estrategia -- el reparto entre dueños sigue existiendo ADENTRO de esa
+   * función, sólo que acá no se despliega fila por fila.
+   *
+   * ⚠ YA NO ES EDITABLE DESDE ACÁ. Antes cada Account Executive tenía su lápiz
+   * en su propia fila; al no abrirse ya no hay dónde ponerlo. Es una pérdida
+   * real de la simplificación pedida y queda dicho, no escondido: si hace falta
+   * volver a editar el presupuesto de un AE, hoy no hay desde dónde en esta
+   * pantalla.
    */
   const sRowsTodas = strategyRowsOf(data, branch, monthsOfYear, remainingMonths);
-  const sRows =
-    branch.branchCode === 'AFFINITY'
-      ? sRowsTodas.filter((r) => r.strategy !== 'Own Production')
-      : sRowsTodas;
-  /*
-   * `filasBase` y `agostoDe` desaparecieron con la migración: sus dos
-   * consumidores --el `map` de las filas y `sYear`-- ahora salen de `sRows`
-   * directamente. `presupuestoDe` se queda porque el reparto entre dueños lo
-   * necesita por estrategia.
-   */
-  const presupuestoDe = new Map(sRows.map((r) => [r.strategy, r.budget]));
+  const affinityRow = sRowsTodas.find((r) => r.strategy === 'Affinity');
+  /* Mismo `bench` que calculaba la fila de estrategia vieja para Affinity. */
+  const affinityBench = affinityRow
+    ? affinityRow.bs.owners.reduce((a, o) => a + (o.isPerson && o.mode !== 'monthly' ? o.benchmarkAtDisplay : 0), 0)
+    : null;
 
-  const strategyRows = sRows.map(({ bs, year: sYearCompartido }) => {
-      const s = bs.strategy;
-      /*
-        ⚠ EL PRESUPUESTO SOLO SE PROYECTA DONDE HAY DE DONDE.
-        Own Production proyecta: su benchmark vive en `org.employee_benchmark`,
-        por persona, y el motor ya lo resuelve. Las otras no: sus tablas de
-        decisión cuelgan de `employee_key` y una estrategia del branch no tiene
-        dónde guardar su presupuesto todavía. Van en `null` --celda vacía-- y no
-        en 0, que afirmaría que se decidió que no cierre nada.
-      */
-      /*
-       * ⚠ ACÁ SE ARMABA `proj` Y SE FUE — etapa OL22. Era la copia local del
-       * presupuesto repartido, y su unico consumidor era `sYear`, que ahora viene
-       * de `strategyRowsOf`. `presupuestoDe` sigue usándose abajo, para el
-       * reparto entre los DUEÑOS.
-       */
-      let steps: ReturnType<typeof projectPlan> = [];
-      /*
-       * Lo que le toca al presupuesto de branch sin dueño. Lo llena el bloque de
-       * las filas de dueño, que es donde se hace el reparto, y lo lee su propia
-       * fila más abajo.
-       */
-      /*
-       * El reparto entre los DUEÑOS y el presupuesto de branch sin dueño, que
-       * compite como un peso más. Se calcula acá --no en el render-- porque las
-       * dos filas lo necesitan y calcularlo dos veces serían dos repartos que
-       * pueden diferir.
-       *
-       * ⚠ Sin incluirlo como peso, los pesos de los dueños son todos cero
-       * --ninguno tiene benchmark todavía-- y `apportionByWeight` vuelca el entero
-       * completo en el PRIMERO: Annie Garrido aparecía con 2, 2, 3 sin tener
-       * ninguno, y ese número era en realidad el de branch.
-       */
-      const huerfanoPorMes: Record<string, number> = {};
-      const porDueno: Record<string, number>[] = bs.owners.map(() => ({}));
-      /*
-       * `steps` sólo alimenta el tooltip de la celda --el porqué de cada mes-- y
-       * NO el número que se muestra: ése sale del reparto en enteros. Se calcula
-       * únicamente para el presupuesto del branch, que es el que tiene una regla
-       * que explicar.
-       */
-      if (branchHasBudget(bs)) {
-        steps = projectPlan(remainingMonths, {
-          mode: bs.mode,
-          benchmarks: bs.benchmarkSchedule,
-          segments: bs.rules,
-          targets: bs.targets,
-        });
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * ⚠ B2B YA NO TIENE FILA, Y NO LE HACE FALTA -- corregido en OL26c
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * EL MODELO ESTABA MAL PLANTEADO. B2B, NPPM, Affinity y Recruitment son
+   * estrategias de ORIGEN -- quién trajo el negocio -- pero el CIERRE siempre
+   * lo procesa un Loan Officer. Verificado: los 20 cierres de B2B del 747 este
+   * año tienen loan_officer -- 15 de Gian Laino y Galo Rizzo, que YA tienen
+   * fila en este branch como Own Production.
+   *
+   * Por eso `loanOfficerRowsOf` deja de sumar sólo Own Production + Recruitment
+   * para lo YA CERRADO: suma las CUATRO estrategias que puede cerrar un Loan
+   * Officer (Own Production, B2B, Recruitment, Affinity) -- todas menos NPPM,
+   * que se abre como detalle del realtor pero no suma a nadie, para no contar
+   * el mismo préstamo dos veces (una vez en la fila del realtor, otra en la
+   * del Loan Officer que lo cerró).
+   *
+   * ⚠ ESO ES LO QUE CIERRA EL 747 SIN RESIDUO DE B2B. Antes B2B no tenía dónde
+   * caer más que la reconciliación, que absorbía sus 20 cierres sin nombrarlos
+   * -- el número de esa fila no coincidía con los 5 cierres reales de gente de
+   * otro branch que el pie sí explica por nombre. Ahora los 15 de Gian y Galo
+   * están en SUS filas, y sólo quedan los 5 genuinos: Nathan Martinez (2, roster
+   * 716) y los no resueltos (Michael Tirio, Frank Rodriguez), que van donde
+   * siempre fueron -- `outsiders` y `unattributed`.
+   *
+   * `sRowsTodas` sigue completo -- adentro, `strategyRowsOf` todavía necesita
+   * el peso de B2B para repartir bien el presupuesto FUTURO entre todas las
+   * estrategias. Lo que no pasa es que se RENDERICE una fila para B2B: su
+   * presupuesto futuro (dos filas guardadas con `branch_code`, sin un Loan
+   * Officer al que atribuírselo) sigue sin tener dónde vivir y cae en la
+   * reconciliación -- pero sólo en los meses de presupuesto, nunca en los ya
+   * cerrados.
+   */
+
+  /**
+   * El total de un grupo, mes por mes: la suma de sus FILAS MOSTRADAS y nada
+   * más -- mismo criterio que ya usaba `strategiesByMonth` por estrategia, acá
+   * generalizado para sumar sobre CUALQUIER conjunto de filas (personas,
+   * reclutas o realtors). Vacío sólo cuando NINGUNA fila del conjunto tiene
+   * algo que mostrar ese mes.
+   */
+  function sumYears(years: YearRow[], m: string): number | null {
+    const showing = years.filter((y) => y.byMonth[m] !== null);
+    return showing.length === 0 ? null : showing.reduce((a, y) => a + (y.byMonth[m] ?? 0), 0);
+  }
+
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * EL PRESUPUESTO FIJADO PARA EL BRANCH, CON FILA PROPIA — etapa OL27
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * Dos filas guardadas en `outlook.strategy_benchmark` con `branch_code` --B2B
+   * en el 747 desde septiembre y en el 716 desde octubre, 2 por mes cada una--
+   * que `projectBranch` suma al total y ninguna fila mostraba.
+   *
+   * ⚠ LOS MESES PASADOS VAN EN `null` Y NO EN CERO. Un presupuesto no tiene
+   * historia: decir 0 en mayo afirmaría que no se cerró nada por esa vía, y lo
+   * que pasa es que la pregunta no aplica. Es la distinción que `fmt` sostiene
+   * --celda vacía contra `0`-- y por eso la fila se arma a mano en vez de con
+   * `composeYear`, que rellenaría los meses cerrados con ceros.
+   */
+  const branchBudget = branchLevelBudget(branch, remainingMonths);
+  /*
+   * ⚠ Y LA FILA APARECE TAMBIÉN SIN PRESUPUESTO, cuando el branch no tiene a
+   * quién abrirle el editor — etapa OL27. AFFINITY tiene CERO productores en el
+   * roster: sin esta fila no hay ni un lápiz en la pantalla, que es exactamente
+   * el bug que el brief reporta. Con ella, el sujeto del presupuesto es el
+   * branch y el editor se abre desde acá.
+   *
+   * No es «mostrar una fila vacía por las dudas»: es que en ese branch la fila
+   * del presupuesto ES la única que puede existir.
+   */
+  const branchSinGente = !branch.loanOfficers.some((l) => l.primaryBranch === branch.branchCode);
+  /*
+   * ⚠ Y UN MES SIN NINGUNA FUENTE VA EN `null`, NO EN CERO. Lo encontró la
+   * comparación contra la lista de Outlook: AFFINITY no tiene presupuesto ni
+   * gente, y la fila nueva le puso `0 0 0` donde la lista deja la celda vacía.
+   * Las dos pantallas decían cosas distintas sobre el mismo branch, y la de la
+   * tabla era la falsa: `0` afirma «no se va a cerrar nada» y lo que pasa es
+   * que nadie decidió todavía. Es la distinción que `fmt` sostiene en todo el
+   * módulo --celda vacía contra `0`-- y la fila la habría roto justo en el
+   * branch que esta etapa viene a arreglar.
+   */
+  const hayFuenteDeBranch = branchBudget.parts.length > 0 || branchBudget.fijadoAMano.length > 0;
+  const branchBudgetYear: YearRow = (() => {
+    const byMonth: Record<string, number | null> = {};
+    let total = 0;
+    for (const m of monthsOfYear) {
+      const v =
+        remainingMonths.includes(m) && hayFuenteDeBranch ? (branchBudget.byMonth[m] ?? 0) : null;
+      byMonth[m] = v;
+      if (v !== null) total += v;
+    }
+    return { byMonth, total, hasUnknown: true };
+  })();
+  const hayBranchBudget =
+    remainingMonths.some((m) => (branchBudget.byMonth[m] ?? 0) > 0) || branchSinGente;
+
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * EL MES EN CURSO NO MEZCLA PRONÓSTICO CON CERRADO — etapa OL32
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * La columna del mes en curso es un PRONÓSTICO: sale del pipeline, que no
+   * lleva la estrategia consigo, y `loanOfficerRowsOf` reparte el entero del
+   * branch entre las PERSONAS. O sea que las filas de persona ya suman el mes
+   * completo.
+   *
+   * NPPM y Affinity mostraban ahí lo REALMENTE CERRADO, así que la suma de las
+   * filas se pasaba del pronóstico por exactamente ese monto y la
+   * reconciliación lo descontaba. Medido en el 716: las personas 14 --el
+   * pronóstico entero-- más 4 de Affinity, contra un pronóstico de 14, y un
+   * residuo de −4. Eso es lo que el rótulo de OL31 leía como «el branch ya pasó
+   * lo que se esperaba del mes».
+   *
+   * ⚠ VA EN BLANCO Y NO EN CERO. Un cero diría «no se espera nada de NPPM este
+   * mes», y lo que pasa es que no se puede saber: el pronóstico no se abre por
+   * estrategia. Es la distinción de `fmt` --celda vacía contra `0`-- otra vez.
+   *
+   * ⚠ Y SÓLO DONDE EL MES EN CURSO ES UN PRONÓSTICO. En un branch sin nadie
+   * rosterizado no hay pronóstico y su mes en curso ES lo cerrado --la regla de
+   * la vista 1, y lo que hace que AFFINITY muestre sus 5 de agosto-- así que
+   * ahí no hay ninguna mezcla que deshacer y la fila sigue como está.
+   *
+   * ⚠ Y LO CERRADO NO SE PIERDE: la celda vacía lleva en su tooltip cuánto
+   * cerró esa fila en el mes. Se saca de la COLUMNA, donde convive con números
+   * de otra clase, no de la pantalla.
+   */
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * ⚠ ETAPA PENDIENTE: LA COLUMNA DEL MES EN CURSO CERRADO
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * Lo cerrado de NPPM y de Affinity en el mes en curso quedó SÓLO en el
+   * tooltip de la celda vacía. El dato está y nadie lo va a ver:
+   *
+   *     Un dato que sólo vive en un tooltip está a un paso de no existir.
+   *
+   * La salida correcta cuando haga falta es una COLUMNA APARTE para el mes en
+   * curso cerrado, al lado de la del pronóstico -- no devolver el número a esta
+   * columna, que es de lo que esta etapa vino a sacarlo. Queda anotado acá, que
+   * es donde lo va a leer quien se pregunte por qué la celda está vacía, y no en
+   * un documento aparte.
+   */
+  /*
+   * ⚠ ERA `!branchSinGente` Y AHORA ES SIEMPRE — etapa OL35.
+   *
+   * La excepción existía porque un branch sin roster no tenía pronóstico y su
+   * mes en curso era lo cerrado: ahí no había dos clases de número que separar.
+   * Desde que la columna se atribuye por el BRANCH DEL PRÉSTAMO, todos los
+   * branches tienen pronóstico --AFFINITY incluido, con sus 4-- así que la
+   * regla vale en los 18 sin excepción.
+   *
+   * Y con eso el mes en curso lo llevan las filas que lo tienen: las de persona
+   * su parte propia, y la de reconciliación lo de gente de afuera. Una fila de
+   * estrategia mostrando ahí lo cerrado volvería a mezclar dos clases de número
+   * en la misma columna, que es lo que OL32 vino a deshacer.
+   */
+  const mesEnCursoEsPronostico = true;
+  const sinMesEnCurso = (y: YearRow): YearRow =>
+    !mesEnCursoEsPronostico || y.byMonth[currentMonth] === null
+      ? y
+      : {
+          byMonth: { ...y.byMonth, [currentMonth]: null },
+          total: y.total - (y.byMonth[currentMonth] ?? 0),
+          hasUnknown: true,
+        };
+
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * LA COMPOSICIÓN DEL PRESUPUESTO DEL BRANCH — etapa OL37
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * La suma por bucket de lo que dijo cada Loan Officer del branch en SU
+   * desglose. Es una lectura, no una decisión: el presupuesto se fija por
+   * persona y acá solo se mira sumado.
+   *
+   * ⚠ SÓLO LA GENTE DEL ROSTER DE ESTE BRANCH --`primaryBranch`--, que es la
+   * misma población que dibuja las filas de persona. Sumar a quien produce acá
+   * pero pertenece a otro branch contaría su presupuesto dos veces entre los
+   * dos branches, y el presupuesto de alguien es uno solo.
+   *
+   * ⚠ Y SIN LA FILA CUANDO NO HAY NADA, no en cero: un branch donde nadie fijó
+   * su desglose no tiene una composición de ceros, no tiene composición. Es la
+   * distinción de `fmt` otra vez, a nivel de bloque.
+   */
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * ⚠ Y LA REGLA TAMBIÉN ES PRESUPUESTO, Y ES OWN PRODUCTION — etapa OL39
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * Hasta OL38 esta tarjeta sumaba SÓLO lo desagregado a mano, y por eso decía
+   * 6 donde la fila del branch decía 7. Pero quien no desagregó nada igual
+   * tiene presupuesto --el que proyecta su regla de crecimiento-- y ese número,
+   * por definición del modelo, es Own Production: «si es por la regla
+   * predeterminada todo se aloca en own production, y de ahí en la revisión
+   * definen si está bien así o si modifican algo».
+   *
+   * Es la misma cascada que el perfil del Loan Officer ya muestra desde BP49b
+   * --`budgetSource: 'fixed' | 'rule'`, con el rótulo «from growth rule»--, del
+   * lado del branch.
+   *
+   * El presupuesto efectivo de cada persona se toma de donde lo toma la FILA:
+   * `lo.budgetTotal[m] ?? (regla de Own Production + su parte de Recruitment)`,
+   * el mismo `?? ` de `loanOfficerRowsOf`. Copiarlo con otro criterio las
+   * separaría de nuevo, que es lo que esta etapa viene a cerrar.
+   *
+   * ⚠ Y AL OWN PRODUCTION DE LA REGLA SE LE RESTAN LOS OTROS BUCKETS, que es
+   * el punto que muerde: Galo y Gian tienen `b2b 1` del reparto y su total sale
+   * de la regla. Si Own Production trajera la regla entera Y ADEMÁS estuviera
+   * el B2B, esas personas sumarían de más -- el mismo préstamo contado dos
+   * veces, en dos filas de la misma tarjeta.
+   */
+  /*
+   * Los Loan Officers a los que se puede vincular un NPPM de este branch —
+   * etapa OL44. Los del roster de acá, y con identidad: un `employeeKey`
+   * sintético (negativo) no se puede guardar en `nppm_realtor_owner`.
+   */
+  const losDelBranch = branch.loanOfficers
+    .filter((l) => l.primaryBranch === branch.branchCode && l.hasIdentity)
+    .map((l) => ({ employeeKey: l.employeeKey, fullName: l.fullName }))
+    .sort((a, b) => a.fullName.localeCompare(b.fullName));
+
+  const composicion = (() => {
+    const BUCKETS: BudgetBucket[] = ['own_production', 'b2b', 'nppm', 'recruitment', 'business_plan'];
+    const OTROS = BUCKETS.filter((b) => b !== 'own_production');
+    const suyos = branch.loanOfficers.filter((l) => l.primaryBranch === branch.branchCode);
+
+    /* El presupuesto efectivo de la persona, mes a mes, igual que su fila. */
+    const efectivoDe = (lo: (typeof suyos)[number]) => {
+      const pr = personRows.find((x) => x.lo.employeeKey === lo.employeeKey);
+      const porMes: Record<string, number> = {};
+      for (const m of remainingMonths) porMes[m] = pr?.year.byMonth[m] ?? 0;
+      return porMes;
+    };
+    const aMano = (lo: (typeof suyos)[number], b: BudgetBucket, m: string) =>
+      lo.budgetBreakdown[b]?.[m] ?? null;
+
+    /* Cuántos aportan su Own Production por regla y no por desglose: el rótulo
+       lo dice, porque un número de otra fuente es otra afirmación. */
+    let porRegla = 0;
+    const ownByMonth: Record<string, number> = {};
+    for (const m of remainingMonths) ownByMonth[m] = 0;
+    for (const lo of suyos) {
+      const efectivo = efectivoDe(lo);
+      /* «Por regla» es ahora lo mismo que dice el cálculo de abajo: sin un
+         Own Production a mano QUE MANDE, o sea con total fijado — OL41. */
+      const tieneOwnAMano = remainingMonths.some(
+        (m) => aMano(lo, 'own_production', m) !== null && lo.budgetTotal[m] !== undefined
+      );
+      if (!tieneOwnAMano && remainingMonths.some((m) => efectivo[m] > 0)) porRegla += 1;
+      for (const m of remainingMonths) {
+        const propio = aMano(lo, 'own_production', m);
+        /*
+         * ⚠ Y EL DESGLOSE A MANO SÓLO MANDA DONDE HAY TOTAL FIJADO — OL41.
+         *
+         * El desglose EXPLICA un total; si el mes proyecta por la regla, el
+         * número no lo decidió esta persona y su Own Production a mano es un
+         * resto de cuando sí lo decidía. Pasa en dos casos reales: un INSERT a
+         * mano que tocó el desglose y no el total, y un mes que se SOLTÓ a la
+         * regla (`released_to_rule`), donde el desglose viejo sigue guardado.
+         *
+         * Sin esta condición, soltar un mes rompería el invariante de OL39 --
+         * la fila mostraría la regla y la tarjeta el número viejo-- y el caso
+         * sería invisible, que es como empezó todo esto.
+         */
+        if (propio !== null && lo.budgetTotal[m] !== undefined) {
+          /*
+           * ⚠ MENOS LO QUE APORTAN SUS REALTORS — etapa OL42, y lo encontró el
+           * primer uso real: Isabella le fijó 1 a Santiago Jaraba Chacon y el
+           * 733 pasó a mostrar tarjeta 5 contra fila 4 en octubre.
+           *
+           * El Own Production a mano de Aimmee (4) se escribió cuando el bucket
+           * `nppm` no existía como número aparte; su TOTAL sigue siendo 4. El
+           * NPPM no se suma encima del total --explica, no suma-- así que sale
+           * de adentro de lo que ella había puesto como propio.
+           *
+           * Y no contradice la regla de OL39 --«lo que desagregó a mano, si lo
+           * hizo»--: lo que desagregó a mano sigue siendo la base. Lo que se
+           * descuenta es un número que ella NO escribió y que ya no puede
+           * escribir, porque el bucket dejó de ser editable en esta etapa.
+           */
+          /* ⚠ LA MISMA SUMA QUE EL PISO DE OL48, y por eso sale de la misma
+             función: acá se RESTA para no contarla dos veces y allá se usa como
+             piso, pero las dos contestan «cuánto de esta persona ya viene por
+             sus realtors». Con dos escrituras, un cambio en una rompe el
+             invariante de OL39 desde la otra. */
+          const deSusRealtors = pisoDeRealtors(lo.nppmRealtors, m);
+          ownByMonth[m] += Math.max(0, propio - deSusRealtors);
+          continue;
+        }
+        const otros = OTROS.reduce((a, b) => a + (aMano(lo, b, m) ?? 0), 0);
+        /* Nunca negativo: si alguien desagregó más de lo que su presupuesto
+           dice, lo que sobra se ve en la fila de ese bucket, no como un Own
+           Production en rojo que nadie escribió. */
+        ownByMonth[m] += Math.max(0, efectivo[m] - otros);
       }
-      if (bs.opensBy === 'owner') {
-        const exactosDueno = bs.owners.map((o) => {
-          const out: Record<string, number> = {};
-          if (o.isPerson) {
-            const st = projectPlan(remainingMonths, {
-              mode: o.mode,
-              benchmarks: o.benchmarkSchedule,
-              segments: o.rules,
-              targets: o.targets,
-            });
-            remainingMonths.forEach((m, i) => (out[m] = st[i]?.value ?? 0));
-          }
-          return out;
-        });
-        for (const m of remainingMonths) {
-          const pesos = [...exactosDueno.map((e) => e[m] ?? 0), branchHasBudget(bs) ? (steps[remainingMonths.indexOf(m)]?.value ?? 0) : 0];
-          const partes = apportionByWeight(presupuestoDe.get(s)?.[m] ?? 0, pesos);
-          bs.owners.forEach((_, i) => (porDueno[i][m] = partes[i]));
-          huerfanoPorMes[m] = partes[partes.length - 1];
+    }
+
+    const filas = BUCKETS.map((bucket) => {
+      if (bucket === 'own_production') {
+        return {
+          bucket,
+          byMonth: ownByMonth,
+          /*
+           * ⚠ Y SE DECIDE ABAJO, con las otras filas ya armadas — etapa OL42.
+           * Own Production es el RESTO: si otro bucket muestra algo, un cero
+           * acá no es «no hay dato», es «lo que queda después de ese otro es
+           * cero», y sacarlo obliga a quien lee a sumar las filas visibles y
+           * preguntarse dónde está el resto.
+           *
+           * Lo encontró la cadena de Laura Delgado: al fijarle 1, el Own
+           * Production de Silvio pasó a 0 y la fila DESAPARECIÓ, dejando una
+           * tarjeta donde NPPM y el Total eran el mismo número sin explicación.
+           */
+          tiene: true,
+        };
+      }
+      const byMonth: Record<string, number> = {};
+      for (const m of remainingMonths) {
+        /*
+         * `aMano` sirve igual para `nppm` — etapa OL42: ese bucket ya no se
+         * escribe a mano, el loader lo deja calculado como la suma de los
+         * realtors de cada persona. Acá se suma lo mismo que cualquier otro
+         * bucket, y el detalle por realtor sale de `nppmRealtors`.
+         */
+        byMonth[m] = suyos.reduce((a, lo) => a + (aMano(lo, bucket, m) ?? 0), 0);
+        /*
+         * ⚠ Y LOS QUE ESTÁN EN CONTRATACIÓN SON RECRUITMENT — etapa OL39. Su
+         * fila está en la tabla de arriba y suma al total del branch, así que
+         * sin ellos el invariante «la tarjeta es la fila» no puede valer en un
+         * branch que está contratando: en el 710 la diferencia era 1/5/8, que
+         * es exactamente su fila.
+         *
+         * Van en Recruitment y no en Own Production porque eso es lo que son:
+         * producción que se espera de gente que todavía no está. La parte de
+         * Recruitment que ya tienen las PERSONAS del roster viaja dentro de su
+         * presupuesto efectivo (`own + rec` en `loanOfficerRowsOf`), así que no
+         * se cuenta dos veces.
+         */
+        if (bucket === 'recruitment') {
+          byMonth[m] += visibleRecruitRows.reduce((x, rr) => x + (rr.year.byMonth[m] ?? 0), 0);
         }
       }
-
-      /* Proyecta si el reparto le dio algo, o si tiene con qué proyectar. */
-      const proyecta =
-        bs.opensBy === 'loanOfficer' ||
-        (esDelBranch(bs) && branchHasBudget(bs)) ||
-        bs.opensBy === 'owner' ||
-        (bs.opensBy === 'realtor' && bs.realtors.length > 0);
+      return {
+        bucket,
+        byMonth,
+        tiene:
+          suyos.some((lo) => (lo.budgetBreakdown[bucket] ?? null) !== null) ||
+          (bucket === 'recruitment' && remainingMonths.some((m) => byMonth[m] !== 0)),
+      };
+    })
       /*
-        El mes en curso sale del REPARTO -- ver `agostoDe` arriba. Hasta OL12 era
-        lo real cerrado, porque el pronóstico del mes no se abría por estrategia.
-      */
-      /*
-       * ⚠ VIENE DE `strategyRowsOf`, no se recompone aca — etapa OL22.
-       *
-       * Era `composeYear(monthsOfYear, currentMonth, bs.actualByMonth,
-       * agostoDe.get(s), proj)`, que es exactamente lo que esa funcion ya hace
-       * con los mismos tres argumentos. La diferencia esta en el cuarto: aca
-       * `proj` salia de `presupuestoDe` SIEMPRE, asi que una estrategia sin de
-       * donde proyectar mostraba 0 -- y el comentario de arriba dice que tiene
-       * que mostrar vacio. La compartida lo pone en `null`.
-       *
-       * ⚠ HOY NO CAMBIA NINGUN NUMERO, medido: cero de las 33 estrategias
-       * visibles en los 19 branches tiene el presupuesto vacio, o sea que todas
-       * proyectan y las dos formas coinciden. El volcado completo antes/despues
-       * salio identico. Lo que se gana es que el dia que aparezca una que no
-       * proyecte, muestre vacio en las dos pantallas en vez de un 0 en una.
+       * Own Production entra si tiene número propio, si alguien lo desglosó a
+       * mano, o si hay OTRA fila que mostrar -- ver su `tiene: true` arriba.
+       * Las demás, sólo con dato: una tarjeta de ceros no dice nada.
        */
-      const sYear = sYearCompartido;
-      const bench =
-        bs.opensBy === 'loanOfficer'
-          ? personasDe(bs).reduce((a, lo) => a + (lo.strategyBenchmarks[s] ?? 0), 0)
-          : bs.opensBy === 'owner'
-            ? /* La suma de los dueños, más el de branch que quedó sin dueño. */
-              bs.owners.reduce((a, o) => a + (o.isPerson && o.mode !== 'monthly' ? o.benchmarkAtDisplay : 0), 0) +
-              (branchHasBudget(bs) && bs.mode !== 'monthly' ? bs.benchmarkAtDisplay : 0)
-            : s === 'NPPM'
-            ? bs.realtors.reduce((a, r) => a + r.benchmark, 0)
-            : /*
-               * Del branch. Vacío en dos casos, y los dos significan lo mismo --
-               * que no hay un número que gobierne esta fila: en modo mes a mes el
-               * benchmark no interviene, y sin benchmark guardado no hay nada que
-               * mostrar. Un 0 diría que alguien decidió cero.
-               */
-              bs.mode === 'monthly' || bs.benchmarkSchedule.length === 0
-              ? null
-              : bs.benchmarkAtDisplay;
-      return { bs, s, proyecta, sYear, bench, steps, porDueno, huerfanoPorMes };
-    });
+      .filter((f, _i, todas) =>
+        f.bucket === 'own_production'
+          ? remainingMonths.some((m) => (f.byMonth[m] ?? 0) !== 0) ||
+            suyos.some((lo) => (lo.budgetBreakdown.own_production ?? null) !== null) ||
+            todas.some((o) => o.bucket !== 'own_production' && o.tiene)
+          : f.tiene
+      );
+    const total: Record<string, number> = {};
+    for (const m of remainingMonths) {
+      total[m] = filas.reduce((a, f) => a + (f.byMonth[m] ?? 0), 0);
+    }
+    /*
+     * El detalle de NPPM: un realtor por línea, debajo de su bucket — etapa
+     * OL42. Se junta de las personas del branch, con el nombre de su Loan
+     * Officer al lado, porque «Laura Delgado 2» sin decir de quién obliga a
+     * buscarlo en otra tabla.
+     *
+     * ⚠ SÓLO LOS QUE APORTAN ALGO. De los 28 realtors con código, 18 no tienen
+     * hoy ni un préstamo clasificado como NPPM: el vínculo los cubre igual
+     * --la marca es de la persona y la estrategia clasifica al préstamo, y el
+     * que no tiene NPPM hoy puede tenerlo mañana-- pero una tarjeta con
+     * dieciocho renglones en cero no informa, tapa.
+     *
+     * Y el costo está medido, no ignorado: un realtor con presupuesto fijado en
+     * CERO --una decisión, distinta de no tener ninguno-- tampoco se lista. Su
+     * número sigue contando en el bucket, que es donde cambia algo.
+     */
+    const realtors = suyos
+      .flatMap((lo) =>
+        lo.nppmRealtors.map((r) => ({
+          realtorCode: r.realtorCode,
+          displayName: r.displayName,
+          loanOfficer: lo.fullName,
+          byMonth: r.byMonth,
+        }))
+      )
+      .filter((r) => remainingMonths.some((m) => (r.byMonth[m] ?? 0) !== 0))
+      .sort((a, b) => a.loanOfficer.localeCompare(b.loanOfficer) || a.displayName.localeCompare(b.displayName));
+    return { filas, total, porRegla, cuantos: suyos.length, realtors, hayAlgo: filas.length > 0 };
+  })();
+
+  /* Sólo los que están: el grupo cuenta gente, y quien se fue no es gente del
+     branch. Sus cierres viajan en `yaNoEstanYear`, más abajo — BP54. */
+  const loExistingYears = personRowsActivos.map((p) => p.year);
+  /*
+   * Los cierres de quienes ya no están, en UNA fila. Se arma con `composeYear`
+   * sobre la suma de sus meses reales, y sin pronóstico ni presupuesto: eso es
+   * lo que significa haberse ido, y es lo que su etiqueta `left` ya decía.
+   */
+  const yaNoEstanYear: YearRow | null =
+    seFueron.length === 0
+      ? null
+      : (() => {
+          const byMonth: Record<string, number | null> = {};
+          let total = 0;
+          for (const m of monthsOfYear) {
+            const v = sumYears(seFueron.map((p) => p.year), m);
+            byMonth[m] = v;
+            if (v !== null) total += v;
+          }
+          return { byMonth, total, hasUnknown: false };
+        })();
+  const loHiringYears = visibleRecruitRows.map((r) => r.year);
+  /*
+   * ⚠ LAS DE NPPM NO ENTRAN A LA SUMA — etapa OL33. Muestran el MISMO cierre
+   * que ya suma en la fila del Loan Officer que lo cerró, así que sumarlas
+   * sería contar el préstamo dos veces. Siguen calculándose para dibujarse:
+   * son desagregación, no un sumando.
+   *
+   * ⚠ Y POR ESO VUELVEN A MOSTRAR SU MES EN CURSO. La celda vacía de OL32
+   * existía porque estas filas sumaban en una columna donde las de persona
+   * llevan el pronóstico; fuera de la suma, su número no descuadra nada y el
+   * dato vuelve de un tooltip a la tabla.
+   */
+  const nppmExistingYears = nppmRows.map((x) => x.year);
+  const nppmHiringYears = nppmHiringRows.map((x) => x.year);
+  /* La de Affinity, con el mismo criterio. `filaUnica` no la usa: esa sólo
+     existe en branches sin gente, donde `sinMesEnCurso` es la identidad. */
+  const affinityYear = affinityRow ? sinMesEnCurso(affinityRow.year) : null;
 
   /*
-   * ⚠ EL TOTAL DEL BRANCH ES LA SUMA DE LAS CINCO. Nada más.
+   * ══════════════════════════════════════════════════════════════════════════
+   * UNA SOLA FILA CUANDO NO HAY NADIE CON QUIEN CONFUNDIRLA — etapa OL30/OL28
+   * ══════════════════════════════════════════════════════════════════════════
    *
-   * No sale de `projectBranch` ni de sumar personas: se suma lo que la tabla
-   * muestra, columna por columna. Así el total no puede discrepar de sus filas
-   * por construcción, que es lo que una tabla de presupuesto necesita.
+   * En un branch SIN filas de persona, la fila de Affinity y la del presupuesto
+   * del branch hablan del mismo sujeto: una dice su pasado y la otra su futuro.
+   * Partirlas en dos no separa nada -- no hay filas de persona con las que el
+   * presupuesto del branch pueda competir-- y obliga a leer dos renglones para
+   * entender un branch que tiene un solo tema. Se funden.
    *
-   * ⚠ CONSECUENCIA QUE HAY QUE SABER: el mes en curso de esta suma es lo REAL
-   * cerrado, mientras la lista de branches muestra el PRONÓSTICO de ese mes. Los
-   * dos números son correctos y distintos, y la diferencia es la parte del
-   * pronóstico que todavía no cerró. El subtítulo la dice para que nadie tenga
-   * que descubrirla comparando dos pantallas.
+   * ⚠ LA CONDICIÓN ES POR EL DATO Y NO POR EL NOMBRE. No dice «si el branch es
+   * AFFINITY»: dice «si no hay ninguna fila de persona». Hoy eso son cuatro
+   * --AFFINITY, 741, 701 y 771, medidos-- y mañana puede ser otro; y el día que
+   * AFFINITY tenga un productor rosterizado, las dos filas vuelven solas.
+   *
+   * ⚠ Y EN UN BRANCH CON GENTE SIGUEN SEPARADAS, que es la otra mitad del
+   * criterio: ahí el presupuesto del branch es producción que NO se le atribuye
+   * a nadie, y mezclarlo con lo cerrado por las personas lo escondería. Es lo
+   * mismo que OL27 vino a arreglar, por la puerta de al lado.
+   */
+  const unaSolaFila = personRows.length === 0 && visibleRecruitRows.length === 0;
+  const filaUnica: YearRow | null =
+    unaSolaFila && affinityRow !== undefined
+      ? (() => {
+          const byMonth: Record<string, number | null> = {};
+          let total = 0;
+          for (const m of monthsOfYear) {
+            /*
+             * El futuro manda el presupuesto del branch --es el override de
+             * OL27-- y el pasado es lo que Affinity cerró.
+             *
+             * ⚠ Y EL MES EN CURSO ES EL DEL BRANCH — corregido en OL36.
+             *
+             * En OL35 quedó vacío y su pronóstico cayó en la fila de
+             * reconciliación, bajo «closed by loan officers from other
+             * branches». Formalmente cierto --Nathan es del 716 y Gian del
+             * 747-- y equivocado como lectura: Affinity es un CANAL CON P&L
+             * PROPIO y sus cierres son suyos sin importar quién los procesó.
+             * Es la decisión de OL35, que faltaba aplicar al mes en curso.
+             *
+             * ⚠ La condición es «no hay NINGUNA fila de persona», no «es
+             * AFFINITY»: donde no hay a quién atribuirle nada no hay propio
+             * contra ajeno que separar, y la fila del branch es la única que
+             * puede llevarlo. Donde sí hay gente, cada uno lleva lo suyo y la
+             * reconciliación lo de afuera -- los otros diecisiete.
+             */
+            const v = m === currentMonth
+              ? branchCurrent
+              : remainingMonths.includes(m)
+                ? (branchBudgetYear.byMonth[m] ?? affinityRow.year.byMonth[m] ?? null)
+                : (affinityRow.year.byMonth[m] ?? null);
+            byMonth[m] = v;
+            if (v !== null) total += v;
+          }
+          return { byMonth, total, hasUnknown: true };
+        })()
+      : null;
+
+  const allShownYears: YearRow[] = [
+    ...loExistingYears,
+    ...loHiringYears,
+    /* ⚠ ENTRA EN LA SUMA — BP54. Si no entrara, sus seis cierres caerían en la
+       fila de reconciliación, que dice «lo que ninguna estrategia reclama»: un
+       número correcto con una explicación falsa. */
+    ...(yaNoEstanYear !== null ? [yaNoEstanYear] : []),
+    /*
+     * ⚠ NPPM NO ESTÁ ACÁ, Y ES EL CAMBIO DE OL33. Sus filas se dibujan pero no
+     * suman: el cierre que muestran ya está contado en la fila del Loan Officer
+     * que lo cerró. Ver `nppmExistingYears` arriba y la marca «detail» en la
+     * fila.
+     */
+    /* Con la fila fundida, sus dos mitades NO se suman por separado. */
+    ...(filaUnica !== null
+      ? [filaUnica]
+      : [
+          ...(affinityYear ? [affinityYear] : []),
+          ...(hayBranchBudget ? [branchBudgetYear] : []),
+        ]),
+  ];
+
+  /*
+   * ⚠ EL TOTAL DEL BRANCH ES LA SUMA DE LO QUE SE MUESTRA. Nada más.
+   *
+   * No sale de `projectBranch` ni de sumar personas por otra vía: se suma lo
+   * que la tabla efectivamente dibuja, fila por fila. Así el total no puede
+   * discrepar de sus filas por construcción -- que es lo que el punto 7 del
+   * brief pide para el branch entero, no sólo para cada Loan Officer.
+   *
+   * ⚠ CONSECUENCIA QUE HAY QUE SABER, la misma de siempre pero con un matiz
+   * nuevo: el mes en curso de "Loan Officers — existing" SÍ es un pronóstico
+   * ahora (ver el JSDoc de cabecera), pero NPPM y Affinity siguen mostrando lo
+   * REAL cerrado ese mes, porque no tienen pronóstico propio. La lista de
+   * branches muestra el PRONÓSTICO del branch entero; la fila de reconciliación
+   * absorbe la diferencia, igual que antes.
    */
   const strategiesByMonth: Record<string, number | null> = {};
   for (const m of monthsOfYear) {
-    const aportan = strategyRows.filter((r) => r.sYear.byMonth[m] !== null);
-    strategiesByMonth[m] = aportan.length === 0 ? null : aportan.reduce((a, r) => a + (r.sYear.byMonth[m] ?? 0), 0);
+    strategiesByMonth[m] = sumYears(allShownYears, m);
   }
 
   /*
@@ -963,7 +1467,20 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
   /* Su total del año también se suma al mostrarlo -- ver `sumOfShown`. */
   /* Sólo se muestra si hay algo que reconciliar: 11 de 16 no la necesitan. */
   const showResidual = monthsOfYear.some((m) => Math.abs(residual[m]) > 0.001);
-  const currentAboveForecast = residual[currentMonth] < -0.001;
+  /*
+   * ⚠ ACÁ VIVÍA `currentAboveForecast`, Y SE BORRA CON SU RÓTULO — OL31.
+   *
+   * Era `residual[currentMonth] < -0.001`, o sea el SIGNO del residuo del mes en
+   * curso, y lo único que hacía era elegir entre dos frases. Medido antes de
+   * sacarlo: ese signo es negativo exactamente cuando NPPM o Affinity cerraron
+   * algo en el mes, porque sus filas muestran lo cerrado en una columna donde
+   * las de persona llevan el pronóstico repartido. No decía nada del plan del
+   * branch.
+   *
+   * Se borra en vez de quedar marcada --a diferencia de `allowsSecondFunnel`,
+   * que sigue significando algo-- porque un predicado que sólo existía para
+   * elegir un texto que se fue no significa nada sin él.
+   */
 
   /*
    * El total: la suma de las filas que la tabla MUESTRA, incluida la de
@@ -989,6 +1506,28 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
           </div>
           <h1 className="page-head__title">
             Branch {branch.branchCode}
+            {/*
+              ══════════════════════════════════════════════════════════════
+              LO QUE ESTE BRANCH LEE ADENTRO — etapa OL29
+              ══════════════════════════════════════════════════════════════
+
+              Un branch que absorbe la producción de otro sin decirlo es un
+              número que no se puede auditar: quien busque el 777 en la lista no
+              lo va a encontrar y no va a saber por qué. El motivo vive en
+              `org.branch_group.reason` y se muestra al pasar por encima.
+            */}
+            {branch.groupMembers.length > 0 && (
+              <span
+                className="bp-muted ol-tag"
+                title={
+                  `This branch is read together with ${branch.groupMembers.join(', ')}: their production ` +
+                  `and their people count here. Nothing was moved -- the loans keep the branch they ` +
+                  `closed in, and the roster keeps its own codes.`
+                }
+              >
+                includes {branch.groupMembers.join(', ')}
+              </span>
+            )}
             {/*
               Era un párrafo al pie y ahora es una marca al lado del título: dice
               lo mismo en dos palabras, y está donde se mira primero en vez de
@@ -1052,7 +1591,10 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                                  su fila está allá. Nuevo en OL8.
           */}
           <p className="page-head__subtitle">
-            {branch.loanOfficers.length} loan officer{branch.loanOfficers.length === 1 ? '' : 's'} · closed {branch.ytd}
+            {/* ⚠ LOS QUE ESTÁN, igual que el grupo — BP54. Si el encabezado
+                dijera 7 y el grupo 5, la misma pantalla se contradiría, y quien
+                la lea no tiene forma de saber cuál de los dos cuenta bien. */}
+            {personRowsActivos.length} loan officer{personRowsActivos.length === 1 ? '' : 's'} · closed {branch.ytd}
             {branch.closedByOutsiders > 0 ? (
               <span title="Closed in this branch by loan officers whose roster branch is another one. Their production counts here, because the loan closed here; their row lives in their own branch.">
                 {' '}
@@ -1083,71 +1625,98 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
       <OutlookTopBar />
 
       {/*
-        ══════════════════════ UNA SOLA TABLA — etapa OL9 ═════════════════════
-        Cada estrategia se abre por lo que corresponde a SU unidad de decision
-        -- ver `BranchStrategy` en el loader:
+        ══════════════════════ UNA SOLA TABLA — etapa OL26 ═════════════════════
+        Se abre por TIPO DE PERSONA, no por estrategia -- ver el JSDoc de
+        cabecera del archivo:
 
-          Own Production  por LOAN OFFICER
-          NPPM            por REALTOR
-          B2B             no se abre: es del branch
-          Recruitment     no se abre: es del branch
-          Affinity        no se abre: es del branch
+          Loan Officers — existing    Own Production + Recruitment combinados
+          NPPM — existing              los realtors del branch
+          Loan Officers — in hiring    reclutas role='loan_officer'
+          NPPM — in hiring              reclutas role='nppm' (vacío hoy)
 
-        ⚠ HABIA UN BLOQUE DE LOAN OFFICERS ARRIBA Y SE FUE. Su contenido vive
-        dentro de Own Production, que ya se abria por persona, asi que eran dos
-        listas de la misma gente en la misma pantalla. Lo que se movio con el:
-        el rol (BM) y el estado del roster, que van al lado del nombre en su
-        fila. Lo que se saco: la columna de funnel, que es informacion de
-        Business Plan y no tiene lugar en una tabla de presupuesto.
-
-        ⚠ Y LO QUE DEJO DE EXISTIR: la fila con el TOTAL de una persona. Galo
-        Rizzo mostraba 45 arriba --sus cinco estrategias-- y 38 abajo en Own
-        Production; queda el 38. Un presupuesto se arma por estrategia, asi que
-        esta bien; pero "cuanto hace Galo Rizzo en total" pasa a ser una
-        pregunta de Business Plan y ya no se contesta aca.
+        Más Affinity (fila total, sin abrir) y la reconciliación de siempre.
+        B2B ya no tiene fila -- ver el JSDoc de cabecera, "por qué por persona".
       */}
-      <div className="ol-block__head">
-        <h2 className="ol-block__title">Budget by strategy</h2>
-        {/*
-          ⚠ ACA ESTABA `Project through` Y SE FUE A LA BARRA DEL MODULO — OL22.
-          Elegirlo en el 747 no cambiaba nada en el 733, asi que habia que
-          repetir la seleccion trece veces para mirar la division con el mismo
-          horizonte. Ahora es uno solo y aplica a todas.
-        */}
-      </div>
+      {/*
+        ══════════════════════════════════════════════════════════════════════
+        DOS TARJETAS, Y LA GRILLA QUE LAS MANTIENE ALINEADAS — etapa OL49
+        ══════════════════════════════════════════════════════════════════════
 
+        `.tbl-scroll` sigue siendo UNO solo y envuelve a las dos tarjetas. No es
+        un detalle de maquetado: `.ol-page .tbl-scroll` tiene `overflow:
+        visible` desde OL24 --para que el total anclado se pinee al viewport y
+        no haya dos barras de scroll-- y una tarjeta con `overflow: hidden`
+        para redondear sus esquinas volvería a crear un scrollport, rompiendo a
+        la vez el anclaje y la columna del nombre, que es `position: sticky`.
+
+        ⚠ POR ESO LAS TARJETAS NO LLEVAN `overflow`. Está escrito acá y en
+        `ol-year.css`, porque es la clase de cosa que alguien agrega para que un
+        borde quede prolijo y rompe dos cosas que no se ven en esa pantalla.
+      */}
       <div className="tbl-scroll">
-        <table className="piv bp-table--los ol-year">
-          <thead>
+        <section className="ol-card">
+          <div className="ol-card__head">
+            <h2 className="ol-card__title">Budget</h2>
             {/*
-              ⚠ LAS BANDAS VOLVIERON, Y CON UN ROTULO DISTINTO. Vivian en la
-              cabecera del bloque de Loan Officers, que en OL9 dejo de existir.
+              ⚠ ACA ESTABA `Project through` Y SE FUE A LA BARRA DEL MODULO — OL22.
+              Elegirlo en el 747 no cambiaba nada en el 733, asi que habia que
+              repetir la seleccion trece veces para mirar la division con el mismo
+              horizonte. Ahora es uno solo y aplica a todas.
+            */}
+          </div>
+          {/* ⚠ EL `width` NO ES DECORATIVO: sin un ancho definido, `table-layout:
+              fixed` se comporta como `auto` y el colgroup pasa a ser un mínimo.
+              Medido, y es lo que dejaba octubre a 84px de octubre. Sale de la
+              misma función para las dos tablas. */}
+          <table
+            className="piv bp-table--los ol-year ol-grid"
+            style={{ width: anchoDeLaGrilla(monthsOfYear, currentMonth) }}
+          >
+            <OlColgroup months={monthsOfYear} currentMonth={currentMonth} />
+            <thead>
+            {/*
+              ⚠ TRES BANDAS, NO DOS — etapa OL26. Hasta OL25 esta tabla no
+              abría el mes en curso por estrategia, así que "Actual — closed"
+              llegaba hasta ese mes inclusive y no hacía falta una banda de
+              Forecast. Ahora "Loan Officers — existing" SÍ tiene un
+              pronóstico real para ese mes (repartido en `loanOfficerRowsOf`),
+              así que la tabla necesita las mismas tres bandas que la vista 1
+              -- y el rótulo dice explícitamente qué mes es (punto 3 del
+              brief: "hoy no se distingue cuál es el mes de forecast y cuáles
+              son presupuesto").
 
-              Y aca `Actual — closed` llega HASTA EL MES EN CURSO inclusive, no
-              hasta el anterior: en esta tabla ese mes es lo que cerro, no un
-              pronostico -- ninguna estrategia tiene pronostico porque el
-              pipeline no lleva la estrategia consigo. Copiar la banda
-              `Forecast` de la otra vista habria rotulado como pronostico una
-              columna de cierres reales.
+              ⚠ NPPM Y AFFINITY NO TIENEN PRONÓSTICO PROPIO del mes en curso
+              -- sólo Loan Officers. Sus celdas en la columna de Forecast
+              siguen mostrando lo REAL cerrado (como toda la tabla hacía antes
+              de esta etapa), con un tooltip que lo aclara: la banda nombra lo
+              que es cierto para la mayoría de las filas, la excepción vive en
+              el tooltip de su propia celda, mismo patrón que ya usaba esta
+              pantalla en todos lados.
             */}
             <tr className="yr-row">
               <th className="lbl"></th>
-              <th className="bp-center ol-band ol-band--actual" colSpan={actualMonths.length + 1}>
+              <th className="bp-center ol-bench"></th>
+              <th className="bp-center ol-band ol-band--actual" colSpan={actualMonths.length}>
                 Actual — closed
+              </th>
+              <th className="bp-center ol-band ol-band--forecast" colSpan={1}>
+                Forecast ({monthLabel(currentMonth)})
               </th>
               {remainingMonths.length > 0 && (
                 <th className="bp-center ol-band ol-band--budget" colSpan={remainingMonths.length}>
-                  Budget
+                  Budget ({monthLabel(remainingMonths[0])}
+                  {remainingMonths.length > 1 ? '–' + monthLabel(remainingMonths[remainingMonths.length - 1]) : ''})
                 </th>
               )}
               <th className="bp-center"></th>
-              {/* Una sola columna de decisión: el benchmark se fue al nombre. */}
+              {/* "Decision" se va -- esto es la regla de CRECIMIENTO, que diga eso. */}
               <th className="bp-center ol-band ol-band--decide" colSpan={1}>
-                Decision
+                Growth rule
               </th>
             </tr>
             <tr className="mo-row">
-              <th className="lbl">Strategy</th>
+              <th className="lbl">Name</th>
+              <th className="bp-center ol-bench">Benchmark</th>
               {monthsOfYear.map((m) => (
                 <th key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
                   {monthLabel(m)}
@@ -1159,620 +1728,925 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
             </tr>
           </thead>
           <tbody>
-            {strategyRows.map(({ bs, s, proyecta, sYear, bench, steps, porDueno, huerfanoPorMes }) => {
-              const abierta = open.has('s:' + s);
-              /*
-               * ⚠ SIN HIJAS NO SE PLIEGA — etapa OL19. Desde que Recruitment
-               * filtra por participación, una estrategia que se abre por persona
-               * puede no tener a nadie: el 747 y el 777 tienen pipeline de
-               * Recruitment este mes y ni un cierre de alguien con fila acá. El
-               * chevron prometía algo que al abrirse no mostraba nada.
-               */
-              const personas = personasDe(bs);
-              const plegable =
-                bs.opensBy === 'loanOfficer'
-                  ? personas.length + bs.recruits.length > 0
-                  : bs.opensBy !== 'branch';
-
-              const conBenchmark = personas.filter((lo) => (lo.strategyBenchmarks[s] ?? 0) > 0).length;
-              /*
-                ⚠ CORTO, Y EL RESTO EN EL TOOLTIP. Own Production y NPPM no
-                tienen regla propia --deciden por persona y por realtor-- así que
-                su columna es un RESUMEN, no una decisión. La frase entera
-                empujaba la tabla 6px más allá de su caja en el 733 y se cortaba
-                contra el borde sin verse entera.
-              */
-              const conAE = bs.owners.filter((o) => o.isPerson && o.benchmarkSchedule.length > 0).length;
-              const regla =
-                bs.opensBy === 'loanOfficer'
-                  ? /*
-                     * "0 of 0" no dice nada. Sin nadie, lo que hay que decir es
-                     * que la estrategia tiene pipeline este mes y todavía nadie
-                     * a quien atribuírselo acá -- ver el título.
-                     */
-                    personas.length === 0
-                    ? 'nobody yet'
-                    : `${conBenchmark} of ${personas.length}`
-                  : bs.opensBy === 'owner'
-                    ? `${conAE} of ${bs.owners.filter((o) => o.isPerson).length}`
-                    : s === 'NPPM'
-                    ? `${bs.realtors.length} realtor${bs.realtors.length === 1 ? '' : 's'}`
-                    : branchRuleLabel(bs);
-              const reglaTitulo =
-                bs.opensBy === 'loanOfficer'
-                  ? personas.length === 0
-                    ? `Nobody in this branch has closings in ${s} or a budget for it, so there is no row to open. ` +
-                      `The month's figure is pipeline that is classified as ${s}: the loans are real and they are ` +
-                      `counted, they just have no owner here yet.`
-                    : `${conBenchmark} of the ${personas.length} loan officers shown here have a benchmark in ${s}.` +
-                      (s === 'Recruitment'
-                        ? ` Recruitment only opens for those who took part in it: ${
-                            branch.loanOfficers.length - personas.length
-                          } of the branch's ${branch.loanOfficers.length} loan officers have no closings in it and ` +
-                          `no budget, so they have no row.`
-                        : '')
-                  : bs.opensBy === 'owner'
-                    ? `${conAE} of the ${bs.owners.filter((o) => o.isPerson).length} owners have a ` +
-                      `benchmark. The system user cannot have one.`
-                    : s === 'NPPM'
-                    ? `${bs.realtors.length} realtor${bs.realtors.length === 1 ? '' : 's'} in this branch. Each one's ` +
-                      `benchmark defaults to the average of their closings over the 3 closed months.`
-                    : branchRuleLabel(bs);
-
-              return (
-                <Fragment key={'s-' + s}>
-                  <tr
-                    className={'grp d1' + (plegable ? ' togg' : '')}
-                    onClick={plegable ? () => toggle('s:' + s) : undefined}
-                  >
+            {/*
+              ══════════════════════════════════════════════════════════════
+              GRUPO 1 — LOAN OFFICERS — EXISTING
+              ══════════════════════════════════════════════════════════════
+              Own Production + Recruitment combinados por persona. Ver
+              `loanOfficerRowsOf` y el JSDoc de cabecera del archivo.
+            */}
+            {personRowsActivos.length > 0 &&
+              (() => {
+                const key = 'g:lo-existing';
+                const abierta = open.has(key);
+                /*
+                 * ⚠ `employeeKey` AL TOPE, PARA EL FOCO — re-cableado al
+                 * rebasar sobre main. `focusIndexed`/`avisoDelFoco` (RV7)
+                 * piden `{ employeeKey }` en el objeto mismo, y
+                 * `PersonBudgetRow` sólo la tiene anidada en `.lo`. Se
+                 * completa acá, una vez, para las dos llamadas de abajo -- no
+                 * en `focus.ts` (rama ajena) ni en `PersonBudgetRow` (usado
+                 * por media pantalla).
+                 */
+                const focoRows = personRowsActivos.map((pr) => ({ ...pr, employeeKey: pr.lo.employeeKey }));
+                return (
+                <Fragment key={key}>
+                  <tr className="grp d1 togg" data-rv-grupo={key} onClick={() => toggle(key)}>
                     <td className="lbl">
-                      {plegable ? (
-                        <span className={'chev' + (abierta ? ' open' : '')} aria-hidden="true">
-                          ›
-                        </span>
-                      ) : (
-                        /* Sin chevron, con la misma sangria: la fila no se abre. */
-                        <span className="chev chev--none" aria-hidden="true" />
-                      )}
-                      {s}
-                      {bs.opensBy === 'loanOfficer' && (
-                        <span
-                          className="bp-muted ol-tag"
-                          title="The question here is how much each loan officer does, so it opens by person."
-                        >
-                          by loan officer
-                        </span>
-                      )}
-                      {bs.opensBy === 'realtor' && (
-                        <span
-                          className="bp-muted ol-tag"
-                          title="The loan is brought in by the realtor, so it opens by realtor. Which loan officer processed it is not the unit of decision here."
-                        >
-                          by realtor
-                        </span>
-                      )}
-                      {bs.opensBy === 'branch' && (
-                        <span
-                          className="bp-muted ol-tag"
-                          title="This is the branch's, not a person's. The question is how many loans it brought in and how much it projects, not how much each person did — so there is nothing to open."
-                        >
-                          branch level
-                        </span>
-                      )}
-                      {bs.opensBy === 'owner' && (
-                        <span
-                          className="bp-muted ol-tag"
-                          title="These loans are brought in by the opportunity owner — an Account Executive in Affinity, a Business Developer in B2B — so the strategy opens by owner and each one has their own budget."
-                        >
-                          by owner
-                        </span>
-                      )}
-                      {/*
-                        Su benchmark. Editable sólo en las de branch --las otras
-                        son la SUMA de sus hijas y no hay nada que guardar--.
-                      */}
-                      <BenchTag
-                        value={bench}
-                        onEdit={esDelBranch(bs) ? () => setEditing({ kind: 'branch', strategy: s }) : undefined}
-                        editLabel={`Edit ${s}'s benchmark and rule for branch ${branch.branchCode}`}
-                        editTitle={`Set ${s}'s benchmark and growth rule for the whole branch`}
-                      />
+                      <span className={'chev' + (abierta ? ' open' : '')} aria-hidden="true">
+                        ›
+                      </span>
+                      Loan Officers — existing
                     </td>
+                    <td className="bp-center ol-bench"></td>
                     {monthsOfYear.map((m) => (
-                      <td
-                        key={m}
-                        className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}
-                        title={
-                          m === currentMonth
-                            ? 'What actually closed this month. There is no forecast by strategy: Forecast projects the month from the pipeline, which does not carry the strategy — so this column shows the real closings, not a projection.'
-                            : m > currentMonth && !proyecta
-                              ? 'Nothing is set for this strategy yet, so there is no budget to show. Not the same as a budget of zero.'
-                              : undefined
-                        }
-                      >
-                        {fmt(sYear.byMonth[m] ?? null)}
+                      <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
+                        {fmt(sumYears(loExistingYears, m))}
                       </td>
                     ))}
-                    <td
-                      className="bp-center totcol"
-                      title={`${monthLabel(currentMonth)} is what actually closed, not the forecast — so this total is below the one in the block above, by the part of the forecast that has not closed yet.`}
-                    >
-                      {fmt(sumOfShown(monthsOfYear.map((m) => sYear.byMonth[m] ?? null)))}
+                    <td className="bp-center totcol">
+                      {fmt(sumOfShown(monthsOfYear.map((m) => sumYears(loExistingYears, m))))}
                     </td>
-                    {/*
-                      ⚠ EL LÁPIZ SÓLO DONDE SE PUEDE DECIDIR. Own Production
-                      decide por persona y NPPM por realtor: sus filas de
-                      estrategia son sumas, y un lápiz ahí abriría un editor que
-                      guardaría en un sujeto que no es el que muestra la fila.
-                      Las tres del branch sí se editan acá.
-                    */}
-                    <td className="ol-rulecol" onClick={(e) => e.stopPropagation()}>
-                      {esDelBranch(bs) ? (
-                        <button
-                          type="button"
-                          className={'ol-pill' + (branchHasBudget(bs) ? '' : ' ol-pill--empty')}
-                          onClick={() => setEditing({ kind: 'branch', strategy: s })}
-                          title={
-                            regla +
-                            (steps.length > 0
-                              ? ` · ${steps.map((st) => `${monthLabel(st.month)} ${fmt(st.value)}`).join(' · ')}`
-                              : '')
-                          }
-                        >
-                          {pillOf({
-                            mode: bs.mode,
-                            rules: bs.rules,
-                            hasBenchmark: bs.benchmarkSchedule.length > 0,
-                            targetRevision: bs.targetRevision,
-                          })}
-                        </button>
-                      ) : (
-                        <span className="bp-muted" title={reglaTitulo}>
-                          {regla}
-                        </span>
-                      )}
+                    {/* ⚠ CUENTA LOS QUE ESTÁN — BP54. Decía
+                        `branch.loanOfficers.length`, que incluye a quien ya no
+                        está: el 716 decía «7 loan officers» con dos bajas
+                        adentro. */}
+                    <td className="ol-rulecol bp-muted">
+                      {personRowsActivos.length} loan officer{personRowsActivos.length === 1 ? '' : 's'}
                     </td>
                   </tr>
 
-                  {/* ── Own Production: se abre por Loan Officer ───────────── */}
                   {abierta &&
-                    bs.opensBy === 'loanOfficer' &&
-                    (() => {
-                      /*
-                       * El entero de la estrategia, repartido entre las personas
-                       * en proporción a su presupuesto exacto. Así las filas suman
-                       * la fila de arriba y ninguna muestra decimales.
-                       */
-                      const exactos = personas.map((lo) => {
-                        const st = projectLoanOfficer(lo, remainingMonths).stepsByStrategy[s] ?? [];
-                        const out: Record<string, number> = {};
-                        remainingMonths.forEach((m, i) => (out[m] = st[i]?.value ?? 0));
-                        return out;
-                      });
-                      const enteros: Record<string, number>[] = personas.map(() => ({}));
-                      for (const m of remainingMonths) {
-                        const partes = apportionByWeight(
-                          presupuestoDe.get(s)?.[m] ?? 0,
-                          exactos.map((e) => e[m] ?? 0)
-                        );
-                        partes.forEach((v, i) => (enteros[i][m] = v));
-                      }
-                      return personas.map((lo, idx) => {
-                      const cell = cellOf(lo, s, enteros[idx]);
-                      const isMonthly = (lo.modeByStrategy[s] ?? 'growth') === 'monthly';
-                      const b = lo.strategyBenchmarks[s] ?? 0;
+                    /*
+                     * ⚠ EL FOCO SE APLICA ACÁ, SOBRE `personRows` COMPLETA --
+                     * re-cableado al rebasar sobre main (ver la nota de
+                     * `focoKey` más arriba). Filtrar antes de este punto
+                     * mostraría el presupuesto de otra persona en la fila de
+                     * quien quedó, porque `personRows` ya viene con el reparto
+                     * hecho por posición -- exactamente el motivo por el que
+                     * RV7 aplicaba el foco después del reparto y no antes.
+                     */
+                    focusIndexed(focoRows, focoKey).map(({ item: pr }) => {
+                      const isMonthly = (pr.lo.modeByStrategy['Own Production'] ?? 'growth') === 'monthly';
+                      const ownBenchmark = pr.lo.strategyBenchmarks['Own Production'] ?? 0;
                       return (
-                        <tr key={'s-' + s + '-' + lo.employeeKey} className="metric mrow">
-                          <td className="lbl" style={{ paddingLeft: '30px' }}>
-                            {lo.fullName}
-                            {/*
-                              ⚠ EL ESTADO Y EL ROL VIVIAN EN EL BLOQUE DE ARRIBA,
-                              que en OL9 dejo de existir. Se mudaron aca y no se
-                              perdieron: son lo que distingue a Isabel Wagner
-                              --una baja con produccion real-- de alguien que
-                              sigue produciendo, y a los 10 que ademas dirigen su
-                              branch. Sin eso la fila dice un nombre y un numero
-                              y hay que preguntar quien es.
-                            */}
-                            {STATE_TAG[lo.rosterState] && (
-                              <span className="bp-muted ol-tag" title={STATE_TAG[lo.rosterState].title}>
-                                {STATE_TAG[lo.rosterState].text}
-                              </span>
+                        /*
+                          `data-rv-lo` es el ANCLA de la segunda flecha del paso
+                          2.1 -- la que señala la fila de la persona revisada.
+                          Lleva la clave porque el selector de la flecha no
+                          puede decir «la fila de quien se revisa»: `stepArrows`
+                          sustituye `{lo}` por esa clave. Sin el atributo habría
+                          que elegir la fila por posición, y la posición cambia
+                          con el orden del roster.
+                        */
+                        <tr
+                          key={'lo-' + pr.lo.employeeKey}
+                          /*
+                            ⚠ `ol-sums` — OL34: en negrita porque SUMA. Es la
+                            mitad visible de la regla de OL33; la otra es el
+                            tono tenue de las que no suman. Sin las dos, la
+                            distinción vuelve a necesitar un renglón de texto.
+                          */
+                          className="metric mrow ol-sums"
+                          data-rv-lo={pr.lo.employeeKey}
+                        >
+                          <td className="lbl">
+                            {pr.lo.fullName}
+                            {pr.lo.position && <span className="bp-muted ol-tag">{pr.lo.position}</span>}
+                            {STATE_TAG[pr.lo.rosterState] && (
+                              <span className="bp-muted ol-tag">{STATE_TAG[pr.lo.rosterState].text}</span>
                             )}
-                            {!lo.hasIdentity && (
+                            {!pr.lo.hasIdentity && <span className="bp-muted ol-tag">no internal identity</span>}
+                            {/*
+                              ══════════════════════════════════════════════
+                              ⚠ CUANDO EL NÚMERO NO ES SUYO — etapa OL48
+                              ══════════════════════════════════════════════
+
+                              Su total subió porque sus realtors NPPM piden más:
+                              un realtor no cierra --cierra esta persona-- así
+                              que lo que el realtor proyecta ya pasa por ella y
+                              su presupuesto no puede quedar debajo.
+
+                              Se dice porque ese número se MUEVE solo: el
+                              benchmark de un realtor sale de su promedio de
+                              cierres, así que cambia cuando cambian los
+                              cierres. Sin el rótulo, alguien lo lee como un
+                              presupuesto que esta persona decidió.
+                            */}
+                            {pr.subioPorNppm.length > 0 && (
                               <span
-                                className="bp-muted ol-tag"
+                                /* ⚠ SIN `bp-muted`: las otras etiquetas de esta
+                                   celda describen a la persona --su cargo, su
+                                   estado-- y ésta describe de dónde salió su
+                                   número. Con el mismo gris se lee como un
+                                   cargo más. Ver `ol-tag--nppm` en
+                                   `ol-year.css`. */
+                                className="ol-tag ol-tag--nppm"
+                                /* El atributo lleva los meses para que la sonda
+                                   pueda exigir CUÁLES subieron y no sólo que el
+                                   rótulo esté. */
+                                data-ol-raised-nppm={pr.subioPorNppm.join(',')}
                                 title={
-                                  'The roster says they produce, but there is no person_code alias tying them to an ' +
-                                  'internal identity, and benchmark and plan both hang off it. Shown with name and ' +
-                                  'branch so the branch total keeps adding up. Someone has to create the alias.'
+                                  `${pr.lo.fullName}'s budget in ` +
+                                  `${pr.subioPorNppm.map(monthLabel).join(', ')} is what their NPPM realtors ` +
+                                  `project, which is more than their own total. A realtor does not close — ` +
+                                  `this person does — so their budget cannot sit below what already comes ` +
+                                  `through them. It moves when the realtor's 3-month average moves.`
                                 }
                               >
-                                no internal identity
+                                raised by NPPM
                               </span>
                             )}
-                            {lo.isBranchManager && (
-                              <span className="bp-muted ol-tag" title="Manages the branch as well as producing.">
-                                BM
-                              </span>
-                            )}
+                          </td>
+                          <td className="bp-center ol-bench">
                             <BenchTag
-                              value={isMonthly ? null : b}
-                              onEdit={() => setEditing({ kind: 'employee', employeeKey: lo.employeeKey, strategy: s })}
-                              editLabel={`Edit ${lo.fullName}'s benchmark and rule in ${s}`}
-                              editTitle={
-                                isMonthly
-                                  ? 'Set month by month: the benchmark does not take part. It stays saved in case this goes back to growth rate.'
-                                  : `Its benchmark is edited in the Business Plan. What is edited here is ${lo.fullName}'s growth rule.`
-                              }
+                              value={isMonthly ? null : ownBenchmark}
+                              onEdit={() => setEditingBudget({ kind: 'employee', employeeKey: pr.lo.employeeKey })}
+                              editLabel={`Edit ${pr.lo.fullName}'s benchmark and rule in Own Production`}
                             />
                           </td>
                           {monthsOfYear.map((m) => (
-                            <td
-                              key={m}
-                              className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}
-                              title={
-                                m === currentMonth
-                                  ? 'What actually closed this month, not a forecast: the pipeline does not carry the strategy.'
-                                  : m > currentMonth
-                                    ? cell.steps[remainingMonths.indexOf(m)]?.explain
-                                    : undefined
-                              }
-                            >
-                              {fmt(cell.year.byMonth[m] ?? null)}
+                            <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
+                              {fmt(pr.year.byMonth[m] ?? null)}
                             </td>
                           ))}
-                          <td className="bp-center totcol">{fmt(sumOfShown(monthsOfYear.map((m) => cell.year.byMonth[m] ?? null)))}</td>
+                          <td className="bp-center totcol">
+                            {fmt(sumOfShown(monthsOfYear.map((m) => pr.year.byMonth[m] ?? null)))}
+                          </td>
                           {/*
-                            ⚠ LA PÍLDORA TAMBIÉN ACÁ, y sobre todo acá: son estas
-                            filas las que repetían `25% quarterly from Sep · 1st
-                            raise in Dec` diez veces. La frase entera y la
-                            revisión viven en el tooltip; lo que se compara de un
-                            vistazo es cuánto y cada cuánto.
+                            ⚠ UN SOLO BOTÓN — etapa OL26. Abre `PersonBudgetEditor`,
+                            que trae adentro el selector de Own Production /
+                            Recruitment (si participa) / Budget composition. Antes
+                            había hasta tres controles acá; el mismo rótulo en
+                            todos lados evita que uno diga "25% / qtr" y otro
+                            "by month" para la misma acción.
                           */}
-                          <td className="ol-rulecol">
+                          <td className="ol-rulecol" onClick={(e) => e.stopPropagation()}>
                             <button
                               type="button"
                               className={
                                 'ol-pill' +
-                                ((lo.rulesByStrategy[s] ?? []).length || isMonthly ? '' : ' ol-pill--empty')
+                                ((pr.lo.rulesByStrategy['Own Production'] ?? []).length ||
+                                isMonthly ||
+                                pr.lo.budgetTotalRevision > 0
+                                  ? ''
+                                  : ' ol-pill--empty')
                               }
-                              onClick={() => setEditing({ kind: 'employee', employeeKey: lo.employeeKey, strategy: s })}
-                              title={
-                                `${ruleLabel(lo, s, remainingMonths)} · revision ` +
-                                `${(isMonthly ? lo.targetRevision[s] : lo.ruleRevision[s]) || 0}`
-                              }
+                              onClick={() => setEditingBudget({ kind: 'employee', employeeKey: pr.lo.employeeKey })}
                             >
-                              {pillOfLo(lo, s)}
+                              Set budget
                             </button>
-                          </td>
-                        </tr>
-                      );
-                      });
-                    })()}
-
-
-                  {/*
-                    ══════════════════════════════════════════════════════════
-                    LA GENTE EN PROCESO DE CONTRATACIÓN — etapa OL20
-                    ══════════════════════════════════════════════════════════
-
-                    Van como hijas de Recruitment, al mismo nivel que las
-                    personas reales, y lo que las distingue NO es sólo la
-                    píldora:
-
-                      una persona real      tiene meses cerrados
-                      una proyectada        los tiene VACÍOS
-
-                    Esa es la diferencia que se lee sin explicación, y es la
-                    misma distinción entre vacío y cero que el módulo usa en
-                    todos lados. La píldora dice por qué.
-
-                    ⚠ Y CADA CERO LLEVA SU MOTIVO en el tooltip. Un cero sin
-                    razón en una fila proyectada es indistinguible de un bug:
-                    puede ser la etapa, el vínculo, el benchmark que nadie fijó
-                    o el vencimiento, y son cuatro cosas distintas.
-                  */}
-                  {abierta &&
-                    bs.recruits.map((r) => {
-                      const suma = monthsOfYear.reduce((a, m) => a + (r.byMonth[m] ?? 0), 0);
-                      return (
-                        <tr key={'s-' + s + '-rec-' + r.identity} className="metric mrow ol-rec">
-                          <td className="lbl" style={{ paddingLeft: '30px' }}>
-                            {r.personName}
-                            {/*
-                              ⚠ SIN MODIFICADOR POR ETAPA. Habia un
-                              `ol-tag--<stage>` por fila y ninguna hoja de
-                              estilo lo definia: cinco clases que no hacian
-                              nada. La etiqueta ya dice la etapa con palabras,
-                              que es mas claro que un color que hay que
-                              aprender.
-                            */}
-                            <span className="bp-muted ol-tag" title={RECRUIT_TITLE[r.stage](r)}>
-                              {STAGE_LABEL[r.stage]}
-                            </span>
-                            {r.linkedEmployeeKey !== null && (
-                              <span
-                                className="bp-muted ol-tag"
-                                title={
-                                  r.linkedByNmls
-                                    ? 'Matched to a roster employee by NMLS, which is a national registry number and ' +
-                                      'therefore an exact match. From here on the roster projects them, so this row adds nothing.'
-                                    : 'Someone confirmed which roster employee this is. From here on the roster projects ' +
-                                      'them, so this row adds nothing.'
-                                }
-                              >
-                                {r.linkedByNmls ? 'in roster (NMLS)' : 'in roster'}
-                              </span>
-                            )}
-                            <BenchTag
-                              value={r.monthlyBenchmark}
-                              onEdit={() => setEditingRecruit(r.identity)}
-                              editLabel={`Edit ${r.personName}'s projection`}
-                              editTitle={
-                                r.monthlyBenchmark === null
-                                  ? 'Nobody has set how much they are expected to produce, so this row adds nothing. ' +
-                                    'Empty, not zero: zero would claim no production is expected.'
-                                  : `Expected ${r.monthlyBenchmark} a month once ramped up, from ${r.producingFrom}.`
-                              }
-                            />
-                          </td>
-                          {monthsOfYear.map((m) => (
-                            <td
-                              key={m}
-                              className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}
-                              title={
-                                m > currentMonth
-                                  ? RECRUIT_MONTH_TITLE(r, m)
-                                  : /*
-                                     * Los meses ya cerrados y el actual van VACÍOS y
-                                     * no en cero: esta persona no estaba, así que no
-                                     * hay producción que informar. Un cero diría que
-                                     * estuvo y no cerró nada.
-                                     */
-                                    'Not on the roster this month, so there is nothing to report — empty, not zero.'
-                              }
-                            >
-                              {/*
-                                ⚠ VACÍO CUANDO NO PROYECTA, no cero. Un `0` en un
-                                mes futuro afirmaría que se espera que esa persona
-                                no cierre nada; la verdad es que nadie fijó su
-                                benchmark, o que su etapa no entra al presupuesto.
-                                Es la misma distinción de siempre y acá es la que
-                                hace legible la fila: la píldora dice por qué está
-                                vacía.
-
-                                Cuando SÍ proyecta, el cero se muestra: un mes
-                                anterior a `producing_from` es un cero decidido --
-                                todavía no cuenta-- y no una ausencia.
-                              */}
-                              {m > currentMonth && !r.notProjecting ? fmt(r.byMonth[m] ?? null) : ''}
-                            </td>
-                          ))}
-                          <td className="bp-center totcol">{fmt(suma === 0 ? null : suma)}</td>
-                          <td className="ol-rulecol">
-                            <button
-                              type="button"
-                              className={'ol-pill' + (r.notProjecting ? ' ol-pill--empty' : '')}
-                              onClick={() => setEditingRecruit(r.identity)}
-                              title={RECRUIT_TITLE[r.stage](r)}
-                            >
-                              {r.notProjecting ? NOT_PROJECTING_PILL[r.notProjecting] : 'ramping up'}
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-
-                  {/* ── Affinity: se abre por Account Executive ─────────────── */}
-                  {abierta &&
-                    bs.opensBy === 'owner' &&
-                    bs.owners.map((o, idx) => {
-                      /*
-                        ⚠ El usuario de sistema muestra sus cierres reales y su
-                        presupuesto queda VACÍO, no en cero: no hay a quién
-                        pedírselo. Es la misma distinción de siempre -- cero es una
-                        decisión, vacío es que no hay ninguna.
-                      */
-                      const oYear = composeYear(
-                        monthsOfYear,
-                        currentMonth,
-                        o.actualByMonth,
-                        o.actualByMonth[currentMonth] ?? 0,
-                        o.isPerson ? porDueno[idx] : {}
-                      );
-                      return (
-                        <tr key={'s-' + s + '-ae-' + o.owner} className="metric mrow">
-                          <td className="lbl" style={{ paddingLeft: '30px' }}>
-                            {o.owner}
-                            {!o.isPerson && (
-                              <span
-                                className="bp-muted ol-tag"
-                                title={
-                                  `Not a person: it is the Salesforce system user, listed in ` +
-                                  `org.source_name_excluded. Its closings are real and counted, so the row is here ` +
-                                  `and the strategy total adds up — but there is nobody to give a budget to.`
-                                }
-                              >
-                                system user
-                              </span>
-                            )}
-                            {o.isPerson && (
-                              <BenchTag
-                                value={o.mode === 'monthly' ? null : o.benchmarkSchedule.length ? o.benchmarkAtDisplay : null}
-                                onEdit={() =>
-                                  setEditing({ kind: 'employee', employeeKey: o.employeeKey as number, strategy: s })
-                                }
-                                editLabel={`Edit ${o.owner}'s benchmark and rule in ${s}`}
-                                editTitle={`Set ${o.owner}'s benchmark and growth rule in ${s}`}
-                              />
-                            )}
-                          </td>
-                          {monthsOfYear.map((m) => (
-                            <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
-                              {fmt(oYear.byMonth[m] ?? null)}
-                            </td>
-                          ))}
-                          <td className="bp-center totcol">
-                            {fmt(sumOfShown(monthsOfYear.map((m) => oYear.byMonth[m] ?? null)))}
-                          </td>
-                          {/* Su presupuesto, editable como el de una persona. */}
-                          <td className="ol-rulecol">
-                            {o.isPerson ? (
-                              <button
-                                type="button"
-                                className={
-                                  'ol-pill' + (o.rules.length || o.mode === 'monthly' ? '' : ' ol-pill--empty')
-                                }
-                                onClick={() =>
-                                  setEditing({ kind: 'employee', employeeKey: o.employeeKey as number, strategy: s })
-                                }
-                                title={`Revision ${(o.mode === 'monthly' ? o.targetRevision : o.ruleRevision) || 0}`}
-                              >
-                                {pillOf({
-                                  mode: o.mode,
-                                  rules: o.rules,
-                                  hasBenchmark: o.benchmarkSchedule.length > 0,
-                                  targetRevision: o.targetRevision,
-                                })}
-                              </button>
-                            ) : (
-                              <span className="bp-muted">no budget</span>
-                            )}
                           </td>
                         </tr>
                       );
                     })}
 
                   {/*
-                    ⚠ EL PRESUPUESTO DE BRANCH QUE QUEDO SIN DUEÑO. Ver `exactoDe`:
-                    son las dos filas cargadas antes de OL15, que no se pueden
-                    reasignar a una persona. Editable, para poder corregirlas o
-                    ponerlas en cero cuando se decida como repartirlas.
+                    Y si la vista está enfocada, la fila que lo dice -- misma
+                    `avisoDelFoco` de RV7, re-cableada sobre `personRows`. Ver
+                    la nota de `focoKey` más arriba: Own Production es la
+                    pertenencia por defecto, así que la rama "ausente" de
+                    `avisoDelFoco` no debería dispararse nunca para este grupo
+                    -- todo Loan Officer del branch tiene fila acá.
                   */}
-                  {abierta && bs.opensBy === 'owner' && branchHasBudget(bs) && (
-                    <tr className="metric mrow ol-residual">
-                      <td className="lbl" style={{ paddingLeft: '30px' }}>
-                        Branch level, no owner
-                        <span
-                          className="bp-muted ol-tag"
-                          title={
-                            `A budget saved for the whole branch, before this strategy started budgeting per owner. ` +
-                            `It cannot be reassigned automatically: it covers ${bs.owners.filter((o) => o.isPerson).length} ` +
-                            `owners and splitting it is a business decision. It is still counted so no real budget is lost.`
-                          }
-                        >
-                          to be split
-                        </span>
-                        <BenchTag
-                          value={bs.benchmarkAtDisplay}
-                          onEdit={() => setEditing({ kind: 'branch', strategy: s })}
-                          editLabel={`Edit the branch-level budget left in ${s}`}
-                          editTitle="Edit or zero out the branch-level budget that has no owner yet"
-                        />
-                      </td>
-                      {monthsOfYear.map((m) => (
-                        <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
-                          {m > currentMonth ? fmt(huerfanoPorMes[m] ?? 0) : ''}
-                        </td>
-                      ))}
-                      <td className="bp-center totcol">
-                        {fmt(sumOfShown(remainingMonths.map((m) => huerfanoPorMes[m] ?? 0)))}
-                      </td>
-                      <td className="ol-rulecol bp-muted">not assigned</td>
-                    </tr>
-                  )}
-
-                  {/* ── NPPM: se abre por realtor ──────────────────────────── */}
-                  {abierta &&
-                    bs.opensBy === 'realtor' &&
-                    bs.realtors.map((r) => {
-                      /*
-                        Un realtor tiene meses REALES y nada mas: su benchmark no
-                        proyecta (ver `NppmEditor`), asi que del mes en curso en
-                        adelante la fila va vacia.
-                      */
-                      const rYear = composeYear(
-                        monthsOfYear,
-                        currentMonth,
-                        r.actualByMonth,
-                        r.actualByMonth[currentMonth] ?? 0,
-                        {}
-                      );
-                      return (
-                        <tr key={'s-' + s + '-r-' + r.realtor} className="metric mrow">
-                          <td className="lbl" style={{ paddingLeft: '30px' }}>
-                            {r.realtor}
-                            {/*
-                              ⚠ Dos decimales: el promedio de 3 meses de un realtor
-                              es casi siempre fraccionario --0,33 · 0,67 · 1,33-- y
-                              con uno se pierde de dónde sale el número. Por eso el
-                              valor va formateado acá y no por `fmt`.
-                            */}
-                            <BenchTag
-                              value={r.benchmark}
-                              onEdit={() => setEditingNppm({ realtor: r.realtor, ytd: r.ytd })}
-                              editLabel={`Edit ${r.realtor}'s benchmark`}
-                              editTitle={
-                                r.benchmarkIsDefault
-                                  ? `Nobody has set it, so what applies is the average of their closings over the 3 ` +
-                                    `closed months: ${r.avg3m.toFixed(2)}. One number per realtor, across every branch.`
-                                  : `Set by hand. Their 3-month average is ${r.avg3m.toFixed(2)}.`
-                              }
-                              text={Number.isInteger(r.benchmark) ? String(r.benchmark) : r.benchmark.toFixed(2)}
-                            />
-                          </td>
-                          {monthsOfYear.map((m) => (
-                            <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
-                              {fmt(rYear.byMonth[m] ?? null)}
-                            </td>
-                          ))}
-                          <td className="bp-center totcol">{fmt(sumOfShown(monthsOfYear.map((m) => rYear.byMonth[m] ?? null)))}</td>
-                          {/*
-                            ⚠ EL DEFAULT ES EL PROMEDIO DE SUS 3 MESES CERRADOS, y
-                            si nadie lo toca ESE es el valor -- no un cero ni un
-                            hueco. Se marca `default` para que se distinga de un
-                            numero que alguien decidio.
-                          */}
-                          {/*
-                            ⚠ DOS decimales, no uno. El benchmark de un realtor
-                            es el promedio de 3 meses y casi siempre fraccionario:
-                            0,33 · 0,67 · 1,33. Con un decimal salen 0,3 · 0,7 ·
-                            1,3 y se pierde de dónde viene el número -- son
-                            tercios. El resto de la tabla sigue con un decimal,
-                            que es lo que un pronóstico de pipeline necesita.
-                          */}
-                          {/*
-                            El realtor no tiene regla: su columna dice de dónde
-                            sale el número, que es lo único que hay que decidir.
-                          */}
-                          <td className="ol-rulecol">
-                            <button
-                              type="button"
-                              className={'ol-pill' + (r.benchmarkIsDefault ? ' ol-pill--empty' : '')}
-                              onClick={() => setEditingNppm({ realtor: r.realtor, ytd: r.ytd })}
-                              title={
-                                r.benchmarkIsDefault
-                                  ? `Nobody has set it, so what applies is the average of their closings over the 3 ` +
-                                    `closed months: ${r.avg3m.toFixed(2)}. One number per realtor, across every branch.`
-                                  : `Set by hand. Their 3-month average is ${r.avg3m.toFixed(2)}.`
-                              }
-                            >
-                              {r.benchmarkIsDefault ? '3-mo avg' : 'by hand'}
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-
+                  {abierta && avisoDelFoco(focoRows, 'Own Production')}
                 </Fragment>
               );
-            })}
+            })()}
 
             {/*
-              LO QUE NINGUNA ESTRATEGIA RECLAMA. Ver `residual` arriba: es un
-              residuo puro, asi que el total sigue siendo la suma de las filas.
-              No se muestra cuando no hay nada que reconciliar.
+              ══════════════════════════════════════════════════════════════
+              LO QUE CERRÓ GENTE QUE YA NO ESTÁ — etapa BP54
+              ══════════════════════════════════════════════════════════════
+
+              Una fila, sin abrir, como la de Affinity. No es un grupo: no hay
+              nadie a quien desplegar, porque estas personas ya no son del
+              branch. Lo que queda de ellas es lo que cerraron.
+
+              ⚠ EL RÓTULO NOMBRA LA CAUSA. La línea del pie dice «closed here by
+              loan officers from OTHER BRANCHES»; ésta dice que ya no están. Las
+              dos filas se ven parecidas y son cosas distintas, y un rótulo que
+              no las distingue es un número correcto con una explicación falsa.
+            */}
+            {yaNoEstanYear !== null && (
+              <tr className="metric mrow ol-detail" data-ol-ya-no-estan="">
+                <td className="lbl">
+                  Closed by people no longer at this branch
+                  <span
+                    className="bp-muted ol-tag"
+                    title={
+                      `${seFueron.map((p) => p.lo.fullName).join(', ')} ` +
+                      `${seFueron.length === 1 ? 'is' : 'are'} no longer with the company, per the roster. ` +
+                      `Their closings are real and already happened, which is why they are still in the ` +
+                      `branch total. What changed is that they will not produce from now on, so there is no ` +
+                      `forecast and no budget — and they no longer count as loan officers of this branch. ` +
+                      `This is not the same as the footer line below, which is about people from OTHER branches.`
+                    }
+                  >
+                    {seFueron.length} {seFueron.length === 1 ? 'person' : 'people'}, left
+                  </span>
+                </td>
+                <td className="bp-center ol-bench"></td>
+                {monthsOfYear.map((m) => (
+                  <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
+                    {fmt(yaNoEstanYear.byMonth[m] ?? null)}
+                  </td>
+                ))}
+                <td className="bp-center totcol">{fmt(yaNoEstanYear.total)}</td>
+                <td className="ol-rulecol bp-muted">no forecast</td>
+              </tr>
+            )}
+
+            {/*
+              ══════════════════════════════════════════════════════════════
+              GRUPO 2 — NPPM — EXISTING
+              ══════════════════════════════════════════════════════════════
+              Los realtors del branch. Mismo cálculo de siempre -- ver
+              `nppmRows` más arriba --, sólo cambia dónde vive el benchmark.
+            */}
+            {/*
+              ⚠ Y EL GRUPO ABRE TAMBIÉN SIN PRODUCCIÓN — etapa OL44. La
+              condición era `nppmRows.length > 0`, o sea «hay realtors que
+              cerraron algo acá», y con eso el 716 y el 760 --que tienen NPPM
+              del roster y ninguna producción-- no dibujaban el grupo, así que
+              las filas nuevas no tenían dónde entrar. Medido: los dos daban
+              cero filas cuando debían dar dos y una.
+            */}
+            {(nppmRows.length > 0 || branch.nppmRoster.length > 0) &&
+              (() => {
+                const key = 'g:nppm-existing';
+                const abierta = open.has(key);
+                return (
+                <Fragment key={key}>
+                  {/*
+                    ══════════════════════════════════════════════════════════
+                    ⚠ LOS DOS RÓTULOS DE TEXTO SE FUERON — etapa OL34
+                    ══════════════════════════════════════════════════════════
+
+                    Decían «detail · does not add to the total» (OL33) y
+                    «3-month average, not a target» (OL27). Lo que explicaban
+                    sigue siendo cierto; lo que cambió es CÓMO se dice: la
+                    jerarquía la da la forma --sangría, tono y negrita-- y no un
+                    renglón de explicación al lado de cada grupo.
+
+                    ⚠ Y NO SE PERDIÓ: los dos textos viven en el `title` de la
+                    fila, que es donde se busca una explicación cuando la forma
+                    ya dijo lo que hay que saber. El orden importa -- la forma
+                    primero, la explicación a pedido-- y es el mismo criterio
+                    con el que salió el párrafo del paso 3.1.
+                  */}
+                  <tr
+                    className="grp d1 togg ol-detail"
+                    data-rv-grupo={key}
+                    onClick={() => toggle(key)}
+                    title={
+                      `Detail, not a sum: every closing here is already counted in the row of the loan ` +
+                      `officer who closed it, and the branch total is the sum of its loan officers. ` +
+                      (nppmRows.every((x) => x.r.benchmarkIsDefault)
+                        ? `Nobody has set a benchmark for these realtors either, so what projects is the ` +
+                          `average of their closings over the 3 closed months: what happened, not what ` +
+                          `anyone decided should happen.`
+                        : '')
+                    }
+                  >
+                    <td className="lbl">
+                      <span className={'chev' + (abierta ? ' open' : '')} aria-hidden="true">
+                        ›
+                      </span>
+                      NPPM — existing
+                    </td>
+                    <td className="bp-center ol-bench"></td>
+                    {monthsOfYear.map((m) => (
+                      <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
+                        {fmt(sumYears(nppmExistingYears, m))}
+                      </td>
+                    ))}
+                    <td className="bp-center totcol">
+                      {fmt(sumOfShown(monthsOfYear.map((m) => sumYears(nppmExistingYears, m))))}
+                    </td>
+                    {/*
+                      ⚠ CUENTA LAS FILAS QUE HAY DEBAJO, no sólo las que
+                      producen — etapa OL44. Decía «0 realtors» en el 716 con
+                      dos filas colgando: un contador que no cuenta lo que se
+                      ve enseña a no creerle.
+                    */}
+                    <td className="ol-rulecol bp-muted">
+                      {(() => {
+                        const sinProd = branch.nppmRoster.filter((x) => !x.tieneProduccion).length;
+                        const total = nppmRows.length + sinProd;
+                        return (
+                          <span
+                            title={
+                              sinProd === 0
+                                ? undefined
+                                : `${sinProd} of them are contracted NPPMs with no loan of their own yet. They are ` +
+                                  `here so their budget has somewhere to go.`
+                            }
+                          >
+                            {total} realtor{total === 1 ? '' : 's'}
+                            {sinProd > 0 ? ` · ${sinProd} without production` : ''}
+                          </span>
+                        );
+                      })()}
+                    </td>
+                  </tr>
+
+                  {abierta &&
+                    nppmRows.map(({ r, year: rYear }) => (
+                      <tr key={'nppm-' + r.realtorCode} className="metric mrow ol-detail">
+                        {/*
+                          ⚠ SANGRADA A LA DERECHA — OL33. La marca del grupo dice
+                          que no suma; la sangría lo hace visible sin leer nada,
+                          que es lo que evita que alguien sume la columna de
+                          arriba a abajo. Mismo `paddingLeft` que ya usa la fila
+                          del foco de revisión, así que no hay clase nueva.
+                        */}
+                        <td className="lbl" style={{ paddingLeft: '30px' }}>
+                          {r.displayName}
+                          {/*
+                            ⚠ EL QUE SE MUDÓ SIGUE ACÁ, Y SE DICE — etapa OL30.
+                            Su producción de este branch es real y ocurrió acá,
+                            así que la fila no se va; lo que se va es el
+                            presupuesto, porque un realtor proyecta donde está
+                            hoy. Sin este rótulo, una fila con pasado y sin
+                            futuro se lee como un dato que falta.
+                          */}
+                          {!r.projectsHere && (
+                            <span
+                              className="bp-muted ol-tag"
+                              title={
+                                `${r.displayName} closed here before and closes in ${r.currentBranch} now, ` +
+                                `so the budget goes there. What closed here is real and stays; a realtor ` +
+                                `projects in one branch, the one they are in today.`
+                              }
+                            >
+                              history · projects in {r.currentBranch}
+                            </span>
+                          )}
+                          {/*
+                            ⚠ EL SELECTOR SÓLO PARA LOS DEL PROGRAMA — etapa OL44.
+                            Una fila de realtor no prueba que sea un NPPM
+                            contratado: de los 30 con producción, 23 no lo son.
+                            A ésos no se les asigna dueño --su presupuesto no es
+                            un bucket de NPPM de nadie-- y la fila lo DICE, en
+                            vez de no ofrecer nada y dejar la pregunta abierta.
+                          */}
+                          {(() => {
+                            /*
+                              ⚠ TRES CASOS Y NO DOS — etapa OL45. «Es de este
+                              branch» y «es del programa» son preguntas
+                              distintas, y contestarlas con la misma lista dejó
+                              a Laura Delgado marcada como ajena al programa en
+                              el 733, donde sólo tiene historia.
+                            */
+                            const enEsteBranch = branch.nppmRoster.find((x) => x.realtorCode === r.realtorCode);
+                            if (enEsteBranch === undefined) {
+                              const suyo = miembroNppm.get(r.realtorCode);
+                              return (
+                                <span
+                                  className="bp-muted ol-tag"
+                                  title={
+                                    `${r.displayName} is a contracted NPPM on branch ${suyo?.branchCode ?? '—'}. ` +
+                                    `Their budget and their loan officer are decided there; what shows here is ` +
+                                    `what they closed here.`
+                                  }
+                                >
+                                  NPPM of {suyo?.branchCode ?? '—'}
+                                </span>
+                              );
+                            }
+                            return (
+                              <>
+                                {enEsteBranch.ownerFueraDeBranch && (
+                                  <span
+                                    className="bp-notice bp-notice--warn ol-tag"
+                                    title={
+                                      `The loan officer this realtor was linked to is on branch ` +
+                                      `${enEsteBranch.ownerBranch ?? '—'}, and ${r.displayName} is on this one. ` +
+                                      `The link is stale, so their budget is not adding anywhere — pick someone here.`
+                                    }
+                                  >
+                                    ⚠ owner is on {enEsteBranch.ownerBranch ?? 'another branch'} · not adding
+                                  </span>
+                                )}
+                                <NppmOwnerPicker
+                                  realtorCode={r.realtorCode}
+                                  ownerEmployeeKey={enEsteBranch.ownerFueraDeBranch ? null : enEsteBranch.ownerEmployeeKey}
+                                  loanOfficers={losDelBranch}
+                                  onSaved={reload}
+                                />
+                              </>
+                            );
+                          })()}
+                        </td>
+                        <td className="bp-center ol-bench">
+                          {/*
+                            ⚠ Dos decimales: el promedio de 3 meses de un realtor
+                            es casi siempre fraccionario --0,33 · 0,67 · 1,33-- y
+                            con uno se pierde de dónde sale el número. Por eso el
+                            valor va formateado acá y no por `fmt`.
+                          */}
+                          <BenchTag
+                            value={r.benchmark}
+                            onEdit={() => setEditingNppm({ realtorCode: r.realtorCode, displayName: r.displayName, ytd: r.ytd })}
+                            editLabel={`Edit ${r.displayName}'s benchmark`}
+                            editTitle={
+                              r.benchmarkIsDefault
+                                ? `Nobody has set it, so what applies is the average of their closings over the 3 ` +
+                                  `closed months: ${r.avg3m.toFixed(2)}. One number per realtor, across every branch.`
+                                : `Set by hand. Their 3-month average is ${r.avg3m.toFixed(2)}.`
+                            }
+                            text={Number.isInteger(r.benchmark) ? String(r.benchmark) : r.benchmark.toFixed(2)}
+                          />
+                        </td>
+                        {monthsOfYear.map((m) => (
+                          <td
+                            key={m}
+                            className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}
+                            /*
+                              ⚠ Y EL NÚMERO VOLVIÓ — OL33. En OL32 esta celda se
+                              vaciaba en el mes en curso porque la fila SUMABA en
+                              una columna donde las de persona llevan el
+                              pronóstico. Fuera de la suma no descuadra nada, así
+                              que lo cerrado vuelve de un tooltip a la tabla.
+                            */
+                            title={
+                              m === currentMonth
+                                ? `Closed so far in ${monthLabel(m)}. This row is detail: the same closing is ` +
+                                  `already counted in the row of the loan officer who closed it.`
+                                : undefined
+                            }
+                          >
+                            {fmt(rYear.byMonth[m] ?? null)}
+                          </td>
+                        ))}
+                        <td className="bp-center totcol">
+                          {fmt(sumOfShown(monthsOfYear.map((m) => rYear.byMonth[m] ?? null)))}
+                        </td>
+                        <td className="ol-rulecol">
+                          <button
+                            type="button"
+                            className={'ol-pill' + (r.benchmarkIsDefault ? ' ol-pill--empty' : '')}
+                            onClick={() => setEditingNppm({ realtorCode: r.realtorCode, displayName: r.displayName, ytd: r.ytd })}
+                            title={
+                              r.benchmarkIsDefault
+                                ? `Nobody has set it, so what applies is the average of their closings over the 3 ` +
+                                  `closed months: ${r.avg3m.toFixed(2)}. One number per realtor, across every branch.`
+                                : `Set by hand. Their 3-month average is ${r.avg3m.toFixed(2)}.`
+                            }
+                          >
+                            {r.benchmarkIsDefault ? '3-mo avg' : 'by hand'}
+                          </button>
+                          <button
+                            type="button"
+                            className={'ol-pill' + (r.budgetTotalRevision > 0 ? '' : ' ol-pill--empty')}
+                            onClick={() => setEditingBudget({ kind: 'realtor', realtorCode: r.realtorCode })}
+                            title={
+                              r.budgetTotalRevision > 0
+                                ? 'This realtor has a composed budget set (a fixed total, with an informational breakdown by plan). Click to review or edit it.'
+                                : 'No composed budget set yet for this realtor. Click to set one -- informational, separate from the projection above.'
+                            }
+                          >
+                            Set budget
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  {/*
+                    ══════════════════════════════════════════════════════════
+                    LOS NPPM SIN PRODUCCIÓN, QUE HASTA HOY NO ESTABAN — OL44
+                    ══════════════════════════════════════════════════════════
+
+                    Cinco de los trece del roster no tienen ni un préstamo, así
+                    que ninguna fila los dibujaba: sin fila no hay dónde
+                    asignarles un dueño, y sin dueño su presupuesto no suma en
+                    ningún lado. Una pantalla que los esconde convierte «falta
+                    decidir» en «no existe».
+
+                    ⚠ Las celdas van VACÍAS y no en cero. No cerraron nada y
+                    nadie les fijó nada: un cero afirmaría que se espera cero.
+                  */}
+                  {/* ⚠ DENTRO DEL `abierta` — corregido en OL45. Estaban
+                      afuera, así que se veían con el grupo cerrado y el
+                      acordeón parecía no cerrar: en el 703 Valeria quedaba
+                      colgando debajo del agrupador. Medido: con el grupo
+                      cerrado el 733 mostraba dos filas de más y el 703 una. */}
+                  {abierta &&
+                    branch.nppmRoster
+                    .filter((x) => !x.tieneProduccion)
+                    .map((x) => (
+                      <tr key={'nppm-roster-' + x.realtorCode} className="metric mrow ol-detail" data-ol-nppm-sin-produccion="">
+                        <td className="lbl" style={{ paddingLeft: '30px' }}>
+                          {/* ⚠ SIN EL RÓTULO «no production yet» — OL46. La
+                              fila entera está vacía: decirlo además era repetir
+                              con palabras lo que las doce celdas ya dicen. El
+                              porqué sigue en el tooltip del nombre, que es
+                              donde se busca una explicación. */}
+                          <span
+                            title={
+                              `${x.displayName} is a contracted NPPM on this branch's roster (org.nppm_realtor) ` +
+                              `with no loan of their own yet — closed or open. They are here so their budget ` +
+                              `has somewhere to go.`
+                            }
+                          >
+                            {x.displayName}
+                          </span>
+                          {x.ownerFueraDeBranch && (
+                            <span
+                              className="bp-notice bp-notice--warn ol-tag"
+                              title={
+                                `The loan officer this realtor was linked to is on branch ${x.ownerBranch ?? '—'}. ` +
+                                `The link is stale, so their budget is not adding anywhere — pick someone here.`
+                              }
+                            >
+                              ⚠ owner is on {x.ownerBranch ?? 'another branch'} · not adding
+                            </span>
+                          )}
+                          <NppmOwnerPicker
+                            realtorCode={x.realtorCode}
+                            ownerEmployeeKey={x.ownerFueraDeBranch ? null : x.ownerEmployeeKey}
+                            loanOfficers={losDelBranch}
+                            onSaved={reload}
+                          />
+                        </td>
+                        <td className="bp-center ol-bench"></td>
+                        {monthsOfYear.map((m) => (
+                          <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}></td>
+                        ))}
+                        <td className="bp-center totcol"></td>
+                        <td className="ol-rulecol">
+                          <button
+                            type="button"
+                            className="ol-pill ol-pill--empty"
+                            onClick={() => setEditingBudget({ kind: 'realtor', realtorCode: x.realtorCode })}
+                            title="No composed budget set yet for this NPPM. Click to set one — it adds to their loan officer's NPPM plan."
+                          >
+                            Set budget
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                </Fragment>
+              );
+            })()}
+
+            {/*
+              ══════════════════════════════════════════════════════════════
+              GRUPO 3 — LOAN OFFICERS — IN HIRING
+              ══════════════════════════════════════════════════════════════
+              Reclutas `role: 'loan_officer'` que pasan `shouldShowRecruit` --
+              punto 6 del brief. Su presupuesto ya viene repartido en conjunto
+              con las personas de Recruitment (ver `loanOfficerRowsOf`).
+            */}
+            {visibleRecruitRows.length > 0 &&
+              (() => {
+                const key = 'g:lo-hiring';
+                const abierta = open.has(key);
+                return (
+                <Fragment key={key}>
+                  <tr className="grp d1 togg" data-rv-grupo={key} onClick={() => toggle(key)}>
+                    <td className="lbl">
+                      <span className={'chev' + (abierta ? ' open' : '')} aria-hidden="true">
+                        ›
+                      </span>
+                      Loan Officers — in hiring
+                    </td>
+                    <td className="bp-center ol-bench"></td>
+                    {monthsOfYear.map((m) => (
+                      <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
+                        {fmt(sumYears(loHiringYears, m))}
+                      </td>
+                    ))}
+                    <td className="bp-center totcol">
+                      {fmt(sumOfShown(monthsOfYear.map((m) => sumYears(loHiringYears, m))))}
+                    </td>
+                    <td className="ol-rulecol bp-muted">{visibleRecruitRows.length} in hiring</td>
+                  </tr>
+
+                  {abierta &&
+                    visibleRecruitRows.map(({ recruit: r, year: rrYear }) => (
+                      <tr key={'lo-hiring-' + r.identity} className="metric mrow ol-rec">
+                        <td className="lbl">
+                          {r.personName}
+                          <span className="bp-muted ol-tag" title={RECRUIT_TITLE[r.stage](r)}>
+                            {STAGE_LABEL[r.stage]}
+                          </span>
+                          {r.linkedEmployeeKey !== null && (
+                            <span
+                              className="bp-muted ol-tag"
+                              title={
+                                r.linkedByNmls
+                                  ? 'Matched to a roster employee by NMLS, which is a national registry number and ' +
+                                    'therefore an exact match. From here on the roster projects them, so this row adds nothing.'
+                                  : 'Someone confirmed which roster employee this is. From here on the roster projects ' +
+                                    'them, so this row adds nothing.'
+                              }
+                            >
+                              {r.linkedByNmls ? 'in roster (NMLS)' : 'in roster'}
+                            </span>
+                          )}
+                        </td>
+                            <td className="bp-center ol-bench">
+                          <BenchTag
+                            value={r.monthlyBenchmark}
+                            onEdit={() => setEditingRecruit(r.identity)}
+                            editLabel={`Edit ${r.personName}'s projection`}
+                            editTitle={
+                              r.monthlyBenchmark === null
+                                ? 'Nobody has set how much they are expected to produce, so this row adds nothing. ' +
+                                  'Empty, not zero: zero would claim no production is expected.'
+                                : `Expected ${r.monthlyBenchmark} a month once ramped up, from ${r.producingFrom}.`
+                            }
+                          />
+                        </td>
+                        {monthsOfYear.map((m) => (
+                          <td
+                            key={m}
+                            className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}
+                            title={
+                              m > currentMonth
+                                ? RECRUIT_MONTH_TITLE(r, m)
+                                : 'Not on the roster this month, so there is nothing to report — empty, not zero.'
+                            }
+                          >
+                            {m > currentMonth && !r.notProjecting ? fmt(rrYear.byMonth[m] ?? null) : ''}
+                          </td>
+                        ))}
+                        <td className="bp-center totcol">
+                          {fmt(sumOfShown(monthsOfYear.map((m) => rrYear.byMonth[m] ?? null)))}
+                        </td>
+                        <td className="ol-rulecol">
+                          <button
+                            type="button"
+                            className={'ol-pill' + (r.notProjecting ? ' ol-pill--empty' : '')}
+                            onClick={() => setEditingRecruit(r.identity)}
+                            title={RECRUIT_TITLE[r.stage](r)}
+                          >
+                            {r.notProjecting ? NOT_PROJECTING_PILL[r.notProjecting] : 'ramping up'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                </Fragment>
+              );
+            })()}
+
+            {/*
+              ══════════════════════════════════════════════════════════════
+              GRUPO 4 — NPPM — IN HIRING
+              ══════════════════════════════════════════════════════════════
+              Reclutas `role: 'nppm'` -- vacío hoy, ver la nota de
+              `nppmHiringRows` más arriba: sin reparto conjunto todavía porque
+              no hay ni un caso real contra el cual construirlo y verificarlo.
+            */}
+            {nppmHiringRows.length > 0 &&
+              (() => {
+                const key = 'g:nppm-hiring';
+                const abierta = open.has(key);
+                return (
+                <Fragment key={key}>
+                  <tr className="grp d1 togg" data-rv-grupo={key} onClick={() => toggle(key)}>
+                    <td className="lbl">
+                      <span className={'chev' + (abierta ? ' open' : '')} aria-hidden="true">
+                        ›
+                      </span>
+                      NPPM — in hiring
+                    </td>
+                    <td className="bp-center ol-bench"></td>
+                    {monthsOfYear.map((m) => (
+                      <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
+                        {fmt(sumYears(nppmHiringYears, m))}
+                      </td>
+                    ))}
+                    <td className="bp-center totcol">
+                      {fmt(sumOfShown(monthsOfYear.map((m) => sumYears(nppmHiringYears, m))))}
+                    </td>
+                    <td className="ol-rulecol bp-muted">{nppmHiringRows.length} in hiring</td>
+                  </tr>
+
+                  {abierta &&
+                    nppmHiringRows.map(({ r, year: rrYear }) => (
+                      <tr key={'nppm-hiring-' + r.identity} className="metric mrow ol-rec">
+                        <td className="lbl">
+                          {r.personName}
+                          <span className="bp-muted ol-tag" title={RECRUIT_TITLE[r.stage](r)}>
+                            {STAGE_LABEL[r.stage]}
+                          </span>
+                        </td>
+                            <td className="bp-center ol-bench">
+                          <BenchTag
+                            value={r.monthlyBenchmark}
+                            onEdit={() => setEditingRecruit(r.identity)}
+                            editLabel={`Edit ${r.personName}'s projection`}
+                            editTitle={
+                              r.monthlyBenchmark === null
+                                ? 'Nobody has set how much they are expected to produce, so this row adds nothing. ' +
+                                  'Empty, not zero: zero would claim no production is expected.'
+                                : `Expected ${r.monthlyBenchmark} a month once ramped up, from ${r.producingFrom}.`
+                            }
+                          />
+                        </td>
+                        {monthsOfYear.map((m) => (
+                          <td
+                            key={m}
+                            className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}
+                            title={
+                              m > currentMonth
+                                ? RECRUIT_MONTH_TITLE(r, m)
+                                : 'Not on the roster this month, so there is nothing to report — empty, not zero.'
+                            }
+                          >
+                            {m > currentMonth && !r.notProjecting ? fmt(rrYear.byMonth[m] ?? null) : ''}
+                          </td>
+                        ))}
+                        <td className="bp-center totcol">
+                          {fmt(sumOfShown(monthsOfYear.map((m) => rrYear.byMonth[m] ?? null)))}
+                        </td>
+                        <td className="ol-rulecol">
+                          <button
+                            type="button"
+                            className={'ol-pill' + (r.notProjecting ? ' ol-pill--empty' : '')}
+                            onClick={() => setEditingRecruit(r.identity)}
+                            title={RECRUIT_TITLE[r.stage](r)}
+                          >
+                            {r.notProjecting ? NOT_PROJECTING_PILL[r.notProjecting] : 'ramping up'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                </Fragment>
+              );
+            })()}
+
+            {/*
+              ══════════════════════════════════════════════════════════════
+              AFFINITY — una sola fila total, sin abrir por Account Executive
+              ══════════════════════════════════════════════════════════════
+            */}
+            {affinityRow && filaUnica === null && (
+              <tr className="metric mrow">
+                <td className="lbl">
+                  <span className="chev chev--none" aria-hidden="true" />
+                  Affinity
+                  <span className="bp-muted ol-tag">total only</span>
+                </td>
+                <td className="bp-center ol-bench">
+                  <BenchTag value={affinityBench} />
+                </td>
+                {monthsOfYear.map((m) => (
+                  <td
+                    key={m}
+                    className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}
+                    /*
+                      ⚠ LO CERRADO DEL MES NO SE PIERDE, SALE DE LA COLUMNA — OL32.
+                      La celda va vacía porque esta columna es un pronóstico y el
+                      pipeline no lo abre por estrategia; el número real vive acá.
+                    */
+                    title={
+                      m === currentMonth && mesEnCursoEsPronostico
+                        ? `Closed so far in ${monthLabel(m)}: ` +
+                          `${fmt(affinityRow.year.byMonth[m] ?? 0)}. The column shows the month's forecast, ` +
+                          `which the pipeline does not open by strategy, so it is left blank here instead of ` +
+                          `mixing two different things in one column.`
+                        : undefined
+                    }
+                  >
+                    {fmt(affinityYear?.byMonth[m] ?? null)}
+                  </td>
+                ))}
+                <td className="bp-center totcol">
+                  {fmt(sumOfShown(monthsOfYear.map((m) => affinityYear?.byMonth[m] ?? null)))}
+                </td>
+                <td className="ol-rulecol bp-muted">not editable here</td>
+              </tr>
+            )}
+
+            {/*
+              ══════════════════════════════════════════════════════════════
+              LA FILA FUNDIDA — etapa OL28
+              ══════════════════════════════════════════════════════════════
+
+              Un branch sin filas de persona tiene un solo sujeto, así que tiene
+              una sola fila: lo cerrado y lo presupuestado en el mismo renglón,
+              como cualquier otra. Ver la nota de `filaUnica` arriba.
+
+              El nombre sigue siendo el de la estrategia --es de lo que habla la
+              fila-- y el lápiz del presupuesto viene con ella, porque acá el
+              sujeto del presupuesto ES el branch.
+            */}
+            {filaUnica !== null && affinityRow && (
+              <tr className="metric mrow">
+                <td className="lbl">
+                  <span className="chev chev--none" aria-hidden="true" />
+                  Affinity
+                  <span
+                    className="bp-muted ol-tag"
+                    title={
+                      `Nobody on this branch's roster, so there is nothing to tell apart: what closed ` +
+                      `and what is budgeted are the same subject and share one row. The budget is set ` +
+                      `for the branch as a whole.`
+                    }
+                  >
+                    branch total
+                  </span>
+                </td>
+                <td className="bp-center ol-bench">
+                  <BenchTag value={affinityBench} />
+                </td>
+                {monthsOfYear.map((m) => (
+                  <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
+                    {fmt(filaUnica.byMonth[m] ?? null)}
+                  </td>
+                ))}
+                <td className="bp-center totcol">
+                  {fmt(sumOfShown(monthsOfYear.map((m) => filaUnica.byMonth[m] ?? null)))}
+                </td>
+                <td className="ol-rulecol">
+                  <button
+                    type="button"
+                    className="ol-pill"
+                    data-ol-branch-budget=""
+                    onClick={() => setEditingBudget({ kind: 'branch', branchCode: branch.branchCode })}
+                    title={'Set the budget for branch ' + branch.branchCode + ' as a whole'}
+                  >
+                    Set budget
+                  </button>
+                </td>
+              </tr>
+            )}
+
+            {/*
+              ══════════════════════════════════════════════════════════════
+              EL PRESUPUESTO FIJADO PARA EL BRANCH — etapa OL27
+              ══════════════════════════════════════════════════════════════
+
+              No es de nadie en particular: se fijó para el branch entero y
+              cubre a varias personas. Hasta OL27 el total lo sumaba y ninguna
+              fila lo mostraba, así que la reconciliación se lo tragaba bajo el
+              rótulo «LO out of branch» -- que hablaba de otra cosa.
+
+              Se suma ADEMÁS de las personas, no en lugar de ellas: es
+              producción que no se le atribuye a nadie del roster. Por eso tiene
+              fila propia y no se reparte: repartirla entre los Business
+              Developers que cubre es una decisión de negocio, no un cálculo.
+            */}
+            {hayBranchBudget && filaUnica === null && (
+              <tr className="metric mrow">
+                <td className="lbl">
+                  <span className="chev chev--none" aria-hidden="true" />
+                  Branch-level budget
+                  <span
+                    className="bp-muted ol-tag"
+                    title={
+                      `Set for the whole branch, not for a person: ` +
+                      branchBudget.parts.map((p) => p.strategy).join(', ') +
+                      `. It covers several people, so it adds to the rows above instead of ` +
+                      `replacing them, and nobody's row carries it.`
+                    }
+                  >
+                    {branchBudget.parts.length > 0
+                      ? branchBudget.parts.map((p) => p.strategy).join(' · ')
+                      : 'nobody on the roster'}
+                  </span>
+                  {branchBudget.fijadoAMano.length > 0 && (
+                    <span className="bp-muted ol-tag" title="Set by hand for the branch. It overrides the per-strategy budget for those months, the same way a person's total overrides their rule.">
+                      set by hand
+                    </span>
+                  )}
+                </td>
+                <td className="bp-center ol-bench"></td>
+                {monthsOfYear.map((m) => (
+                  <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
+                    {fmt(branchBudgetYear.byMonth[m] ?? null)}
+                  </td>
+                ))}
+                <td className="bp-center totcol">
+                  {fmt(sumOfShown(monthsOfYear.map((m) => branchBudgetYear.byMonth[m] ?? null)))}
+                </td>
+                <td className="ol-rulecol">
+                  {/*
+                    ⚠ EL LÁPIZ QUE FALTABA. En AFFINITY el editor no se podía
+                    abrir para nadie --cero productores en el roster-- así que
+                    el presupuesto de ese branch no se podía fijar desde ningún
+                    lado. Acá el sujeto es el branch.
+                  */}
+                  <button
+                    type="button"
+                    className="ol-pill"
+                    data-ol-branch-budget=""
+                    onClick={() => setEditingBudget({ kind: 'branch', branchCode: branch.branchCode })}
+                    title={'Set the budget for branch ' + branch.branchCode + ' as a whole'}
+                  >
+                    Set budget
+                  </button>
+                </td>
+              </tr>
+            )}
+
+            {/*
+              LO QUE NINGÚN GRUPO RECLAMA. Ver `residual` arriba: es un residuo
+              puro, así que el total sigue siendo la suma de las filas. No se
+              muestra cuando no hay nada que reconciliar.
             */}
             {showResidual && (
               <tr className="metric ol-residual">
@@ -1786,50 +2660,78 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                     es peor que ninguno.
                   */}
                   {Math.abs(residual[currentMonth]) > 0.001
-                    ? currentAboveForecast
-                      ? `${monthLabel(currentMonth)} already above forecast`
-                      : `${monthLabel(currentMonth)} pipeline, no strategy yet`
-                    : /*
-                       * ⚠ DECÍA `Counted for a realtor, not for the branch` — OL22.
+                    ? /*
+                       * ══════════════════════════════════════════════════════
+                       * ⚠ ACÁ DECÍA «already above forecast», Y SE FUE — OL31
+                       * ══════════════════════════════════════════════════════
                        *
-                       * Nombraba una CAUSA particular --NPPM-- que en la mayoría de
-                       * los casos no aplica. Verificado en el 747, enero 2026: no
-                       * hay ni un NPPM. El residuo son cierres de gente ajena al
-                       * branch -- Frank Rodriguez, que ni siquiera resuelve contra
-                       * el roster, y José Zamora, que es del 716.
+                       * Nadie lo pidió: salió de `b25f1a2`, la etapa de la fila
+                       * de reconciliación, como la forma amable de mostrar un
+                       * signo menos. Y afirmaba un hecho de NEGOCIO --«este
+                       * branch ya pasó lo que se esperaba del mes»-- a partir de
+                       * un artefacto de PRESENTACIÓN.
                        *
-                       * `LO out of branch` describe lo que efectivamente hay, sin
-                       * asumir por qué. La causa, cuando importa, está en el
-                       * tooltip y en la línea de outsiders del pie.
+                       * Medido: el residuo del mes en curso es negativo
+                       * exactamente por lo que NPPM y Affinity cerraron ese mes.
+                       * Las filas de persona llevan el pronóstico del branch
+                       * repartido y esas dos muestran lo cerrado, así que la
+                       * suma se pasa del pronóstico por el monto de esos
+                       * cierres, esté el branch adelante o atrás de su plan. El
+                       * 716 decía «18 closed against a forecast of 14», y 14 de
+                       * esos 18 no estaban cerrados: eran pronóstico.
+                       *
+                       * Lo reemplaza un nombre, no una explicación: la fila dice
+                       * QUÉ ES --la diferencia contra la lista-- y el número
+                       * queda a la vista para quien quiera leerlo. Un rótulo que
+                       * interpreta un número es una afirmación nueva, y hay que
+                       * probarla como tal.
                        */
-                      'LO out of branch'}
+                      'Difference with the branch list'
+                    : /*
+                       * ⚠ EL RÓTULO DICE LO QUE LA FILA LLEVA, Y HASTA OL27 NO ERA
+                       * CIERTO. Decía «LO out of branch» --cierres de gente que no
+                       * está en el roster-- y en los meses futuros llevaba dos
+                       * cosas que no son eso: el presupuesto de branch (747 y 716)
+                       * y lo que NPPM proyecta desde sus realtors (733, 776, 724).
+                       * El 724 lo dejó a la vista: rotulaba «LO out of branch» sin
+                       * UN SOLO cierre de otro branch en el pie.
+                       *
+                       * Las dos fuentes tienen fila propia desde OL27, así que lo
+                       * que queda acá es lo que el rótulo dice. Y lo dice entero,
+                       * porque «LO out of branch» no se entiende sin saber que el
+                       * total cuenta por préstamo y las estrategias por roster.
+                       */
+                      'Closed by loan officers from other branches'}
+                  {/*
+                    ⚠ Y LA MARCA «not a strategy» SE FUE CON ÉL — OL31. Nombraba
+                    una categorización que la vista dejó de usar cuando pasó a
+                    abrirse por TIPO DE PERSONA (OL26): ya no distingue esta fila
+                    de ninguna otra, porque ninguna de las de arriba es una
+                    estrategia tampoco.
+
+                    Lo que queda es el tooltip, y dice la ARITMÉTICA sin
+                    interpretarla: los dos números y de dónde sale cada uno. La
+                    palabra «closed» no aparece, porque en el mes en curso una de
+                    las dos mitades no es lo cerrado.
+                  */}
                   <span
                     className="bp-muted ol-tag"
                     title={
                       Math.abs(residual[currentMonth]) <= 0.001
-                        ? /*
-                           * ⚠ LA EXPLICACIÓN GENERAL, NO LA CAUSA ASUMIDA — OL22. La
-                           * versión vieja afirmaba que eran cierres de un realtor
-                           * NPPM, que es UNA de las formas de llegar acá y casi
-                           * nunca la que aplica.
-                           */
-                          `The branch total counts by LOAN --whatever closed here-- and the strategies open by ` +
+                        ? `The branch total counts by LOAN --whatever closed here-- and the rows above open by ` +
                           `the people on this branch's roster. Closings by loan officers who are not on it land ` +
-                          `in this row: they are real and they count in the total, but no strategy can claim ` +
+                          `in this row: they are real and they count in the total, but no row above can claim ` +
                           `them. The row carries the difference so the total matches the list.`
-                        : currentAboveForecast
-                        ? `This branch has already closed more this month than its forecast expected: ` +
-                          `${fmt(strategiesByMonth[currentMonth])} closed against a forecast of ` +
-                          `${fmt(branchYear.byMonth[currentMonth])}. The row carries the difference so the total ` +
-                          `matches the branch list.`
-                        : `The part of ${monthLabel(currentMonth)}'s forecast that no strategy can claim: Forecast ` +
-                          `projects the month from the pipeline, which does not carry the strategy. This row goes ` +
-                          `away the day it does.`
+                        : `The branch list shows ${fmt(branchYear.byMonth[currentMonth])} for ` +
+                          `${monthLabel(currentMonth)} and the rows above add up to ` +
+                          `${fmt(strategiesByMonth[currentMonth])}. This row carries the difference so the total ` +
+                          `matches the list.`
                     }
                   >
-                    not a strategy
+                    vs the list
                   </span>
                 </td>
+                <td className="bp-center ol-bench"></td>
                 {monthsOfYear.map((m) => (
                   <td
                     key={m}
@@ -1838,18 +2740,16 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                       Math.abs(residual[m]) <= 0.001
                         ? undefined
                         : m === currentMonth
-                          ? `The branch list shows ${fmt(branchYear.byMonth[m])} for ${monthLabel(m)} and the five ` +
-                            `strategies add up to ${fmt(strategiesByMonth[m])}. This is the difference.`
-                          : `${monthLabel(m)} differs from the branch list by ${fmt(residual[m])}: closings counted ` +
-                            `for a realtor but not for the branch, because the loan officer who originated them is ` +
-                            `outside the division. See the tag on the NPPM row.`
+                          ? `The branch list shows ${fmt(branchYear.byMonth[m])} for ${monthLabel(m)} and the groups ` +
+                            `shown above add up to ${fmt(strategiesByMonth[m])}. This is the difference.`
+                          : `${monthLabel(m)} differs from the branch list by ${fmt(residual[m])}: a closing by a ` +
+                            `loan officer who is not on this branch's roster.`
                     }
                   >
                     {Math.abs(residual[m]) <= 0.001 ? '' : fmt(residual[m])}
                   </td>
                 ))}
                 <td className="bp-center totcol">{fmt(sumOfShown(monthsOfYear.map((m) => (Math.abs(residual[m]) <= 0.001 ? null : residual[m]))))}</td>
-                <td className="bp-center"></td>
                 <td className="ol-rulecol"></td>
               </tr>
             )}
@@ -1861,13 +2761,14 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
             */}
             <tr className="metric ol-total">
               <td className="lbl">Branch {branch.branchCode}</td>
+              <td className="bp-center ol-bench"></td>
               {monthsOfYear.map((m) => (
                 <td
                   key={m}
                   className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}
                   title={
                     m === currentMonth
-                      ? `The month's forecast, same as in the branch list. The five strategies add up to ` +
+                      ? `The month's forecast, same as in the branch list. The groups shown above add up to ` +
                         `${fmt(strategiesByMonth[m])} — what actually closed — and the row above carries the rest.`
                       : undefined
                   }
@@ -1875,15 +2776,233 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                   {fmt(totalByMonth[m])}
                 </td>
               ))}
-              <td className="bp-center totcol" title="The sum of the five strategies, column by column.">
+              <td className="bp-center totcol" title="The sum of the rows shown above, column by column.">
                 {fmt(sumOfShown(monthsOfYear.map((m) => totalByMonth[m])))}
               </td>
-              <td className="bp-center"></td>
               <td className="ol-rulecol"></td>
             </tr>
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+        </section>
+
+        {/*
+          ══════════════════════════════════════════════════════════════════
+          ⚠ LA COMPOSICIÓN VUELVE A SER UNA TABLA — etapas OL45 y OL49
+          ══════════════════════════════════════════════════════════════════
+
+          OL45 la metió como `<tbody>` de la tabla de arriba por una razón
+          medida: en tablas separadas octubre caía en x=1151 en una y en x=1177
+          en la otra, a 26px, porque dos tablas con `table-layout: auto`
+          calculan sus columnas por su propio contenido y nunca coinciden.
+
+          OL49 pide dos tarjetas, y eso reabre el problema. Lo que lo cierra no
+          es volver a intentar igualarlas con celdas vacías --eso ya se probó y
+          ACERCA, no alinea-- sino sacarle al navegador la decisión: las dos
+          tablas son `table-layout: fixed` y comparten `OlColgroup`, que fija
+          cada columna en píxeles medidos. Ver ese archivo para de dónde salen
+          los números y por qué es un componente y no dos listas iguales.
+
+          ⚠ Y LA TABLA DE ABAJO REPITE LA FILA DE MESES. Con las dos secciones
+          en una sola tabla, el encabezado de arriba servía para las dos; con
+          una tarjeta aparte y un margen generoso entre ellas, doce números sin
+          rótulo de columna no se leen. Alinear no es lo mismo que rotular.
+        */}
+        {composicion.hayAlgo && (
+          <section className="ol-card" data-ol-composition-card="">
+            <div className="ol-card__head">
+              <h2 className="ol-card__title">Budget composition</h2>
+              <span className="ol-card__badge">
+                {composicion.cuantos} loan officer{composicion.cuantos === 1 ? '' : 's'} · read only
+              </span>
+            </div>
+            <table
+              className="piv bp-table--los ol-year ol-grid"
+              style={{ width: anchoDeLaGrilla(monthsOfYear, currentMonth) }}
+            >
+              <OlColgroup months={monthsOfYear} currentMonth={currentMonth} />
+              <thead>
+                <tr className="mo-row">
+                  <th className="lbl">Plan</th>
+                  <th className="bp-center ol-bench"></th>
+                  {monthsOfYear.map((m) => (
+                    <th key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
+                      {monthLabel(m)}
+                    </th>
+                  ))}
+                  <th className="bp-center totcol"></th>
+                  <th className="ol-rulecol"></th>
+                </tr>
+              </thead>
+            <tbody data-ol-composition="">
+              {composicion.filas.flatMap((f) => [
+                <tr key={f.bucket} className="metric mrow">
+                  <td className="lbl">
+                    {BUCKET_LABEL[f.bucket]}
+                    {f.bucket === 'own_production' && composicion.porRegla > 0 && (
+                      <span
+                        className="bp-muted ol-tag"
+                        title={
+                          `${composicion.porRegla} of ${composicion.cuantos} loan officers here did not break ` +
+                          `their budget down, so what their growth rule projects counts as Own Production — ` +
+                          `minus whatever they did break out into the other plans, so nothing is counted twice.`
+                        }
+                      >
+                        from growth rule
+                      </span>
+                    )}
+                  </td>
+                  <td className="bp-center ol-bench"></td>
+                  {/* La misma banda que la tabla de arriba: si la columna de
+                      octubre está teñida de presupuesto, la de la composición
+                      también -- si no, la fila parece de otra tabla aunque
+                      esté en la misma. */}
+                  {monthsOfYear.map((m) => (
+                    <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
+                      {remainingMonths.includes(m) ? fmt(f.byMonth[m] ?? null) : ''}
+                    </td>
+                  ))}
+                  <td className="bp-center totcol"></td>
+                  <td className="ol-rulecol"></td>
+                </tr>,
+                ...(f.bucket === 'nppm'
+                  ? composicion.realtors.map((r) => (
+                      <tr key={'r-' + r.realtorCode} className="metric ol-detail" data-ol-realtor="">
+                        <td className="lbl" style={{ paddingLeft: '30px' }}>
+                          {r.displayName}
+                          <span
+                            className="bp-muted ol-tag"
+                            title="The loan officer this realtor adds to. Set in the realtor's own row."
+                          >
+                            {r.loanOfficer}
+                          </span>
+                        </td>
+                        <td className="bp-center ol-bench"></td>
+                        {monthsOfYear.map((m) => (
+                          <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
+                            {remainingMonths.includes(m) ? fmt(r.byMonth[m] ?? null) : ''}
+                          </td>
+                        ))}
+                        <td className="bp-center totcol"></td>
+                        <td className="ol-rulecol"></td>
+                      </tr>
+                    ))
+                  : []),
+              ])}
+              <tr className="metric ol-total ol-comp-total">
+                <td
+                  className="lbl"
+                  title={
+                    `The branch budget above, by plan: every loan officer of this branch, with ` +
+                    `what the growth rule projects counting as Own Production for whoever set no ` +
+                    `breakdown. Hiring, NPPM and any branch-level budget are not in here.`
+                  }
+                >
+                  Total
+                  {/*
+                    ⚠ DE EXCEPCIÓN DECLARADA A GUARDA QUE NO DEBERÍA MORDER —
+                    etapas OL46, OL47 y OL48.
+                    ────────────────────────────────────────────────────────────
+                    OL46 la descubrió: la proyección de un realtor podía ser
+                    mayor que todo lo que su Loan Officer tenía presupuestado
+                    --el 776, con Laura Delgado proyectando 2 y Silvio Arteaga
+                    presupuestado en 1--. OL47 la explicó en una línea en vez de
+                    recortarla, porque recortar inventa un número que nadie
+                    proyectó.
+
+                    OL48 le sacó la causa: un realtor no cierra --cierra su Loan
+                    Officer-- así que el total de él no puede quedar debajo de la
+                    suma de sus realtors, y `presupuestoDePersona` lo sube. Con
+                    eso `composicion.total` no PUEDE pasarse del presupuesto del
+                    branch, porque el branch suma exactamente esos totales ya
+                    levantados.
+
+                    ⚠ Y POR ESO ESTO SE QUEDA, con otro texto. Es la única señal
+                    de que las dos mitades --`projectBranch` y `loanOfficerRowsOf`,
+                    que llaman a la misma función justamente para no separarse--
+                    dejaron de coincidir. Un respaldo que nunca se ejerce es
+                    sospechoso; una guarda que no debería morder y lo dice fuerte
+                    cuando muerde es lo contrario. Si aparece, es un error de
+                    cableado, no un dato del branch.
+                  */}
+                  {(() => {
+                    const sobran = remainingMonths.filter(
+                      (m) => (composicion.total[m] ?? 0) > (totalByMonth[m] ?? 0)
+                    );
+                    if (sobran.length === 0) return null;
+                    return (
+                      <span
+                        className="bp-notice bp-notice--warn ol-tag"
+                        title={
+                          `The plans below add up to more than the branch budget in ` +
+                          `${sobran.map(monthLabel).join(', ')}, and they cannot: a loan officer's budget ` +
+                          `already rises to contain their NPPM realtors, so the branch budget already ` +
+                          `includes every number below. This is a wiring error, not something about ` +
+                          `this branch — please report it.`
+                        }
+                      >
+                        ⚠ does not match the branch budget in {sobran.map(monthLabel).join(', ')}
+                      </span>
+                    );
+                  })()}
+                </td>
+                <td className="bp-center ol-bench"></td>
+                {monthsOfYear.map((m) => (
+                  <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
+                    {remainingMonths.includes(m) ? fmt(composicion.total[m] ?? null) : ''}
+                  </td>
+                ))}
+                <td className="bp-center totcol"></td>
+                <td className="ol-rulecol"></td>
+              </tr>
+              {/*
+                ══════════════════════════════════════════════════════════════
+                LA LÍNEA QUE EXPLICA — OL47 el descuadre, OL48 su ausencia
+                ══════════════════════════════════════════════════════════════
+
+                OL47 la escribió para que Isabella no tuviera que reconstruir
+                por qué la composición decía más que el presupuesto. OL48 hizo
+                que eso no pueda pasar --el total del Loan Officer sube para
+                contener a sus realtors-- así que la frase de OL47 quedaría
+                afirmando lo contrario de lo que hoy hace el código: que la
+                regla no sube porque abajo pidan más. Ahora sube.
+
+                Lo que queda es la misma fila diciendo lo que corresponde al
+                estado nuevo: si aparece, algo se desincronizó entre las dos
+                mitades --la fila del branch y la tarjeta-- y hay que mirarlo.
+
+                Va como fila y no como tooltip, por lo mismo que en OL47: un
+                dato que sólo vive en un tooltip está a un paso de no existir.
+              */}
+              {(() => {
+                const sobran = remainingMonths.filter(
+                  (m) => (composicion.total[m] ?? 0) > (totalByMonth[m] ?? 0)
+                );
+                if (sobran.length === 0) return null;
+                const mes = sobran[0];
+                /* Los realtors que aportan en ese mes, con su dueño: son los
+                   que explican el número de arriba. */
+                const aportan = composicion.realtors.filter((r) => (r.byMonth[mes] ?? 0) > 0);
+                const duenos = [...new Set(aportan.map((r) => r.loanOfficer))].join(', ');
+                const nombres = aportan.map((r) => r.displayName).join(', ');
+                return (
+                  <tr className="metric ol-comp-nota" data-ol-comp-nota="">
+                    <td className="lbl" colSpan={monthsOfYear.length + 4}>
+                      ⚠ The rows above add up to more than the branch budget in{' '}
+                      {sobran.map(monthLabel).join(', ')}, and they should not be able to: a loan
+                      officer&apos;s budget already rises to contain their NPPM realtors
+                      {nombres === '' ? '' : ` (${nombres} → ${duenos})`}, so every number here is
+                      already inside the branch budget above. This is a wiring error between the branch
+                      row and this card, not something about this branch — please report it.
+                    </td>
+                  </tr>
+                );
+              })()}
+            </tbody>
+            </table>
+          </section>
+        )}
       </div>
+
 
       {/*
         El aviso va DEBAJO del bloque 2, pegado a los ceros que explica. En el
@@ -2029,97 +3148,6 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
         vieja -- el editor seguiría mostrando el benchmark anterior al que se
         acaba de escribir, que es exactamente el bug que uno no revisa.
       */}
-      {editing &&
-        (() => {
-          /*
-           * ⚠ El editable se ARMA en cada render, desde `data` fresca. Guardarlo
-           * en el estado dejaría al editor mostrando la versión anterior a lo que
-           * se acaba de escribir -- el bug que uno no revisa porque el guardado
-           * "funcionó".
-           */
-          let editable: OutlookEditable | null = null;
-          if (editing.kind === 'employee') {
-            /*
-             * ⚠ NO TODA PERSONA ES UN LOAN OFFICER DEL BRANCH — etapa OL14.
-             *
-             * Los Account Executives de Affinity son personas con `employee_key`
-             * y con presupuesto propio, pero NO están en `branch.loanOfficers`:
-             * su branch de roster es otro. Buscarlos sólo ahí dejaba el editor
-             * sin abrir --se hacía clic en el lápiz y no pasaba nada, sin error--
-             * que es la clase de falla que sólo se ve usando la pantalla.
-             */
-            const ae = branch.byStrategy
-              .flatMap((bs) => (bs.opensBy === 'owner' ? bs.owners.map((o) => ({ bs, o })) : []))
-              .find(({ o }) => o.isPerson && o.employeeKey === editing.employeeKey);
-            if (ae) {
-              editable = {
-                subject: { kind: 'employee', employeeKey: editing.employeeKey },
-                label: ae.o.owner,
-                benchmarkSchedules: { [ae.bs.strategy]: ae.o.benchmarkSchedule },
-                rulesByStrategy: { [ae.bs.strategy]: ae.o.rules },
-                targetsByStrategy: { [ae.bs.strategy]: ae.o.targets },
-                modeByStrategy: { [ae.bs.strategy]: ae.o.mode },
-                modeSetBy: { [ae.bs.strategy]: ae.o.modeSetBy },
-                ruleRevision: { [ae.bs.strategy]: ae.o.ruleRevision },
-                targetRevision: { [ae.bs.strategy]: ae.o.targetRevision },
-              };
-            }
-            const lo = !editable ? branch.loanOfficers.find((l) => l.employeeKey === editing.employeeKey) : null;
-            if (lo) {
-              editable = {
-                subject: { kind: 'employee', employeeKey: lo.employeeKey },
-                label: lo.fullName,
-                benchmarkSchedules: lo.benchmarkSchedules,
-                rulesByStrategy: lo.rulesByStrategy,
-                targetsByStrategy: lo.targetsByStrategy,
-                modeByStrategy: lo.modeByStrategy,
-                modeSetBy: lo.modeSetBy,
-                ruleRevision: lo.ruleRevision,
-                targetRevision: lo.targetRevision,
-              };
-            }
-          } else {
-            const bs = branch.byStrategy.find((x) => x.strategy === editing.strategy);
-            if (bs) {
-              /*
-               * Un branch decide UNA estrategia por vez, así que los mapas llevan
-               * sólo esa clave. El editor lee siempre `[strategy]`, y darle las
-               * cinco lo obligaría a que el loader las trajera todas para nada.
-               */
-              editable = {
-                subject: { kind: 'branch', branchCode: branch.branchCode },
-                label: `Branch ${branch.branchCode}`,
-                benchmarkSchedules: { [bs.strategy]: bs.benchmarkSchedule },
-                rulesByStrategy: { [bs.strategy]: bs.rules },
-                targetsByStrategy: { [bs.strategy]: bs.targets },
-                modeByStrategy: { [bs.strategy]: bs.mode },
-                modeSetBy: { [bs.strategy]: bs.modeSetBy },
-                ruleRevision: { [bs.strategy]: bs.ruleRevision },
-                targetRevision: { [bs.strategy]: bs.targetRevision },
-              };
-            }
-          }
-          if (!editable) return null;
-          return (
-            <StrategyEditor
-              lo={editable}
-              strategy={editing.strategy}
-              data={data}
-              /*
-                ⚠ LOS MESES QUE LA TABLA ESTA MOSTRANDO, no los del año — OL21.
-
-                `remainingMonths` de acá es la lista del HORIZONTE elegido, que
-                es estado de esta pantalla. Sin esto el editor caia en
-                `data.remainingMonths` y ofrecia tres meses mientras la tabla
-                dibujaba treinta y seis.
-              */
-              months={remainingMonths}
-              onClose={() => setEditing(null)}
-              onSaved={reload}
-            />
-          );
-        })()}
-
       {editingRecruit !== null &&
         (() => {
           /*
@@ -2180,13 +3208,213 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
 
       {editingNppm && (
         <NppmEditor
-          realtor={editingNppm.realtor}
+          realtorCode={editingNppm.realtorCode}
+          displayName={editingNppm.displayName}
           ytd={editingNppm.ytd}
           data={data}
           onClose={() => setEditingNppm(null)}
           onSaved={reload}
         />
       )}
+
+      {/*
+        El presupuesto compuesto -- punto 5 de OL26. Mismo criterio que los
+        demás editores: se resuelve la fila FRESCA de `branch` en cada render,
+        nunca desde un objeto guardado en el estado (ver la nota de
+        `editingBudget` más arriba).
+
+        ⚠ `editingBudgetActivo`, NO `editingBudget` -- re-cableado al rebasar
+        sobre main. Es lo que abre el editor, ya sea porque la persona hizo
+        clic o porque la URL de la revisión lo pidió (`rvOpen=budget`, ver la
+        nota de `rvPedido` más arriba); `editingBudget` sigue siendo sólo lo
+        que la persona abrió A MANO, para que `onClose` sepa si tiene que
+        cerrar un estado propio o descartar lo que pedía la URL.
+      */}
+      {editingBudgetActivo &&
+        (() => {
+          /*
+           * ⚠ CERRAR TIENE DOS CASOS -- mismo mecanismo que tenía
+           * `StrategyEditor` con `rvClave`, ahora sobre el `employeeKey` a
+           * secas (no hace falta componerlo con una estrategia: el editor es
+           * uno solo por persona). Si `editingBudget` estaba puesto, lo abrió
+           * la persona y hay que limpiarlo; si no, lo que se ve viene de la
+           * URL y hay que DESCARTARLO -- si no, el parámetro lo reabre en el
+           * render siguiente.
+           */
+          const cerrar = () => {
+            if (editingBudget !== null) setEditingBudget(null);
+            else if (rvPedido !== null) setRvDescartado(rvPedido.employeeKey);
+          };
+          if (editingBudgetActivo.kind === 'employee') {
+            const lo = branch.loanOfficers.find((x) => x.employeeKey === editingBudgetActivo.employeeKey);
+            if (!lo) return null;
+            /*
+             * ⚠ `recruitment` SÓLO PARA QUIEN PARTICIPA -- etapa OL26e. Ver
+             * `docs/sql/2026-09-outlook-budget-recruitment-bucket.sql`. Mismo
+             * criterio que ya usa `loanOfficerRowsOf` para la píldora
+             * "Rec": sin producción ni presupuesto propio en Recruitment, el
+             * bucket no tiene nada que explicar.
+             */
+            const pr = personRows.find((x) => x.lo.employeeKey === lo.employeeKey);
+            const person: BudgetEditable = {
+              subject: { kind: 'employee', employeeKey: lo.employeeKey },
+              label: lo.fullName,
+              /*
+               * ⚠ SIN `nppm` — etapa OL42. Ese bucket dejó de escribirse acá:
+               * es la suma de los realtors que esta persona tiene a cargo, y
+               * el presupuesto de cada uno se fija en la fila del realtor. Dos
+               * lugares para el mismo número es lo que esta serie viene
+               * desarmando -- y el día que difieran no habría forma de saber
+               * cuál manda.
+               *
+               * No se pierde nada al sacarlo: `nppm` tiene CERO filas en toda
+               * la historia de `budget_breakdown`, medido antes de tocarlo.
+               */
+              buckets: pr?.participatesInRecruitment
+                ? ['own_production', 'b2b', 'recruitment', 'business_plan']
+                : ['own_production', 'b2b', 'business_plan'],
+              nppmRealtors: lo.nppmRealtors,
+              budgetTotal: lo.budgetTotal,
+              budgetTotalRevision: lo.budgetTotalRevision,
+              budgetBreakdown: lo.budgetBreakdown,
+              budgetBreakdownRevision: lo.budgetBreakdownRevision,
+            };
+            /*
+             * ⚠ SÓLO LO QUE HACE FALTA PARA LA CALCULADORA -- etapa OL26d. Ya
+             * no se arma un `OutlookEditable` completo (eso guardaba en
+             * `outlook.growth_rule`, que esta pantalla dejó de escribir): sólo
+             * el benchmark y la última regla, para prellenar "apply a rate".
+             */
+            const ownProductionRate: OwnProductionRate = {
+              savedSchedule: lo.benchmarkSchedules['Own Production'] ?? [],
+              savedSegments: lo.rulesByStrategy['Own Production'] ?? [],
+            };
+            /*
+             * ⚠ LO QUE LA REGLA PROYECTA HOY, PARA PRELLENAR EL PUNTO DE
+             * PARTIDA — pedido urgente de Isabella. `projectLoanOfficer` es
+             * la MISMA función que arma la tabla del branch (`projectBranch`,
+             * `loanOfficerRowsOf`) -- no una copia -- así que lo que se
+             * prellena acá es exactamente lo que la fila de arriba muestra
+             * hoy, respetando el modo (`growth` o `monthly`) real de la
+             * persona. `ownProductionRate` no alcanza para esto: sólo trae
+             * el benchmark y la última regla para la calculadora de "apply a
+             * rate", que es un cálculo distinto y siempre en modo `growth`.
+             */
+            const ruleProjection = Object.fromEntries(
+              (projectLoanOfficer(lo, remainingMonths).stepsByStrategy['Own Production'] ?? []).map((s) => [
+                s.month,
+                s.value,
+              ])
+            );
+            return (
+              <PersonBudgetEditor
+                person={person}
+                ownProductionRate={ownProductionRate}
+                ruleProjection={ruleProjection}
+                data={data}
+                months={remainingMonths}
+                onClose={cerrar}
+                onSaved={reload}
+              />
+            );
+          }
+
+          /* ⚠ `=== 'realtor'` y no «lo que no es employee»: desde OL27 hay un
+             tercer sujeto, y «el resto» dejó de significar realtor. */
+          if (editingBudgetActivo.kind !== 'realtor') return null;
+          /* Por código, no por nombre normalizado -- ver la nota de `BudgetSubject` en save.ts. */
+          const r = bsNppm?.realtors.find((x) => x.realtorCode === editingBudgetActivo.realtorCode);
+          if (!r) return null;
+          const person: BudgetEditable = {
+            subject: { kind: 'realtor', realtorCode: r.realtorCode },
+            label: r.displayName,
+            buckets: ['own_production', 'business_plan'],
+            budgetTotal: r.budgetTotal,
+            budgetTotalRevision: r.budgetTotalRevision,
+            budgetBreakdown: r.budgetBreakdown,
+            budgetBreakdownRevision: r.budgetBreakdownRevision,
+          };
+          /*
+           * ══════════════════════════════════════════════════════════════════
+           * ⚠ UN REALTOR SÍ PROYECTA, Y SU EDITOR ABRÍA EN CERO — etapa OL45
+           * ══════════════════════════════════════════════════════════════════
+           *
+           * Acá decía «un realtor no proyecta por la regla de crecimiento de
+           * Outlook» y pasaba `null`. Es cierto a medias --no tiene
+           * `growth_rule`-- y la conclusión era falsa: proyecta por su
+           * BENCHMARK, que es lo que su fila muestra en los meses futuros. Jose
+           * Boggio tiene presupuesto proyectado en la tabla y su «Set budget»
+           * abría en cero, como si nadie hubiera proyectado nada.
+           *
+           * El punto de partida sale de `nppmRealtorBudget` --la MISMA función
+           * que arma su fila, no una copia-- así que el editor abre con lo que
+           * la fila de arriba muestra. Y `PersonBudgetEditor` ya sabe decir de
+           * dónde viene un número que no fijó nadie.
+           */
+          const proyeccionDelRealtor = Object.fromEntries(
+            remainingMonths.map((m) => [
+              m,
+              nppmBudget.parts.find((p) => p.realtorCode === r.realtorCode)?.byMonth[m] ?? 0,
+            ])
+          );
+          return (
+            <PersonBudgetEditor
+              person={person}
+              ownProductionRate={null}
+              ruleProjection={proyeccionDelRealtor}
+              data={data}
+              months={remainingMonths}
+              onClose={cerrar}
+              onSaved={reload}
+            />
+          );
+        })()}
+
+      {/*
+        ══════════════════════════════════════════════════════════════════════
+        EL PRESUPUESTO DEL BRANCH ENTERO — etapa OL27
+        ══════════════════════════════════════════════════════════════════════
+
+        El mismo editor, con el branch como sujeto. En AFFINITY es el ÚNICO que
+        se puede abrir: no hay una sola persona en su roster a quien
+        abrírselo, que es la causa medida del bug del brief.
+
+        ⚠ `ruleProjection` va con lo que YA proyecta el branch por estrategia,
+        no en `null`: es el punto de partida honesto --«hoy esto proyecta 2 por
+        mes»-- y es el mismo número que la fila de arriba muestra, porque sale
+        de `branchLevelBudget`, la misma función. Un editor que arranca en cero
+        donde hay un presupuesto vigente invita a pisarlo sin verlo.
+      */}
+      {editingBudgetActivo &&
+        editingBudgetActivo.kind === 'branch' &&
+        (() => {
+          const cerrar = () => setEditingBudget(null);
+          const person: BudgetEditable = {
+            subject: { kind: 'branch', branchCode: branch.branchCode },
+            label: 'Branch ' + branch.branchCode,
+            /* Los cuatro: la producción de un branch puede venir de cualquier
+               estrategia. `recruitment` queda afuera igual que en una persona
+               que no participa -- acá no hay a quién reclutar bajo el branch. */
+            buckets: ['own_production', 'b2b', 'nppm', 'business_plan'],
+            budgetTotal: branch.budgetTotal,
+            budgetTotalRevision: branch.budgetTotalRevision,
+            budgetBreakdown: branch.budgetBreakdown as BudgetEditable['budgetBreakdown'],
+            budgetBreakdownRevision: branch.budgetBreakdownRevision,
+          };
+          return (
+            <PersonBudgetEditor
+              person={person}
+              ownProductionRate={null}
+              ruleProjection={Object.fromEntries(
+                remainingMonths.map((m) => [m, branchBudget.byMonth[m] ?? 0])
+              )}
+              data={data}
+              months={remainingMonths}
+              onClose={cerrar}
+              onSaved={reload}
+            />
+          );
+        })()}
 
       {/*
         ⚠ ACÁ HABÍA UN PÁRRAFO LARGO, Y SE FUE A PROPÓSITO — etapa OL6.

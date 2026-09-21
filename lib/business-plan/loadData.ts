@@ -1,4 +1,9 @@
 import { getSupabaseClient } from '@/lib/supabase/client';
+/* El criterio de qué fila de `budget_total` gobierna, una sola vez para los
+   dos módulos que la leen -- etapa OL41. */
+import { presupuestoDePersona, totalesVigentes, type FilaDeTotal } from '@/lib/outlook/gobierno';
+/* El piso de los realtors NPPM, compartido con Outlook — etapa BP54. */
+import { aportesPorPersona, benchmarkDeRealtor } from '@/lib/outlook/nppmPiso';
 import { buildAliasIndex, buildExcludedIndex } from './aliasIndex';
 import { lastCompleteMonths, currentWindowMonths, currentYearMonth } from './months';
 /* BP36: `addMonths` ya existía para la línea base de impacto; se reusa para
@@ -6,6 +11,12 @@ import { lastCompleteMonths, currentWindowMonths, currentYearMonth } from './mon
 import { addMonths } from './impact';
 import { closesInMonth, closesInMonthOrOverdue, combineVerdict, evaluateQualifier1, evaluateQualifier2, projectCurrentMonth } from './qualifiers';
 import { DEFAULT_RATES, toRateSettings, type RateKey, type RateSettings } from './rates';
+/*
+ * `projectPlan` es LA cuenta de la regla de crecimiento -- etapa BP49b. Se
+ * importa de `lib/outlook/project.ts` y no se reimplementa acá: ver la nota
+ * en el bloque "EL BUDGET, CUANDO NADIE LO FIJÓ A MANO" más abajo.
+ */
+import { benchmarkAt, projectPlan, type Cadence, type GrowthSegment, type ProjectionMode, type StrategyPlan } from '@/lib/outlook/project';
 import { branchStatus } from './intervention';
 import type {
   ActivePlanSummary,
@@ -87,6 +98,8 @@ interface ActivityRow {
   credit_report_date: string | null;
   app_date: string | null;
   closing_month: string | null;
+  /** ⚠ BP54 — sólo para el promedio de cierres del realtor, ver el piso NPPM. */
+  nppm_realtor_code?: string | null;
   branch: string | null;
   total_loan_amount: number | string | null;
   loan_number: string | null;
@@ -169,6 +182,7 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
   const supabase = getSupabaseClient();
   const org = supabase.schema('org');
   const bp = supabase.schema('business_plan');
+  const outlook = supabase.schema('outlook');
 
   const windowMonths = currentWindowMonths(reference, WINDOW_MONTHS);
   const closedMonths = lastCompleteMonths(reference, WINDOW_MONTHS);
@@ -353,6 +367,270 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
     /* tabla ausente: rige la regla general */
   }
 
+  /*
+   * ============================================================================
+   * EL BUDGET DEL MES, DE OUTLOOK — etapa BP49
+   * ============================================================================
+   *
+   * `outlook.person_budget_total` es la tabla de Set Budget (Outlook, punto 5
+   * de OL26): append-only, versionada por `revision`, por `employee_key` y por
+   * `target_month`. Se lee la TABLA ENTERA de la persona (no filtrada por mes)
+   * porque la revisión vigente es por SUJETO, no por mes -- ver la nota de
+   * `gobierna` más abajo -- y de esa revisión se saca el mes en curso.
+   *
+   * ⚠ SÓLO `employee_key`, nunca `nppm_realtor_code` -- el perfil del Loan
+   * Officer no tiene sujeto realtor. Traer las filas de realtor sería leer
+   * datos que este módulo no puede usar.
+   *
+   * Mismo patrón que las demás tablas opcionales: si la migración de Outlook
+   * no corrió todavía, o si RLS no da acceso desde este módulo, el budget
+   * queda `null` para todos -- que es exactamente el estado "no se fijó", no
+   * un error que tumbe la pantalla.
+   */
+  const budgetThisMonthByEmployee = new Map<number, number>();
+  /* De qué mes es ese número — BP54. Sin esto la pantalla diría «budget» sin
+     decir de cuándo, y un presupuesto de diciembre leído como del mes que viene
+     es un número correcto de la fuente equivocada. */
+  const mesDelBudgetByEmployee = new Map<number, string>();
+  let personBudgetTotalTableAvailable = false;
+
+  /*
+   * El piso de los realtors NPPM — etapa BP54. Se DECLARA acá, junto al
+   * budget que modifica, y se CALCULA más abajo: necesita los cierres por
+   * realtor y el branch primario de cada dueño, que todavía no existen.
+   */
+  const pisoPorEmpleado = new Map<number, Record<string, number>>();
+  /** `realtor_code` → mes → cierres. Se llena en el recuento de actividad. */
+  const cierresPorRealtor = new Map<string, Record<string, number>>();
+  try {
+    const { data, error } = await outlook
+      /* Renombrada en OL27 -- `docs/sql/2026-09-budget-sujeto-branch.sql`. El
+         filtro por `employee_key` no nulo ya descartaba al realtor y ahora
+         descarta también al branch: acá se lee el presupuesto de UNA PERSONA. */
+      .from('budget_total')
+      /* ⚠ `*` Y NO UNA LISTA DE COLUMNAS — etapa OL41. `released_to_rule`
+         entra al criterio, y pedir columna por columna haría que una fila
+         liberada llegue acá sin su bandera: se leería como una fila sin
+         número, o sea como una confirmación. Con `*` la columna aparece
+         cuando el SQL se aplica, y antes no. */
+      .select('*')
+      .not('employee_key', 'is', null);
+    if (!error && data) {
+      personBudgetTotalTableAvailable = true;
+      const rows = data as (FilaDeTotal & { employee_key: number })[];
+      /*
+       * ⚠ UNA CONFIRMACIÓN NO ES UNA REVISIÓN VIGENTE — etapa RV15, mismo
+       * criterio que `lib/outlook/loadData.ts` (`gobierna`). Una fila con
+       * `confirmed_only` dice "alguien miró esto y lo aceptó", no "el total
+       * es éste" -- si contara como la revisión más alta, confirmar le
+       * quitaría el gobierno a un total ya fijado, y el mes caería a la
+       * regla de crecimiento por haber apretado un botón que dice "lo
+       * revisé". `total === null` es una guarda redundante -- el CHECK de
+       * la base ya ata el nulo a `confirmed_only` -- pero sin ella un nulo
+       * se leería como `Number(null)` = 0, un total fijado en cero que
+       * nadie fijó.
+       *
+       * ⚠ LA REVISIÓN VIGENTE ES POR SUJETO, NO POR MES. Un guardado cubre
+       * TODOS los meses que la pantalla tenía cargados en ese momento (ver
+       * `PersonBudgetEditor.tsx`): tomar la revisión más alta POR MES
+       * mezclaría meses de guardados distintos como si fueran uno. Se toma
+       * la revisión más alta por empleado, y de ESA revisión se leen sus
+       * meses -- si el mes en curso no está entre ellos, el budget de ese
+       * mes es `null`, aunque una revisión vieja lo hubiera tenido.
+       *
+       * ⚠⚠ Y YA NO SE DEFINE ACÁ — etapa OL41. Esta nota y su gemela en
+       * `lib/outlook/loadData.ts` decían que las dos definiciones coincidían
+       * «hoy» y que quien cambiara una sin la otra las separaba. OL41 cambió
+       * el criterio --una liberación (`released_to_rule`) SÍ gobierna, y lo
+       * que decide es que no haya número-- así que las dos, más la tercera que
+       * había aparecido en `save.ts`, importan `totalesVigentes` de
+       * `lib/outlook/gobierno.ts`. La prueba
+       * `scripts/verificacion/gobierno-del-total.test.mjs` verifica que no
+       * vuelva a haber una cuarta.
+       */
+      const porEmpleado = new Map<number, (typeof rows)[number][]>();
+      for (const r of rows) {
+        const ya = porEmpleado.get(r.employee_key);
+        if (ya === undefined) porEmpleado.set(r.employee_key, [r]);
+        else ya.push(r);
+      }
+      /*
+       * ══════════════════════════════════════════════════════════════════
+       * ⚠ EL MES EN CURSO, Y NO EL PRÓXIMO PRESUPUESTADO — BP54b
+       * ══════════════════════════════════════════════════════════════════
+       *
+       * BP54 hizo que esto leyera el próximo mes con presupuesto, razonando que
+       * si septiembre está vacío el número útil es el de octubre. Está mal, y
+       * el motivo es de negocio y no de código:
+       *
+       *   **El gap se mide contra la meta que HABÍA para este mes, no contra la
+       *   del mes que viene.** El número de octubre nunca fue la meta de
+       *   septiembre, así que mostrarlo acá afirma algo falso sobre el mes que
+       *   se está evaluando -- y encima en la línea que alimenta el GAP.
+       *
+       * ⚠ Y SEPTIEMBRE VA A QUEDAR SIN PRESUPUESTO PARA SIEMPRE, que es
+       * correcto: nadie lo fijó, y ya no se puede. `remainingMonthsFor` arranca
+       * en `i = 1` a propósito --ver su JSDoc en `lib/outlook/horizon.ts`-- así
+       * que el presupuesto de un mes se fija ANTES de que empiece. No se
+       * perdió: nunca existió. De octubre en adelante sí va a estar.
+       *
+       * Lo que la pantalla tiene que hacer con eso es DECIRLO --«not
+       * budgeted»-- y no rellenar el hueco con un número de otro mes.
+       *
+       * ⚠ Y UN MES LIBERADO NO ESTÁ EN `byMonth`: liberar significa que no hay
+       * número, así que cae solo al mismo «no hay». No hace falta --ni
+       * conviene-- volver a preguntar por `released_to_rule` acá: sería una
+       * segunda copia del criterio.
+       */
+      for (const [employeeKey, filas] of porEmpleado) {
+        const { byMonth } = totalesVigentes(filas);
+        const delMes = byMonth[thisMonth];
+        if (delMes !== undefined) {
+          budgetThisMonthByEmployee.set(employeeKey, delMes);
+          mesDelBudgetByEmployee.set(employeeKey, thisMonth);
+        }
+      }
+    }
+  } catch {
+    /* tabla ausente o sin acceso: nadie tiene budget este mes, que es el
+       estado correcto -- no "cero para todos". */
+  }
+
+  /*
+   * ============================================================================
+   * EL BUDGET, CUANDO NADIE LO FIJÓ A MANO — etapa BP49b
+   * ============================================================================
+   *
+   * `outlook.person_budget_total` está vacía en producción hoy: nadie fija un
+   * total a mano salvo que lo esté revisando. Sin esto las 37 personas caían
+   * en "Not set" aunque Outlook YA proyecta un número para cada una, con su
+   * regla de crecimiento sobre Own Production -- lo mismo que la vista de
+   * Outlook le muestra al revisor.
+   *
+   * La cascada, y es LEÍDA, nunca escrita:
+   *
+   *   ¿hay un total fijado a mano este mes (bloque de arriba)?  SÍ → ese número
+   *   si no, ¿hay una regla de crecimiento (o un mes fijado, en modo mensual)
+   *   para Own Production?                                      SÍ → la proyecta
+   *   ninguno de los dos                                         → `null`, "Not set"
+   *
+   * ⚠ NO SE ESCRIBE NINGUNA FILA. Fijar un total por persona y por mes desde
+   * acá sería exactamente lo que `person_budget_total.confirmed_only` existe
+   * para evitar: transferir el gobierno de la regla al total sin que nadie lo
+   * haya decidido. El número se LEE en cada carga y se descarta -- si mañana
+   * cambia la regla o el benchmark, el budget de este mes cambia con ellos, y
+   * eso es lo correcto: sigue sin ser un total fijado.
+   *
+   * ⚠⚠ SE REUSA `projectPlan` DE `lib/outlook/project.ts` -- NO SE REIMPLEMENTA
+   * el cálculo. Es la misma "una sola puerta" que usan las tres vistas de
+   * Outlook (tabla, branch, editor): si esta etapa calculara la regla por su
+   * cuenta, el número del perfil y el de Outlook podrían divergir el día que
+   * alguien cambie una sola de las dos copias.
+   *
+   * ⚠ SÓLO Own Production, y sólo `employee_key` -- el perfil del Loan Officer
+   * no tiene ni las otras cuatro estrategias ni sujeto realtor.
+   *
+   * Para el mismo motivo que `planOf` en `lib/outlook/loadData.ts`: el
+   * benchmark de Own Production no usa la serie general de
+   * `strategy_benchmark` (esa tabla no se lee acá) sino el benchmark que este
+   * mismo módulo ya cargó arriba (`benchmarkByEmployee`) como un único punto
+   * -- es LA MISMA simplificación que hace Outlook para esta estrategia
+   * puntual, documentada en `lib/outlook/loadData.ts` junto a
+   * `benchmarkScheduleByKey`.
+   */
+  const ruleProjectionThisMonth = new Map<number, number>();
+  try {
+    const OWN_PRODUCTION = 'Own Production';
+    const [ruleRes, targetRes, modeRes] = await Promise.all([
+      outlook
+        .from('growth_rule')
+        .select('employee_key, revision, segment_order, from_month, cadence, growth_pct')
+        .eq('strategy', OWN_PRODUCTION)
+        .not('employee_key', 'is', null),
+      outlook
+        .from('monthly_target')
+        .select('employee_key, revision, target_month, target')
+        .eq('strategy', OWN_PRODUCTION)
+        .not('employee_key', 'is', null),
+      outlook
+        .from('projection_mode')
+        .select('employee_key, mode, projection_mode_key')
+        .eq('strategy', OWN_PRODUCTION)
+        .not('employee_key', 'is', null),
+    ]);
+    if (!ruleRes.error && !targetRes.error && !modeRes.error) {
+      /* El modo vigente: la fila de `projection_mode_key` más alto -- mismo criterio que `lib/outlook/loadData.ts`. */
+      const modeByEmployee = new Map<number, ProjectionMode>();
+      const modes = (modeRes.data ?? []) as { employee_key: number; mode: ProjectionMode; projection_mode_key: number }[];
+      for (const m of [...modes].sort((a, b) => a.projection_mode_key - b.projection_mode_key)) {
+        modeByEmployee.set(m.employee_key, m.mode);
+      }
+
+      /* Los tramos de la revisión vigente de cada persona -- sólo la más alta, igual que Outlook. */
+      const rules = (ruleRes.data ?? []) as {
+        employee_key: number;
+        revision: number;
+        segment_order: number;
+        from_month: string;
+        cadence: Cadence;
+        growth_pct: number | string;
+      }[];
+      const maxRuleRev = new Map<number, number>();
+      for (const r of rules) maxRuleRev.set(r.employee_key, Math.max(maxRuleRev.get(r.employee_key) ?? 0, r.revision));
+      const segmentsByEmployee = new Map<number, GrowthSegment[]>();
+      for (const r of [...rules].sort((a, b) => a.segment_order - b.segment_order)) {
+        if (r.revision !== maxRuleRev.get(r.employee_key)) continue;
+        const list = segmentsByEmployee.get(r.employee_key) ?? [];
+        list.push({ fromMonth: r.from_month.slice(0, 7), cadence: r.cadence, growthPct: Number(r.growth_pct) });
+        segmentsByEmployee.set(r.employee_key, list);
+      }
+
+      /* Modo mensual: los meses fijados de la revisión vigente. */
+      const targets = (targetRes.data ?? []) as { employee_key: number; revision: number; target_month: string; target: number | string }[];
+      const maxTargetRev = new Map<number, number>();
+      for (const t of targets) maxTargetRev.set(t.employee_key, Math.max(maxTargetRev.get(t.employee_key) ?? 0, t.revision));
+      const targetsByEmployee = new Map<number, Record<string, number>>();
+      for (const t of targets) {
+        if (t.revision !== maxTargetRev.get(t.employee_key)) continue;
+        const byMonth = targetsByEmployee.get(t.employee_key) ?? {};
+        byMonth[t.target_month.slice(0, 7)] = Number(t.target);
+        targetsByEmployee.set(t.employee_key, byMonth);
+      }
+
+      /*
+       * ⚠ SÓLO PERSONAS CON UNA REGLA O UN MES FIJADO DE VERDAD. Alguien sin
+       * ningún tramo en modo `growth` no tiene "una regla que proyecta" --
+       * `projectPlan` le devolvería el benchmark tal cual, que es el mismo
+       * número que ya se muestra como "Starting benchmark" y llamarlo "from
+       * growth rule" inventaría una fuente que no existe.
+       */
+      const employeesWithRule = new Set<number>([...segmentsByEmployee.keys(), ...targetsByEmployee.keys()]);
+      for (const employeeKey of employeesWithRule) {
+        const mode = modeByEmployee.get(employeeKey) ?? 'growth';
+        if (mode === 'monthly') {
+          const target = targetsByEmployee.get(employeeKey)?.[thisMonth];
+          if (target !== undefined) ruleProjectionThisMonth.set(employeeKey, target);
+          continue;
+        }
+        const segments = segmentsByEmployee.get(employeeKey);
+        if (!segments || segments.length === 0) continue;
+        const benchmarkRow = benchmarkByEmployee.get(employeeKey) ?? null;
+        const benchmarkValue = benchmarkRow === null ? 0 : Number(benchmarkRow.monthly_benchmark);
+        const plan: StrategyPlan = {
+          mode: 'growth',
+          benchmarks: [{ fromMonth: '0000-01', value: benchmarkValue }],
+          segments,
+          targets: {},
+        };
+        const [step] = projectPlan([thisMonth], plan);
+        ruleProjectionThisMonth.set(employeeKey, step.value);
+      }
+    }
+  } catch {
+    /* tablas ausentes o sin acceso: nadie tiene proyección de regla, y el
+       budget de esa persona sigue cayendo al estado "Not set" de siempre. */
+  }
+
   // ── 3. Commercial Activity: estado actual ────────────────────────────────
   /*
    * ⚠ Etapa V2: acá había un "lote activo". Ya no hay lotes.
@@ -378,7 +656,13 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
     supabase
       .from('loan_records_v2')
       .select(
-        'loan_officer, loan_officer_person_code, file_creation_date, credit_report_date, app_date, closing_month, branch, total_loan_amount, loan_number, loan_program, loan_folder_name, loan_channel'
+        /* ⚠ `nppm_realtor_code` SE AGREGA EN BP54 y no lo usa el Business Plan
+           para nada suyo: hace falta para el promedio de cierres de cada
+           realtor, que es de dónde sale su benchmark cuando `nppm_benchmark`
+           está vacía -- que hoy es siempre. Sin esta columna el perfil no
+           puede calcular el piso, y sin el piso diría un número distinto que
+           Outlook. */
+        'loan_officer, loan_officer_person_code, file_creation_date, credit_report_date, app_date, closing_month, branch, total_loan_amount, loan_number, loan_program, loan_folder_name, loan_channel, nppm_realtor_code'
       )
       // Sin orden explícito, PostgREST no garantiza que dos páginas seguidas
       // no repitan ni salteen filas. `loan_number` es único en esta tabla.
@@ -573,6 +857,20 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
      * 4.573 nombres que v2 trae en minúscula resuelven igual.
      */
     const officerRaw = row.loan_officer?.trim() ? row.loan_officer : BLANK_OFFICER;
+    /*
+     * ⚠ EL CIERRE DEL REALTOR SE CUENTA ANTES DEL `continue` — BP54. Un
+     * préstamo con realtor cuyo Loan Officer no resuelve igual cerró, y su
+     * promedio de 3 meses es lo que da el benchmark del realtor. Contarlo
+     * después del `continue` le bajaría el piso a alguien por una razón que no
+     * tiene nada que ver con él.
+     */
+    const rc = row.nppm_realtor_code?.trim();
+    const cm = monthOf(row.closing_month);
+    if (rc && cm) {
+      const porMes = cierresPorRealtor.get(rc) ?? {};
+      porMes[cm] = (porMes[cm] ?? 0) + 1;
+      cierresPorRealtor.set(rc, porMes);
+    }
     const key = resolveActivityOfficer(row, officerRaw);
     if (key === null) continue;
     let m = activityByEmployee.get(key);
@@ -793,6 +1091,111 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
     overrideDetail.set(employeeKey, { forcedBranchCode: code, reason: forced.reason });
   }
 
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * EL PISO DE LOS REALTORS NPPM, TAMBIÉN ACÁ — etapa BP54
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * Desde OL48 el presupuesto de una persona puede venir del piso de sus
+   * realtors, no de lo que ella fijó. Si el perfil no lo aplicara, diría un
+   * número y Outlook otro el día que el piso supere al total -- que es
+   * exactamente lo que esta etapa viene a cerrar.
+   *
+   * ⚠ LAS TRES LECTURAS SON PROPIAS, y tienen que serlo: `loadOutlookData` no
+   * se puede llamar desde acá --`lib/outlook/loadData.ts` importa este archivo,
+   * así que sería un ciclo-- y por eso la DERIVACIÓN vive en `nppmPiso.ts`, que
+   * es puro. Lo que se comparte es el cálculo, no la consulta.
+   *
+   * ⚠ Y EL FILTRO DEL ROSTER ES EL MISMO QUE EL DE OUTLOOK: `estado ===
+   * 'contratado' && is_active`. Está escrito igual en los dos lados a
+   * propósito -- es una condición sobre filas crudas, no una decisión de
+   * producto, y meterla en el módulo obligaría a pasarle la tabla entera.
+   * Si algún día deja de coincidir, lo dice la prueba de paridad.
+   */
+  /* Los meses del piso. Arranca en el MES EN CURSO --BP54b-- porque es el mes
+     del que el perfil lee el presupuesto; el reparto no depende del mes, pero
+     pedirle un mes que no calculó devolvería 0 y eso se leería como «sus
+     realtors no aportan nada». */
+  const mesesDelPiso = Array.from({ length: 13 }, (_, k) => addMonths(thisMonth, k));
+  try {
+    const [rosterRes, ownersRes, benchRes] = await Promise.all([
+      supabase
+        .schema('org')
+        .from('nppm_realtor')
+        .select('realtor_code, display_name, branch_code, estado, is_active'),
+      outlook.from('nppm_realtor_owner').select('realtor_code, employee_key'),
+      outlook.from('nppm_benchmark').select('realtor_code, effective_from, monthly_benchmark'),
+    ]);
+    if (!rosterRes.error && !ownersRes.error) {
+      const roster = ((rosterRes.data ?? []) as {
+        realtor_code: string;
+        display_name: string;
+        branch_code: string | null;
+        estado: string | null;
+        is_active: boolean | null;
+      }[]).filter((r) => r.estado === 'contratado' && r.is_active === true);
+
+      const scheduleDe = new Map<string, { fromMonth: string; value: number }[]>();
+      for (const b of (benchRes.data ?? []) as {
+        realtor_code: string;
+        effective_from: string;
+        monthly_benchmark: number | string;
+      }[]) {
+        scheduleDe.set(b.realtor_code, [
+          ...(scheduleDe.get(b.realtor_code) ?? []),
+          { fromMonth: String(b.effective_from).slice(0, 7), value: Number(b.monthly_benchmark) },
+        ]);
+      }
+
+      const realtorsParaPiso = roster
+        .filter((r) => r.branch_code !== null)
+        .map((r) => {
+          const schedule = scheduleDe.get(r.realtor_code) ?? [];
+          const { benchmark } = benchmarkDeRealtor({
+            guardado: schedule.length > 0 ? benchmarkAt(schedule, thisMonth) : null,
+            cierresPorMes: cierresPorRealtor.get(r.realtor_code) ?? {},
+            ventanaCerrada: windowMonths,
+          });
+          return {
+            realtorCode: r.realtor_code,
+            displayName: r.display_name,
+            branchCode: r.branch_code as string,
+            benchmark,
+          };
+        });
+
+      const duenos = ((ownersRes.data ?? []) as { realtor_code: string; employee_key: number }[])
+        .map((o) => ({
+          realtorCode: o.realtor_code,
+          ownerEmployeeKey: o.employee_key,
+          /* El branch primario del dueño: el primero de su lista, igual que
+             Outlook. Si no coincide con el del realtor, el módulo descarta el
+             vínculo -- la regla de OL45. */
+          ownerPrimaryBranch: (loBranchCodes.get(o.employee_key) ?? [])[0] ?? '',
+        }));
+
+      const aportes = aportesPorPersona({
+        realtors: realtorsParaPiso,
+        duenos,
+        /* El perfil no lee los totales FIJADOS de un realtor: su consulta de
+           `budget_total` filtra `employee_key` no nulo. Un realtor con total
+           fijado proyecta igual acá, y eso lo dice la prueba de paridad. */
+        fijados: {},
+        months: mesesDelPiso,
+      });
+      for (const [employeeKey, lista] of aportes) {
+        const byMonth: Record<string, number> = {};
+        for (const p of lista) {
+          for (const [m, n] of Object.entries(p.byMonth)) byMonth[m] = (byMonth[m] ?? 0) + n;
+        }
+        pisoPorEmpleado.set(employeeKey, byMonth);
+      }
+    }
+  } catch {
+    /* Sin las tablas o sin acceso: nadie tiene piso, que es el estado correcto
+       -- no un cero que se lea como una decisión. */
+  }
+
   const loanOfficers: LoanOfficerRow[] = [];
   for (const [employeeKey, branchCodes] of loBranchCodes) {
     const employee = employeeByKey.get(employeeKey);
@@ -804,7 +1207,55 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
     const benchmark = benchmarkRow === null ? null : Number(benchmarkRow.monthly_benchmark);
 
     const projection = projectCurrentMonth(closedThisMonthByEmployee.get(employeeKey) ?? 0, openLoanDetail, rates);
-    const q1 = evaluateQualifier1(activity.closingsByMonth, windowMonths, projection, benchmark);
+    /*
+     * ⚠ CASCADA BP49b: fijado a mano > proyección de la regla > nada. Ver el
+     * bloque "EL BUDGET, CUANDO NADIE LO FIJÓ A MANO" más arriba -- el
+     * segundo nunca sobreescribe al primero, y ninguno de los dos se escribe.
+     */
+    const fixedBudget = budgetThisMonthByEmployee.get(employeeKey) ?? null;
+    const budgetSinPiso = fixedBudget ?? ruleProjectionThisMonth.get(employeeKey) ?? null;
+    /*
+     * ══════════════════════════════════════════════════════════════════════
+     * ⚠ Y EL PISO DE SUS REALTORS — etapas OL48 y BP54
+     * ══════════════════════════════════════════════════════════════════════
+     *
+     * Un realtor NPPM no cierra: cierra su Loan Officer. Así que lo que el
+     * realtor proyecta ya pasa por él y su presupuesto no puede quedar debajo.
+     * Es la MISMA función que usa Outlook --`presupuestoDePersona`-- con el
+     * piso derivado por el MISMO módulo, así que las dos pantallas no pueden
+     * decir números distintos por construcción.
+     *
+     * ⚠ EL MES ES EL DEL BUDGET, no el mes en curso: el piso se lee del mismo
+     * mes del que salió el número, o serían dos meses distintos comparados
+     * como si fueran uno.
+     */
+    /* El mes en curso: es el mes que esta pantalla evalúa, y el piso tiene que
+       ser el de ESE mes -- BP54b. */
+    const mesDelBudget = mesDelBudgetByEmployee.get(employeeKey) ?? thisMonth;
+    const pisoDelMes = pisoPorEmpleado.get(employeeKey)?.[mesDelBudget] ?? 0;
+    const conPiso =
+      budgetSinPiso === null && pisoDelMes === 0
+        ? null
+        : presupuestoDePersona({
+            fijado: fixedBudget ?? undefined,
+            regla: budgetSinPiso ?? 0,
+            pisoDeRealtors: pisoDelMes,
+          });
+    const budgetThisMonth = conPiso === null ? null : conPiso.valor;
+    /*
+     * ⚠ UNA CUARTA FUENTE, Y SE DICE. Quien lea «fixed» sobre un número que la
+     * persona no decidió se lleva una afirmación falsa -- que es justo lo que
+     * el rótulo `raised by NPPM` evita en Outlook.
+     */
+    const budgetSource: 'fixed' | 'rule' | 'nppm' | null =
+      conPiso === null
+        ? null
+        : conPiso.subioPorRealtors
+          ? 'nppm'
+          : fixedBudget !== null
+            ? 'fixed'
+            : 'rule';
+    const q1 = evaluateQualifier1(activity.closingsByMonth, windowMonths, projection, benchmark, budgetThisMonth, budgetSource);
 
     /*
      * El "actual" del Qualifier 2 es el MES EN CURSO, coherente con que el
@@ -850,6 +1301,11 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
       attributionOverride: overrideDetail.get(employeeKey) ?? null,
       tier: employee.tier,
       rosterStatus: employee.roster_status,
+      /* ⚠ VIENE DE LA SINCRONIZACIÓN, y por eso NO se copia en `org.lo_profile`
+         -- etapa BP50. El perfil guarda un override y hereda cuando está en
+         null. La columna ya llegaba en el `select('*')` de arriba; lo único que
+         faltaba era propagarla. Medido: la traen 34 de 35 LO activos. */
+      nmls: employee.nmls,
       isBranchManager: employee.is_branch_manager,
       isProducing: employee.is_producing,
       activity,
@@ -868,6 +1324,10 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
         .filter(([m]) => m.startsWith(yearPrefix))
         .reduce((sum, [, n]) => sum + n, 0),
       q1,
+      /* ⚠ De qué mes sale `q1.budget` — BP54. Sin esto el rótulo dice «this
+         month» sobre un número de octubre, que es una afirmación falsa sobre el
+         dato y la familia de error que este repo lleva anotada. */
+      budgetMonth: mesDelBudgetByEmployee.get(employeeKey) ?? null,
       q2,
       verdict: combineVerdict(q1, q2),
       intervention: interventionByEmployee.get(employeeKey) ?? null,
@@ -939,6 +1399,7 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
       settingsTableAvailable,
       interventionTableAvailable,
       enrollmentTableAvailable,
+      personBudgetTotalTableAvailable,
       rates,
       inactiveExcluded,
     },

@@ -50,9 +50,10 @@ import type { Ramp } from '@/lib/outlook/recruitment';
  * cambie --el loader lo lee, `exactoDe` lo pesa y `proyecta` lo contempla-- así
  * que el campo entra. La regla no cambió; cambió lo que el modelo puede hacer.
  *
- * Usa el mismo `Modal` y las mismas clases que `StrategyEditor` -- `ol-editor`,
- * `bp-form__label`, `bp-btn` -- porque es el mismo tipo de decisión y tiene que
- * verse igual. Inventar clases nuevas habría dado un panel sin estilos.
+ * Usa el mismo `Modal` y las mismas clases que `PersonBudgetEditor` --
+ * `ol-editor`, `bp-form__label`, `bp-btn` -- porque es el mismo tipo de
+ * decisión y tiene que verse igual. Inventar clases nuevas habría dado un
+ * panel sin estilos.
  */
 /**
  * El marcador de "todavía no se sabe a qué branch va".

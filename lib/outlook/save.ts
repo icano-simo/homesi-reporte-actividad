@@ -2,6 +2,10 @@
 
 import { getSupabaseClient } from '@/lib/supabase/client';
 import type { Cadence, GrowthSegment, OutlookStrategy, ProjectionMode } from './project';
+import type { BudgetBucket } from './loadData';
+import { filasFueraDeVentana } from './ventana';
+/* El criterio de qué fila gobierna, una sola vez para todos -- etapa OL41. */
+import { gobierna, revisionQueGobierna, type FilaDeTotal } from './gobierno';
 
 /*
  * ============================================================================
@@ -72,12 +76,23 @@ async function authorEmail(): Promise<string> {
  * crudo de PostgREST ('violates check constraint ...') no le dice nada a quien
  * está cargando un presupuesto.
  */
-function readable(err: { code?: string; message: string }): Error {
+/**
+ * ⚠ `opts` EXISTE PARA QUE ESTA FUNCIÓN SIRVA A MÁS DE UNA ETAPA — etapa OL26.
+ * Los mensajes de 23514 y PGRST205 nombraban las restricciones y el archivo
+ * SQL de OL4 a secas, que era correcto mientras sólo OL4 los usaba. El
+ * presupuesto compuesto tiene sus propias restricciones (el sujeto XOR, los
+ * buckets de un realtor) y su propio SQL -- sin `opts`, sus errores habrían
+ * mostrado "Own Production no se puede guardar acá" para un problema que no
+ * tiene nada que ver con Own Production. Sin override, los dos mensajes caen
+ * a los de OL4, así que ningún llamado existente cambia.
+ */
+function readable(err: { code?: string; message: string }, opts?: { sqlFile?: string; checkMessage?: string }): Error {
   if (err.code === '23514') {
     return new Error(
-      'The database rejected this value. The constraints that apply: a benchmark cannot be negative, ' +
-        'a date must be the 1st of a month, growth cannot go below -100%, and ' +
-        '"Own Production" cannot be stored here — its benchmark lives in org.employee_benchmark.'
+      opts?.checkMessage ??
+        'The database rejected this value. The constraints that apply: a benchmark cannot be negative, ' +
+          'a date must be the 1st of a month, growth cannot go below -100%, and ' +
+          '"Own Production" cannot be stored here — its benchmark lives in org.employee_benchmark.'
     );
   }
   if (err.code === '23505') {
@@ -92,9 +107,21 @@ function readable(err: { code?: string; message: string }): Error {
    * mensaje crudo --"Could not find the table in the schema cache"-- no le dice
    * a nadie qué hacer. Este sí.
    */
-  if (err.code === 'PGRST205' || /Could not find the table/i.test(err.message)) {
+  /*
+   * ⚠ Y LA COLUMNA QUE FALTA ES EL MISMO CASO — etapa OL41, medido. Al apretar
+   * «Back to the growth rule» con el SQL sin aplicar, PostgREST contesta
+   * PGRST204 --«Could not find the 'released_to_rule' column of 'budget_total'
+   * in the schema cache»-- y ese mensaje pasaba tal cual a la pantalla: nombra
+   * la columna y no dice qué hacer con ella. Una tabla que falta y una columna
+   * que falta son la misma situación para quien mira: falta aplicar un archivo.
+   */
+  if (
+    err.code === 'PGRST205' ||
+    err.code === 'PGRST204' ||
+    /Could not find the (table|'[^']+' column)/i.test(err.message)
+  ) {
     return new Error(
-      'This stage\'s SQL has not been applied yet: docs/sql/2026-08-outlook-monthly-mode.sql. ' +
+      `This stage's SQL has not been applied yet: ${opts?.sqlFile ?? 'docs/sql/2026-08-outlook-monthly-mode.sql'}. ` +
         'Nothing was saved and the projection did not change.'
     );
   }
@@ -176,26 +203,66 @@ export async function saveStrategyBenchmark(input: {
 }
 
 /**
- * El benchmark de un realtor NPPM, por NOMBRE.
+ * El benchmark de un realtor NPPM, POR `realtor_code`.
  *
- * Es la única clave que existe: un NPPM no es empleado y no tiene código. Y es
- * del realtor, no del par (realtor, Loan Officer) — el mismo realtor trabaja con
- * varias personas y en varias branches, y decidir cuánto "le toca" a cada una
- * es justamente la asignación que este módulo no construye.
+ * Es del realtor, no del par (realtor, Loan Officer) — el mismo realtor trabaja
+ * con varias personas y en varias branches, y decidir cuánto "le toca" a cada
+ * una es justamente la asignación que este módulo no construye.
  *
- * Se guarda el nombre TAL COMO VIENE de los datos y la comparación se hace
- * normalizando en la app, igual que `aliasIndex`: los datos traen 'FRED A GOMEZ'
- * y 'Fred A Gomez' para la misma persona.
+ * ⚠ ANTES LA CLAVE ERA EL NOMBRE, y por eso se guardaba tal como venía y se
+ * comparaba normalizando en la app. Eso no alcanzaba: los nombres llegan crudos
+ * de Salesforce y la normalización unía 'fred gomez' con 'FRED GOMEZ' pero no
+ * 'FRED A GOMEZ' con 'FRED GOMEZ'. Dos personas guardando desde grafías
+ * distintas creaban dos filas del mismo NPPM, sin fallar y con las dos filas
+ * viéndose plausibles.
+ *
+ * SE ESCRIBEN LAS TRES COLUMNAS, y ninguna sobra:
+ *
+ *   realtor_code   la clave. Inmutable, de `dim_nppm_realtor_v2`.
+ *   display_name   el nombre de la dimensión. Es el del MOMENTO en que se
+ *                  guardó, y por eso se persiste en vez de resolverse al leer:
+ *                  sirve para reconocer la fila si algún día hay que auditar.
+ *   nppm_realtor   el MISMO `display_name`, porque la columna sigue siendo NOT
+ *                  NULL y hay que mandar algo.
+ *
+ * ⚠ POR QUÉ EN `nppm_realtor` VA EL DISPLAY Y NO EL NOMBRE CRUDO. La copia de
+ * auditoría sirve para contestar "de quién es esta fila", y para eso el nombre
+ * canónico es mejor que la grafía de Salesforce: la fila ya no se crea DESDE una
+ * grafía, se crea desde un código. Guardar el crudo reproduciría el desorden que
+ * el código vino a resolver, en la única columna que quedaba libre de él.
+ *
+ * Cuando corra el `DROP NOT NULL` sobre `nppm_realtor`, esta escritura se puede
+ * quitar y la columna queda sólo con las filas históricas -- que hoy son cero.
  */
 export async function saveNppmBenchmark(input: {
-  nppmRealtor: string;
+  /** La clave. Sin esto la fila no se puede ubicar al leer. */
+  realtorCode: string;
+  /** El nombre de la dimensión, tal como se ve hoy. */
+  displayName: string;
   monthlyBenchmark: number;
   effectiveFrom: string;
   note: string | null;
 }): Promise<void> {
+  /*
+   * Una guarda redundante, y a propósito: sin `realtor_code` la fila entra --la
+   * columna es nullable-- y el loader no la puede ubicar, así que el benchmark
+   * queda guardado y la pantalla no lo muestra. Un fallo sin síntoma. Que falle
+   * acá y ruidosamente es mejor que descubrirlo cuando alguien pregunte por qué
+   * su número no aparece.
+   */
+  if (!input.realtorCode.trim()) {
+    throw new Error(
+      'No se puede guardar un benchmark de NPPM sin realtor_code: la fila ' +
+        'quedaría escrita y la pantalla no la mostraría.'
+    );
+  }
+
   const set_by = await authorEmail();
   const { error } = await getSupabaseClient().schema('outlook').from('nppm_benchmark').insert({
-    nppm_realtor: input.nppmRealtor,
+    realtor_code: input.realtorCode,
+    display_name: input.displayName,
+    /* NOT NULL todavía; el mismo display. Ver la nota de arriba. */
+    nppm_realtor: input.displayName,
     monthly_benchmark: input.monthlyBenchmark,
     effective_from: input.effectiveFrom,
     set_by,
@@ -306,49 +373,37 @@ export async function saveGrowthRuleRevision(input: {
  * Por eso los números van primero.
  */
 
-/** Los meses fijados de una estrategia. Devuelve la revisión escrita. */
-export async function saveMonthlyTargets(input: {
-  subject: OutlookSubject;
-  strategy: OutlookStrategy;
-  /** 'YYYY-MM' → número. Los meses que no vengan quedan sin fijar (0). */
-  targets: Record<string, number>;
-  note: string | null;
-}): Promise<number> {
-  const months = Object.keys(input.targets).sort();
-  if (months.length === 0) {
-    throw new Error('There is no month to set.');
-  }
-
-  const set_by = await authorEmail();
-  const supabase = getSupabaseClient();
-
-  /* La revisión siguiente se lee de la BASE, no de la pantalla -- ver arriba. */
-  const [subjCol, subjVal] = subjectFilter(input.subject);
-  const { data: existing, error: readError } = await supabase
-    .schema('outlook')
-    .from('monthly_target')
-    .select('revision')
-    .eq(subjCol, subjVal)
-    .eq('strategy', input.strategy)
-    .order('revision', { ascending: false })
-    .limit(1);
-  if (readError) throw readable(readError);
-  const revision = (existing?.[0]?.revision ?? 0) + 1;
-
-  const rows = months.map((m) => ({
-    ...subjectColumns(input.subject),
-    strategy: input.strategy,
-    revision,
-    target_month: m + '-01',
-    target: input.targets[m],
-    set_by,
-    note: input.note,
-  }));
-
-  const { error } = await supabase.schema('outlook').from('monthly_target').insert(rows);
-  if (error) throw readable(error);
-  return revision;
-}
+/*
+ * ============================================================================
+ * ⚠ ACÁ VIVÍA `saveMonthlyTargets`, Y SE BORRÓ — etapa OL52
+ * ============================================================================
+ *
+ * Escribía `outlook.monthly_target`, la tabla de los meses fijados de una
+ * ESTRATEGIA (no de una persona). Se va por tres cosas juntas, y ninguna sola
+ * habría alcanzado:
+ *
+ *   · cero llamadores en `main` desde que se borró `StrategyEditor.tsx`;
+ *   · `outlook.monthly_target` está VACÍA -- nunca se escribió una fila;
+ *   · y ya se la arregló DOS veces preventivamente --el arrastre de OL38 y el
+ *     de la ventana-- sobre un camino que nadie recorre. Mantener código que
+ *     nadie ejerce cuesta cada vez que algo cambia alrededor, y lo que se
+ *     arregla sin poder probarlo no se sabe si quedó bien.
+ *
+ * ⚠ Y NO ES HUÉRFANA EN TODOS LOS ÁRBOLES. Contado el 2026-09-16:
+ *
+ *     origin/main                      0 llamadores
+ *     origin/feat/rv1-modo-revision    1 -- `app/outlook/components/StrategyEditor.tsx`
+ *     origin/feat/outlook-realtor-code 1 -- el mismo archivo
+ *
+ * Ese archivo NO existe en `main`: se fue con el reagrupamiento por persona de
+ * OL26. O sea que las otras dos ramas llaman a una función desde una pantalla
+ * que `main` ya no tiene. Si alguna de las dos se mergea, `tsc` va a decirlo
+ * fuerte --y esa es la forma de fallo que se elige: la alternativa era
+ * mantenerla viva para una pantalla que este árbol ya no dibuja.
+ *
+ * Si algún día hace falta, se escribe con lo que se sepa entonces. Está en el
+ * historial: `git log -S saveMonthlyTargets`.
+ */
 
 /**
  * Qué modo rige para (persona, estrategia).
@@ -506,4 +561,690 @@ export async function saveRecruitLink(input: {
     note: input.note,
   });
   if (error) throw readable(error);
+}
+
+/**
+ * ============================================================================
+ * EL PRESUPUESTO COMPUESTO POR PLAN DE NEGOCIO — etapa OL26, punto 5
+ * ============================================================================
+ *
+ * Dos tablas nuevas, `outlook.person_budget_total` y
+ * `outlook.person_budget_breakdown` -- ver `docs/sql/2026-09-outlook-budget-composition.sql`.
+ * Mismas cuatro reglas de siempre: nunca se actualiza, `set_by` sale de la
+ * sesión, cada edición es una revisión nueva y completa, y la revisión
+ * siguiente se lee de la BASE, no de la pantalla.
+ *
+ * ---------------------------------------------------------------------------
+ * ⚠ TRES SUJETOS DESDE OL27, Y EL TERCERO ES EL BRANCH. Hasta acá eran dos --y
+ * este comentario decía «nunca un branch»-- porque las tablas aceptaban dos.
+ * AFFINITY dejó a la vista lo que faltaba: un branch con CERO productores en el
+ * roster no tiene a quién colgarle el presupuesto, así que el editor no se
+ * puede abrir para nadie. Ver `docs/sql/2026-09-budget-sujeto-branch.sql`.
+ *
+ * Sigue siendo una unión discriminada por el mismo motivo: el CHECK
+ * `num_nonnulls(employee_key, nppm_realtor_code, branch_code) = 1` de las dos
+ * tablas se vuelve imposible de violar en compilación, no sólo en runtime.
+ * ---------------------------------------------------------------------------
+ *
+ * ---------------------------------------------------------------------------
+ * ⚠ EL ORDEN DE GUARDADO: EL TOTAL PRIMERO — mismo criterio que
+ * `change_funnel` y que el modo mes a mes de OL4.
+ * ---------------------------------------------------------------------------
+ * Si el desglose fallara después de guardar el total, el total ya escrito no
+ * se pierde: queda vigente y sin desglose todavía, que es exactamente lo que
+ * la pantalla puede mostrar (un total con "sin desglose cargado"). Guardar el
+ * desglose primero y que el total fallara después dejaría un desglose sin
+ * total contra el que compararse -- la mitad que no se puede mostrar sola.
+ *
+ * ⚠ EL REALTOR SE IDENTIFICA POR CÓDIGO, NO POR NOMBRE — re-cableado al
+ * rebasar sobre main, etapa del `realtor_code`. Ver
+ * `docs/sql/2026-09-person-budget-realtor-code.sql`: la columna se renombró
+ * de `nppm_realtor` a `nppm_realtor_code` porque el nombre no identifica a
+ * nadie ('FRED A GOMEZ' contra 'FRED GOMEZ'). Mismo criterio que ya usa
+ * `saveNppmBenchmark` para `nppm_benchmark`.
+ */
+export type BudgetSubject =
+  | { kind: 'employee'; employeeKey: number }
+  | { kind: 'realtor'; realtorCode: string }
+  | { kind: 'branch'; branchCode: string };
+
+/**
+ * ⚠ EL NOMBRE VIEJO, PARA NO ROMPER A QUIEN LO IMPORTE. `PersonSubject` dejó de
+ * describir lo que el tipo es en cuanto entró el branch, igual que el nombre de
+ * las tablas. Se deja el alias en vez de dos nombres vivos: el que se usa es
+ * `BudgetSubject`.
+ */
+export type PersonSubject = BudgetSubject;
+
+/*
+ * ⚠ `personSubjectColumns` SE FUE CON LOS INSERT DIRECTOS — etapa OL51. Ponía
+ * la columna del sujeto en cada fila; ahora el sujeto va UNA vez, como los tres
+ * primeros argumentos de `outlook.save_person_budget`, y la función lo repite
+ * en las filas. Que el sujeto viaje una sola vez es lo que hace imposible una
+ * revisión con filas de dos personas distintas.
+ */
+function personSubjectFilter(s: BudgetSubject): [string, string | number] {
+  if (s.kind === 'employee') return ['employee_key', s.employeeKey];
+  if (s.kind === 'realtor') return ['nppm_realtor_code', s.realtorCode];
+  return ['branch_code', s.branchCode];
+}
+
+const BUDGET_SQL_FILE = 'docs/sql/2026-09-outlook-budget-composition.sql';
+
+/*
+ * Lo que no estaba en pantalla no se borra — etapa OL38. La función vive en
+ * `lib/outlook/ventana.ts`, sin imports, para que su prueba la pueda cargar
+ * sin el cliente de Supabase; la nota entera está allá.
+ */
+export { filasFueraDeVentana };
+
+/**
+ * La revisión que sigue para este sujeto, leída de la BASE y no de la
+ * pantalla. Cuenta las confirmaciones además de los totales: el número de
+ * revisión es el orden en que se escribieron las cosas, no una cuenta de
+ * totales fijados.
+ */
+const ATOMICO_SQL_FILE = 'docs/sql/2026-09-save-person-budget-atomico.sql';
+
+/** Una fila de `budget_total` como la espera la función, SIN revisión. */
+interface FilaTotalAEscribir {
+  target_month: string;
+  total: number | null;
+  confirmed_only: boolean;
+  released_to_rule?: boolean;
+  set_by: string;
+  note: string | null;
+}
+
+/** Una fila de `budget_breakdown` como la espera la función, SIN revisión. */
+interface FilaDesgloseAEscribir {
+  target_month: string;
+  bucket: BudgetBucket;
+  value: number;
+  set_by: string;
+  note: string | null;
+}
+
+/**
+ * ============================================================================
+ * LA ÚNICA PUERTA DE ESCRITURA DEL PRESUPUESTO — etapa OL51
+ * ============================================================================
+ *
+ * Todo lo que escribe `budget_total` o `budget_breakdown` pasa por acá, y de
+ * acá se llama a `outlook.save_person_budget`, que hace los dos inserts en UNA
+ * sentencia. El porqué está en
+ * `docs/sql/2026-09-save-person-budget-atomico.sql`; lo que importa del lado
+ * del cliente es lo que sigue.
+ *
+ * ⚠ POR QUÉ PASAN TODAS Y NO SÓLO LA QUE ESCRIBE LAS DOS TABLAS. Guardar desde
+ * el editor escribe las dos, y ésa era la que podía quedar partida; confirmar y
+ * soltar escriben una sola, y un insert solo ya es atómico. Pero si quedaran
+ * dos caminos, el viejo seguiría existiendo -- y con él la carrera de la
+ * revisión, que era de los DOS: `siguienteRevisionDelTotal` leía el máximo y
+ * después insertaba, así que dos guardados simultáneos elegían el mismo número.
+ * Con un solo camino eso no se reintroduce por distracción.
+ *
+ * ⚠ Y LA REVISIÓN YA NO SE MANDA. La asigna la función, dentro de la misma
+ * transacción que inserta. Las filas de acá van sin `revision` a propósito: un
+ * campo que el cliente ya no decide no tiene que seguir viajando, porque el día
+ * que alguien lo vuelva a completar nadie lo va a ver.
+ *
+ * ⚠ Y SE COMPRUEBA EL CONTEO QUE VUELVE, no que no haya error. Un `201` con
+ * cuerpo vacío no distingue tres filas escritas de cero -- es la regla del
+ * `update` sin `returning`, del lado del producto, y fue exactamente lo que
+ * dejó el total escrito con el desglose caído sin que nadie se enterara.
+ */
+async function escribirPresupuesto(input: {
+  subject: PersonSubject;
+  totals: FilaTotalAEscribir[];
+  breakdowns: FilaDesgloseAEscribir[];
+  /**
+   * La revisión sobre la que se armó el arrastre, o `null` para no comprobar.
+   *
+   * ⚠ Es `max(revision)` de TODAS las filas, no la que gobierna: es contra ese
+   * número que compara la función, y `revisionQueGobierna` descarta las
+   * confirmaciones. Pasar una por la otra haría fallar todo guardado hecho
+   * después de confirmar, que es la mitad de los que hay.
+   */
+  expectedTotalRevision: number | null;
+  expectedBreakdownRevision: number | null;
+  sqlFile: string;
+}): Promise<{ totalRevision: number | null; breakdownRevision: number | null }> {
+  const s = input.subject;
+  const { data, error } = await getSupabaseClient()
+    .schema('outlook')
+    .rpc('save_person_budget', {
+      p_employee_key: s.kind === 'employee' ? s.employeeKey : null,
+      p_nppm_realtor_code: s.kind === 'realtor' ? s.realtorCode : null,
+      p_branch_code: s.kind === 'branch' ? s.branchCode : null,
+      p_totals: input.totals,
+      p_breakdowns: input.breakdowns,
+      p_expected_total_revision: input.expectedTotalRevision,
+      p_expected_breakdown_revision: input.expectedBreakdownRevision,
+    });
+  if (error) throw readable(error, { sqlFile: input.sqlFile });
+
+  /* `returns table` llega como un array de una fila. */
+  const fila = (Array.isArray(data) ? data[0] : data) as
+    | {
+        total_revision: number | null;
+        total_rows: number;
+        breakdown_revision: number | null;
+        breakdown_rows: number;
+      }
+    | undefined;
+  if (fila === undefined) {
+    throw new Error(`The budget was not saved: ${ATOMICO_SQL_FILE} returned no row. Nothing was written.`);
+  }
+  if (fila.total_rows !== input.totals.length || fila.breakdown_rows !== input.breakdowns.length) {
+    throw new Error(
+      `The budget was not saved as sent: ${fila.total_rows} of ${input.totals.length} total rows and ` +
+        `${fila.breakdown_rows} of ${input.breakdowns.length} breakdown rows came back. ` +
+        `Nothing was written — the two writes are one transaction.`
+    );
+  }
+  return { totalRevision: fila.total_revision, breakdownRevision: fila.breakdown_revision };
+}
+
+/*
+ * ⚠ ACÁ VIVÍA `siguienteRevisionDelTotal` Y SE FUE — etapa OL51. Leía
+ * `max(revision)` y devolvía el siguiente, y ESA era la carrera: entre la
+ * lectura y el insert entraba otro guardado y los dos elegían el mismo número.
+ * Ahora la revisión la asigna `outlook.save_person_budget` dentro de la misma
+ * transacción que inserta, así que ya no hay un hueco donde meterse.
+ *
+ * Se borra en vez de dejarse sin llamadores: una función que sabe calcular un
+ * número de revisión en el cliente es una invitación a volver a usarla, y el
+ * defecto que reintroduce no se ve en la pantalla de quien la use.
+ *
+ * ⚠ Y UNA QUE ESCRIBÍ Y BORRÉ EN EL MISMO TURNO: `revisionMasAlta`, que releía
+ * el máximo en una segunda consulta. No hacía falta --`filasDelTotal` ya lee
+ * todas las filas para decidir el arrastre, y el máximo sale de esa MISMA
+ * lectura-- y con dos consultas los dos números podían hablar de momentos
+ * distintos, que es justo lo que este cambio viene a cerrar.
+ */
+
+/**
+ * Las filas de `budget_total` de un guardado, ya armadas y SIN revisión.
+ *
+ * ⚠ ESTÁ SEPARADO DE QUIEN ESCRIBE — etapa OL51, y es lo que permite que el
+ * total y el desglose viajen en la misma transacción sin que nadie reescriba
+ * el arrastre ni el criterio de gobierno. Lo llaman dos: `savePersonBudgetTotal`
+ * (que escribe sólo esta tabla) y `savePersonBudget` (que escribe las dos).
+ */
+async function filasDelTotal(input: {
+  subject: PersonSubject;
+  /** 'YYYY-MM' → total. Los meses que no vengan quedan sin fijar. */
+  targets: Record<string, number>;
+  /**
+   * El horizonte que estaba en pantalla -- mismo sentido que en
+   * `confirmPersonBudgetReviewed`. Un mes fijado que quede FUERA de esta
+   * ventana se arrastra tal cual a la revisión nueva: ver
+   * `filasFueraDeVentana`. Dentro de la ventana, un mes que no venga sigue
+   * queriendo decir «este mes va por la regla», que es una decisión.
+   */
+  windowMonths: string[];
+  /**
+   * ⚠ LOS MESES QUE VUELVEN A LA REGLA — etapa OL41. Van en la MISMA revisión
+   * que los números, porque son la misma decisión: «estos meses los fijo así y
+   * estos otros los suelto». Un mes acá y en `targets` a la vez es un error de
+   * quien llama, y se corta antes de escribir.
+   *
+   * Hasta OL40 soltar un mes era omitirlo y nada más: la revisión nueva no lo
+   * traía y el lector lo hacía caer a la regla. Funcionaba y no dejaba rastro
+   * --nadie podía ver que alguien lo había decidido-- y no servía para
+   * soltarlos todos, porque una revisión sin ninguna fila no existe.
+   */
+  release?: string[];
+  note: string | null;
+}): Promise<{ rows: FilaTotalAEscribir[]; expected: number; sqlFile: string }> {
+  const months = Object.keys(input.targets).sort();
+  const soltar = [...new Set(input.release ?? [])].sort();
+  if (months.length === 0 && soltar.length === 0) return { rows: [], expected: 0, sqlFile: BUDGET_SQL_FILE };
+  const enLosDos = soltar.filter((m) => m in input.targets);
+  if (enLosDos.length > 0) {
+    throw new Error(`A month cannot be both set and released: ${enLosDos.join(', ')}.`);
+  }
+
+  const set_by = await authorEmail();
+  const supabase = getSupabaseClient();
+  const [subjCol, subjVal] = personSubjectFilter(input.subject);
+  const { data: existing, error: readError } = await supabase
+    .schema('outlook')
+    .from('budget_total')
+    .select('*')
+    .eq(subjCol, subjVal);
+  if (readError) throw readable(readError, { sqlFile: BUDGET_SQL_FILE });
+
+  /*
+   * ⚠ LA VIGENTE ES LA MÁS ALTA QUE GOBIERNA, no la más alta a secas: una
+   * confirmación escribe revisión y no decide nada sobre el número. El criterio
+   * NO se escribe acá -- es el de `lib/outlook/gobierno.ts`, el mismo que usan
+   * los dos lectores. Era la tercera copia (OL41).
+   */
+  const previas = (existing ?? []) as (FilaDeTotal & { set_by: string | null; note: string | null })[];
+  const revisionVigente = revisionQueGobierna(previas);
+  /*
+   * ⚠ Y ÉSTA ES OTRA: la más alta A SECAS, que es contra la que compara
+   * `save_person_budget`. Las dos salen de la MISMA lectura --`previas`-- para
+   * que no puedan hablar de momentos distintos, que es lo que pasaría leyendo
+   * el máximo en una segunda consulta.
+   */
+  const revisionMasAltaPrevia = previas.reduce((a, t) => Math.max(a, t.revision), 0);
+  const arrastradas = filasFueraDeVentana(previas.filter(gobierna), revisionVigente, input.windowMonths)
+    .filter((t) => {
+      const m = t.target_month.slice(0, 7);
+      return !(m in input.targets) && !soltar.includes(m);
+    });
+
+  const rows: FilaTotalAEscribir[] = [
+    ...months.map((m) => ({
+      target_month: m + '-01',
+      total: input.targets[m],
+      /* Explícito, aunque la columna tenga default: esta fila SÍ gobierna. */
+      confirmed_only: false,
+      set_by,
+      note: input.note,
+    })),
+    ...soltar.map((m) => ({
+      target_month: m + '-01',
+      total: null,
+      confirmed_only: false,
+      released_to_rule: true,
+      set_by,
+      note: input.note,
+    })),
+    /* El autor y la nota son los de quien lo decidió, no los de este guardado:
+       arrastrar no es volver a decidir. Y una liberación arrastrada sigue
+       siendo una liberación: lo de afuera de la ventana viaja como está. */
+    ...arrastradas.map((t) => ({
+      target_month: t.target_month,
+      total: t.total === null ? null : Number(t.total),
+      confirmed_only: false,
+      ...(t.released_to_rule === true ? { released_to_rule: true } : {}),
+      set_by: t.set_by ?? set_by,
+      note: t.note,
+    })),
+  ];
+
+  return {
+    rows,
+    /* Se arrastró sobre ESTA foto: si ya no es la última, otro guardado entró
+       en el medio y arrastrar la vieja borraría lo que ese otro decidió. */
+    expected: revisionMasAltaPrevia,
+    sqlFile:
+      soltar.length > 0 || arrastradas.some((t) => t.released_to_rule === true)
+        ? RELEASE_SQL_FILE
+        : BUDGET_SQL_FILE,
+  };
+}
+
+/** El total fijado a mano, mes por mes. Devuelve la revisión escrita. */
+export async function savePersonBudgetTotal(input: {
+  subject: PersonSubject;
+  targets: Record<string, number>;
+  windowMonths: string[];
+  release?: string[];
+  note: string | null;
+}): Promise<number> {
+  const { rows, expected, sqlFile } = await filasDelTotal(input);
+  if (rows.length === 0) throw new Error('There is no month to set.');
+  const { totalRevision } = await escribirPresupuesto({
+    subject: input.subject,
+    totals: rows,
+    breakdowns: [],
+    expectedTotalRevision: expected,
+    expectedBreakdownRevision: null,
+    sqlFile,
+  });
+  /* Nunca `null` acá: se cortó arriba si no había ni un mes que escribir. */
+  return totalRevision ?? 0;
+}
+
+const NPPM_OWNER_SQL_FILE = 'docs/sql/2026-09-nppm-realtor-owner.sql';
+
+/**
+ * ============================================================================
+ * A QUÉ LOAN OFFICER SE LE SUMA ESTE REALTOR — etapa OL44
+ * ============================================================================
+ *
+ * Hasta acá el vínculo se cargaba con un `insert` a mano. Con trece NPPM en el
+ * roster, cinco sin dueño y uno que ya hubo que corregir, eso no se sostiene:
+ * el que decide es quien mira la pantalla del branch, y tiene que poder
+ * decidirlo ahí.
+ *
+ * Es un `upsert` y no una revisión nueva, a propósito: el vínculo se EDITA. Un
+ * realtor cambia de Loan Officer, no acumula una historia de a quién le sumó
+ * -- por eso la tabla no tiene `revision` y por eso no hay `delete` (ver el SQL
+ * de OL42: sin dueño es un estado que se ve, no una fila que se borra).
+ */
+export async function saveNppmRealtorOwner(input: {
+  realtorCode: string;
+  employeeKey: number;
+}): Promise<void> {
+  const set_by = await authorEmail();
+  const { error } = await getSupabaseClient()
+    .schema('outlook')
+    .from('nppm_realtor_owner')
+    .upsert(
+      {
+        nppm_realtor_code: input.realtorCode,
+        employee_key: input.employeeKey,
+        set_by,
+        note: null,
+      },
+      { onConflict: 'nppm_realtor_code' }
+    );
+  if (error) throw readable(error, { sqlFile: NPPM_OWNER_SQL_FILE });
+}
+
+const RELEASE_SQL_FILE = 'docs/sql/2026-09-budget-soltar-a-la-regla.sql';
+
+/**
+ * ============================================================================
+ * SOLTAR EL TOTAL: QUE EL MES VUELVA A LA REGLA — etapa OL41
+ * ============================================================================
+ *
+ * Un total fijado no se podía desfijar. Soltar ALGUNOS meses era un efecto
+ * secundario --borrar sus celdas hacía que la revisión nueva los omitiera-- y
+ * soltarlos TODOS no se podía: una revisión necesita al menos una fila, así que
+ * el editor terminaba diciendo «Clearing every cell is not supported».
+ *
+ * Galo Rizzo confirmó cuatro veces en tres minutos buscando este acto. Lo que
+ * apretaba --«Confirm as reviewed»-- escribe una fila que a propósito NO toca
+ * el gobierno, así que su total siguió fijado en 4/4/4 y nadie lo vio hasta que
+ * la composición del branch de OL39 puso los dos números uno al lado del otro.
+ *
+ * Escribe una revisión gobernante con `released_to_rule` y sin número para los
+ * meses que se sueltan. No es un cero --cero es «espero cero préstamos», una
+ * decisión con número-- y no es una confirmación: es «no decido yo, decide la
+ * regla», dicho por alguien, con fecha.
+ *
+ * Devuelve la revisión escrita.
+ */
+export async function releasePersonBudgetToRule(input: {
+  subject: PersonSubject;
+  /** Los meses que vuelven a la regla. */
+  months: string[];
+  /** El horizonte que estaba en pantalla -- ver `filasFueraDeVentana`. */
+  windowMonths: string[];
+  note: string | null;
+}): Promise<number> {
+  if (input.months.length === 0) throw new Error('There is no month to release.');
+  return savePersonBudgetTotal({
+    subject: input.subject,
+    targets: {},
+    release: input.months,
+    windowMonths: input.windowMonths,
+    note: input.note,
+  });
+}
+
+const CONFIRM_SQL_FILE = 'docs/sql/2026-09-person-budget-confirm-reviewed.sql';
+
+/**
+ * ============================================================================
+ * CONFIRMAR SIN FIJAR — etapa RV15
+ * ============================================================================
+ *
+ * «Revisé el presupuesto de esta persona y está bien como está.» Escribe una
+ * revisión de `person_budget_total` con `confirmed_only = true` y `total`
+ * nulo: una fila con autor y fecha, que es lo que la compuerta del paso 2.2
+ * busca --cualquier fila de esa persona posterior al arranque de la sesión-- y
+ * que NO cambia ningún número.
+ *
+ * ⚠ POR QUÉ NO ESCRIBE EL NÚMERO QUE SE ACEPTÓ, que es lo primero que uno
+ * pensaría (una fila igual a la anterior):
+ *
+ *   * Si la persona proyecta por regla --hoy TODAS, `person_budget_total`
+ *     quedó en cero filas--, no hay número anterior que repetir. El único
+ *     candidato es el que proyecta la regla, y fijarlo es un CAMBIO DE
+ *     GOBIERNO: OL26e dice «person_budget_total manda cuando existe, la regla
+ *     cuando no», y la propia pantalla lo avisa antes de guardar. Confirmar
+ *     una revisión congelaría la proyección de esa persona, y la próxima vez
+ *     que cambie su benchmark el número dejaría de seguirlo sin que nadie
+ *     haya decidido eso.
+ *   * Si la persona SÍ tiene total fijado, repetir los números funcionaría --
+ *     pero entonces habría dos mecanismos para un mismo acto, y el editor
+ *     tendría que elegir según lo que haya en la base. Una confirmación que
+ *     nunca toca números es la misma en los dos casos.
+ *   * Y el editor no puede calcular honestamente el total proyectado: conoce
+ *     la tasa de Own Production, no el efectivo multi-bucket de la tabla del
+ *     branch. Escribir un número que no sabe sería inventarlo.
+ *
+ * El lector ignora estas filas al calcular la revisión vigente (ver
+ * `loadData.ts`), así que una confirmación nunca mueve un mes de la regla al
+ * total NI le quita el gobierno a un total ya fijado -- que es lo que pasaría
+ * si una revisión con totales nulos contara como la vigente.
+ *
+ * Devuelve la revisión escrita.
+ */
+export async function confirmPersonBudgetReviewed(input: {
+  subject: PersonSubject;
+  /** Los meses que la revisión abarcó: el horizonte que estaba en pantalla. */
+  months: string[];
+  note: string | null;
+}): Promise<number> {
+  const months = [...input.months].sort();
+  if (months.length === 0) throw new Error('There is no month to confirm.');
+
+  const set_by = await authorEmail();
+
+  const rows: FilaTotalAEscribir[] = months.map((m) => ({
+    target_month: m + '-01',
+    total: null,
+    confirmed_only: true,
+    set_by,
+    note: input.note,
+  }));
+
+  /*
+   * El conteo se comprueba igual que antes, y sigue sin ser decorativo: un
+   * insert que escribe menos filas de las que se le dieron se parece a uno que
+   * funcionó, y toda la razón de esta función es dejar rastro. Ahora lo hace
+   * `escribirPresupuesto` para las tres, con el `returning` de la función.
+   *
+   * ⚠ SIN `expectedTotalRevision`, y es una decisión y no un olvido. Esa
+   * comprobación existe para proteger el ARRASTRE: el cliente lee lo vigente,
+   * decide qué recopia y escribe. Una confirmación no arrastra nada --escribe
+   * sus meses y ya-- así que un guardado ajeno en el medio no le corrompe
+   * nada, y exigir la revisión la haría fallar sin que hubiera un problema.
+   * Un error ruidoso que salta cuando no pasa nada enseña a ignorarlo.
+   */
+  const { totalRevision } = await escribirPresupuesto({
+    subject: input.subject,
+    totals: rows,
+    breakdowns: [],
+    expectedTotalRevision: null,
+    expectedBreakdownRevision: null,
+    sqlFile: CONFIRM_SQL_FILE,
+  });
+  return totalRevision ?? 0;
+}
+
+/**
+ * El desglose informativo, por bucket y por mes. UNA revisión cubre TODOS
+ * los buckets y meses de un mismo guardado -- es una sola decisión, "así es
+ * como se explica el total", no una por bucket.
+ *
+ * ⚠ Y POR ESO ESTE `input.breakdown` TIENE QUE TRAER EL CONJUNTO ENTERO DE LA
+ * VENTANA, no sólo lo que cambió. La lectura se queda con la revisión más alta
+ * del sujeto y no la completa con la anterior, así que un bucket que no venga
+ * acá queda borrado en silencio. El caso está contado en `loadData.ts`, donde
+ * se elige esa revisión: el B2B de Nathan Martinez existió tres semanas en la
+ * tabla sin verse en ninguna pantalla.
+ *
+ * ⚠ Y NO ES SÓLO UN RIESGO DE LOS INSERT A MANO -- corregido en OL38. La
+ * pantalla produce revisiones parciales igual, porque arma su borrador con
+ * `if (Object.keys(byMonth).length > 0) draft[b] = byMonth`: un bucket con
+ * todas las celdas vacías no se manda. Es la puerta por la que se expresa
+ * «este mes no hago B2B» y también la puerta por la que se sale sin querer.
+ * Las dos cosas pasan por el mismo lugar, y por eso no se puede cerrar -- lo
+ * que se hace es AVISAR antes de guardar (ver `perdidos` en
+ * `PersonBudgetEditor`), sin impedirlo.
+ *
+ * Lo de los MESES es otra cosa y sí se arregla: ver `windowMonths` y
+ * `filasFueraDeVentana`. Fuera de la ventana nadie decidió nada.
+ *
+ * ⚠ NO SE VALIDA QUE SUME EL TOTAL, a propósito: eso se muestra en pantalla
+ * (ver el delta de `BudgetEditor`), no se rechaza el guardado ni se fuerza un
+ * reescalado que inventaría de dónde sale la diferencia.
+ *
+ * Devuelve la revisión escrita.
+ */
+async function filasDelDesglose(input: {
+  subject: PersonSubject;
+  /** bucket → mes → valor. Sólo se guardan los pares presentes. */
+  breakdown: Partial<Record<BudgetBucket, Record<string, number>>>;
+  /**
+   * El horizonte que estaba en pantalla. Lo vigente que caiga FUERA de esta
+   * ventana se arrastra tal cual a la revisión nueva -- ver
+   * `filasFueraDeVentana`. Dentro, la ausencia sigue siendo una decisión.
+   */
+  windowMonths: string[];
+  note: string | null;
+}): Promise<{ rows: FilaDesgloseAEscribir[]; expected: number }> {
+  const entries: { bucket: BudgetBucket; month: string; value: number }[] = [];
+  for (const bucket of Object.keys(input.breakdown) as BudgetBucket[]) {
+    const byMonth = input.breakdown[bucket] ?? {};
+    for (const m of Object.keys(byMonth)) entries.push({ bucket, month: m, value: byMonth[m] });
+  }
+  if (entries.length === 0) return { rows: [], expected: 0 };
+
+  /*
+   * ⚠ EL MISMO CHECK QUE LA BASE, TAMBIÉN ACÁ. La base lo rechaza igual --
+   * `person_budget_breakdown_realtor_buckets_check`-- pero un realtor con
+   * quince meses en cuatro buckets vería fallar el INSERT entero por uno solo
+   * fuera de norma, con un 23514 crudo. Cortarlo antes evita mandar la
+   * consulta para descubrir un error que ya se puede ver acá.
+   */
+  if (input.subject.kind === 'realtor' && entries.some((e) => e.bucket === 'b2b' || e.bucket === 'nppm')) {
+    throw new Error('An NPPM realtor only has Own Production and Business Plan in the breakdown — B2B and NPPM do not apply.');
+  }
+
+  const set_by = await authorEmail();
+  const supabase = getSupabaseClient();
+
+  const [subjCol, subjVal] = personSubjectFilter(input.subject);
+  const { data: existing, error: readError } = await supabase
+    .schema('outlook')
+    .from('budget_breakdown')
+    .select('*')
+    .eq(subjCol, subjVal);
+  if (readError) throw readable(readError, { sqlFile: BUDGET_SQL_FILE });
+  const previas = (existing ?? []) as {
+    revision: number;
+    target_month: string;
+    bucket: BudgetBucket;
+    value: number;
+    set_by: string | null;
+    note: string | null;
+  }[];
+  const revisionVigente = previas.reduce((a, b) => Math.max(a, b.revision), 0);
+  const revision = revisionVigente + 1;
+
+  /* Lo que no estaba en pantalla viaja entero a la revisión nueva -- OL38. El
+     par (bucket, mes) que SÍ viene en el guardado manda, por si alguna vez un
+     llamador edita un mes de afuera de su propia ventana. */
+  const guardados = new Set(entries.map((e) => e.bucket + '|' + e.month));
+  const arrastradas = filasFueraDeVentana(previas, revisionVigente, input.windowMonths).filter(
+    (r) => !guardados.has(r.bucket + '|' + r.target_month.slice(0, 7))
+  );
+
+  const rows: FilaDesgloseAEscribir[] = [
+    ...entries.map((e) => ({
+      target_month: e.month + '-01',
+      bucket: e.bucket,
+      value: e.value,
+      set_by,
+      note: input.note,
+    })),
+    /* El autor y la nota son los de quien lo decidió: arrastrar no es volver a
+       decidir, y firmar con el editor de hoy borraría de quién era. */
+    ...arrastradas.map((r) => ({
+      target_month: r.target_month,
+      bucket: r.bucket,
+      value: Number(r.value),
+      set_by: r.set_by ?? set_by,
+      note: r.note,
+    })),
+  ];
+
+  return { rows, expected: revisionVigente };
+}
+
+/**
+ * El desglose informativo de una persona. Devuelve la revisión escrita.
+ *
+ * La prosa larga de por qué una revisión cubre todos los buckets, y por qué el
+ * `input.breakdown` tiene que traer el conjunto entero de la ventana, está en
+ * el JSDoc de `filasDelDesglose` justo arriba.
+ */
+export async function savePersonBudgetBreakdown(input: {
+  subject: PersonSubject;
+  breakdown: Partial<Record<BudgetBucket, Record<string, number>>>;
+  windowMonths: string[];
+  note: string | null;
+}): Promise<number> {
+  const { rows, expected } = await filasDelDesglose(input);
+  if (rows.length === 0) throw new Error('There is no month to set.');
+  const { breakdownRevision } = await escribirPresupuesto({
+    subject: input.subject,
+    totals: [],
+    breakdowns: rows,
+    expectedTotalRevision: null,
+    expectedBreakdownRevision: expected,
+    sqlFile: BUDGET_SQL_FILE,
+  });
+  return breakdownRevision ?? 0;
+}
+
+/**
+ * ============================================================================
+ * EL TOTAL Y EL DESGLOSE, EN UNA SOLA TRANSACCIÓN — etapa OL51
+ * ============================================================================
+ *
+ * Es lo que llama el editor al guardar, y existe por el defecto que se
+ * construyó midiendo: con dos llamadas separadas, la primera entraba, la
+ * segunda daba 403, y la pantalla decía «your session can read but not save»
+ * con el total ya escrito. La mitad que entró no se deshacía ni se avisaba.
+ *
+ * ⚠ REUSA LAS DOS FUNCIONES DE ARRIBA PARA ARMAR LAS FILAS, no las reescribe.
+ * El arrastre de fuera de la ventana (OL38) y el criterio de gobierno (OL41)
+ * viven en un solo lugar cada uno y los leen también las dos pantallas; una
+ * segunda copia acá sería correcta hoy y divergiría con el primer cambio. Lo
+ * que esta función agrega es que las dos listas viajen juntas.
+ */
+export async function savePersonBudget(input: {
+  subject: PersonSubject;
+  targets: Record<string, number>;
+  release?: string[];
+  breakdown: Partial<Record<BudgetBucket, Record<string, number>>>;
+  windowMonths: string[];
+  note: string | null;
+}): Promise<{ totalRevision: number | null; breakdownRevision: number | null }> {
+  const totales = await filasDelTotal({
+    subject: input.subject,
+    targets: input.targets,
+    release: input.release,
+    windowMonths: input.windowMonths,
+    note: input.note,
+  });
+  const desgloses = await filasDelDesglose({
+    subject: input.subject,
+    breakdown: input.breakdown,
+    windowMonths: input.windowMonths,
+    note: input.note,
+  });
+  if (totales.rows.length === 0 && desgloses.rows.length === 0) {
+    throw new Error('There is no month to set.');
+  }
+  return escribirPresupuesto({
+    subject: input.subject,
+    totals: totales.rows,
+    breakdowns: desgloses.rows,
+    expectedTotalRevision: totales.rows.length === 0 ? null : totales.expected,
+    expectedBreakdownRevision: desgloses.rows.length === 0 ? null : desgloses.expected,
+    sqlFile: totales.sqlFile,
+  });
 }

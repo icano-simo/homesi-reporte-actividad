@@ -4,6 +4,7 @@ import {
   currentMonthByBranch,
   projectBranch,
   projectLoanOfficer,
+  type BranchRecruit,
   type BranchStrategy,
   type OutlookBranch,
   type OutlookData,
@@ -11,6 +12,7 @@ import {
   type YearRow,
 } from '@/lib/outlook/loadData';
 import { projectPlan, type OutlookStrategy } from '@/lib/outlook/project';
+import { pisoDeRealtors, presupuestoDePersona } from '@/lib/outlook/gobierno';
 
 /**
  * ============================================================================
@@ -159,9 +161,27 @@ export function branchHasBudget(bs: BranchStrategy): boolean {
  * ni corregir.
  */
 export function tieneAlgo(branch: OutlookBranch, bs: BranchStrategy, currentMonth: string): boolean {
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * ⚠ `currentMonthRaw` YA NO ALCANZA PARA EXISTIR — etapa OL36
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * Ese número es la parte del pipeline de LAS PERSONAS del branch que cae en
+   * esta estrategia, y desde OL35 el mes en curso se atribuye por el BRANCH DEL
+   * PRÉSTAMO: los préstamos de Affinity que tiene Nathan Martinez son del branch
+   * AFFINITY aunque Nathan sea del 716.
+   *
+   * Sin sacarlo, el 716 seguía dibujando una fila de Affinity --con su 4 de
+   * septiembre-- por producción que ya no le pertenece. Medido: el 716 no tiene
+   * un solo cierre de Affinity en el año; los 32 están en el branch Affinity.
+   *
+   * ⚠ Y NO ES «QUE SUME CERO»: la fila NO EXISTE. Una fila en cero afirma que
+   * esa estrategia está en el branch y no produjo; acá la estrategia no es de
+   * este branch. Es la misma distinción que `fmt` sostiene entre `0` y vacío,
+   * un nivel más arriba.
+   */
   return (
     bs.ytd > 0 ||
-    bs.currentMonthRaw > 0 ||
     (bs.actualByMonth[currentMonth] ?? 0) > 0 ||
     bs.benchmarkSchedule.length > 0 ||
     bs.targetRevision > 0 ||
@@ -232,9 +252,29 @@ export function exactoDe(
       targets: bs.targets,
     });
     remainingMonths.forEach((m, i) => (out[m] = steps[i]?.value ?? 0));
-  } else if (bs.opensBy === 'realtor' && bs.realtors.length > 0) {
-    const suma = bs.realtors.reduce((a, r) => a + r.benchmark, 0);
-    remainingMonths.forEach((m) => (out[m] = suma));
+  } else if (bs.opensBy === 'realtor') {
+    /*
+     * ══════════════════════════════════════════════════════════════════════
+     * ⚠ NPPM PESA CERO EN EL REPARTO — etapa OL33
+     * ══════════════════════════════════════════════════════════════════════
+     *
+     * Acá iba `Σ benchmark de los realtors`, y este número se usa como PESO
+     * para repartir el presupuesto del branch entre sus estrategias. Desde
+     * OL33 NPPM no suma al total del branch --sus filas son desagregación de
+     * cierres que ya cuentan en la fila del Loan Officer que los cerró-- así
+     * que darle peso le asignaba una parte de un total que ya no la incluye:
+     * el reparto quedaba corto y la diferencia reaparecía en la
+     * reconciliación.
+     *
+     * Medido antes de corregirlo: +1 por mes en el 724 y +2 en el 776, con el
+     * total del branch ya bajado. El residuo volvía justo por donde se había
+     * ido.
+     *
+     * Las filas de los realtors siguen mostrando su propia proyección --ver
+     * `nppmRealtorBudget`--; lo que no tienen es una parte del presupuesto del
+     * branch, porque ese presupuesto es de sus Loan Officers.
+     */
+    remainingMonths.forEach((m) => (out[m] = 0));
   }
 
   /*
@@ -272,6 +312,343 @@ export function exactoDe(
   return out;
 }
 
+/**
+ * El presupuesto entero de UNA estrategia, repartido entre las personas que la
+ * abren -- etapa OL26. Extraído del `.map()` que armaba esto inline en
+ * `branch/[code]/page.tsx` (Own Production) para reusarlo también con
+ * Recruitment: la vista rehecha combina las dos por Loan Officer.
+ *
+ * ⚠ Mismo mecanismo de siempre: `apportionByWeight` sobre el presupuesto YA
+ * repartido de la estrategia (`budgetPorMes`, el mismo que muestra su fila),
+ * pesado por la proyección EXACTA de cada persona (`projectLoanOfficer`, la
+ * misma puerta que su total). Devuelve en el mismo orden que `personasDe`.
+ */
+export function personBudgetsOf(
+  branch: OutlookBranch,
+  bs: BranchStrategy,
+  remainingMonths: string[],
+  budgetPorMes: Record<string, number>
+): Record<string, number>[] {
+  const personas = personasDe(branch, bs);
+  const exactos = personas.map((lo) => {
+    const st = projectLoanOfficer(lo, remainingMonths).stepsByStrategy[bs.strategy] ?? [];
+    const out: Record<string, number> = {};
+    remainingMonths.forEach((m, i) => (out[m] = st[i]?.value ?? 0));
+    return out;
+  });
+  const enteros: Record<string, number>[] = personas.map(() => ({}));
+  for (const m of remainingMonths) {
+    const partes = apportionByWeight(budgetPorMes[m] ?? 0, exactos.map((e) => e[m] ?? 0));
+    partes.forEach((v, i) => (enteros[i][m] = v));
+  }
+  return enteros;
+}
+
+/** Una fila de Loan Officer en el nuevo agrupamiento por persona — etapa OL26. */
+export interface PersonBudgetRow {
+  lo: OutlookLoanOfficer;
+  /** `true` si esta persona participa de Recruitment (ver `participa`). */
+  participatesInRecruitment: boolean;
+  /**
+   * Los meses en que su total NO es el que ella decidió sino el piso que le
+   * imponen sus realtors NPPM — etapa OL48. Vacío es el caso normal, y la fila
+   * lo rotula `raised by NPPM` cuando no lo es: quien lo lea tiene que saber que
+   * ese número no salió de una decisión suya.
+   */
+  subioPorNppm: string[];
+  /** Own Production + Recruitment combinados: real, mes en curso, presupuesto futuro. */
+  year: YearRow;
+}
+
+/** Un recluta de Recruitment (`role === 'loan_officer'`), con su parte del presupuesto ya repartida junto con las personas -- etapa OL26. */
+export interface RecruitBudgetRow {
+  recruit: BranchRecruit;
+  year: YearRow;
+}
+
+export interface LoanOfficerSection {
+  personRows: PersonBudgetRow[];
+  /** Los reclutas de Recruitment (`role: 'loan_officer'`) -- filtrados por `shouldShowRecruit` NO se hace acá, eso es de la pantalla. */
+  recruitRows: RecruitBudgetRow[];
+}
+
+/**
+ * ============================================================================
+ * LOS LOAN OFFICERS DE UN BRANCH, UNA FILA POR PERSONA — etapa OL26
+ * ============================================================================
+ *
+ * Reemplaza la vista por estrategia (Own Production y Recruitment, cada una
+ * abierta por Loan Officer) por una vista por PERSONA: cada Loan Officer del
+ * roster es una sola fila con sus estrategias sumadas -- porque preguntar
+ * "cuánto hace Fulano" no debería obligar a sumar filas a mano.
+ *
+ * ⚠ LO YA CERRADO SUMA LAS CUATRO ESTRATEGIAS QUE UN LOAN OFFICER PUEDE
+ * CERRAR -- corregido en OL26c. El modelo original sólo sumaba Own Production
+ * + Recruitment para los meses reales, y eso estaba mal planteado: B2B y
+ * Affinity son de dónde viene el negocio (un Business Developer, un Account
+ * Executive), no de quién lo cierra -- eso siempre es un Loan Officer.
+ * `actualByMonth` de esta fila suma Own Production + B2B + Recruitment +
+ * Affinity, cada una ya escrita por branch en `lo.strategies` (ver
+ * `strategiesOf` en `loadData.ts`). NPPM queda afuera: ya se muestra como
+ * detalle del realtor en su propio grupo, y sumarla acá también la contaría
+ * dos veces.
+ *
+ * El presupuesto FUTURO (los meses que faltan) sigue siendo sólo Own
+ * Production + Recruitment: son las únicas dos con una regla de crecimiento
+ * por persona. B2B no tiene una -- su presupuesto es del branch, sin dueño --
+ * y por eso su parte futura sigue sin poder atribuirse a nadie.
+ *
+ * ⚠ EL MES EN CURSO NO SE REPARTE ENTRE ESTRATEGIAS Y SE SUMA DESPUÉS -- se
+ * reparte DIRECTO entre personas, con el peso que cada una YA TIENE:
+ * `lo.currentMonth`, el pronóstico INDIVIDUAL que ya calcula el Business Plan
+ * (no una estimación armada acá). `branch.currentMonth` es, por construcción,
+ * la suma exacta de estos números (ver `loadData.ts`, donde se arma
+ * `OutlookBranch.currentMonth`) -- así que el peso correcto siempre estuvo
+ * disponible, entero, por persona. Los reclutas NUNCA participan de este
+ * reparto: su `byMonth` no cubre el mes en curso (`projectRecruit` proyecta
+ * sólo los meses que quedan del año), así que su mes en curso es siempre
+ * vacío -- lo mismo que ya hacía la pantalla anterior.
+ *
+ * ⚠ ESTO ES LO QUE ESTABA MAL EN EL 710 -- Recruitment. Cualquier reparto que
+ * use un peso DISTINTO de `lo.currentMonth` (el YTD acumulado, el benchmark, o
+ * repartir primero por estrategia y sumar después) le da al 710 una
+ * proporción que no es la de su pronóstico real: ahí Recruitment es la
+ * producción real de varias personas, no un programa marginal, y un peso que
+ * no lo refleja concentra el mes en una sola fila en vez de repartirlo entre
+ * quienes efectivamente lo producen.
+ *
+ * `apportionByWeight(branchCurrent, todos_los_currentMonth)` incluye a TODOS
+ * los `branch.loanOfficers` como peso -- no sólo a quien participa de
+ * Recruitment -- así que nadie con pronóstico real puede quedar fuera de los
+ * pesos: es exactamente el modo de falla que el brief pide vigilar.
+ *
+ * ⚠ Y EL PRESUPUESTO FUTURO DE RECRUITMENT SE REPARTE ENTRE PERSONAS **Y**
+ * RECLUTAS JUNTOS, no en dos pasos. `recRow.budget` (de `strategyRowsOf`) ya
+ * incluye el peso de los reclutas (`exactoDe` los suma al presupuesto exacto
+ * de la estrategia, fuera del `if` de personas -- ver esa función). Repartir
+ * ese mismo total SÓLO entre las personas --como haría `personBudgetsOf`
+ * genérica, que no sabe de reclutas-- les daría de más, absorbiendo en
+ * silencio lo que le toca a cada recluta: exactamente el modo de falla del
+ * brief, esta vez con los reclutas como la fuente que "queda fuera de los
+ * pesos". Por eso acá el reparto de Recruitment es uno solo, con las personas
+ * y los reclutas como pesos del mismo `apportionByWeight`.
+ */
+export function loanOfficerRowsOf(
+  data: OutlookData,
+  branch: OutlookBranch,
+  monthsOfYear: string[],
+  remainingMonths: string[]
+): LoanOfficerSection {
+  const { currentMonth } = data;
+  const branchCurrent = currentMonthByBranch(data).get(branch.branchCode) ?? 0;
+  const los = branch.loanOfficers;
+
+  const bsOwn = branch.byStrategy.find((b) => b.strategy === 'Own Production');
+  const bsRec = branch.byStrategy.find((b) => b.strategy === 'Recruitment');
+  const recruitsLO = (bsRec?.recruits ?? []).filter((r) => r.role === 'loan_officer');
+
+  /*
+   * El presupuesto entero de cada estrategia sale de `strategyRowsOf` -- el
+   * MISMO cálculo que ya muestra el resto de la vista, no uno nuevo. Si una
+   * estrategia no tiene nada que mostrar (`tieneAlgo` la excluyó), su
+   * presupuesto por persona es 0 en todos los meses: no hay de dónde repartir.
+   */
+  const sRows = strategyRowsOf(data, branch, monthsOfYear, remainingMonths);
+  const ownRow = sRows.find((r) => r.strategy === 'Own Production');
+  const recRow = sRows.find((r) => r.strategy === 'Recruitment');
+  const zeroBudget = Object.fromEntries(remainingMonths.map((m) => [m, 0]));
+
+  const ownPersonas = bsOwn ? personasDe(branch, bsOwn) : [];
+  const ownBudgets = bsOwn ? personBudgetsOf(branch, bsOwn, remainingMonths, ownRow?.budget ?? zeroBudget) : [];
+
+  /* Recruitment: personas Y reclutas, en un solo reparto -- ver la nota de arriba. */
+  const recPersonas = bsRec ? personasDe(branch, bsRec) : [];
+  const exactosPersonasRec = recPersonas.map((lo) => {
+    const st = projectLoanOfficer(lo, remainingMonths).stepsByStrategy['Recruitment'] ?? [];
+    const out: Record<string, number> = {};
+    remainingMonths.forEach((m, i) => (out[m] = st[i]?.value ?? 0));
+    return out;
+  });
+  const recBudget = recRow?.budget ?? zeroBudget;
+  const enterosRec: Record<string, number>[] = [...recPersonas, ...recruitsLO].map(() => ({}));
+  for (const m of remainingMonths) {
+    const pesos = [...exactosPersonasRec.map((e) => e[m] ?? 0), ...recruitsLO.map((r) => r.byMonth[m] ?? 0)];
+    const partes = apportionByWeight(recBudget[m] ?? 0, pesos);
+    partes.forEach((v, i) => (enterosRec[i][m] = v));
+  }
+  const recBudgetsPersonas = enterosRec.slice(0, recPersonas.length);
+  const recBudgetsReclutas = enterosRec.slice(recPersonas.length);
+
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * EL MES EN CURSO SE REPARTE SÓLO LA PARTE PROPIA — etapa OL35
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * Antes se repartía el entero ENTERO del branch entre sus personas, así que
+   * las filas de persona se llevaban también lo que había cerrado o tenía
+   * abierto gente de otro branch. Ahora el branch trae el número partido en
+   * dos --`currentMonthOwn` y el resto-- y acá se reparte sólo el primero.
+   *
+   * ⚠ LOS DOS ENTEROS SALEN DE UN MISMO `apportionByWeight`, no de dos
+   * redondeos sueltos: así la parte propia y la de afuera suman EXACTAMENTE el
+   * entero del branch, que es lo que hace que la fila de reconciliación --que
+   * es la resta-- dé justo lo de afuera y no un resto de redondeo.
+   *
+   * ⚠ Y EL PESO ES `currentMonthHere`, no `currentMonth`: el segundo es la
+   * proyección de la PERSONA en todos sus branches. Con ése, quien produce en
+   * varios se llevaba de más en el suyo. Nathan Martinez cerró en seis.
+   */
+  const [propioEntero] = apportionByWeight(branchCurrent, [
+    branch.currentMonthOwn,
+    Math.max(0, branch.currentMonth - branch.currentMonthOwn),
+  ]);
+  const partesCurrent = apportionByWeight(
+    propioEntero,
+    los.map((lo) => lo.currentMonthHere)
+  );
+
+  const personRows: PersonBudgetRow[] = los.map((lo, idx) => {
+    const ownIdx = ownPersonas.findIndex((p) => p.employeeKey === lo.employeeKey);
+    const recIdx = recPersonas.findIndex((p) => p.employeeKey === lo.employeeKey);
+    const ownYtd = lo.strategies.find((s) => s.strategy === 'Own Production');
+    const recYtd = lo.strategies.find((s) => s.strategy === 'Recruitment');
+
+    /*
+     * ⚠ EL LOAN OFFICER ES QUIEN CIERRA, SIEMPRE -- corregido en OL26c.
+     *
+     * B2B y Affinity son estrategias de ORIGEN -- quién trajo el negocio,
+     * un Business Developer o un Account Executive -- pero el préstamo lo
+     * CIERRA un Loan Officer, y ese cierre es real sin importar de qué
+     * estrategia venga. Verificado contra la base: los 20 cierres de B2B
+     * del 747 este año tienen loan_officer, 15 de ellos ya en este branch
+     * (Gian Laino, Galo Rizzo) -- gente que YA tenía fila acá por su Own
+     * Production.
+     *
+     * Antes esta fila sólo sumaba Own Production + Recruitment, así que esos
+     * 15 cierres no aparecían en la fila de nadie: caían enteros en la
+     * reconciliación, sin nombre, junto con los cierres genuinos de gente de
+     * otro branch. Sumando las cuatro estrategias que un Loan Officer puede
+     * cerrar, cada una en la fila de quien efectivamente cerró, la
+     * reconciliación vuelve a ser sólo lo que de verdad no tiene dueño acá.
+     *
+     * ⚠ NPPM QUEDA AFUERA A PROPÓSITO. Un préstamo NPPM tiene realtor Y Loan
+     * Officer, y el realtor ya se muestra aparte (grupo "NPPM — existing").
+     * Sumarlo acá también lo contaría dos veces -- una por realtor, otra por
+     * quien lo cerró. Por eso el brief dice "NPPM se abre como detalle pero
+     * no suma al total": el total del branch es la suma de sus Loan Officers,
+     * y NPPM no es una de sus estrategias acá.
+     */
+    const b2bYtd = lo.strategies.find((s) => s.strategy === 'B2B');
+    const affinityYtd = lo.strategies.find((s) => s.strategy === 'Affinity');
+    /*
+     * ══════════════════════════════════════════════════════════════════════
+     * ⚠ Y NPPM TAMBIÉN — LAS CINCO, NO CUATRO. Etapa OL33
+     * ══════════════════════════════════════════════════════════════════════
+     *
+     * La regla quedó en una línea: **sólo el Loan Officer cierra**. Todo cierre
+     * suma en su fila y en ninguna otra; el realtor de NPPM muestra el MISMO
+     * cierre como desagregación --quién lo trajo-- y no suma al total.
+     *
+     * Hasta acá era al revés para NPPM: el cierre no estaba en la fila de quien
+     * lo cerró y sí en la del realtor, que además sumaba. De ahí salían dos
+     * problemas que se venían atacando por separado -- el mes en curso
+     * mezclando pronóstico con cerrado (OL32) y la reconciliación teniendo que
+     * descontar la diferencia (OL31).
+     *
+     * El doble conteo que la nota de arriba temía --«una vez por realtor, otra
+     * por quien lo cerró»-- no puede pasar ahora: la fila del realtor salió de
+     * la suma. Ver `allShownYears` en la pantalla del branch.
+     *
+     * ══════════════════════════════════════════════════════════════════════
+     * ⚠ Y AFFINITY NO SIGUE ESTA REGLA, A PROPÓSITO — decisión de OL35
+     * ══════════════════════════════════════════════════════════════════════
+     *
+     * Parecen el mismo caso y no lo son. Los dos muestran producción que cerró
+     * un Loan Officer, pero:
+     *
+     *   NPPM      es una FUENTE DE LEADS. El realtor trae el negocio y el
+     *             préstamo es del Loan Officer que lo cerró: su fila lo cuenta
+     *             y la del realtor lo muestra sin sumar.
+     *   Affinity  es un CANAL CON P&L PROPIO. Sus cierres son suyos, sin
+     *             importar qué Loan Officer los procesó -- igual que los cuenta
+     *             Forecast & Pipeline, que atribuye por el branch del préstamo.
+     *
+     * Por eso Affinity SÍ suma y NPPM no. Queda escrito acá, al lado de la
+     * línea que los distingue, porque el día que alguien «unifique el criterio»
+     * va a estar mirando este código y no un documento: los dos criterios
+     * conviven porque las dos cosas son distintas, no porque falte terminar
+     * algo.
+     */
+    const nppmYtd = lo.strategies.find((s) => s.strategy === 'NPPM');
+
+    const actualByMonth: Record<string, number> = {};
+    for (const m of monthsOfYear) {
+      actualByMonth[m] =
+        (ownYtd?.actualByMonth[m] ?? 0) +
+        (recYtd?.actualByMonth[m] ?? 0) +
+        (b2bYtd?.actualByMonth[m] ?? 0) +
+        (affinityYtd?.actualByMonth[m] ?? 0) +
+        (nppmYtd?.actualByMonth[m] ?? 0);
+    }
+    const projected: Record<string, number | null> = {};
+    /* Los meses que su piso de realtors levantó — etapa OL48. */
+    const subioPorNppm: string[] = [];
+    for (const m of remainingMonths) {
+      const own = ownIdx >= 0 ? (ownBudgets[ownIdx]?.[m] ?? 0) : 0;
+      const rec = recIdx >= 0 ? (recBudgetsPersonas[recIdx]?.[m] ?? 0) : 0;
+      /*
+       * ⚠ PRECEDENCIA — etapa OL26e: "person_budget_total manda cuando
+       * existe, la regla cuando no". `own + rec` es la regla de crecimiento
+       * de siempre (los pesos de apportionment de arriba NO se tocan --
+       * siguen repartiendo entre el resto de la gente como si esta persona
+       * no tuviera presupuesto fijado, que es justo lo que tiene que pasar
+       * para que el reparto de los demás no cambie).  Si Isabella fijó un
+       * presupuesto para ESTE mes puntual, ese número reemplaza a la regla
+       * sólo para este mes -- un presupuesto parcial dejá los demás meses
+       * cayendo solos al `?? (own + rec)`. Mismo criterio, mismo mes a mes,
+       * que `projectBranch` en loadData.ts: los dos tienen que coincidir
+       * para que el total del branch (que sale de `projectBranch`) cierre
+       * con lo que esta fila muestra por persona.
+       */
+      /*
+       * ⚠ Y EL PISO DE SUS REALTORS — etapa OL48. Un realtor NPPM no cierra:
+       * cierra esta persona, así que lo que el realtor proyecta ya pasa por
+       * ella y su total no puede quedar por debajo. `presupuestoDePersona` es
+       * la MISMA función que usa `projectBranch`, por lo mismo que dice la nota
+       * de arriba: los dos números tienen que coincidir.
+       */
+      const piso = pisoDeRealtors(lo.nppmRealtors, m);
+      const { valor, subioPorRealtors } = presupuestoDePersona({
+        fijado: lo.budgetTotal[m],
+        regla: own + rec,
+        pisoDeRealtors: piso,
+      });
+      projected[m] = valor;
+      if (subioPorRealtors) subioPorNppm.push(m);
+    }
+
+    return {
+      lo,
+      participatesInRecruitment: recIdx >= 0,
+      /* Los meses en que su total lo levantaron sus realtors — etapa OL48. La
+         fila lo dice: ese número no lo decidió esta persona. */
+      subioPorNppm,
+      year: composeYear(monthsOfYear, currentMonth, actualByMonth, partesCurrent[idx], projected),
+    };
+  });
+
+  const recruitRows: RecruitBudgetRow[] = recruitsLO.map((recruit, idx) => ({
+    recruit,
+    /*
+     * El recluta no tiene mes en curso (siempre vacío, `null`) ni meses
+     * cerrados (todavía no está): sólo su parte del presupuesto futuro.
+     */
+    year: composeYear(monthsOfYear, currentMonth, {}, null, recBudgetsReclutas[idx] ?? {}),
+  }));
+
+  return { personRows, recruitRows };
+}
+
 export interface StrategyRow {
   bs: BranchStrategy;
   strategy: OutlookStrategy;
@@ -301,20 +678,36 @@ export function strategyRowsOf(
 ): StrategyRow[] {
   const { currentMonth } = data;
   const branchCurrent = currentMonthByBranch(data).get(branch.branchCode) ?? 0;
+  /*
+   * ⚠ `applyBudgetOverrides: false` -- etapa OL26e. Este `branchYear` es el
+   * PESO a repartir entre estrategias más abajo (`apportionByWeight`), no un
+   * número que se muestre -- por eso tiene que quedarse en la regla de
+   * crecimiento pura, igual que `exactoDe`. Ver el JSDoc de `projectBranch`
+   * en loadData.ts para el número que se filtró a Galo y a B2B cuando este
+   * total incluía el presupuesto fijo de otra persona.
+   */
   const branchYear = composeYear(
     monthsOfYear,
     currentMonth,
     branch.actualByMonth,
     branchCurrent,
-    projectBranch(branch, remainingMonths)
+    projectBranch(branch, remainingMonths, { applyBudgetOverrides: false })
   );
 
   const filasBase = branch.byStrategy.filter((bs) => tieneAlgo(branch, bs, currentMonth));
 
   /* El mes en curso del branch, repartido entre sus estrategias. */
-  const proyectaAlgo = filasBase.some((bs) => bs.currentMonthRaw > 0);
+  /*
+   * ⚠ Y NPPM TAMPOCO PESA EN EL MES EN CURSO — OL33, por lo mismo que en
+   * `exactoDe`: el pronóstico del mes es del branch y sus filas no lo suman.
+   */
+  const proyectaAlgo = filasBase.some((bs) => bs.opensBy !== 'realtor' && bs.currentMonthRaw > 0);
   const pesosCurrent = filasBase.map((bs) =>
-    proyectaAlgo ? bs.currentMonthRaw : (bs.actualByMonth[currentMonth] ?? 0)
+    bs.opensBy === 'realtor'
+      ? 0
+      : proyectaAlgo
+        ? bs.currentMonthRaw
+        : (bs.actualByMonth[currentMonth] ?? 0)
   );
   const currentPorEstrategia = apportionByWeight(branchCurrent, pesosCurrent);
 

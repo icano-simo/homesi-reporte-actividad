@@ -396,6 +396,23 @@ export function CalendarIcon(props: IconProps) {
   );
 }
 
+/**
+ * lucide: clock — el `ends day N` de un funnel.
+ *
+ * ⚠ Y NO `CalendarIcon`, que ya estaba. Un calendario dice FECHA y `ends day
+ * 207` no es una fecha: es un contador de días desde que la persona se enrola,
+ * y la fecha real depende de cuándo se enroló. Los nueve funnels van de 8 a 207
+ * días, así que el mismo `day 89` cae en un mes distinto para cada uno.
+ */
+export function ClockIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 6v6l4 2" />
+    </Icon>
+  );
+}
+
 /** lucide: map-pin — Community Presence, territorio. */
 export function MapPinIcon(props: IconProps) {
   return (
@@ -421,6 +438,36 @@ export function AwardIcon(props: IconProps) {
     <Icon {...props}>
       <path d="m15.477 12.89 1.515 8.526a.5.5 0 0 1-.81.47l-3.58-2.687a1 1 0 0 0-1.197 0l-3.586 2.686a.5.5 0 0 1-.81-.469l1.514-8.526" />
       <circle cx="12" cy="8" r="6" />
+    </Icon>
+  );
+}
+
+/**
+ * lucide: play — el video de estrategia de un funnel (BP48).
+ *
+ * `fill="currentColor"` en el path y no en el `<Icon>`: el envoltorio fija
+ * `fill="none"` para todo el set, y un triángulo de play hueco se lee como una
+ * flecha y no como reproducir. Es la única excepción del archivo y va con su
+ * motivo escrito.
+ */
+export function PlayIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path
+        d="M6.5 4.6a.7.7 0 0 1 1.06-.6l10.2 6.6a.7.7 0 0 1 0 1.2L7.56 19.4a.7.7 0 0 1-1.06-.6Z"
+        fill="currentColor"
+      />
+    </Icon>
+  );
+}
+
+/** lucide: video-off — el funnel todavía no tiene video (BP48). */
+export function VideoOffIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M10.66 6H14a2 2 0 0 1 2 2v2.34l1 1L22 8v8" />
+      <path d="M16 16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h2l10 10Z" />
+      <path d="m2 2 20 20" />
     </Icon>
   );
 }

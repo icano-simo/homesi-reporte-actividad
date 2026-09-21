@@ -627,6 +627,41 @@ export default function OutlookPage() {
       </div>
 
       {/*
+        ══════════════════════════════════════════════════════════════════════
+        EL NPPM QUE NO TIENE DÓNDE APARECER — etapa OL44
+        ══════════════════════════════════════════════════════════════════════
+
+        Un NPPM contratado cuyo branch no está en esta lista no tiene pantalla,
+        y por lo tanto no tiene fila donde asignarle un dueño. Hoy es uno:
+        Robert Kravitz, del 709 -- un branch con una sola persona y cero
+        préstamos, que por eso no entra al módulo.
+
+        No es un branch que falte: es un branch que existe sólo en el roster. Y
+        la línea está para que eso se DIGA, en vez de que la persona
+        desaparezca sin explicación -- que es lo mismo que esta etapa vino a
+        arreglar para los otros cinco.
+      */}
+      {(() => {
+        const conPantalla = new Set(data.branches.map((b) => b.branchCode));
+        const huerfanos = data.nppmSinBranch.filter((x) => !conPantalla.has(x.branchCode ?? ''));
+        if (huerfanos.length === 0) return null;
+        return (
+          <p className="bp-hint ol-nppm-huerfano" data-ol-nppm-sin-pantalla="">
+            {huerfanos.length === 1 ? 'One contracted NPPM is' : `${huerfanos.length} contracted NPPMs are`} on a
+            branch with no view here:{' '}
+            {huerfanos.map((x, i) => (
+              <span key={x.realtorCode}>
+                {i > 0 ? ', ' : ''}
+                <strong>{x.displayName}</strong> ({x.branchCode ?? 'no branch'})
+              </span>
+            ))}
+            . That branch has no production this year, so it has no page — and without a page there is no row to
+            assign them a loan officer. Their budget cannot be set until the branch has something to show.
+          </p>
+        );
+      })()}
+
+      {/*
         ⚠ LA BARRA DE RECLUTAMIENTO SE FUE A LA BARRA DEL MODULO — etapa OL22.
         En OL21 subio del branch a esta vista; ahora sube un escalon mas, al
         layout, para que este tambien dentro de un branch. Y el boton dice el

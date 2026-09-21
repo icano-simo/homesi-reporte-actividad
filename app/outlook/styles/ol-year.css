@@ -133,6 +133,23 @@ table.piv.ol-year tr.grp.togg:hover td.ol-m {
   font-weight: 700;
 }
 
+/*
+ * ══════════════════════════════════════════════════════════════════════════
+ * LOS TOTALES DE SECCIÓN, EN NEGRITA — etapa OL47
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ * La fila de un grupo --«Loan Officers — existing», «NPPM — existing»-- lleva
+ * la SUMA de lo que esconde, y sus doce meses venían en 400. Medido: el nombre
+ * en 700 y los números en 400, así que la fila que resume se leía igual que una
+ * fila de dato y las secciones no se separaban.
+ *
+ * La regla de arriba ya ponía en negrita la columna del año de esos grupos; lo
+ * que faltaba eran los meses, que es donde se mira.
+ */
+.ol-page table.piv.ol-year tr.grp td.ol-m {
+  font-weight: 700;
+}
+
 /* La fila del total del branch: cierra el bloque, así que se separa. */
 .ol-page table.piv.ol-year tr.ol-total td {
   border-top: 2px solid var(--slate-300);
@@ -207,6 +224,20 @@ table.piv.ol-year thead .yr-row th.ol-band {
  * ⚠ Y va calificado con `.ol-page`, porque los CSS que importa un layout son
  * GLOBALES, no módulos: un `.ol-block__title` suelto pintaría cualquier cosa que
  * mañana use ese nombre en otro módulo.
+ *
+ * ⚠ NO BORRAR POR NO TENER USOS — etapa OL49. En ESTE árbol quedó sin
+ * consumidores: OL49 reemplazó los dos títulos de la página del branch por
+ * `.ol-card__title`, que vive dentro de la tarjeta. Contado en los otros dos
+ * árboles vivos el 2026-09-16, que es lo que decide:
+ *
+ *   main                          2 usos en `app/outlook/branch/[code]/page.tsx`
+ *   origin/feat/rv1-modo-revision 2 usos en el mismo archivo
+ *
+ * `main` los pierde cuando entre esta rama; la rama de revisión NO, porque
+ * lleva su propia copia de esa pantalla. Una clase es huérfana en un árbol y no
+ * en otro, y borrarla acá se la sacaría a la otra línea de trabajo sin que nada
+ * lo diga. Si algún día la rama de revisión también deja de usarla, la baja va
+ * en el mismo commit que borra al último consumidor.
  */
 .ol-page .ol-block__title {
   margin: 22px 0 8px;
@@ -399,6 +430,61 @@ table.piv.ol-year thead .yr-row th.ol-band {
 }
 
 /*
+ * ══════════════════════════════════════════════════════════════════════════
+ * EL TOTAL DE LA COMPOSICIÓN, CON SU PROPIO FONDO — etapa OL47
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ * Va ACÁ y no en `ol-scale.css`, y con `tr.metric` en el selector, porque la
+ * banda de presupuesto se pinta tres líneas más arriba con
+ * `tr.metric:nth-child(odd) td.ol-m--budget` -- seis clases-- y cualquier
+ * regla más corta pierde. Medido antes de moverla: los meses de octubre a
+ * diciembre seguían con el `0.16` de la banda mientras el resto de la fila ya
+ * tenía el `0.38`, o sea la fila pintada a medias.
+ *
+ * Es el mismo mecanismo que la separación de un centímetro que no se aplicaba:
+ * una regla escrita y no medida es una intención, no un estilo.
+ */
+.ol-page table.piv.ol-year tr.metric.ol-comp-total td,
+.ol-page table.piv.ol-year tr.metric.ol-comp-total td.ol-m--budget,
+.ol-page table.piv.ol-year tr.metric.ol-comp-total td.ol-m--forecast,
+.ol-page table.piv.ol-year tr.metric.ol-comp-total td.ol-m--actual {
+  background: color-mix(in srgb, var(--sky) 38%, transparent);
+  border-top: 2px solid var(--accent-border);
+  font-weight: 700;
+  color: var(--navy);
+}
+
+/*
+ * ══════════════════════════════════════════════════════════════════════════
+ * `raised by NPPM`: LA ETIQUETA QUE DICE QUE EL NÚMERO NO ES SUYO — OL48
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ * `.ol-tag` es TENUE a propósito --gris, peso 400-- porque las otras etiquetas
+ * de esa celda son descripciones de la persona: el cargo, su estado en el
+ * roster. Ésta no describe a la persona: describe de dónde salió su número, y
+ * es lo único que impide leer ese 2 como un presupuesto que Silvio Arteaga
+ * decidió. Con el tono de `.ol-tag` queda al lado de `Production Manager`
+ * pesando lo mismo que un cargo -- medido en la captura, no deducido.
+ *
+ * Así que se destaca, y lo menos posible: el tinte de la banda de presupuesto
+ * --el mismo `--sky` que ya dice «esto es presupuesto» en las tres columnas de
+ * la derecha-- y el texto en `--navy` como el resto de los números que suman.
+ * Sin rojo: no es un aviso ni un error. Es una atribución.
+ *
+ * ⚠ Y VA ACÁ, con cuatro clases y un descendiente, por lo mismo que el total de
+ * OL47: `.ol-tag` vive en `ol-scale.css` y una regla más corta escrita en otro
+ * archivo es una intención, no un estilo. Medido con `getComputedStyle` sobre
+ * la etiqueta de verdad, en la fila de verdad.
+ */
+.ol-page table.piv.ol-year td.lbl .ol-tag--nppm {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--sky) 38%, transparent);
+  color: var(--navy);
+  font-weight: 700;
+}
+
+/*
  * LA PÍLDORA DE LA REGLA. La columna decía `25% quarterly from Sep · 1st raise
  * in Dec` en cada fila; con diez filas era una pared de texto. La píldora dice
  * cuánto y cada cuánto, que es lo que se compara de un vistazo, y el resto vive
@@ -478,6 +564,23 @@ table.piv.ol-year thead .yr-row th.ol-band {
 .ol-page table.piv.ol-year th.ol-bench,
 .ol-page table.piv.ol-year td.ol-bench {
   width: 118px;
+}
+
+/*
+ * ⚠ LA COLUMNA DE POSICIÓN SE FUE -- OL26b. Ocupaba una columna entera para
+ * mostrar el cargo, y eso fue lo que rompió el ancho fijo de la página (con
+ * ella la tabla necesitaba scroll horizontal, cosa que no pasaba antes de
+ * OL26). El cargo ahora va como una etiqueta más al lado del nombre -- ver
+ * `pr.lo.position` en la fila de Loan Officer.
+ */
+
+/*
+ * Dos píldoras en la misma celda -- hoy sólo pasa en NPPM (la fuente del
+ * benchmark, y "Set budget" al lado). Antes también pasaba con Own Production
+ * + Recruitment, que se unificaron en un solo botón en la misma etapa.
+ */
+.ol-page table.piv.ol-year td.ol-rulecol .ol-pill + .ol-pill {
+  margin-left: 6px;
 }
 
 /* El título del bloque y el selector de horizonte, en la misma línea. */
@@ -912,4 +1015,182 @@ table.piv.ol-year thead .yr-row th.ol-band {
   border-bottom: 3px solid var(--canvas);
   padding-top: 7px;
   padding-bottom: 7px;
+}
+
+/*
+ * ════════════════════════════════════════════════════════════════════════════
+ * DOS TARJETAS Y UNA SOLA GRILLA — etapa OL49
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * `Budget` y `Budget composition` pasan a ser dos tarjetas blancas separadas.
+ * La parte delicada no es el borde: es que octubre siga cayendo debajo de
+ * octubre con las dos tablas separadas. Eso lo resuelve `OlColgroup` --el mismo
+ * `<colgroup>` en píxeles para las dos-- más el `table-layout: fixed` de abajo.
+ * El porqué de cada número está en ese archivo.
+ *
+ * ⚠ Y NINGUNA DE ESTAS REGLAS LLEVA `overflow`. `.ol-page .tbl-scroll` tiene
+ * `overflow: visible` desde OL24 a propósito, para que el total anclado se
+ * pinee al viewport en vez de a un scrollport propio y no haya dos barras de
+ * scroll. Un `overflow: hidden` acá --el reflejo para que el borde redondeado
+ * recorte la tabla-- crea un scrollport y rompe dos cosas de una: el anclaje
+ * del total y la columna del nombre, que es `position: sticky; left: 0`.
+ * Ninguna de las dos se ve mirando la tarjeta.
+ */
+.ol-page .ol-card {
+  /*
+   * ⚠ `max-content` Y NO `100%`: la tarjeta mide lo que mide su tabla, y su
+   * tabla mide exactamente la suma de la grilla. Con `100%` la tarjeta
+   * dependería del ancho de la página y las dos podrían diferir si alguna vez
+   * viven en contenedores distintos; así, que las dos tarjetas salgan del mismo
+   * ancho ES la señal a simple vista de que las dos grillas coinciden.
+   */
+  width: max-content;
+  background: var(--white);
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px 20px;
+  box-shadow: var(--shadow-sm);
+}
+
+/* El margen generoso entre las dos, que es lo que las hace leer como dos
+   secciones y no como una tabla partida. */
+.ol-page .ol-card + .ol-card {
+  margin-top: 40px;
+}
+
+/*
+ * El encabezado de cada tarjeta: barra de acento, mayúsculas con
+ * `letter-spacing`, y una línea tenue que lo separa del contenido.
+ *
+ * ⚠ La barra va con `::before` y no con un `border-left` en el `<h2>`, porque
+ * un borde ocupa el alto completo del texto y lo que se pidió es un rectángulo
+ * CHICO y redondeado. Con `::before` se le puede dar alto propio.
+ */
+.ol-page .ol-card__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--slate-200);
+}
+.ol-page .ol-card__title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: var(--ol-text);
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--navy);
+}
+.ol-page .ol-card__title::before {
+  content: '';
+  display: block;
+  width: 4px;
+  height: 15px;
+  border-radius: var(--radius-full);
+  background: var(--navy);
+}
+/* La insignia de la composición: dice qué se está mirando sin competir. */
+.ol-page .ol-card__badge {
+  font-size: var(--ol-text);
+  font-weight: 400;
+  color: var(--slate-400);
+}
+
+/*
+ * ⚠ `table-layout: fixed` REABRE, ACOTADO, LA DECISIÓN DEL ENCABEZADO DE ESTE
+ * ARCHIVO. Arriba está escrito por qué la tabla usa `auto`: con `fixed` y
+ * `width: 100%` cada columna quedaba en ~6% y los números se recortaban sin que
+ * nada avisara --el modo de fallar de BP36--. Eso sigue siendo cierto para una
+ * tabla SIN `colgroup`, que es de lo que hablaba esa nota.
+ *
+ * Lo que cambia acá no es la opinión sino el dato: `OlColgroup` declara cada
+ * columna en píxeles medidos sobre el contenido de los 18 branches, y la tabla
+ * va a `width: auto`, que con `fixed` es la SUMA de esas columnas. Así no hay
+ * reparto proporcional que dependa del contenedor: la grilla es la misma en las
+ * dos tablas y en cualquier viewport. Cuando no entra, se corre la página, que
+ * es lo que ya pasaba.
+ */
+.ol-page table.piv.ol-year.ol-grid {
+  table-layout: fixed;
+  /* ⚠ EL `width` LO PONE EL JSX, con `anchoDeLaGrilla`. Acá sólo se anula el
+     `min-width: 100%` de la regla base: con él, una tabla más angosta que la
+     página se estiraría, `fixed` repartiría la diferencia entre las columnas, y
+     las dos tablas volverían a desalinearse -- por una causa nueva y con el
+     mismo síntoma. */
+  min-width: 0;
+}
+
+/*
+ * ⚠ LOS RÓTULOS DE BANDA ENVUELVEN EN VEZ DE RECORTARSE. `table.piv th` trae
+ * `white-space: nowrap; overflow: hidden; text-overflow: ellipsis`, puesto ahí
+ * explícitamente «con table-layout: fixed»; con el layout automático de antes
+ * nunca se disparaba porque la columna crecía hasta el texto. Con la grilla
+ * fija sí, y la pantalla decía `FORECAST (...`.
+ *
+ * La salida no es ensanchar doce columnas de números hasta que entre un rótulo
+ * --sería dejar que la decoración mande sobre el dato-- sino dejar que el
+ * rótulo use dos líneas. Sólo en la fila de bandas: la de meses son tres letras
+ * y tiene que quedarse en una línea.
+ */
+.ol-page table.piv.ol-year.ol-grid thead .yr-row th.ol-band {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1.25;
+}
+
+/*
+ * ⚠ Y LOS NÚMEROS EN `tabular-nums`. Con una grilla fija, una cifra más angosta
+ * que otra ya no se compensa con el ancho de la columna: `1` y `7` ocupan
+ * distinto en la fuente por defecto, y doce celdas en fila se ven desparejas.
+ */
+.ol-page table.piv.ol-year.ol-grid td.ol-m,
+.ol-page table.piv.ol-year.ol-grid td.totcol,
+.ol-page table.piv.ol-year.ol-grid td.ol-bench {
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * ════════════════════════════════════════════════════════════════════════════
+ * EL TOTAL DEL BRANCH COMO BANNER, NO COMO UNA FILA MÁS — etapa OL49
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * Tenía `background: var(--slate-50)` y un borde arriba: la misma familia que
+ * una fila de dato. Ahora se separa del cuerpo con fondo contrastante y bordes
+ * marcados arriba y abajo, y sus números pesan más que los de las filas.
+ *
+ * ⚠ VA DESPUÉS de `tr.ol-total td` --que está 800 líneas más arriba y pinta
+ * `--slate-50`-- y con una clase más en el selector. Una regla con la misma
+ * especificidad escrita antes pierde, y una escrita en otro archivo con menos
+ * clases es una intención, no un estilo: es exactamente lo que volvió tres
+ * veces en OL47.
+ *
+ * ⚠ Y NO SE LE PONE `--navy` DE FONDO, que es el reflejo para «contrastante»:
+ * la banda de presupuesto tiñe las celdas de octubre a diciembre con
+ * `tr.metric:nth-child(odd) td.ol-m--budget` --seis clases-- y le ganaría a un
+ * fondo de fila, dejando el banner pintado a medias. Eso ya pasó, medido, con
+ * el total de la composición en OL47. Por eso el banner se construye con un
+ * tinte de `--sky` declarado en las MISMAS celdas que la banda.
+ */
+.ol-page table.piv.ol-year.ol-grid tr.metric.ol-total td,
+.ol-page table.piv.ol-year.ol-grid tr.metric.ol-total td.ol-m--budget,
+.ol-page table.piv.ol-year.ol-grid tr.metric.ol-total td.ol-m--forecast,
+.ol-page table.piv.ol-year.ol-grid tr.metric.ol-total td.ol-m--actual {
+  background: color-mix(in srgb, var(--sky) 46%, transparent);
+  border-top: 2px solid var(--navy);
+  border-bottom: 2px solid var(--navy);
+  color: var(--navy);
+  font-weight: 700;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+/* Los doce meses y el acumulado del año: peso extra y cifras de ancho fijo. */
+.ol-page table.piv.ol-year.ol-grid tr.metric.ol-total td.ol-m,
+.ol-page table.piv.ol-year.ol-grid tr.metric.ol-total td.totcol {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
 }

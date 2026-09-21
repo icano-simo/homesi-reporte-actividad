@@ -17,9 +17,11 @@ import {
   modalKindOfMetric,
 } from '../../components/performance';
 import NotesPanel from '../../components/NotesPanel';
+import LoProfile from '../../components/LoProfile';
+import ReviewIntake from '@/components/review/ReviewIntake';
+import { useReview } from '@/components/review/ReviewProvider';
 import { FunnelGlyph } from '../../components/funnelIcons';
 import {
-  CalcNote,
   ErrorState,
   LoadingState,
   NotFoundState,
@@ -46,6 +48,13 @@ import {
 
 
 export default function LoanOfficerDetailPage({ params }: { params: Promise<{ employeeKey: string }> }) {
+  /*
+   * `habilitado` del proveedor de la revisión: es el mismo corte que evita que
+   * las 97 personas que no son del BP Team consulten `review` en cada perfil
+   * que abren. Y si no hay proveedor --no debería pasar, vive en el layout
+   * raíz-- devuelve `false`, que es el lado seguro.
+   */
+  const { habilitado: puedeVerRevisiones } = useReview();
   const { employeeKey: rawKey } = use(params);
   /*
    * `org.dim_employee.employee_key` es `bigint` (etapa BP6). En JavaScript no
@@ -124,6 +133,50 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
             {/* El veredicto es lo primero que hay que leer, no una pill al margen. */}
             <VerdictPanel verdict={lo.verdict} />
           </div>
+
+          {/*
+            ═══════════════════════════════════════════════════════════════
+            EL PERFIL EDITABLE — etapa BP50
+            ═══════════════════════════════════════════════════════════════
+
+            DEBAJO DEL NOMBRE y antes del intake: lo que hace que esta pantalla
+            se lea como un CV de la persona --dónde opera, licencias, NMLS,
+            fuente de leads, jornada, fecha de ingreso, intereses-- y no sólo
+            como un tablero de números.
+
+            ⚠ `nmlsDeLaBase` viaja desde `dim_employee` y NO se copia en la
+            tabla del perfil: el perfil guarda un override y hereda éste cuando
+            está en null. Ver `lib/business-plan/perfil.ts`.
+
+            ⚠ Y NO LLEVA UN `habilitado` COMO EL INTAKE, a propósito: el del
+            intake sale del proveedor de la revisión, o sea del claim `review`,
+            y este perfil no depende de eso -- vive en `org.lo_profile`, con el
+            claim del módulo. El corte ya lo hace esta pantalla, que no se
+            alcanza sin ese claim; pasarle una bandera que siempre es verdadera
+            sería una condición que nadie puede ejercer.
+          */}
+          <LoProfile employeeKey={lo.employeeKey} fullName={lo.fullName} nmlsDeLaBase={lo.nmls} />
+
+          {/*
+            ═══════════════════════════════════════════════════════════════
+            EL INTAKE DE LAS REVISIONES — etapa RV1
+            ═══════════════════════════════════════════════════════════════
+
+            DEBAJO DEL NOMBRE, como pide el punto 5 del brief: lo que se dijo en
+            las revisiones de esta persona, por fase, con su fecha.
+
+            ⚠ Y NO SE DIBUJA NADA si no hay revisiones. Un encabezado
+            `Coach intake` vacío en el perfil de las 30 personas sin revisar es
+            ruido en 30 pantallas.
+
+            El componente decide los tres vacíos --sin revisiones, sin permiso,
+            sin comentarios-- porque son la misma forma con respuestas distintas.
+          */}
+          <ReviewIntake
+            loEmployeeKey={lo.employeeKey}
+            loName={lo.fullName}
+            habilitado={puedeVerRevisiones}
+          />
 
           {/*
             Si ya tiene plan, se dice ARRIBA y visible. Sin esto el perfil se veía
@@ -231,9 +284,26 @@ export default function LoanOfficerDetailPage({ params }: { params: Promise<{ em
             placeholder="What was discussed with this loan officer, what was agreed…"
           />
 
-          {/* Etapa BP16: el diagnóstico se mudó a Settings. Acá queda sólo la
-              nota de cálculo, que explica los números de ESTA pantalla. */}
-          <CalcNote data={data} />
+          {/*
+            ══════════════════════════════════════════════════════════════════
+            ⚠ ACÁ IBA `CalcNote`, Y SE FUE — etapa BP50
+            ══════════════════════════════════════════════════════════════════
+
+            Tres párrafos al pie: la definición del GAP, el
+            `ceil(benchmark ÷ conversion rate)` y las tasas de pull-through.
+            Mismo criterio que RP4: si algo necesita tres renglones para
+            explicarse, no va en la vista -- va en un tooltip o en la
+            documentación. Esta pantalla pasa a leerse como un CV de la persona,
+            y una nota de cálculo compite con eso.
+
+            ⚠ EL COMPONENTE NO SE BORRA, y no es olvido: `CalcNote` sigue vivo
+            en las otras TRES pantallas del módulo --portfolio, branch y
+            group-- y `.bp-calc-note` lo usa además Settings. Borrarlo acá y
+            dejarlo allá es deliberado; si el criterio vale para las tres, es
+            otra etapa y se saca de las tres juntas.
+
+            Las tasas siguen visibles donde se editan, que es Settings.
+          */}
 
           {/* ── Modales: detalle complementario, nunca navegación ─────────── */}
           {openModal !== null && (

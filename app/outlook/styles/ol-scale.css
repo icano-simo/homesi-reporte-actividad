@@ -134,6 +134,102 @@ table.piv.ol-year tr.metric.drow td.lbl,
   white-space: nowrap;
 }
 
+/*
+ * El selector de dueño de un NPPM — etapa OL44. Va dentro de una `.ol-tag`, así
+ * que hereda su tamaño y su tono: es parte del rótulo de la fila y no un
+ * control que compita con los números.
+ *
+ * ⚠ SIN `white-space: nowrap` PROPIO: lo hereda de `.ol-tag`, y un `<select>`
+ * con nombres de largo variable adentro de una celda angosta es exactamente el
+ * caso que ya desbordó la página --ver la nota del `nowrap` en AGENTS.md--. Por
+ * eso lleva `max-width` y recorta con puntos suspensivos en vez de empujar.
+ */
+.ol-owner-picker {
+  max-width: 160px;
+  padding: 1px 4px;
+  font-size: var(--ol-text);
+  color: var(--slate-500);
+  text-overflow: ellipsis;
+}
+
+/* La línea del NPPM sin pantalla, debajo de la lista — etapa OL44. Hereda de
+   `.bp-hint`; lo único propio es separarla de la tabla. */
+.ol-nppm-huerfano {
+  margin-top: 12px;
+}
+
+/*
+ * ══════════════════════════════════════════════════════════════════════════
+ * LA SEPARACIÓN DE LA COMPOSICIÓN — OL46, OL47 y su baja en OL49
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ * ⚠ ESTAS REGLAS SE FUERON, Y EL PEDIDO QUE CUMPLÍAN NO. Acá vivían
+ * `.ol-comp-head` y `.ol-comp-title`: la composición era un `<tbody>` de la
+ * misma tabla --OL45, para que octubre cayera debajo de octubre-- así que su
+ * separación tenía que ser aire y una línea dentro de la grilla, no un
+ * contenedor. OL49 le dio tarjeta propia y los dos elementos dejaron de
+ * existir, así que las reglas quedaron sin consumidor.
+ *
+ * El pedido que cumplían --un centímetro literal entre las dos secciones, que
+ * volvió dos veces porque escribí «34px de padding» sin medirlo cuando la
+ * separación computada era 11px-- lo cumple ahora `.ol-card + .ol-card {
+ * margin-top: 40px }` en `ol-year.css`. Un centímetro es 37.8px a 96dpi, y esos
+ * 40 se miden en la pantalla, no se deducen de la declaración.
+ *
+ * Queda escrito en vez de borrado en silencio porque una clase sin consumidor
+ * y un pedido sin cumplir se ven igual en un `git grep`.
+ */
+
+/*
+ * El total de la composición es el presupuesto del branch por otra vía, así
+ * que se marca como lo que es: la fila que cierra la cuenta.
+ *
+ * ⚠ CON TOKENS QUE EXISTEN, y sin respaldo. `var(--sky-50, #eff6ff)` habría
+ * funcionado igual --con el color del fallback-- y ese token no existe en
+ * `tokens.css`: es exactamente el caso de `--white` que este repo ya pagó. El
+ * tinte sale de `--sky`, el mismo de la banda de presupuesto, con más carga
+ * para que la fila se note sin cambiar de familia.
+ */
+/* El fondo del total de la composición vive en `ol-year.css`, al lado de la
+   banda de presupuesto que le ganaba en especificidad — ver la nota de ahí. */
+
+/* La línea que explica el descuadre — etapa OL47. Ocupa el ancho entero porque
+   es una frase, no una fila de datos: tono de nota y sin tinte de banda. */
+.ol-page table.piv.ol-year tr.ol-comp-nota td {
+  padding-top: 4px;
+  padding-bottom: 14px;
+  font-size: var(--ol-text);
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--slate-500);
+  background: transparent;
+  white-space: normal;
+}
+
+/*
+ * ══════════════════════════════════════════════════════════════════════════
+ * QUIÉN SUMA Y QUIÉN NO, POR LA FORMA — etapa OL34
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ * Acá había dos renglones de texto explicándolo --«detail · does not add to the
+ * total» y «3-month average, not a target»-- y la jerarquía la tiene que dar la
+ * forma, no una explicación. Mismo criterio con el que salieron el párrafo del
+ * 3.1 y el aviso de la barra de revisión.
+ *
+ * ⚠ Y NO ES SÓLO COLOR. La sangría de la fila hace el trabajo estructural y lo
+ * hace sin depender de ver el color: un daltónico, una impresión en blanco y
+ * negro o una pantalla mal calibrada la dejan en pie. La negrita y el tono
+ * refuerzan; no cargan solos con la distinción.
+ */
+.ol-year tr.ol-sums td.lbl {
+  font-weight: 700;
+}
+.ol-year tr.ol-detail td,
+.ol-year tr.ol-detail td.lbl {
+  color: var(--slate-400);
+  font-weight: 400;
+}
+
 /* Los márgenes que estaban en línea en el TSX. */
 .ol-page .foot-note,
 .ol-page .ol-notice {
@@ -144,4 +240,134 @@ table.piv.ol-year tr.metric.drow td.lbl,
 }
 .ol-page .bp-notice--warn {
   margin-bottom: 16px;
+}
+
+/*
+ * ════════════════════════════════════════════════════════════════════════════
+ * EL HISTORIAL DE REVISIONES — etapa OL50
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * ⚠ SIN `.ol-page` EN EL SELECTOR, a diferencia del resto de este archivo. El
+ * historial vive dentro de `.bp-modal`, que `Modal.tsx` monta en el árbol del
+ * componente pero cuyo respaldo --`.bp-modal-backdrop`-- es un hijo directo
+ * del body en la práctica visual: calificar con `.ol-page` funcionaría hoy
+ * --el modal se renderiza adentro-- y dejaría de funcionar el día que alguien
+ * lo mueva a un portal, sin que nada lo diga. Los nombres llevan el prefijo
+ * `ol-hist`, que no colisiona con nada: comprobado con `git grep` antes de
+ * escribir una línea, que es lo que evitó el choque de `.bp-profile` en BP50.
+ */
+.ol-hist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/*
+ * Cada revisión, con un filete a la izquierda que dice de qué clase es. Las
+ * tres clases tienen que distinguirse ANTES de leer el texto: si hay que leer
+ * para saber que fueron cuatro confirmaciones seguidas, la lista sigue
+ * pareciendo cuatro cambios.
+ */
+.ol-hist__item {
+  padding: 10px 0 10px 14px;
+  border-left: 3px solid var(--slate-200);
+}
+/* Los nombres son los que devuelve `claseDe()` en `BudgetHistory.tsx`: si acá
+   dijeran otra cosa, el filete sería el del `border-left` genérico y nadie lo
+   notaría -- una clase sin regla hereda y no rompe nada. */
+.ol-hist__item--number {
+  border-left-color: var(--navy);
+}
+.ol-hist__item--release {
+  border-left-color: var(--sky);
+}
+/* Una confirmación no decidió nada, y su filete lo dice siendo el más tenue. */
+.ol-hist__item--confirmation {
+  border-left-color: var(--slate-200);
+}
+/* El desglose es otra tabla, no otra clase de decisión. */
+.ol-hist__item--breakdown {
+  border-left-color: var(--slate-400);
+}
+
+.ol-hist__head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+.ol-hist__what {
+  font-weight: 700;
+  color: var(--navy);
+  font-size: var(--ol-text);
+}
+.ol-hist__meta {
+  font-size: var(--ol-text);
+}
+.ol-hist__nada {
+  margin: 4px 0 0;
+  font-size: var(--ol-text);
+  color: var(--slate-500);
+}
+.ol-hist__nota {
+  margin: 6px 0 0;
+  font-size: var(--ol-text);
+  color: var(--slate-600);
+  font-style: italic;
+}
+
+.ol-hist__tbl {
+  margin: 6px 0 0;
+  border-collapse: collapse;
+  font-size: var(--ol-text);
+}
+.ol-hist__tbl td {
+  padding: 2px 14px 2px 0;
+  vertical-align: baseline;
+}
+.ol-hist__mes {
+  color: var(--slate-500);
+  white-space: nowrap;
+}
+/*
+ * ⚠ `tabular-nums` acá también: una columna de valores mes a mes con cifras de
+ * distinto ancho se lee torcida, y es el mismo motivo por el que la tabla del
+ * branch las lleva desde OL49.
+ */
+.ol-hist__val {
+  font-weight: 700;
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  min-width: 34px;
+}
+.ol-hist__delta {
+  font-size: var(--ol-text);
+  white-space: nowrap;
+}
+/* «by growth rule» no es un número y no tiene que parecerlo. */
+.ol-hist__regla {
+  font-weight: 400;
+  color: var(--slate-500);
+  font-style: italic;
+}
+
+.ol-hist__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  font-size: var(--ol-text);
+}
+
+/* La línea que queda en el editor, con el botón al final. */
+.ol-editor__hist {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
 }
