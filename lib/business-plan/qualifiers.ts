@@ -368,7 +368,7 @@ export function evaluateQualifier1(
    */
   budget: number | null = null,
   /** De dónde salió `budget` -- ver el JSDoc de `Qualifier1.budgetSource`. */
-  budgetSource: 'fixed' | 'rule' | null = null
+  budgetSource: 'fixed' | 'rule' | 'nppm' | null = null
 ): Qualifier1 {
   /*
    * `windowMonths` son los dos meses cerrados anteriores más el actual. El

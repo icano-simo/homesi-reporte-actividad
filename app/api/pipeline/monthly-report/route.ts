@@ -679,9 +679,19 @@ function buildSummary(
        * propósito. `PT weight` se deja en el detalle: sigue explicando de dónde
        * saldría la cascada si alguien quiere compararla.
        */
-      if (r.kind !== 'officer' && channelAt === BANKED_AT) {
-        row.getCell(at(channelAt, 3)).value =
-          r.kind === 'division' ? FORECAST_DIVISION : (FORECAST_AT_CUTOFF[r.branch] ?? 0);
+      if (r.kind !== 'officer') {
+        if (channelAt === BANKED_AT) {
+          row.getCell(at(channelAt, 3)).value =
+            r.kind === 'division' ? FORECAST_DIVISION : (FORECAST_AT_CUTOFF[r.branch] ?? 0);
+        } else {
+          /*
+           * Brokered nunca tuvo tabla manual (Etapa RPT4 solo contempló Banked).
+           * Usamos el mismo forecast que ya calcula el dashboard --
+           * forecastAtCutoff ya viaja en `cells` (buildBranchForecastRows/
+           * pullThroughWeight, lib/pipeline/monthlyReport.ts), nadie lo leía acá.
+           */
+          row.getCell(at(channelAt, 3)).value = cells.forecastAtCutoff ?? 0;
+        }
       }
 
       put(4, `${base},${rng(COL.endOfMonth)},"Closed",${rng(COL.lien)},1)`, cells.closedFirstLien);
@@ -697,8 +707,13 @@ function buildSummary(
        * persona la celda queda vacía --no 0%--: no se puede comparar contra un
        * número que a ese nivel no existe.
        */
-      if (r.kind !== 'officer' && channelAt === BANKED_AT) {
-        const fc = r.kind === 'division' ? FORECAST_DIVISION : (FORECAST_AT_CUTOFF[r.branch] ?? 0);
+      if (r.kind !== 'officer') {
+        const fc =
+          channelAt === BANKED_AT
+            ? r.kind === 'division'
+              ? FORECAST_DIVISION
+              : (FORECAST_AT_CUTOFF[r.branch] ?? 0)
+            : (cells.forecastAtCutoff ?? 0);
         const pct = row.getCell(at(channelAt, 9));
         pct.value = {
           formula: `IF(${L(3)}${n}=0,"",${L(8)}${n}/${L(3)}${n})`,

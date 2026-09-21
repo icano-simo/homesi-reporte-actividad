@@ -12,6 +12,7 @@ import {
   type YearRow,
 } from '@/lib/outlook/loadData';
 import { projectPlan, type OutlookStrategy } from '@/lib/outlook/project';
+import { pisoDeRealtors, presupuestoDePersona } from '@/lib/outlook/gobierno';
 
 /**
  * ============================================================================
@@ -160,9 +161,27 @@ export function branchHasBudget(bs: BranchStrategy): boolean {
  * ni corregir.
  */
 export function tieneAlgo(branch: OutlookBranch, bs: BranchStrategy, currentMonth: string): boolean {
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * ⚠ `currentMonthRaw` YA NO ALCANZA PARA EXISTIR — etapa OL36
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * Ese número es la parte del pipeline de LAS PERSONAS del branch que cae en
+   * esta estrategia, y desde OL35 el mes en curso se atribuye por el BRANCH DEL
+   * PRÉSTAMO: los préstamos de Affinity que tiene Nathan Martinez son del branch
+   * AFFINITY aunque Nathan sea del 716.
+   *
+   * Sin sacarlo, el 716 seguía dibujando una fila de Affinity --con su 4 de
+   * septiembre-- por producción que ya no le pertenece. Medido: el 716 no tiene
+   * un solo cierre de Affinity en el año; los 32 están en el branch Affinity.
+   *
+   * ⚠ Y NO ES «QUE SUME CERO»: la fila NO EXISTE. Una fila en cero afirma que
+   * esa estrategia está en el branch y no produjo; acá la estrategia no es de
+   * este branch. Es la misma distinción que `fmt` sostiene entre `0` y vacío,
+   * un nivel más arriba.
+   */
   return (
     bs.ytd > 0 ||
-    bs.currentMonthRaw > 0 ||
     (bs.actualByMonth[currentMonth] ?? 0) > 0 ||
     bs.benchmarkSchedule.length > 0 ||
     bs.targetRevision > 0 ||
@@ -233,9 +252,29 @@ export function exactoDe(
       targets: bs.targets,
     });
     remainingMonths.forEach((m, i) => (out[m] = steps[i]?.value ?? 0));
-  } else if (bs.opensBy === 'realtor' && bs.realtors.length > 0) {
-    const suma = bs.realtors.reduce((a, r) => a + r.benchmark, 0);
-    remainingMonths.forEach((m) => (out[m] = suma));
+  } else if (bs.opensBy === 'realtor') {
+    /*
+     * ══════════════════════════════════════════════════════════════════════
+     * ⚠ NPPM PESA CERO EN EL REPARTO — etapa OL33
+     * ══════════════════════════════════════════════════════════════════════
+     *
+     * Acá iba `Σ benchmark de los realtors`, y este número se usa como PESO
+     * para repartir el presupuesto del branch entre sus estrategias. Desde
+     * OL33 NPPM no suma al total del branch --sus filas son desagregación de
+     * cierres que ya cuentan en la fila del Loan Officer que los cerró-- así
+     * que darle peso le asignaba una parte de un total que ya no la incluye:
+     * el reparto quedaba corto y la diferencia reaparecía en la
+     * reconciliación.
+     *
+     * Medido antes de corregirlo: +1 por mes en el 724 y +2 en el 776, con el
+     * total del branch ya bajado. El residuo volvía justo por donde se había
+     * ido.
+     *
+     * Las filas de los realtors siguen mostrando su propia proyección --ver
+     * `nppmRealtorBudget`--; lo que no tienen es una parte del presupuesto del
+     * branch, porque ese presupuesto es de sus Loan Officers.
+     */
+    remainingMonths.forEach((m) => (out[m] = 0));
   }
 
   /*
@@ -310,6 +349,13 @@ export interface PersonBudgetRow {
   lo: OutlookLoanOfficer;
   /** `true` si esta persona participa de Recruitment (ver `participa`). */
   participatesInRecruitment: boolean;
+  /**
+   * Los meses en que su total NO es el que ella decidió sino el piso que le
+   * imponen sus realtors NPPM — etapa OL48. Vacío es el caso normal, y la fila
+   * lo rotula `raised by NPPM` cuando no lo es: quien lo lea tiene que saber que
+   * ese número no salió de una decisión suya.
+   */
+  subioPorNppm: string[];
   /** Own Production + Recruitment combinados: real, mes en curso, presupuesto futuro. */
   year: YearRow;
 }
@@ -433,9 +479,32 @@ export function loanOfficerRowsOf(
   const recBudgetsPersonas = enterosRec.slice(0, recPersonas.length);
   const recBudgetsReclutas = enterosRec.slice(recPersonas.length);
 
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * EL MES EN CURSO SE REPARTE SÓLO LA PARTE PROPIA — etapa OL35
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * Antes se repartía el entero ENTERO del branch entre sus personas, así que
+   * las filas de persona se llevaban también lo que había cerrado o tenía
+   * abierto gente de otro branch. Ahora el branch trae el número partido en
+   * dos --`currentMonthOwn` y el resto-- y acá se reparte sólo el primero.
+   *
+   * ⚠ LOS DOS ENTEROS SALEN DE UN MISMO `apportionByWeight`, no de dos
+   * redondeos sueltos: así la parte propia y la de afuera suman EXACTAMENTE el
+   * entero del branch, que es lo que hace que la fila de reconciliación --que
+   * es la resta-- dé justo lo de afuera y no un resto de redondeo.
+   *
+   * ⚠ Y EL PESO ES `currentMonthHere`, no `currentMonth`: el segundo es la
+   * proyección de la PERSONA en todos sus branches. Con ése, quien produce en
+   * varios se llevaba de más en el suyo. Nathan Martinez cerró en seis.
+   */
+  const [propioEntero] = apportionByWeight(branchCurrent, [
+    branch.currentMonthOwn,
+    Math.max(0, branch.currentMonth - branch.currentMonthOwn),
+  ]);
   const partesCurrent = apportionByWeight(
-    branchCurrent,
-    los.map((lo) => lo.currentMonth)
+    propioEntero,
+    los.map((lo) => lo.currentMonthHere)
   );
 
   const personRows: PersonBudgetRow[] = los.map((lo, idx) => {
@@ -471,6 +540,46 @@ export function loanOfficerRowsOf(
      */
     const b2bYtd = lo.strategies.find((s) => s.strategy === 'B2B');
     const affinityYtd = lo.strategies.find((s) => s.strategy === 'Affinity');
+    /*
+     * ══════════════════════════════════════════════════════════════════════
+     * ⚠ Y NPPM TAMBIÉN — LAS CINCO, NO CUATRO. Etapa OL33
+     * ══════════════════════════════════════════════════════════════════════
+     *
+     * La regla quedó en una línea: **sólo el Loan Officer cierra**. Todo cierre
+     * suma en su fila y en ninguna otra; el realtor de NPPM muestra el MISMO
+     * cierre como desagregación --quién lo trajo-- y no suma al total.
+     *
+     * Hasta acá era al revés para NPPM: el cierre no estaba en la fila de quien
+     * lo cerró y sí en la del realtor, que además sumaba. De ahí salían dos
+     * problemas que se venían atacando por separado -- el mes en curso
+     * mezclando pronóstico con cerrado (OL32) y la reconciliación teniendo que
+     * descontar la diferencia (OL31).
+     *
+     * El doble conteo que la nota de arriba temía --«una vez por realtor, otra
+     * por quien lo cerró»-- no puede pasar ahora: la fila del realtor salió de
+     * la suma. Ver `allShownYears` en la pantalla del branch.
+     *
+     * ══════════════════════════════════════════════════════════════════════
+     * ⚠ Y AFFINITY NO SIGUE ESTA REGLA, A PROPÓSITO — decisión de OL35
+     * ══════════════════════════════════════════════════════════════════════
+     *
+     * Parecen el mismo caso y no lo son. Los dos muestran producción que cerró
+     * un Loan Officer, pero:
+     *
+     *   NPPM      es una FUENTE DE LEADS. El realtor trae el negocio y el
+     *             préstamo es del Loan Officer que lo cerró: su fila lo cuenta
+     *             y la del realtor lo muestra sin sumar.
+     *   Affinity  es un CANAL CON P&L PROPIO. Sus cierres son suyos, sin
+     *             importar qué Loan Officer los procesó -- igual que los cuenta
+     *             Forecast & Pipeline, que atribuye por el branch del préstamo.
+     *
+     * Por eso Affinity SÍ suma y NPPM no. Queda escrito acá, al lado de la
+     * línea que los distingue, porque el día que alguien «unifique el criterio»
+     * va a estar mirando este código y no un documento: los dos criterios
+     * conviven porque las dos cosas son distintas, no porque falte terminar
+     * algo.
+     */
+    const nppmYtd = lo.strategies.find((s) => s.strategy === 'NPPM');
 
     const actualByMonth: Record<string, number> = {};
     for (const m of monthsOfYear) {
@@ -478,9 +587,12 @@ export function loanOfficerRowsOf(
         (ownYtd?.actualByMonth[m] ?? 0) +
         (recYtd?.actualByMonth[m] ?? 0) +
         (b2bYtd?.actualByMonth[m] ?? 0) +
-        (affinityYtd?.actualByMonth[m] ?? 0);
+        (affinityYtd?.actualByMonth[m] ?? 0) +
+        (nppmYtd?.actualByMonth[m] ?? 0);
     }
     const projected: Record<string, number | null> = {};
+    /* Los meses que su piso de realtors levantó — etapa OL48. */
+    const subioPorNppm: string[] = [];
     for (const m of remainingMonths) {
       const own = ownIdx >= 0 ? (ownBudgets[ownIdx]?.[m] ?? 0) : 0;
       const rec = recIdx >= 0 ? (recBudgetsPersonas[recIdx]?.[m] ?? 0) : 0;
@@ -498,12 +610,29 @@ export function loanOfficerRowsOf(
        * para que el total del branch (que sale de `projectBranch`) cierre
        * con lo que esta fila muestra por persona.
        */
-      projected[m] = lo.budgetTotal[m] ?? (own + rec);
+      /*
+       * ⚠ Y EL PISO DE SUS REALTORS — etapa OL48. Un realtor NPPM no cierra:
+       * cierra esta persona, así que lo que el realtor proyecta ya pasa por
+       * ella y su total no puede quedar por debajo. `presupuestoDePersona` es
+       * la MISMA función que usa `projectBranch`, por lo mismo que dice la nota
+       * de arriba: los dos números tienen que coincidir.
+       */
+      const piso = pisoDeRealtors(lo.nppmRealtors, m);
+      const { valor, subioPorRealtors } = presupuestoDePersona({
+        fijado: lo.budgetTotal[m],
+        regla: own + rec,
+        pisoDeRealtors: piso,
+      });
+      projected[m] = valor;
+      if (subioPorRealtors) subioPorNppm.push(m);
     }
 
     return {
       lo,
       participatesInRecruitment: recIdx >= 0,
+      /* Los meses en que su total lo levantaron sus realtors — etapa OL48. La
+         fila lo dice: ese número no lo decidió esta persona. */
+      subioPorNppm,
       year: composeYear(monthsOfYear, currentMonth, actualByMonth, partesCurrent[idx], projected),
     };
   });
@@ -568,9 +697,17 @@ export function strategyRowsOf(
   const filasBase = branch.byStrategy.filter((bs) => tieneAlgo(branch, bs, currentMonth));
 
   /* El mes en curso del branch, repartido entre sus estrategias. */
-  const proyectaAlgo = filasBase.some((bs) => bs.currentMonthRaw > 0);
+  /*
+   * ⚠ Y NPPM TAMPOCO PESA EN EL MES EN CURSO — OL33, por lo mismo que en
+   * `exactoDe`: el pronóstico del mes es del branch y sus filas no lo suman.
+   */
+  const proyectaAlgo = filasBase.some((bs) => bs.opensBy !== 'realtor' && bs.currentMonthRaw > 0);
   const pesosCurrent = filasBase.map((bs) =>
-    proyectaAlgo ? bs.currentMonthRaw : (bs.actualByMonth[currentMonth] ?? 0)
+    bs.opensBy === 'realtor'
+      ? 0
+      : proyectaAlgo
+        ? bs.currentMonthRaw
+        : (bs.actualByMonth[currentMonth] ?? 0)
   );
   const currentPorEstrategia = apportionByWeight(branchCurrent, pesosCurrent);
 
