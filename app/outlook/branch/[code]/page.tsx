@@ -2710,8 +2710,14 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               LO QUE NINGÚN GRUPO RECLAMA. Ver `residual` arriba: es un residuo
               puro, así que el total sigue siendo la suma de las filas. No se
               muestra cuando no hay nada que reconciliar.
+
+              ⚠ NI BAJO FOCO — etapa OL52. Sea "Closed by loan officers from
+              other branches" o "Difference with the branch list" (la misma
+              fila, dos rótulos según el mes), lo que lleva es SIEMPRE de gente
+              que no es la persona revisada -- de otro branch, o pipeline sin
+              abrir por estrategia. Ninguna de las dos cosas es suya.
             */}
-            {showResidual && (
+            {focoKey === null && showResidual && (
               <tr className="metric ol-residual">
                 <td className="lbl">
                   {/*
@@ -2821,29 +2827,42 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               El total del branch: la SUMA de las filas de arriba, columna por
               columna, incluida la de reconciliacion. Ver `totalByMonth` -- no se
               calcula por otra via, y da el mismo numero que la lista.
+
+              ⚠ NO BAJO FOCO — etapa OL52. `totalByMonth` es un cálculo del
+              branch entero por diseño --`strategiesByMonth`/`residual` no
+              entran en el foco, la nota de `focoKey` arriba lo dice: "el foco
+              no entra en ningún cálculo"-- así que sigue siendo el número de
+              las 8 personas aunque la tabla muestre una sola. Bajo foco esa
+              fila diría "Branch 747" y un número que no es el de nadie en
+              pantalla: ni el branch (no es lo que se está revisando) ni la
+              persona (que ya tiene su propia fila, arriba, con su propio
+              total). Se apaga en vez de recalcularse con otro significado
+              bajo el mismo rótulo.
             */}
-            <tr className="metric ol-total">
-              <td className="lbl">Branch {branch.branchCode}</td>
-              <td className="bp-center ol-bench"></td>
-              {monthsOfYear.map((m) => (
-                <td
-                  key={m}
-                  className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}
-                  title={
-                    m === currentMonth
-                      ? `The month's forecast, same as in the branch list. The groups shown above add up to ` +
-                        `${fmt(strategiesByMonth[m])} — what actually closed — and the row above carries the rest.`
-                      : undefined
-                  }
-                >
-                  {fmt(totalByMonth[m])}
+            {focoKey === null && (
+              <tr className="metric ol-total">
+                <td className="lbl">Branch {branch.branchCode}</td>
+                <td className="bp-center ol-bench"></td>
+                {monthsOfYear.map((m) => (
+                  <td
+                    key={m}
+                    className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}
+                    title={
+                      m === currentMonth
+                        ? `The month's forecast, same as in the branch list. The groups shown above add up to ` +
+                          `${fmt(strategiesByMonth[m])} — what actually closed — and the row above carries the rest.`
+                        : undefined
+                    }
+                  >
+                    {fmt(totalByMonth[m])}
+                  </td>
+                ))}
+                <td className="bp-center totcol" title="The sum of the rows shown above, column by column.">
+                  {fmt(sumOfShown(monthsOfYear.map((m) => totalByMonth[m])))}
                 </td>
-              ))}
-              <td className="bp-center totcol" title="The sum of the rows shown above, column by column.">
-                {fmt(sumOfShown(monthsOfYear.map((m) => totalByMonth[m])))}
-              </td>
-              <td className="ol-rulecol"></td>
-            </tr>
+                <td className="ol-rulecol"></td>
+              </tr>
+            )}
             </tbody>
           </table>
         </section>
