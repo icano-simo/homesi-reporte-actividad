@@ -220,13 +220,60 @@ export function buildLoanOfficerScorecard(
   return buildPersonScorecard(loans, (loan) => loan.loanOfficer, 'salesforce', aliasIndex, excludedIndex, employeeNameByKey, 'Unknown Loan Officer');
 }
 
-export function buildLoanProcessorScorecard(
-  loans: ResolvedLoan[],
-  aliasIndex: AliasIndex,
-  excludedIndex: { has(source: SourceSystem, nameRaw: string | null | undefined): boolean },
-  employeeNameByKey: Map<number, string>
-): PersonScorecardResult {
-  return buildPersonScorecard(loans, (loan) => loan.loanProcessor, 'salesforce', aliasIndex, excludedIndex, employeeNameByKey, 'Unknown Loan Processor');
+export interface LoanProcessorScorecardDiagnostics {
+  /** Cuántos loans entraron a este scorecard (fundedInRange del caller). */
+  totalLoans: number;
+  /** `loanProcessorPersonCode` no nulo -- entran a `rows` agrupados por ese código. */
+  resolvedCount: number;
+  /** `loanProcessorPersonCode` nulo -- snapshot anterior a esta columna, o el loan no tiene processor asignado. Igual que `blankCount` en `buildPersonScorecard`: NO se descartan, entran a `rows` agrupados bajo "Unknown Loan Processor" (misma regla de trazabilidad total), este contador queda para el ícono de diagnóstico. */
+  missingPersonCodeCount: number;
+}
+
+export interface LoanProcessorScorecardResult {
+  rows: ScorecardRow[];
+  diagnostics: LoanProcessorScorecardDiagnostics;
+}
+
+/**
+ * Etapa LOA-PERSON-CODE-2 -- deja de delegar en `buildPersonScorecard()`.
+ * Regla de negocio (Isa, 21-sep): agrupar por `loanProcessorPersonCode`
+ * (identidad ya resuelta en origen, Encompass), mostrar `loanProcessorDisplay`
+ * como label -- NUNCA por texto crudo. Sin `aliasIndex`/`excludedIndex`/lista
+ * de exclusión que mantener: a diferencia de Loan Officer/Business Developer
+ * (texto de Salesforce sin resolver, necesita `org.employee_alias`), acá la
+ * identidad ya viene resuelta en la columna. Mismo patrón que
+ * `buildNppmRealtorScorecard` (grupo simple, sin resolución de nombre) -- ver
+ * ese comentario para el motivo de no compartir `buildPersonScorecard`.
+ *
+ * Alcance solo `loanProcessor` -- `loa2`/`loa_2` sin tocar en esta etapa.
+ */
+export function buildLoanProcessorScorecard(loans: ResolvedLoan[]): LoanProcessorScorecardResult {
+  const byKey = new Map<string, { label: string; count: number; amount: number }>();
+  let resolvedCount = 0;
+  let missingPersonCodeCount = 0;
+
+  for (const loan of loans) {
+    const personCode = loan.loanProcessorPersonCode ?? null;
+    if (personCode === null) {
+      missingPersonCodeCount += 1;
+      const cur = byKey.get(UNKNOWN_PERSON_KEY) ?? { label: 'Unknown Loan Processor', count: 0, amount: 0 };
+      cur.count += 1;
+      cur.amount += loan.amount;
+      byKey.set(UNKNOWN_PERSON_KEY, cur);
+      continue;
+    }
+    resolvedCount += 1;
+    const label = loan.loanProcessorDisplay?.trim() || personCode;
+    const cur = byKey.get(personCode) ?? { label, count: 0, amount: 0 };
+    cur.count += 1;
+    cur.amount += loan.amount;
+    byKey.set(personCode, cur);
+  }
+
+  return {
+    rows: toRows(byKey, resolvedCount + missingPersonCodeCount),
+    diagnostics: { totalLoans: loans.length, resolvedCount, missingPersonCodeCount },
+  };
 }
 
 /**

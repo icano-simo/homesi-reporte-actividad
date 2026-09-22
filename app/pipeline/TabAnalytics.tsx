@@ -1310,7 +1310,11 @@ function loansForScorecardCut(
     return loans.filter((l) => loanResolvesToEmployeeKey(l, (loan) => loan.loanOfficer, aliasIndex, key));
   }
   if (cut === 'loanProcessor') {
-    return loans.filter((l) => loanResolvesToEmployeeKey(l, (loan) => loan.loanProcessor, aliasIndex, key));
+    // Etapa LOA-PERSON-CODE-2: ya no resuelve por nombre crudo/aliasIndex --
+    // el key de la fila ES loanProcessorPersonCode (o UNKNOWN_PERSON_KEY para
+    // la fila sintética de los que no lo tienen). Ver buildLoanProcessorScorecard.
+    if (key === UNKNOWN_PERSON_KEY) return loans.filter((l) => l.loanProcessorPersonCode === null || l.loanProcessorPersonCode === undefined);
+    return loans.filter((l) => l.loanProcessorPersonCode === key);
   }
   // FIX-BD-B2B-POPULATION: mismo fix de correctness que buildBusinessDeveloperScorecard
   // (lib/pipeline/scorecards.ts) -- classifyStrategy() como fuente de verdad de
@@ -2327,12 +2331,9 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
     orgRoster.excludedIndex,
     orgRoster.employeeNameByKey
   );
-  const loanProcessorScorecard = buildLoanProcessorScorecard(
-    fundedInRange,
-    orgRoster.aliasIndex,
-    orgRoster.excludedIndex,
-    orgRoster.employeeNameByKey
-  );
+  // Etapa LOA-PERSON-CODE-2: ya no pasa por aliasIndex/excludedIndex -- agrupa
+  // por loanProcessorPersonCode, resuelto en origen (ver scorecards.ts).
+  const loanProcessorScorecard = buildLoanProcessorScorecard(fundedInRange);
   const businessDeveloperScorecard = buildBusinessDeveloperScorecard(
     fundedInRange,
     orgRoster.aliasIndex,
@@ -2948,7 +2949,7 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
               title="Loan Processor"
               columnLabel="Loan Processor"
               rows={loanProcessorScorecard.rows}
-              totalCount={loanProcessorScorecard.diagnostics.resolvedCount + loanProcessorScorecard.diagnostics.blankCount}
+              totalCount={loanProcessorScorecard.diagnostics.totalLoans}
               onRowClick={(row) =>
                 setDrillDown({
                   metric: 'Loan Processor',
@@ -2957,7 +2958,19 @@ export default function TabAnalytics({ resolvedLoans }: TabAnalyticsProps) {
                   hiddenColumns: ['loanOfficer', 'milestone', 'status'],
                 })
               }
-              diagnostic={personDiagnosticsNote(loanProcessorScorecard)}
+              /*
+                Etapa LOA-PERSON-CODE-2: diagnostic inline, NO personDiagnosticsNote
+                -- esa función lee `.diagnostics.*` de PersonScorecardResult
+                (resolvedCount/blankCount/excludedCount/unmappedCount/unmappedNames),
+                y buildLoanProcessorScorecard ya no pasa por aliasIndex/excludedIndex,
+                así que no tiene esa forma -- mismo criterio que el diagnostic inline
+                de NPPM Realtor más abajo.
+              */
+              diagnostic={{
+                count: loanProcessorScorecard.diagnostics.missingPersonCodeCount,
+                summary: `${fmtInt(loanProcessorScorecard.diagnostics.missingPersonCodeCount)} loan${loanProcessorScorecard.diagnostics.missingPersonCodeCount === 1 ? '' : 's'} with no Loan Processor person_code recorded`,
+                detail: 'These loans are still counted in the total below, grouped under "Unknown Loan Processor" instead of being dropped silently.',
+              }}
             />
             <ScorecardPodiumPanel rows={loanProcessorScorecard.rows} />
           </div>
