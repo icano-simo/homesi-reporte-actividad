@@ -27,7 +27,7 @@ import {
   buildBranchForecastRows,
   type BranchForecastRow,
 } from '@/lib/pipeline/branchForecast';
-import { buildLoanOfficerForecastRows } from '@/lib/pipeline/loanOfficerForecast';
+import { buildLoanOfficerForecastRows, buildLoanOfficerForecastByPerson } from '@/lib/pipeline/loanOfficerForecast';
 import { buildStrategyBranchRows } from '@/lib/pipeline/strategyBranchRows';
 import {
   buildNextMonthPopulations,
@@ -41,8 +41,10 @@ import Topbar from './Topbar';
 import TabNavigation, { type TabType } from './TabNavigation';
 import TabMilestoneMatrix from './TabMilestoneMatrix';
 import TabNextMonth from './TabNextMonth';
+import LoanOfficerForecastTable from './LoanOfficerForecastTable';
 import { getForecastDb, isSupabaseConfigured } from '@/lib/supabase/client';
 import { DownloadIcon, FileSheetIcon } from '@/components/ui/icons';
+import { useLoanOfficerResolved } from './useLoanOfficerResolved';
 
 /**
  * ⚠ Cuándo se actualizó el snapshot, en la zona de quien mira.
@@ -191,6 +193,7 @@ function parseSnapshotId(value: unknown): number | null {
  * sesión.
  */
 export default function PipelinePage() {
+  const loanOfficerResolved = useLoanOfficerResolved();
   const [data, setData] = useState<ParseApiResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   /*
@@ -556,12 +559,6 @@ export default function PipelinePage() {
    */
   const branchRows: BranchForecastRow[] = data ? buildBranchForecastRows(data.openLoans, pipelineDateRange) : [];
 
-  // Etapa NEXTMONTH-2: mismo selector de mes que ya usan Cerrados/Forecast
-  // (forecastMonthParsed), no un rango derivado -- ver lib/pipeline/nextMonth.ts.
-  const nextMonthPopulations = data
-    ? buildNextMonthPopulations(data.openLoans, forecastMonthParsed)
-    : { estClosingNextMonth: [], outOfScope: [], combined: [] };
-
   // Etapa F6h, extendido en ajuste posterior: filtro de branch para TODA la
   // página (banner, Executive, Matrix, Adverse) -- no solo Executive como se
   // había interpretado en F6h. filteredBranchRows/filteredResolvedLoans son
@@ -569,6 +566,23 @@ export default function PipelinePage() {
   const filteredBranchRows = selectedBranch === 'ALL' ? branchRows : branchRows.filter((r) => r.branch === selectedBranch);
   const filteredResolvedLoans =
     selectedBranch === 'ALL' ? (data?.resolvedLoans ?? []) : (data?.resolvedLoans ?? []).filter((l) => l.branch === selectedBranch);
+  /*
+   * FIX: `nextMonthPopulations` (Next Month -- Est Closing/Out of Scope/
+   * Combined, y sus 3 tablas "By branch") leía `data.openLoans` sin pasar
+   * por el filtro de branch de arriba, a diferencia del resto de la página.
+   * `filteredResolvedLoans` no sirve como fuente acá: filtra
+   * `data.resolvedLoans` (cerrados), y `buildNextMonthPopulations` necesita
+   * abiertos (`PipelineLoan[]`, el tipo de `data.openLoans`) -- mismo
+   * patrón que esa variable, aplicado al array que en verdad hace falta.
+   */
+  const filteredOpenLoans =
+    selectedBranch === 'ALL' ? (data?.openLoans ?? []) : (data?.openLoans ?? []).filter((l) => l.branch === selectedBranch);
+
+  // Etapa NEXTMONTH-2: mismo selector de mes que ya usan Cerrados/Forecast
+  // (forecastMonthParsed), no un rango derivado -- ver lib/pipeline/nextMonth.ts.
+  const nextMonthPopulations = data
+    ? buildNextMonthPopulations(filteredOpenLoans, forecastMonthParsed)
+    : { estClosingNextMonth: [], outOfScope: [], combined: [] };
 
   const grandTotalCount = filteredBranchRows.reduce((sum, r) => sum + r.totalCount, 0);
   const grandHealthyCount = filteredBranchRows.reduce((sum, r) => sum + r.healthyCount, 0);
@@ -955,8 +969,23 @@ export default function PipelinePage() {
    * armó con ese rango).
    */
   const loanOfficerForecastRows = data
-    ? buildLoanOfficerForecastRows(branchRowsForSummary, filteredResolvedLoans, forecastRange, PULL_THROUGH_RATES)
+    ? buildLoanOfficerForecastRows(
+        branchRowsForSummary,
+        filteredResolvedLoans,
+        forecastRange,
+        PULL_THROUGH_RATES,
+        loanOfficerResolved.index,
+        loanOfficerResolved.outOfDivisionIndex
+      )
     : [];
+
+  /**
+   * Etapa PDF-INVESTIGACIÓN, ahora con UI: mismo `loanOfficerForecastRows`
+   * de arriba, colapsado por Loan Officer solo (un Loan Officer con filas
+   * en varios branches/canales queda en una sola fila) -- ver
+   * `buildLoanOfficerForecastByPerson()` (lib/pipeline/loanOfficerForecast.ts).
+   */
+  const loanOfficerForecastByPerson = buildLoanOfficerForecastByPerson(loanOfficerForecastRows);
 
   /**
    * Etapa PDF-INVESTIGACIÓN -- mismo resumen por estrategia de arriba,
@@ -1615,6 +1644,7 @@ export default function PipelinePage() {
               knownBranches={knownBranches}
               selectedBranch={selectedBranch}
               onActiveStrategyFilterChange={setActiveStrategyFilter}
+              loanOfficerContent={<LoanOfficerForecastTable rows={loanOfficerForecastByPerson} />}
             />
           )}
 

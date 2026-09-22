@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url';
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const { crearArnes } = await import(
   pathToFileURL(resolve(RAIZ, 'scripts/verificacion/guardas.mjs')).href);
-const { gateStatus, gateEvidence, requiereDecisionDeFunnel, promptDeLaRama } =
+const { gateStatus, gateEvidence, requiereDecisionDeFunnel, promptDeLaRama, showsMmiLink } =
   await import(pathToFileURL(resolve(RAIZ, 'lib/review/gates.ts')).href);
 
 /* El paso 3.1 como queda con el SQL de RV10 aplicado. */
@@ -40,7 +40,7 @@ const p31 = {
   },
 };
 
-const a = crearArnes({ minimo: 32 });
+const a = crearArnes({ minimo: 37 });
 try {
   /* ═══ 1. Quién exige la decisión ═══ */
   console.log('\n=== 1. la exigencia ===');
@@ -197,6 +197,29 @@ try {
   a.ck(promptDeLaRama({ ...p31, gate_config: { target: '.x' } }, 'catalogo') === null,
     'y la ausencia da `null`, que el panel resuelve con el prompt del paso: una ' +
     'clave que falta deja la pregunta general, no una pantalla sin pregunta');
+
+  /* ═══ 8. El enlace de MMI: la PRESENCIA decide, el valor no ═══
+   *
+   * ⚠ Las cinco importan por lo que RV21 rompió: al dejar de leer el valor se
+   * fue con él la condición, y el `Open MMI` salió en los ocho pasos. Las dos
+   * últimas son las que fijan que el arreglo NO dependa de aplicar el SQL: hoy
+   * el valor es una URL y mañana `true`, y la respuesta tiene que ser la misma.
+   */
+  console.log('\n=== 7. el enlace de MMI ===');
+  const p12 = { phase_no: 1, step_in_phase: 2, gate_kind: 'comment' };
+  a.ck(showsMmiLink({ ...p12, gate_config: { target: '.bp-stats', mmi_link: true } }) === true,
+    'con la clave puesta, el paso ofrece el enlace');
+  a.ck(showsMmiLink({ ...p12, gate_config: { target: '.bp-stats' } }) === false,
+    'sin la clave, no -- que es el caso de los otros siete pasos');
+  a.ck(showsMmiLink({ ...p12, gate_config: null }) === false,
+    'y un `gate_config` en `null` tampoco lo ofrece');
+  a.ck(showsMmiLink({ ...p12 }) === false,
+    'ni un paso sin `gate_config`: «no lo leí» no puede pasar por «acá va»');
+  const comoEstaHoy = showsMmiLink({ ...p12, gate_config: { mmi_link: 'https://mmi.io' } });
+  const comoQuedaConElSql = showsMmiLink({ ...p12, gate_config: { mmi_link: true } });
+  a.ck(comoEstaHoy === true && comoQuedaConElSql === true,
+    'la URL de hoy y el `true` del SQL dan lo mismo: el arreglo no espera la ' +
+    'migración, y la migración no lo rompe');
 } finally {
   process.exitCode = a.resumen();
 }

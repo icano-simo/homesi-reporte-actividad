@@ -61,3 +61,7 @@ next-env.d.ts
 
 # mcp -- config local de servidores MCP, no es parte del proyecto
 .mcp.json
+
+ca-b2b-2025.txt
+pipeline-latest-response.json
+backup-before-commits.patch

@@ -412,6 +412,16 @@ table.piv.piv--combined td.totcol {
 .piv--nextmonth tr.grp.total td.val {
   font-weight: 700;
 }
+/**
+ * Etapa LOA-TOTALS-1: mismo problema de especificidad de arriba
+ * (table.piv td.val gana a tr.grp td), mismo fix -- clase de contexto propia
+ * de la tabla de LoanOfficerForecastTable.tsx (`piv--loanofficer`, agregada
+ * junto con la fila de Total de esa tabla), sin tocar la regla de
+ * `piv--nextmonth` de arriba.
+ */
+.piv--loanofficer tr.grp.total td.val {
+  font-weight: 700;
+}
 .piv--exec .th-left {
   text-align: left;
 }
@@ -1739,4 +1749,32 @@ table.piv tr.strat-break-row td {
 
 .fc-integrity strong {
   font-variant-numeric: tabular-nums;
+}
+
+/*
+ * Marca discreta bajo el nombre de un Loan Officer que cayó al fallback de
+ * nombre crudo (sin person_code en org.loan_officer_resolved) Y está
+ * marcado es_de_la_division = false para ese nombre -- ver resolveOfficer()
+ * en lib/pipeline/loanOfficerForecast.ts. Clase LOCAL a este módulo: mismo
+ * texto que el tag "LO out of branch" de Outlook (paridad a propósito) pero
+ * sin importar app/outlook/styles/ol-scale.css ni reusar .ol-tag -- gris
+ * apagado (--slate-400), fuente chica, mismos tokens que ya usa este
+ * archivo (ver .ctc-subtotal-note).
+ *
+ * `display: block` a propósito, no un wrap que sólo se activa cuando el
+ * nombre es largo -- `table.piv td` (components.css) es `white-space:
+ * nowrap; overflow: hidden; text-overflow: ellipsis`, y "Mario Alfredo
+ * Ballon" + la marca en la MISMA línea desbordaba la celda (218px) y
+ * cortaba a "Fuera de d…" -- medido: scrollWidth 230 contra clientWidth 218.
+ * Un bloque separado saca la marca de esa línea SIEMPRE, para las 8 filas
+ * marcadas por igual, en vez de que sólo el nombre más largo la empuje a
+ * desbordar.
+ */
+.lo-out-of-division {
+  display: block;
+  margin-top: 2px;
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--slate-400);
+  white-space: nowrap;
 }
