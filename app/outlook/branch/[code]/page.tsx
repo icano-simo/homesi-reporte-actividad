@@ -3,7 +3,7 @@
 import { Fragment, use, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { focusIndexed, focusIsAbsent, hiddenCount } from '@/lib/review/focus';
+import { focusIndexed, focusIsAbsent, focusOn, hiddenCount } from '@/lib/review/focus';
 import { useReview } from '@/components/review/ReviewProvider';
 import {
   composeYear,
@@ -1081,7 +1081,21 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
   const composicion = (() => {
     const BUCKETS: BudgetBucket[] = ['own_production', 'b2b', 'nppm', 'recruitment', 'business_plan'];
     const OTROS = BUCKETS.filter((b) => b !== 'own_production');
-    const suyos = branch.loanOfficers.filter((l) => l.primaryBranch === branch.branchCode);
+    /*
+     * ⚠ EL FOCO RECALCULA LA TARJETA, NO LE ESCONDE FILAS — etapa OL52.
+     *
+     * `composicion` suma a TODOS los `suyos` del branch; en modo coach tiene
+     * que sumar a uno solo, y por eso el foco entra ACÁ, en la población de
+     * entrada, no filtrando el resultado ya sumado -- lo mismo que ya vale
+     * para las filas de GRUPO 1, pero aplicado a una suma en vez de a una
+     * lista de filas. `focusOn` alcanza (no `focusIndexed`): nada acá reparte
+     * por posición sobre un array sin filtrar, cada bucket se reduce por
+     * `employeeKey`.
+     *
+     * `focusOn(arr, null)` devuelve la MISMA referencia -- RV7 -- así que
+     * fuera de modo coach esto es exactamente el `suyos` de siempre.
+     */
+    const suyos = focusOn(branch.loanOfficers.filter((l) => l.primaryBranch === branch.branchCode), focoKey);
 
     /* El presupuesto efectivo de la persona, mes a mes, igual que su fila. */
     const efectivoDe = (lo: (typeof suyos)[number]) => {
@@ -1194,8 +1208,16 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
          * Recruitment que ya tienen las PERSONAS del roster viaja dentro de su
          * presupuesto efectivo (`own + rec` en `loanOfficerRowsOf`), así que no
          * se cuenta dos veces.
+         *
+         * ⚠ Y SÓLO SIN FOCO — etapa OL52. Los reclutas no son de nadie
+         * todavía -- no tienen `employeeKey` con quien contrastar el foco --
+         * así que no hay un "es suyo" que decidir: en modo coach, sobre una
+         * sola persona, esto no es su Recruitment y no se le suma. Es la
+         * misma pregunta que ya gobierna el resto de la tarjeta -- ver la
+         * nota de `suyos`, arriba -- llevada al único bucket que no sale de
+         * `suyos`.
          */
-        if (bucket === 'recruitment') {
+        if (bucket === 'recruitment' && focoKey === null) {
           byMonth[m] += visibleRecruitRows.reduce((x, rr) => x + (rr.year.byMonth[m] ?? 0), 0);
         }
       }
@@ -1286,7 +1308,6 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
    * llevan el pronóstico; fuera de la suma, su número no descuadra nada y el
    * dato vuelve de un tooltip a la tabla.
    */
-  const nppmExistingYears = nppmRows.map((x) => x.year);
   const nppmHiringYears = nppmHiringRows.map((x) => x.year);
   /* La de Affinity, con el mismo criterio. `filaUnica` no la usa: esa sólo
      existe en branches sin gente, donde `sinMesEnCurso` es la identidad. */
@@ -1361,8 +1382,8 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
     /*
      * ⚠ NPPM NO ESTÁ ACÁ, Y ES EL CAMBIO DE OL33. Sus filas se dibujan pero no
      * suman: el cierre que muestran ya está contado en la fila del Loan Officer
-     * que lo cerró. Ver `nppmExistingYears` arriba y la marca «detail» en la
-     * fila.
+     * que lo cerró. Ver GRUPO 2 --su lista, enfocable desde OL52, se arma ahí
+     * mismo-- y la marca «detail» en la fila.
      */
     /* Con la fila fundida, sus dos mitades NO se suman por separado. */
     ...(filaUnica !== null
@@ -1976,6 +1997,41 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               (() => {
                 const key = 'g:nppm-existing';
                 const abierta = open.has(key);
+                /*
+                 * ⚠ "SÓLO SUS REALTORS ASIGNADOS" — etapa OL52. El dueño de
+                 * un realtor no vive en `nppmRows` (viene de `bsNppm`, que no
+                 * sabe de dueños) -- hay que ir a `branch.nppmRoster`, que es
+                 * donde vive `ownerEmployeeKey`, igual que ya hace el picker
+                 * de abajo con `enEsteBranch`. Un vínculo viejo
+                 * (`ownerFueraDeBranch`) no cuenta como suyo: ya no suma en
+                 * ningún lado, así que tampoco tiene que aparecer bajo su
+                 * foco.
+                 *
+                 * Mismo patrón que `focoRows` de GRUPO 1: se completa
+                 * `employeeKey` al tope para que `focusOn` pueda comparar, acá
+                 * con el DUEÑO del realtor y no con la persona misma.
+                 * `focusOn(arr, null)` devuelve la misma referencia -- así que
+                 * sin foco estas dos listas son exactamente `nppmRows` y los
+                 * NPPM sin producción de siempre.
+                 */
+                const ownerEmployeeKeyOf = (realtorCode: string): number | null => {
+                  const enEsteBranch = branch.nppmRoster.find((x) => x.realtorCode === realtorCode);
+                  if (enEsteBranch === undefined || enEsteBranch.ownerFueraDeBranch) return null;
+                  return enEsteBranch.ownerEmployeeKey;
+                };
+                const nppmRowsFoco = focusOn(
+                  nppmRows.map((x) => ({ ...x, employeeKey: ownerEmployeeKeyOf(x.r.realtorCode) })),
+                  focoKey
+                );
+                const sinProdFoco = focusOn(
+                  branch.nppmRoster
+                    .filter((x) => !x.tieneProduccion)
+                    .map((x) => ({ ...x, employeeKey: x.ownerFueraDeBranch ? null : x.ownerEmployeeKey })),
+                  focoKey
+                );
+                /* Y sin nada que mostrar bajo foco, el grupo entero no se dibuja -- una
+                   sección vacía no es información, punto 2 del brief de OL52. */
+                if (nppmRowsFoco.length === 0 && sinProdFoco.length === 0) return null;
                 return (
                 <Fragment key={key}>
                   {/*
@@ -2002,7 +2058,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                     title={
                       `Detail, not a sum: every closing here is already counted in the row of the loan ` +
                       `officer who closed it, and the branch total is the sum of its loan officers. ` +
-                      (nppmRows.every((x) => x.r.benchmarkIsDefault)
+                      (nppmRowsFoco.every((x) => x.r.benchmarkIsDefault)
                         ? `Nobody has set a benchmark for these realtors either, so what projects is the ` +
                           `average of their closings over the 3 closed months: what happened, not what ` +
                           `anyone decided should happen.`
@@ -2018,11 +2074,11 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                     <td className="bp-center ol-bench"></td>
                     {monthsOfYear.map((m) => (
                       <td key={m} className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}>
-                        {fmt(sumYears(nppmExistingYears, m))}
+                        {fmt(sumYears(nppmRowsFoco.map((x) => x.year), m))}
                       </td>
                     ))}
                     <td className="bp-center totcol">
-                      {fmt(sumOfShown(monthsOfYear.map((m) => sumYears(nppmExistingYears, m))))}
+                      {fmt(sumOfShown(monthsOfYear.map((m) => sumYears(nppmRowsFoco.map((x) => x.year), m))))}
                     </td>
                     {/*
                       ⚠ CUENTA LAS FILAS QUE HAY DEBAJO, no sólo las que
@@ -2032,8 +2088,8 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                     */}
                     <td className="ol-rulecol bp-muted">
                       {(() => {
-                        const sinProd = branch.nppmRoster.filter((x) => !x.tieneProduccion).length;
-                        const total = nppmRows.length + sinProd;
+                        const sinProd = sinProdFoco.length;
+                        const total = nppmRowsFoco.length + sinProd;
                         return (
                           <span
                             title={
@@ -2052,7 +2108,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                   </tr>
 
                   {abierta &&
-                    nppmRows.map(({ r, year: rYear }) => (
+                    nppmRowsFoco.map(({ r, year: rYear }) => (
                       <tr key={'nppm-' + r.realtorCode} className="metric mrow ol-detail">
                         {/*
                           ⚠ SANGRADA A LA DERECHA — OL33. La marca del grupo dice
@@ -2232,9 +2288,7 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
                       colgando debajo del agrupador. Medido: con el grupo
                       cerrado el 733 mostraba dos filas de más y el 703 una. */}
                   {abierta &&
-                    branch.nppmRoster
-                    .filter((x) => !x.tieneProduccion)
-                    .map((x) => (
+                    sinProdFoco.map((x) => (
                       <tr key={'nppm-roster-' + x.realtorCode} className="metric mrow ol-detail" data-ol-nppm-sin-produccion="">
                         <td className="lbl" style={{ paddingLeft: '30px' }}>
                           {/* ⚠ SIN EL RÓTULO «no production yet» — OL46. La
@@ -2297,8 +2351,14 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               Reclutas `role: 'loan_officer'` que pasan `shouldShowRecruit` --
               punto 6 del brief. Su presupuesto ya viene repartido en conjunto
               con las personas de Recruitment (ver `loanOfficerRowsOf`).
+
+              ⚠ FUERA ENTERO BAJO FOCO — etapa OL52. Un recluta no tiene
+              `employeeKey` de roster con quien comparar el foco -- no es de
+              nadie todavía, literalmente -- así que no hay un subconjunto
+              «suyo» que mostrar acá: la sección entera no viene al caso
+              mientras se revisa a una sola persona ya contratada.
             */}
-            {visibleRecruitRows.length > 0 &&
+            {focoKey === null && visibleRecruitRows.length > 0 &&
               (() => {
                 const key = 'g:lo-hiring';
                 const abierta = open.has(key);
@@ -2398,8 +2458,11 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               Reclutas `role: 'nppm'` -- vacío hoy, ver la nota de
               `nppmHiringRows` más arriba: sin reparto conjunto todavía porque
               no hay ni un caso real contra el cual construirlo y verificarlo.
+
+              ⚠ FUERA ENTERO BAJO FOCO — etapa OL52, misma razón que GRUPO 3:
+              un recluta no es todavía de nadie del roster.
             */}
-            {nppmHiringRows.length > 0 &&
+            {focoKey === null && nppmHiringRows.length > 0 &&
               (() => {
                 const key = 'g:nppm-hiring';
                 const abierta = open.has(key);
@@ -2647,8 +2710,14 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               LO QUE NINGÚN GRUPO RECLAMA. Ver `residual` arriba: es un residuo
               puro, así que el total sigue siendo la suma de las filas. No se
               muestra cuando no hay nada que reconciliar.
+
+              ⚠ NI BAJO FOCO — etapa OL52. Sea "Closed by loan officers from
+              other branches" o "Difference with the branch list" (la misma
+              fila, dos rótulos según el mes), lo que lleva es SIEMPRE de gente
+              que no es la persona revisada -- de otro branch, o pipeline sin
+              abrir por estrategia. Ninguna de las dos cosas es suya.
             */}
-            {showResidual && (
+            {focoKey === null && showResidual && (
               <tr className="metric ol-residual">
                 <td className="lbl">
                   {/*
@@ -2758,29 +2827,42 @@ export default function OutlookBranchPage({ params }: { params: Promise<{ code: 
               El total del branch: la SUMA de las filas de arriba, columna por
               columna, incluida la de reconciliacion. Ver `totalByMonth` -- no se
               calcula por otra via, y da el mismo numero que la lista.
+
+              ⚠ NO BAJO FOCO — etapa OL52. `totalByMonth` es un cálculo del
+              branch entero por diseño --`strategiesByMonth`/`residual` no
+              entran en el foco, la nota de `focoKey` arriba lo dice: "el foco
+              no entra en ningún cálculo"-- así que sigue siendo el número de
+              las 8 personas aunque la tabla muestre una sola. Bajo foco esa
+              fila diría "Branch 747" y un número que no es el de nadie en
+              pantalla: ni el branch (no es lo que se está revisando) ni la
+              persona (que ya tiene su propia fila, arriba, con su propio
+              total). Se apaga en vez de recalcularse con otro significado
+              bajo el mismo rótulo.
             */}
-            <tr className="metric ol-total">
-              <td className="lbl">Branch {branch.branchCode}</td>
-              <td className="bp-center ol-bench"></td>
-              {monthsOfYear.map((m) => (
-                <td
-                  key={m}
-                  className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}
-                  title={
-                    m === currentMonth
-                      ? `The month's forecast, same as in the branch list. The groups shown above add up to ` +
-                        `${fmt(strategiesByMonth[m])} — what actually closed — and the row above carries the rest.`
-                      : undefined
-                  }
-                >
-                  {fmt(totalByMonth[m])}
+            {focoKey === null && (
+              <tr className="metric ol-total">
+                <td className="lbl">Branch {branch.branchCode}</td>
+                <td className="bp-center ol-bench"></td>
+                {monthsOfYear.map((m) => (
+                  <td
+                    key={m}
+                    className={'bp-center ol-m ol-m--' + bandOf(m, currentMonth)}
+                    title={
+                      m === currentMonth
+                        ? `The month's forecast, same as in the branch list. The groups shown above add up to ` +
+                          `${fmt(strategiesByMonth[m])} — what actually closed — and the row above carries the rest.`
+                        : undefined
+                    }
+                  >
+                    {fmt(totalByMonth[m])}
+                  </td>
+                ))}
+                <td className="bp-center totcol" title="The sum of the rows shown above, column by column.">
+                  {fmt(sumOfShown(monthsOfYear.map((m) => totalByMonth[m])))}
                 </td>
-              ))}
-              <td className="bp-center totcol" title="The sum of the rows shown above, column by column.">
-                {fmt(sumOfShown(monthsOfYear.map((m) => totalByMonth[m])))}
-              </td>
-              <td className="ol-rulecol"></td>
-            </tr>
+                <td className="ol-rulecol"></td>
+              </tr>
+            )}
             </tbody>
           </table>
         </section>
