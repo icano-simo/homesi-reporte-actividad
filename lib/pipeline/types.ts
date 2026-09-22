@@ -99,6 +99,19 @@ export type PipelineLoan = {
   loanProcessor: string;
   loa2: string;
   loa_2: string;
+  /**
+   * Etapa LOA-PERSON-CODE-1: `loan_processor_person_code`/`loan_processor_display`
+   * del export -- identidad ya resuelta en origen (Encompass), a diferencia de
+   * `loanProcessor` (texto crudo de Salesforce, sin resolver). `null` real de
+   * Postgres si el snapshot es anterior a esta columna, o si el loan procesado
+   * no tiene processor asignado todavía -- nunca `''`, para no confundirlo con
+   * "el export no traía la columna" (criterio de los `string` de arriba).
+   * Opcional (no en todos los construction sites todavía -- salesforce-file.ts,
+   * fixtures/pipeline-demo.ts, monthly-report/route.ts, test-aggregate.ts --
+   * mismo criterio que `ResolvedLoan.branchTransferred`).
+   */
+  loanProcessorPersonCode?: string | null;
+  loanProcessorDisplay?: string | null;
 };
 
 /**
@@ -189,4 +202,7 @@ export type ResolvedLoan = {
   loanProcessor: string;
   loa2: string;
   loa_2: string;
+  /** Etapa LOA-PERSON-CODE-1: mismo significado que en `PipelineLoan` -- ver ese comentario. */
+  loanProcessorPersonCode?: string | null;
+  loanProcessorDisplay?: string | null;
 };

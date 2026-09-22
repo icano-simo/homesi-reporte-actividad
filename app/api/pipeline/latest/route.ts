@@ -61,6 +61,9 @@ interface PipelineLoanRow {
   loan_processor: string | null;
   loa2: string | null;
   loa_2: string | null;
+  /** Etapa LOA-PERSON-CODE-1 -- ver lib/pipeline/types.ts. */
+  loan_processor_person_code: string | null;
+  loan_processor_display: string | null;
 }
 
 interface ResolvedLoanRow {
@@ -100,6 +103,9 @@ interface ResolvedLoanRow {
   loan_processor: string | null;
   loa2: string | null;
   loa_2: string | null;
+  /** Etapa LOA-PERSON-CODE-1 -- mismo significado que en `PipelineLoanRow`. */
+  loan_processor_person_code: string | null;
+  loan_processor_display: string | null;
 }
 
 /**
@@ -160,12 +166,12 @@ export async function GET() {
 
     const loanRows = await fetchAllPages<PipelineLoanRow>(
       'pipeline_loans',
-      'source_loan_id, branch, channel, milestone, raw_milestone, healthy, raw_healthiness, close_month, est_closing_date, amount, loan_officer, borrower_name, milestone_date, branch_transferred, loan_type, loan_program, production_support_note_history, strategy_raw, opportunity_owner_title, nppm_realtor, referred_by, affinity_program, opportunity_owner, property_state, loan_processor, loa2, loa_2',
+      'source_loan_id, branch, channel, milestone, raw_milestone, healthy, raw_healthiness, close_month, est_closing_date, amount, loan_officer, borrower_name, milestone_date, branch_transferred, loan_type, loan_program, production_support_note_history, strategy_raw, opportunity_owner_title, nppm_realtor, referred_by, affinity_program, opportunity_owner, property_state, loan_processor, loa2, loa_2, loan_processor_person_code, loan_processor_display',
       snapshotId
     );
     const resolvedRows = await fetchAllPages<ResolvedLoanRow>(
       'pipeline_resolved_loans',
-      'source_loan_id, branch, channel, status, disbursement_date, amount, loan_officer, borrower_name, loan_status, est_closing_date, raw_loan_folder, loan_type, loan_program, production_support_note_history, strategy_raw, opportunity_owner_title, nppm_realtor, referred_by, affinity_program, opportunity_owner, branch_transferred, property_state, loan_processor, loa2, loa_2',
+      'source_loan_id, branch, channel, status, disbursement_date, amount, loan_officer, borrower_name, loan_status, est_closing_date, raw_loan_folder, loan_type, loan_program, production_support_note_history, strategy_raw, opportunity_owner_title, nppm_realtor, referred_by, affinity_program, opportunity_owner, branch_transferred, property_state, loan_processor, loa2, loa_2, loan_processor_person_code, loan_processor_display',
       snapshotId
     );
 
@@ -236,6 +242,12 @@ export async function GET() {
       loanProcessor: r.loan_processor ?? '',
       loa2: r.loa2 ?? '',
       loa_2: r.loa_2 ?? '',
+      // Etapa LOA-PERSON-CODE-1: a diferencia de loanProcessor/loa2/loa_2
+      // (`?? ''`), acá se preserva el `null` real -- son campos de identidad
+      // ya resuelta, no texto crudo, y `''` significaría "resuelto a nadie"
+      // en vez de "todavía sin dato" (ver lib/pipeline/types.ts).
+      loanProcessorPersonCode: r.loan_processor_person_code ?? null,
+      loanProcessorDisplay: r.loan_processor_display ?? null,
     }));
 
     // milestoneDate queda en su default (null): la tabla pipeline_resolved_loans
@@ -310,6 +322,10 @@ export async function GET() {
       loanProcessor: r.loan_processor ?? '',
       loa2: r.loa2 ?? '',
       loa_2: r.loa_2 ?? '',
+      // Etapa LOA-PERSON-CODE-1: mismo criterio (`null` real, sin `?? ''`)
+      // que en openLoans arriba.
+      loanProcessorPersonCode: r.loan_processor_person_code ?? null,
+      loanProcessorDisplay: r.loan_processor_display ?? null,
     }));
 
     return NextResponse.json({
