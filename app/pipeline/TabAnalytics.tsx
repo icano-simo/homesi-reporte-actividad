@@ -649,15 +649,25 @@ function ScorecardPodiumPanel({ rows }: { rows: ScorecardRow[] }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
   /**
-   * FIX-PODIUM-OBSERVER-RECONNECT -- si `rows` está vacío en el primer
+   * Etapa PODIUM-EXCLUDE-UNKNOWN -- la fila sintética ("Unknown Loan
+   * Officer"/"Unknown Business Developer"/"Unknown NPPM Realtor"/"Unknown
+   * Loan Processor", `key === UNKNOWN_PERSON_KEY`) no compite por el podio:
+   * ya se ve en la tabla principal (`ScorecardTable` recibe `rows` sin
+   * filtrar) y en el % of Total -- este filtro es SOLO para el ranking de
+   * las 2 tarjetas de acá. `ScorecardRow`/`scorecards.ts`/`ScorecardTable`
+   * sin tocar.
+   */
+  const rankable = rows.filter((r) => r.key !== UNKNOWN_PERSON_KEY);
+  /**
+   * FIX-PODIUM-OBSERVER-RECONNECT -- si `rankable` está vacío en el primer
    * render (ej. período/branch sin datos en ese instante), `return null`
    * de más abajo evita que el `<div ref={panelRef}>` llegue a montarse, así
    * que este efecto encuentra `panelRef.current === null` y sale sin crear
    * el observer. Con `[]` como deps eso pasaba una sola vez y para
-   * siempre -- cuando `rows` después sí traía datos (ej. cambiar el
+   * siempre -- cuando `rankable` después sí traía datos (ej. cambiar el
    * período a un mes con actividad), el observer nunca se creaba y
    * `visible` quedaba en `false` para siempre, dejando cada
-   * `CountUpNumber` clavado en 0. `rows.length` en las deps hace que el
+   * `CountUpNumber` clavado en 0. `rankable.length` en las deps hace que el
    * efecto reintente cada vez que pasa de "sin filas" a "con filas" (o
    * viceversa); `visible` en la guarda evita recrear el observer sin
    * necesidad una vez que ya se disparó.
@@ -676,12 +686,12 @@ function ScorecardPodiumPanel({ rows }: { rows: ScorecardRow[] }) {
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [rows.length, visible]);
+  }, [rankable.length, visible]);
 
-  if (!rows.length) return null;
+  if (!rankable.length) return null;
 
-  const top3Closings = rows.slice(0, 3);
-  const top3Volume = top3ByVolume(rows);
+  const top3Closings = rankable.slice(0, 3);
+  const top3Volume = top3ByVolume(rankable);
   /** Mismo `key` en el puesto 1 de las 2 métricas -- comparar 2°/3° entre listas distintas no tiene el mismo significado ("líder de ambos podios" solo aplica al puesto 1 de cada uno). */
   const sameWinner = top3Closings[0].key === top3Volume[0].key;
 
