@@ -1400,6 +1400,24 @@ table.piv tr.strat-break-row td {
   align-items: center;
   gap: 5px;
   font-weight: 700;
+}
+/*
+ * Etapa PODIUM-NAME-ELLIPSIS -- `text-overflow: ellipsis` vivía en
+ * `.podium-card__name` (el contenedor flex de arriba), y ahí no funciona:
+ * el nombre es un nodo de texto suelto dentro de un `display: flex`, así
+ * que el navegador lo trata como un ítem flex anónimo que se corta duro en
+ * el borde del contenedor sin insertar "…" -- medido en pantalla,
+ * `scrollWidth` > `clientWidth` con el corte real (ej. "Nathan Martinez" ->
+ * "Nathan Martine"). Mismo mecanismo que ya se resolvió en
+ * `.lo-out-of-division` (ver ese comentario): sacar el texto a su PROPIO
+ * elemento con el ellipsis, en vez de pedírselo al contenedor flex.
+ * `min-width: 0` es lo que permite que este `<span>` se encoja por debajo
+ * de su ancho de contenido dentro del flex -- sin esto, el ellipsis sigue
+ * sin activarse aunque el resto de las propiedades estén bien.
+ */
+.podium-card__name-text {
+  display: block;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

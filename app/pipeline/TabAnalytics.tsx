@@ -613,7 +613,7 @@ function MetricPodiumCard({
               )}
               <div className="podium-card__row-body">
                 <div className="podium-card__name" title={row.label}>
-                  {row.label}
+                  <span className="podium-card__name-text">{row.label}</span>
                   {rank === 1 && showStarOnLeader && (
                     <span className="podium-card__star" title="Leads both podiums">
                       <StarIcon size={19} />
