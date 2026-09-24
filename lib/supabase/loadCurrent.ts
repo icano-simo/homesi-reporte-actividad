@@ -23,6 +23,7 @@ interface LoanRecordV2Row {
   file_creation_date: string | null;
   credit_report_date: string | null;
   app_date: string | null;
+  ms_clear_to_close: string | null;
   closing_month: string | null;
   total_loan_amount: number | string | null;
   loan_number: string | null;
@@ -39,17 +40,20 @@ interface LoanRecordV2Row {
   referred_by_realtor: string | null;
   nppm_recruited_by: string | null;
   sf_stage: string | null;
+  loan_processor_name: string | null;
 }
 
 const COLUMNS =
   'branch, loan_officer, bd, is_b2b, file_creation_date, credit_report_date, app_date, ' +
-  'closing_month, total_loan_amount, loan_number, loan_program, loan_folder_name, ' +
+  'ms_clear_to_close, closing_month, total_loan_amount, loan_number, loan_program, loan_folder_name, ' +
   'is_affinity, loan_channel, counts_for_division, synced_at, ' +
   // Etapa V3: estrategia y su contexto. Ver LoanRecord para el estado real de
   // cada una -- `nppm_realtor` existe pero hoy no trae ni un valor.
   'strategy, opportunity_owner, nppm_realtor, referred_by_realtor, nppm_recruited_by, ' +
   // Etapa "Stage SF": embudo de venta en Salesforce, ver LoanRecord.sfStage.
-  'sf_stage';
+  'sf_stage, ' +
+  // Etapa AVG-DAYS-TO-CLOSE-1: ver LoanRecord.loanProcessorName.
+  'loan_processor_name';
 
 export interface CurrentReport {
   records: LoanRecord[];
@@ -182,6 +186,10 @@ export async function loadCurrentReport(): Promise<CurrentReport | null> {
      * lib/aggregation/commercialActivityTrends.ts.
      */
     appDateMonth: monthOf(row.app_date),
+    // Etapa AVG-DAYS-TO-CLOSE-1: fecha exacta, sin truncar -- ver
+    // LoanRecord.appDate/ctcDate.
+    appDate: row.app_date,
+    ctcDate: row.ms_clear_to_close,
     /*
      * `closing_month` y no `closing_date`: es el mes canónico que ya resolvió
      * BigQuery (incluida la regla de Disbursement Date sobre Funding/Completion
@@ -215,6 +223,8 @@ export async function loadCurrentReport(): Promise<CurrentReport | null> {
     referredByRealtor: row.referred_by_realtor ?? '',
     nppmRecruitedBy: row.nppm_recruited_by ?? '',
     sfStage: row.sf_stage ?? '',
+    // Etapa AVG-DAYS-TO-CLOSE-1: mismo patrón que `bd` -- trim(), '(blank)' si vacío.
+    loanProcessorName: row.loan_processor_name?.trim() ? row.loan_processor_name.trim() : '(blank)',
   }));
 
   /*

@@ -29,6 +29,18 @@ export interface LoanRecord {
   creditReportMonth: YearMonth | null;
   appDateMonth: YearMonth | null;
   /**
+   * Etapa AVG-DAYS-TO-CLOSE-1: fecha exacta (no truncada a mes) de
+   * `loan_records_v2.app_date` -- input de `businessDaysToClose()`. Distinta
+   * de `appDateMonth`, que trunca a mes para las series de Analytics.
+   */
+  appDate: string | null;
+  /**
+   * Etapa AVG-DAYS-TO-CLOSE-1: `loan_records_v2.ms_clear_to_close`, fecha
+   * exacta -- 457 de 5137 poblada (confirmado). Sin equivalente `*Month`
+   * hoy porque nada más la consume todavía.
+   */
+  ctcDate: string | null;
+  /**
    * Mes de Closed, o `null` si el préstamo no cerró.
    *
    * Ya resuelto en BigQuery (`loan_records_v2.closing_month`), con la misma
@@ -133,4 +145,13 @@ export interface LoanRecord {
    * (`has_salesforce = false`) -- 1.555 de 4.800 filas hoy.
    */
   sfStage: string;
+  /**
+   * Etapa AVG-DAYS-TO-CLOSE-1: `loan_records_v2.loan_processor_name`,
+   * poblada en 1337 de 5137. Normalizado igual que `bd`: trim(), '(blank)'
+   * si vacío -- NO uppercase (a diferencia de `loanOfficer`): no hay
+   * evidencia hoy de grafías duplicadas del mismo processor en distinto
+   * case, y `loan_processor_name` ya viene con capitalización consistente
+   * en las muestras vistas (ej. "Laura Siciliani", "Angie Castillo").
+   */
+  loanProcessorName: string;
 }
