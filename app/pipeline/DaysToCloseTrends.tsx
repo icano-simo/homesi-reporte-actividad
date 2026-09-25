@@ -6,8 +6,11 @@ import {
   computeDaysToCloseResults,
   groupDaysToCloseByDimension,
   buildDaysToCloseHistogram,
+  buildDaysToCloseCtcToDisbHistogram,
   groupDaysToCloseByAppMonth,
   groupDaysToCloseByCtcMonth,
+  groupDaysToCloseCtcToDisbByCtcMonth,
+  groupDaysToCloseCtcToDisbByClosingMonth,
   dimensionLabel,
   type AverageDaysToCloseDimension,
   type DaysToCloseResult,
@@ -116,6 +119,8 @@ function GroupDetailModal({
                   <th>App Date</th>
                   <th>CTC Date</th>
                   <th>Business Days</th>
+                  <th>Closing Date</th>
+                  <th>Business Days (CTC→Disb)</th>
                   {contextCols.map((c) => (
                     <th key={c.key}>{c.label}</th>
                   ))}
@@ -130,6 +135,8 @@ function GroupDetailModal({
                     <td className="val">{r.appDate}</td>
                     <td className="val">{r.ctcDate}</td>
                     <td className="val">{r.days === null ? '—' : fmtInt(r.days)}</td>
+                    <td className="val">{r.closingDate ?? '—'}</td>
+                    <td className="val">{r.daysCtcToDisb === null ? '—' : fmtInt(r.daysCtcToDisb)}</td>
                     {contextCols.map((c) => (
                       <td key={c.key} className="val">
                         {dimensionLabel(r, c.key)}
@@ -207,6 +214,13 @@ export default function DaysToCloseTrends({ records }: DaysToCloseTrendsProps) {
   const histogram = useMemo(() => (results ? buildDaysToCloseHistogram(results) : null), [results]);
   const byAppMonth = useMemo(() => (results ? groupDaysToCloseByAppMonth(results) : null), [results]);
   const byCtcMonth = useMemo(() => (results ? groupDaysToCloseByCtcMonth(results) : null), [results]);
+  // Etapa AVG-DAYS-TO-CLOSE-6: segundo tramo (CTC→Disbursement) -- distribución
+  // y tendencia mensual propias, con su propio rango de buckets (ver
+  // `daysHistogram` en el módulo de agregación); nunca comparten estado con
+  // las de App→CTC de arriba.
+  const histogramCtcToDisb = useMemo(() => (results ? buildDaysToCloseCtcToDisbHistogram(results) : null), [results]);
+  const byCtcMonthCtcToDisb = useMemo(() => (results ? groupDaysToCloseCtcToDisbByCtcMonth(results) : null), [results]);
+  const byClosingMonthCtcToDisb = useMemo(() => (results ? groupDaysToCloseCtcToDisbByClosingMonth(results) : null), [results]);
 
   const activeLabel = DIMENSIONS.find((d) => d.key === dimension)!.label;
   const modalRows = useMemo(
@@ -214,6 +228,7 @@ export default function DaysToCloseTrends({ records }: DaysToCloseTrendsProps) {
     [modalGroup, results, dimension]
   );
   const maxHistogramCount = histogram ? Math.max(0, ...histogram.map((b) => b.count)) : 0;
+  const maxHistogramCountCtcToDisb = histogramCtcToDisb ? Math.max(0, ...histogramCtcToDisb.map((b) => b.count)) : 0;
 
   return (
     <div>
@@ -254,6 +269,10 @@ export default function DaysToCloseTrends({ records }: DaysToCloseTrendsProps) {
                     <th>Median</th>
                     <th>Min</th>
                     <th>Max</th>
+                    <th>Avg CTC→Disb</th>
+                    <th>Median CTC→Disb</th>
+                    <th>Min CTC→Disb</th>
+                    <th>Max CTC→Disb</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -267,11 +286,15 @@ export default function DaysToCloseTrends({ records }: DaysToCloseTrendsProps) {
                       <td className="val">{fmtAvg(g.medianBusinessDays)}</td>
                       <td className="val">{fmtMinMax(g.minBusinessDays)}</td>
                       <td className="val">{fmtMinMax(g.maxBusinessDays)}</td>
+                      <td className="val">{fmtAvg(g.avgBusinessDaysCtcToDisb)}</td>
+                      <td className="val">{fmtAvg(g.medianBusinessDaysCtcToDisb)}</td>
+                      <td className="val">{fmtMinMax(g.minBusinessDaysCtcToDisb)}</td>
+                      <td className="val">{fmtMinMax(g.maxBusinessDaysCtcToDisb)}</td>
                     </tr>
                   ))}
                   {!groups.length && (
                     <tr>
-                      <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={6}>
+                      <td className="lbl" style={{ color: 'var(--slate-500)', fontWeight: 500 }} colSpan={10}>
                         No records for this dimension.
                       </td>
                     </tr>
@@ -366,6 +389,117 @@ export default function DaysToCloseTrends({ records }: DaysToCloseTrendsProps) {
                   </thead>
                   <tbody>
                     {byCtcMonth?.map((row) => (
+                      <tr className="metric" key={row.month}>
+                        <td className="lbl" style={{ textAlign: 'left' }}>
+                          {monthYearLabel(row.month)}
+                        </td>
+                        <td className="val">{fmtInt(row.n)}</td>
+                        <td className="val">{fmtAvg(row.avgBusinessDays)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          {/* ==================================================================
+              SEGUNDO TRAMO: CTC → Disbursement — Etapa AVG-DAYS-TO-CLOSE-6
+              ==================================================================
+              Separado visualmente del bloque de arriba (App → CTC) con su
+              propio encabezado de sección: mismo patrón de tarjetas, pero
+              nunca mezclado en la misma tabla ni en el mismo gráfico. */}
+          <h2 style={{ marginTop: '32px', marginBottom: '4px' }}>Clear to Close → Disbursement</h2>
+          <p style={{ marginTop: 0, marginBottom: '16px', color: 'var(--slate-500)' }}>
+            Segundo tramo: días hábiles entre Clear to Close ({'"'}ms_clear_to_close{'"'}) y Disbursement ({'"'}closing_date{'"'}), misma fuente
+            (activity_report.loan_records_v2) que App → CTC arriba.
+          </p>
+
+          {histogramCtcToDisb && (
+            <div className="tbl-card">
+              <div className="tbl-card__head">
+                <span className="tbl-card__title">
+                  Distribution — Business Days CTC → Disbursement (all {results!.length.toLocaleString('en-US')} loans)
+                </span>
+              </div>
+              <div className="tbl-scroll">
+                <table className="piv">
+                  <thead>
+                    <tr className="mo-row">
+                      <th className="lbl">Business Days</th>
+                      <th>Loans</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {histogramCtcToDisb.map((b) => (
+                      <tr className="metric" key={b.label}>
+                        <td className="lbl" style={{ textAlign: 'left' }}>
+                          {b.label}
+                        </td>
+                        <td
+                          className="val"
+                          style={
+                            maxHistogramCountCtcToDisb > 0
+                              ? {
+                                  backgroundImage: `linear-gradient(to right, rgba(166, 222, 255, 0.35) ${(b.count / maxHistogramCountCtcToDisb) * 100}%, transparent ${(b.count / maxHistogramCountCtcToDisb) * 100}%)`,
+                                }
+                              : {}
+                          }
+                        >
+                          {fmtInt(b.count)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '20px', marginTop: '20px' }}>
+            <div className="tbl-card">
+              <div className="tbl-card__head">
+                <span className="tbl-card__title">Monthly Trend (CTC → Disb) — by CTC Date</span>
+              </div>
+              <div className="tbl-scroll">
+                <table className="piv">
+                  <thead>
+                    <tr className="mo-row">
+                      <th className="lbl">Month</th>
+                      <th>Closed</th>
+                      <th>Avg</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {byCtcMonthCtcToDisb?.map((row) => (
+                      <tr className="metric" key={row.month}>
+                        <td className="lbl" style={{ textAlign: 'left' }}>
+                          {monthYearLabel(row.month)}
+                        </td>
+                        <td className="val">{fmtInt(row.n)}</td>
+                        <td className="val">{fmtAvg(row.avgBusinessDays)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="tbl-card">
+              <div className="tbl-card__head">
+                <span className="tbl-card__title">Monthly Trend (CTC → Disb) — by Closing Date</span>
+              </div>
+              <div className="tbl-scroll">
+                <table className="piv">
+                  <thead>
+                    <tr className="mo-row">
+                      <th className="lbl">Month</th>
+                      <th>Closed</th>
+                      <th>Avg</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {byClosingMonthCtcToDisb?.map((row) => (
                       <tr className="metric" key={row.month}>
                         <td className="lbl" style={{ textAlign: 'left' }}>
                           {monthYearLabel(row.month)}

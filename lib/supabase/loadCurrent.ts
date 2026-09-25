@@ -24,6 +24,7 @@ interface LoanRecordV2Row {
   credit_report_date: string | null;
   app_date: string | null;
   ms_clear_to_close: string | null;
+  closing_date: string | null;
   closing_month: string | null;
   total_loan_amount: number | string | null;
   loan_number: string | null;
@@ -45,7 +46,7 @@ interface LoanRecordV2Row {
 
 const COLUMNS =
   'branch, loan_officer, bd, is_b2b, file_creation_date, credit_report_date, app_date, ' +
-  'ms_clear_to_close, closing_month, total_loan_amount, loan_number, loan_program, loan_folder_name, ' +
+  'ms_clear_to_close, closing_date, closing_month, total_loan_amount, loan_number, loan_program, loan_folder_name, ' +
   'is_affinity, loan_channel, counts_for_division, synced_at, ' +
   // Etapa V3: estrategia y su contexto. Ver LoanRecord para el estado real de
   // cada una -- `nppm_realtor` existe pero hoy no trae ni un valor.
@@ -190,6 +191,10 @@ export async function loadCurrentReport(): Promise<CurrentReport | null> {
     // LoanRecord.appDate/ctcDate.
     appDate: row.app_date,
     ctcDate: row.ms_clear_to_close,
+    // Etapa AVG-DAYS-TO-CLOSE-6: fecha cruda, NO `closingMonth` (mes ya
+    // resuelto en BigQuery con la regla de Disbursement/Funding/Completion,
+    // ver el bloque de abajo) -- input del tramo CTC→Disbursement.
+    closingDate: row.closing_date,
     /*
      * `closing_month` y no `closing_date`: es el mes canónico que ya resolvió
      * BigQuery (incluida la regla de Disbursement Date sobre Funding/Completion

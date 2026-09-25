@@ -41,6 +41,16 @@ export interface LoanRecord {
    */
   ctcDate: string | null;
   /**
+   * Etapa AVG-DAYS-TO-CLOSE-6: `loan_records_v2.closing_date`, fecha exacta
+   * -- distinta de `closingMonth` (mes canónico ya resuelto en BigQuery, con
+   * la regla de Disbursement/Funding/Completion aplicada). Esta SÍ es la
+   * fecha cruda de la columna, sin esa regla -- input de
+   * `businessDaysToClose()` para el tramo CTC→Disbursement. No existía
+   * expuesta hasta esta etapa (checklist completo: faltaba en SELECT,
+   * en `LoanRecordV2Row`, en el mapper y acá).
+   */
+  closingDate: string | null;
+  /**
    * Mes de Closed, o `null` si el préstamo no cerró.
    *
    * Ya resuelto en BigQuery (`loan_records_v2.closing_month`), con la misma

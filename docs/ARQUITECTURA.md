@@ -8733,3 +8733,62 @@ en un `useMemo` cada vez que cambia el selector -- cambiar de dimensión ya
 no dispara ninguna llamada nueva, verificado por Network. Orden por defecto
 de la tabla: ascendente por `avgBusinessDays` (quien cierra más rápido
 primero), los grupos sin resultado resuelto al final.
+
+## Segundo tramo de "Days to Close": Clear to Close → Disbursement
+
+Se extiende `DaysToCloseTrends.tsx` con un segundo tramo, agregado como
+columnas nuevas en la MISMA tabla y componente que ya existía (no una tabla
+aparte): días hábiles entre `ms_clear_to_close` (Clear to Close) y
+`closing_date` (Disbursement), sobre la misma población de 445 préstamos ya
+usada para App → CTC (`app_date` + `ms_clear_to_close` pobladas +
+`counts_for_division = true`) -- el segundo tramo no cambia el filtro de
+elegibilidad, sólo agrega un cálculo más por cada préstamo ya elegible.
+
+**`closing_date` no estaba expuesto en ningún punto del pipeline** antes de
+esta etapa -- mismo checklist ya usado para `ms_clear_to_close`: faltaba en
+el `SELECT` explícito (`COLUMNS`, `lib/supabase/loadCurrent.ts`), en
+`LoanRecordV2Row`, en el mapper, y en `LoanRecord`
+(`lib/domain/types.ts`). Sólo vivía un comentario explicando por qué
+`closingMonth` (el mes ya resuelto en BigQuery, con la regla de
+Disbursement/Funding/Completion aplicada) se usa en vez de esta fecha cruda
+para las series de Analytics existentes -- ese uso no cambia; `closingDate`
+es un campo nuevo y paralelo, sólo para este segundo tramo.
+
+**Misma fuente que App → CTC**: los dos tramos leen
+`activity_report.loan_records_v2` vía el mismo `loadCurrentReport()`, en la
+misma carga -- no hay una segunda consulta ni una segunda fuente. Y el mismo
+mecanismo de cálculo: `computeDaysToCloseResults()` llama
+`business_days_between()` (la RPC de `public`, no aritmética de calendario)
+una segunda vez por préstamo, en paralelo con la llamada de App → CTC
+(`Promise.all`), preservando `null` explícito si `closingDate` no está
+poblada para algún préstamo (no ocurre en la población actual, pero el
+cálculo no asume que nunca va a ocurrir -- se salta ese préstamo del tramo
+CTC→Disb sin invalidar su tramo App→CTC).
+
+`groupDaysToCloseByDimension()` agrega 4 campos nuevos por grupo
+(`avgBusinessDaysCtcToDisb`/`medianBusinessDaysCtcToDisb`/
+`minBusinessDaysCtcToDisb`/`maxBusinessDaysCtcToDisb`), calculados sobre un
+segundo acumulador independiente del de App → CTC -- el orden por defecto de
+la tabla (ascendente por `avgBusinessDays`, App → CTC) no cambia.
+
+La distribución (`buildDaysToCloseCtcToDisbHistogram`) y las dos tendencias
+mensuales (`groupDaysToCloseCtcToDisbByCtcMonth`, anclada en CTC Date;
+`groupDaysToCloseCtcToDisbByClosingMonth`, anclada en Closing Date) son
+funciones nuevas y separadas de sus equivalentes de App → CTC -- comparten
+sólo el helper privado que arma buckets de a 10 días
+(`daysHistogram`, refactor sin cambio de comportamiento del histograma
+existente) y el helper privado que agrupa por mes (`monthlyRows`,
+generalizado para aceptar qué tramo promediar sin duplicar la función). El
+rango de buckets del histograma nuevo es propio (máximo real ≈36 días, ~4
+buckets) y no se copia del rango de App → CTC (máximo ≈121 días, ~13
+buckets).
+
+En la UI (`DaysToCloseTrends.tsx`): las 4 columnas nuevas se agregan
+DESPUÉS de las columnas de App → CTC en la tabla principal (nunca
+reemplazadas ni reordenadas); el modal de detalle por grupo muestra ambos
+tramos por préstamo (Closing Date + Business Days CTC→Disb, al lado de App
+Date/CTC Date/Business Days ya existentes); y el histograma + las 2
+tendencias mensuales de este segundo tramo viven en una sección propia,
+con su propio encabezado ("Clear to Close → Disbursement"), separada
+visualmente de la sección de App → CTC de arriba -- nunca en la misma
+tabla ni en el mismo gráfico.
