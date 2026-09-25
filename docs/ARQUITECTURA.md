@@ -8682,3 +8682,54 @@ crudo en vez de romper. No quitar este fallback asumiendo que el invariante
 "siempre" se cumple -- ya falló una vez (fila aislada, corregida en origen)
 y el guard queda como red de seguridad barata (una línea) contra una futura
 regresión del mismo tipo.
+
+## Tercer botón en Analytics — "Days to Close", y las 3 fuentes de datos del toggle
+
+`app/analytics/page.tsx` tenía un toggle de 2 posiciones ("Closing" /
+"Commercial Activity"); se agrega una tercera, "Days to Close", con su
+propio bloque de estado (mismo patrón de 3 estados que ya usaba Commercial
+Activity: error/loading-inicial/records-null) y su propio componente,
+`app/pipeline/DaysToCloseTrends.tsx` -- muestra el promedio de días hábiles
+entre App y Clear To Close, agrupado por Branch, Loan Officer o Processor a
+elección (mismo patrón visual `.seg` que el toggle de arriba, adentro del
+componente en vez de en la página).
+
+A diferencia de los otros dos fetches de esta página (que arrancan en el
+mount inicial), el de "Days to Close" es **lazy**: recién se dispara la
+primera vez que se selecciona esa pestaña, guardado con un `ref` para no
+repetirse si se vuelve a ella después.
+
+**Las 3 posiciones del toggle leen de sólo 2 fuentes, no de 3:**
+
+| posición | componente | schema/tabla |
+|---|---|---|
+| Closing | `TabAnalytics.tsx` (Scorecards incluido) | `pipeline_forecast` -- `pipeline_loans`/`pipeline_resolved_loans` |
+| Commercial Activity | `CommercialActivityTrends.tsx` | `activity_report.loan_records_v2` |
+| Days to Close | `DaysToCloseTrends.tsx` | `activity_report.loan_records_v2` |
+
+**Commercial Activity y Days to Close comparten exactamente la misma tabla**
+-- las dos llaman `loadCurrentReport()` (`lib/supabase/loadCurrent.ts`), cada
+una con su propio fetch independiente (dos cargas separadas del mismo
+snapshot, sin cache compartido -- mismo criterio ya documentado para el resto
+de esta página). "Closing" es la única posición que lee de un schema
+distinto (`pipeline_forecast`, el mismo que usa Forecast & Pipeline).
+
+El cálculo en sí (`lib/activity/businessDaysToClose.ts` +
+`lib/aggregation/buildAverageDaysToCloseByDimension.ts`) llama a la RPC
+`public.business_days_between()` una vez por préstamo elegible (445 hoy:
+`app_date` + `ms_clear_to_close` pobladas + `counts_for_division = true`),
+en tandas de 20 en paralelo.
+
+**Corrección, Etapa AVG-DAYS-TO-CLOSE-3:** al principio esto no tenía cache
+entre dimensiones -- cambiar el selector de Branch a Loan Officer volvía a
+llamar la RPC para los 445, con varios segundos de tabla vieja visible
+mientras tanto. Se separó en dos funciones: `computeDaysToCloseResults()`
+(la única que llama a la RPC, corre UNA vez por carga de la pestaña, con las
+3 etiquetas de dimensión -- branch/loan officer/processor -- ya resueltas
+por préstamo) y `groupDaysToCloseByDimension()` (pura, sincrónica, sin red --
+reagrupa el resultado ya cacheado). `DaysToCloseTrends.tsx` cachea el
+resultado de la primera en su propio estado (`results`) y llama a la segunda
+en un `useMemo` cada vez que cambia el selector -- cambiar de dimensión ya
+no dispara ninguna llamada nueva, verificado por Network. Orden por defecto
+de la tabla: ascendente por `avgBusinessDays` (quien cierra más rápido
+primero), los grupos sin resultado resuelto al final.

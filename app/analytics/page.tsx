@@ -7,12 +7,13 @@
 // el mismo componente sin ningún estilo -- descubierto revisando qué
 // clases usa TabAnalytics.tsx contra dónde están definidas, no asumido.
 import '@/app/pipeline/styles/forecast-visual.css';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { PipelineLoan, ResolvedLoan } from '@/lib/pipeline/types';
 import type { LoanRecord } from '@/lib/domain/types';
 import { loadCurrentReport } from '@/lib/supabase/loadCurrent';
 import TabAnalytics from '@/app/pipeline/TabAnalytics';
 import CommercialActivityTrends from '@/app/pipeline/CommercialActivityTrends';
+import DaysToCloseTrends from '@/app/pipeline/DaysToCloseTrends';
 import { FileSheetIcon } from '@/components/ui/icons';
 
 /**
@@ -70,7 +71,7 @@ export default function AnalyticsPage() {
    * no se cargan en esta página). Selector local, sin persistir en URL --
    * mismo criterio que el resto de los toggles de esta pestaña.
    */
-  const [analyticsView, setAnalyticsView] = useState<'closing' | 'commercialActivity'>('closing');
+  const [analyticsView, setAnalyticsView] = useState<'closing' | 'commercialActivity' | 'daysToClose'>('closing');
 
   /*
    * Etapa ANALYTICS-CA-TRENDS-2 -- estado PROPIO de esta página para
@@ -83,6 +84,21 @@ export default function AnalyticsPage() {
   const [caRecords, setCaRecords] = useState<LoanRecord[] | null>(null);
   const [caLoadingInitial, setCaLoadingInitial] = useState(true);
   const [caError, setCaError] = useState<string | null>(null);
+
+  /*
+   * Etapa AVG-DAYS-TO-CLOSE-2 -- mismo patrón de 3 estados que Commercial
+   * Activity, mismo `loadCurrentReport()` (misma tabla, `activity_report.
+   * loan_records_v2` -- "Days to Close" y "Commercial Activity" comparten
+   * fuente, sólo difiere qué hace cada vista con los records). A diferencia
+   * de los otros dos fetches (que arrancan en el mount inicial), éste es
+   * LAZY: recién se dispara la primera vez que se selecciona esta pestaña
+   * -- ver el useEffect de abajo, guardado por `dtcFetchStarted` para no
+   * repetirlo si se vuelve a esta pestaña después.
+   */
+  const [dtcRecords, setDtcRecords] = useState<LoanRecord[] | null>(null);
+  const [dtcLoadingInitial, setDtcLoadingInitial] = useState(false);
+  const [dtcError, setDtcError] = useState<string | null>(null);
+  const dtcFetchStarted = useRef(false);
 
   // Mismo patrón que el fetch inicial de app/pipeline/page.tsx -- un GET, sin
   // POST/upload acá (esta página no lo ofrece). {snapshot: null} (nadie subió
@@ -143,6 +159,37 @@ export default function AnalyticsPage() {
     };
   }, []);
 
+  /*
+   * Etapa AVG-DAYS-TO-CLOSE-2 -- fetch lazy: corre recién cuando
+   * `analyticsView` pasa a `'daysToClose'` por primera vez, no en el mount
+   * (a diferencia de los dos efectos de arriba, que sí cargan eager). El
+   * `ref` evita relanzarlo si el usuario vuelve a esta pestaña después de
+   * haber estado en otra -- una vez cargado, `dtcRecords` ya no es `null` y
+   * no hace falta pedirlo de nuevo.
+   */
+  useEffect(() => {
+    if (analyticsView !== 'daysToClose' || dtcFetchStarted.current) return;
+    dtcFetchStarted.current = true;
+    let cancelled = false;
+    setDtcLoadingInitial(true);
+    loadCurrentReport()
+      .then((current) => {
+        if (cancelled) return;
+        if (current) setDtcRecords(current.records);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setDtcError(errorMessage(err));
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setDtcLoadingInitial(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [analyticsView]);
+
   return (
     <div className="hub-container">
       <div className="page-head">
@@ -159,6 +206,9 @@ export default function AnalyticsPage() {
             onClick={() => setAnalyticsView('commercialActivity')}
           >
             Commercial Activity
+          </button>
+          <button type="button" className={analyticsView === 'daysToClose' ? 'on' : ''} onClick={() => setAnalyticsView('daysToClose')}>
+            Days to Close
           </button>
         </div>
       </div>
@@ -218,6 +268,42 @@ export default function AnalyticsPage() {
           )}
 
           {caRecords !== null && <CommercialActivityTrends records={caRecords} />}
+        </>
+      )}
+
+      {/*
+       * Etapa AVG-DAYS-TO-CLOSE-2 -- mismos 3 estados que Commercial
+       * Activity de arriba, misma tabla de origen. `dtcLoadingInitial`
+       * arranca en `false` (a diferencia de `caLoadingInitial`): antes del
+       * primer click en "Days to Close" no hay ninguna carga en curso que
+       * mostrar.
+       */}
+      {analyticsView === 'daysToClose' && (
+        <>
+          {dtcError && <span className="pill warn">{dtcError}</span>}
+
+          {dtcRecords === null && dtcLoadingInitial && !dtcError && (
+            <div className="empty">
+              <h2>Loading…</h2>
+              <p>Looking for the last saved Commercial Activity report.</p>
+            </div>
+          )}
+
+          {dtcRecords === null && !dtcLoadingInitial && !dtcError && (
+            <div className="empty">
+              <div className="drop-ic">
+                <FileSheetIcon size={24} />
+              </div>
+              <h2>Todavía no hay datos de actividad</h2>
+              <p>
+                La actividad se sincroniza desde BigQuery cada vez que se sube Encompass por la app de cargas. Si esta
+                pantalla sigue vacía después de una carga, avisá al equipo de datos: el que falló es el sync, no esta
+                vista.
+              </p>
+            </div>
+          )}
+
+          {dtcRecords !== null && <DaysToCloseTrends records={dtcRecords} />}
         </>
       )}
     </div>
