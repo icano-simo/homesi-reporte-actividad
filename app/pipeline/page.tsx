@@ -222,15 +222,24 @@ export default function PipelinePage() {
   const [firstSeenAsAdverse, setFirstSeenAsAdverse] = useState<Record<string, string | null>>({});
   /**
    * Etapa EXCEL-4: true mientras /api/pipeline/adverse-history está en
-   * vuelo (arranca en `true`, mismo motivo que `isLoadingInitial`: hay una
-   * ventana real entre que `data` llega -- habilita el botón Download
-   * Excel -- y que este segundo fetch resuelve, mientras la cual
-   * `adverseInRange` da 0 de forma legítima, no un bug de datos: ver
+   * vuelo -- hay una ventana real entre que `data` llega -- habilita el
+   * botón Download Excel -- y que este segundo fetch resuelve, mientras la
+   * cual `adverseInRange` da 0 de forma legítima, no un bug de datos: ver
    * `firstSeen === undefined` en su filtro más abajo). `handleExport` no
    * debe poder correr en esa ventana -- el Excel saldría sin Adverse
    * aunque sí existan.
+   *
+   * Fix de lint (react-hooks/set-state-in-effect): en vez de un booleano
+   * que el efecto prende y apaga con un `setState` sincrónico, se guarda A
+   * QUÉ `data` pertenece la última respuesta y se DERIVA el booleano
+   * comparando por referencia -- mismo mecanismo que el comentario de más
+   * abajo ya proponía para este efecto, adaptado: acá no hace falta agregar
+   * un id de snapshot, porque `data` ya se reemplaza entero en cada
+   * carga/restauración, así que su propia identidad de objeto ya es la
+   * marca que hacía falta.
    */
-  const [isAdverseHistoryLoading, setIsAdverseHistoryLoading] = useState(true);
+  const [adverseHistoryFor, setAdverseHistoryFor] = useState<ParseApiResponse | null>(null);
+  const isAdverseHistoryLoading = data !== null && adverseHistoryFor !== data;
   // Etapa F5a: true mientras se consulta /api/pipeline/latest al montar --
   // evita mostrar el emptyState de "sube tu archivo" antes de saber si hay
   // un snapshot guardado (mismo patrón que isLoadingInitial en app/page.tsx
@@ -409,54 +418,27 @@ export default function PipelinePage() {
   useEffect(() => {
     if (!data) return;
     let cancelled = false;
-    // Etapa EXCEL-4: `true` al ARRANCAR el fetch, no solo al terminar --
-    // este efecto se re-dispara con cada `data` nuevo (re-subida), y sin
-    // esto el botón quedaría habilitado con el `firstSeenAsAdverse` del
-    // snapshot ANTERIOR mientras el del nuevo snapshot todavía está en
-    // vuelo, misma ventana de carrera que este fix busca cerrar.
-    /*
-     * ======================================================================
-     * ⚠ ESTE `setState` ES EL ERROR DE LINT DE ESTA PANTALLA, Y ACÁ ESTÁ LA
-     * FORMA CORRECTA — para que el próximo no repita el intento.
-     * ======================================================================
-     *
-     * `react-hooks/set-state-in-effect` lo marca con razón: un `setState`
-     * sincrónico dentro de un efecto dispara un render en cascada. No es un
-     * descuido de quien lo escribió: el camino natural lleva acá. Escribiendo
-     * el aviso de integridad (RPT5) intenté exactamente lo mismo --limpiar el
-     * estado al arrancar el fetch-- y el linter lo marcó igual.
-     *
-     * LA FORMA CORRECTA es no tener un booleano que haya que dar vuelta, sino
-     * guardar A QUÉ SNAPSHOT PERTENECE la respuesta y DERIVAR el booleano:
-     *
-     *   const [adverseFor, setAdverseFor] = useState<number | null>(null);
-     *   // en el .then():  setAdverseFor(snapshotId)
-     *   const isAdverseHistoryLoading = adverseFor !== data?.snapshotId;
-     *
-     * Con eso el estado "todavía no llegó" no se declara: se deduce de que la
-     * respuesta que hay es de otro snapshot. Cierra la misma ventana de carrera
-     * que el `true` adelantado y sin `setState` en el efecto.
-     *
-     * ⚠ NO SE APLICA ACÁ porque `data` no expone hoy un id de snapshot y
-     * agregarlo toca `/api/pipeline/latest` y su mapeo -- fuera del alcance de
-     * las etapas que pasaron por este archivo. El mismo problema se resolvió de
-     * la forma correcta en el aviso de integridad, comparando `integrity.month`
-     * contra `forecastMonth` en el render en vez de limpiar el estado.
-     */
-    setIsAdverseHistoryLoading(true);
+    // Etapa EXCEL-4: este efecto se re-dispara con cada `data` nuevo
+    // (re-subida/restauración), y la ventana de carrera que le importa
+    // cerrar es que el botón no quede habilitado con el
+    // `firstSeenAsAdverse` del snapshot ANTERIOR mientras el del nuevo
+    // todavía está en vuelo. Fix de lint (react-hooks/set-state-in-effect,
+    // ver el comentario junto a `adverseHistoryFor` más arriba): ya no hay
+    // ningún `setState` sincrónico acá -- `isAdverseHistoryLoading` queda
+    // derivado en `true` sólo por la comparación de referencia
+    // (`adverseHistoryFor !== data`), hasta que el `.then()`/`.catch()` de
+    // abajo guarde el `data` que le corresponde a esta respuesta.
     fetch('/api/pipeline/adverse-history')
       .then((res) => res.json())
       .then((body) => {
         if (cancelled) return;
         setFirstSeenAsAdverse(body?.firstSeen ?? {});
+        setAdverseHistoryFor(data);
       })
       .catch(() => {
         if (cancelled) return;
         setFirstSeenAsAdverse({});
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setIsAdverseHistoryLoading(false);
+        setAdverseHistoryFor(data);
       });
     return () => {
       cancelled = true;
