@@ -4,6 +4,19 @@
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
 <!-- END:nextjs-agent-rules -->
 
+# Regla fija: toda la UI en inglés, sin excepción
+
+> Esta regla no nace de un incidente puntual -- a diferencia del resto de
+> este archivo, que documenta casos reales -- es un estándar del proyecto
+> que se deja escrito acá para que no dependa de que alguien se acuerde de
+> pedirlo cada vez.
+
+All UI copy (labels, buttons, headers, tooltips, empty states, error
+messages, dropdown options, etc.) must be written in English, with no
+exceptions -- regardless of the language used in prompts, comments, or
+commit messages. This applies to every module (Forecast, Activity,
+Analytics, and any future module).
+
 # Verificar antes de reportar
 
 > Esta sección va FUERA del bloque de arriba a propósito: ese lo regenera una
