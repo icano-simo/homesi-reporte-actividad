@@ -208,11 +208,11 @@ export default function AnalyticsPage() {
               <div className="drop-ic">
                 <FileSheetIcon size={24} />
               </div>
-              <h2>Todavía no hay datos de actividad</h2>
+              <h2>No activity data yet</h2>
               <p>
-                La actividad se sincroniza desde BigQuery cada vez que se sube Encompass por la app de cargas. Si esta
-                pantalla sigue vacía después de una carga, avisá al equipo de datos: el que falló es el sync, no esta
-                vista.
+                Activity data syncs from BigQuery every time Encompass is uploaded through the upload app. If this
+                screen is still empty after an upload, let the data team know: it&apos;s the sync that failed, not
+                this view.
               </p>
             </div>
           )}
