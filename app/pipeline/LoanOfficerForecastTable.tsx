@@ -29,6 +29,31 @@ function filterByName(rows: LoanOfficerForecastByPerson[], searchText: string): 
   return rows.filter((r) => r.loanOfficer.toLowerCase().includes(needle));
 }
 
+/**
+ * Filtro de presentación (investigación "Loan Officer con fila en cero"):
+ * `buildLoanOfficerForecastRows()` puebla `officersByKey` desde CUALQUIER
+ * loan cerrado/adverso de ese branch+canal, sin filtrar por fecha ni por
+ * status -- así que un Loan Officer con un loan viejo (fuera del Forecast
+ * Month activo) puede aparecer con los 5 campos en 0, sin tener ninguna
+ * actividad en el período activo. Filtrar ACÁ (no en
+ * `buildLoanOfficerForecastByPerson`) es a propósito: esa
+ * función sigue devolviendo la población completa sin filtrar, así que sus
+ * chequeos de desarrollo (`suma de partes === branchRow.X`) siguen
+ * verificando contra el total real, no contra un subconjunto ya recortado.
+ *
+ * Nunca cambia ningún número: una fila en 0 no aporta nada a la fila
+ * `Total` (que suma sobre `visibleRows`), esté o no esté oculta.
+ */
+function hasAnyActivity(row: LoanOfficerForecastByPerson): boolean {
+  return (
+    row.totalCount > 0 ||
+    row.healthyCount > 0 ||
+    row.closedCount > 0 ||
+    row.projectedToClose > 0 ||
+    row.totalForecast > 0
+  );
+}
+
 function fmtInt(n: number): string {
   return n.toLocaleString('en-US');
 }
@@ -53,7 +78,7 @@ function CountCell({ value, onClick, variant }: { value: number; onClick: () => 
 export default function LoanOfficerForecastTable({ rows }: LoanOfficerForecastTableProps) {
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState<ModalState | null>(null);
-  const visibleRows = filterByName(rows, search);
+  const visibleRows = filterByName(rows.filter(hasAnyActivity), search);
 
   /**
    * Fila de totales -- suma directa de los 5 números YA CALCULADOS que
