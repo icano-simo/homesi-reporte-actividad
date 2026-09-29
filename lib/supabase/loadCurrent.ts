@@ -26,6 +26,7 @@ interface LoanRecordV2Row {
   ms_clear_to_close: string | null;
   closing_date: string | null;
   closing_month: string | null;
+  org_est_closing_date: string | null;
   total_loan_amount: number | string | null;
   loan_number: string | null;
   loan_program: string | null;
@@ -54,7 +55,9 @@ const COLUMNS =
   // Etapa "Stage SF": embudo de venta en Salesforce, ver LoanRecord.sfStage.
   'sf_stage, ' +
   // Etapa AVG-DAYS-TO-CLOSE-1: ver LoanRecord.loanProcessorName.
-  'loan_processor_name';
+  'loan_processor_name, ' +
+  // Etapa ON-TIME-1: estimación ORIGINAL de cierre, fija -- ver LoanRecord.orgEstClosingDate.
+  'org_est_closing_date';
 
 export interface CurrentReport {
   records: LoanRecord[];
@@ -195,6 +198,11 @@ export async function loadCurrentReport(): Promise<CurrentReport | null> {
     // resuelto en BigQuery con la regla de Disbursement/Funding/Completion,
     // ver el bloque de abajo) -- input del tramo CTC→Disbursement.
     closingDate: row.closing_date,
+    // Etapa ON-TIME-1: sin parsear -- mismo criterio que appDate/ctcDate/
+    // closingDate de arriba (string 'YYYY-MM-DD' tal cual, nunca un `Date`).
+    // `null` en ~6 de 514 cierres de división -- se propaga tal cual, nunca
+    // una fecha inventada ni ''.
+    orgEstClosingDate: row.org_est_closing_date,
     /*
      * `closing_month` y no `closing_date`: es el mes canónico que ya resolvió
      * BigQuery (incluida la regla de Disbursement Date sobre Funding/Completion

@@ -51,6 +51,25 @@ export interface LoanRecord {
    */
   closingDate: string | null;
   /**
+   * Etapa ON-TIME-1: `loan_records_v2.org_est_closing_date` -- la estimación
+   * ORIGINAL de cierre, fija (no se recalcula con cada avance del préstamo,
+   * a diferencia de cualquier estimado "vigente" que pudiera existir en
+   * otro lado). Se llena sola con cada sync de BigQuery -- confirmado con
+   * Isa, nada pendiente de ese lado.
+   *
+   * `string | null`, NO `Date | null` -- mismo criterio que `appDate`/
+   * `ctcDate`/`closingDate` de arriba: un `Date` construido desde un string
+   * de fecha calendario pura (`'YYYY-MM-DD'`) puede correrse un día por la
+   * interpretación UTC-medianoche vs. la zona local (ver `monthOf()` en
+   * loadCurrent.ts, que evita `new Date(...)` por esta misma razón). `null`
+   * en ~6 de 514 cierres de división (verificado) -- se propaga tal cual,
+   * nunca una fecha inventada.
+   *
+   * Preparación de datos únicamente -- todavía no hay ningún cálculo de
+   * On Time/Delayed ni UI que lo use.
+   */
+  orgEstClosingDate: string | null;
+  /**
    * Mes de Closed, o `null` si el préstamo no cerró.
    *
    * Ya resuelto en BigQuery (`loan_records_v2.closing_month`), con la misma
