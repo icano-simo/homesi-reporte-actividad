@@ -97,6 +97,24 @@
   --amber: var(--amber-50);
   --amber-text: var(--amber-700);
 
+  /* ---- Days to Close (Activity) — Etapa AVG-DAYS-TO-CLOSE-1 --------------- */
+  /*
+   * Rampa ordinal de un solo hue (mismo H que --navy, ~257°) para los dos
+   * tramos de "Días hábiles a cierre": App→CTC (más temprano, más claro) y
+   * CTC→Disbursement (más tardío, más oscuro). Validado con el skill de
+   * dataviz (validate_palette.py --ordinal, superficie #fcfcfa): L monótona
+   * 0.68→0.42 (salto 0.26), un solo hue (spread 0°), contraste del extremo
+   * claro 2.81:1. Deliberadamente NO categórico: son dos etapas consecutivas
+   * del mismo proceso, no dos identidades independientes — swap de orden
+   * cambiaría el significado. Pendiente de validación visual en pantalla.
+   */
+  --days-close-app-ctc: #699ADE;
+  --days-close-ctc-disb: #1E4C8A;
+  /* Contraste de texto NO es simétrico entre los dos — cada segmento usa su
+     propio color de label, nunca el mismo para los dos. */
+  --days-close-app-ctc-text: var(--navy);
+  --days-close-ctc-disb-text: var(--white);
+
   /* ---- Forma y profundidad ---------------------------------------------- */
   --radius-sm: 6px;
   --radius-md: 10px;
