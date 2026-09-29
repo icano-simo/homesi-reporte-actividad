@@ -8682,3 +8682,50 @@ crudo en vez de romper. No quitar este fallback asumiendo que el invariante
 "siempre" se cumple -- ya falló una vez (fila aislada, corregida en origen)
 y el guard queda como red de seguridad barata (una línea) contra una futura
 regresión del mismo tipo.
+
+## Loan Officer con fila en cero en la tabla de Forecast, 2026-09-29
+
+La tabla "Loan Officer" de Projected Forecast (`LoanOfficerForecastTable.tsx`)
+mostraba filas con los 5 campos (Total Count, Healthy, Closed, Projected to
+Close, Total Forecast) en 0, para personas sin ninguna actividad en el mes de
+Forecast activo.
+
+**Causa:** `buildLoanOfficerForecastRows()` (`lib/pipeline/
+loanOfficerForecast.ts`) arma la lista de Loan Officers (`officersByKey`)
+iterando sobre los loans abiertos del branch (ya acotados al Pipeline Range)
+y sobre TODOS los loans de `pipeline_resolved_loans` de ese branch+canal --
+sin filtrar por fecha ni por status (`funded` vs. `adverse`). Un Loan Officer
+cuyo único registro sea un loan cerrado o adverso de un período anterior al
+Forecast Month activo entra igual a la lista, y como ninguno de sus campos
+tiene actividad dentro del rango vigente, los 5 números calculados dan 0.
+
+No es un loan mal clasificado ni un problema de identidad/alias -- es la
+construcción de la POBLACIÓN de la tabla, que no comparte el mismo filtro de
+fecha que sus columnas numéricas.
+
+**Fix, deliberadamente de presentación:** `LoanOfficerForecastTable.tsx`
+agrega `hasAnyActivity()`, que oculta una fila cuando `totalCount`,
+`healthyCount`, `closedCount`, `projectedToClose` y `totalForecast` son
+TODOS 0. Se filtra ahí y no dentro de `buildLoanOfficerForecastByPerson()`
+(`lib/pipeline/loanOfficerForecast.ts`) a propósito: esa función sigue
+devolviendo la población completa, sin recortar, para que sus chequeos de
+desarrollo (que verifican que la suma de las partes por Loan Officer coincida
+con el total del branch+canal) sigan corriendo contra el universo real y no
+contra un subconjunto ya filtrado.
+
+El criterio usa los CONTEOS CRUDOS (`totalCount`/`healthyCount`/`closedCount`
+-- cantidad real de loans, antes de cualquier pull-through), no los valores
+YA proyectados por pull-through (`projectedToClose`/`totalForecast`, que
+además ya vienen redondeados por `apportionByWeight()`). Esa distinción
+importa: un Loan Officer con al menos 1 loan asignado siempre tiene
+`totalCount > 0` o `closedCount > 0`, sin importar en qué redondee después su
+forecast -- así que el filtro nunca puede ocultar a alguien con actividad
+real por un efecto de redondeo del pull-through. Se confirmó contra el
+snapshot activo que, de las filas ocultadas, todas tenían los 5 campos en 0
+exacto (ningún caso de "actividad real escondida por redondeo").
+
+**Verificación hecha antes del merge:** la fila `Total` de la tabla (suma
+sobre las filas visibles) coincidió exacta, antes y después del fix, con el
+total "Combined Total by Branch" de la vista por branch de la misma pestaña
+-- ocultar una fila en 0 no le resta nada a ningún total, porque una fila en
+0 nunca aportó nada a esa suma.
