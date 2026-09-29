@@ -17,6 +17,7 @@ import {
 } from '@/lib/aggregation/buildAverageDaysToCloseByDimension';
 import { shortMonth } from '@/lib/business-plan/months';
 import { CloseIcon } from '@/components/ui/icons';
+import DaysToCloseDimensionSelector, { DIMENSIONS } from '@/components/activity/DaysToCloseDimensionSelector';
 
 export interface DaysToCloseTrendsProps {
   records: LoanRecord[];
@@ -39,12 +40,6 @@ function fmtMinMax(n: number | null): string {
 function monthYearLabel(ym: string): string {
   return shortMonth(ym) + ' ' + ym.slice(0, 4);
 }
-
-const DIMENSIONS: { key: AverageDaysToCloseDimension; label: string }[] = [
-  { key: 'branch', label: 'Branch' },
-  { key: 'loanOfficer', label: 'Loan Officer' },
-  { key: 'processor', label: 'Processor' },
-];
 
 /** Las OTRAS 2 dimensiones (no la activa) -- columnas de contexto del modal de detalle. */
 function otherDimensions(active: AverageDaysToCloseDimension): { key: AverageDaysToCloseDimension; label: string }[] {
@@ -232,16 +227,7 @@ export default function DaysToCloseTrends({ records }: DaysToCloseTrendsProps) {
 
   return (
     <div>
-      <div className="control-group">
-        <span className="label-chip">Group by</span>
-        <div className="seg">
-          {DIMENSIONS.map(({ key, label }) => (
-            <button key={key} type="button" className={dimension === key ? 'on' : ''} onClick={() => setDimension(key)}>
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
+      <DaysToCloseDimensionSelector value={dimension} onChange={setDimension} />
 
       {error && <span className="pill warn">{error}</span>}
 
