@@ -1213,6 +1213,84 @@ que falla las tres, borrarlo. Una guarda que sólo se vio dar verde no está
 probada — es el mismo agujero que el arnés que imprimía `SIN FALLAS` sin
 ejecutar una aserción, un nivel más arriba.
 
+#### Y cuando el defecto tuvo un caso REAL, la violación no se inventa: se saca del historial
+
+Una inyección prueba **el patrón que escribiste**; el commit anterior prueba **el
+defecto que existió**. No son lo mismo, y la diferencia se ve cuando no
+coinciden.
+
+El caso: RV25 reemplazó un `find` que tomaba «la primera revisión en curso» por
+una elección explícita, y la guarda nueva traía tres aserciones. Se ejercitaron
+poniendo de vuelta el proveedor ANTERIOR --`git checkout HEAD -- <archivo>`,
+correr, restaurar-- y dijo `2 FALLAS de 24`. Dos mordieron. **La tercera pasó en
+verde sobre el código que tenía el defecto.**
+
+Decía «no quedó un `find` que tome la primera en curso», con el patrón
+`find\([^)]*status === 'in_progress'\s*\)`. El código real seguía con
+`&& !salio(...)` antes del paréntesis, así que el patrón no llegaba nunca. Una
+inyección escrita por mí habría tenido la forma que mi patrón esperaba y habría
+dado rojo — confirmando una guarda que en el caso real no servía.
+
+> **Una guarda probada sólo contra una violación inventada mide si el autor
+> sabe escribir su propio patrón. Contra el commit del defecto, mide si atrapa
+> el defecto.**
+
+Y la razón de la falla es la de siempre, una vez más: una regla sobre **cómo se
+ve** el código --dónde cae el paréntesis-- en vez de sobre lo que decide. La
+aserción se borró en vez de arreglarse, porque las dos que quedaron cubren el
+caso sin adivinar cómo se escribió el `find`.
+
+La regla operativa: **si el defecto tiene un commit, la guarda se corre contra
+ese commit.** Cuesta tres comandos y es la única forma de saber que la guarda y
+el defecto se conocen. La inyección se queda para lo que nunca pasó todavía.
+
+##### ⚠ Y LA CORRECCIÓN, DEL DÍA EN QUE SE USARON LAS DOS: no es una o la otra
+
+Lo de arriba se lee como «el commit es mejor que la inyección», y **medido en
+una sola tarde, cada una encontró lo que la otra no podía.** Las dos sobre la
+misma guarda, la de RV28:
+
+| | qué se corrió | qué encontró |
+|---|---|---|
+| el commit del defecto (`fac55ad`) | la guarda contra las pantallas que tenían las tres fugas | que mi primera versión --comparando PROFUNDIDADES-- marcaba dos y **dejaba pasar justo la que se había ejercido en producción** |
+| la inyección | la compuerta del presupuesto leyendo la evidencia del paso equivocado | que dos aserciones **emparejaban sobre el árbol entero**: el par existía en otro archivo, así que la compuerta estaba rota y el conteo cuadraba |
+
+El segundo no lo podía dar ningún commit, y no por casualidad: **ese estado
+nunca existió**. El cableado cruzado --anotar un paso y leer otro-- no está en
+el historial porque el código se escribió bien la primera vez. Un defecto que
+nunca ocurrió no tiene commit del que sacarlo.
+
+> **El commit del defecto mide si la guarda atrapa lo que YA pasó. La inyección
+> mide si atrapa lo que TODAVÍA no pasó — y una guarda nueva se escribe
+> justamente para lo segundo.**
+
+Así que la frase de arriba --«la inyección se queda para lo que nunca pasó»--
+era correcta y sonaba a concesión. No lo es: es la mitad del trabajo, y es la
+mitad que encontró el hueco más fino de las dos.
+
+La regla operativa queda en dos: **contra el commit si el defecto tuvo uno, y
+con una violación inyectada siempre.** La primera puede faltar --hay defectos
+sin historia--; la segunda no, porque una guarda que sólo se vio dar verde no
+está probada, y ésa es la frase con la que empieza esta sección.
+
+#### Y el hermano de la misma serie: un contador de efectos en cero
+
+La sonda de RV24 vigilaba la red y afirmaba `activate_funnel: 0` — que la
+práctica no activa nada. Dio verde **cuatro veces seguidas sin haber ejercido
+nada**, por cuatro causas distintas: el contexto decía «real» y el clic no
+llegaba; el localizador buscaba un rótulo viejo y no clickeaba; la lectura de
+control moría en un `42501`; y la última, que sólo mostró la captura, es que el
+botón de la tarjeta **abre el explorador** y el que activa está dentro del modal.
+
+> **Un contador de efectos en cero no distingue «no pasó» de «no se intentó».**
+> Es el `UPDATE` sin `returning` con otra cara: la operación no dejó rastro
+> porque nunca ocurrió, y eso se lee igual que un guardia que funcionó.
+
+Las dos que lo cerraron: **afirmar que el gesto ocurrió** --que el botón se
+encontró, que el manejador dejó su salida en pantalla-- y **mirar la captura**,
+que fue la que mostró el modal abierto cuando los cuatro números decían que todo
+estaba bien.
+
 ### Y el inventario de lo visible sale del DOM, no del grep
 
 La pregunta de un renombre de rótulos no es «¿dónde aparece la palabra?» sino
