@@ -1214,6 +1214,35 @@ La regla operativa: **si el defecto tiene un commit, la guarda se corre contra
 ese commit.** Cuesta tres comandos y es la única forma de saber que la guarda y
 el defecto se conocen. La inyección se queda para lo que nunca pasó todavía.
 
+##### ⚠ Y LA CORRECCIÓN, DEL DÍA EN QUE SE USARON LAS DOS: no es una o la otra
+
+Lo de arriba se lee como «el commit es mejor que la inyección», y **medido en
+una sola tarde, cada una encontró lo que la otra no podía.** Las dos sobre la
+misma guarda, la de RV28:
+
+| | qué se corrió | qué encontró |
+|---|---|---|
+| el commit del defecto (`fac55ad`) | la guarda contra las pantallas que tenían las tres fugas | que mi primera versión --comparando PROFUNDIDADES-- marcaba dos y **dejaba pasar justo la que se había ejercido en producción** |
+| la inyección | la compuerta del presupuesto leyendo la evidencia del paso equivocado | que dos aserciones **emparejaban sobre el árbol entero**: el par existía en otro archivo, así que la compuerta estaba rota y el conteo cuadraba |
+
+El segundo no lo podía dar ningún commit, y no por casualidad: **ese estado
+nunca existió**. El cableado cruzado --anotar un paso y leer otro-- no está en
+el historial porque el código se escribió bien la primera vez. Un defecto que
+nunca ocurrió no tiene commit del que sacarlo.
+
+> **El commit del defecto mide si la guarda atrapa lo que YA pasó. La inyección
+> mide si atrapa lo que TODAVÍA no pasó — y una guarda nueva se escribe
+> justamente para lo segundo.**
+
+Así que la frase de arriba --«la inyección se queda para lo que nunca pasó»--
+era correcta y sonaba a concesión. No lo es: es la mitad del trabajo, y es la
+mitad que encontró el hueco más fino de las dos.
+
+La regla operativa queda en dos: **contra el commit si el defecto tuvo uno, y
+con una violación inyectada siempre.** La primera puede faltar --hay defectos
+sin historia--; la segunda no, porque una guarda que sólo se vio dar verde no
+está probada, y ésa es la frase con la que empieza esta sección.
+
 #### Y el hermano de la misma serie: un contador de efectos en cero
 
 La sonda de RV24 vigilaba la red y afirmaba `activate_funnel: 0` — que la
