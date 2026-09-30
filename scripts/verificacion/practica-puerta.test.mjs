@@ -40,7 +40,7 @@ const { crearArnes, sinComentarios } = await import(
 const puerta = await import(pathToFileURL(resolve(RAIZ, 'lib/review/puertaDeEscritura.ts')).href);
 const { decidirDestino, valorDePractica, PASOS_QUE_ESCRIBEN } = puerta;
 
-const a = crearArnes({ minimo: 29 });
+const a = crearArnes({ minimo: 31 });
 
 /* ── 1. La rama real ─────────────────────────────────────────────────────── */
 {
@@ -278,6 +278,122 @@ const archivos = [];
    */
   a.ck(/sesiones_borradas/.test(acciones),
     '⚠ y mira cuántas filas borró, no sólo `error`: cero con `error: null` es el silencio de siempre');
+}
+
+/* ── 9. Que la compuerta DOMINE a cada escritura, no que exista ──────────── */
+{
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * ⚠ LA GUARDA DE ARRIBA DABA VERDE SOBRE CUATRO FUGAS — etapa RV28
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * El bloque 5 pregunta QUIÉN NOMBRA a los escritores, y eso estaba bien: los
+   * tres seguían viviendo donde debían. Lo que no preguntaba es si la pantalla
+   * que los llama CONSULTA la puerta antes, y en tres de cuatro no lo hacía:
+   *
+   *   PersonBudgetEditor  savePersonBudget             chequeo dentro de su `if`
+   *                       confirmPersonBudgetReviewed  FUERA de ese `if`
+   *                       releasePersonBudgetToRule    otro handler, sin nada
+   *   BenchmarkEditor     fijarBenchmark               sin nada
+   *
+   * Lo encontró Isabella usándolo: durante su práctica sobre Mariano,
+   * `Confirm as reviewed` escribió tres filas reales en `outlook.budget_total`
+   * a las 19:06:03. Una prueba escrita desde el código no podía verlo, porque
+   * el código decía exactamente eso.
+   *
+   * ⚠ Y POR QUÉ NO ALCANZA CON «el archivo menciona esPractica»: el archivo del
+   * presupuesto LO MENCIONABA. La propiedad que hace falta es de DOMINANCIA --
+   * que la compuerta se ejecute sí o sí antes de la escritura.
+   *
+   * ⚠⚠ Y LA PRIMERA VERSIÓN DE ESTA ASERCIÓN NO ATRAPÓ EL CASO DE ISABELLA.
+   *
+   * Decía «la compuerta antes en el texto y no más anidada que la escritura»,
+   * comparando PROFUNDIDADES. Medido sobre el archivo con el defecto: la
+   * compuerta estaba en profundidad 4 y `confirmPersonBudgetReviewed` TAMBIÉN
+   * en 4 -- son dos `if` HERMANOS dentro del mismo `try`, y dos hermanos tienen
+   * la misma profundidad sin que ninguno domine al otro. Marcó las dos fugas
+   * que no tenían compuerta y dejó pasar justo la que se ejerció.
+   *
+   * Es la trampa que este repo lleva documentada siete veces, cometida dentro
+   * de la guarda escrita contra ella: **una regla sobre la FORMA del texto en
+   * vez de sobre su significado.** La profundidad describe cómo se ve el
+   * anidamiento; no dice qué se ejecuta antes que qué.
+   *
+   * Lo que sí lo dice: entre la compuerta y la escritura, la profundidad NUNCA
+   * baja de la de la compuerta. Si baja, es que un bloque que contenía a la
+   * compuerta se cerró en el medio -- y entonces la escritura está en otra
+   * rama. Eso es control de flujo, no forma.
+   *
+   * Las llaves se cuentan sobre el código sin comentarios. Las de los template
+   * literals (`${...}`) están balanceadas y no corren la cuenta; una llave
+   * suelta dentro de una cadena sí lo haría, y no hay ninguna en estos archivos
+   * -- dicho acá porque es el límite del método, no un detalle.
+   */
+  const ESCRITURAS_DE_PANTALLA = [
+    'savePersonBudget',
+    'savePersonBudgetTotal',
+    'savePersonBudgetBreakdown',
+    'releasePersonBudgetToRule',
+    'confirmPersonBudgetReviewed',
+    'fijarBenchmark',
+    'activate_funnel',
+    'change_funnel',
+  ];
+  /* Las dos formas que tiene una compuerta: la función del editor de
+     presupuesto y el chequeo en línea de las otras pantallas. */
+  const COMPUERTA = /frenadoPorPractica\(\)|contextoDeEscritura[^\n]*esPractica/g;
+
+  /* La profundidad de llaves en cada posición del archivo, de una pasada. */
+  const perfil = (texto) => {
+    const d = new Int32Array(texto.length + 1);
+    let n = 0;
+    for (let i = 0; i < texto.length; i++) {
+      if (texto[i] === '{') n++;
+      else if (texto[i] === '}') n--;
+      d[i + 1] = n;
+    }
+    return d;
+  };
+  /*
+   * ¿La compuerta se ejecuta sí o sí antes de la escritura? Sí cuando está
+   * antes y NINGÚN bloque que la contenía se cerró en el medio -- o sea, la
+   * profundidad nunca bajó de la suya. Dos `if` hermanos fallan acá, que es lo
+   * que hay que detectar.
+   */
+  const domina = (d, puerta, escritura) => {
+    if (puerta >= escritura) return false;
+    const suya = d[puerta];
+    for (let i = puerta; i <= escritura; i++) if (d[i] < suya) return false;
+    return true;
+  };
+
+  const pantallas = archivos.filter((p) => /[\\/](app|components)[\\/]/.test(p));
+  const sinDominar = [];
+  let escriturasVistas = 0;
+  for (const p of pantallas) {
+    const codigo = sinComentarios(readFileSync(p, 'utf8'), 'ts');
+    const d = perfil(codigo);
+    const puertas = [...codigo.matchAll(COMPUERTA)].map((m) => m.index);
+    for (const nombre of ESCRITURAS_DE_PANTALLA) {
+      /* La LLAMADA, no la mención: `nombre(` o `.rpc('nombre'`. Un import
+         nombra al escritor y no escribe nada. */
+      const llamada = new RegExp('(?:\\b' + nombre + '\\s*\\(|rpc\\(\\s*[\'"]' + nombre + '[\'"])', 'g');
+      for (const m of codigo.matchAll(llamada)) {
+        /* La definición de la propia función no es una llamada. */
+        if (/function\s*$/.test(codigo.slice(Math.max(0, m.index - 30), m.index))) continue;
+        escriturasVistas++;
+        if (!puertas.some((g) => domina(d, g, m.index))) {
+          sinDominar.push(relative(RAIZ, p).replace(/\\/g, '/') + ' → ' + nombre);
+        }
+      }
+    }
+  }
+  a.ck(escriturasVistas > 0,
+    '⚠ ancla: la sonda ENCONTRÓ escrituras de pantalla que mirar (' + escriturasVistas +
+    ') — cero aquí sería una aserción sobre el vacío');
+  a.ck(sinDominar.length === 0,
+    '⚠ toda escritura hacia afuera tiene la compuerta antes Y no más afuera que ella' +
+    (sinDominar.length ? ' — ' + sinDominar.join(', ') : ''));
 }
 
 process.exitCode = a.resumen();
