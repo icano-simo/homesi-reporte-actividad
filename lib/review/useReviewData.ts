@@ -40,6 +40,7 @@ import { getSupabaseClient } from '@/lib/supabase/client';
 import type {
   MyReview,
   ReviewAssignment,
+  ReviewNote,
   ReviewPhase,
   ReviewResponse,
   ReviewScript,
@@ -280,6 +281,33 @@ export function useMyReviews(
           respuestas = (resRes.data ?? []) as ReviewResponse[];
         }
 
+        /*
+         * ⚠ LAS NOTAS, Y UN ERROR ACÁ NO ROMPE LA LISTA — etapa RV32.
+         *
+         * `review.note` llega con el SQL de RV32, así que este código puede
+         * correr contra una base que todavía no la tiene: ahí PostgREST
+         * contesta `PGRST205`/`42P01` y sin este `catch` la pantalla entera de
+         * revisiones se caería por una tabla que sólo alimenta un panel.
+         *
+         * Se distingue de «no hay notas» en la consola y no en la interfaz: la
+         * lista vacía es el mismo dibujo en los dos casos, y el que importa --
+         * que falte la migración-- lo va a ver quien la aplique.
+         */
+        let notas: ReviewNote[] = [];
+        if (sesiones.length > 0) {
+          const notRes = await rv()
+            .from('note')
+            .select('*')
+            .in('session_key', sesiones.map((s) => s.session_key))
+            .order('created_at');
+          if (cancelado) return;
+          if (notRes.error) {
+            console.warn('[review] no se pudieron leer las notas: ' + notRes.error.message);
+          } else {
+            notas = (notRes.data ?? []) as ReviewNote[];
+          }
+        }
+
         const nombre = new Map(
           ((empRes.data ?? []) as { employee_key: number; full_name: string }[]).map((e) => [
             e.employee_key,
@@ -313,6 +341,9 @@ export function useMyReviews(
             responses: session
               ? respuestas.filter((r) => r.session_key === session.session_key)
               : [],
+            /* Las de ESTA sesión, por lo mismo que las respuestas: la nota es
+               de la sesión, no de la asignación. */
+            notes: session ? notas.filter((n) => n.session_key === session.session_key) : [],
           };
         });
 

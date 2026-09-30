@@ -150,8 +150,46 @@ export interface ReviewResponse {
    * dos fuentes para el mismo número.
    */
   gate: Record<string, unknown> | null;
+  /**
+   * ═════════════════════════════════════════════════════════════════════════
+   * ⚠ TRES ESTADOS, Y EL TERCERO ES «LA COLUMNA TODAVÍA NO EXISTE» — RV32
+   * ═════════════════════════════════════════════════════════════════════════
+   *
+   * La persona miró la pantalla que el paso señala, además de escribir el
+   * comentario. Un texto escrito por adelantado desde el panel de las nueve
+   * preguntas nace en `false` y pasa a `true` al llegar al paso.
+   *
+   *   `true`       lo escribió y lo miró
+   *   `false`      hay texto y todavía no lo miró
+   *   `undefined`  la migración de RV32 no está aplicada
+   *
+   * El tercero no es paranoia: con `select('*')` una columna que no existe
+   * simplemente no viaja, así que el código puede mergearse antes que el SQL
+   * -- y mientras tanto tiene que comportarse como antes, que es contar el
+   * paso como hecho. Leerlo como `false` dejaría toda revisión abierta trabada
+   * el día del merge y antes de que nadie aplique nada.
+   *
+   * Quien lo lea usa `vistoEnSitio()` de `progress.ts` y no la propiedad
+   * pelada, justamente para no volver a mezclar `undefined` con `false`.
+   */
+  seen_on_site?: boolean;
   answered_at: string;
   answered_by: string;
+}
+
+/**
+ * `Other`: lo importante que no pertenece a ningún paso.
+ *
+ * ⚠ No tiene `phase_no`, `step_in_phase` ni `prompt_revision`, y ésa es toda la
+ * diferencia: es una nota de la SESIÓN. Ponerla como noveno paso habría metido
+ * una fila falsa en `review.step`, que es lo que cuenta el `5 of 5`.
+ */
+export interface ReviewNote {
+  note_key: number;
+  session_key: number;
+  body: string;
+  created_at: string;
+  created_by: string;
 }
 
 /** Una fila de `Mis revisiones`: la asignación con su sesión, si tiene. */
@@ -168,4 +206,12 @@ export interface MyReview {
   session: ReviewSession | null;
   /** Las respuestas de esa sesión. Vacío si no hay sesión. */
   responses: ReviewResponse[];
+  /**
+   * Las notas de esa sesión — el `Other` de RV32.
+   *
+   * ⚠ Vacío también cuando la migración no está aplicada: la lectura falla y se
+   * avisa por consola. Los dos casos dibujan lo mismo, y el que importa --que
+   * falte el SQL-- lo ve quien lo aplica, no quien revisa.
+   */
+  notes: ReviewNote[];
 }

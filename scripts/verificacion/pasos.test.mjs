@@ -28,8 +28,10 @@ import { fileURLToPath } from 'node:url';
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const { crearArnes } = await import(
   pathToFileURL(resolve(RAIZ, 'scripts/verificacion/guardas.mjs')).href);
-const { pasoAnterior, pasoSiguiente, orderedSteps } = await import(
+const { pasoAnterior, pasoSiguiente, orderedSteps, answeredSteps, vistoEnSitio } = await import(
   pathToFileURL(resolve(RAIZ, 'lib/review/progress.ts')).href);
+const { gateStatus } = await import(
+  pathToFileURL(resolve(RAIZ, 'lib/review/gates.ts')).href);
 
 const paso = (f, s, label) => ({
   phase_no: f,
@@ -62,7 +64,7 @@ const script = {
 const en = (f, s) => ({ phase_no: f, step_in_phase: s });
 const nombre = (p) => (p === null ? null : p.phase_no + '.' + p.step_in_phase);
 
-const a = crearArnes({ minimo: 16 });
+const a = crearArnes({ minimo: 25 });
 try {
   /* ═══ 1. El orden, del que sale todo lo demás ═══ */
   console.log('\n=== 1. el orden del guion ===');
@@ -127,6 +129,49 @@ try {
   });
   a.ck(ok,
     'para TODOS los pasos menos el primero, el siguiente del anterior es uno mismo');
+
+  /* ── TENER TEXTO NO ES TENER EL PASO HECHO — etapa RV32 ─────────────── */
+  /*
+   * Las dos funciones que deciden esto son puras, asi que se prueban acá y no
+   * en una sonda: `vistoEnSitio` lee el tercer estado y `answeredSteps` es el
+   * UNICO lugar que define «paso hecho» -- de el cuelgan `phaseProgress`,
+   * `overallPercent`, `resumeCursor` e `isComplete`.
+   */
+  const resp = (f, s, visto) => ({
+    session_key: 1, phase_no: f, step_in_phase: s, prompt_revision: 1,
+    comment: 'x', gate: null, answered_at: '2026-09-30T00:0' + s + ':00Z',
+    answered_by: 'x@y.z',
+    ...(visto === undefined ? {} : { seen_on_site: visto }),
+  });
+
+  a.ck(vistoEnSitio(resp(1, 1, true)) === true, 'una respuesta confirmada cuenta');
+  a.ck(vistoEnSitio(resp(1, 1, false)) === false, 'y una escrita por adelantado, no');
+  a.ck(vistoEnSitio(resp(1, 1, undefined)) === true,
+    '⚠ y `undefined` CUENTA: es la columna sin aplicar todavia, no una respuesta sin confirmar. ' +
+    'Leerlo como `false` trabaría cada revisión abierta el día del merge');
+
+  const hechos = answeredSteps([resp(1, 1, true), resp(1, 2, false), resp(1, 3, undefined)]);
+  a.ck(hechos.has('1:1') && !hechos.has('1:2') && hechos.has('1:3'),
+    '⚠ `answeredSteps` deja afuera el paso que sólo tiene texto: ' + [...hechos].sort().join(' '));
+
+  /*
+   * ⚠ Y LO MIRADO NO SE DES-MIRA. La tabla es append-only: después de
+   * confirmar, escribir ese mismo paso desde el panel de las nueve agrega una
+   * fila SIN la marca. Mirar sólo la última desharía el paso.
+   */
+  const dosFilas = answeredSteps([resp(2, 1, true), { ...resp(2, 1, false), answered_at: '2026-10-01T00:00:00Z' }]);
+  a.ck(dosFilas.has('2:1'),
+    '⚠ un paso confirmado y después reescrito por adelantado SIGUE hecho');
+
+  /* Y la compuerta, que es la otra mitad: sin el tilde no cierra. */
+  const base = { phase_no: 1, step_in_phase: 9, label: 'x', gate_kind: 'comment', gate_config: null };
+  a.ck(gateStatus(base, { comment: 'algo', vistoEnSitio: false }).ok === false,
+    '⚠ la compuerta NO cierra con comentario y sin confirmar');
+  a.ck(gateStatus(base, { comment: 'algo', vistoEnSitio: true }).ok === true,
+    'y sí con las dos');
+  a.ck(gateStatus(base, { comment: '', vistoEnSitio: true }).falta?.includes('comment') === true,
+    '⚠ y con el tilde puesto y sin texto pide el COMENTARIO primero: pedir que confirme lo que ' +
+    'mira antes de que escriba es pedir lo segundo antes de lo primero');
 } finally {
   process.exitCode = a.resumen();
 }

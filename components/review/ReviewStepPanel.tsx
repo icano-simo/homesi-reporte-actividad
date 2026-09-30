@@ -77,9 +77,11 @@ import {
 } from '@/lib/review/gates';
 import {
   latestResponse,
+  orderedSteps,
   pasoAnterior,
   pasoSiguiente,
   sameStep,
+  vistoEnSitio,
 } from '@/lib/review/progress';
 import { fijarBenchmark } from '@/lib/business-plan/benchmark';
 import {
@@ -87,6 +89,7 @@ import {
   decidirDestino,
   evidenciaDePractica,
   olvidarEvidenciaDePractica,
+  type PasoQueEscribe,
 } from '@/lib/review/puertaDeEscritura';
 import { useReview } from './ReviewProvider';
 /* `useEffect` queda para el listener de clics, que SÍ es una suscripción. */
@@ -168,7 +171,21 @@ export interface ReviewStepPanelProps {
    */
   branchesDelLo: readonly string[];
   /** Guarda el paso. Devuelve el error, o `null` si salió bien. */
-  onGuardar: (paso: StepRef, revision: number, comment: string, gate: Record<string, unknown> | null) => Promise<string | null>;
+  onGuardar: (paso: StepRef, revision: number, comment: string, gate: Record<string, unknown> | null, vistoEnSitio: boolean) => Promise<string | null>;
+  /**
+   * ⚠ GUARDA LA RESPUESTA DE OTRO PASO — etapa RV32.
+   *
+   * En el paso 1 la persona habla de algo del 6. Esto escribe ESA respuesta,
+   * con `seen_on_site = false`: es texto, no es el paso hecho. Al llegar al 6
+   * lo va a ver, lo va a poder editar, y ahí confirma que miró la pantalla.
+   *
+   * Es la misma función de guardado y no una paralela: una tabla de borradores
+   * que después «se convierte en respuesta» serían dos representaciones del
+   * mismo hecho.
+   */
+  onGuardarAdelantado: (paso: StepRef, revision: number, comment: string) => Promise<string | null>;
+  /** Guarda el `Other`: la nota de la sesión, que no pertenece a ningún paso. */
+  onGuardarNota: (body: string) => Promise<string | null>;
   /** Mueve el cursor. Lo dispara `OK`, en el mismo gesto que el guardado. */
   /**
    * Pone el cursor en un paso y lleva a la pantalla donde ese paso vive.
@@ -198,6 +215,19 @@ export interface ReviewStepPanelProps {
  * vino a cambiar.
  */
 const CLAVE_PLEGADO = 'rv:panel-plegado';
+
+/**
+ * El texto VIGENTE de un paso, o `null` si el guion no lo trae.
+ *
+ * ⚠ `script.prompts` ya viene con la revisión más alta de cada paso --lo
+ * resuelve la consulta-- así que acá no se elige ninguna: se busca. Vive como
+ * función y no repetido en dos lugares porque desde RV32 lo necesitan dos --el
+ * paso actual y el que se contesta por adelantado-- y son la misma pregunta.
+ */
+function textoDelPaso(script: ReviewScript, paso: StepRef | null) {
+  if (paso === null) return null;
+  return script.prompts.find((t) => sameStep(t, paso)) ?? null;
+}
 
 /**
  * El comentario arranca en una línea y crece con el texto hasta cuatro; de ahí
@@ -238,6 +268,8 @@ export default function ReviewStepPanel({
   presupuestoGuardado,
   branchesDelLo,
   onGuardar,
+  onGuardarAdelantado,
+  onGuardarNota,
   onIrAlPaso,
   onResumen,
 }: ReviewStepPanelProps) {
@@ -261,7 +293,7 @@ export default function ReviewStepPanel({
   const paso = script.steps.find((s) => sameStep(s, cursor)) ?? null;
   /* La evidencia del 3.1 la relee el ANFITRIÓN, que ya tenía su intervalo de 4s
      para el funnel: un segundo reloj acá era otro más que mantener. */
-  const texto = script.prompts.find((t) => paso && sameStep(t, paso)) ?? null;
+  const texto = textoDelPaso(script, paso);
   const yaContestado = latestResponse(responses, cursor);
 
   /*
@@ -391,6 +423,86 @@ export default function ReviewStepPanel({
     }
   };
   const rama = desenlace?.d ?? null;
+
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * EL TILDE DE «LO MIRÉ» — etapa RV32
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * ⚠ ARRANCA DE LO QUE LA BASE YA DIGA, y mirando TODAS las filas del paso y
+   * no la vigente: un paso confirmado y después reescrito desde el panel de las
+   * nueve tendría una última fila sin la marca, y leer sólo esa lo pondría en
+   * `false` -- des-mirando algo que se miró. Lo mirado no se des-mira; lo que
+   * cambia con la última fila es el texto.
+   *
+   * Y no se guarda en `sessionStorage` como los clics: aquellos son evidencia
+   * en vuelo que se junta ANTES de que exista la respuesta, y esto ya tiene
+   * dónde vivir --la respuesta misma-- desde el primer guardado.
+   */
+  const [visto, setVisto] = useState<boolean>(() =>
+    responses.some((r) => sameStep(r, cursor) && vistoEnSitio(r))
+  );
+
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * EL PANEL DE LAS NUEVE PREGUNTAS — etapa RV32
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * En el paso 1 la persona habla de algo del 6 y no hay dónde anotarlo. Esto
+   * abre la lista, se elige una, se escribe, se guarda y se sigue donde estaba.
+   *
+   * El texto se guarda como la RESPUESTA de ese paso, con la marca de «miré»
+   * en `false`: es texto, no es el paso hecho. Ver `guardarPaso` y la nota de
+   * `seen_on_site` en `types.ts`.
+   */
+  const [otrasAbierto, setOtrasAbierto] = useState(false);
+  const [otraElegida, setOtraElegida] = useState('');
+  const [otroTexto, setOtroTexto] = useState('');
+  const [otroAviso, setOtroAviso] = useState<string | null>(null);
+
+  /** El texto vigente de la pregunta elegida, para usarlo de placeholder. */
+  const promptDe = (clave: string): string | null => {
+    const [f, p] = clave.split('.').map(Number);
+    const t = textoDelPaso(script, { phase_no: f, step_in_phase: p });
+    return t?.prompt ?? null;
+  };
+
+  async function guardarOtra() {
+    const cuerpo = otroTexto.trim();
+    if (cuerpo === '') return;
+    setOcupado(true);
+    setOtroAviso(null);
+    try {
+      if (otraElegida === 'other') {
+        const err = await onGuardarNota(cuerpo);
+        if (err) {
+          setOtroAviso(err);
+          return;
+        }
+        setOtroAviso('Saved as a note for this session.');
+      } else {
+        const [f, p] = otraElegida.split('.').map(Number);
+        const destino = { phase_no: f, step_in_phase: p };
+        const t = textoDelPaso(script, destino);
+        if (t === null) {
+          /* Sin texto vigente no hay `prompt_revision` que guardar, y esa
+             columna es la que ata la respuesta a la pregunta que se vio. */
+          setOtroAviso('That question has no current text yet, so it cannot be answered.');
+          return;
+        }
+        const err = await onGuardarAdelantado(destino, t.revision, cuerpo);
+        if (err) {
+          setOtroAviso(err);
+          return;
+        }
+        setOtroAviso('Saved for step ' + otraElegida + '. It will be waiting there.');
+      }
+      setOtroTexto('');
+      setOtraElegida('');
+    } finally {
+      setOcupado(false);
+    }
+  }
 
   const claveClics =
     'rv-clicks:' + session.session_key + ':' + cursor.phase_no + ':' + cursor.step_in_phase;
@@ -797,6 +909,8 @@ export default function ReviewStepPanel({
    */
   const draft: StepDraft = {
     comment,
+    /* ⚠ RV32: tener texto no es tener el paso hecho. Ver `StepDraft`. */
+    vistoEnSitio: visto,
     numero: numero.trim() === '' ? null : Number(numero),
     clicks,
     budgetListo,
@@ -944,23 +1058,44 @@ export default function ReviewStepPanel({
     }
 
     /*
-     * ⚠ Y EL 2.2, QUE NO ESCRIBE DESDE ACÁ — etapa RV29.
+     * ⚠ LOS PASOS QUE NO ESCRIBEN DESDE ACÁ — RV29, y desde RV32 son DOS.
      *
-     * El benchmark lo fija este panel; el presupuesto lo fija el editor de
-     * Outlook, en otro módulo. Así que en práctica el valor ya está anotado en
-     * la sesión antes de llegar acá, y lo que falta es MOVERLO a la respuesta,
-     * que es lo durable. El destino lo decide la misma puerta que decidió no
-     * escribirlo en `outlook`: si decidiera acá sería la segunda copia.
+     * El presupuesto lo fija el editor de Outlook y --desde que el 1.2 dejó de
+     * pedir el número en este panel-- el benchmark lo fija el editor del
+     * perfil. En los dos casos, en práctica el valor ya quedó anotado en la
+     * sesión antes de llegar acá, y lo que falta es MOVERLO a la respuesta, que
+     * es lo durable. El destino lo decide la misma puerta que decidió no
+     * escribirlo afuera: si decidiera acá sería la segunda copia.
+     *
+     * ⚠ El 3.1 NO está en esta lista, y no es un olvido: su evidencia la sigue
+     * leyendo el anfitrión para saber qué funnel mostrar como vigente, así que
+     * olvidarla al cerrar el paso le borraría el nombre a la pantalla.
      */
     /* `practicaEnCurso` se resuelve una sola vez arriba: recalcularlo acá era
        la misma pregunta hecha dos veces en el mismo archivo. */
     const enPractica = practicaEnCurso;
-    if (paso!.gate_kind === 'budget' && enPractica !== null) {
-      const anotado = evidenciaDePractica(enPractica, '2.2');
-      if (anotado !== undefined) {
-        const destino = decidirDestino(enPractica, '2.2', anotado);
-        if (destino.modo === 'practica') gatePractica = destino.gate;
-      }
+    const claveDelPaso = cursor.phase_no + '.' + cursor.step_in_phase;
+    /*
+     * ⚠ LOS DOS PASOS SE NOMBRAN CON SU LITERAL, y no con la variable.
+     *
+     * Escrito con `evidenciaDePractica(ctx, claveDelPaso)` funciona igual y
+     * `verificar:practica` lo marcó: su chequeo empareja lo que se ANOTA con lo
+     * que se LEE, y para eso necesita ver el paso escrito. Con una variable, el
+     * par deja de ser auditable -- y la guarda avisando de un par que sí existe
+     * es preferible a un par que nadie puede comprobar.
+     *
+     * La lógica no se duplica: las dos líneas llaman a la misma función.
+     */
+    const moverEvidencia = (k: PasoQueEscribe, anotado: unknown) => {
+      if (anotado === undefined || enPractica === null) return;
+      const destino = decidirDestino(enPractica, k, anotado);
+      if (destino.modo === 'practica') gatePractica = destino.gate;
+    };
+    if (enPractica !== null && claveDelPaso === '1.2') {
+      moverEvidencia('1.2', evidenciaDePractica(enPractica, '1.2'));
+    }
+    if (enPractica !== null && claveDelPaso === '2.2') {
+      moverEvidencia('2.2', evidenciaDePractica(enPractica, '2.2'));
     }
 
     const errGuardar = await onGuardar(
@@ -975,7 +1110,18 @@ export default function ReviewStepPanel({
        */
       gatePractica === null
         ? gateEvidence(paso!, draft)
-        : { ...(gateEvidence(paso!, draft) ?? {}), ...gatePractica }
+        : { ...(gateEvidence(paso!, draft) ?? {}), ...gatePractica },
+      /*
+       * ⚠ SE MANDA `true` Y NO `visto` — etapa RV32, y la diferencia importa.
+       *
+       * Acá sólo se llega con la compuerta cumplida, y desde RV32 la compuerta
+       * EXIGE el tilde: `gateStatus` no deja guardar con `vistoEnSitio` en
+       * `false`. Mandar la variable seria volver a preguntar lo que ya se
+       * comprobó, y dejaría la puerta abierta a que un camino futuro guarde sin
+       * haberlo pedido. Lo que se escribe por adelantado va por
+       * `onGuardarAdelantado`, que es la otra función.
+       */
+      true
     );
     if (errGuardar) {
       setError(errGuardar);
@@ -984,9 +1130,8 @@ export default function ReviewStepPanel({
     }
     /* La anotación en vuelo se olvida recién ACÁ, con la respuesta ya guardada:
        borrarla antes dejaría la compuerta cerrada si el guardado fallaba. */
-    if (paso!.gate_kind === 'budget' && enPractica !== null) {
-      olvidarEvidenciaDePractica(enPractica, '2.2');
-    }
+    if (enPractica !== null && claveDelPaso === '1.2') olvidarEvidenciaDePractica(enPractica, '1.2');
+    if (enPractica !== null && claveDelPaso === '2.2') olvidarEvidenciaDePractica(enPractica, '2.2');
     if (esUltimo) {
       /* Guardado el último paso, se muestra todo antes de soltar la máscara. */
       setOcupado(false);
@@ -1572,12 +1717,18 @@ export default function ReviewStepPanel({
         el número ahí mismo. En los otros siete `link` es `null`, porque
         `gate_config` no trae `mmi_link`.
       */}
+      {/*
+        ⚠ EL RÓTULO CAMBIÓ CON EL PASO — etapa RV32. Decía «Open MMI … to agree
+        on the number», que describía un paso que TAMBIÉN pedía tipear el número
+        acá. Ahora el número se fija en el editor del perfil y este enlace es
+        sólo un enlace: no es condición de nada.
+      */}
       {link && (
         <p className="rv-panel__helper">
           <a href={link} target="_blank" rel="noreferrer">
-            Open MMI
+            Review MMI and set the benchmark
           </a>{' '}
-          to agree on the number with {loName}.
+          for {loName}, on this screen.
         </p>
       )}
 
@@ -1776,6 +1927,105 @@ export default function ReviewStepPanel({
           >
             Edit this comment
           </button>
+        </div>
+      )}
+
+      {/*
+        ══════════════════════════════════════════════════════════════════
+        EL TILDE DE «LO MIRÉ», Y EL PANEL DE LAS NUEVE — etapa RV32
+        ══════════════════════════════════════════════════════════════════
+
+        ⚠ EL TILDE NO ES UNA CASILLA COMO LA QUE RV13 SACÓ. Aquella decía «ya
+        guardé el presupuesto» y había una tabla que podía contestarlo, así que
+        preguntárselo a la persona era aceptar una declaración en lugar de un
+        hecho. Mirar una pantalla no deja rastro en ninguna tabla: no hay nada
+        contra qué verificarlo, y lo único que lo sostiene es que el comentario
+        sigue siendo obligatorio.
+      */}
+      <label className="rv-panel__visto">
+        <input
+          type="checkbox"
+          data-review-visto=""
+          checked={visto}
+          disabled={ocupado}
+          onChange={(e) => setVisto(e.target.checked)}
+        />
+        <span>I reviewed what this step shows</span>
+      </label>
+
+      <button
+        type="button"
+        className="rv-panel__edit"
+        data-review-otras=""
+        disabled={ocupado}
+        onClick={() => setOtrasAbierto((v) => !v)}
+      >
+        {otrasAbierto ? 'Close' : 'Write about another question'}
+      </button>
+
+      {otrasAbierto && (
+        <div className="rv-panel__otras" role="group" aria-label="All questions">
+          {/*
+            Las nueve: los ocho pasos del guion y `Other`. El paso actual se
+            lista y no se ofrece -- su cuadro está acá arriba, y dos lugares
+            para lo mismo es lo que RV32 vino a sacar del benchmark.
+          */}
+          <select
+            className="field"
+            value={otraElegida}
+            disabled={ocupado}
+            onChange={(e) => {
+              setOtraElegida(e.target.value);
+              setOtroTexto('');
+              setOtroAviso(null);
+            }}
+          >
+            <option value="">Which question?</option>
+            {orderedSteps(script).map((s) => {
+              const k = s.phase_no + '.' + s.step_in_phase;
+              const actual = sameStep(s, cursor);
+              return (
+                <option key={k} value={k} disabled={actual}>
+                  {k} · {s.label}
+                  {actual ? ' (this step — use the box above)' : ''}
+                </option>
+              );
+            })}
+            <option value="other">Other — does not belong to any step</option>
+          </select>
+
+          {otraElegida !== '' && (
+            <>
+              <textarea
+                className="field rv-panel__text"
+                data-review-otro-texto=""
+                rows={2}
+                value={otroTexto}
+                disabled={ocupado}
+                onChange={(e) => setOtroTexto(e.target.value)}
+                placeholder={
+                  otraElegida === 'other'
+                    ? 'What came up that does not belong to any step?'
+                    : promptDe(otraElegida) ?? 'What did they say about this?'
+                }
+              />
+              {otraElegida !== 'other' && (
+                <p className="rv-panel__helper">
+                  This is saved as text for that step. It does not close it: when you get there you
+                  will see it, be able to edit it, and confirm you reviewed that screen.
+                </p>
+              )}
+              {otroAviso && <p className="rv-panel__gate" role="status">{otroAviso}</p>}
+              <button
+                type="button"
+                className="bp-btn bp-btn--small"
+                disabled={ocupado || otroTexto.trim() === ''}
+                onClick={guardarOtra}
+              >
+                Save
+              </button>
+            </>
+          )}
         </div>
       )}
 

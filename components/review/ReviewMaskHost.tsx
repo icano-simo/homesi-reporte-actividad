@@ -32,7 +32,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { getSupabaseClient } from '@/lib/supabase/client';
-import { cerrarSesion, guardarPaso, moverCursor } from '@/lib/review/actions';
+import { cerrarSesion, guardarNota, guardarPaso, moverCursor } from '@/lib/review/actions';
 import { sameStep } from '@/lib/review/progress';
 import {
   requiereDecisionDeFunnel,
@@ -997,8 +997,35 @@ export default function ReviewMaskHost() {
             recargar();
             setEnResumen(true);
           }}
-          onGuardar={async (paso, revision, comment, gate) => {
-            const r = await guardarPaso(activo.session!.session_key, paso, revision, comment, gate);
+          onGuardar={async (paso, revision, comment, gate, vistoEnSitio) => {
+            const r = await guardarPaso(
+              activo.session!.session_key, paso, revision, comment, gate, vistoEnSitio
+            );
+            if (!r.ok) return r.error;
+            recargar();
+            return null;
+          }}
+          /*
+           * ⚠ LA MISMA FUNCIÓN, CON LA MARCA EN `false` — etapa RV32.
+           *
+           * Lo escrito por adelantado es la respuesta de ese paso, no un
+           * borrador en otra tabla: la respuesta ES el lugar, y lo único que
+           * cambia es que nadie miró todavía la pantalla que el paso señala.
+           *
+           * Y sin `gate`: la evidencia de la compuerta --los clics, el número--
+           * sale de estar en la pantalla del paso. Escribirla desde otro paso
+           * sería inventarla.
+           */
+          onGuardarAdelantado={async (paso, revision, comment) => {
+            const r = await guardarPaso(
+              activo.session!.session_key, paso, revision, comment, null, false
+            );
+            if (!r.ok) return r.error;
+            recargar();
+            return null;
+          }}
+          onGuardarNota={async (body) => {
+            const r = await guardarNota(activo.session!.session_key, body);
             if (!r.ok) return r.error;
             recargar();
             return null;
@@ -1060,6 +1087,7 @@ export default function ReviewMaskHost() {
         <ReviewSummary
           script={script}
           responses={activo.responses}
+          notes={activo.notes}
           loName={activo.loName}
           ocupado={cerrando}
           error={errorCierre}

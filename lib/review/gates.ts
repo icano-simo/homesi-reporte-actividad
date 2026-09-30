@@ -39,6 +39,28 @@ import type { ReviewStep } from './types';
 /** Lo que la persona hizo en el paso, todavía sin guardar. */
 export interface StepDraft {
   comment: string;
+  /**
+   * ═════════════════════════════════════════════════════════════════════════
+   * ⚠ QUE MIRÓ LA PANTALLA, ADEMÁS DE ESCRIBIR — etapa RV32
+   * ═════════════════════════════════════════════════════════════════════════
+   *
+   * Desde que el panel de las nueve preguntas deja escribir la del 2.1 estando
+   * en el 1.1, tener texto dejó de significar tener el paso hecho:
+   *
+   *   > «Una cosa es el comentario y otra que sí revisé lo que queremos que vea
+   *   > en esa vista.»
+   *
+   * ⚠ Y ES LO ÚNICO DE ESTA COMPUERTA QUE LA PERSONA DECLARA, junto con
+   * `desenlaceFunnel`. Eso sería una casilla vacía --lo que RV13 le sacó al
+   * presupuesto-- si no fuera porque acá no hay nada que certificar contra una
+   * tabla: mirar una pantalla no deja rastro en ningún lado. Lo que impide que
+   * sea un clic sin pensar es que el comentario sigue siendo obligatorio.
+   *
+   * `undefined` cuenta como visto, por lo mismo que en `types.ts`: el paso
+   * abierto desde la pantalla del paso ya está en sitio, y el que no lo esté lo
+   * dice poniéndolo en `false`.
+   */
+  vistoEnSitio?: boolean;
   /** El número del paso 2. `null` = no escribió ninguno. */
   numero?: number | null;
   /** Los identificadores que ya se clickearon en el paso 4. */
@@ -453,6 +475,21 @@ export function gateStatus(step: ReviewStep, draft: StepDraft): GateStatus {
 
   if (draft.comment.trim() === '') {
     return { ok: false, falta: 'Write a comment to close this step.' };
+  }
+
+  /*
+   * ⚠ VA DESPUÉS DEL COMENTARIO Y ANTES DE LO DEMÁS — etapa RV32.
+   *
+   * Después, porque pedir «confirmá que lo miraste» con el cuadro vacío es
+   * pedir lo segundo antes de lo primero. Y antes del `switch`, porque vale
+   * para los ocho pasos y no para uno: es la diferencia entre tener texto y
+   * tener el paso hecho, y no una compuerta de ningún paso en particular.
+   */
+  if (draft.vistoEnSitio === false) {
+    return {
+      ok: false,
+      falta: 'Confirm you reviewed what this step shows — the comment alone does not close it.',
+    };
   }
 
   switch (step.gate_kind) {
