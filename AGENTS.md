@@ -1183,6 +1183,55 @@ que falla las tres, borrarlo. Una guarda que sólo se vio dar verde no está
 probada — es el mismo agujero que el arnés que imprimía `SIN FALLAS` sin
 ejecutar una aserción, un nivel más arriba.
 
+#### Y cuando el defecto tuvo un caso REAL, la violación no se inventa: se saca del historial
+
+Una inyección prueba **el patrón que escribiste**; el commit anterior prueba **el
+defecto que existió**. No son lo mismo, y la diferencia se ve cuando no
+coinciden.
+
+El caso: RV25 reemplazó un `find` que tomaba «la primera revisión en curso» por
+una elección explícita, y la guarda nueva traía tres aserciones. Se ejercitaron
+poniendo de vuelta el proveedor ANTERIOR --`git checkout HEAD -- <archivo>`,
+correr, restaurar-- y dijo `2 FALLAS de 24`. Dos mordieron. **La tercera pasó en
+verde sobre el código que tenía el defecto.**
+
+Decía «no quedó un `find` que tome la primera en curso», con el patrón
+`find\([^)]*status === 'in_progress'\s*\)`. El código real seguía con
+`&& !salio(...)` antes del paréntesis, así que el patrón no llegaba nunca. Una
+inyección escrita por mí habría tenido la forma que mi patrón esperaba y habría
+dado rojo — confirmando una guarda que en el caso real no servía.
+
+> **Una guarda probada sólo contra una violación inventada mide si el autor
+> sabe escribir su propio patrón. Contra el commit del defecto, mide si atrapa
+> el defecto.**
+
+Y la razón de la falla es la de siempre, una vez más: una regla sobre **cómo se
+ve** el código --dónde cae el paréntesis-- en vez de sobre lo que decide. La
+aserción se borró en vez de arreglarse, porque las dos que quedaron cubren el
+caso sin adivinar cómo se escribió el `find`.
+
+La regla operativa: **si el defecto tiene un commit, la guarda se corre contra
+ese commit.** Cuesta tres comandos y es la única forma de saber que la guarda y
+el defecto se conocen. La inyección se queda para lo que nunca pasó todavía.
+
+#### Y el hermano de la misma serie: un contador de efectos en cero
+
+La sonda de RV24 vigilaba la red y afirmaba `activate_funnel: 0` — que la
+práctica no activa nada. Dio verde **cuatro veces seguidas sin haber ejercido
+nada**, por cuatro causas distintas: el contexto decía «real» y el clic no
+llegaba; el localizador buscaba un rótulo viejo y no clickeaba; la lectura de
+control moría en un `42501`; y la última, que sólo mostró la captura, es que el
+botón de la tarjeta **abre el explorador** y el que activa está dentro del modal.
+
+> **Un contador de efectos en cero no distingue «no pasó» de «no se intentó».**
+> Es el `UPDATE` sin `returning` con otra cara: la operación no dejó rastro
+> porque nunca ocurrió, y eso se lee igual que un guardia que funcionó.
+
+Las dos que lo cerraron: **afirmar que el gesto ocurrió** --que el botón se
+encontró, que el manejador dejó su salida en pantalla-- y **mirar la captura**,
+que fue la que mostró el modal abierto cuando los cuatro números decían que todo
+estaba bien.
+
 ### Y el inventario de lo visible sale del DOM, no del grep
 
 La pregunta de un renombre de rótulos no es «¿dónde aparece la palabra?» sino
