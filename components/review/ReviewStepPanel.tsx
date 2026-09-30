@@ -259,19 +259,8 @@ export default function ReviewStepPanel({
     step_in_phase: session.current_step_in_phase,
   };
   const paso = script.steps.find((s) => sameStep(s, cursor)) ?? null;
-  /*
-   * ⚠ LA EVIDENCIA DEL 3.1 SE REPREGUNTA, por lo mismo que la del presupuesto:
-   * la escribe OTRO componente --la pantalla del funnel-- así que sin volver a
-   * mirar, quien practica elige y el panel no se entera. Y leerla recién acá,
-   * en un efecto, evita además que el primer render del servidor y el del
-   * navegador digan cosas distintas.
-   */
-  const [tickPractica, setTickPractica] = useState(0);
-  useEffect(() => {
-    if (paso?.gate_kind !== 'funnel' || practicaEnCurso === null) return;
-    const t = setInterval(() => setTickPractica((n) => n + 1), 4000);
-    return () => clearInterval(t);
-  }, [paso?.gate_kind, practicaEnCurso]);
+  /* La evidencia del 3.1 la relee el ANFITRIÓN, que ya tenía su intervalo de 4s
+     para el funnel: un segundo reloj acá era otro más que mantener. */
   const texto = script.prompts.find((t) => paso && sameStep(t, paso)) ?? null;
   const yaContestado = latestResponse(responses, cursor);
 
@@ -841,17 +830,19 @@ export default function ReviewStepPanel({
      * mueve es la clase de respaldo que hace que la ausencia no se note.
      */
     /*
-     * ⚠ O LO QUE LA PRÁCTICA ELIGIÓ — etapa RV29. Mismo defecto que el 2.2:
-     * esto sale de `business_plan.enrollment`, donde una práctica no escribe,
-     * así que quien practicaba podía elegir un funnel y la compuerta seguía sin
-     * ver nada. A dónde mirar lo decide la puerta, no esta línea.
+     * ⚠ ACÁ HABÍA UN `|| evidenciaDePractica(...)` Y SE FUE — etapa RV30.
+     *
+     * RV29 lo puso para que la compuerta del 3.1 no trabara en práctica, y
+     * funcionaba: el paso se podía cerrar. Pero la fase 3 entera se DIBUJA con
+     * `funnelActual` --sus tres pantallas, el «Done — X is selected» y con él
+     * el cierre de la revisión-- así que el paso quedó cerrable y sin poder
+     * recorrerse. Isabella eligió un funnel y no vio nada.
+     *
+     * Ahora el nombre lo resuelve el anfitrión, que es el único lugar que lo
+     * calcula, y acá vuelve a alcanzar con leerlo. Dos lugares decidiendo qué
+     * funnel está vigente eran dos copias de la misma decisión.
      */
-    funnelListo:
-      typeof funnelActual === 'string' ||
-      (practicaEnCurso !== null &&
-        /* `tickPractica` está para que esto se vuelva a leer; su valor no se
-           usa, y por eso se nombra en un void y no en una condición falsa. */
-        (void tickPractica, evidenciaDePractica(practicaEnCurso, '3.1') !== undefined)),
+    funnelListo: typeof funnelActual === 'string',
   };
   const estado = gateStatus(paso, draft);
   /*
@@ -961,9 +952,9 @@ export default function ReviewStepPanel({
      * que es lo durable. El destino lo decide la misma puerta que decidió no
      * escribirlo en `outlook`: si decidiera acá sería la segunda copia.
      */
-    const enPractica = contextoDePractica(
-      contextoDeEscritura ?? { esPractica: false, sessionKey: session.session_key }
-    );
+    /* `practicaEnCurso` se resuelve una sola vez arriba: recalcularlo acá era
+       la misma pregunta hecha dos veces en el mismo archivo. */
+    const enPractica = practicaEnCurso;
     if (paso!.gate_kind === 'budget' && enPractica !== null) {
       const anotado = evidenciaDePractica(enPractica, '2.2');
       if (anotado !== undefined) {

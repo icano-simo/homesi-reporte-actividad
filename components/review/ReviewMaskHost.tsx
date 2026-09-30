@@ -669,7 +669,36 @@ export default function ReviewMaskHost() {
        * de `activo`, el mismo valor significa lo único que puede significar:
        * se leyó, y no hay.
        */
-      const nombre = activo?.funnel_name ?? null;
+      /*
+       * ══════════════════════════════════════════════════════════════
+       * ⚠ Y EN PRÁCTICA, EL QUE LA PRÁCTICA ELIGIÓ — etapa RV30
+       * ══════════════════════════════════════════════════════════════
+       *
+       * Mismo defecto que el 2.2, en el último paso: `activate_funnel` no corre
+       * en práctica, así que no hay enrolamiento, así que este nombre quedaba
+       * en `null` y la fase 3 entera --sus tres pantallas, el «Done — X is
+       * selected» y con él el cierre de la revisión-- se dibujaba como si nadie
+       * hubiera elegido nada. Isabella eligió uno y no pasó nada.
+       *
+       * RV29 arregló la COMPUERTA del 3.1 y no esto, y por eso el paso seguía
+       * sin poder recorrerse: la compuerta decide si se puede cerrar, y este
+       * nombre decide qué se ve. Son dos preguntas distintas sobre el mismo
+       * hecho, y las dos leían el destino real.
+       *
+       * Va acá y no en el panel a propósito: este es el único lugar que calcula
+       * el nombre --lo dice la nota de arriba-- y resolverlo en el panel habría
+       * sido la segunda copia de «qué funnel está vigente».
+       */
+      const enPractica = contextoDePractica(contextoDeEscritura ?? null);
+      const elegidoEnPractica =
+        enPractica === null ? undefined : evidenciaDePractica(enPractica, '3.1');
+      const nombreDePractica =
+        elegidoEnPractica !== null &&
+        typeof elegidoEnPractica === 'object' &&
+        typeof (elegidoEnPractica as { funnelName?: unknown }).funnelName === 'string'
+          ? ((elegidoEnPractica as { funnelName: string }).funnelName)
+          : null;
+      const nombre = nombreDePractica ?? activo?.funnel_name ?? null;
 
       /*
        * ══════════════════════════════════════════════════════════════
@@ -756,7 +785,7 @@ export default function ReviewMaskHost() {
      * Es el mismo caso que el presupuesto del paso 2.2, y la misma respuesta:
      * mientras el paso que necesita el dato esté abierto, se vuelve a preguntar.
      */
-  }, [loEnCurso, pideFunnel, tickFunnel]);
+  }, [loEnCurso, pideFunnel, tickFunnel, contextoDeEscritura]);
 
   /*
    * El tick, sólo mientras la fase 3 esté en curso. Fuera de ella no se
