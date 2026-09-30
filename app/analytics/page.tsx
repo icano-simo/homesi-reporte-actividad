@@ -16,11 +16,13 @@ import CommercialActivityTrends from '@/app/pipeline/CommercialActivityTrends';
 import { useOrgRoster } from '@/app/pipeline/useOrgRoster';
 import { resolveLoanOfficerName } from '@/lib/activity/resolveLoanOfficerName';
 import {
-  buildDaysToClosePivot,
+  computePerLoanDaysToClose,
+  buildDaysToClosePivotCells,
   groupKeyOf,
   type DaysToCloseGroupBy,
   type DaysToCloseCell,
   type DaysToCloseLoanResult,
+  type PerLoanDaysToClose,
 } from '@/lib/activity/daysToClosePivot';
 import { aggregateDaysToCloseCells } from '@/lib/activity/daysToClosePivotCells';
 import DaysToCloseDimensionSelector from '@/components/activity/DaysToCloseDimensionSelector';
@@ -167,14 +169,58 @@ export default function AnalyticsPage() {
    * calcula ANTES que la sección de Duration en este archivo.
    */
   const loanOfficerResolutionReady = pivotGroupBy === 'loanOfficer' && !orgRoster.loading && !orgRoster.error;
-  const [pivotCells, setPivotCells] = useState<DaysToCloseCell[] | null>(null);
   /**
-   * `loanResults` -- el array por préstamo que `buildDaysToClosePivot`
-   * expone junto a `cells` (etapa previa). Se guarda al lado de `pivotCells`
-   * porque los dos salen de la MISMA llamada -- nunca se calculan por
-   * separado.
+   * Etapa PERF-GROUPBY-CACHE-1 -- el cálculo CARO (910 llamadas RPC de días
+   * hábiles hoy, 2 por préstamo elegible) separado de la agrupación
+   * BARATA. Antes `pivotCells`/`pivotLoanResults` eran estado propio,
+   * fijado por un efecto que dependía de `[dtcRecords, pivotGroupBy]` --
+   * cambiar el selector "Group by" volvía a llamar las 910 RPC desde cero
+   * (medido: ~10s de más), aunque ninguna depende de `groupBy`. Ahora sólo
+   * `perLoanDaysToClose` es estado/efecto (depende sólo de `dtcRecords`);
+   * `pivotCells`/`pivotLoanResults` pasan a ser derivados (más abajo, junto
+   * a `dtcRecordsByLoanNumber`), recalculados en cada cambio de
+   * `pivotGroupBy` sin volver a tocar la RPC. Ver
+   * `lib/activity/daysToClosePivot.ts` para el split
+   * `computePerLoanDaysToClose`/`buildDaysToClosePivotCells`.
    */
-  const [pivotLoanResults, setPivotLoanResults] = useState<DaysToCloseLoanResult[] | null>(null);
+  const [perLoanDaysToClose, setPerLoanDaysToClose] = useState<PerLoanDaysToClose[] | null>(null);
+  useEffect(() => {
+    if (dtcRecords === null) return;
+    let cancelled = false;
+    computePerLoanDaysToClose(dtcRecords).then((results) => {
+      if (cancelled) return;
+      setPerLoanDaysToClose(results);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [dtcRecords]);
+
+  /** Se calcula UNA vez por `dtcRecords` nuevo, no en cada click del drill-down. */
+  const dtcRecordsByLoanNumber = useMemo(() => {
+    const map = new Map<string, LoanRecord>();
+    if (dtcRecords) for (const r of dtcRecords) map.set(r.loanNumber, r);
+    return map;
+  }, [dtcRecords]);
+
+  /**
+   * Etapa PERF-GROUPBY-CACHE-1 -- la mitad barata: re-etiqueta
+   * `perLoanDaysToClose` (ya calculado, sin tocar la RPC) con el `groupKey`
+   * de la dimensión activa. Sincrónico, sin red -- correr esto en cada
+   * cambio de `pivotGroupBy` no tiene el costo que tenía volver a llamar
+   * `computePerLoanDaysToClose`.
+   */
+  const { pivotCells, pivotLoanResults } = useMemo(() => {
+    if (!perLoanDaysToClose) {
+      return { pivotCells: null as DaysToCloseCell[] | null, pivotLoanResults: null as DaysToCloseLoanResult[] | null };
+    }
+    const { cells, loanResults } = buildDaysToClosePivotCells(
+      perLoanDaysToClose,
+      dtcRecords ?? [],
+      pivotGroupBy
+    );
+    return { pivotCells: cells, pivotLoanResults: loanResults };
+  }, [perLoanDaysToClose, dtcRecords, pivotGroupBy]);
   /** Qué Count se clickeó -- `null` = modal cerrado. Ver `pivotDrillDownRows` más abajo. */
   const [pivotDrillDown, setPivotDrillDown] = useState<{
     month: string;
@@ -255,8 +301,8 @@ export default function AnalyticsPage() {
    *
    * `dtcMonths` es la UNIÓN de los meses de `pivotCells` y `onTimeCells`,
    * no sólo uno de los dos: los dos salen de `dtcRecords`/`closingMonth`,
-   * así que en la práctica coinciden, pero `buildDaysToClosePivot` filtra
-   * por préstamo (RPC de días hábiles) mientras que
+   * así que en la práctica coinciden, pero `computePerLoanDaysToClose`
+   * filtra por préstamo (Banked-Retail con `closingMonth`) mientras que
    * `computeOnTimeDelayedByMonthAndBranch` no -- si un mes existiera sólo
    * en una de las 2 fuentes, la unión evita que el filtro compartido lo
    * excluya para la otra.
@@ -363,34 +409,6 @@ export default function AnalyticsPage() {
       cancelled = true;
     };
   }, [analyticsView]);
-
-  /*
-   * Etapa AVG-DAYS-TO-CLOSE (wiring de la tabla pivot) -- reusa `dtcRecords`
-   * tal cual (sin ningún fetch nuevo). `buildDaysToClosePivot` es la que ya
-   * hace las llamadas a la RPC por préstamo (lib/activity/daysToClosePivot.ts)
-   * -- se re-ejecuta cada vez que cambia `pivotGroupBy`, porque hoy no hay
-   * una versión cacheada (ver el reporte de esta etapa para la nota de
-   * performance).
-   */
-  useEffect(() => {
-    if (dtcRecords === null) return;
-    let cancelled = false;
-    buildDaysToClosePivot(dtcRecords, pivotGroupBy).then(({ cells, loanResults }) => {
-      if (cancelled) return;
-      setPivotCells(cells);
-      setPivotLoanResults(loanResults);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [dtcRecords, pivotGroupBy]);
-
-  /** Se calcula UNA vez por `dtcRecords` nuevo, no en cada click del drill-down. */
-  const dtcRecordsByLoanNumber = useMemo(() => {
-    const map = new Map<string, LoanRecord>();
-    if (dtcRecords) for (const r of dtcRecords) map.set(r.loanNumber, r);
-    return map;
-  }, [dtcRecords]);
 
   /**
    * ============================================================================
