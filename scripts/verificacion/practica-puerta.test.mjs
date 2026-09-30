@@ -40,7 +40,7 @@ const { crearArnes, sinComentarios } = await import(
 const puerta = await import(pathToFileURL(resolve(RAIZ, 'lib/review/puertaDeEscritura.ts')).href);
 const { decidirDestino, valorDePractica, PASOS_QUE_ESCRIBEN } = puerta;
 
-const a = crearArnes({ minimo: 21 });
+const a = crearArnes({ minimo: 23 });
 
 /* ── 1. La rama real ─────────────────────────────────────────────────────── */
 {
@@ -181,6 +181,47 @@ const archivos = [];
     readFileSync(resolve(RAIZ, 'components/review/ReviewProvider.tsx'), 'utf8'), 'ts');
   a.ck(/contextoDeEscritura:\s*ContextoDeSesion\s*\|\s*null\s*\|\s*undefined/.test(prov),
     'el contexto declara los TRES estados en su tipo, no dos');
+}
+
+/* ── 7. Que la sesión recorrida siga siendo una ELECCIÓN ─────────────────── */
+{
+  /*
+   * ⚠ El defecto que RV25 arregló no era un `if` suelto: era un respaldo que se
+   * leía como razonable -- «la primera en curso de la que no salí». Con una
+   * sola revisión abierta da la respuesta correcta, así que nada falla hasta
+   * que alguien tiene tres. Y desde RV24 esa elección decide si una escritura
+   * es real o de práctica.
+   *
+   * Las tres aserciones miran el CÓDIGO sin comentarios: el módulo nuevo nombra
+   * `rv-exited` y `maskExit` en su cabecera a propósito, para contar qué
+   * reemplazó.
+   */
+  const conMaskExit = archivos
+    .filter((p) => /maskExit|rv-exited/.test(sinComentarios(readFileSync(p, 'utf8'), 'ts')))
+    .map((p) => relative(RAIZ, p).replace(/\\/g, '/'));
+  a.ck(conMaskExit.length === 0,
+    '⚠ la llave vieja `rv-exited` no volvió: dos llaves contestando cuál se ' +
+    'recorre divergen' + (conMaskExit.length ? ' — ' + conMaskExit.join(', ') : ''));
+
+  const prov = sinComentarios(
+    readFileSync(resolve(RAIZ, 'components/review/ReviewProvider.tsx'), 'utf8'), 'ts');
+  a.ck(/session_key === elegida/.test(prov),
+    '⚠ `recorriendo` se compara contra la sesión ELEGIDA, no se busca la primera');
+  /*
+   * ⚠ ACÁ HABÍA UNA TERCERA ASERCIÓN Y SE SACÓ, no por molestia: no mordía.
+   *
+   * Decía «no quedó un `find` que tome la primera en curso» con el patrón
+   * `find\([^)]*status === 'in_progress'\s*\)`. Ejercitada contra el proveedor
+   * ANTERIOR --que tenía exactamente ese defecto-- pasó en verde: el `find`
+   * viejo seguía con `&& !salio(...)` antes del paréntesis, así que el patrón
+   * no llegaba. Era una aserción que no podía fallar, y ésas son peores que
+   * ninguna porque ocupan el lugar de una que sí mide.
+   *
+   * Las dos de arriba SÍ mordieron contra ese mismo código: `2 FALLAS de 24`.
+   * Entre las dos cubren el caso --la llave vieja ausente y la comparación
+   * contra la elegida presente-- sin depender de adivinar cómo se escribió el
+   * `find`, que es una regla sobre la forma del texto.
+   */
 }
 
 process.exitCode = a.resumen();

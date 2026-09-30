@@ -29,7 +29,7 @@ import Link from 'next/link';
 import { AlertTriangleIcon } from '@/components/ui/icons';
 import { ErrorState, LoadingState } from '../../business-plan/components/shared';
 import { arrancarOSeguir } from '@/lib/review/actions';
-import { volverALaMascara } from '@/lib/review/maskExit';
+import { empezarARecorrer } from '@/lib/review/recorriendo';
 import { buscarBranches, rutaDelModulo } from '@/lib/review/branches';
 import { resumeCursor, orderedSteps } from '@/lib/review/progress';
 import { useReview } from '@/components/review/ReviewProvider';
@@ -95,13 +95,19 @@ export default function ArrancarRevisionPage() {
       /*
        * ⚠ VOLVER A ENTRAR A LA MÁSCARA — etapa RV5.
        *
-       * `Save and exit` deja una marca local de que se salió de esta sesión, y
-       * esa marca sobrevive a una recarga a propósito. Retomar es lo que la
-       * borra, y ESTE es el punto de retomar: sin esto, salir una vez dejaría la
-       * revisión sin máscara para siempre y `Continue` de `/review` no haría
-       * nada visible.
+       * ⚠ ACÁ SE ELIGE QUÉ REVISIÓN SE RECORRE — etapa RV25.
+       *
+       * Este es el único escritor de `rv-walking`, y no hace falta pantalla
+       * nueva: llegar acá YA es el acto deliberado. `Start coaching` y
+       * `Resume coaching` son links a esta ruta, así que quien llega eligió, y
+       * eligió exactamente cuál.
+       *
+       * Antes esto BORRABA la marca de «salí de esta sesión», y el proveedor
+       * deducía la que se recorre tomando la primera que quedara. Con tres
+       * revisiones abiertas esa deducción elegía por orden de lista, y desde
+       * RV24 eso decide si una escritura es real o de práctica.
        */
-      volverALaMascara(r.data.session_key);
+      empezarARecorrer(r.data.session_key);
 
       const seguir = resumeCursor(guion, fila.responses) ?? {
         phase_no: r.data.current_phase,
