@@ -5,6 +5,7 @@ import { fijarBenchmark } from '@/lib/business-plan/benchmark';
 import type { LoanOfficerRow } from '@/lib/business-plan/types';
 import Modal from './Modal';
 import { PROVISIONAL_SET_BY, fmtAvg } from './shared';
+import { useReview } from '@/components/review/ReviewProvider';
 
 /**
  * ============================================================================
@@ -33,11 +34,35 @@ export default function BenchmarkEditor({ lo, onSaved }: { lo: LoanOfficerRow; o
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * ⚠ ESTA PANTALLA TAMBIÉN ESCRIBE HACIA AFUERA — etapa RV28
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * El paso 1.2 del modo coach fija el benchmark POR EL PANEL, que pregunta la
+   * puerta. Pero el paso manda a la persona a ESTA pantalla, donde el mismo
+   * número se edita con este botón -- y acá no había ningún chequeo, así que
+   * una práctica cambiaba el benchmark real y con él el veredicto del perfil.
+   *
+   * No se olvidó: nunca entró en la frase. RV24 cubrió «los tres pasos que
+   * escriben» y esto no es un paso, es la pantalla a la que el paso lleva.
+   */
+  const { contextoDeEscritura } = useReview();
 
   async function save() {
     const parsed = Number(value);
     if (!Number.isFinite(parsed) || parsed < 0) {
       setError('Enter a number of 0 or more.');
+      return;
+    }
+    if (contextoDeEscritura === undefined) {
+      setError('Still loading the review context — try again in a moment.');
+      return;
+    }
+    if (contextoDeEscritura !== null && contextoDeEscritura.esPractica) {
+      /* No se cierra el editor y no se llama a `onSaved()`: nada se guardó, y
+         cerrarlo lo dejaría igual que un guardado real. */
+      setError('Practice session — the benchmark was not changed. It stays in this review.');
       return;
     }
     setSaving(true);

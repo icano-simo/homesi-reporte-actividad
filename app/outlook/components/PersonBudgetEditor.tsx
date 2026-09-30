@@ -439,10 +439,61 @@ export default function PersonBudgetEditor({
    */
   const mesesFijados = months.filter((m) => person.budgetTotal[m] !== undefined);
 
+  /**
+   * ══════════════════════════════════════════════════════════════════════════
+   * LA COMPUERTA DE LA PRÁCTICA, UNA SOLA Y ANTES DE TODO — etapa RV28
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * ⚠ ESTO ESTABA ESCRITO Y NO ALCANZABA, y el caso lo encontró Isabella
+   * usándolo, no una sonda mía.
+   *
+   * RV24 puso el chequeo DENTRO de `if (breakdownChanged)`, o sea en el camino
+   * que guarda números. Esta pantalla tiene TRES escrituras hacia afuera y ese
+   * bloque contiene una:
+   *
+   *   savePersonBudget            dentro del bloque    -> estaba cubierta
+   *   confirmPersonBudgetReviewed FUERA del bloque     -> escribía en práctica
+   *   releasePersonBudgetToRule   en otro handler      -> sin chequeo ninguno
+   *
+   * Medido: durante su práctica sobre Mariano, `Confirm as reviewed` escribió
+   * la revisión 2 de `outlook.budget_total` --tres filas, 19:06:03-- en el
+   * registro real. Son `confirmed_only`, así que no movieron ningún número,
+   * pero dejaron «Isabella revisó esto» sobre una práctica. Y la tercera, la
+   * que suelta a la regla, SÍ mueve el número y no tenía nada.
+   *
+   * La lección es de forma, no de olvido: **una compuerta puesta en una rama
+   * protege esa rama.** Por eso ahora es lo primero de cada handler y devuelve
+   * un booleano -- el que agregue una cuarta escritura la ve en la línea uno.
+   */
+  function frenadoPorPractica(): boolean {
+    if (contextoDeEscritura === undefined) {
+      setError('Still loading the review context — try again in a moment.');
+      setBusy(false);
+      return true;
+    }
+    if (contextoDeEscritura !== null && contextoDeEscritura.esPractica) {
+      /*
+       * No se escribe nada, y el modal NO se cierra: el mensaje es la única
+       * forma de que quien practica sepa qué pasó. Cerrar de una lo dejaría
+       * igual que un guardado real y la práctica enseñaría algo falso.
+       *
+       * Y no se llama a `onSaved`: nada se guardó, así que no hay nada que
+       * recargar. Llamarlo haría que la pantalla vuelva a leer Outlook y
+       * muestre el número viejo como si fuera el resultado.
+       */
+      setError(null);
+      setSaved('Practice session — nothing was saved to Outlook. The number stays in this review.');
+      setBusy(false);
+      return true;
+    }
+    return false;
+  }
+
   async function soltarALaRegla() {
     setBusy(true);
     setError(null);
     setSaved(null);
+    if (frenadoPorPractica()) return;
     try {
       const rev = await releasePersonBudgetToRule({
         subject: person.subject,
@@ -467,6 +518,9 @@ export default function PersonBudgetEditor({
     setBusy(true);
     setError(null);
     setSaved(null);
+    /* La compuerta primero: este handler tiene DOS salidas que escriben, y la
+       de `Confirm as reviewed` vive fuera del `if` que tenía el chequeo. */
+    if (frenadoPorPractica()) return;
     const done: string[] = [];
     try {
       /*
@@ -527,43 +581,9 @@ export default function PersonBudgetEditor({
          * `savePersonBudget` manda las dos listas a `outlook.save_person_budget`,
          * que las inserta en una sola sentencia: las dos o ninguna.
          */
-        /*
-         * ══════════════════════════════════════════════════════════════════
-         * ⚠ Y SI ESTO ES UNA PRÁCTICA, NO SALE DE `review` — etapa RV24
-         * ══════════════════════════════════════════════════════════════════
-         *
-         * Este editor lo abre el paso 2.2 del modo coach, y también se abre
-         * solo desde Outlook. El contexto llega por `ReviewProvider`, que
-         * envuelve el árbol entero -- el mismo camino por el que viaja la
-         * máscara al cruzar de módulo.
-         *
-         * `null` es la app normal --nadie recorriendo-- y ahí se escribe de
-         * verdad. `undefined` es «todavía no sé», y ahí NO se escribe: sería
-         * el presupuesto de una práctica moviendo el pronóstico del branch.
-         */
-        if (contextoDeEscritura === undefined) {
-          setError('Still loading the review context — try again in a moment.');
-          setBusy(false);
-          return;
-        }
-        if (contextoDeEscritura !== null && contextoDeEscritura.esPractica) {
-          /*
-           * No se escribe nada, y el modal NO se cierra: el mensaje es la única
-           * forma de que quien practica sepa qué pasó. Cerrar de una lo dejaría
-           * igual que un guardado real y la práctica enseñaría algo falso.
-           *
-           * Y no se llama a `onSaved`: nada se guardó, así que no hay nada que
-           * recargar. Llamarlo haría que la pantalla vuelva a leer Outlook y
-           * muestre el número viejo como si fuera el resultado.
-           */
-          setError(null);
-          setSaved(
-            'Practice session — nothing was saved to Outlook. The number stays in this review.'
-          );
-          setBusy(false);
-          return;
-        }
-
+        /* La práctica ya se frenó arriba, en `frenadoPorPractica()`: este
+           editor lo abre el paso 2.2 del modo coach y también se abre solo
+           desde Outlook, y el contexto llega por `ReviewProvider`. */
         if (Object.keys(targets).length > 0 || soltados.length > 0 || Object.keys(draft).length > 0) {
           const rev = await savePersonBudget({
             subject: person.subject,
