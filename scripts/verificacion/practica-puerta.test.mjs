@@ -40,7 +40,7 @@ const { crearArnes, sinComentarios } = await import(
 const puerta = await import(pathToFileURL(resolve(RAIZ, 'lib/review/puertaDeEscritura.ts')).href);
 const { decidirDestino, valorDePractica, PASOS_QUE_ESCRIBEN } = puerta;
 
-const a = crearArnes({ minimo: 19 });
+const a = crearArnes({ minimo: 21 });
 
 /* ── 1. La rama real ─────────────────────────────────────────────────────── */
 {
@@ -98,6 +98,9 @@ const a = crearArnes({ minimo: 19 });
     '⚠ todo paso con `gate_kind` de escritura está en el registro: ' + escritores.join(', '));
 }
 
+/* Los archivos del árbol, una sola vez: los usan los bloques 5 y 6. */
+const archivos = [];
+
 /* ── 5. Que nadie escriba por afuera de la puerta ────────────────────────── */
 {
   /*
@@ -117,7 +120,6 @@ const a = crearArnes({ minimo: 19 });
      */
     { nombre: 'activate_funnel', permitidos: ['app/business-plan/lo/[employeeKey]/funnel/page.tsx'] },
   ];
-  const archivos = [];
   const recorrer = (dir) => {
     for (const e of readdirSync(dir)) {
       if (e === 'node_modules' || e === '.next' || e === '.git') continue;
@@ -147,6 +149,38 @@ const a = crearArnes({ minimo: 19 });
       'y ningún permitido de `' + esc.nombre + '` quedó sin usarla' +
       (muertos.length ? ' — muertos: ' + muertos.join(', ') : ''));
   }
+}
+
+/* ── 6. Que nadie colapse el tercer estado del contexto ──────────────────── */
+{
+  /*
+   * ⚠ `contextoDeEscritura` tiene TRES estados --`undefined` no se sabe, `null`
+   * app normal, objeto recorriendo-- y la forma de destruirlo es una cadena
+   * opcional:
+   *
+   *     if (ctx?.esPractica) { ... }        // `undefined` -> falsy -> REAL
+   *
+   * Eso convierte «todavía no sé» en «es real» y escribe en la tabla de negocio
+   * durante el primer cuadro de cada carga. Es el caso de `funnelActual`, que
+   * en este repo costó tres personas trabadas en el mismo paso.
+   *
+   * Lo prohibido es la CADENA OPCIONAL sobre ese nombre, no el nombre: quien lo
+   * necesita tiene que estrechar antes --`if (ctx === undefined) return`-- y
+   * eso se lee distinto. Es la misma distinción que la fila de `bpData?.` en
+   * `estados-ambiguos.mjs`: ahí también lo prohibido era el `?.` y no el `??`.
+   */
+  const malos = archivos
+    .filter((p) => /contextoDeEscritura\s*\?\./.test(sinComentarios(readFileSync(p, 'utf8'), 'ts')))
+    .map((p) => relative(RAIZ, p).replace(/\\/g, '/'));
+  a.ck(malos.length === 0,
+    '⚠ nadie lee `contextoDeEscritura` con cadena opcional: `undefined` no puede ' +
+    'leerse como «es real»' + (malos.length ? ' — ' + malos.join(', ') : ''));
+
+  /* Y que el proveedor siga declarando los tres, no dos. */
+  const prov = sinComentarios(
+    readFileSync(resolve(RAIZ, 'components/review/ReviewProvider.tsx'), 'utf8'), 'ts');
+  a.ck(/contextoDeEscritura:\s*ContextoDeSesion\s*\|\s*null\s*\|\s*undefined/.test(prov),
+    'el contexto declara los TRES estados en su tipo, no dos');
 }
 
 process.exitCode = a.resumen();
