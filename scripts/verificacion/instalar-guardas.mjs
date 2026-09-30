@@ -70,6 +70,7 @@ const AJUSTES = join(CLAUDE, 'settings.json');
 export const GUARDAS = [
   { archivo: 'sin-texto-al-shell.mjs', matcher: 'Bash' },
   { archivo: 'esperar-al-dato.mjs', matcher: 'Write|Edit' },
+  { archivo: 'sin-service-role.mjs', matcher: 'Write|Edit' },
 ];
 
 /**
