@@ -1065,11 +1065,45 @@ mano legítima de una que debería usar la herramienta, y estirarlo a «cualquie
 archivo lleva documentado siete veces. Un límite declarado no se confunde con un
 agujero.
 
-Las dos guardas se instalan juntas con `npm run guarda:instalar`, que es una
-lista y no dos scripts: copiar el instalador y cambiarle el nombre habría sido
-la segunda copia de la misma decisión. Y **sacar una fila de esa lista la
-desengancha**, que es lo que hace que revertir una guarda alcance con revertir
-su commit — el porqué está abajo, en «la mitad que faltaba».
+Las guardas de hook se instalan juntas con `npm run guarda:instalar`, que es una
+lista y no un script por guarda: copiar el instalador y cambiarle el nombre
+habría sido la segunda copia de la misma decisión. Y **sacar una fila de esa
+lista la desengancha**, que es lo que hace que revertir una guarda alcance con
+revertir su commit — el porqué está abajo, en «la mitad que faltaba».
+
+Hoy son **tres**, y el número vive en `GUARDAS` y no en esta frase, que es
+justamente la que ya envejeció una vez cuando eran dos:
+
+| guarda | intercepta | qué frena |
+|---|---|---|
+| `sin-texto-al-shell.mjs` | `Bash` | texto viajando como argumento |
+| `esperar-al-dato.mjs` | `Write`/`Edit` | esperar a mano teniendo `esperarDato` |
+| `sin-service-role.mjs` | `Write`/`Edit` | la clave de servicio contra `business_plan`, `outlook` o `review` |
+
+### Y la tercera enseñó algo nuevo al probarla EN VIVO
+
+Su primera versión pedía las dos mitades --la clave de servicio y un
+`Accept-Profile` de los tres-- **en el mismo archivo**. Enganchada, lo primero
+que bloqueó fue la VÍA CORRECTA: toda sonda de esta serie arranca pidiendo un
+magiclink con la clave de servicio --que no lleva esquema y es legítimo-- y
+después lee con el token de la persona y `Accept-Profile: review`. Las dos
+mitades en el mismo archivo, sin relación entre ellas.
+
+Y su prueba estaba en verde con **dieciocho** aserciones, porque yo había puesto
+cada mitad en un archivo SEPARADO.
+
+> **Probé las mitades y no el conjunto.** Es «una celda no dice nada de las
+> otras once» del lado de la guarda: dos casos que pasan por separado no dicen
+> nada del archivo que los tiene juntos, que es la forma que tiene el caso real.
+
+La corrección no fue ablandar el patrón sino hacerlo más específico: el header
+prohibido tiene que estar **en el mismo objeto de headers** que la clave. Eso se
+contesta sin parsear JS --se busca el bloque de llaves que lo contiene-- y es
+una regla sobre el significado y no sobre la vecindad en el texto.
+
+⚠ Y lo que la mantiene viva, porque una guarda que frena lo permitido es la que
+alguien desengancha: **si mañana se otorga `usage` sobre uno de los tres, se
+saca de `SIN_USAGE` en el mismo commit que aplica el grant.**
 
 Y hay un primo más chico del mismo error, que apareció cuatro veces en el mismo
 turno: **retipear de memoria la cadena que se va a buscar**, en vez de leerla
