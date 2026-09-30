@@ -84,8 +84,10 @@ const ITEMS: SidebarItem[] = [
    *
    * ⚠ APUNTA A `/review` Y NO A LA CONFIGURACIÓN, y es deliberado: son dos
    * permisos distintos. `/review` la ve el BP Team entero con
-   * `commercial_activity`; `/review/settings` exige `review_admin`, que hoy
-   * tienen cuatro personas.
+   * `commercial_activity`; `/review/settings` exige `review_admin`, que al
+   * 2026-09-30 tienen TRES personas --Isabella, Fernando y Ricardo, contadas
+   * contra `auth.users`--. Decía cuatro, que es lo que pasa con un número
+   * escrito sin fecha: nadie vuelve a verificar una nota.
    *
    * Y la configuración NO es otra entrada del sidebar: es un enlace DENTRO de
    * `/review`, visible sólo para quien puede asignar. Una entrada de menú que

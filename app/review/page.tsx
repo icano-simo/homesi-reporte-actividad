@@ -243,7 +243,7 @@ export default function MyReviewsPage() {
         {/*
           ⚠ LA CONFIGURACIÓN ES UN ENLACE ACÁ, NO OTRA ENTRADA DEL SIDEBAR.
           `/review` la ve el BP Team entero; `/review/settings` exige
-          `review_admin`, que hoy tienen cuatro personas. Una entrada de menú
+          `review_admin`, que al 2026-09-30 tienen TRES personas. Una entrada de menú
           que rebota al landing para las otras 93 promete una sección que para
           ellas no existe.
 
@@ -397,7 +397,17 @@ export default function MyReviewsPage() {
           </p>
           <div className="rv-list">
             {practicas.map((fila) => {
-              const fases = guion ? phaseProgress(guion, fila.responses) : [];
+              /*
+               * ⚠ EL AVANCE SÓLO SI HAY SESIÓN — lo encontró la captura, no una
+               * medición: una práctica sin empezar mostraba `0/5 · 0/2 · 0/1`.
+               *
+               * `phaseProgress` contesta sobre las respuestas, y sin sesión no
+               * hay ninguna, así que los ceros son correctos y no significan
+               * nada: dicen «cero de cinco hechos» donde lo que pasa es que
+               * todavía no empezó. Es el mismo argumento por el que esta fila no
+               * lleva SLA, y me lo salté en la etapa que lo escribió.
+               */
+              const fases = guion && fila.session ? phaseProgress(guion, fila.responses) : [];
               const enCurso = fila.session?.status === 'in_progress';
               return (
                 <article key={fila.assignment.assignment_key} className="rv-row rv-row--practica">
