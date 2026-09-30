@@ -63,8 +63,69 @@ const REINTENTO_MS = 250;
  * con el paso --el 2 tiene un campo de número más-- y una constante quedaría
  * vieja en cuanto alguien le agregue una línea al panel.
  */
-const ALTO_BARRA = 42;
 const AIRE = 10;
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ⚠ EL TOPE LIBRE SE MIDE, NO SE ESCRIBE — etapa RV31
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * Acá había `const ALTO_BARRA = 42`, y el objetivo se alineaba a `42 + AIRE`.
+ * Medido con el mismo método que este archivo ya usaba para el panel de abajo,
+ * lo que hay fijo o pegajoso arriba es esto:
+ *
+ *   DIV.rv-bar         fixed    0 → 82    (42 sin la banda de práctica)
+ *   HEADER.hub-header  sticky   0 → 103   ← la cabecera de la app, SIEMPRE
+ *
+ * O sea que el objetivo quedaba en 52 y el borde libre estaba en 103: **51px
+ * por detrás de la cabecera**. Y `elementFromPoint` sobre el centro del 1.4
+ * devolvía `hub-header__bar` -- no el objetivo.
+ *
+ * ⚠ La constante nunca supo de la cabecera de la app. No es que envejeció: le
+ * faltaba desde el principio. Lo que sí envejeció es el 42, porque la banda de
+ * práctica de RV26 le agregó 40px a la barra -- una etapa que no tocó este
+ * archivo ni tenía por qué.
+ *
+ * El argumento para medirlo ya estaba escrito acá abajo, para el panel: «el
+ * alto del panel SE LEE DEL DOM en vez de escribirse como constante: cambia con
+ * el paso y una constante quedaría vieja en cuanto alguien le agregue una línea
+ * al panel». Es exactamente lo que pasó del otro lado, y el mismo remedio.
+ *
+ * ⚠ Y SE PREGUNTA QUIÉN PINTA, no quién se cruza. `elementsFromPoint` sobre el
+ * tope devuelve la pila de lo que hay ahí, y de esa pila se toman los que están
+ * FIJOS: un elemento que scrollea con la página no tapa nada -- se va. Es la
+ * misma distinción que este repo tiene escrita cuatro veces: la geometría no
+ * distingue el apilado, el punto sí.
+ */
+function topeLibre(): number {
+  /* La columna del medio: en los bordes puede no haber nada de la cabecera. */
+  const x = Math.round(window.innerWidth / 2);
+  let borde = 0;
+  for (const el of document.elementsFromPoint(x, 1)) {
+    const pos = getComputedStyle(el).position;
+    if (pos !== 'fixed' && pos !== 'sticky') continue;
+    const r = el.getBoundingClientRect();
+    /*
+     * ⚠ LO QUE LLEGA HASTA ABAJO NO ES CHROME DE ARRIBA: ES UN VELO.
+     *
+     * Medido con el editor del paso 2.2 abierto: `.bp-modal-backdrop` es
+     * `fixed` de 0 a 900 y SÍ recibe eventos, así que entra en la pila. Sin
+     * esta línea, `topeLibre()` devolvía **900** y la banda arrancaba en 910 --
+     * o sea que el paso habría pedido subir la página entera.
+     *
+     * Hoy eso no se veía porque con el modal abierto el `body` queda en
+     * `overflow: hidden` y `scrollBy` no mueve nada. Es exactamente un respaldo
+     * tapando un defecto: el día que alguien saque el bloqueo, esto scrollea al
+     * tope sin que nada lo explique.
+     *
+     * La distinción no es de tamaño sino de qué ES cada cosa: una barra fijada
+     * arriba deja el resto de la ventana libre, y un velo la ocupa entera.
+     */
+    if (r.bottom >= window.innerHeight - 1) continue;
+    if (r.bottom > borde) borde = r.bottom;
+  }
+  return borde;
+}
 
 /**
  * ══════════════════════════════════════════════════════════════════════════
@@ -100,7 +161,7 @@ function union(rs: readonly DOMRect[]): DOMRect | null {
 function banda(): { arriba: number; abajo: number } {
   const panel = document.querySelector('.rv-panel');
   return {
-    arriba: ALTO_BARRA + AIRE,
+    arriba: topeLibre() + AIRE,
     abajo: panel ? panel.getBoundingClientRect().top - AIRE : window.innerHeight,
   };
 }
