@@ -40,7 +40,7 @@ const { crearArnes, sinComentarios } = await import(
 const puerta = await import(pathToFileURL(resolve(RAIZ, 'lib/review/puertaDeEscritura.ts')).href);
 const { decidirDestino, valorDePractica, PASOS_QUE_ESCRIBEN } = puerta;
 
-const a = crearArnes({ minimo: 31 });
+const a = crearArnes({ minimo: 36 });
 
 /* ── 1. La rama real ─────────────────────────────────────────────────────── */
 {
@@ -339,9 +339,17 @@ const archivos = [];
     'activate_funnel',
     'change_funnel',
   ];
-  /* Las dos formas que tiene una compuerta: la función del editor de
-     presupuesto y el chequeo en línea de las otras pantallas. */
-  const COMPUERTA = /frenadoPorPractica\(\)|contextoDeEscritura[^\n]*esPractica/g;
+  /*
+   * Las dos formas que tiene una compuerta: la función del editor de
+   * presupuesto y el chequeo en línea de las otras pantallas.
+   *
+   * ⚠ `frenadoPorPractica\s*\(` Y NO `\(\)`: el patrón literal dejó de
+   * reconocerla en cuanto la función paso a recibir un argumento, y la guarda
+   * marco las tres escrituras de una pantalla que estaba bien. Es la misma
+   * trampa de la forma, en chico -- y esta vez la pago la guarda y no el
+   * codigo, que es donde hay que pagarla.
+   */
+  const COMPUERTA = /frenadoPorPractica\s*\(|contextoDeEscritura[^\n]*esPractica/g;
 
   /* La profundidad de llaves en cada posición del archivo, de una pasada. */
   const perfil = (texto) => {
@@ -373,7 +381,12 @@ const archivos = [];
   for (const p of pantallas) {
     const codigo = sinComentarios(readFileSync(p, 'utf8'), 'ts');
     const d = perfil(codigo);
-    const puertas = [...codigo.matchAll(COMPUERTA)].map((m) => m.index);
+    /* La DEFINICIÓN de la compuerta no es una compuerta: vive arriba de todo y
+       haría que domine al archivo entero sin haberse ejecutado nunca. Es el
+       mismo descarte que se le hace a las llamadas de abajo. */
+    const puertas = [...codigo.matchAll(COMPUERTA)]
+      .filter((m) => !/function\s*$/.test(codigo.slice(Math.max(0, m.index - 30), m.index)))
+      .map((m) => m.index);
     for (const nombre of ESCRITURAS_DE_PANTALLA) {
       /* La LLAMADA, no la mención: `nombre(` o `.rpc('nombre'`. Un import
          nombra al escritor y no escribe nada. */
@@ -394,6 +407,86 @@ const archivos = [];
   a.ck(sinDominar.length === 0,
     '⚠ toda escritura hacia afuera tiene la compuerta antes Y no más afuera que ella' +
     (sinDominar.length ? ' — ' + sinDominar.join(', ') : ''));
+}
+
+/* ── 10. Lo que la práctica anota, alguien lo lee ────────────────────────── */
+{
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * LA COMPUERTA TIENE QUE MIRAR DONDE LA PRÁCTICA ESCRIBE — etapa RV29
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * El defecto: la compuerta del 2.2 preguntaba por filas nuevas en cinco
+   * tablas de `outlook`, y desde RV24 una práctica no escribe ahí. El editor
+   * avisaba «nothing was saved to Outlook» --correcto-- y el panel seguía
+   * pidiendo que se guardara. Isabella se trabó ahí.
+   *
+   * > **Al cambiar a dónde se escribe, hay que mover también a dónde se mira.**
+   *
+   * ⚠ Y ESTA GUARDA NO ATRAPA ESE DEFECTO, dicho para que nadie la cuente como
+   * cobertura: cuando no existía NI la anotación ni su lectura, no había nada
+   * que emparejar. Lo que atrapa es la mitad siguiente --anotar algo que nadie
+   * lee, o leer algo que nadie anota-- que es la forma en que esto se rompe
+   * cuando alguien agregue el cuarto paso. El defecto entero lo cubre la sonda
+   * que recorre los pasos, y eso no se puede reemplazar por una aserción sobre
+   * el texto: sólo se ve apretando el botón.
+   */
+  const pasosAnotados = new Set();
+  const pasosLeidos = new Set();
+  for (const p of archivos) {
+    const codigo = sinComentarios(readFileSync(p, 'utf8'), 'ts');
+    for (const m of codigo.matchAll(/anotarEvidenciaDePractica\s*\([^)]*?['"](\d+\.\d+)['"]/gs)) {
+      pasosAnotados.add(m[1]);
+    }
+    for (const m of codigo.matchAll(/evidenciaDePractica\s*\([^)]*?['"](\d+\.\d+)['"]/gs)) {
+      /* `anotarEvidenciaDePractica` también termina en `evidenciaDePractica`:
+         se cuenta como lectura sólo si NO viene precedido por `anotar`. */
+      const antes = codigo.slice(Math.max(0, m.index - 7), m.index);
+      if (!/anotar$/.test(antes)) pasosLeidos.add(m[1]);
+    }
+  }
+  const anotados = [...pasosAnotados].sort();
+  const leidos = [...pasosLeidos].sort();
+  a.ck(anotados.length > 0,
+    '⚠ ancla: hay pasos que anotan evidencia de práctica (' + anotados.join(', ') +
+    ') — cero acá volvería vacuas a las dos de abajo');
+  const anotadosSinLector = anotados.filter((x) => !pasosLeidos.has(x));
+  a.ck(anotadosSinLector.length === 0,
+    '⚠ todo paso que anota evidencia tiene quien la lea: la compuerta quedaría cerrada' +
+    (anotadosSinLector.length ? ' — ' + anotadosSinLector.join(', ') : ''));
+  const leidosSinAutor = leidos.filter((x) => !pasosAnotados.has(x));
+  a.ck(leidosSinAutor.length === 0,
+    '⚠ y toda lectura tiene quien la anote: una compuerta que espera algo que nadie escribe' +
+    (leidosSinAutor.length ? ' — ' + leidosSinAutor.join(', ') : ''));
+  /*
+   * ⚠ Y LA QUE FALTABA, que apareció inyectando la violación y no escribiéndola.
+   *
+   * Las dos de arriba emparejan sobre el ÁRBOL ENTERO. Cambiando el `'2.2'` de
+   * la compuerta del presupuesto por `'3.1'` --o sea, dejándola mirando la
+   * evidencia del paso equivocado-- siguieron en verde: el panel también lee
+   * `'2.2'`, así que el par existía en otro archivo. La compuerta estaba rota y
+   * el conteo cuadraba.
+   *
+   * Lo que hace falta es que la compuerta del presupuesto lea la evidencia DE
+   * SU PROPIO PASO, y cuál es ese paso no se escribe a mano: sale del registro
+   * de la puerta, buscando el que escribe `budget`.
+   */
+  const pasoDelPresupuesto = Object.keys(PASOS_QUE_ESCRIBEN).find(
+    (k) => PASOS_QUE_ESCRIBEN[k].que === 'budget'
+  );
+  const anfitrion = sinComentarios(
+    readFileSync(resolve(RAIZ, 'components/review/ReviewMaskHost.tsx'), 'utf8'), 'ts');
+  a.ck(
+    new RegExp("evidenciaDePractica\\s*\\([^)]*['\"]" + pasoDelPresupuesto + "['\"]").test(anfitrion),
+    '⚠ la compuerta del presupuesto lee la evidencia de SU paso (' + pasoDelPresupuesto +
+    '), no la de otro');
+
+  /* Y que los pasos nombrados existan en el registro de la puerta: un `2.3`
+     escrito a mano no lo caza el compilador dentro de una cadena. */
+  const inventados = [...anotados, ...leidos].filter((x) => !(x in PASOS_QUE_ESCRIBEN));
+  a.ck(inventados.length === 0,
+    '⚠ y ningún paso inventado: los que se nombran están en el registro' +
+    (inventados.length ? ' — ' + inventados.join(', ') : ''));
 }
 
 process.exitCode = a.resumen();
