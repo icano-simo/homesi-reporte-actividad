@@ -97,6 +97,15 @@ export interface ReviewAssignment {
   due_on: string;
   is_active: boolean;
   created_by: string;
+  /**
+   * ⚠ ASIGNACIÓN DE PRÁCTICA — RV24. Su sesión se guarda y no cuenta.
+   *
+   * Vive acá y no sólo en la sesión porque una práctica SIN EMPEZAR también es
+   * una práctica: leerla de la sesión la mandaría al grupo de las reales hasta
+   * el primer `Start practice`. Y `review.session` la copia atada por FK
+   * compuesta, así que cuando la sesión existe las dos dicen lo mismo.
+   */
+  is_practice: boolean;
 }
 
 export interface ReviewSession {

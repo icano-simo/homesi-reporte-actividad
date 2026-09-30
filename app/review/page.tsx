@@ -134,6 +134,28 @@ export default function MyReviewsPage() {
     return [...xs].sort((a, b) => a.assignment.due_on.localeCompare(b.assignment.due_on));
   }, [filasCrudas]);
 
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * ⚠ LAS PRÁCTICAS VAN EN SU PROPIO GRUPO, Y NO SE SUMAN — etapa RV26
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * Mezcladas con las reales, una práctica se lee como trabajo pendiente: tiene
+   * nombre, fecha y avance, y en la lista se ve exactamente igual. El equipo
+   * planifica con esta pantalla, así que una fila que no es trabajo puesta
+   * entre las que sí lo son es un número inflado que nadie puede desarmar.
+   *
+   * Y por lo mismo el conteo del grupo es SUYO y no un subtotal de otro mayor:
+   * no hay ningún número en esta pantalla que las incluya.
+   *
+   * ⚠ La marca sale de la ASIGNACIÓN y no de la sesión, a propósito: una
+   * práctica todavía sin empezar --sin sesión-- también es una práctica, y
+   * leerla de la sesión la mandaría al grupo de las reales hasta el primer
+   * `Start coaching`. La FK compuesta garantiza que las dos digan lo mismo
+   * cuando la sesión existe.
+   */
+  const reales = useMemo(() => filas.filter((f) => !f.assignment.is_practice), [filas]);
+  const practicas = useMemo(() => filas.filter((f) => f.assignment.is_practice), [filas]);
+
   const pendiente = reviewsUnavailable ?? scriptUnavailable;
 
   return (
@@ -227,9 +249,9 @@ export default function MyReviewsPage() {
           </p>
         )}
 
-      {filas.length > 0 && (
+      {reales.length > 0 && (
         <div className="rv-list">
-          {filas.map((fila) => {
+          {reales.map((fila) => {
             const est = estadoDe(fila, guion, ahora);
             const sla = slaDe(fila.assignment.due_on, ahora);
             const fases = guion ? phaseProgress(guion, fila.responses) : [];
@@ -275,6 +297,61 @@ export default function MyReviewsPage() {
             );
           })}
         </div>
+      )}
+
+      {/*
+        ══════════════════════════════════════════════════════════════════════
+        EL GRUPO DE PRÁCTICA — etapa RV26
+        ══════════════════════════════════════════════════════════════════════
+
+        ⚠ SU FILA ES MÁS CORTA QUE LA REAL, Y NO ES UNA COPIA RECORTADA.
+
+        Una práctica no lleva SLA ni estado: `due_on` existe en la asignación
+        porque la tabla lo pide, pero una fecha de vencimiento sobre algo que no
+        cuenta es un número que no significa nada -- y un número sin significado
+        en una lista de trabajo se lee como trabajo. Y el estado --`On time`,
+        `Overdue`-- afirmaría lo mismo.
+
+        Por eso no se extrajo una fila común: las dos contestan preguntas
+        distintas. La real dice «cuánto falta y para cuándo»; ésta, «con quién
+        puedo practicar y por dónde iba».
+      */}
+      {practicas.length > 0 && (
+        <section className="rv-practica" data-rv-practicas="">
+          <h2 className="rv-practica__head">
+            Practice — {practicas.length} {practicas.length === 1 ? 'session' : 'sessions'}
+          </h2>
+          <p className="rv-practica__hint">
+            These do not count for anyone&apos;s record and are not part of the list above. You can
+            restart one as many times as you need.
+          </p>
+          <div className="rv-list">
+            {practicas.map((fila) => {
+              const fases = guion ? phaseProgress(guion, fila.responses) : [];
+              const enCurso = fila.session?.status === 'in_progress';
+              return (
+                <article key={fila.assignment.assignment_key} className="rv-row rv-row--practica">
+                  <div className="rv-row__main">
+                    <h3 className="rv-row__who">{fila.loName}</h3>
+                    <div className="rv-row__meta">
+                      {fases.length > 0 && (
+                        <span>{fases.map((f) => f.done + '/' + f.total).join(' · ')}</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="rv-row__actions">
+                    <Link
+                      className="bp-btn bp-btn--small"
+                      href={'/review/' + fila.assignment.assignment_key}
+                    >
+                      {enCurso ? 'Resume practice' : fila.session ? 'Practice again' : 'Start practice'}
+                    </Link>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </section>
       )}
     </>
   );
