@@ -40,7 +40,7 @@ const { crearArnes, sinComentarios } = await import(
 const puerta = await import(pathToFileURL(resolve(RAIZ, 'lib/review/puertaDeEscritura.ts')).href);
 const { decidirDestino, valorDePractica, PASOS_QUE_ESCRIBEN } = puerta;
 
-const a = crearArnes({ minimo: 23 });
+const a = crearArnes({ minimo: 29 });
 
 /* ── 1. La rama real ─────────────────────────────────────────────────────── */
 {
@@ -222,6 +222,62 @@ const archivos = [];
    * contra la elegida presente-- sin depender de adivinar cómo se escribió el
    * `find`, que es una regla sobre la forma del texto.
    */
+}
+
+/* ── 8. Que una práctica se pueda CREAR y REINICIAR — etapa RV27 ─────────── */
+{
+  /*
+   * ⚠ ESTAS CINCO MIRAN LO QUE RV24..RV26 DEJARON A MEDIAS, y las cinco muerden
+   * contra `rv/practica-marcas` (f542ede). Ejercitadas contra ese commit --el
+   * que tuvo el defecto de verdad, no una violación inventada-- dan rojo.
+   *
+   * El defecto tenía dos mitades y ninguna se veía desde la pantalla:
+   *
+   *   · `is_practice` no se podía poner desde ningún lado: el formulario de
+   *     `Coach settings` no lo ofrecía;
+   *   · y aunque se pusiera a mano, `arrancarOSeguir` insertaba la sesión SIN
+   *     la marca. La FK compuesta contra `(assignment_key, is_practice)` la
+   *     rechazaba con `23503` -- medido contra producción, sobre una asignación
+   *     de práctica construida para eso. O sea que `Start practice` no podía
+   *     funcionar, y el grupo de la lista prometía algo imposible.
+   */
+  const acciones = sinComentarios(readFileSync(resolve(RAIZ, 'lib/review/actions.ts'), 'utf8'), 'ts');
+  const arranque = sinComentarios(
+    readFileSync(resolve(RAIZ, 'app/review/[assignmentKey]/page.tsx'), 'utf8'), 'ts');
+  const ajustes = sinComentarios(
+    readFileSync(resolve(RAIZ, 'app/review/settings/page.tsx'), 'utf8'), 'ts');
+
+  a.ck(/is_practice:\s*esPractica/.test(acciones),
+    '⚠ la sesión nueva lleva la marca: sin ella la FK compuesta la rechaza con 23503');
+  a.ck(/fila\.assignment\.is_practice/.test(arranque),
+    '⚠ y la marca sale de la ASIGNACIÓN, que es la única fuente que la FK acepta');
+  a.ck(/is_practice:\s*esPractica/.test(ajustes),
+    '⚠ el formulario de Coach settings puede crear una práctica');
+
+  /*
+   * La otra mitad del contrato, que es la que este repo ya pagó tres veces: una
+   * función aplicada en la base y sin un solo llamador. `reiniciar_practica`
+   * estaba así desde RV24, y la lista decía «you can restart one as many times
+   * as you need».
+   */
+  a.ck(/reiniciar_practica/.test(acciones),
+    'la acción del reinicio llama a la función de la base');
+  const llaman = archivos
+    .filter((p) => /[\\/]app[\\/]/.test(p))
+    .filter((p) => sinComentarios(readFileSync(p, 'utf8'), 'ts').includes('reiniciarPractica'))
+    .map((p) => relative(RAIZ, p).replace(/\\/g, '/'));
+  a.ck(llaman.length > 0,
+    '⚠ y alguna pantalla la llama: una función sin llamador es una capacidad que ' +
+    'la app promete y no tiene' + (llaman.length ? ' — ' + llaman.join(', ') : ''));
+
+  /*
+   * Y que el reinicio cuente lo que borró. Un `rpc` que corrió sobre una sesión
+   * que ya no estaba devuelve `error: null`, así que sin mirar el número la
+   * pantalla diría «listo» sobre cero filas -- el `update` sin `returning`,
+   * otra vez, y van varias.
+   */
+  a.ck(/sesiones_borradas/.test(acciones),
+    '⚠ y mira cuántas filas borró, no sólo `error`: cero con `error: null` es el silencio de siempre');
 }
 
 process.exitCode = a.resumen();

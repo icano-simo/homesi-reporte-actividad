@@ -30,7 +30,16 @@ import { useMemo, useState } from 'react';
  */
 import { AlertTriangleIcon, CalendarIcon } from '@/components/ui/icons';
 import { ErrorState, LoadingState } from '../business-plan/components/shared';
+/*
+ * `Modal` del módulo de Business Plan, y no uno nuevo de la revisión: es el
+ * mismo diálogo que ya usan las bajas del catálogo, y su fondo está en
+ * `z-index: 130` desde OL26g justamente para quedar por encima de la máscara de
+ * la revisión. Un modal propio habría reabierto esa pelea sin saberlo.
+ */
+import Modal from '../business-plan/components/Modal';
 import { useReview } from '@/components/review/ReviewProvider';
+import { reiniciarPractica } from '@/lib/review/actions';
+import { dejarDeRecorrer, useRecorriendo } from '@/lib/review/recorriendo';
 import type { ReviewUnavailable } from '@/lib/review/useReviewData';
 import {
   daysUntilDue,
@@ -115,7 +124,11 @@ export default function MyReviewsPage() {
   /* `myReviews` y no `reviews`: la segunda son TODAS las que la sesion puede
      ver, y con `review_admin` eso es la lista de todo el mundo. */
   const { script: guion, myReviews: filasCrudas, isLoading, scriptError, reviewsError,
-    scriptUnavailable, reviewsUnavailable, myEmployeeKey, canAssign } = useReview();
+    scriptUnavailable, reviewsUnavailable, myEmployeeKey, canAssign, recargar } = useReview();
+
+  /* Cuál se está recorriendo: hace falta para soltar la marca si el reinicio se
+     lleva justo esa sesión. Ver `reiniciar()`. */
+  const recorrida = useRecorriendo();
 
   /*
    * `now` se congela al montar y NO se recalcula en cada render.
@@ -155,6 +168,52 @@ export default function MyReviewsPage() {
    */
   const reales = useMemo(() => filas.filter((f) => !f.assignment.is_practice), [filas]);
   const practicas = useMemo(() => filas.filter((f) => f.assignment.is_practice), [filas]);
+
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * EL REINICIO DE UNA PRÁCTICA — etapa RV27
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * La fila que se va a reiniciar vive en el estado ENTERA y no por clave: el
+   * diálogo tiene que poder decir sobre quién es y cuántos comentarios se
+   * llevaría, y buscarla de nuevo por clave sería leer dos veces la misma cosa.
+   */
+  const [aReiniciar, setAReiniciar] = useState<MyReview | null>(null);
+  const [ocupado, setOcupado] = useState(false);
+  const [errReset, setErrReset] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
+
+  async function reiniciar(fila: MyReview) {
+    const sesion = fila.session;
+    if (!sesion) return;
+    setOcupado(true);
+    setErrReset(null);
+    try {
+      const r = await reiniciarPractica(sesion.session_key);
+      if (!r.ok) {
+        setErrReset(r.error);
+        return;
+      }
+      /*
+       * ⚠ Y SE SUELTA LA MARCA DE «ESTA ES LA QUE RECORRO», si era ésta.
+       *
+       * `rv-walking` guarda una clave de sesión, y esa sesión acaba de dejar de
+       * existir. La máscara ya no se dibujaría --el proveedor exige que la
+       * elegida esté en curso-- pero la clave quedaría apuntando al vacío, que
+       * es exactamente el valor ambiguo que RV25 vino a sacar: ni «recorro
+       * ésta» ni «no recorro ninguna».
+       */
+      if (recorrida === sesion.session_key) dejarDeRecorrer();
+      setAviso(
+        'Practice on ' + fila.loName + ' reset — ' + r.data.respuestas +
+          (r.data.respuestas === 1 ? ' comment' : ' comments') + ' deleted. Start it again when you want.'
+      );
+      setAReiniciar(null);
+      recargar();
+    } finally {
+      setOcupado(false);
+    }
+  }
 
   const pendiente = reviewsUnavailable ?? scriptUnavailable;
 
@@ -321,9 +380,20 @@ export default function MyReviewsPage() {
           <h2 className="rv-practica__head">
             Practice — {practicas.length} {practicas.length === 1 ? 'session' : 'sessions'}
           </h2>
+          {/*
+            ⚠ ESTA FRASE PROMETÍA ALGO QUE NADIE HABÍA CABLEADO — etapa RV27.
+
+            RV26 la escribió como «you can restart one as many times as you
+            need», y `review.reiniciar_practica` estaba aplicada y sin un solo
+            llamador. O sea que la pantalla afirmaba una capacidad que no
+            existía, que es la misma forma que un caveat escrito y no medido.
+
+            Ahora la frase nombra el botón que lo hace, y el botón está abajo.
+          */}
           <p className="rv-practica__hint">
-            These do not count for anyone&apos;s record and are not part of the list above. You can
-            restart one as many times as you need.
+            These do not count for anyone&apos;s record and are not part of the list above.{' '}
+            <strong>Reset</strong> deletes that practice session and the comments written in it, so
+            you can walk it again from the first step.
           </p>
           <div className="rv-list">
             {practicas.map((fila) => {
@@ -340,6 +410,26 @@ export default function MyReviewsPage() {
                     </div>
                   </div>
                   <div className="rv-row__actions">
+                    {/*
+                      ⚠ EL REINICIO SÓLO SE OFRECE SI HAY SESIÓN. Sin sesión no
+                      hay nada que borrar, y un botón que corre y no toca nada
+                      es indistinguible de uno que funcionó -- la familia del
+                      `update` sin `returning`, en la pantalla.
+                    */}
+                    {fila.session && (
+                      <button
+                        type="button"
+                        className="bp-btn bp-btn--small"
+                        disabled={ocupado}
+                        onClick={() => {
+                          setAviso(null);
+                          setErrReset(null);
+                          setAReiniciar(fila);
+                        }}
+                      >
+                        Reset
+                      </button>
+                    )}
                     <Link
                       className="bp-btn bp-btn--small"
                       href={'/review/' + fila.assignment.assignment_key}
@@ -352,6 +442,60 @@ export default function MyReviewsPage() {
             })}
           </div>
         </section>
+      )}
+
+      {/*
+        ⚠ EL RESULTADO SE DICE CON EL NÚMERO DE FILAS BORRADAS, no con un
+        «Done». La función devuelve cuántas respuestas se llevó, y ese número es
+        lo único que distingue un reinicio que borró algo de uno que corrió
+        sobre una sesión que ya no estaba. Es el `returning` del que habla
+        AGENTS.md, dicho en pantalla.
+      */}
+      {aviso && (
+        <p className="rv-hint" role="status">
+          {aviso}
+        </p>
+      )}
+
+      {aReiniciar && (
+        <Modal title="Reset this practice" onClose={() => setAReiniciar(null)}>
+          <div className="bp-form">
+            <p className="bp-modal__lead">
+              This deletes the practice session on <strong>{aReiniciar.loName}</strong> and the{' '}
+              {aReiniciar.responses.length}{' '}
+              {aReiniciar.responses.length === 1 ? 'comment' : 'comments'} written in it. It cannot be
+              undone.
+            </p>
+            {/*
+              Lo que NO se toca, dicho acá y no sólo en la nota del grupo: el
+              miedo razonable de quien aprieta esto es haber escrito algo en el
+              perfil de esa persona durante la práctica.
+            */}
+            <p className="bp-modal__lead">
+              Nothing outside the practice changes: {aReiniciar.loName}&apos;s benchmark, budget and
+              funnel are untouched, and no real coaching session is affected.
+            </p>
+            {errReset && (
+              <div className="bp-pending" role="alert">
+                <AlertTriangleIcon size={14} />
+                <span>{errReset}</span>
+              </div>
+            )}
+            <div className="bp-form__actions">
+              <button
+                type="button"
+                className="bp-btn bp-btn--primary"
+                disabled={ocupado}
+                onClick={() => reiniciar(aReiniciar)}
+              >
+                {ocupado ? 'Resetting…' : 'Reset practice'}
+              </button>
+              <button type="button" className="bp-linkish" onClick={() => setAReiniciar(null)}>
+                cancel
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
     </>
   );

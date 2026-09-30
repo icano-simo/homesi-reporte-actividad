@@ -76,10 +76,19 @@ export default function ArrancarRevisionPage() {
         setError('The coaching script has no steps. Nothing to do until it is loaded.');
         return;
       }
-      const r = await arrancarOSeguir(assignmentKey, fila.assignment.lo_employee_key, {
-        phase_no: orden[0].phase_no,
-        step_in_phase: orden[0].step_in_phase,
-      });
+      /*
+       * ⚠ LA MARCA SALE DE LA ASIGNACIÓN, y es lo único que la sesión puede
+       * decir sobre sí misma: la FK compuesta contra
+       * `(assignment_key, is_practice)` rechaza cualquier otro valor con
+       * `23503`. Así que esto no es "pasarle un flag" -- es la herencia,
+       * escrita donde el código la puede leer.
+       */
+      const r = await arrancarOSeguir(
+        assignmentKey,
+        fila.assignment.lo_employee_key,
+        { phase_no: orden[0].phase_no, step_in_phase: orden[0].step_in_phase },
+        fila.assignment.is_practice
+      );
       if (!r.ok) {
         setError(r.error);
         return;

@@ -166,7 +166,9 @@
   order: 3;
   padding: 5px 9px;
   border-radius: var(--radius-sm);
-  background: var(--amber-500, #f59e0b);
+  /* Ver la nota de `.rv-tag-practica`: `--amber-500` está en `:root`, así que
+     el respaldo que escribió RV26 era un respaldo muerto. */
+  background: var(--amber-500);
   color: var(--navy);
   font-size: 11.5px;
   line-height: 1.45;
@@ -270,6 +272,67 @@ body:has(.rv-bar) .app {
 .rv-row--practica {
   background: var(--slate-50);
   box-shadow: none;
+}
+
+/*
+ * ── La marca de práctica en la lista de CONFIGURACIÓN — etapa RV27 ──────────
+ *
+ * ⚠ Sólo hace falta ahí, y por eso no se parece a la banda de la máscara. En
+ * `/review` las dos clases de asignación van en grupos separados, así que la
+ * separación ya es la marca; en `Coach settings` conviven en una sola lista y
+ * lo que hay que poder hacer es distinguirlas de un vistazo.
+ *
+ * `inline-block` y no `flex`: va DENTRO de un `<h3>` con el nombre al lado, y
+ * un contenedor flex con prosa como hijo directo parte la frase en columnas --
+ * ya pasó dos veces en este repo, y las dos con las aserciones de texto en
+ * verde porque `innerText` no cambia.
+ */
+.rv-tag-practica {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  /* Sin respaldo en el `var()`: los dos están en `:root` de `tokens.css`,
+     medido. Un fallback vivo sobre un token que existe es la compensación que
+     va a tapar la ausencia del próximo. */
+  background: var(--amber-100);
+  color: var(--amber-800);
+  font-family: var(--font-body);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+/*
+ * La casilla del formulario: el cuadrito y su rótulo en una línea.
+ *
+ * ⚠ `bp-form__field` es una COLUMNA --rótulo arriba, campo abajo--, que es lo
+ * correcto para un `select` y lo contrario de lo que necesita una casilla. Esto
+ * la vuelve fila sin redefinir la clase ajena: `git grep` primero, que es lo
+ * que evitó el séptimo choque de nombres.
+ */
+/*
+ * ⚠ CON LAS DOS CLASES, no con `.rv-form__check` sola. Las dos valen (0,1,0),
+ * así que con una sola clase quién gana lo decide el ORDEN en que el bundle
+ * junta las hojas -- una propiedad de otro archivo, que puede cambiar sin que
+ * nadie toque ésta. Con `.bp-form__field.rv-form__check` gana por
+ * especificidad, que no depende del orden.
+ */
+.bp-form__field.rv-form__check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.rv-form__check input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--navy);
+}
+.rv-form__check .bp-form__label {
+  margin: 0;
 }
 .rv-row:hover {
   border-color: var(--navy);

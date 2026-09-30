@@ -74,11 +74,31 @@ export async function leerMiEmployeeKey(): Promise<Resultado<number | null>> {
  * El cursor de una sesión nueva arranca en el primer paso del guion, que se
  * recibe por argumento en vez de asumirse `(1, 1)`: la fase 1 podría no
  * empezar en el paso 1 si alguien reordena el guion.
+ *
+ * ---------------------------------------------------------------------------
+ * ⚠ `esPractica` ES OBLIGATORIO, Y NO TIENE VALOR POR DEFECTO — etapa RV27
+ * ---------------------------------------------------------------------------
+ * La sesión hereda la marca de su asignación por una FK COMPUESTA contra
+ * `(assignment_key, is_practice)`. O sea que omitir la columna NO es "queda en
+ * false": sobre una asignación de práctica no existe la fila `(clave, false)`,
+ * y la base rechaza la inserción con `23503`.
+ *
+ * Medido antes de tocar esto, contra la base de producción y sobre una
+ * asignación de práctica construida para eso:
+ *
+ *   sin is_practice   23503  session_practice_matches_assignment
+ *   con is_practice   entró
+ *
+ * Así que `Start practice` no fallaba por permisos ni por la pantalla: no
+ * podía funcionar. Un parámetro OPCIONAL con `= false` habría dejado el mismo
+ * defecto esperando al primer llamador que se olvide -- que es la familia del
+ * valor por defecto que tapa la ausencia. Obligatorio, el compilador lo pide.
  */
 export async function arrancarOSeguir(
   assignmentKey: number,
   loEmployeeKey: number,
-  primerPaso: StepRef
+  primerPaso: StepRef,
+  esPractica: boolean
 ): Promise<Resultado<ReviewSession>> {
   const yaHay = await rv()
     .from('session')
@@ -103,6 +123,7 @@ export async function arrancarOSeguir(
     .insert({
       assignment_key: assignmentKey,
       lo_employee_key: loEmployeeKey,
+      is_practice: esPractica,
       current_phase: primerPaso.phase_no,
       current_step_in_phase: primerPaso.step_in_phase,
       started_by: await emailDeLaSesion(),
@@ -112,6 +133,54 @@ export async function arrancarOSeguir(
   const fila = (nueva.data ?? [])[0] as ReviewSession | undefined;
   if (!fila) return { ok: false, error: NO_ACEPTO };
   return { ok: true, data: fila };
+}
+
+/**
+ * Borra UNA sesión de práctica y sus respuestas, para volver a empezarla.
+ *
+ * ---------------------------------------------------------------------------
+ * ⚠ ES LA ÚNICA ESCRITURA DE TODO EL MÓDULO QUE BORRA, Y NO PASA POR RLS
+ * ---------------------------------------------------------------------------
+ * `review` no tiene ninguna policy de DELETE --decisión de RV1, el intake se
+ * conserva-- así que esto NO puede hacerse con un `.delete()`: ese intento no
+ * falla, devuelve cero filas con `error: null`, que es el silencio de siempre.
+ *
+ * Lo hace `review.reiniciar_practica`, `security definer`, que comprueba tres
+ * cosas antes de tocar nada: que la sesión exista, que sea de práctica, y que
+ * quien llama sea el revisor de esa asignación. Las tres se niegan con una
+ * excepción, así que acá un `error` es un NO de la base y no un fallo de red.
+ *
+ * ⚠ Y NO SE MIRA SÓLO `error`. La función devuelve cuántas filas borró, y ese
+ * número es lo que distingue «reinicié» de «corrió y no había nada»: un
+ * `sesiones_borradas = 0` con `error: null` sería la misma mentira tranquila
+ * que un update sin `returning`.
+ */
+export async function reiniciarPractica(
+  sessionKey: number
+): Promise<Resultado<{ respuestas: number; sesiones: number }>> {
+  const { data, error } = await rv().rpc('reiniciar_practica', { p_session_key: sessionKey });
+  if (error) return { ok: false, error: error.message };
+  /*
+   * `returns table (...)` llega como arreglo de una fila. Se estrecha acá y no
+   * se confía en la forma: un `rpc` devuelve `any`, así que sin esto el conteo
+   * de abajo sería una aserción del tipo y no una lectura del dato.
+   */
+  const filas = (data ?? []) as { respuestas_borradas: number; sesiones_borradas: number }[];
+  const fila = filas[0];
+  if (!fila || Number(fila.sesiones_borradas) === 0) {
+    return {
+      ok: false,
+      error:
+        'The database ran the reset and deleted nothing. That practice session may already be gone — reload the list.',
+    };
+  }
+  return {
+    ok: true,
+    data: {
+      respuestas: Number(fila.respuestas_borradas),
+      sesiones: Number(fila.sesiones_borradas),
+    },
+  };
 }
 
 /**
