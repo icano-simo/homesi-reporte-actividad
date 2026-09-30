@@ -7,6 +7,8 @@ import { useBusinessPlanData } from '@/lib/business-plan/useBusinessPlanData';
 import { useFunnelLibrary } from '@/lib/business-plan/useFunnelLibrary';
 import { useEnrollment } from '@/lib/business-plan/useEnrollment';
 import { useReview } from '@/components/review/ReviewProvider';
+/* La evidencia de la práctica sale de la puerta — RV29. */
+import { anotarEvidenciaDePractica } from '@/lib/review/puertaDeEscritura';
 import {
   buildEnrollmentPlan,
   checkActivation,
@@ -830,6 +832,19 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
         throw new Error('Still loading the review context — try again in a moment.');
       }
       if (contextoDeEscritura !== null && contextoDeEscritura.esPractica) {
+        /*
+         * ⚠ Y ANOTA QUÉ FUNNEL ELIGIÓ — etapa RV29.
+         *
+         * La compuerta del 3.1 se cierra con `funnelActual`, que sale de
+         * `business_plan.enrollment` -- donde una práctica no escribe. Sin esta
+         * anotación, quien practica elige un funnel, la pantalla le dice que no
+         * se activa (bien), y la única salida que le queda es «not now»: puede
+         * cerrar el paso, pero no puede recorrer el camino que vino a practicar.
+         */
+        anotarEvidenciaDePractica(contextoDeEscritura, '3.1', {
+          funnelKey,
+          accion: changingKey ? 'changed' : 'activated',
+        });
         setOpError(null);
         setPracticaAvisada(true);
         return;

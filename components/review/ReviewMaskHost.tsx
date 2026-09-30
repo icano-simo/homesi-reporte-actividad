@@ -45,6 +45,8 @@ import { buscarBranches, rutaDelModulo } from '@/lib/review/branches';
 /* La regla del NMLS efectivo y su link viven en un solo lugar -- BP50. */
 import { PERFIL_VACIO, linkMmi, nmlsEfectivo } from '@/lib/business-plan/perfil';
 import { useReviewTarget } from '@/lib/review/useReviewTarget';
+/* A dónde mira la compuerta lo decide la puerta, no esta pantalla — RV29. */
+import { contextoDePractica, evidenciaDePractica } from '@/lib/review/puertaDeEscritura';
 import { useReview } from './ReviewProvider';
 import ReviewMask from './ReviewMask';
 import ReviewStepPanel from './ReviewStepPanel';
@@ -55,7 +57,8 @@ import ReviewSummary from './ReviewSummary';
  * dejarlo acá también habría sido la misma decisión en dos lugares.
  */
 export default function ReviewMaskHost() {
-  const { script, recorriendo, recargar, salirDeLaRevision, habilitado } = useReview();
+  const { script, recorriendo, recargar, salirDeLaRevision, habilitado, contextoDeEscritura } =
+    useReview();
   const pathname = usePathname();
   const router = useRouter();
 
@@ -361,6 +364,39 @@ export default function ReviewMaskHost() {
   const arranco = activo?.session?.started_at ?? null;
   useEffect(() => {
     if (!pidePresupuesto || loEnCurso === null || arranco === null) return;
+    /*
+     * ══════════════════════════════════════════════════════════════════════
+     * ⚠ A DÓNDE MIRAR LO DECIDE LA PUERTA — etapa RV29
+     * ══════════════════════════════════════════════════════════════════════
+     *
+     * Esta compuerta preguntaba SIEMPRE por las cinco tablas de `outlook`, y
+     * era correcta mientras el paso escribía ahí siempre. Desde RV24 una
+     * práctica no escribe ahí, así que quedó mirando un destino al que la
+     * práctica ya no va: el editor avisaba «nothing was saved to Outlook» y el
+     * panel seguía pidiendo que se guardara. Isabella se trabó ahí.
+     *
+     * ⚠ Y NO SE PREGUNTA `esPractica` ACÁ. Se le pregunta a `escribeAfuera`,
+     * que es la misma función que usa `decidirDestino` para elegir destino. Si
+     * esta pantalla decidiera por su cuenta serían dos copias de la misma
+     * decisión, y divergen con el primer edit -- no con el tercer llamador.
+     *
+     * `undefined` --todavía no sé si es práctica-- no entra a ninguna rama: se
+     * espera, que es lo que el tercer estado existe para poder hacer.
+     */
+    if (contextoDeEscritura === undefined) return;
+    const enPractica = contextoDePractica(contextoDeEscritura);
+    if (enPractica !== null) {
+      /*
+       * En práctica la evidencia la dejó el editor en la sesión. Se relee con
+       * el mismo intervalo y por el mismo motivo: el editor vive en OTRO
+       * componente, así que sin repreguntar la persona guarda y no pasa nada.
+       */
+      const mirarPractica = () =>
+        setPresupuestoGuardado(evidenciaDePractica(enPractica, '2.2') !== undefined);
+      mirarPractica();
+      const t = setInterval(mirarPractica, 4000);
+      return () => clearInterval(t);
+    }
     let vivo = true;
     const mirar = async () => {
       const ol = getSupabaseClient().schema('outlook');
@@ -408,7 +444,7 @@ export default function ReviewMaskHost() {
       vivo = false;
       clearInterval(timer);
     };
-  }, [pidePresupuesto, loEnCurso, arranco]);
+  }, [pidePresupuesto, loEnCurso, arranco, contextoDeEscritura]);
 
   /*
    * Fuera de la ruta NO se busca nada, así que ahí no hay espera: el aviso de

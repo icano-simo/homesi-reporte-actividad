@@ -24,6 +24,9 @@ import {
   savePersonBudget,
   type PersonSubject,
 } from '@/lib/outlook/save';
+/* La evidencia de la práctica sale de la puerta, que es donde vive la decisión
+   de si esto escribe hacia afuera. Ver `puertaDeEscritura` — RV29. */
+import { anotarEvidenciaDePractica } from '@/lib/review/puertaDeEscritura';
 
 /**
  * ============================================================================
@@ -465,13 +468,22 @@ export default function PersonBudgetEditor({
    * protege esa rama.** Por eso ahora es lo primero de cada handler y devuelve
    * un booleano -- el que agregue una cuarta escritura la ve en la línea uno.
    */
-  function frenadoPorPractica(): boolean {
+  function frenadoPorPractica(queHizo: unknown): boolean {
     if (contextoDeEscritura === undefined) {
       setError('Still loading the review context — try again in a moment.');
       setBusy(false);
       return true;
     }
     if (contextoDeEscritura !== null && contextoDeEscritura.esPractica) {
+      /*
+       * ⚠ Y ANOTA LO QUE LA PRÁCTICA HIZO — etapa RV29.
+       *
+       * Sin esto el paso 2.2 no se podía cerrar: su compuerta mira filas nuevas
+       * en cinco tablas de `outlook`, y una práctica no escribe en ninguna. El
+       * editor decía «nothing was saved» y el panel seguía pidiendo que se
+       * guardara, que es el aviso correcto sobre el destino equivocado.
+       */
+      anotarEvidenciaDePractica(contextoDeEscritura, '2.2', queHizo);
       /*
        * No se escribe nada, y el modal NO se cierra: el mensaje es la única
        * forma de que quien practica sepa qué pasó. Cerrar de una lo dejaría
@@ -493,7 +505,9 @@ export default function PersonBudgetEditor({
     setBusy(true);
     setError(null);
     setSaved(null);
-    if (frenadoPorPractica()) return;
+    /* Soltar a la regla TAMBIÉN es haber decidido el presupuesto del paso 2.2:
+       la evidencia dice qué se hizo, no cuánto se fijó. */
+    if (frenadoPorPractica({ accion: 'released', meses: mesesFijados })) return;
     try {
       const rev = await releasePersonBudgetToRule({
         subject: person.subject,
@@ -519,8 +533,17 @@ export default function PersonBudgetEditor({
     setError(null);
     setSaved(null);
     /* La compuerta primero: este handler tiene DOS salidas que escriben, y la
-       de `Confirm as reviewed` vive fuera del `if` que tenía el chequeo. */
-    if (frenadoPorPractica()) return;
+       de `Confirm as reviewed` vive fuera del `if` que tenía el chequeo.
+       La evidencia distingue las dos, porque en el registro real también son
+       cosas distintas: fijar números, o confirmar que están bien como están. */
+    if (
+      frenadoPorPractica({
+        accion: breakdownChanged ? 'set' : 'confirmed',
+        porMes: Object.fromEntries(months.map((m) => [m, breakdownSumOf(m)])),
+      })
+    ) {
+      return;
+    }
     const done: string[] = [];
     try {
       /*

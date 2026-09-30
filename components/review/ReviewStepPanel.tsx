@@ -82,7 +82,12 @@ import {
   sameStep,
 } from '@/lib/review/progress';
 import { fijarBenchmark } from '@/lib/business-plan/benchmark';
-import { decidirDestino } from '@/lib/review/puertaDeEscritura';
+import {
+  contextoDePractica,
+  decidirDestino,
+  evidenciaDePractica,
+  olvidarEvidenciaDePractica,
+} from '@/lib/review/puertaDeEscritura';
 import { useReview } from './ReviewProvider';
 /* `useEffect` queda para el listener de clics, que SÍ es una suscripción. */
 import type { ReviewResponse, ReviewScript, ReviewSession, StepRef } from '@/lib/review/types';
@@ -242,11 +247,31 @@ export default function ReviewStepPanel({
   const router = useRouter();
   /* A dónde escribe lo que se guarde acá. Ver `puertaDeEscritura` — RV24. */
   const { contextoDeEscritura } = useReview();
+  /*
+   * La sesión SI es una práctica, decidido por la puerta y no por esta
+   * pantalla. Con `undefined` --todavía no sé-- da `null`, o sea que la
+   * compuerta mira las tablas y queda cerrada hasta que el contexto llegue:
+   * el lado seguro de fallar.
+   */
+  const practicaEnCurso = contextoDePractica(contextoDeEscritura ?? null);
   const cursor: StepRef = {
     phase_no: session.current_phase,
     step_in_phase: session.current_step_in_phase,
   };
   const paso = script.steps.find((s) => sameStep(s, cursor)) ?? null;
+  /*
+   * ⚠ LA EVIDENCIA DEL 3.1 SE REPREGUNTA, por lo mismo que la del presupuesto:
+   * la escribe OTRO componente --la pantalla del funnel-- así que sin volver a
+   * mirar, quien practica elige y el panel no se entera. Y leerla recién acá,
+   * en un efecto, evita además que el primer render del servidor y el del
+   * navegador digan cosas distintas.
+   */
+  const [tickPractica, setTickPractica] = useState(0);
+  useEffect(() => {
+    if (paso?.gate_kind !== 'funnel' || practicaEnCurso === null) return;
+    const t = setInterval(() => setTickPractica((n) => n + 1), 4000);
+    return () => clearInterval(t);
+  }, [paso?.gate_kind, practicaEnCurso]);
   const texto = script.prompts.find((t) => paso && sameStep(t, paso)) ?? null;
   const yaContestado = latestResponse(responses, cursor);
 
@@ -815,7 +840,18 @@ export default function ReviewStepPanel({
      * `funnelSinLeer` corta antes; pero una condición que miente cuando se la
      * mueve es la clase de respaldo que hace que la ausencia no se note.
      */
-    funnelListo: typeof funnelActual === 'string',
+    /*
+     * ⚠ O LO QUE LA PRÁCTICA ELIGIÓ — etapa RV29. Mismo defecto que el 2.2:
+     * esto sale de `business_plan.enrollment`, donde una práctica no escribe,
+     * así que quien practicaba podía elegir un funnel y la compuerta seguía sin
+     * ver nada. A dónde mirar lo decide la puerta, no esta línea.
+     */
+    funnelListo:
+      typeof funnelActual === 'string' ||
+      (practicaEnCurso !== null &&
+        /* `tickPractica` está para que esto se vuelva a leer; su valor no se
+           usa, y por eso se nombra en un void y no en una condición falsa. */
+        (void tickPractica, evidenciaDePractica(practicaEnCurso, '3.1') !== undefined)),
   };
   const estado = gateStatus(paso, draft);
   /*
@@ -916,6 +952,26 @@ export default function ReviewStepPanel({
       }
     }
 
+    /*
+     * ⚠ Y EL 2.2, QUE NO ESCRIBE DESDE ACÁ — etapa RV29.
+     *
+     * El benchmark lo fija este panel; el presupuesto lo fija el editor de
+     * Outlook, en otro módulo. Así que en práctica el valor ya está anotado en
+     * la sesión antes de llegar acá, y lo que falta es MOVERLO a la respuesta,
+     * que es lo durable. El destino lo decide la misma puerta que decidió no
+     * escribirlo en `outlook`: si decidiera acá sería la segunda copia.
+     */
+    const enPractica = contextoDePractica(
+      contextoDeEscritura ?? { esPractica: false, sessionKey: session.session_key }
+    );
+    if (paso!.gate_kind === 'budget' && enPractica !== null) {
+      const anotado = evidenciaDePractica(enPractica, '2.2');
+      if (anotado !== undefined) {
+        const destino = decidirDestino(enPractica, '2.2', anotado);
+        if (destino.modo === 'practica') gatePractica = destino.gate;
+      }
+    }
+
     const errGuardar = await onGuardar(
       cursor,
       texto!.revision,
@@ -934,6 +990,11 @@ export default function ReviewStepPanel({
       setError(errGuardar);
       setOcupado(false);
       return;
+    }
+    /* La anotación en vuelo se olvida recién ACÁ, con la respuesta ya guardada:
+       borrarla antes dejaría la compuerta cerrada si el guardado fallaba. */
+    if (paso!.gate_kind === 'budget' && enPractica !== null) {
+      olvidarEvidenciaDePractica(enPractica, '2.2');
     }
     if (esUltimo) {
       /* Guardado el último paso, se muestra todo antes de soltar la máscara. */

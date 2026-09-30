@@ -124,3 +124,126 @@ export function valorDePractica(
   const v = (practica as Record<string, unknown>)[que];
   return v === undefined ? undefined : v;
 }
+
+/*
+ * ============================================================================
+ * Y DÓNDE MIRA LA COMPUERTA — etapa RV29
+ * ============================================================================
+ *
+ * ⚠ ESTO ES LA CONSECUENCIA DIRECTA DE LA PUERTA, Y NO LA VIMOS.
+ *
+ * La compuerta del 2.2 pregunta si hay filas nuevas de esta persona en cinco
+ * tablas de `outlook`. Era correcta mientras el paso escribía ahí siempre. Con
+ * la puerta, una práctica NO escribe ahí -- así que la compuerta quedó mirando
+ * un destino al que la práctica ya no va, y el paso no se podía cerrar: el
+ * editor avisaba «nothing was saved to Outlook» y el panel seguía pidiendo que
+ * se guardara.
+ *
+ * > **Al cambiar a dónde se escribe, hay que mover también a dónde se mira.**
+ *
+ * Y la mitad que decide que esto no se rompa de nuevo: la compuerta NO vuelve a
+ * preguntar `esPractica`. Pregunta acá, en el mismo módulo donde
+ * `decidirDestino` decide. Dos lecturas del mismo booleano en dos archivos son
+ * dos copias de la misma decisión, y este repo tiene nueve casos escritos de
+ * que eso diverge con el primer edit.
+ */
+
+/**
+ * ¿Lo que este paso escriba va a salir hacia las tablas de negocio?
+ *
+ * La usan los dos lados: el que ESCRIBE --a través de `decidirDestino`-- y el
+ * que MIRA si se escribió. Con `null` --la app normal, nadie recorriendo-- la
+ * respuesta es sí; con `undefined` no se pregunta, se espera, y por eso no se
+ * acepta acá: el que llame tiene que haber resuelto antes ese tercer estado.
+ */
+export function escribeAfuera(ctx: ContextoDeSesion | null): boolean {
+  return ctx === null || !ctx.esPractica;
+}
+
+/**
+ * El contexto SI esto es una práctica, y `null` si no lo es.
+ *
+ * Es `escribeAfuera` del lado del que va a leer la evidencia, y existe por una
+ * razón concreta: quien pregunta necesita después el `sessionKey`, y una
+ * función que devuelve `boolean` no estrecha el tipo -- obligaría a cada
+ * llamador a repetir `ctx !== null && ...`, que es la segunda copia de la
+ * decisión entrando por la puerta de atrás.
+ */
+export function contextoDePractica(ctx: ContextoDeSesion | null): ContextoDeSesion | null {
+  return escribeAfuera(ctx) ? null : ctx;
+}
+
+/**
+ * La evidencia que una práctica deja ANTES de que exista la respuesta.
+ *
+ * ---------------------------------------------------------------------------
+ * ⚠ POR QUÉ NO VA EN LA BASE, Y CUÁL ES EL LÍMITE
+ * ---------------------------------------------------------------------------
+ * El valor definitivo de una práctica viaja en el `gate` de la respuesta que
+ * cierra el paso. Pero la compuerta del 2.2 se evalúa ANTES de esa respuesta
+ * --es su precondición-- así que en ese momento no hay ninguna fila donde
+ * mirar, y el editor de Outlook vive en otro componente.
+ *
+ * Es el mismo problema que ya tienen los clics del paso 1.4, y por eso usa el
+ * mismo almacén: `sessionStorage`, por sesión y por paso. Lo que se guarda acá
+ * es evidencia en vuelo; lo durable sigue siendo la respuesta.
+ *
+ * ⚠ Y SÍ, ESTO LO PUEDE ESCRIBIR LA PANTALLA -- que es justo lo que RV13 le
+ * sacó a la compuerta real cuando era una casilla. La diferencia no es de
+ * confianza sino de para qué sirve cada una: la compuerta de una sesión REAL
+ * sigue midiendo contra las tablas, porque certifica que algo pasó de verdad.
+ * En una práctica no hay nada que certificar -- no cuenta para nadie-- y lo
+ * único que la compuerta tiene que hacer es no trabar el recorrido.
+ */
+const CLAVE_EVIDENCIA = 'rv-practica:';
+
+function claveDe(ctx: ContextoDeSesion, paso: PasoQueEscribe): string {
+  return CLAVE_EVIDENCIA + ctx.sessionKey + ':' + paso;
+}
+
+/** Anota lo que la práctica hizo en este paso. No hace nada si es real. */
+export function anotarEvidenciaDePractica(
+  ctx: ContextoDeSesion,
+  paso: PasoQueEscribe,
+  valor: unknown
+): void {
+  if (escribeAfuera(ctx)) return;
+  try {
+    sessionStorage.setItem(claveDe(ctx, paso), JSON.stringify({ v: valor }));
+  } catch {
+    /* Sin almacenamiento --modo privado, permisos-- la práctica no puede dejar
+       evidencia y la compuerta va a seguir cerrada. Se pierde comodidad en un
+       recorrido que no cuenta para nadie; no se corrompe nada. */
+  }
+}
+
+/**
+ * Lo que la práctica anotó, o `undefined` si no anotó nada.
+ *
+ * ⚠ `undefined` y no `false`, por lo mismo que `valorDePractica`: quien
+ * pregunta tiene que poder distinguir «la práctica no hizo esto» de «la
+ * práctica lo hizo y el valor era vacío».
+ */
+export function evidenciaDePractica(
+  ctx: ContextoDeSesion,
+  paso: PasoQueEscribe
+): unknown | undefined {
+  if (escribeAfuera(ctx)) return undefined;
+  try {
+    const crudo = sessionStorage.getItem(claveDe(ctx, paso));
+    if (crudo === null) return undefined;
+    const x = JSON.parse(crudo);
+    return x !== null && typeof x === 'object' && 'v' in x ? x.v : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Se olvida al cerrar el paso: lo durable ya quedó en el `gate` de la respuesta. */
+export function olvidarEvidenciaDePractica(ctx: ContextoDeSesion, paso: PasoQueEscribe): void {
+  try {
+    sessionStorage.removeItem(claveDe(ctx, paso));
+  } catch {
+    /* Ver arriba. */
+  }
+}
