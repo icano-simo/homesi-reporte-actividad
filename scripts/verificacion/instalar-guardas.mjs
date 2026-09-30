@@ -71,6 +71,9 @@ export const GUARDAS = [
   { archivo: 'sin-texto-al-shell.mjs', matcher: 'Bash' },
   { archivo: 'esperar-al-dato.mjs', matcher: 'Write|Edit' },
   { archivo: 'sin-service-role.mjs', matcher: 'Write|Edit' },
+  /* ⚠ `Bash|Grep`: la herramienta `Grep` NO pasa por el shell, asi que sin ese
+     segundo brazo la guarda cubriria el comando y no la via que mas se usa. */
+  { archivo: 'contar-en-el-codigo.mjs', matcher: 'Bash|Grep' },
 ];
 
 /**
