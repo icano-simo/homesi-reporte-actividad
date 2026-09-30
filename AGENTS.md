@@ -2266,6 +2266,102 @@ La sonda de RV22 recorre los ocho pasos, y la lista de los que deben ofrecerlo
 **sale de la base** y no de una lista escrita a mano: si mañana alguien agrega
 la clave a otro paso, la sonda espera el enlace ahí.
 
+# Al cambiar a dónde se escribe, hay que mover también a dónde se mira
+
+> Hermana de la de arriba y con el orden invertido: allá se dejó de LEER un dato
+> y se perdió lo que decía su ausencia; acá se cambió dónde se ESCRIBE y los que
+> miraban se quedaron apuntando al lugar viejo. Va aparte porque el mecanismo
+> tiene una segunda mitad que costó dos etapas: **los que miran no son uno.**
+
+## La regla
+
+**Cuando un valor cambia de destino, todo lo que lo lee cambia con él — y hay
+al menos dos lectores distintos: el que DECIDE y el que MUESTRA.**
+
+Arreglar uno deja el otro roto, y no se nota igual según cuál se arregle.
+
+## Lo que lo fija: la práctica de RV24, en tres etapas
+
+La puerta de RV24 mandó las escrituras de una práctica a la sesión en vez de a
+las tablas de negocio. Correcto, y con dos consecuencias que nadie escribió:
+
+| etapa | quién miraba el destino viejo | qué se veía |
+|---|---|---|
+| RV29 | la compuerta del 2.2, contra cinco tablas de `outlook` | el editor decía «nothing was saved» y el panel seguía pidiendo guardar |
+| RV30 | `funnelActual` del 3.1, contra `business_plan.enrollment` | se elegía un funnel y **no pasaba nada** |
+
+El segundo es el que enseña, porque RV29 ya había arreglado **la compuerta** del
+3.1 y el paso siguió sin poder recorrerse. Las dos cosas leían la misma tabla:
+
+    la compuerta     decide si el paso se puede CERRAR
+    `funnelActual`   decide qué se MUESTRA
+
+> **Una compuerta que se puede cerrar por otro lado no se nota rota.**
+
+El 3.1 tiene una segunda salida --los botones de decisión de RV10-- así que
+arreglar sólo la compuerta lo dejó **cerrable y no recorrible**: se podía
+terminar con «not now», que es justo lo contrario de lo que una práctica viene a
+enseñar. Por eso el síntoma no fue «no me deja avanzar» sino «no pasa nada», que
+es más difícil de reportar y mucho más fácil de atribuir a otra cosa.
+
+## Y el segundo hueco es la misma asimetría, más chica
+
+La evidencia de la práctica guardaba la **clave** del funnel y no su **nombre**.
+Alcanzaba para la compuerta --que sólo pregunta si hay algo-- y no para la
+pantalla, que dibuja la fase 3 entera con el nombre.
+
+> **Lo que decide y lo que se ve necesitan cosas distintas del mismo hecho.**
+
+Una evidencia que alcanza para la compuerta y no para la pantalla deja el paso
+cerrable y sin recorrer, que es el mismo resultado por otro camino.
+
+## Qué hacer
+
+- Al cambiar el destino de una escritura, **listar los lectores y separarlos en
+  los que deciden y los que muestran**. Un `git grep` de la tabla vieja los da;
+  lo que no da es en cuál de los dos grupos cae cada uno.
+- **Y recorrer el paso, no sólo cerrarlo.** Una aserción sobre la compuerta pasa
+  con la pantalla en blanco. Las dos veces lo encontró apretar el botón.
+- Cuando el valor tenga que llegar a la pantalla, **guardar lo que la pantalla
+  necesita** --el nombre, no sólo la clave-- aunque la compuerta no lo pida.
+
+## Y dónde poner la respuesta: en el que ya la calculaba
+
+RV29 arregló la compuerta del 3.1 poniéndole un `||` al panel. Funcionaba, y
+estaba en el lugar equivocado: el anfitrión tiene una nota que dice **«UN SOLO
+LUGAR CALCULA EL NOMBRE»**, y el `||` era el segundo. Dos lugares decidiendo qué
+funnel está vigente son dos copias de la misma decisión -- la familia de «dos
+copias de la misma decisión», con el disparador en el primer `edit` y no en el
+tercer llamador.
+
+La corrección fue mover la respuesta al anfitrión y **sacar el `||`**. Que el
+archivo ya tuviera la nota escrita es lo que hizo que la pregunta tuviera
+respuesta antes de buscarla.
+
+## Y la tercera vez que el volcado encuentra lo que el selector no
+
+La sonda que lo midió falló tres veces, y las tres eran de la sonda:
+
+- esperé el texto `is selected`, que es **otra pantalla** --con el funnel ya
+  vigente el panel muestra la de decidir-- así que dio rojo sobre algo que
+  estaba bien;
+- esperé a las **tarjetas del catálogo** y apreté `Select` con la población en
+  viaje: la evidencia quedaba vacía y el panel nunca cambiaba;
+- y busqué el aviso del funnel sólo en `<p>`.
+
+Lo que las encontró fue **volcar el DOM**, no probar otro selector:
+
+> El volcado dijo `evidencia: []` en una corrida y la evidencia escrita en otra,
+> **con el mismo código**. Eso ningún selector lo contesta.
+
+Y la espera correcta estaba escrita en el propio archivo, en la nota de RV13:
+**el subtítulo trae un guión mientras viaja y el nombre cuando llegó.** Apretar
+`Select` antes de eso no activa nada y la pantalla lo dice -- es el séptimo caso
+de este archivo, leído en su lugar de origen y pagado igual.
+
+Las tres las cortó el mínimo de `crearArnes` --`4 de 14`, `5 de 15`, `14 de
+15`-- en vez de imprimir verde.
+
 # El mismo componente en tres formas: esperar el elemento que las tres dibujan
 
 > Octava vez de la familia «medí antes de que el dato estuviera», y la primera
