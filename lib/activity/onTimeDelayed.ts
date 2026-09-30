@@ -12,7 +12,7 @@ export interface OnTimeDelayedCell {
   /** % sobre (countOnTime + countDelayed) ÚNICAMENTE -- Unknown queda fuera del denominador, nunca se mezcla. `null` si ese subtotal es 0. */
   pctOnTime: number | null;
   pctDelayed: number | null;
-  /** Promedio de días de atraso (Close Date - orgEstClosingDate), SOLO sobre el bucket Delayed. `null` si no hay ningún Delayed en esta celda. */
+  /** Promedio de días de atraso (Clear to Close Date - orgEstClosingDate, Etapa ON-TIME-CTC-1), SOLO sobre el bucket Delayed. `null` si no hay ningún Delayed en esta celda. */
   avgDaysLate: number | null;
 }
 
@@ -52,8 +52,8 @@ export interface OnTimeDelayedTotals {
  * proyecto para `monthOf()` en loadCurrent.ts, acá aplicada a una resta de
  * días en vez de un truncamiento a mes).
  *
- * A propósito NO es `business_days_between()` -- esto es Close Date contra
- * una fecha objetivo FIJA (la estimación original), no el cálculo de
+ * A propósito NO es `business_days_between()` -- esto es Clear to Close Date
+ * contra una fecha objetivo FIJA (la estimación original), no el cálculo de
  * negocio de días hábiles que ya usan App→CTC/CTC→Disb.
  */
 function calendarDaysBetweenUTC(fromISO: string, toISO: string): number {
@@ -69,21 +69,31 @@ function calendarDaysBetweenUTC(fromISO: string, toISO: string): number {
  * CLASIFICACIÓN On Time / Delayed / Unknown — POR PRÉSTAMO
  * ============================================================================
  *
- * Regla de negocio (confirmada por Alejandra vía Isa):
+ * Etapa ON-TIME-CTC-1 (30-sep, confirmado por Alejandra y Pier): la fecha
+ * comparada pasó de Close Date (`closingDate`) a Clear to Close Date
+ * (`ctcDate`, `loan_records_v2.ms_clear_to_close`) -- motivo de negocio:
+ * después del CTC hay pasos que el equipo no controla (funding/disbursement
+ * en manos de otro equipo), así que la responsabilidad que este módulo mide
+ * termina en CTC, no en el cierre final. Mismo operador, misma regla de
+ * "sin fecha original" -- sólo cambia CUÁL fecha se compara.
+ *
+ * Regla de negocio:
  *   - `orgEstClosingDate === null` -- Unknown, sin excepción. NUNCA cuenta
- *     como On Time ni Delayed, sin importar qué diga `closingDate`.
- *   - `closingDate <= orgEstClosingDate` -- On Time (comparación lexicográfica
+ *     como On Time ni Delayed, sin importar qué diga `ctcDate`. Bucket SIN
+ *     TOCAR por este cambio -- sigue siendo el mismo "no hay fecha original
+ *     con la cual comparar".
+ *   - `ctcDate <= orgEstClosingDate` -- On Time (comparación lexicográfica
  *     de 2 strings 'YYYY-MM-DD', que ordena igual que la fecha real -- no
  *     hace falta ningún `Date` para esto).
- *   - `closingDate > orgEstClosingDate` -- Delayed.
+ *   - `ctcDate > orgEstClosingDate` -- Delayed.
  *
- * `closingDate === null` (no debería pasar dentro del universo de "cierres
- * de división", pero no se asume) también cae a Unknown -- no hay Close
- * Date con la cual comparar.
+ * `ctcDate === null` (un préstamo Banked que todavía no llegó a Clear to
+ * Close, o que el export no trae) también cae a Unknown -- no hay Clear to
+ * Close Date con la cual comparar.
  */
 function classify(loan: LoanRecord): OnTimeDelayedBucket {
-  if (loan.orgEstClosingDate === null || loan.closingDate === null) return 'unknown';
-  return loan.closingDate <= loan.orgEstClosingDate ? 'onTime' : 'delayed';
+  if (loan.orgEstClosingDate === null || loan.ctcDate === null) return 'unknown';
+  return loan.ctcDate <= loan.orgEstClosingDate ? 'onTime' : 'delayed';
 }
 
 /**
@@ -153,7 +163,7 @@ export function computeOnTimeDelayedByMonthAndGroup(
       cur.onTime += 1;
     } else {
       cur.delayed += 1;
-      cur.daysLateSum += calendarDaysBetweenUTC(loan.orgEstClosingDate as string, loan.closingDate as string);
+      cur.daysLateSum += calendarDaysBetweenUTC(loan.orgEstClosingDate as string, loan.ctcDate as string);
       cur.daysLateCount += 1;
     }
     byCell.set(key, cur);
@@ -229,7 +239,7 @@ export interface OnTimeDelayedLoanResult {
   month: YearMonth;
   groupKey: string;
   bucket: 'onTime' | 'delayed';
-  /** Días de atraso (Close Date - orgEstClosingDate), SOLO si `bucket === 'delayed'`. `null` en On Time -- nunca 0, "no aplica" no es "cero atraso". */
+  /** Días de atraso (Clear to Close Date - orgEstClosingDate, Etapa ON-TIME-CTC-1), SOLO si `bucket === 'delayed'`. `null` en On Time -- nunca 0, "no aplica" no es "cero atraso". */
   daysLate: number | null;
 }
 
@@ -244,7 +254,7 @@ export function computeOnTimeDelayedLoanResults(
     const bucket = classify(loan);
     if (bucket === 'unknown') continue;
     const daysLate =
-      bucket === 'delayed' ? calendarDaysBetweenUTC(loan.orgEstClosingDate as string, loan.closingDate as string) : null;
+      bucket === 'delayed' ? calendarDaysBetweenUTC(loan.orgEstClosingDate as string, loan.ctcDate as string) : null;
     results.push({ loanNumber: loan.loanNumber, month: loan.closingMonth, groupKey: groupKeyOf(loan), bucket, daysLate });
   }
   return results;
@@ -252,11 +262,18 @@ export function computeOnTimeDelayedLoanResults(
 
 /**
  * Totales globales, SIN agrupar -- misma clasificación y las mismas 3
- * reglas de arriba, pero sobre el universo entero de una sola vez. Para la
- * verificación contra los números de Isa (302 Delayed / 206 On Time / 6
- * Unknown, sobre el total) -- no depende de `closingMonth`, así que un
- * préstamo sin mes de cierre (si lo hubiera) SÍ se cuenta acá, a
- * diferencia de `computeOnTimeDelayedByMonthAndBranch`.
+ * reglas de arriba, pero sobre el universo entero de una sola vez.
+ *
+ * ⚠ Los números de Isa (302 Delayed / 206 On Time / 6 Unknown, sobre el
+ * total) son la referencia de la fórmula VIEJA (Close Date contra
+ * orgEstClosingDate) -- quedan documentados acá por su valor histórico,
+ * NO como el resultado esperado de esta función después de la Etapa
+ * ON-TIME-CTC-1. Ver el reporte de esa etapa para los totales recalculados
+ * con Clear to Close Date.
+ *
+ * No depende de `closingMonth`, así que un préstamo sin mes de cierre (si
+ * lo hubiera) SÍ se cuenta acá, a diferencia de
+ * `computeOnTimeDelayedByMonthAndBranch`.
  */
 export function computeOnTimeDelayedTotals(loans: LoanRecord[]): OnTimeDelayedTotals {
   const eligible = loans.filter((loan) => loan.countsForDivision === true);
@@ -275,7 +292,7 @@ export function computeOnTimeDelayedTotals(loans: LoanRecord[]): OnTimeDelayedTo
       onTime += 1;
     } else {
       delayed += 1;
-      daysLateSum += calendarDaysBetweenUTC(loan.orgEstClosingDate as string, loan.closingDate as string);
+      daysLateSum += calendarDaysBetweenUTC(loan.orgEstClosingDate as string, loan.ctcDate as string);
       daysLateCount += 1;
     }
   }
