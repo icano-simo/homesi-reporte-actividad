@@ -841,8 +841,20 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
          * se activa (bien), y la única salida que le queda es «not now»: puede
          * cerrar el paso, pero no puede recorrer el camino que vino a practicar.
          */
+        /*
+         * ⚠ Y VA EL NOMBRE, no sólo la clave — etapa RV30.
+         *
+         * Con la clave sola la compuerta se abría y la pantalla seguía sin
+         * mostrar nada: la fase 3 entera se dibuja con el NOMBRE del funnel
+         * vigente, así que sin él «Done — X is selected» --y con él el cierre
+         * de la revisión-- no aparecían. Una evidencia que alcanza para la
+         * compuerta y no para la pantalla deja el paso cerrable y sin recorrer.
+         */
         anotarEvidenciaDePractica(contextoDeEscritura, '3.1', {
           funnelKey,
+          /* `funnel` ya está resuelto arriba, en la validación: buscarlo de
+             nuevo sería la segunda copia de la misma búsqueda. */
+          funnelName: funnel.name,
           accion: changingKey ? 'changed' : 'activated',
         });
         setOpError(null);
