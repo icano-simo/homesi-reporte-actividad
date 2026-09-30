@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useReview } from '@/components/review/ReviewProvider';
 import Modal from '@/app/business-plan/components/Modal';
 import BudgetHistory from '@/app/outlook/components/BudgetHistory';
 import type { BudgetBucket, OutlookData } from '@/lib/outlook/loadData';
@@ -233,6 +234,13 @@ export default function PersonBudgetEditor({
     }
     return '';
   }
+
+  /*
+   * A dónde va lo que se guarde acá — RV24. Este editor lo abre el paso 2.2 del
+   * modo coach y también se abre solo desde Outlook, así que la pregunta no
+   * tiene una respuesta fija: la contesta el proveedor.
+   */
+  const { contextoDeEscritura } = useReview();
 
   const [breakdown, setBreakdown] = useState<Record<BudgetBucket, Record<string, string>>>(() =>
     Object.fromEntries(
@@ -519,6 +527,43 @@ export default function PersonBudgetEditor({
          * `savePersonBudget` manda las dos listas a `outlook.save_person_budget`,
          * que las inserta en una sola sentencia: las dos o ninguna.
          */
+        /*
+         * ══════════════════════════════════════════════════════════════════
+         * ⚠ Y SI ESTO ES UNA PRÁCTICA, NO SALE DE `review` — etapa RV24
+         * ══════════════════════════════════════════════════════════════════
+         *
+         * Este editor lo abre el paso 2.2 del modo coach, y también se abre
+         * solo desde Outlook. El contexto llega por `ReviewProvider`, que
+         * envuelve el árbol entero -- el mismo camino por el que viaja la
+         * máscara al cruzar de módulo.
+         *
+         * `null` es la app normal --nadie recorriendo-- y ahí se escribe de
+         * verdad. `undefined` es «todavía no sé», y ahí NO se escribe: sería
+         * el presupuesto de una práctica moviendo el pronóstico del branch.
+         */
+        if (contextoDeEscritura === undefined) {
+          setError('Still loading the review context — try again in a moment.');
+          setBusy(false);
+          return;
+        }
+        if (contextoDeEscritura !== null && contextoDeEscritura.esPractica) {
+          /*
+           * No se escribe nada, y el modal NO se cierra: el mensaje es la única
+           * forma de que quien practica sepa qué pasó. Cerrar de una lo dejaría
+           * igual que un guardado real y la práctica enseñaría algo falso.
+           *
+           * Y no se llama a `onSaved`: nada se guardó, así que no hay nada que
+           * recargar. Llamarlo haría que la pantalla vuelva a leer Outlook y
+           * muestre el número viejo como si fuera el resultado.
+           */
+          setError(null);
+          setSaved(
+            'Practice session — nothing was saved to Outlook. The number stays in this review.'
+          );
+          setBusy(false);
+          return;
+        }
+
         if (Object.keys(targets).length > 0 || soltados.length > 0 || Object.keys(draft).length > 0) {
           const rev = await savePersonBudget({
             subject: person.subject,

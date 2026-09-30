@@ -53,6 +53,7 @@ export default function ReviewSettingsPage() {
   const [revisor, setRevisor] = useState('');
   const [lo, setLo] = useState('');
   const [vence, setVence] = useState('');
+  const [esPractica, setEsPractica] = useState(false);
   const [ocupado, setOcupado] = useState(false);
   const [errOp, setErrOp] = useState<string | null>(null);
 
@@ -103,7 +104,19 @@ export default function ReviewSettingsPage() {
      */
   }, []);
 
-  const listo = revisor !== '' && lo !== '' && vence !== '';
+  /*
+   * ⚠ UNA PRÁCTICA TAMBIÉN NECESITA UNA FECHA, y no porque signifique algo.
+   *
+   * `due_on` es `not null` en la tabla --medido, no recordado-- y el SLA de una
+   * práctica no quiere decir nada: la lista de `/review` ni lo muestra, porque
+   * un vencimiento sobre algo que no cuenta es un número sin significado.
+   *
+   * Así que se guarda HOY y el campo lo dice en pantalla, deshabilitado. La
+   * alternativa --rellenarlo por debajo-- sería escribir una fecha que nadie
+   * eligió y que después alguien va a leer como una decisión.
+   */
+  const venceEfectivo = esPractica ? hoyLocal() : vence;
+  const listo = revisor !== '' && lo !== '' && venceEfectivo !== '';
 
   async function asignar() {
     if (!listo) return;
@@ -123,13 +136,21 @@ export default function ReviewSettingsPage() {
         .insert({
           reviewer_employee_key: Number(revisor),
           lo_employee_key: Number(lo),
-          due_on: vence,
+          due_on: venceEfectivo,
           created_by: email,
+          /*
+           * ⚠ SE MANDA SIEMPRE, también en `false`. La columna tiene default,
+           * así que omitirla funcionaría -- y entonces qué se guarda dependería
+           * del default y no de lo que esta pantalla decidió. Es la misma razón
+           * por la que `arrancarOSeguir` pide la marca obligatoria.
+           */
+          is_practice: esPractica,
         });
       if (error) throw new Error(error.message);
       setRevisor('');
       setLo('');
       setVence('');
+      setEsPractica(false);
       recargar();
     } catch (err) {
       setErrOp(err instanceof Error ? err.message : String(err));
@@ -297,16 +318,49 @@ export default function ReviewSettingsPage() {
               className="field"
               type="date"
               min={hoyLocal()}
-              value={vence}
+              value={venceEfectivo}
+              disabled={esPractica}
               onChange={(e) => setVence(e.target.value)}
             />
           </label>
 
-          <p className="rv-hint">
-            The coach sees this Loan Officer in their own <strong>My coachees</strong> list. A Loan
-            Officer can only have one coaching session in progress at a time — the database refuses a second
-            one, so the worst that can happen is that this says so.
-          </p>
+          {/*
+            ⚠ LA CASILLA VA DESPUÉS DE LA FECHA Y NO ANTES, y el orden importa:
+            marcarla CAMBIA el campo de arriba --lo fija en hoy y lo apaga--, y
+            un control que modifica algo que todavía no se leyó se lee como que
+            el formulario se rompió. Puesta debajo, el cambio pasa a la vista.
+
+            Y es una casilla y no dos botones ni un `select` de dos valores: lo
+            normal es la asignación real, y la práctica es la excepción que se
+            pide. Un `select` obligaría a elegir siempre entre dos, que es
+            exactamente la forma que hace que alguien elija mal la que ya era
+            la de siempre.
+          */}
+          <label className="bp-form__field rv-form__check">
+            <input
+              type="checkbox"
+              checked={esPractica}
+              onChange={(e) => setEsPractica(e.target.checked)}
+            />
+            <span className="bp-form__label">This is a practice run</span>
+          </label>
+
+          {esPractica ? (
+            <p className="rv-hint rv-hint--warn">
+              A practice session is walked with real data and <strong>writes nothing outward</strong>:
+              the benchmark, the budget and the funnel it touches stay where they are. It shows up in
+              its own group at the bottom of that coach&apos;s <strong>My coachees</strong> list, never
+              among the real ones, and they can reset it there as many times as they need. The date
+              above is stored as today because the table needs one — the practice has no due date and
+              the list does not show it.
+            </p>
+          ) : (
+            <p className="rv-hint">
+              The coach sees this Loan Officer in their own <strong>My coachees</strong> list. A Loan
+              Officer can only have one coaching session in progress at a time — the database refuses a second
+              one, so the worst that can happen is that this says so.
+            </p>
+          )}
 
           <div className="bp-form__actions">
             <button
@@ -315,7 +369,7 @@ export default function ReviewSettingsPage() {
               disabled={!listo || ocupado}
               onClick={asignar}
             >
-              Assign
+              {esPractica ? 'Assign practice' : 'Assign'}
             </button>
           </div>
         </div>
@@ -344,11 +398,25 @@ export default function ReviewSettingsPage() {
               return (
                 <article key={f.assignment.assignment_key} className="rv-row">
                   <div className="rv-row__main">
-                    <h3 className="rv-row__who">{f.loName}</h3>
+                    <h3 className="rv-row__who">
+                      {f.loName}
+                      {/*
+                        La marca va AL LADO DEL NOMBRE y no entre los metadatos:
+                        acá las dos clases de asignación conviven en una sola
+                        lista --a diferencia de `/review`, donde van separadas--
+                        así que lo que hay que poder hacer de un vistazo es
+                        distinguirlas, no leer su detalle.
+                      */}
+                      {f.assignment.is_practice && <span className="rv-tag-practica">practice</span>}
+                    </h3>
                     <div className="rv-row__meta">
-                      <span className={'rv-due' + (dias < 0 ? ' rv-due--late' : dias <= 2 ? ' rv-due--soon' : '')}>
-                        due {f.assignment.due_on}
-                      </span>
+                      {/* Una práctica no tiene SLA: la fecha guardada no
+                          significa nada y mostrarla la haría significar algo. */}
+                      {!f.assignment.is_practice && (
+                        <span className={'rv-due' + (dias < 0 ? ' rv-due--late' : dias <= 2 ? ' rv-due--soon' : '')}>
+                          due {f.assignment.due_on}
+                        </span>
+                      )}
                       <span>
                         coach {f.assignment.reviewer_employee_key}
                         {gente

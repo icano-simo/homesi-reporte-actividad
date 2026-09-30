@@ -107,6 +107,29 @@ export default function ReviewMask({ activo, onSaveAndExit }: ReviewMaskProps) {
         </div>
 
         {/*
+          ══════════════════════════════════════════════════════════════════
+          ⚠ LA BANDA DE PRÁCTICA — etapa RV26
+          ══════════════════════════════════════════════════════════════════
+
+          Va en la barra y no como un chip al lado del nombre: la pregunta que
+          alguien tiene en la cabeza no es «qué clase de sesión es» sino QUÉ
+          PASA CON LO QUE ESCRIBE, y eso necesita una frase.
+
+          Por eso nombra el estado Y dice lo que NO hace. Un rótulo que sólo
+          dijera `Practice` deja la pregunta abierta, y una práctica que se ve
+          igual que lo real es exactamente lo que esta etapa vino a evitar.
+
+          ⚠ Y NO INTERPRETA. Dice que no cuenta para el registro, que es
+          verificable; no dice «podés hacer lo que quieras», que es una
+          afirmación que habría que sostener en los ocho pasos.
+        */}
+        {activo.session.is_practice && (
+          <div className="rv-bar__practica" data-rv-practica="">
+            <strong>Practice</strong> — nothing here counts for {activo.loName}&apos;s record.
+          </div>
+        )}
+
+        {/*
           `Save and exit` deja la sesión EN CURSO, no la cierra: el punto 4 del
           brief. Lo que hace es soltar la máscara y volver a la lista; lo hecho
           ya está guardado paso por paso, así que no hay nada que confirmar.

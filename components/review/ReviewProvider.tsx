@@ -46,8 +46,9 @@
 
 import { createContext, useCallback, useContext, useMemo, type ReactNode } from 'react';
 import { useMyReviews, useReviewScript, type ReviewUnavailable } from '@/lib/review/useReviewData';
-import { salirDeLaMascara, useSalidas } from '@/lib/review/maskExit';
+import { dejarDeRecorrer, useRecorriendo } from '@/lib/review/recorriendo';
 import type { MyReview, ReviewScript } from '@/lib/review/types';
+import type { ContextoDeSesion } from '@/lib/review/puertaDeEscritura';
 
 export interface ReviewContextValue {
   script: ReviewScript | null;
@@ -87,6 +88,30 @@ export interface ReviewContextValue {
    * `null` mientras `myReviews` no llegó: no se sabe todavía, que no es «no hay».
    */
   recorriendo: MyReview | null;
+  /**
+   * ═════════════════════════════════════════════════════════════════
+   * A DÓNDE ESCRIBE LO QUE SE GUARDE AHORA — etapa RV24
+   * ═════════════════════════════════════════════════════════════════
+   *
+   * Los editores de Outlook y de Business Plan preguntan esto ANTES de guardar,
+   * porque dos de los tres pasos que escriben no ocurren dentro del panel: el
+   * 2.2 abre el editor de Outlook y el 3.1 navega al catálogo. El contexto
+   * viaja por acá, que es el mismo camino por el que viaja la máscara.
+   *
+   * ⚠ SON TRES ESTADOS Y NO DOS, y el tercero es el que importa:
+   *
+   *   `undefined`  todavía no se sabe -- `myReviews` no llegó
+   *   `null`       no se está recorriendo ninguna revisión: la app normal
+   *   `{...}`      se está recorriendo, y dice si es práctica
+   *
+   * `undefined` NO puede colapsarse con `null`. Serían «no lo sé» y «es real»
+   * con el mismo valor, y durante el primer cuadro de cada carga un editor
+   * abierto en una práctica escribiría en la tabla de negocio. Es exactamente
+   * el caso de `funnelActual`, que en este repo costó tres personas trabadas.
+   *
+   * Por eso quien guarda no escribe con `undefined`: espera.
+   */
+  contextoDeEscritura: ContextoDeSesion | null | undefined;
   /** Suelta la máscara SIN cerrar la sesión. Sobrevive a una recarga. */
   salirDeLaRevision: () => void;
   reviewsUnavailable: ReviewUnavailable;
@@ -117,6 +142,13 @@ const SIN_PROVEEDOR: ReviewContextValue = {
   reviews: null,
   myReviews: null,
   recorriendo: null,
+  /*
+   * ⚠ `null` Y NO `undefined` acá, y es deliberado: «no hay proveedor» es la
+   * app normal --nadie recorriendo nada-- y ahí se escribe de verdad. El
+   * `undefined` significa «hay proveedor y todavía no contestó», que es otra
+   * cosa y es la que obliga a esperar.
+   */
+  contextoDeEscritura: null,
   salirDeLaRevision: () => {},
   reviewsUnavailable: null,
   reviewsError: null,
@@ -180,20 +212,54 @@ export default function ReviewProvider({ puedeRevisar, children }: ReviewProvide
    * `lib/review/maskExit.ts`, que explica por qué no es estado de React ni una
    * columna de la base.
    */
-  const salio = useSalidas();
+  /*
+   * ⚠ LA QUE SE ELIGIÓ, NO LA PRIMERA — etapa RV25.
+   *
+   * Acá había un `find` sobre «la primera en curso de la que no se salió». Con
+   * una sola revisión abierta coincide con la respuesta correcta; con varias,
+   * no -- y Fernando tiene tres. Antes de RV24 eso decidía qué barra se dibuja;
+   * con la sesión de práctica decide si una escritura es real o de práctica.
+   *
+   * Y NO hay respaldo a «la primera» cuando no hay clave elegida: sin clave no
+   * se recorre nada. Ver la propiedad en `lib/review/recorriendo.ts` -- es la
+   * misma clave la que decide la máscara y el destino de la escritura, así que
+   * nadie puede ver la barra de una práctica y escribir en el registro real.
+   */
+  const elegida = useRecorriendo();
   const recorriendo = useMemo<MyReview | null>(() => {
-    if (mias === null) return null;
+    if (mias === null || elegida === null) return null;
     return (
       mias.find(
-        (r) => r.session?.status === 'in_progress' && !salio(r.session.session_key)
+        (r) => r.session?.session_key === elegida && r.session.status === 'in_progress'
       ) ?? null
     );
-  }, [mias, salio]);
+  }, [mias, elegida]);
 
   const salirDeLaRevision = useCallback(() => {
-    const k = recorriendo?.session?.session_key;
-    if (k !== undefined) salirDeLaMascara(k);
-  }, [recorriendo]);
+    dejarDeRecorrer();
+  }, []);
+
+  /*
+   * ⚠ SE DERIVA ACÁ, UNA SOLA VEZ — mismo criterio que `myReviews`.
+   *
+   * Los tres lugares que van a preguntarlo --el panel, el editor de Outlook y
+   * el catálogo de Business Plan-- están en tres módulos distintos. Si cada uno
+   * lo dedujera de `recorriendo`, serían tres copias de la misma decisión con
+   * un llamador cada una, y este repo tiene nueve casos escritos de que eso
+   * diverge con el primer edit y no con el tercer llamador.
+   *
+   * ⚠ Y `mias === null` devuelve `undefined` y NO `null`: mientras la lista no
+   * llegó no se sabe si hay una práctica en curso, y decir «no hay» durante ese
+   * cuadro es exactamente lo que hace que un editor abierto en una práctica
+   * escriba en la tabla de negocio.
+   */
+  const contextoDeEscritura = useMemo<ContextoDeSesion | null | undefined>(() => {
+    if (!puedeRevisar) return null;
+    if (mias === null) return undefined;
+    const s = recorriendo?.session;
+    if (s === undefined || s === null) return null;
+    return { esPractica: s.is_practice, sessionKey: s.session_key };
+  }, [puedeRevisar, mias, recorriendo]);
 
   const valor = useMemo<ReviewContextValue>(
     () => ({
@@ -203,6 +269,7 @@ export default function ReviewProvider({ puedeRevisar, children }: ReviewProvide
       reviews: reviews.data,
       myReviews: mias,
       recorriendo,
+      contextoDeEscritura,
       salirDeLaRevision,
       reviewsUnavailable: reviews.unavailable,
       reviewsError: reviews.error,
@@ -220,6 +287,7 @@ export default function ReviewProvider({ puedeRevisar, children }: ReviewProvide
       reviews.data,
       mias,
       recorriendo,
+      contextoDeEscritura,
       salirDeLaRevision,
       reviews.unavailable,
       reviews.error,

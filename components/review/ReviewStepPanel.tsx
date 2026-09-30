@@ -82,6 +82,8 @@ import {
   sameStep,
 } from '@/lib/review/progress';
 import { fijarBenchmark } from '@/lib/business-plan/benchmark';
+import { decidirDestino } from '@/lib/review/puertaDeEscritura';
+import { useReview } from './ReviewProvider';
 /* `useEffect` queda para el listener de clics, que SÍ es una suscripción. */
 import type { ReviewResponse, ReviewScript, ReviewSession, StepRef } from '@/lib/review/types';
 
@@ -238,6 +240,8 @@ export default function ReviewStepPanel({
      la decisión de lugar la resuelve el anfitrión, que ve el DOM entero. */
   const pathname = usePathname();
   const router = useRouter();
+  /* A dónde escribe lo que se guarde acá. Ver `puertaDeEscritura` — RV24. */
+  const { contextoDeEscritura } = useReview();
   const cursor: StepRef = {
     phase_no: session.current_phase,
     step_in_phase: session.current_step_in_phase,
@@ -873,17 +877,59 @@ export default function ReviewStepPanel({
     /* `typeof` y no `!== null`: en `StepDraft` el número es opcional, así que
        descartar sólo `null` deja pasar `undefined` -- lo dijo el typechecker. */
     const nro = draft.numero;
+    /*
+     * ═════════════════════════════════════════════════════════════════
+     * ⚠ Y EN PRÁCTICA NO SALE DE `review` — etapa RV24
+     * ═════════════════════════════════════════════════════════════════
+     *
+     * El destino lo decide `puertaDeEscritura`, no este archivo: es el mismo
+     * criterio para los tres pasos que escriben, y viven en tres módulos.
+     *
+     * ⚠ CON `undefined` NO SE ESCRIBE, SE ESPERA. `undefined` es «todavía no sé
+     * si esto es una práctica», y escribir ahí es exactamente el defecto que el
+     * tercer estado existe para impedir: durante el primer cuadro de cada carga
+     * una práctica escribiría el benchmark de verdad, y con él el veredicto de
+     * esa persona.
+     */
+    let gatePractica: Record<string, unknown> | null = null;
     if (paso!.gate_kind === 'number' && typeof nro === 'number' && nro !== benchmarkActual) {
-      const rb = await fijarBenchmark(session.lo_employee_key, nro, comment);
-      if (!rb.ok) {
-        setError(rb.error ?? 'The benchmark was not saved.');
+      if (contextoDeEscritura === undefined) {
+        setError('Still loading the review context — try again in a moment.');
         setOcupado(false);
         return;
       }
-      onBenchmarkGuardado();
+      const destino = decidirDestino(
+        contextoDeEscritura ?? { esPractica: false, sessionKey: session.session_key },
+        '1.2',
+        nro
+      );
+      if (destino.modo === 'real') {
+        const rb = await fijarBenchmark(session.lo_employee_key, nro, comment);
+        if (!rb.ok) {
+          setError(rb.error ?? 'The benchmark was not saved.');
+          setOcupado(false);
+          return;
+        }
+        onBenchmarkGuardado();
+      } else {
+        gatePractica = destino.gate;
+      }
     }
 
-    const errGuardar = await onGuardar(cursor, texto!.revision, comment, gateEvidence(paso!, draft));
+    const errGuardar = await onGuardar(
+      cursor,
+      texto!.revision,
+      comment,
+      /*
+       * ⚠ El valor de práctica se MEZCLA con la evidencia, no la reemplaza: la
+       * compuerta sigue guardando lo suyo --que se fijó un número-- y el valor
+       * viaja bajo su propia clave. Dos cosas distintas en el mismo objeto, sin
+       * que ninguna tenga que saber de la otra.
+       */
+      gatePractica === null
+        ? gateEvidence(paso!, draft)
+        : { ...(gateEvidence(paso!, draft) ?? {}), ...gatePractica }
+    );
     if (errGuardar) {
       setError(errGuardar);
       setOcupado(false);

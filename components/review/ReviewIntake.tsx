@@ -48,7 +48,7 @@ export interface ReviewIntakeProps {
 const dia = (iso: string) => iso.slice(0, 10);
 
 export default function ReviewIntake({ loEmployeeKey, loName, habilitado }: ReviewIntakeProps) {
-  const { sessions, enCurso, isLoading, unavailable, error } = useIntake(loEmployeeKey, habilitado);
+  const { sessions, enCurso, practicas, isLoading, unavailable, error } = useIntake(loEmployeeKey, habilitado);
   /*
    * Cuál revisión está abierta. La más nueva por defecto, y las otras
    * colapsadas: con tres revisiones de ocho pasos son 24 comentarios, y
@@ -184,13 +184,41 @@ export default function ReviewIntake({ loEmployeeKey, loName, habilitado }: Revi
       </>
     );
 
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * ⚠ LAS PRÁCTICAS NO SE LISTAN, PERO SE DICEN — etapa RV26
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * «No se muestra» y «no existe» se ven exactamente igual desde afuera. Sin
+   * esta línea, alguien que sabe que se practicó sobre esta persona abre el
+   * intake, no la encuentra, y concluye que el registro perdió una sesión --
+   * que es media hora de investigación sobre algo que funciona bien.
+   *
+   * Es el mismo criterio que `abiertas`, que ya estaba acá por lo mismo:
+   * contar no es mostrar. Y la frase dice las dos cosas --cuántas hay y que no
+   * van acá-- porque cualquiera de las dos sola deja la otra pregunta abierta.
+   */
+  const practicadas =
+    practicas === 0 ? null : (
+      <>
+        {' '}
+        {practicas} practice session{practicas === 1 ? '' : 's'} on {loName}{' '}
+        {practicas === 1 ? 'is' : 'are'} not listed here: practice does not count for the record.
+      </>
+    );
+
   if (lista.length === 0) {
-    if (enCurso === 0) return null;
+    /*
+     * ⚠ Con sólo prácticas, esto NO puede devolver `null`: sería la pantalla
+     * diciendo que no hay nada cuando hay algo que decidimos no mostrar, y es
+     * justo la confusión que la línea de arriba viene a evitar.
+     */
+    if (enCurso === 0 && practicas === 0) return null;
     return (
       <section className="rv-intake">
         <h2 className="rv-intake__head">Coach intake</h2>
         <p className="rv-hint">
-          {loName} has no closed coaching sessions yet.{abiertas}
+          {loName} has no closed coaching sessions yet.{abiertas}{practicadas}
         </p>
       </section>
     );

@@ -6,6 +6,7 @@ import { getSupabaseClient } from '@/lib/supabase/client';
 import { useBusinessPlanData } from '@/lib/business-plan/useBusinessPlanData';
 import { useFunnelLibrary } from '@/lib/business-plan/useFunnelLibrary';
 import { useEnrollment } from '@/lib/business-plan/useEnrollment';
+import { useReview } from '@/components/review/ReviewProvider';
 import {
   buildEnrollmentPlan,
   checkActivation,
@@ -547,6 +548,15 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
   const [busy, setBusy] = useState(false);
   const [opError, setOpError] = useState<string | null>(null);
   /*
+   * A dónde escribe esta pantalla — RV24. El paso 3.1 del modo coach navega
+   * acá, así que la respuesta no es fija: la contesta el proveedor.
+   */
+  const { contextoDeEscritura } = useReview();
+  const enPractica = contextoDeEscritura !== null && contextoDeEscritura !== undefined
+    && contextoDeEscritura.esPractica;
+  /* Que ya se intentó activar en práctica: el aviso aparece DESPUÉS del clic. */
+  const [practicaAvisada, setPracticaAvisada] = useState(false);
+  /*
    * Qué descripciones están desplegadas. Un `Set` de claves y no un booleano
    * por tarjeta: el estado vive acá --y no adentro de `DescripcionDeTarjeta`--
    * porque cambiar de categoría remonta las tarjetas, y con el estado adentro
@@ -799,6 +809,32 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
        * probado contra la base con un funnel sin steps, y la cancelación se
        * revierte.
        */
+      /*
+       * ══════════════════════════════════════════════════════════════════════
+       * ⚠ EN PRÁCTICA EL CATÁLOGO ABRE Y MUESTRA, PERO NO ACTIVA — RV24
+       * ══════════════════════════════════════════════════════════════════════
+       *
+       * De los tres pasos que escriben, éste es el único que no agrega ruido:
+       * `enrollment_one_active_idx` deja UN plan activo por persona, así que
+       * `activate_funnel` sobre alguien que ya tiene plan no ensucia --
+       * REEMPLAZA. Una práctica que llegara hasta acá cancelaría el plan real.
+       *
+       * Y se deja llegar igual, que es la decisión: el paso 3.1 enseña a
+       * ELEGIR, y elegir es mirar el catálogo. Lo que no pasa es la activación,
+       * y el botón lo dice antes de apretarlo.
+       *
+       * ⚠ `undefined` NO escribe. Acá el costo de confundirlo con «es real» no
+       * es un número raro: es el plan de otra persona cancelado.
+       */
+      if (contextoDeEscritura === undefined) {
+        throw new Error('Still loading the review context — try again in a moment.');
+      }
+      if (contextoDeEscritura !== null && contextoDeEscritura.esPractica) {
+        setOpError(null);
+        setPracticaAvisada(true);
+        return;
+      }
+
       const { error: eRpc } = changingKey
         ? await bp.rpc('change_funnel', {
             p_enrollment_key: changingKey,
@@ -1153,6 +1189,25 @@ export default function ChooseFunnelPage({ params }: { params: Promise<{ employe
               The plan is copied from the template, so editing the library later will not change it.
             </span>
           </div>
+
+          {/*
+            ⚠ EL AVISO DE PRÁCTICA VA ANTES DEL CLIC — RV24.
+            Decirlo después de apretar sería enseñar que el botón hace algo y
+            desmentirlo. Y nombra lo que NO pasa, que es la pregunta que alguien
+            tiene en la cabeza al ver un catálogo que se ve igual que el real.
+          */}
+          {enPractica && (
+            <div className="bp-notice bp-catalog__hint" data-bp-practica="">
+              <strong>Practice session</strong> — you can open and compare funnels, but selecting one
+              will not activate any plan for {lo?.fullName ?? 'this person'}.
+            </div>
+          )}
+          {practicaAvisada && (
+            <div className="bp-notice bp-notice--warn" data-bp-practica-avisada="">
+              Nothing was activated: this is a practice session. The real plan
+              {current === null ? ' — there is none — ' : ' '}was left untouched.
+            </div>
+          )}
 
           {/*
             LA CONFIRMACIÓN DICE EL NÚMERO — etapa BP40. No "se va a borrar el

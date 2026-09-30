@@ -92,6 +92,14 @@ export interface IntakeState {
    * distinto de «no hay nada», y sin este número la pantalla no podía decirlo.
    */
   enCurso: number;
+  /**
+   * Cuántas sesiones de PRÁCTICA hay sobre esta persona. No se listan.
+   *
+   * ⚠ Se cuenta y no se muestra, por la misma razón que `enCurso`: «no se
+   * muestra» y «no existe» se ven igual, y sin el número quien sabe que se
+   * practicó concluye que el intake perdió una sesión.
+   */
+  practicas: number;
   isLoading: boolean;
   unavailable: ReviewUnavailable;
   error: string | null;
@@ -109,6 +117,7 @@ export function useIntake(loEmployeeKey: number | null, habilitado = true): Inta
   const [estado, setEstado] = useState<Omit<IntakeState, 'reload'>>({
     sessions: null,
     enCurso: 0,
+    practicas: 0,
     isLoading: true,
     unavailable: null,
     error: null,
@@ -170,16 +179,31 @@ export function useIntake(loEmployeeKey: number | null, habilitado = true): Inta
 
         const falta = queFalta(sesRes.error);
         if (falta) {
-          setEstado({ sessions: null, enCurso: 0, isLoading: false, unavailable: falta, error: null });
+          setEstado({ sessions: null, enCurso: 0, practicas: 0, isLoading: false, unavailable: falta, error: null });
           return;
         }
         if (sesRes.error) throw new Error(sesRes.error.message);
         const todas = (sesRes.data ?? []) as ReviewSession[];
-        const sesiones = todas.filter((s) => s.status === 'completed');
-        const enCurso = todas.filter((s) => s.status === 'in_progress').length;
+        /*
+         * ⚠ LAS PRÁCTICAS SALEN DEL INTAKE OFICIAL — etapa RV24/RV26.
+         *
+         * No se muestran ni se cuentan entre las cerradas ni entre las en
+         * curso: el intake es el registro de lo que se revisó de esta persona,
+         * y una práctica no lo es.
+         *
+         * ⚠ Pero SE CUENTAN APARTE, porque «no se muestra» y «no existe» se ven
+         * igual. Sin ese número, alguien que sabe que se practicó sobre esta
+         * persona concluye que el intake perdió una sesión -- y eso cuesta una
+         * investigación. Es el mismo criterio que `enCurso`, que ya está acá
+         * por la misma razón: contar no es mostrar.
+         */
+        const reales = todas.filter((s) => !s.is_practice);
+        const practicas = todas.length - reales.length;
+        const sesiones = reales.filter((s) => s.status === 'completed');
+        const enCurso = reales.filter((s) => s.status === 'in_progress').length;
 
         if (sesiones.length === 0) {
-          setEstado({ sessions: [], enCurso, isLoading: false, unavailable: null, error: null });
+          setEstado({ sessions: [], enCurso, practicas, isLoading: false, unavailable: null, error: null });
           return;
         }
 
@@ -288,6 +312,7 @@ export function useIntake(loEmployeeKey: number | null, habilitado = true): Inta
         setEstado({
           sessions: armadas,
           enCurso,
+          practicas,
           isLoading: false,
           unavailable: null,
           error: null,
@@ -297,6 +322,7 @@ export function useIntake(loEmployeeKey: number | null, habilitado = true): Inta
           setEstado({
             sessions: null,
             enCurso: 0,
+            practicas: 0,
             isLoading: false,
             unavailable: null,
             error: err instanceof Error ? err.message : String(err),
