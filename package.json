@@ -20,6 +20,7 @@
     "verificar:shell": "node scripts/verificacion/sin-texto-al-shell.test.mjs",
     "verificar:espera": "node scripts/verificacion/esperar-al-dato.test.mjs",
     "verificar:service-role": "node scripts/verificacion/sin-service-role.test.mjs",
+    "verificar:conteo": "node scripts/verificacion/contar-en-el-codigo.test.mjs",
     "verificar:instalador": "node scripts/verificacion/instalar-guardas.test.mjs",
     "verificar:ventana": "node scripts/verificacion/ventana-de-edicion.test.mjs",
     "verificar:gobierno": "node scripts/verificacion/gobierno-del-total.test.mjs",

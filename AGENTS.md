@@ -1112,6 +1112,46 @@ sobre algo que ya era una cadena, y un `**negrita**` que en el archivo era un
 `##`. Las cuatro las atrapó el `assert` --que para eso está-- pero las cuatro
 eran evitables leyendo tres líneas.
 
+### La OCTAVA de `exigirAusente`, y la que obligó a bajar un nivel más
+
+Las siete de la cabecera de `exigirAusente` son de antes de que la función
+existiera, o de antes de acordarse de ella. **La octava la cometí con la
+herramienta ya escrita, ya mergeada, y escrita por mí.** Para confirmar que un
+arreglo seguía puesto corrí:
+
+    grep -c "ALTO_BARRA = 42" lib/review/useReviewTarget.ts     ->  1
+
+y ese `1` era el COMENTARIO que explica que la constante se fue. Reporté que el
+arreglo se había perdido, sobre un árbol donde estaba puesto.
+
+> **Una herramienta que hay que acordarse de usar se usa igual que una nota.**
+
+Y eso dice algo que las siete anteriores no decían. Con el shell, con la espera
+y con el `service_role`, la respuesta fue una guarda que bloquea porque *la
+regla escrita* no alcanzaba. Acá no faltaba la regla ni la herramienta: faltó
+agarrarla. Así que la misma respuesta, un nivel más abajo --
+`scripts/verificacion/contar-en-el-codigo.mjs`, enganchada en `Bash` y en la
+herramienta `Grep`:
+
+> **No bloquea «un `grep` con `-c`». Bloquea un conteo cuyo resultado sobre el
+> ARCHIVO difiere del resultado sobre el CÓDIGO** -- o sea, exactamente cuando
+> ese número engaña. Si los dos coinciden no pasa nada, porque no hay nada que
+> confundir.
+
+Y cuando bloquea **da los dos números**. Eso no es cortesía: un bloqueo que
+contesta la pregunta en sus dos lecturas no deja a nadie buscándole la vuelta,
+y por eso no es de las que alguien desengancha. Verificada en vivo, en las dos
+vías y en las dos direcciones: frenó el comando exacto del caso real --diciendo
+«0 en el código, 1 contando los comentarios»-- y dejó pasar un conteo cuyos dos
+números coinciden.
+
+⚠ **Y su límite, que es la respuesta a «¿hasta dónde llega una guarda?»:** no
+cubre abrir el archivo y contar a ojo, ni `git grep`, ni un conteo sobre varios
+archivos. La confusión no vive en el comando sino en la conclusión, y ninguna
+guarda puede interceptar una conclusión. Ahí se acaba lo mecánico y **queda sólo
+el hábito de preguntarse qué parte del archivo contestó** -- que es lo que
+`exigirAusente` viene diciendo desde la primera vez.
+
 ## Y la séptima: probar una mitad de un contrato
 
 Las siete de la tabla grande son mediciones que midieron mal. La del arnés es
@@ -2503,6 +2543,78 @@ de este archivo, leído en su lugar de origen y pagado igual.
 
 Las tres las cortó el mínimo de `crearArnes` --`4 de 14`, `5 de 15`, `14 de
 15`-- en vez de imprimir verde.
+
+# Una condición de corte que se cumple ANTES de lo que viene a esperar
+
+> Va aparte de la familia «medí antes de que el dato estuviera», y la
+> diferencia es fina pero decide qué se arregla: allá la espera era **a la
+> señal equivocada** --el subtítulo, las tarjetas, el prompt-- y acá la señal
+> es la correcta. Lo que está mal es que **la condición de parada se satisface
+> en el estado PREVIO al que se quiere medir.**
+
+## La regla
+
+**Una condición de corte que dice «ya no cambia» no distingue «terminó» de
+«todavía no empezó».** Los dos estados son quietos, y el quieto de antes llega
+primero.
+
+## El caso que la fija (RV31)
+
+Para medir el encuadre de los ocho pasos, la sonda recorría cada paso y cortaba
+cuando *el scroll llevaba 1,5s quieto*. Suena razonable y es al revés: entre que
+el objetivo aparece y que el desplazamiento arranca hay un tramo quieto, así que
+la condición se cumplía ahí. Resultado:
+
+    delta 0 en 7 de los 8 pasos   ->  «la página no se desplaza»
+
+Con 25s de espera, el mismo paso hacía **cuatro** `scrollBy` y dejaba el
+objetivo en su lugar. La pantalla andaba; la sonda cortaba antes de mirarla.
+
+Y lo que lo vuelve caro es adónde llevaba: el brief traía dos sospechas
+--el documento reajusta, o el contenedor no es el que se cree-- y un `delta 0`
+las contradice a las dos. Habría reportado «no se llama a `scrollBy`» sobre
+código que lo llama cuatro veces.
+
+> **Un hallazgo falso sobre código que anda cuesta lo mismo que uno sobre
+> trabajo ajeno: manda a arreglar lo que no está roto.**
+
+## Qué hacer
+
+- **Esperar un HITO, no una quietud.** Lo que había que esperar era «el objetivo
+  quedó marcado» --el instante en que el código decide si mueve-- y desde ahí un
+  tiempo fijo y generoso. Un hito ocurre una vez; una quietud ocurre varias.
+- Y si no hay hito, **contar desde el primero de los dos bordes**: «quieto
+  durante N después de que empezó a moverse» sí distingue, porque nombra el
+  arranque.
+- La señal de que se cayó en esto es la de siempre: **el resultado no se explica
+  por el mecanismo.** Un `scrollBy` que existe en el código y un delta cero no
+  pueden ser las dos cosas ciertas.
+
+## Y en el mismo arreglo: un velo no es chrome de arriba
+
+El arreglo de RV31 pasó a MEDIR lo que tapa el tope en vez de escribirlo como
+constante, preguntando con `elementsFromPoint` quién pinta ahí y quedándose con
+lo fijo. Medido con el editor del paso 2.2 abierto:
+
+    DIV.bp-modal-backdrop   fixed   0 -> 900     <- entra en la pila
+    DIV.rv-bar              fixed   0 ->  82
+
+`.bp-modal-backdrop` es `fixed`, cubre la ventana entera y **sí recibe
+eventos**, así que el cálculo devolvía **900**: el paso habría pedido subir la
+página entera.
+
+> **Un elemento fijo que llega hasta abajo no es chrome de arriba: es un velo.**
+> Y `elementsFromPoint` no los distingue, porque su pregunta es «quién pinta
+> acá», no «qué deja libre».
+
+⚠ Y lo que lo hacía invisible es la marca de la casa: **con el modal abierto el
+`body` queda en `overflow: hidden`, así que `scrollBy` no movía nada.** Un
+respaldo sosteniendo un defecto que nadie podía ver -- y que aparecería el día
+que alguien saque el bloqueo, en una pantalla que no tiene nada que ver.
+
+La regla operativa: al leer la pila de un punto, **descartar lo que ocupa la
+ventana entera**. No es un umbral de tamaño: es que una barra fijada arriba deja
+el resto libre y un velo no, y son dos cosas distintas.
 
 # El mismo componente en tres formas: esperar el elemento que las tres dibujan
 
