@@ -212,8 +212,26 @@ export default function MarginsPage() {
       */}
       {data.deLaApp > 0 && (
         <div className="bp-notice bp-notice--warn" data-mg-aviso-bq="">
-          <b>{data.deLaApp} margin line(s) were edited here, and BigQuery does not have them.</b> The P&amp;L still
-          reads the margin file, so a value edited on this screen is not reflected there until the file is updated.
+          {/*
+            ⚠ EL ESPACIO VA EXPLÍCITO EN `{' '}`, y lo que sigue es lo medido y
+            no el mecanismo, que no averigüé.
+
+            Antes acá había un espacio escrito entre `</b>` y `The`, en la misma
+            línea, y en el DOM NO HABÍA NINGÚN NODO entre los dos: la pantalla
+            decía «does not have them.The P&L still reads». Medido leyendo los
+            `childNodes` del aviso antes y después -- no el `textContent`, que
+            no distingue «no hay nodo» de «el nodo está vacío».
+
+            Por qué JSX se lo comió ahí y no en los otros cuatro `</b> The` de
+            estas dos pantallas, no lo sé: lo probé en uno solo. `{' '}` es la
+            forma explícita, que no depende de saberlo.
+
+            Y lo encontró la CAPTURA. Ninguna aserción de texto lo veía, porque
+            todas comparan contra un fragmento y el fragmento estaba entero.
+          */}
+          <b>{data.deLaApp} margin line(s) were edited here, and BigQuery does not have them.</b>{' '}
+          The P&amp;L still reads the margin file, so a value edited on this screen is not reflected there until the
+          file is updated.
         </div>
       )}
 
