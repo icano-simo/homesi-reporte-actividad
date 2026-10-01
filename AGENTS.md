@@ -836,6 +836,28 @@ const ck = (c, m) => { corridas++; if (!c) fails++; ... };
 Y el número va **escrito a mano**, no derivado del propio recorrido: derivarlo lo
 haría siempre coincidir, que es justo el problema que viene a resolver.
 
+### ⚠ Y «a mano» no alcanza: tiene que ser el número ESPERADO, no el observado
+
+Escribirlo a mano **después de ver cuántas corrieron** es derivarlo por otro
+camino, y produce el mismo verde falso.
+
+El caso, en RV32: la sonda del recorrido imprimió **`SIN FALLAS (16)` con dos
+aserciones sin ejecutar**. El script moría antes del final, el `finally` imprimía
+el resumen, y el `minimo` que yo había puesto --16, elegido mirando una corrida
+anterior-- coincidía exactamente con las que alcanzaban a correr. La guarda que
+existe para detectar un corte temprano lo tapó.
+
+Corregido a 18 --las que el script TIENE-- dijo `RESUMEN INVALIDO, 16 de 18` y
+mostró el corte en la primera corrida.
+
+> **El mínimo tiene que ser el número esperado, no el observado.** Uno se decide
+> leyendo el script; el otro se copia del resultado, y entonces no puede
+> contradecirlo.
+
+La forma barata de no equivocarse: contar los `a.ck(` del archivo y escribir ese
+número. Si no coinciden, una de las dos cosas está mal -- y las dos valen la
+pena de mirar.
+
 Es el mismo mecanismo que el séptimo caso de la tabla —un resultado que no
 distingue «no está» de «no llegó»— pero corrido un nivel: ahí lo confundía la
 medición, acá lo confunde **el arnés que la reporta**.
