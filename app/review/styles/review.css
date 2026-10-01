@@ -639,27 +639,45 @@ body:has(.rv-bar) .app {
   min-width: 0;
 }
 /*
- * ⚠ LAS ENTRADAS EN UNA SOLA FILA -- punto 3 del brief, y es lo que reemplaza a
- * las tres columnas como mecanismo para que la tarjeta quede baja: el campo del
- * paso angosto y el comentario ocupando el resto.
+ * ⚠ UN ELEMENTO POR FILA -- etapa RV33, y revierte la fila unica de RV20.
  *
- * `align-items: flex-end` para que el numero y el comentario apoyen en la misma
- * linea de base cuando el primero trae su rotulo de dos renglones.
+ * Decia `display: flex; align-items: flex-end`, o sea TODAS las entradas en un
+ * renglon: el campo del numero, la lista de clics, la evidencia del
+ * presupuesto, el comentario y el boton de las otras preguntas, los cinco
+ * compitiendo por 420px menos el relleno. Con dos ya se leia apretado; con la
+ * ventana de las nueve preguntas de RV32 adentro quedo ilegible, y asi lo vio
+ * Isabella.
+ *
+ * El motivo original de la fila --que la tarjeta quede baja-- se resuelve en el
+ * alto del comentario, que crece con el texto y no al reves.
+ *
+ * Y es una columna, no prosa suelta: los hijos directos son `label`, `ul`, `p`,
+ * `div` y `button`, nunca un nodo de texto. Un contenedor flex con prosa como
+ * hijo directo la parte en items, que es el defecto de `.rv-panel__gate`.
  */
 .rv-panel__zona--in {
   display: flex;
-  align-items: flex-end;
-  gap: 8px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
 }
 .rv-panel__zona--in > * {
   min-width: 0;
 }
-/* El comentario se come el sobrante; el campo del paso no crece. */
-.rv-panel__zona--in > .rv-panel__field--wide {
-  flex: 1 1 auto;
+/*
+ * El `margin-bottom` de los hijos se suma al `gap` y da aire desparejo: 18px
+ * entre dos campos y 10px entre un campo y el boton. El aire lo pone el `gap`.
+ */
+.rv-panel__zona--in > .rv-panel__field,
+.rv-panel__zona--in > .rv-panel__clicks,
+.rv-panel__zona--in > .rv-panel__evid {
+  margin-bottom: 0;
 }
+/* El del numero no se estira al ancho de la tarjeta: un campo de un numero de
+   420px de ancho invita a escribir una frase. */
 .rv-panel__zona--in > .rv-panel__field--num {
-  flex: 0 0 96px;
+  align-self: flex-start;
+  width: 128px;
 }
 /* La de acciones apila el aviso y la fila de botones. */
 .rv-panel__zona--act {
@@ -1320,43 +1338,31 @@ body:has(.rv-bar) .app {
 }
 
 /*
- * ── El tilde de «lo miré» y el panel de las nueve — etapa RV32 ──────────────
+ * ⚠ ACÁ ESTABAN `.rv-panel__visto` Y `.rv-panel__otras`, LAS DOS DE RV32.
  *
- * ⚠ `inline-flex` Y NO `flex`: un contenedor flex con prosa como hijo directo
- * parte la frase en columnas, y eso ya pasó dos veces en este repo con las
- * aserciones de texto en verde --`innerText` no cambia--. Acá el texto va
- * envuelto en su `<span>`, que es la otra mitad de la regla.
+ * La primera era el tilde de «lo miré», y se fue con él: RV32 lo agregó como
+ * requisito aparte del comentario leyendo mal el pedido, y RV33 lo saca. La
+ * segunda era el bloque de las nueve preguntas embebido en el panel, que es lo
+ * que dejó todo apilado en un renglón; ahora es la ventana de abajo.
+ *
+ * Comprobado antes de borrarlas con `npm run verificar:clases`, que pregunta
+ * justamente lo contrario del `git grep` de siempre: no «este nombre ya
+ * existe» sino «lo que el JSX pide, ¿existe?».
+ *
+ * ── Las otras preguntas, dentro de la ventana — etapa RV33 ──────────────────
+ *
+ * El formulario ya lo viste el `bp-form` del módulo; esto sólo le da ancho
+ * cómodo a la ventana y alto de lectura al cuadro. El pie con el botón de
+ * guardar lo pone `Modal` con su `footer`, que es hermano del cuerpo: sin
+ * `sticky` y sin un segundo scrollport.
  */
-.rv-panel__visto {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  margin-top: 8px;
-  font-size: 11.5px;
-  line-height: 1.4;
-  color: var(--slate-600);
-  cursor: pointer;
+.rv-otras {
+  min-width: min(420px, calc(100vw - 72px));
 }
-.rv-panel__visto input {
-  width: 14px;
-  height: 14px;
-  flex: 0 0 auto;
-  accent-color: var(--navy);
-}
-
-.rv-panel__otras {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 8px;
-  padding: 10px;
-  border: 1px solid var(--slate-200);
-  border-radius: var(--radius-sm);
-  background: var(--slate-50);
-}
-/* Los botones del panel no crecen a todo el ancho del contenedor flex. */
-.rv-panel__otras .bp-btn {
-  align-self: flex-start;
+.rv-otras__text {
+  font-family: inherit;
+  line-height: 1.5;
+  resize: vertical;
 }
 .rv-panel__edit:disabled {
   cursor: default;

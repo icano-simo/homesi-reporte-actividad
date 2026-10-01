@@ -129,25 +129,30 @@ const clave = (s: StepRef) => s.phase_no + ':' + s.step_in_phase;
  * el SQL: sin la columna aplicada, `select('*')` no la trae y todas las filas
  * la tienen `undefined`. Leerlo como `false` trabaría cada revisión abierta el
  * día del merge. Ver la nota del campo en `types.ts`.
+ *
+ * ⚠ DESDE RV33 NO DECIDE SI EL PASO CIERRA. Lo usa el panel para saber si abrir
+ * el cuadro de texto al llegar --un paso con texto escrito por adelantado se
+ * abre editable, uno contestado en sitio se abre cerrado-- y para no poner el
+ * rótulo `answered` sobre algo que nadie trabajó todavía. Eso es presentación,
+ * no habilitación: la compuerta no lo mira.
  */
 export function vistoEnSitio(r: ReviewResponse): boolean {
   return r.seen_on_site !== false;
 }
 
 /**
- * ⚠ Y SE MIRA SI ALGUNA FILA DEL PASO ESTÁ CONFIRMADA, no la vigente.
+ * ⚠ CUENTA RESPUESTAS, NO CONFIRMACIONES — y volvió a hacerlo en RV33.
  *
- * La tabla es append-only: después de confirmar, volver a escribir ese paso
- * desde el panel agregaría una fila nueva sin la marca, y mirar sólo la última
- * DESHARÍA el paso. Lo mirado no se des-mira; lo que cambia con la última fila
- * es el TEXTO, que es otra pregunta y la contesta `latestResponse`.
+ * RV32 lo hizo filtrar por `seen_on_site`, porque la compuerta pedía confirmar
+ * que se había mirado la pantalla. Ese requisito salió de un pedido mal leído y
+ * se fue con él: tener texto para un paso vuelve a ser tenerlo contestado.
+ *
+ * ⚠ Y LA CONSECUENCIA, DICHA: un paso escrito por adelantado cuenta en el
+ * avance y `resumeCursor` lo saltea, igual que cualquier otro contestado. Es el
+ * comportamiento anterior a RV32 y es el que se pidió; queda escrito para que
+ * el día que moleste se sepa que fue una decisión y no un olvido.
  */
 export function answeredSteps(responses: ReviewResponse[]): Set<string> {
-  return new Set(responses.filter(vistoEnSitio).map(clave));
-}
-
-/** Los pasos que tienen texto escrito, lo hayan mirado o no. */
-export function stepsConTexto(responses: ReviewResponse[]): Set<string> {
   return new Set(responses.map(clave));
 }
 

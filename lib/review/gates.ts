@@ -39,28 +39,12 @@ import type { ReviewStep } from './types';
 /** Lo que la persona hizo en el paso, todavía sin guardar. */
 export interface StepDraft {
   comment: string;
-  /**
-   * ═════════════════════════════════════════════════════════════════════════
-   * ⚠ QUE MIRÓ LA PANTALLA, ADEMÁS DE ESCRIBIR — etapa RV32
-   * ═════════════════════════════════════════════════════════════════════════
-   *
-   * Desde que el panel de las nueve preguntas deja escribir la del 2.1 estando
-   * en el 1.1, tener texto dejó de significar tener el paso hecho:
-   *
-   *   > «Una cosa es el comentario y otra que sí revisé lo que queremos que vea
-   *   > en esa vista.»
-   *
-   * ⚠ Y ES LO ÚNICO DE ESTA COMPUERTA QUE LA PERSONA DECLARA, junto con
-   * `desenlaceFunnel`. Eso sería una casilla vacía --lo que RV13 le sacó al
-   * presupuesto-- si no fuera porque acá no hay nada que certificar contra una
-   * tabla: mirar una pantalla no deja rastro en ningún lado. Lo que impide que
-   * sea un clic sin pensar es que el comentario sigue siendo obligatorio.
-   *
-   * `undefined` cuenta como visto, por lo mismo que en `types.ts`: el paso
-   * abierto desde la pantalla del paso ya está en sitio, y el que no lo esté lo
-   * dice poniéndolo en `false`.
+  /*
+   * ⚠ ACÁ ESTUVO `vistoEnSitio` (RV32) Y SE FUE EN RV33. La compuerta no lo
+   * mira más: el comentario vuelve a ser lo único que cierra. El dato sigue
+   * existiendo en la respuesta --dice si el texto se escribió parado en el paso
+   * o por adelantado-- pero no es un requisito. Ver `gateStatus`.
    */
-  vistoEnSitio?: boolean;
   /** El número del paso 2. `null` = no escribió ninguno. */
   numero?: number | null;
   /** Los identificadores que ya se clickearon en el paso 4. */
@@ -478,19 +462,23 @@ export function gateStatus(step: ReviewStep, draft: StepDraft): GateStatus {
   }
 
   /*
-   * ⚠ VA DESPUÉS DEL COMENTARIO Y ANTES DE LO DEMÁS — etapa RV32.
+   * ⚠ ACÁ ESTUVO UNA CONDICIÓN DE RV32 Y SE FUE EN RV33, por un pedido mal
+   * leído y no por un defecto del código.
    *
-   * Después, porque pedir «confirmá que lo miraste» con el cuadro vacío es
-   * pedir lo segundo antes de lo primero. Y antes del `switch`, porque vale
-   * para los ocho pasos y no para uno: es la diferencia entre tener texto y
-   * tener el paso hecho, y no una compuerta de ningún paso en particular.
+   * RV32 agregó «confirmá que miraste lo que el paso muestra» como requisito
+   * aparte del comentario. El pedido original no decía eso: lo que Isabella
+   * pidió es que al llegar a un paso con texto escrito por adelantado se pueda
+   * ampliarlo o editarlo EN EL MISMO CUADRO, y que con eso cierre como
+   * cualquier otro. El «punto» que ella mencionaba estaba dentro del cuadro de
+   * texto, no era un control nuevo.
+   *
+   * Así que el comentario vuelve a ser lo único que cierra, en los ocho pasos.
+   *
+   * ⚠ Y `seen_on_site` NO SE VA DE LA BASE NI DEL MODELO: sigue registrando si
+   * el texto se escribió parado en el paso o desde el panel de las otras
+   * preguntas. Lo que deja de hacer es decidir si el paso cierra. Son dos cosas
+   * distintas, y la segunda era la equivocada.
    */
-  if (draft.vistoEnSitio === false) {
-    return {
-      ok: false,
-      falta: 'Confirm you reviewed what this step shows — the comment alone does not close it.',
-    };
-  }
 
   switch (step.gate_kind) {
     case 'number': {
