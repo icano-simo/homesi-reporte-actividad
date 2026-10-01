@@ -6,6 +6,9 @@ import type { LoanOfficerRow } from '@/lib/business-plan/types';
 import Modal from './Modal';
 import { PROVISIONAL_SET_BY, fmtAvg } from './shared';
 import { useReview } from '@/components/review/ReviewProvider';
+/* La evidencia de la práctica sale de la puerta — RV32, igual que el editor de
+   Outlook desde RV29. */
+import { anotarEvidenciaDePractica } from '@/lib/review/puertaDeEscritura';
 
 /**
  * ============================================================================
@@ -60,6 +63,19 @@ export default function BenchmarkEditor({ lo, onSaved }: { lo: LoanOfficerRow; o
       return;
     }
     if (contextoDeEscritura !== null && contextoDeEscritura.esPractica) {
+      /*
+       * ⚠ Y ANOTA LO QUE LA PRÁCTICA FIJÓ — etapa RV32.
+       *
+       * Desde que el paso 1.2 dejó de pedir el número en el panel, ESTE editor
+       * es el único escritor del benchmark. Sin la anotación, una práctica
+       * pone el número acá, la pantalla le dice que no se guardó --bien-- y el
+       * valor se pierde: el paso ya no tiene dónde llevarlo, porque el panel ya
+       * no lo pregunta.
+       *
+       * Es el mismo caso de RV29 y RV30, por tercera vez: el dato cambia de
+       * lugar y los lectores se quedan donde estaban.
+       */
+      anotarEvidenciaDePractica(contextoDeEscritura, '1.2', parsed);
       /* No se cierra el editor y no se llama a `onSaved()`: nada se guardó, y
          cerrarlo lo dejaría igual que un guardado real. */
       setError('Practice session — the benchmark was not changed. It stays in this review.');

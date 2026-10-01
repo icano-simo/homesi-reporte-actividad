@@ -113,7 +113,41 @@ const clave = (s: StepRef) => s.phase_no + ':' + s.step_in_phase;
  * Y se cuentan pasos DISTINTOS y no filas: la tabla es append-only, así que
  * corregir un comentario agrega una fila y no avanza nada.
  */
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ¿ESTA RESPUESTA CUENTA COMO PASO HECHO? — etapa RV32
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * Desde RV32 una respuesta puede existir sin que nadie haya mirado la pantalla
+ * del paso: el panel de las nueve preguntas deja escribir la del 2.1 estando
+ * parado en el 1.1. Eso es texto, no es el paso hecho.
+ *
+ *   > «Una cosa es el comentario y otra que sí revisé lo que queremos que vea
+ *   > en esa vista.»
+ *
+ * ⚠ `undefined` CUENTA, y es la mitad que permite mergear el código antes que
+ * el SQL: sin la columna aplicada, `select('*')` no la trae y todas las filas
+ * la tienen `undefined`. Leerlo como `false` trabaría cada revisión abierta el
+ * día del merge. Ver la nota del campo en `types.ts`.
+ */
+export function vistoEnSitio(r: ReviewResponse): boolean {
+  return r.seen_on_site !== false;
+}
+
+/**
+ * ⚠ Y SE MIRA SI ALGUNA FILA DEL PASO ESTÁ CONFIRMADA, no la vigente.
+ *
+ * La tabla es append-only: después de confirmar, volver a escribir ese paso
+ * desde el panel agregaría una fila nueva sin la marca, y mirar sólo la última
+ * DESHARÍA el paso. Lo mirado no se des-mira; lo que cambia con la última fila
+ * es el TEXTO, que es otra pregunta y la contesta `latestResponse`.
+ */
 export function answeredSteps(responses: ReviewResponse[]): Set<string> {
+  return new Set(responses.filter(vistoEnSitio).map(clave));
+}
+
+/** Los pasos que tienen texto escrito, lo hayan mirado o no. */
+export function stepsConTexto(responses: ReviewResponse[]): Set<string> {
   return new Set(responses.map(clave));
 }
 

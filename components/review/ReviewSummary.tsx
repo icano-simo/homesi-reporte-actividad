@@ -35,11 +35,20 @@
 
 import { AlertTriangleIcon } from '@/components/ui/icons';
 import { orderedSteps, sameStep } from '@/lib/review/progress';
-import type { ReviewResponse, ReviewScript, StepRef } from '@/lib/review/types';
+import type { ReviewNote, ReviewResponse, ReviewScript, StepRef } from '@/lib/review/types';
 
 export interface ReviewSummaryProps {
   script: ReviewScript;
   responses: readonly ReviewResponse[];
+  /**
+   * El `Other` de RV32: lo que se dijo y no pertenece a ningún paso.
+   *
+   * ⚠ VA ACÁ Y NO SÓLO EN LA BASE. Una nota que se escribe en el panel y no
+   * aparece en el resumen del cierre es un dato que vive en un tooltip: está,
+   * y nadie lo va a ver. El resumen es la última pantalla donde lo escrito se
+   * mira entero antes de que quede en el registro.
+   */
+  notes: readonly ReviewNote[];
   loName: string;
   /** Vuelve al paso a corregirlo. Cierra este resumen. */
   onCorregir: (paso: StepRef) => void;
@@ -55,6 +64,7 @@ const dia = (iso: string) => iso.slice(0, 10);
 export default function ReviewSummary({
   script,
   responses,
+  notes,
   loName,
   onCorregir,
   onCerrar,
@@ -141,6 +151,28 @@ export default function ReviewSummary({
           );
         })}
       </div>
+
+      {/*
+        ⚠ Y LAS NOTAS VAN APARTE DE LAS FASES, no al final de la última.
+        Ponerlas dentro de una fase las haría parecer respuestas de esa fase, y
+        son justamente lo que no pertenece a ningún paso.
+      */}
+      {notes.length > 0 && (
+        <div className="rv-panel__resumenlista" data-review-notas="">
+          <h3 className="rv-intake__phasehead">
+            <span>Other</span>
+            <span className="rv-intake__phasen">{notes.length}</span>
+          </h3>
+          {notes.map((n) => (
+            <div key={n.note_key} className="rv-intake__answer">
+              <p className="rv-intake__prompt">{n.body}</p>
+              <p className="rv-intake__meta">
+                {n.created_by} · {dia(n.created_at)}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
 
       {error && (
         <p className="rv-panel__gate" role="alert">

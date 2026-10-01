@@ -24,7 +24,7 @@
  */
 
 import { getSupabaseClient } from '@/lib/supabase/client';
-import type { ReviewResponse, ReviewSession, StepRef } from './types';
+import type { ReviewNote, ReviewResponse, ReviewSession, StepRef } from './types';
 
 const rv = () => getSupabaseClient().schema('review');
 
@@ -200,7 +200,17 @@ export async function guardarPaso(
   paso: StepRef,
   promptRevision: number,
   comment: string,
-  gate: Record<string, unknown> | null
+  gate: Record<string, unknown> | null,
+  /**
+   * ⚠ OBLIGATORIO Y SIN DEFAULT — etapa RV32, por lo mismo que `esPractica`.
+   *
+   * `true` es «además de escribir, miró la pantalla del paso»; `false` es el
+   * texto adelantado desde el panel de las nueve preguntas. Un valor por
+   * omisión convertiría «no me lo pasaron» en una de las dos, y las dos
+   * equivocadas duelen: `true` de más cierra un paso que nadie miró, y `false`
+   * de más traba uno que sí.
+   */
+  vistoEnSitio: boolean
 ): Promise<Resultado<ReviewResponse>> {
   const texto = comment.trim();
   if (texto === '') return { ok: false, error: 'The comment cannot be empty.' };
@@ -214,10 +224,32 @@ export async function guardarPaso(
       prompt_revision: promptRevision,
       comment: texto,
       gate,
+      seen_on_site: vistoEnSitio,
       answered_by: await emailDeLaSesion(),
     })
     .select('*');
-  if (r.error) return { ok: false, error: r.error.message };
+  if (r.error) {
+    /*
+     * ⚠ Y SI FALTA LA MIGRACIÓN, SE DICE CON EL ARCHIVO — etapa RV32.
+     *
+     * Este insert manda `seen_on_site`, que llega con el SQL de RV32. Contra
+     * una base sin esa columna PostgREST contesta un error de columna
+     * desconocida, y sin esto la pantalla mostraría ese texto crudo: quien lo
+     * lea no tiene forma de saber que lo que falta es aplicar un archivo.
+     *
+     * Es el mismo criterio que el aviso de `reviewsUnavailable`, que nombra el
+     * SQL que falta en vez de decir que las tablas no están.
+     */
+    if (/seen_on_site/.test(r.error.message)) {
+      return {
+        ok: false,
+        error:
+          'This coaching session needs a database change that is not applied yet — apply ' +
+          'docs/sql/2026-09-review-rv32-panel-de-preguntas.sql. Nothing was saved.',
+      };
+    }
+    return { ok: false, error: r.error.message };
+  }
   const fila = (r.data ?? [])[0] as ReviewResponse | undefined;
   /*
    * Cero filas acá tiene una causa concreta y vale nombrarla: la policy exige
@@ -230,6 +262,40 @@ export async function guardarPaso(
       error:
         'Nothing was saved. This review may already be closed — a completed review does not take ' +
         'new comments, so that its date keeps meaning something.',
+    };
+  }
+  return { ok: true, data: fila };
+}
+
+/**
+ * Guarda una nota de la sesión — el `Other` del panel de las nueve — RV32.
+ *
+ * ⚠ NO ES UNA RESPUESTA, y por eso no toma `paso` ni `promptRevision`: no hay
+ * pregunta contra la cual se contestó. Va a `review.note`, que existe
+ * justamente para que esto no tenga que inventarse un paso al que pertenecer
+ * -- una fila falsa en `review.step` habría entrado en el conteo del `5 of 5`.
+ */
+export async function guardarNota(
+  sessionKey: number,
+  body: string
+): Promise<Resultado<ReviewNote>> {
+  const texto = body.trim();
+  if (texto === '') return { ok: false, error: 'The note cannot be empty.' };
+
+  const r = await rv()
+    .from('note')
+    .insert({ session_key: sessionKey, body: texto, created_by: await emailDeLaSesion() })
+    .select('*');
+  if (r.error) return { ok: false, error: r.error.message };
+  const fila = (r.data ?? [])[0] as ReviewNote | undefined;
+  /* Cero filas con `error: null` es la policy que no aplica -- la misma causa
+     que en `guardarPaso`: la sesión tiene que estar en curso y ser tuya. */
+  if (!fila) {
+    return {
+      ok: false,
+      error:
+        'Nothing was saved. This review may already be closed — a completed review does not take ' +
+        'new notes, so that its date keeps meaning something.',
     };
   }
   return { ok: true, data: fila };
