@@ -92,6 +92,10 @@ import {
   type PasoQueEscribe,
 } from '@/lib/review/puertaDeEscritura';
 import { useReview } from './ReviewProvider';
+/* La ventana de las otras preguntas reusa el modal del módulo — RV33. Su fondo
+   está en `z-index: 130` desde OL26g, que es lo que la deja por encima de la
+   máscara de la revisión. */
+import Modal from '@/app/business-plan/components/Modal';
 /* `useEffect` queda para el listener de clics, que SÍ es una suscripción. */
 import type { ReviewResponse, ReviewScript, ReviewSession, StepRef } from '@/lib/review/types';
 
@@ -243,13 +247,35 @@ function textoDelPaso(script: ReviewScript, paso: StepRef | null) {
  * mismo orden que hay que respetar para medir cualquier cosa que uno mismo
  * acaba de estirar.
  */
-function crecerHastaCuatro(el: HTMLTextAreaElement): void {
+/**
+ * ⚠ EL PISO ES LO QUE AGREGA RV33, y es la mitad que faltaba.
+ *
+ * Esto crecía con el texto desde UNA línea, así que un comentario escrito
+ * quedaba en un cuadro de un renglón hasta que alguien tipeaba el segundo: se
+ * podía escribir, no se podía LEER lo escrito. Con las entradas en una columna
+ * el alto ya no compite con nada, así que el cuadro arranca en tres líneas y
+ * sigue creciendo hasta ocho.
+ *
+ * El techo y el piso se miden del `lineHeight` computado y no en píxeles
+ * clavados: si la escala del módulo cambia, tres líneas siguen siendo tres.
+ */
+const LINEAS_MIN = 3;
+const LINEAS_MAX = 8;
+function crecerConElTexto(el: HTMLTextAreaElement): void {
   const est = window.getComputedStyle(el);
   const linea = Number.parseFloat(est.lineHeight);
   const relleno = Number.parseFloat(est.paddingTop) + Number.parseFloat(est.paddingBottom);
   el.style.height = 'auto';
-  const techo = Number.isFinite(linea) ? linea * 4 + (Number.isFinite(relleno) ? relleno : 0) : 96;
-  el.style.height = Math.min(el.scrollHeight, techo) + 'px';
+  if (!Number.isFinite(linea)) {
+    /* Sin `lineHeight` computado --`normal`, o el elemento fuera del
+       documento-- no hay de qué sacar el alto: se deja el del CSS. */
+    el.style.height = '';
+    return;
+  }
+  const r = Number.isFinite(relleno) ? relleno : 0;
+  const piso = linea * LINEAS_MIN + r;
+  const techo = linea * LINEAS_MAX + r;
+  el.style.height = Math.max(piso, Math.min(el.scrollHeight, techo)) + 'px';
 }
 
 export default function ReviewStepPanel({
@@ -445,25 +471,6 @@ export default function ReviewStepPanel({
 
   /*
    * ══════════════════════════════════════════════════════════════════════════
-   * EL TILDE DE «LO MIRÉ» — etapa RV32
-   * ══════════════════════════════════════════════════════════════════════════
-   *
-   * ⚠ ARRANCA DE LO QUE LA BASE YA DIGA, y mirando TODAS las filas del paso y
-   * no la vigente: un paso confirmado y después reescrito desde el panel de las
-   * nueve tendría una última fila sin la marca, y leer sólo esa lo pondría en
-   * `false` -- des-mirando algo que se miró. Lo mirado no se des-mira; lo que
-   * cambia con la última fila es el texto.
-   *
-   * Y no se guarda en `sessionStorage` como los clics: aquellos son evidencia
-   * en vuelo que se junta ANTES de que exista la respuesta, y esto ya tiene
-   * dónde vivir --la respuesta misma-- desde el primer guardado.
-   */
-  const [visto, setVisto] = useState<boolean>(() =>
-    responses.some((r) => sameStep(r, cursor) && vistoEnSitio(r))
-  );
-
-  /*
-   * ══════════════════════════════════════════════════════════════════════════
    * EL PANEL DE LAS NUEVE PREGUNTAS — etapa RV32
    * ══════════════════════════════════════════════════════════════════════════
    *
@@ -477,7 +484,10 @@ export default function ReviewStepPanel({
   const [otrasAbierto, setOtrasAbierto] = useState(false);
   const [otraElegida, setOtraElegida] = useState('');
   const [otroTexto, setOtroTexto] = useState('');
+  /** El error, que se muestra DENTRO de la ventana: si falla, la ventana queda. */
   const [otroAviso, setOtroAviso] = useState<string | null>(null);
+  /** La confirmación, que se muestra EN EL PANEL: al guardar, la ventana se va. */
+  const [avisoAlVolver, setAvisoAlVolver] = useState<string | null>(null);
 
   /** El texto vigente de la pregunta elegida, para usarlo de placeholder. */
   const promptDe = (clave: string): string | null => {
@@ -498,7 +508,7 @@ export default function ReviewStepPanel({
           setOtroAviso(err);
           return;
         }
-        setOtroAviso('Saved as a note for this session.');
+        setAvisoAlVolver('Saved as a note for this session.');
       } else {
         const [f, p] = otraElegida.split('.').map(Number);
         const destino = { phase_no: f, step_in_phase: p };
@@ -514,10 +524,19 @@ export default function ReviewStepPanel({
           setOtroAviso(err);
           return;
         }
-        setOtroAviso('Saved for step ' + otraElegida + '. It will be waiting there.');
+        setAvisoAlVolver('Saved for step ' + otraElegida + '. It will be waiting there.');
       }
+      /*
+       * ⚠ LA VENTANA SE CIERRA SOLA AL GUARDAR, y el aviso queda EN EL PANEL.
+       *
+       * El pedido de RV33 es «se elige una, se escribe, se guarda, la ventana se
+       * cierra, y se sigue donde se estaba». Un aviso dentro de una ventana que
+       * se cierra no se lee, así que el texto de confirmación sale por
+       * `avisoAlVolver`, que vive en el panel del paso.
+       */
       setOtroTexto('');
       setOtraElegida('');
+      setOtrasAbierto(false);
     } finally {
       setOcupado(false);
     }
@@ -941,41 +960,13 @@ export default function ReviewStepPanel({
    * Lo dijo el typechecker, con cuatro errores de TDZ.
    */
   /*
-   * ══════════════════════════════════════════════════════════════════════════
-   * ⚠ EL TILDE VA EN LAS CUATRO PANTALLAS QUE CIERRAN, Y SE DEFINE UNA VEZ
-   * ══════════════════════════════════════════════════════════════════════════
-   *
-   * Este panel tiene cuatro ramas con botón de cerrar: el cuerpo normal y las
-   * tres de la fase 3 --decidir, confirmar la elección, y el camino de
-   * `kept`/`deferred`--. Lo puse sólo en el cuerpo normal y el 3.1 quedó
-   * IMPOSIBLE DE CERRAR: la compuerta pedía el tilde y no había tilde.
-   *
-   * Lo encontró la sonda, esperando `[data-review-visto]` en el 3.1. Es el
-   * paso insatisfacible por construcción que este repo ya tuvo con los clics
-   * del 1.4 -- y con cuatro copias de un `<label>` el próximo que agregue una
-   * rama lo vuelve a tener. Definido una vez, hay una sola cosa que mover.
-   *
-   * ⚠ Y LA COMPUERTA NO SE RELAJA PARA LAS RAMAS SIN TILDE. Esa era la otra
-   * salida --«si no hay control, no lo pidas»-- y es la que convierte una
-   * compuerta en algo que a veces aplica: lo que no se ve, no se cumple.
+   * ⚠ ACÁ ESTUVO `tildeVisto` (RV32) Y SE FUE EN RV33, con la condición de la
+   * compuerta que lo pedía. El paso vuelve a cerrar con el comentario, y el 3.1
+   * vuelve a cerrar por sus cuatro ramas sin que falte un control en tres de
+   * ellas. Ver la nota de `gateStatus`.
    */
-  const tildeVisto = (
-    <label className="rv-panel__visto">
-      <input
-        type="checkbox"
-        data-review-visto=""
-        checked={visto}
-        disabled={ocupado}
-        onChange={(e) => setVisto(e.target.checked)}
-      />
-      <span>I reviewed what this step shows</span>
-    </label>
-  );
-
   const draft: StepDraft = {
     comment,
-    /* ⚠ RV32: tener texto no es tener el paso hecho. Ver `StepDraft`. */
-    vistoEnSitio: visto,
     numero: numero.trim() === '' ? null : Number(numero),
     clicks,
     budgetListo,
@@ -1177,14 +1168,10 @@ export default function ReviewStepPanel({
         ? gateEvidence(paso!, draft)
         : { ...(gateEvidence(paso!, draft) ?? {}), ...gatePractica },
       /*
-       * ⚠ SE MANDA `true` Y NO `visto` — etapa RV32, y la diferencia importa.
-       *
-       * Acá sólo se llega con la compuerta cumplida, y desde RV32 la compuerta
-       * EXIGE el tilde: `gateStatus` no deja guardar con `vistoEnSitio` en
-       * `false`. Mandar la variable seria volver a preguntar lo que ya se
-       * comprobó, y dejaría la puerta abierta a que un camino futuro guarde sin
-       * haberlo pedido. Lo que se escribe por adelantado va por
-       * `onGuardarAdelantado`, que es la otra función.
+       * ⚠ `true` PORQUE ESTO SE GUARDA PARADO EN EL PASO, que es lo único que
+       * `seen_on_site` significa desde RV33: no es un requisito ni una
+       * confirmación, es de dónde salió el texto. Lo escrito por adelantado va
+       * por `onGuardarAdelantado`, que manda `false`.
        */
       true
     );
@@ -1294,7 +1281,6 @@ export default function ReviewStepPanel({
                 placeholder="Why not now?"
               />
             </label>
-            {tildeVisto}
             {!estado.ok && estado.falta && (
               <p className="rv-panel__gate">{estado.falta}</p>
             )}
@@ -1544,7 +1530,6 @@ export default function ReviewStepPanel({
             placeholder={rama === 'kept' ? 'Why keep it?' : 'Why not decide now?'}
           />
         </label>
-        {tildeVisto}
         {!estado.ok && estado.falta && <p className="rv-panel__gate">{estado.falta}</p>}
         {error && (
           <p className="rv-panel__gate" role="alert">
@@ -1618,7 +1603,6 @@ export default function ReviewStepPanel({
             <p className="rv-panel__savedtext">{comment}</p>
           </div>
         )}
-        {tildeVisto}
         {!estado.ok && estado.falta && <p className="rv-panel__gate">{estado.falta}</p>}
         {error && (
           <p className="rv-panel__gate" role="alert">
@@ -1951,38 +1935,42 @@ export default function ReviewStepPanel({
         `faltaFunnel` de arriba se lleva ese caso con su propio panel, así que
         este guard nunca se ejercía. Lo encontró un conteo de usos sobre el
         código, no yo.
+
+        ⚠ Y SE FUE `rv-panel__field--wide` de la etiqueta de abajo: con la
+        columna de RV33 todo ocupa el ancho, así que la clase ya no distinguía
+        nada y quedó sin regla en ninguna hoja. Lo dijo
+        `npm run verificar:clases`.
       */}
       {editando ? (
-        <label className="rv-panel__field rv-panel__field--wide">
+        <label className="rv-panel__field">
           <span className="rv-panel__fieldlabel">Comment</span>
           {/*
-            ⚠ ARRANCA EN UNA LÍNEA Y CRECE HASTA CUATRO — etapa RV20.
+            ⚠ TRES LÍNEAS DE PISO Y OCHO DE TECHO — etapa RV33.
 
-            El brief pide el comentario «como una línea, no un área alta», y
-            avisa del riesgo: si no se puede leer lo que se escribió, el alto
-            ahorrado sale más caro. Una línea fija resuelve el alto y rompe la
-            escritura -- un comentario de tres renglones se vuelve un campo por
-            el que hay que scrollear a ciegas.
+            RV20 pidió el comentario «como una línea, no un área alta» y avisó
+            del riesgo en la misma frase: si no se puede leer lo que se
+            escribió, el alto ahorrado sale más caro. Eso es lo que pasó --
+            Isabella lo vio: un comentario guardado volvía a un cuadro de un
+            renglón.
 
-            Así que arranca en una y crece con el texto hasta cuatro, y de ahí
-            scrollea. `resize: vertical` sigue puesto, así que se puede agrandar
-            a mano más allá de eso.
+            El motivo de la línea única era que la tarjeta quedara baja, y
+            desapareció con la columna: el alto de esta tarjeta lo manda el
+            contenido, no una fila que nadie puede leer.
 
-            El techo se mide del propio elemento (`lineHeight` computado), no de
-            un número de píxeles clavado: la escala del módulo puede cambiar y
-            cuatro líneas siguen siendo cuatro líneas.
+            `resize: vertical` sigue puesto, así que se puede agrandar a mano
+            más allá del techo.
           */}
           <textarea
             className="field rv-panel__text"
             data-review-comment=""
-            rows={1}
+            rows={LINEAS_MIN}
             value={comment}
             onChange={(e) => {
               setComment(e.target.value);
-              crecerHastaCuatro(e.currentTarget);
+              crecerConElTexto(e.currentTarget);
             }}
             ref={(el) => {
-              if (el !== null) crecerHastaCuatro(el);
+              if (el !== null) crecerConElTexto(el);
             }}
             placeholder="What did you discuss?"
           />
@@ -2002,93 +1990,29 @@ export default function ReviewStepPanel({
       )}
 
       {/*
-        ══════════════════════════════════════════════════════════════════
-        EL TILDE DE «LO MIRÉ», Y EL PANEL DE LAS NUEVE — etapa RV32
-        ══════════════════════════════════════════════════════════════════
-
-        ⚠ EL TILDE NO ES UNA CASILLA COMO LA QUE RV13 SACÓ. Aquella decía «ya
-        guardé el presupuesto» y había una tabla que podía contestarlo, así que
-        preguntárselo a la persona era aceptar una declaración en lugar de un
-        hecho. Mirar una pantalla no deja rastro en ninguna tabla: no hay nada
-        contra qué verificarlo, y lo único que lo sostiene es que el comentario
-        sigue siendo obligatorio.
+        ⚠ EL BOTÓN ABRE UNA VENTANA, Y NO DESPLIEGA ACÁ ADENTRO — etapa RV33.
+        RV32 lo metió en la columna del comentario y todo quedó compitiendo por
+        el mismo renglón: el selector, el aviso y el cuadro, ilegibles. La
+        ventana se dibuja al final del componente, fuera de las dos zonas.
       */}
-      {tildeVisto}
-
       <button
         type="button"
         className="rv-panel__edit"
         data-review-otras=""
         disabled={ocupado}
-        onClick={() => setOtrasAbierto((v) => !v)}
+        onClick={() => {
+          setAvisoAlVolver(null);
+          setOtrasAbierto(true);
+        }}
       >
-        {otrasAbierto ? 'Close' : 'Write about another question'}
+        Write about another question
       </button>
 
-      {otrasAbierto && (
-        <div className="rv-panel__otras" role="group" aria-label="All questions">
-          {/*
-            Las nueve: los ocho pasos del guion y `Other`. El paso actual se
-            lista y no se ofrece -- su cuadro está acá arriba, y dos lugares
-            para lo mismo es lo que RV32 vino a sacar del benchmark.
-          */}
-          <select
-            className="field"
-            value={otraElegida}
-            disabled={ocupado}
-            onChange={(e) => {
-              setOtraElegida(e.target.value);
-              setOtroTexto('');
-              setOtroAviso(null);
-            }}
-          >
-            <option value="">Which question?</option>
-            {orderedSteps(script).map((s) => {
-              const k = s.phase_no + '.' + s.step_in_phase;
-              const actual = sameStep(s, cursor);
-              return (
-                <option key={k} value={k} disabled={actual}>
-                  {k} · {s.label}
-                  {actual ? ' (this step — use the box above)' : ''}
-                </option>
-              );
-            })}
-            <option value="other">Other — does not belong to any step</option>
-          </select>
-
-          {otraElegida !== '' && (
-            <>
-              <textarea
-                className="field rv-panel__text"
-                data-review-otro-texto=""
-                rows={2}
-                value={otroTexto}
-                disabled={ocupado}
-                onChange={(e) => setOtroTexto(e.target.value)}
-                placeholder={
-                  otraElegida === 'other'
-                    ? 'What came up that does not belong to any step?'
-                    : promptDe(otraElegida) ?? 'What did they say about this?'
-                }
-              />
-              {otraElegida !== 'other' && (
-                <p className="rv-panel__helper">
-                  This is saved as text for that step. It does not close it: when you get there you
-                  will see it, be able to edit it, and confirm you reviewed that screen.
-                </p>
-              )}
-              {otroAviso && <p className="rv-panel__gate" role="status">{otroAviso}</p>}
-              <button
-                type="button"
-                className="bp-btn bp-btn--small"
-                disabled={ocupado || otroTexto.trim() === ''}
-                onClick={guardarOtra}
-              >
-                Save
-              </button>
-            </>
-          )}
-        </div>
+      {/* Lo que la ventana guardó, dicho DONDE quedó la persona. */}
+      {avisoAlVolver && (
+        <p className="rv-panel__evid is-done" role="status" data-review-otro-aviso="">
+          <span aria-hidden="true">✓</span> {avisoAlVolver}
+        </p>
       )}
 
       </div>
@@ -2188,6 +2112,125 @@ export default function ReviewStepPanel({
       </div>
       </div>
       </div>
+      )}
+
+      {/*
+        ══════════════════════════════════════════════════════════════════════
+        LAS OTRAS PREGUNTAS, EN UNA VENTANA — etapa RV33
+        ══════════════════════════════════════════════════════════════════════
+
+        Se reusa el `Modal` del módulo, con su `footer`: el pie es un hermano
+        del cuerpo y no un descendiente, así que el botón de guardar queda
+        visible sin `sticky` y sin crear un segundo scrollport -- el defecto que
+        OL23/OL24 ya pagaron con la fila del total.
+
+        ⚠ Y MIENTRAS ESTÁ ABIERTA, EL PANEL DEL PASO NO SE PUEDE USAR: su fondo
+        está en `z-index: 130` y el panel en 122. Eso es correcto --es una
+        ventana modal-- y lo que hay que comprobar es que AL CERRARLA el paso se
+        pueda seguir cerrando, que es exactamente lo que pasa con el editor del
+        presupuesto desde OL26g.
+      */}
+      {otrasAbierto && (
+        <Modal
+          title="Write about another question"
+          onClose={() => {
+            setOtrasAbierto(false);
+            setOtraElegida('');
+            setOtroTexto('');
+            setOtroAviso(null);
+          }}
+          footer={
+            <div className="bp-form__actions">
+              <button
+                type="button"
+                className="bp-btn bp-btn--primary bp-btn--small"
+                data-review-otro-guardar=""
+                disabled={ocupado || otraElegida === '' || otroTexto.trim() === ''}
+                onClick={guardarOtra}
+              >
+                {ocupado ? 'Saving…' : 'Save'}
+              </button>
+              <button
+                type="button"
+                className="bp-linkish"
+                disabled={ocupado}
+                onClick={() => setOtrasAbierto(false)}
+              >
+                cancel
+              </button>
+            </div>
+          }
+        >
+          <div className="bp-form rv-otras">
+            <p className="rv-panel__helper">
+              Something came up that belongs to another question. Write it here and it waits on that
+              step; when you get there you can add to it or change it.
+            </p>
+
+            {/*
+              Las nueve: los ocho pasos del guion y `Other`. El paso actual se
+              lista y no se ofrece -- su cuadro está en el panel, y dos lugares
+              para lo mismo es lo que RV32 vino a sacar del benchmark.
+            */}
+            <label className="bp-form__field">
+              <span className="bp-form__label">Question</span>
+              <select
+                className="field"
+                data-review-otra-cual=""
+                value={otraElegida}
+                disabled={ocupado}
+                onChange={(e) => {
+                  setOtraElegida(e.target.value);
+                  setOtroTexto('');
+                  setOtroAviso(null);
+                }}
+              >
+                <option value="">Which question?</option>
+                {orderedSteps(script).map((s) => {
+                  const k = s.phase_no + '.' + s.step_in_phase;
+                  const actual = sameStep(s, cursor);
+                  return (
+                    <option key={k} value={k} disabled={actual}>
+                      {k} · {s.label}
+                      {actual ? ' (this step — use the box in the panel)' : ''}
+                    </option>
+                  );
+                })}
+                <option value="other">Other — does not belong to any step</option>
+              </select>
+            </label>
+
+            {otraElegida !== '' && (
+              <label className="bp-form__field">
+                <span className="bp-form__label">
+                  {otraElegida === 'other' ? 'Note' : 'What they said'}
+                </span>
+                {otraElegida !== 'other' && promptDe(otraElegida) && (
+                  <span className="rv-panel__helper">{promptDe(otraElegida)}</span>
+                )}
+                <textarea
+                  className="field rv-otras__text"
+                  data-review-otro-texto=""
+                  rows={5}
+                  value={otroTexto}
+                  disabled={ocupado}
+                  onChange={(e) => setOtroTexto(e.target.value)}
+                  placeholder={
+                    otraElegida === 'other'
+                      ? 'What came up that does not belong to any step?'
+                      : 'What did they say about this?'
+                  }
+                />
+              </label>
+            )}
+
+            {otroAviso && (
+              <p className="rv-panel__gate" role="status">
+                {otroAviso}
+              </p>
+            )}
+          </div>
+        </Modal>
       )}
     </div>
   );

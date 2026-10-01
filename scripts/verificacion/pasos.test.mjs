@@ -64,7 +64,9 @@ const script = {
 const en = (f, s) => ({ phase_no: f, step_in_phase: s });
 const nombre = (p) => (p === null ? null : p.phase_no + '.' + p.step_in_phase);
 
-const a = crearArnes({ minimo: 25 });
+/* El número sale de contar los `a.ck(` del archivo, no de mirar una corrida:
+   un mínimo copiado del resultado no puede contradecirlo. */
+const a = crearArnes({ minimo: 26 });
 try {
   /* ═══ 1. El orden, del que sale todo lo demás ═══ */
   console.log('\n=== 1. el orden del guion ===');
@@ -130,12 +132,22 @@ try {
   a.ck(ok,
     'para TODOS los pasos menos el primero, el siguiente del anterior es uno mismo');
 
-  /* ── TENER TEXTO NO ES TENER EL PASO HECHO — etapa RV32 ─────────────── */
+  /* ── EL COMENTARIO SOLO CIERRA EL PASO — etapa RV33 ──────────────────── */
   /*
-   * Las dos funciones que deciden esto son puras, asi que se prueban acá y no
-   * en una sonda: `vistoEnSitio` lee el tercer estado y `answeredSteps` es el
-   * UNICO lugar que define «paso hecho» -- de el cuelgan `phaseProgress`,
-   * `overallPercent`, `resumeCursor` e `isComplete`.
+   * ⚠ ESTE BLOQUE DECÍA LO CONTRARIO, Y ESTÁ BIEN QUE HAYA DADO ROJO.
+   *
+   * RV32 hizo que `seen_on_site` decidiera dos cosas: si el paso cerraba y si
+   * contaba en el avance. El pedido original no decía eso --fue un error al
+   * pasarlo-- así que RV33 le saca las dos.
+   *
+   * Lo que `seen_on_site` SIGUE decidiendo es una sola, y es presentación: si
+   * el panel entra editando o entra mostrando lo que se dijo. Un paso que sólo
+   * tiene texto escrito por adelantado entra EDITANDO, que es el punto -- por
+   * eso `vistoEnSitio` se queda y se prueba.
+   *
+   * Las dos funciones son puras, así que se prueban acá y no en una sonda.
+   * `answeredSteps` es el ÚNICO lugar que define «paso hecho»: de él cuelgan
+   * `phaseProgress`, `overallPercent`, `resumeCursor` e `isComplete`.
    */
   const resp = (f, s, visto) => ({
     session_key: 1, phase_no: f, step_in_phase: s, prompt_revision: 1,
@@ -144,34 +156,48 @@ try {
     ...(visto === undefined ? {} : { seen_on_site: visto }),
   });
 
-  a.ck(vistoEnSitio(resp(1, 1, true)) === true, 'una respuesta confirmada cuenta');
-  a.ck(vistoEnSitio(resp(1, 1, false)) === false, 'y una escrita por adelantado, no');
+  a.ck(vistoEnSitio(resp(1, 1, true)) === true, 'lo escrito parado en el paso se lee como hecho');
+  a.ck(vistoEnSitio(resp(1, 1, false)) === false, 'y lo escrito por adelantado, no');
   a.ck(vistoEnSitio(resp(1, 1, undefined)) === true,
     '⚠ y `undefined` CUENTA: es la columna sin aplicar todavia, no una respuesta sin confirmar. ' +
-    'Leerlo como `false` trabaría cada revisión abierta el día del merge');
-
-  const hechos = answeredSteps([resp(1, 1, true), resp(1, 2, false), resp(1, 3, undefined)]);
-  a.ck(hechos.has('1:1') && !hechos.has('1:2') && hechos.has('1:3'),
-    '⚠ `answeredSteps` deja afuera el paso que sólo tiene texto: ' + [...hechos].sort().join(' '));
+    'Leerlo como `false` abriría editando cada paso ya contestado el día del merge');
 
   /*
-   * ⚠ Y LO MIRADO NO SE DES-MIRA. La tabla es append-only: después de
-   * confirmar, escribir ese mismo paso desde el panel de las nueve agrega una
-   * fila SIN la marca. Mirar sólo la última desharía el paso.
+   * ⚠ Y `answeredSteps` CUENTA LAS TRES — RV33 lo devuelve a contar respuestas.
+   *
+   * Mide la ida y la vuelta: el avance dice 3 de 3 y no 2, y un paso escrito
+   * desde la ventana de las otras preguntas cuenta como contestado. La
+   * consecuencia está escrita en `progress.ts`: `resumeCursor` saltea un paso
+   * que sólo tiene texto adelantado, y la persona lo encuentra por la lista.
    */
-  const dosFilas = answeredSteps([resp(2, 1, true), { ...resp(2, 1, false), answered_at: '2026-10-01T00:00:00Z' }]);
-  a.ck(dosFilas.has('2:1'),
-    '⚠ un paso confirmado y después reescrito por adelantado SIGUE hecho');
+  const hechos = answeredSteps([resp(1, 1, true), resp(1, 2, false), resp(1, 3, undefined)]);
+  a.ck(hechos.has('1:1') && hechos.has('1:2') && hechos.has('1:3'),
+    '⚠ `answeredSteps` cuenta las tres, tengan o no la marca: ' + [...hechos].sort().join(' '));
 
-  /* Y la compuerta, que es la otra mitad: sin el tilde no cierra. */
+  /* Y no cuenta dos veces el mismo paso: la tabla es append-only y un paso
+     reescrito tiene dos filas. */
+  const dosFilas = answeredSteps([resp(2, 1, true), { ...resp(2, 1, false), answered_at: '2026-10-01T00:00:00Z' }]);
+  a.ck(dosFilas.size === 1 && dosFilas.has('2:1'),
+    '⚠ dos filas del mismo paso son UN paso hecho (' + dosFilas.size + ')');
+
+  /*
+   * Y la compuerta, que es la otra mitad: cierra con el comentario solo.
+   *
+   * ⚠ LA SEGUNDA LE PASA `vistoEnSitio: false` A PROPÓSITO, y tiene que cerrar
+   * igual. `StepDraft` ya no declara ese campo, así que en TypeScript esto no
+   * compilaría -- y por eso vale acá: si alguien vuelve a leerlo desde
+   * `gateStatus`, esta aserción se pone roja y la de arriba no.
+   */
   const base = { phase_no: 1, step_in_phase: 9, label: 'x', gate_kind: 'comment', gate_config: null };
-  a.ck(gateStatus(base, { comment: 'algo', vistoEnSitio: false }).ok === false,
-    '⚠ la compuerta NO cierra con comentario y sin confirmar');
-  a.ck(gateStatus(base, { comment: 'algo', vistoEnSitio: true }).ok === true,
-    'y sí con las dos');
-  a.ck(gateStatus(base, { comment: '', vistoEnSitio: true }).falta?.includes('comment') === true,
-    '⚠ y con el tilde puesto y sin texto pide el COMENTARIO primero: pedir que confirme lo que ' +
-    'mira antes de que escriba es pedir lo segundo antes de lo primero');
+  a.ck(gateStatus(base, { comment: 'algo' }).ok === true,
+    '⚠ la compuerta CIERRA con el comentario solo');
+  a.ck(gateStatus(base, { comment: 'algo', vistoEnSitio: false }).ok === true,
+    '⚠ y cierra igual con una marca de «no confirmado» encima: nadie la lee');
+  /* Y el caso donde tiene que decir NO, que es lo que prueba que mide algo. */
+  a.ck(gateStatus(base, { comment: '   ' }).ok === false,
+    '⚠ y sin comentario NO cierra -- tres espacios no son un comentario');
+  a.ck(gateStatus(base, { comment: '' }).falta?.includes('comment') === true,
+    'y dice que lo que falta es el comentario');
 } finally {
   process.exitCode = a.resumen();
 }
