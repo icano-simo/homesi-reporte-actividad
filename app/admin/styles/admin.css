@@ -584,3 +584,321 @@ table.piv.adm-tbl th.bp-center {
   display: block;
   color: var(--slate-400);
 }
+
+/*
+ * ============================================================================
+ * LA SUB-NAVEGACION DE ADMIN — etapa ADM3
+ * ============================================================================
+ *
+ * Dos modulos bajo un claim: Roster y Margins. Se parece al `.seg` de Analytics
+ * --mismo gesto, elegir entre dos vistas-- y NO se reusa esa clase, porque
+ * `.seg` son botones de un control y esto son LINKS a dos rutas. Compartir la
+ * clase habria obligado a que una de las dos cosas se disfrace de la otra.
+ */
+.adm-tabs {
+  display: flex;
+  gap: 2px;
+  margin: 16px 0 0;
+  border-bottom: 1px solid var(--slate-200);
+}
+.adm-tab {
+  padding: 8px 15px;
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+  color: var(--slate-500);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.adm-tab:hover {
+  color: var(--navy);
+}
+.adm-tab.is-on {
+  color: var(--navy);
+  border-bottom-color: var(--coral);
+}
+
+/*
+ * ============================================================================
+ * MARGINS — etapa ADM3
+ * ============================================================================
+ *
+ * El prefijo es `mg-` y antes de usarlo no existia en ninguna hoja del arbol
+ * (`git grep mg- -- *.css`, cero). Lo que ya existe no se redefine: la tabla es
+ * `table.piv`, la tarjeta es `.tbl-card` y los avisos son `.bp-notice`, los tres
+ * del lenguaje visual que el portal ya tiene.
+ */
+.mg-page {
+  padding-bottom: 40px;
+}
+.mg-filtro {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mg-filtro__label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--slate-400);
+}
+.mg-filtro__select {
+  min-width: 170px;
+}
+.mg-card {
+  margin-top: 16px;
+  padding-bottom: 4px;
+}
+/* El codigo del branch es un boton y tiene que seguir leyendose como el titulo
+   de la tarjeta: hereda de `.tbl-card__title` y solo saca el crudo del boton. */
+.mg-branch {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--coral) 55%, transparent);
+  text-underline-offset: 3px;
+  /*
+   * ⚠ MENOS TRACKING QUE `.tbl-card__title`, y lo encontro la captura y no una
+   * medicion: con los `0.09em` que hereda, un codigo de tres digitos se lee
+   * «7 3 3». Esa separacion esta pensada para titulos de palabras, no para
+   * numeros, y aca el titulo es un numero.
+   */
+  font-size: 13px;
+  letter-spacing: 0.02em;
+}
+.mg-branch:hover {
+  color: var(--coral);
+}
+.mg-sello {
+  margin-left: auto;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--slate-400);
+}
+/*
+ * ⚠ LA TABLA NO SE ESTIRA A TODO EL ANCHO, y tambien lo encontro la captura.
+ *
+ * `table.piv` es `width: 100%`, que es lo correcto para doce meses y queda mal
+ * con cuatro columnas: en 1440px el numero quedaba a 600px de su rotulo, con la
+ * fila entera vacia en el medio. Las columnas de valor llevan ancho fijo y la
+ * del rotulo se queda con lo suyo, asi que la tabla mide lo que necesita.
+ *
+ * El `max-width` en vez de `width: auto` a secas es para que en una pantalla
+ * angosta siga entrando sin desbordar: una tabla de ancho propio arrastra a la
+ * pagina con ella, que es lo que ya paso en Business Plan con `nowrap`.
+ */
+/*
+ * ⚠ `table.piv.mg-tabla` Y NO `.mg-tabla` A SECAS. La regla general del portal
+ * es `table.piv { width: 100% }` --elemento mas clase, 0-1-1-- y una clase sola
+ * es 0-1-0: pierde. La declaracion habria estado puesta y el ancho habria
+ * seguido siendo el de antes, que es el caso de los «34px de padding» que en
+ * este repo costo tres turnos. Medido despues con `getComputedStyle`, no leido
+ * de esta linea.
+ */
+table.piv.mg-tabla {
+  width: auto;
+  min-width: min(560px, 100%);
+  max-width: 100%;
+}
+table.piv.mg-tabla th:not(.lbl),
+table.piv.mg-tabla td:not(.lbl) {
+  width: 118px;
+}
+table.piv.mg-tabla th.lbl,
+table.piv.mg-tabla td.lbl {
+  min-width: 170px;
+}
+/* El tipo de prestamo abre los tres niveles de su fila. */
+.mg-tipo {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.mg-tipo:hover {
+  color: var(--coral);
+}
+/* El numero. Mismo peso que el valor, para que la columna siga leyendose como
+   numeros y no como una lista de enlaces. */
+.mg-valor {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.mg-valor:hover {
+  color: var(--coral);
+}
+/*
+ * ⚠ LA CELDA QUE NO EXISTE NO LLEVA BOTON NI CONTENIDO, y eso es lo que la
+ * separa de un cero: un `0` se puede editar y una ausencia no. La regla no
+ * agrega ningun texto -- lo que distingue los dos estados es que uno tiene
+ * digito y el otro no, que es la convencion de `fmt()` en todo el portal.
+ */
+.mg-ausente {
+  background: repeating-linear-gradient(
+    135deg,
+    transparent,
+    transparent 5px,
+    var(--slate-50) 5px,
+    var(--slate-50) 10px
+  );
+}
+/* La columna de un nivel que este branch no tiene, en el encabezado. */
+.mg-col-ausente {
+  color: var(--slate-300);
+}
+
+/* ── El historial ─────────────────────────────────────────────────────── */
+.mg-hist {
+  margin: 10px 14px 12px;
+  border-top: 1px solid var(--slate-100);
+  padding-top: 10px;
+  font-size: 12px;
+}
+.mg-hist__sum {
+  cursor: pointer;
+  color: var(--slate-600);
+  font-weight: 600;
+}
+.mg-hist__sum:hover {
+  color: var(--navy);
+}
+.mg-hist__ver {
+  margin-top: 10px;
+  padding-left: 11px;
+  border-left: 2px solid var(--slate-200);
+}
+/*
+ * ⚠ `flex` CON LOS HIJOS ENVUELTOS, nunca con prosa suelta adentro. Un
+ * contenedor flex con texto como hijo directo lo parte en columnas y el
+ * `innerText` no cambia, asi que ninguna asercion de texto lo ve. Ya paso dos
+ * veces en este repo.
+ */
+.mg-hist__cab {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 9px;
+}
+.mg-hist__v {
+  font-weight: 700;
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+}
+.mg-hist__fecha {
+  color: var(--slate-500);
+  font-variant-numeric: tabular-nums;
+}
+.mg-hist__de {
+  color: var(--slate-400);
+}
+.mg-hist__motivo {
+  margin: 4px 0 6px;
+  color: var(--slate-500);
+  line-height: 1.5;
+}
+.mg-hist__linea {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 0;
+  padding: 3px 0;
+  color: var(--slate-600);
+}
+.mg-hist__linea--alta {
+  color: var(--emerald-800);
+}
+/*
+ * El nombre de la linea. Tiene regla propia porque es el hijo que puede crecer:
+ * sin `min-width: 0` un tipo largo empuja a los valores fuera de la tarjeta, que
+ * es el mismo desborde que `nowrap` sobre contenido variable. Lo encontro
+ * `npm run verificar:clases`, que pregunta si existe lo que el JSX pide.
+ */
+.mg-hist__que {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.mg-hist__valores {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.mg-hist__igual {
+  margin: 5px 0 0;
+  color: var(--slate-400);
+}
+.mg-hist__omitidas {
+  margin: 6px 0;
+}
+
+/* ── El editor ────────────────────────────────────────────────────────── */
+.mg-form {
+  min-width: min(460px, calc(100vw - 72px));
+}
+.mg-form__que {
+  margin: 0 0 12px;
+  padding: 8px 11px;
+  border-radius: var(--radius-sm);
+  background: var(--slate-50);
+  color: var(--slate-600);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+/*
+ * Una linea por fila, con el nombre, el valor de hoy y el campo. En columna y
+ * no en una sola linea: con el branch entero son 28 o 42, y apretarlas en un
+ * renglon es lo que hizo ilegible el panel de la revision en RV32.
+ */
+.mg-form__lineas {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+.mg-form__linea {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 104px;
+  align-items: center;
+  gap: 10px;
+}
+.mg-form__nombre {
+  min-width: 0;
+  color: var(--navy);
+  font-size: 12.5px;
+}
+.mg-form__actual {
+  color: var(--slate-400);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.mg-form__input {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.mg-form__input--mal {
+  border-color: var(--coral);
+}
+.mg-form__nota {
+  margin: 9px 0 0;
+  color: var(--slate-400);
+  font-size: 11px;
+}
+.mg-form__motivo {
+  font-family: inherit;
+  line-height: 1.5;
+  resize: vertical;
+}

@@ -253,11 +253,18 @@ export function shortDateTime(iso: string | null): string | null {
   return iso ? iso.slice(0, 16).replace('T', ' ') : null;
 }
 
-export const SIN_CARGO = '(sin cargo en el roster)';
+/*
+ * ⚠ ESTOS TRES SON TEXTO QUE ALGUIEN LEE, así que van en inglés — etapa ADM3.
+ *
+ * Los nombres de las constantes se quedan en español, como el resto del
+ * repositorio: lo que la regla del proyecto gobierna es lo que se ve en
+ * pantalla, no cómo se llama la variable que lo lleva.
+ */
+export const SIN_CARGO = '(no position in the roster)';
 /** Lo que se dibuja en el lugar de un dato que no vino. */
 export const SIN_BRANCH = '—';
 /** El grupo de quien no trae branch. Hoy no hay ninguno, y la rama se queda. */
-export const SIN_BRANCH_GRUPO = '(sin branch en el roster)';
+export const SIN_BRANCH_GRUPO = '(no branch in the roster)';
 
 /**
  * Cuanto hace de una fecha, en meses redondeados hacia abajo.
@@ -276,10 +283,10 @@ export function haceCuanto(iso: string | null, hoy = new Date()): string | null 
   /* ⚠ Una fecha futura no es "hace 0 meses". Hoy los 14 `close_date` van de
      2024-06 a 2026-09, pero nada impide que manana entre una de 2027, y
      "hace -3 meses" seria un numero que dice lo contrario de lo que pasa. */
-  if (meses < 0) return meses === -1 ? 'en 1 mes' : 'en ' + -meses + ' meses';
-  if (meses === 0) return 'este mes';
-  if (meses === 1) return 'hace 1 mes';
-  return 'hace ' + meses + ' meses';
+  if (meses < 0) return meses === -1 ? 'in 1 month' : 'in ' + -meses + ' months';
+  if (meses === 0) return 'this month';
+  if (meses === 1) return '1 month ago';
+  return meses + ' months ago';
 }
 
 /**
