@@ -295,6 +295,25 @@ export default function ReviewStepPanel({
      para el funnel: un segundo reloj acá era otro más que mantener. */
   const texto = textoDelPaso(script, paso);
   const yaContestado = latestResponse(responses, cursor);
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * ⚠ DOS PREGUNTAS QUE ERAN UNA — etapa RV32
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   *   `yaContestado`  la última fila de este paso: de ahí sale el TEXTO
+   *   `pasoHecho`     si ALGUNA fila está confirmada: eso es estar hecho
+   *
+   * Hasta RV32 eran la misma cosa y por eso había una sola variable. Con el
+   * panel de las nueve, un paso puede tener texto escrito desde otro paso y no
+   * estar hecho -- y todo lo que decía «ya contestado» pasó a mentir: el rótulo
+   * `answered`, la compuerta del presupuesto dándose por cumplida, y las
+   * pantallas de la fase 3 salteando la elección.
+   *
+   * ⚠ Y SALE DE LAS RESPUESTAS, NO DEL TILDE: `visto` es el borrador que la
+   * persona puede marcar antes de guardar, así que usarlo para el rótulo diría
+   * `answered` por tildar una casilla.
+   */
+  const pasoHecho = responses.some((r) => sameStep(r, cursor) && vistoEnSitio(r));
 
   /*
    * ⚠ EL BORRADOR SE REHACE REMONTANDO, NO CON UN EFECTO.
@@ -530,7 +549,9 @@ export default function ReviewStepPanel({
    * puede poner en `true` desde la pantalla, y eso es exactamente lo que la
    * casilla permitía.
    */
-  const budgetListo = presupuestoGuardado || yaContestado !== null;
+  /* ⚠ `pasoHecho` y no «tiene fila» — RV32: un 2.2 con sólo texto adelantado
+     daba la compuerta del presupuesto por cumplida sin que nadie guardara. */
+  const budgetListo = presupuestoGuardado || pasoHecho;
   /*
    * ⚠ `editando` ES EL ESTADO QUE REEMPLAZA AL BOTÓN `Save again`.
    *
@@ -540,7 +561,19 @@ export default function ReviewStepPanel({
    * que ya está guardado, que es lo que hacía que `Save again` pareciera
    * obligatorio.
    */
-  const [editando, setEditando] = useState(yaContestado === null);
+  /*
+   * ⚠ ENTRA EDITANDO SI EL PASO NO ESTÁ HECHO, no si no tiene fila — RV32.
+   *
+   * Decía `yaContestado === null`, y con el panel de las nueve eso pasó a ser
+   * otra cosa: un paso que SÓLO tiene texto adelantado tiene fila, así que
+   * entraba CERRADO --el texto en gris, con un «Edit this comment»-- como si ya
+   * estuviera contestado. Es justo lo que esta etapa viene a negar: tener fila
+   * dejó de significar tener el paso hecho.
+   *
+   * Lo encontró la sonda, esperando el cuadro de comentario del 2.1 después de
+   * escribirlo por adelantado: no había cuadro.
+   */
+  const [editando, setEditando] = useState(!pasoHecho);
   const [ocupado, setOcupado] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /*
@@ -890,7 +923,7 @@ export default function ReviewStepPanel({
             Phase {paso.phase_no} · step {paso.step_in_phase}
           </span>
           <span className="rv-panel__label">{paso.label}</span>
-          {yaContestado && <span className="rv-panel__done">answered</span>}
+          {pasoHecho && <span className="rv-panel__done">answered</span>}
         </div>
         <p className="rv-panel__prompt">{texto.prompt}</p>
       </div>
@@ -907,6 +940,38 @@ export default function ReviewStepPanel({
    *
    * Lo dijo el typechecker, con cuatro errores de TDZ.
    */
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * ⚠ EL TILDE VA EN LAS CUATRO PANTALLAS QUE CIERRAN, Y SE DEFINE UNA VEZ
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * Este panel tiene cuatro ramas con botón de cerrar: el cuerpo normal y las
+   * tres de la fase 3 --decidir, confirmar la elección, y el camino de
+   * `kept`/`deferred`--. Lo puse sólo en el cuerpo normal y el 3.1 quedó
+   * IMPOSIBLE DE CERRAR: la compuerta pedía el tilde y no había tilde.
+   *
+   * Lo encontró la sonda, esperando `[data-review-visto]` en el 3.1. Es el
+   * paso insatisfacible por construcción que este repo ya tuvo con los clics
+   * del 1.4 -- y con cuatro copias de un `<label>` el próximo que agregue una
+   * rama lo vuelve a tener. Definido una vez, hay una sola cosa que mover.
+   *
+   * ⚠ Y LA COMPUERTA NO SE RELAJA PARA LAS RAMAS SIN TILDE. Esa era la otra
+   * salida --«si no hay control, no lo pidas»-- y es la que convierte una
+   * compuerta en algo que a veces aplica: lo que no se ve, no se cumple.
+   */
+  const tildeVisto = (
+    <label className="rv-panel__visto">
+      <input
+        type="checkbox"
+        data-review-visto=""
+        checked={visto}
+        disabled={ocupado}
+        onChange={(e) => setVisto(e.target.checked)}
+      />
+      <span>I reviewed what this step shows</span>
+    </label>
+  );
+
   const draft: StepDraft = {
     comment,
     /* ⚠ RV32: tener texto no es tener el paso hecho. Ver `StepDraft`. */
@@ -1175,7 +1240,7 @@ export default function ReviewStepPanel({
             Phase {paso.phase_no} · step {paso.step_in_phase}
           </span>
           <span className="rv-panel__label">{paso.label}</span>
-          {yaContestado && <span className="rv-panel__done">answered</span>}
+          {pasoHecho && <span className="rv-panel__done">answered</span>}
         </div>
         <p className="rv-panel__prompt">{preguntaDeLaRama ?? texto.prompt}</p>
 
@@ -1229,6 +1294,7 @@ export default function ReviewStepPanel({
                 placeholder="Why not now?"
               />
             </label>
+            {tildeVisto}
             {!estado.ok && estado.falta && (
               <p className="rv-panel__gate">{estado.falta}</p>
             )}
@@ -1349,7 +1415,10 @@ export default function ReviewStepPanel({
   if (
     requiereFunnel &&
     typeof funnelActual === 'string' &&
-    yaContestado === null &&
+    /* ⚠ `pasoHecho` desde RV32: con sólo texto adelantado el paso NO está
+       hecho, y saltearse la pantalla de elegir por tener una fila sería darlo
+       por contestado. */
+    !pasoHecho &&
     rama === null
   ) {
     const hechos = pasosDelPlan?.hechos ?? null;
@@ -1448,7 +1517,7 @@ export default function ReviewStepPanel({
   if (
     requiereFunnel &&
     typeof funnelActual === 'string' &&
-    yaContestado === null &&
+    !pasoHecho &&
     (rama === 'kept' || rama === 'deferred')
   ) {
     return (
@@ -1475,6 +1544,7 @@ export default function ReviewStepPanel({
             placeholder={rama === 'kept' ? 'Why keep it?' : 'Why not decide now?'}
           />
         </label>
+        {tildeVisto}
         {!estado.ok && estado.falta && <p className="rv-panel__gate">{estado.falta}</p>}
         {error && (
           <p className="rv-panel__gate" role="alert">
@@ -1512,7 +1582,7 @@ export default function ReviewStepPanel({
     typeof funnelActual === 'string' &&
     requiereFunnel &&
     (confirmandoEleccion || confirmandoCambio) &&
-    yaContestado === null
+    !pasoHecho
   ) {
     return (
       <div className="rv-panel" role="region" aria-label="Coaching step">
@@ -1548,6 +1618,7 @@ export default function ReviewStepPanel({
             <p className="rv-panel__savedtext">{comment}</p>
           </div>
         )}
+        {tildeVisto}
         {!estado.ok && estado.falta && <p className="rv-panel__gate">{estado.falta}</p>}
         {error && (
           <p className="rv-panel__gate" role="alert">
@@ -1576,7 +1647,7 @@ export default function ReviewStepPanel({
             Phase {paso.phase_no} · step {paso.step_in_phase}
           </span>
           <span className="rv-panel__label">{paso.label}</span>
-          {yaContestado && <span className="rv-panel__done">answered</span>}
+          {pasoHecho && <span className="rv-panel__done">answered</span>}
         </div>
         <p className="rv-panel__prompt">{texto.prompt}</p>
       </div>
@@ -1591,7 +1662,7 @@ export default function ReviewStepPanel({
             Phase {paso.phase_no} · step {paso.step_in_phase}
           </span>
           <span className="rv-panel__label">{paso.label}</span>
-          {yaContestado && <span className="rv-panel__done">answered</span>}
+          {pasoHecho && <span className="rv-panel__done">answered</span>}
         </div>
         <p className="rv-panel__prompt">{texto.prompt}</p>
         {/*
@@ -1661,7 +1732,7 @@ export default function ReviewStepPanel({
           Phase {paso.phase_no} · step {paso.step_in_phase}
         </span>
         <span className="rv-panel__label">{paso.label}</span>
-        {yaContestado && <span className="rv-panel__done">answered</span>}
+        {pasoHecho && <span className="rv-panel__done">answered</span>}
         {/*
           ⚠ MINIMIZAR NO ES CERRAR, y el rótulo lo dice: pliega la tarjeta a una
           píldora para ver el tablero completo SIN salir del modo coach --que es
@@ -1942,16 +2013,7 @@ export default function ReviewStepPanel({
         contra qué verificarlo, y lo único que lo sostiene es que el comentario
         sigue siendo obligatorio.
       */}
-      <label className="rv-panel__visto">
-        <input
-          type="checkbox"
-          data-review-visto=""
-          checked={visto}
-          disabled={ocupado}
-          onChange={(e) => setVisto(e.target.checked)}
-        />
-        <span>I reviewed what this step shows</span>
-      </label>
+      {tildeVisto}
 
       <button
         type="button"
