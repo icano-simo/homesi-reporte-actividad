@@ -689,6 +689,63 @@ prueba de que eso no era la rama rebasada.
   faltaba escrita: no alcanza con no acusar, hay que medir sobre lo que la otra
   persona ya entregó.
 
+### Y la sonda que ESCRIBE: declarar antes, y el `returning` en el reporte
+
+La lista de arriba cubre las operaciones que verifican. Ésta es sobre las que
+dejan algo atrás, y salió de una sonda de RV34 que escribió dos respuestas de
+prueba en una sesión de práctica del usuario sin haberlo dicho antes de correr.
+
+> **El repo ya tenía la regla para los BORRADOS --«dejar el rastro en el repo si
+> no lo deja la base»-- y no se había extendido a las ESCRITURAS.** Una sonda
+> que escribe declara qué va a tocar antes de correr, y deja en el reporte lo
+> que la operación devolvió.
+
+No es ceremonia: `review` no tiene policy de DELETE y `service_role` no tiene
+`usage`, así que lo que una sonda escriba ahí **sólo se puede sacar desde el
+editor SQL** -- la única vía que puede y la única que no deja rastro. Escribir
+sin declararlo le deja a otro la tarea de descubrir qué hay y de dónde salió.
+
+Y la elección del destino **se lee, no se escribe a mano** --el primer paso sin
+contestar, en ese caso-- porque eso es lo que deja a la sonda correr dos veces
+sin medir el estado que dejó la primera. Eso sí estaba bien, y es lo que hizo
+que el residuo fuera de dos filas y no de diez.
+
+#### Un residuo reportado es una afirmación sobre el ESTADO DE AHORA
+
+Reporté «dejó respuestas de prueba en 1.3 y 1.4» en presente. Para cuando el
+usuario lo leyó, ya no estaban.
+
+> **Un residuo envejece entre que se mide y se escribe, igual que cualquier otro
+> número.** Lo que se puede afirmar es que se escribió y se midió; que siga ahí
+> es una lectura de ahora, y la hace quien lee.
+
+El tiempo verbal es la mitad del arreglo: *«las escribí y las medí»* sobrevive a
+que alguien las borre en el medio; *«están ahí»* no.
+
+#### ⚠ Y UN `returning` VACÍO NO DISTINGUE «no había nada» DE «ya no están»
+
+La tercera es del usuario, y es la que mejor cierra la familia. Al leer ese
+reporte corrió un `delete … where comment like 'RV34 probe%'`, **el resultado
+volvió vacío**, y lo leyó como «no había nada que borrar». Entonces me dijo que
+mi residuo nunca había existido -- y yo tenía el conteo contra la base, de las
+dos corridas, diciendo `2 → 3` y `3 → 4`.
+
+Las dos lecturas de un vacío son incompatibles y se ven idénticas:
+
+    no habia filas que matchearan     ->  vacio
+    las borro justo esta sentencia    ->  vacio, si nadie pidio el RETURNING
+
+> **Un `delete` que no muestra filas se parece a uno que no borró ninguna.** Es
+> el `UPDATE` sin `returning` --la operación salió bien y el número habla de
+> otro momento-- corrido al borrado, y con el agravante de que acá el número no
+> es un dato de más: es lo único que distingue las dos historias.
+
+La regla operativa, de los dos lados: **un `delete` de limpieza lleva
+`returning` y el número va al reporte**, y quien lee un vacío pregunta de cuál
+de los dos se trata antes de concluir que el otro se equivocó. Acá el costo fue
+chico porque el registro del emisor alcanzaba para desmentirlo; sin ese conteo,
+la conclusión «nunca existió» habría quedado escrita.
+
 ## Un párrafo roto en columnas dice lo mismo que uno bien armado
 
 Segunda vez con el mismo defecto, y las dos veces con las aserciones de texto
