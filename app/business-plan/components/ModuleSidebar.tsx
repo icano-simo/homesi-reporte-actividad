@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
-import { BuildingIcon, GridIcon, HandshakeIcon, SignedDocIcon, TargetIcon } from '@/components/ui/icons';
+import { BuildingIcon, FunnelIcon, GridIcon, HandshakeIcon, SignedDocIcon, TargetIcon } from '@/components/ui/icons';
 import ReviewProgress from '@/components/review/ReviewProgress';
 
 /**
@@ -68,6 +68,23 @@ const ITEMS: SidebarItem[] = [
     icon: <GridIcon size={16} />,
     tambien: ['/business-plan/library'],
   },
+  /*
+   * ═════════════════════════════════════════════════════════════════
+   * EL MARKETPLACE — etapa BP55
+   * ═════════════════════════════════════════════════════════════════
+   *
+   * El catálogo de funnels sólo se alcanzaba desde el perfil de una persona, y
+   * con un plan ya activo ni siquiera desde ahí: hay que saber que existe
+   * `?change=` para volver a verlo. O sea que mirar qué estrategias hay
+   * disponibles exigía elegir primero a quién.
+   *
+   * ⚠ Y NO ES UNA SEGUNDA PANTALLA. Es el mismo `FunnelCatalog` con la persona
+   * como entrada --fija desde el perfil, elegida acá--. Dos pantallas que
+   * eligen funnel divergen con el primer `edit`, y eso ya pasó en este módulo.
+   *
+   * `tambien` no hace falta: la ruta es propia y no comparte prefijo con nada.
+   */
+  { href: '/business-plan/marketplace', label: 'Marketplace', icon: <FunnelIcon size={16} /> },
   /*
    * Etapa BP20. Las otras entradas miran el negocio por Loan Officer; ésta lo
    * mira por PERSONA DEL EQUIPO DE SOPORTE, que es lo que faltaba: para saber

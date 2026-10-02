@@ -60,7 +60,19 @@ const ESTADOS = [
       'al lugar del paso se dispare en cada carga.',
   },
   {
-    archivo: 'app/business-plan/lo/[employeeKey]/funnel/page.tsx',
+    /*
+     * ⚠ LA RUTA ES LA DE AHORA — BP55, y es la SEGUNDA vez en este archivo.
+     *
+     * El catálogo se movió a `components/` para que el Marketplace monte el
+     * mismo componente, y en la ruta vieja quedó una página de cuatro líneas.
+     * Apuntada ahí, esta fila habría dado VERDE sobre un archivo que ya no
+     * tiene ni la búsqueda ni el `??`: exactamente el verde sobre el archivo
+     * que no es que la fila de abajo documenta desde ADM3.
+     *
+     * Medido antes de cambiarla: con la ruta vieja decía OK. El dato que lo
+     * delata no es el verde sino que la página pasó a tener 17 líneas.
+     */
+    archivo: 'app/business-plan/components/FunnelCatalog.tsx',
     estado: 'lo (la persona, de la población del módulo)',
     /*
      * ⚠ LO PROHIBIDO ES LA CADENA OPCIONAL, no el `?? null`.
@@ -82,6 +94,36 @@ const ESTADOS = [
       'is not in the Business Plan population... They need a branch assignment ' +
       'first»: una afirmación sobre el roster, con una instrucción accionable, ' +
       'dicha sin haber leído el roster.',
+  },
+  {
+    /*
+     * ⚠ EL TERCER ESTADO DEL MISMO DATO — etapa BP55.
+     *
+     * La fila de arriba separa «la población no llegó» de «llegó y no está».
+     * El Marketplace agrega uno antes de los dos: NADIE ELEGIDO. Son tres
+     * cosas distintas y la pantalla dice tres cosas distintas -- una manda a
+     * esperar, otra afirma algo sobre el roster, la tercera manda a elegir.
+     *
+     * Lo prohibido es la salida fácil: convertir «no hay persona» en una clave
+     * de empleado. `employeeKey ?? 0` compila, no falla, y hace que el catálogo
+     * le pregunte a la población por el empleado 0 -- que no existe, así que
+     * contesta «This person is not in the Business Plan population»: la
+     * afirmación sobre el roster, otra vez, dicha sobre nadie.
+     *
+     * Es una regla sobre el SIGNIFICADO y no sobre la forma: no prohíbe una
+     * manera de escribir el guardia, prohíbe inventarle una clave a quien no
+     * la tiene. `useEnrollment` acepta `null` justamente para que no haga falta.
+     */
+    archivo: 'app/business-plan/components/FunnelCatalog.tsx',
+    estado: 'employeeKey (a quién se le activa el funnel)',
+    prohibidos: ['employeeKey ?? 0', 'employeeKey || 0', 'Number(employeeKey ?? 0)'],
+    porque:
+      '`null` = todavía no se eligió a nadie, y un número = esa persona. ' +
+      'Coercionar el primero a `0` le hace preguntar a la población por un ' +
+      'empleado que no existe, y la respuesta es la misma frase del roster ' +
+      '--«This person is not in the Business Plan population»-- dicha sobre ' +
+      'nadie. El Marketplace monta el catálogo sin persona hasta que alguien ' +
+      'la elige, así que ese estado está en pantalla en cada carga.',
   },
   {
     /*
