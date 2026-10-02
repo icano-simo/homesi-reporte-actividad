@@ -710,12 +710,12 @@ table.piv.adm-tbl th.bp-center {
   color: var(--slate-400);
   font-size: 11.5px;
 }
-.mg-pie {
-  margin: 20px 0 0;
-  color: var(--slate-500);
-  font-size: 11.5px;
-  line-height: 1.55;
-}
+/*
+ * ⚠ ACA ESTABA `.mg-pie`, la nota que nombraba a los branches sin fila en el
+ * roster. Se fue con la nota: ahora tienen seccion propia. Contada en ESTE
+ * arbol --`adm/margins-sin-roster`, sobre `1496b4d`-- y ninguna otra rama viva
+ * toca `margins`.
+ */
 .mg-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(600px, 100%), 1fr));

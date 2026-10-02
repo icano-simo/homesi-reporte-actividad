@@ -103,7 +103,7 @@ for (const [tipo, b1, b2, d1, d2] of V733) {
 }
 
 /* El numero sale de contar las llamadas con el patron anclado al margen. */
-const a = crearArnes({ minimo: 42 });
+const a = crearArnes({ minimo: 43 });
 try {
   /* ═══ 0. El ancla: el fixture es el que se midio ═══ */
   console.log('\n=== 0. el fixture ===');
@@ -293,19 +293,36 @@ try {
     '⚠ LOS DOS MARCADORES NO SON NINGUNO DE LOS DOS: cumplen la regla de inactivo ' +
     'y llamarlos asi seria falso -- nunca estuvieron activos');
   a.ck(!sec.inactivos.includes('Recruitment - BM') && !sec.activos.includes('Recruitment - BM'),
-    'asi que no estan en ninguna de las dos secciones');
-  a.ck(JSON.stringify(sec.sinFilaEnRoster) === JSON.stringify(['741']),
-    '⚠ y el tercer estado se cuenta aparte: el 741 no tiene NI UNA fila en el roster, ' +
-    'que no es lo mismo que el 700 (' + JSON.stringify(sec.sinFilaEnRoster) + ')');
-  a.ck(sec.activos.length + sec.inactivos.length + sec.marcadores.length === 6,
-    'ancla: los seis branches caen en exactamente una seccion, sin perder ni duplicar');
+    'asi que no estan en ninguna de las otras tres secciones');
+  /*
+   * ⚠ CUATRO SECCIONES Y NO TRES. «Esta en el roster y no produce» y «no esta en
+   * el roster» caian juntas porque la regla del portal las junta, y la
+   * diferencia decide que se puede hacer con cada una: a una oficina con gente
+   * se le puede fijar un margen esperando produccion, y a un branch donde no
+   * hay nadie, no.
+   */
+  a.ck(JSON.stringify(sec.inactivos) === JSON.stringify(['700', '716']),
+    '⚠ `inactivos` son los que ESTAN en el roster y no producen: ' +
+    JSON.stringify(sec.inactivos));
+  a.ck(JSON.stringify(sec.sinRoster) === JSON.stringify(['741']),
+    '⚠ y `sinRoster` es otra cosa: el 741 no tiene NI UNA fila (' +
+    JSON.stringify(sec.sinRoster) + ')');
+  /*
+   * ⚠ Y SE AFIRMA LA PARTICION ENTERA, no sólo los totales: cuatro listas que
+   * suman seis pueden tener un branch repetido y otro perdido, y cada seccion
+   * se veria bien por su cuenta.
+   */
+  const todas = [...sec.activos, ...sec.inactivos, ...sec.sinRoster, ...sec.marcadores];
+  a.ck(todas.length === 6 && new Set(todas).size === 6,
+    'ancla: los seis caen en exactamente una seccion -- ni repetidos ni perdidos (' +
+    todas.length + ' puestos, ' + new Set(todas).size + ' distintos)');
 
   /* ⚠ El caso donde tiene que decir NO: sin roster, nadie es activo. */
   const vacio = seccionesDeBranch(['700', '710'], []);
-  a.ck(vacio.activos.length === 0 && vacio.inactivos.length === 2,
-    '⚠ SIN ROSTER TODOS CAEN EN INACTIVO -- por eso la pantalla distingue «el roster ' +
-    'vino vacio» de «estos branches no operan»: sin ese aviso diria que la division ' +
-    'entera dejo de producir');
+  a.ck(vacio.activos.length === 0 && vacio.sinRoster.length === 2 && vacio.inactivos.length === 0,
+    '⚠ SIN ROSTER NINGUNO ES ACTIVO y los dos caen en `sinRoster` -- por eso la ' +
+    'pantalla distingue «el roster vino vacio» de «aca no hay nadie»: sin ese aviso ' +
+    'diria que la division entera se quedo sin gente');
 
   a.ck(esMarcadorDeReclutamiento('Recruitment - BM') &&
        esMarcadorDeReclutamiento('recruitment') &&

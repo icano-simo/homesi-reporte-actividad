@@ -367,19 +367,25 @@ export function historial(filas: MarginRow[]): VersionDeHistorial[] {
 export interface SeccionesDeBranch {
   /** Con al menos un productor activo en el roster. */
   activos: string[];
-  /** Sin productores activos. Produjeron o no, pero son branches. */
+  /**
+   * EN el roster, con gente, y sin un solo productor activo.
+   *
+   * ⚠ ES UNA OFICINA QUE EXISTE Y NO PRODUCE, y por eso está separada de la de
+   * abajo. El 700 es el caso: 38 filas y 37 personas activas, ninguna productor.
+   */
   inactivos: string[];
+  /**
+   * Sin NI UNA fila en el roster.
+   *
+   * ⚠ ERA UNA LÍNEA EN EL PIE Y PASÓ A SER SECCIÓN. Caía junto con los de
+   * arriba porque la regla del portal los junta --ninguno tiene productores--
+   * y la diferencia tiene consecuencia: a una oficina con gente se le puede
+   * fijar un margen esperando producción, y a un branch donde no hay nadie, no.
+   * Nombrarlos juntos en una nota los dejaba mezclados.
+   */
+  sinRoster: string[];
   /** Los márgenes de quien todavía no tiene branch. No son branches. */
   marcadores: string[];
-  /**
-   * De los inactivos, los que no tienen NI UNA fila en el roster.
-   *
-   * ⚠ Es un tercer estado del dato que la pantalla no convierte en una tercera
-   * sección: se cuenta y se dice. «No está en el roster» y «está y no tiene
-   * productores» caen los dos en inactivo por la regla del portal, y son cosas
-   * distintas -- el 700 tiene 37 personas activas y el 741 no tiene ninguna.
-   */
-  sinFilaEnRoster: string[];
 }
 
 /** Una fila de `org.roster_current`, con lo único que esto mira. */
@@ -409,9 +415,16 @@ export function seccionesDeBranch(
 
   const activos: string[] = [];
   const inactivos: string[] = [];
+  const sinRoster: string[] = [];
   const marcadores: string[] = [];
-  const sinFilaEnRoster: string[] = [];
 
+  /*
+   * ⚠ CUATRO SALIDAS Y CADA BRANCH CAE EN UNA, con `continue` en cada rama.
+   * Sin eso, «está en el roster y no produce» y «no está en el roster» pueden
+   * quedar los dos puestos, y la pantalla mostraría el mismo branch dos veces
+   * sin que ningún número lo diga: los conteos sumarían de más y cada sección
+   * se vería bien por su cuenta.
+   */
   for (const b of branches) {
     if (esMarcadorDeReclutamiento(b)) {
       marcadores.push(b);
@@ -421,11 +434,14 @@ export function seccionesDeBranch(
       activos.push(b);
       continue;
     }
-    inactivos.push(b);
-    if (!enRoster.has(b)) sinFilaEnRoster.push(b);
+    if (enRoster.has(b)) {
+      inactivos.push(b);
+      continue;
+    }
+    sinRoster.push(b);
   }
 
-  return { activos, inactivos, marcadores, sinFilaEnRoster };
+  return { activos, inactivos, sinRoster, marcadores };
 }
 
 /**
