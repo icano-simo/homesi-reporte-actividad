@@ -1878,6 +1878,44 @@ dos listas, hoy son 15, 24 y 40. **Un número escrito en una nota envejece igual
 que uno escrito en un reporte**, con el agravante de que nadie vuelve a
 verificar una nota -- que es exactamente lo que hizo durar el caso de `bp-hint`.
 
+#### ⚠ Y los tres casos que la guarda NO cubre, medidos usándola
+
+Los tres aparecieron en una sola etapa, y conviene tenerlos escritos porque dos
+son huecos y uno es ruido. Un límite declarado no se confunde con un agujero.
+
+**1. El hueco: `sed -i` sin backtick, sin `$` y sin backslash pasa.** La fila de
+arriba dice cuándo frena, y la razón es buena --sin esos caracteres el texto
+llega entero-- pero el daño de un `sed` no es sólo que el texto llegue mal: es
+**a cuántas líneas se aplica**. Costó un caso real:
+
+    sed -i 's/^  margin-top: 16px;$/  margin-top: 12px;/' admin.css
+
+Quería una regla y tocó **tres**, dos de ellas de otra pantalla. El patrón era
+correcto; lo que estaba mal era suponer que era único. Esto la guarda no lo
+puede ver, porque cuántas veces matchea un patrón depende del archivo y no del
+comando.
+
+> **Lo que queda es el reflejo: después de un `sed -i`, mirar el diff antes de
+> seguir.** Acá se vio --`git diff` mostró las tres-- y por eso se arregló en el
+> momento. Y la alternativa que no necesita reflejo es la de siempre: `Edit`
+> falla ruidosamente si el patrón no está, y toca una sola.
+
+**2. El ruido: `2>/dev/null` dentro de un pipe.** Lo frena como «texto
+redirigido a un archivo», y redirigir *stderr* a `/dev/null` no escribe
+contenido con el shell de intermediario. No hay texto que se pueda corromper.
+
+**3. El ruido, otra vez: un `grep` cuyo PATRÓN contiene `sed -i`.** Buscar en
+este mismo archivo la fila de la tabla de arriba lo frenó como si fuera un `sed`.
+La guarda mira el comando como texto, así que no distingue «estoy corriendo un
+`sed -i`» de «estoy buscando la cadena `sed -i`».
+
+Los dos últimos son el mismo mecanismo --la guarda lee la FORMA del comando, no
+lo que el comando hace-- y es el error que este archivo lleva documentado siete
+veces, cometido por la guarda que existe para evitarlo. Se arreglan con un caso
+en la lista de permitidos, y esa corrección va en su propia etapa: aflojar un
+patrón a las apuradas, en el medio de otra cosa, es cómo una guarda deja de
+cubrir lo que cubría.
+
 ### ⚠ Vive en dos lugares, y eso es a propósito
 
 `.gitignore` ignora `.claude/` --«config local del agente»-- y el hook lo lee el
