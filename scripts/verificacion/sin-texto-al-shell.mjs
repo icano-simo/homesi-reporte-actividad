@@ -62,8 +62,41 @@ const REGLAS = [
   },
   {
     nombre: 'código como argumento',
+    /*
+     * ⚠ `-p` Y `--print` SE AGREGAN DESPUÉS DE QUE LA GUARDA LOS DEJARA PASAR.
+     *
+     * El patrón perseguía `-e` y `-c`, y `node -p "Object.keys(require('./package.json').scripts)"`
+     * corrió sin rebotar -- código viajando como argumento, que es exactamente
+     * lo que esta fila existe para frenar. `node -p` es `--print`, o sea `-e`
+     * más un `console.log`: el mismo mecanismo con otra letra.
+     *
+     * Van en ESTA fila y no en una nueva: es la misma decisión, y dos filas que
+     * deciden lo mismo divergen con el primer edit.
+     *
+     * ⚠ Y `-p` SÓLO PARA LOS INTÉRPRETES DE ESTA LISTA. `-p` es una bandera
+     * comunísima --`mkdir -p`, `npm run -p`, `docker run -p`-- así que la letra
+     * sola no dice nada; lo que la vuelve código es de quién es. Por eso el
+     * patrón sigue exigiendo el intérprete pegado adelante, y por eso `grep -p`
+     * o `mkdir -p` no la tocan.
+     */
+    /*
+     * ⚠ `sobre: 'ambas'` — Y ESTO CORRIGE LA NOTA DE AGENTS.md, QUE DECÍA QUE
+     * LAS REGLAS DE BANDERA NO LO NECESITAN.
+     *
+     * Decía: «las que persiguen una BANDERA siguen mirando el comando entero,
+     * porque una bandera nunca está entrecomillada». Es cierto del comando que
+     * se EJECUTA y falso del que BUSCA esa bandera como texto. Frenó esto, que
+     * es prosa sobre la guarda y no código:
+     *
+     *     grep -n "node -e`, `python -c" AGENTS.md
+     *
+     * Y no afloja nada: en un `node -e "..."` de verdad la bandera va FUERA de
+     * las comillas, así que ignorar lo entrecomillado no la pierde. Los casos
+     * de `SIGUE_BLOQUEANDO` lo afirman en vez de confiar en este párrafo.
+     */
+    sobre: 'ambas',
     prueba:
-      /\b(node|python|python3|perl|ruby|bash|sh|zsh|pwsh|powershell)\s+(-e|--eval|-c|-Command|-EncodedCommand)\b/i,
+      /\b(node|python|python3|perl|ruby|bash|sh|zsh|pwsh|powershell)\s+(-e|--eval|-p|--print|-c|-Command|-EncodedCommand)\b/i,
     porque:
       'el código viaja como argumento, así que el shell lo toca antes de que llegue al intérprete. ' +
       'Es el mismo mecanismo del heredoc con otra cara.',

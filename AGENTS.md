@@ -1928,7 +1928,7 @@ qué hacer en su lugar. Verificado en vivo, no sólo con su prueba: un `node -e`
 | bloquea | por el caso que ya costó |
 |---|---|
 | heredoc y here-string | los backslashes, el segundo heredoc, los backticks que se ejecutan |
-| `node -e`, `python -c`, `bash -c`, `powershell -Command` | el código como argumento, que es el mismo mecanismo con otra cara |
+| `node -e` / `-p`, `python -c`, `bash -c`, `powershell -Command` | el código como argumento, que es el mismo mecanismo con otra cara |
 | `git commit -m` / `-am` | los cinco identificadores que se comió un mensaje |
 | `gh pr create --body` | igual, y un cuerpo de PR casi siempre tiene backticks |
 | `echo`/`printf` redirigido a un archivo | escribir un archivo con el shell de intermediario |
@@ -1938,14 +1938,18 @@ Y deja pasar lo que hay que dejar pasar, que es la mitad que decide si la guarda
 sobrevive: `cmd //c` --la única vía para borrar una junction--, `git commit -F`,
 `echo` sin redirección, `sed -n`, `grep -c`, los pipes y las sustituciones de
 comandos. **Una guarda que bloquea todo es la que alguien desengancha**, y ahí
-se pierde también lo que sí cubría; por eso su prueba tiene **24** casos de
-«esto tiene que pasar» y no sólo los **15** de «esto tiene que frenar».
+se pierde también lo que sí cubría; por eso su prueba tiene **38** casos de
+«esto tiene que pasar» y no sólo los **17** de «esto tiene que frenar».
 
-⚠ Esos dos números decían 17 y 14, y la prueba decía 31 aserciones: eran los de
-cuando se escribió la sección, y la guarda creció después. Medidos al contar las
-dos listas, hoy son 15, 24 y 40. **Un número escrito en una nota envejece igual
-que uno escrito en un reporte**, con el agravante de que nadie vuelve a
-verificar una nota -- que es exactamente lo que hizo durar el caso de `bp-hint`.
+⚠ Esos dos números decían 17 y 14, después 15 y 24, y la prueba decía 31 y 40
+aserciones: eran los de cuando se escribió cada versión de la sección, y la
+guarda creció después. **Van tres veces que envejecen**, así que lo que vale no
+es el número sino de dónde sacarlo: `npm run verificar:shell` imprime
+`ancla: las tres listas tienen casos (17 / 38 / 9)` en su primera línea, medido
+en la corrida. Hoy son 17, 38 y 9, con 66 aserciones. **Un número escrito en una
+nota envejece igual que uno escrito en un reporte**, con el agravante de que
+nadie vuelve a verificar una nota -- que es exactamente lo que hizo durar el
+caso de `bp-hint`.
 
 #### ⚠ Y los tres casos que la guarda NO cubre, medidos usándola
 
@@ -1998,6 +2002,20 @@ cometido por la guarda que existe para evitarlo.
 comillas, porque ahí el carácter es texto. Las que persiguen una BANDERA
 --`-e`, `-c`, `--body`, `-m`-- siguen mirando el comando entero: una bandera
 nunca está entrecomillada.
+
+> ⚠ **Y ESA ÚLTIMA FRASE ERA FALSA, medida al escribir la etapa de `node -p`.**
+> Una bandera nunca está entrecomillada en el comando que se EJECUTA, y sí lo
+> está en el que la BUSCA como texto. La guarda frenó esto, que es prosa sobre
+> la guarda misma:
+>
+>     grep -n "node -e`, `python -c" AGENTS.md
+>
+> Así que la regla de «código como argumento» también ignora lo entrecomillado,
+> y no afloja nada: en un `node -e "..."` de verdad la bandera va FUERA de las
+> comillas. Lo que lo sostiene no es este párrafo sino tres casos en
+> `SIGUE_BLOQUEANDO` --`node -e`, `python -c` y `node -p` con comillas al lado--
+> que siguen frenando. **El criterio operador/bandera no era el correcto: el
+> correcto es si el patrón puede aparecer como texto, y eso le pasa a los dos.**
 
 > ⚠ **Y las dos comillas no protegen lo mismo.** Para un `>` da igual. Para un
 > backtick no: dentro de comillas DOBLES sigue expandiendo --que es justo el
