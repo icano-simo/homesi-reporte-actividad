@@ -258,7 +258,21 @@ export default function MarginsPage() {
          */
         clave: 'no-roster',
         titulo: 'No one in the roster',
-        que: 'Not a single row in the roster — nobody to produce here.',
+        /*
+         * ⚠ NOMBRA, NO INTERPRETA — etapa ADM8.
+         *
+         * Decía «nobody to produce here», que se lee como una falta: un branch
+         * al que hay que ponerle gente. Y no lo es necesariamente -- puede
+         * haberse cerrado y la grilla quedó, o haberse abierto y todavía no
+         * tener a nadie asignado. Un rótulo que afirma un problema manda a
+         * alguien a buscar personas que no faltan, que es la misma forma que
+         * `already above forecast`: una interpretación amable al lado de un
+         * número, que nadie verifica.
+         */
+        que: 'No one is assigned to these branches in the roster.',
+        nota:
+          'A branch can have margins and nobody in the roster: it closed and the grid stayed, ' +
+          'or it opened and nobody is assigned yet. Neither is something to fix from this screen.',
         codigos: (s?.sinRoster ?? []).filter((c) => dentro.has(c)),
         total: s?.sinRoster.length ?? 0,
       },
@@ -415,6 +429,16 @@ export default function MarginsPage() {
               </span>
               <span className="mg-seccion__que">{s.que}</span>
             </div>
+            {/*
+              ⚠ LA NOTA DICE QUE ESTO NO ES UN PENDIENTE, y va una vez por
+              sección y no al lado de cada tarjeta: son seis branches y sería el
+              mismo texto seis veces.
+            */}
+            {s.nota && (
+              <p className="mg-seccion__nota" data-mg-seccion-nota={s.clave}>
+                {s.nota}
+              </p>
+            )}
             <div className="mg-grid" data-mg-grid={s.clave}>
       {s.codigos.map((codigo) => {
         const grilla = grillas.get(codigo);
