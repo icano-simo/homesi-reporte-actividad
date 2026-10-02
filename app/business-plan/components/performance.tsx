@@ -382,6 +382,35 @@ export function Q1Panel({ lo, benchmarkSlot }: { lo: LoanOfficerRow; benchmarkSl
                   · from growth rule
                 </span>
               )}
+              {/*
+                ⚠ LA TERCERA FUENTE, Y HASTA HOY NO SE PODIA LLEGAR A ELLA.
+
+                `budgetSource` tiene tres valores y esta pantalla rotulaba uno.
+                No se noto porque `nppm` era INALCANZABLE: el piso de realtors
+                leia una columna que no existe --ver el `select` de
+                `loadData.ts`-- asi que `pisoDelMes` caia a `0` para todo el
+                mundo y la rama nunca se ejercia. Al arreglar esa lectura,
+                Silvio Arteaga paso de 2.0 a 3.0 y la pantalla mostro el numero
+                nuevo sin decir de donde salia: ni lo fijo nadie, ni es su regla.
+
+                El texto es el MISMO que usa Outlook --`raised by NPPM`-- a
+                proposito: dos nombres para la misma cosa obligan a quien lee
+                las dos pantallas a descubrir que son lo mismo.
+
+                Y es una ATRIBUCION, no un aviso: `bp-muted` como la nota de la
+                regla, sin color de alerta. El numero no esta mal -- lo que
+                faltaba era de quien es.
+              */}
+              {budgetSource === 'nppm' && (
+                <span
+                  className="bp-muted"
+                  data-bp-budget-nppm=""
+                  title="This is what this person's NPPM realtors project for the month, which is more than their own total or growth rule. A realtor does not close -- this person does -- so their budget cannot sit below what already comes through them. It moves when the realtors' 3-month average moves."
+                >
+                  {' '}
+                  · raised by NPPM
+                </span>
+              )}
             </span>
           )}
         </div>
