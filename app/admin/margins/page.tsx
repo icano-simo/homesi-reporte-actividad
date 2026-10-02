@@ -222,6 +222,25 @@ export default function MarginsPage() {
         total: s?.activos.length ?? 0,
       },
       {
+        /*
+         * ⚠ VA ANTES DE LOS INACTIVOS, Y NO ES UN GUSTO — etapa ADM7.
+         *
+         * `Recruitment` no es un branch que dejó de producir: es una cola de
+         * espera. Puesto después de los inactivos queda agrupado con lo que no
+         * opera, y es lo contrario -- es lo que todavía no empezó.
+         *
+         * Y por eso no va en ninguna de las otras secciones: cumple la regla de
+         * inactivo y llamarlo «Inactive» sería falso. Es la misma decisión que
+         * Outlook tomó en OL21 para su propio marcador, escrita en
+         * `margins-modelo.ts`.
+         */
+        clave: 'recruitment',
+        titulo: 'Recruitment',
+        que: 'Margins for people who do not have a branch yet — not branches.',
+        codigos: (s?.marcadores ?? []).filter((c) => dentro.has(c)),
+        total: s?.marcadores.length ?? 0,
+      },
+      {
         clave: 'inactive',
         titulo: 'Inactive branches',
         que: 'In the roster, with people, and no active producer.',
@@ -242,19 +261,6 @@ export default function MarginsPage() {
         que: 'Not a single row in the roster — nobody to produce here.',
         codigos: (s?.sinRoster ?? []).filter((c) => dentro.has(c)),
         total: s?.sinRoster.length ?? 0,
-      },
-      {
-        /*
-         * ⚠ NO SON BRANCHES, y por eso no van en ninguna de las dos. Cumplen la
-         * regla de inactivo y llamarlos «Inactive» sería falso: nunca
-         * estuvieron activos. Es la misma decisión que Outlook tomó en OL21
-         * para su propio marcador, y está escrita en `margins-modelo.ts`.
-         */
-        clave: 'recruitment',
-        titulo: 'Recruitment',
-        que: 'Margins for people who do not have a branch yet — not branches.',
-        codigos: (s?.marcadores ?? []).filter((c) => dentro.has(c)),
-        total: s?.marcadores.length ?? 0,
       },
     ];
   }, [data, visibles]);

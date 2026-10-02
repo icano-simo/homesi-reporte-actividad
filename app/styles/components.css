@@ -156,7 +156,21 @@ input[type='file'] {
   padding: 3px;
   gap: 2px;
 }
-.seg button {
+/*
+ * ⚠ TAMBIÉN PARA `<a>`, y es aditivo — etapa ADM7.
+ *
+ * Las diez pestañas que usaban esta clase eran todas `button`, así que el
+ * selector era `.seg button`. La sub-navegación de Admin --Roster y Margins--
+ * son dos RUTAS, así que son `<Link>`: con el selector viejo, el mismo
+ * tratamiento visual habría necesitado una clase nueva que se le parezca, y dos
+ * tratamientos que hoy se ven igual divergen con el primer `edit`.
+ *
+ * Agregar `a` no toca a ninguno de los diez usos existentes --medido: no hay un
+ * solo `<a>` dentro de un `.seg` hoy-- y `text-decoration: none` es lo único
+ * que un ancla necesita de más.
+ */
+.seg button,
+.seg a {
   border: none;
   background: transparent;
   font-family: inherit;
@@ -168,18 +182,23 @@ input[type='file'] {
   cursor: pointer;
   transition: background 0.14s ease, color 0.14s ease;
   white-space: nowrap;
+  text-decoration: none;
 }
-.seg button:hover {
+.seg button:hover,
+.seg a:hover {
   color: var(--navy);
 }
-.seg button.on {
+.seg button.on,
+.seg a.on {
   background: var(--navy);
   color: #fff;
 }
-.seg button.on:hover {
+.seg button.on:hover,
+.seg a.on:hover {
   color: #fff;
 }
-.seg button:focus-visible {
+.seg button:focus-visible,
+.seg a:focus-visible {
   outline: 2px solid var(--sky);
   outline-offset: 1px;
 }
