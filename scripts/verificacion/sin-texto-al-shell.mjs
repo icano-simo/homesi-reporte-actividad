@@ -130,6 +130,13 @@ const REGLAS = [
      * bloquea lo legítimo es la que alguien desengancha, y ahí se pierde
      * también lo que sí cubría.
      */
+    /*
+     * ⚠ `sobre: 'ambas'` — UN `>` ENTRE COMILLAS NO ES UNA REDIRECCIÓN.
+     *
+     * Frenó `printf "%s -> "` y `echo "... <a> o Link"`: la flecha estaba
+     * adentro del texto que se iba a imprimir. Ver la nota de `sinCadenas`.
+     */
+    sobre: 'ambas',
     prueba: /\b(echo|printf)\b[^|;&]*(?<![0-9&])>>?\s*(?!&)(?!\/dev\/null|\$null|nul\b)\S/i,
     porque:
       'es escribir un archivo con el shell de intermediario: el contenido pasa por expansión y ' +
@@ -138,6 +145,21 @@ const REGLAS = [
   },
   {
     nombre: 'sed -i con escapes',
+    /*
+     * ⚠ `sobre: 'simples'` Y NO `'ambas'`, y la diferencia es el punto.
+     *
+     * Frenó `grep -n "sed -i\` con backtick" AGENTS.md`, donde `sed -i` era
+     * parte del PATRÓN de búsqueda. Pero dentro de comillas DOBLES un backtick
+     * sigue expandiendo, así que ignorarlas dejaría pasar `sed -i "s/$x/y/"`,
+     * que es exactamente lo que esta regla existe para atrapar.
+     *
+     * ⚠ Y QUEDA UN HUECO CONOCIDO, dicho acá en vez de descubierto después: un
+     * `grep "sed -i ..."` con el patrón entre comillas DOBLES y un backtick
+     * adentro sigue frenando. Es la dirección correcta para equivocarse --un
+     * caso raro de búsqueda contra un caso real de escritura-- y la salida está
+     * a mano: comillas simples en el patrón.
+     */
+    sobre: 'simples',
     prueba: /\bsed\b[^|;&]*-i\b[^|;&]*[`$\\]/,
     porque:
       'una sustitución con backticks, `$` o backslashes llega distinta de como se escribió, y un ' +
@@ -146,10 +168,74 @@ const REGLAS = [
   },
 ];
 
+/**
+ * ============================================================================
+ * LO QUE VA ENTRE COMILLAS NO ES SINTAXIS DEL SHELL
+ * ============================================================================
+ *
+ * Tres falsos positivos seguidos, los tres del mismo mecanismo: la guarda leía
+ * la FORMA del comando y encontraba su patrón DENTRO DE UNA CADENA, donde el
+ * carácter es texto y no un operador. Medidos:
+ *
+ *     printf "%s -> " "$f"                    -> «texto redirigido a un archivo»
+ *     echo "=== hay algun <a> o Link"         -> idem
+ *     grep -n "sed -i\` con backtick" AGENTS  -> «sed -i con escapes»
+ *
+ * En los tres, lo que el shell hace es imprimir o buscar un texto. Nada se
+ * escribe en ningún archivo y ningún `sed` corre.
+ *
+ * ⚠ Y REPORTÉ MAL LA CAUSA LA PRIMERA VEZ. Dije que el culpable era el
+ * `2>/dev/null` de la misma línea, y medido, ese comando PASA: la regla ya
+ * excluye `/dev/null` y los descriptores numéricos. Lo que frenaba era la
+ * flecha del `printf`. Un diagnóstico plausible, escrito sin correr la función.
+ *
+ * ---------------------------------------------------------------------------
+ * ⚠ LAS DOS COMILLAS NO PROTEGEN LO MISMO, Y POR ESO SON DOS MODOS
+ * ---------------------------------------------------------------------------
+ * Para una REDIRECCIÓN da igual: `>` entre comillas simples o dobles es texto
+ * en los dos casos.
+ *
+ * Para un BACKTICK no: dentro de comillas dobles, `` ` `` y `$` SIGUEN
+ * expandiendo --que es justo el peligro que esta guarda persigue-- y dentro de
+ * simples, no. Así que la regla del `sed -i` sólo puede ignorar lo que va entre
+ * comillas SIMPLES. Borrar también las dobles la dejaría ciega para
+ * `sed -i "s/$x/y/"`, que es un caso real.
+ *
+ * Esto NO es aflojar el patrón: es dejar de mirar donde el carácter no tiene su
+ * significado. Lo de afuera de las comillas se sigue mirando igual.
+ */
+const MODOS = {
+  /* Ambas comillas: un `>` es texto adentro de cualquiera de las dos. */
+  ambas: /'[^']*'|"[^"]*"/g,
+  /* Sólo simples: las dobles dejan expandir backticks y `$`. */
+  simples: /'[^']*'/g,
+};
+
+/**
+ * El comando con el contenido de las cadenas reemplazado por espacios.
+ *
+ * ⚠ SE REEMPLAZA POR ESPACIOS Y NO SE BORRA, para no pegar dos trozos que
+ * estaban separados: `echo "a"> b` y `echo "a" > b` tienen que seguir dando lo
+ * mismo, y borrando la cadena el primero quedaría `echo > b` igual -- pero
+ * `git commit -m"x"-F` pegaría dos banderas que no se tocaban.
+ */
+export function sinCadenas(comando, modo = 'ambas') {
+  return comando.replace(MODOS[modo], (m) => ' '.repeat(m.length));
+}
+
 export function decidir(comando) {
   if (typeof comando !== 'string' || comando.trim() === '') return null;
   if (PERMITIDOS.some((p) => p.test(comando))) return null;
-  for (const r of REGLAS) if (r.prueba.test(comando)) return r;
+  for (const r of REGLAS) {
+    /*
+     * `sobre` dice qué parte del comando mira la regla. Sin él, mira el comando
+     * entero -- que es lo correcto para las que persiguen una BANDERA
+     * (`-e`, `-c`, `--body`, `-m`), porque una bandera nunca está entre
+     * comillas, y para el heredoc, cuyo `<<` tampoco.
+     */
+    const texto = r.sobre === undefined ? comando : sinCadenas(comando, r.sobre);
+    if (r.prueba.test(texto)) return r;
+  }
   return null;
 }
 

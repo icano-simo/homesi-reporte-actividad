@@ -1969,21 +1969,51 @@ comando.
 > momento. Y la alternativa que no necesita reflejo es la de siempre: `Edit`
 > falla ruidosamente si el patrón no está, y toca una sola.
 
-**2. El ruido: `2>/dev/null` dentro de un pipe.** Lo frena como «texto
-redirigido a un archivo», y redirigir *stderr* a `/dev/null` no escribe
-contenido con el shell de intermediario. No hay texto que se pueda corromper.
+**2 y 3. El ruido: el patrón DENTRO DE UNA CADENA.** Dos comandos frenados, y
+los dos por lo mismo: el carácter que la guarda busca estaba adentro de un texto
+que se iba a imprimir o a buscar, donde no es un operador del shell.
 
-**3. El ruido, otra vez: un `grep` cuyo PATRÓN contiene `sed -i`.** Buscar en
-este mismo archivo la fila de la tabla de arriba lo frenó como si fuera un `sed`.
-La guarda mira el comando como texto, así que no distingue «estoy corriendo un
-`sed -i`» de «estoy buscando la cadena `sed -i`».
+    printf "%s -> " "$f"                        «texto redirigido a un archivo»
+    echo "=== hay algun <a> o Link"             idem
+    grep -n "sed -i\` con backtick" AGENTS.md   «sed -i con escapes»
 
-Los dos últimos son el mismo mecanismo --la guarda lee la FORMA del comando, no
-lo que el comando hace-- y es el error que este archivo lleva documentado siete
-veces, cometido por la guarda que existe para evitarlo. Se arreglan con un caso
-en la lista de permitidos, y esa corrección va en su propia etapa: aflojar un
-patrón a las apuradas, en el medio de otra cosa, es cómo una guarda deja de
-cubrir lo que cubría.
+Son el mismo mecanismo --la guarda lee la FORMA del comando, no lo que el
+comando hace-- y es el error que este archivo lleva documentado siete veces,
+cometido por la guarda que existe para evitarlo.
+
+> ⚠ **Y LA PRIMERA VERSIÓN DE ESTA NOTA DABA UNA CAUSA FALSA.** Decía que al
+> primero lo frenaba el `2>/dev/null` de la misma línea. Medido corriendo
+> `decidir()` sobre ese comando solo: **pasa**. La regla ya excluye `/dev/null`
+> y los descriptores numéricos desde su primer falso positivo. Lo que frenaba
+> era la flecha del `printf`.
+>
+> Un diagnóstico plausible, escrito sin correr la función, aceptado, y anotado
+> acá como si estuviera medido. Es la misma forma que las dos anteriores de esta
+> serie: **una conclusión falsa sobre nuestro propio registro.** Lo que la
+> corrigió fue ir a arreglar la lista de permitidos y preguntarle a la guarda
+> cuál de sus reglas disparaba.
+
+**El arreglo, y por qué no es aflojar.** Las reglas que persiguen un OPERADOR
+--`>` de redirección, los escapes de un `sed -i`-- dejan de mirar lo que va entre
+comillas, porque ahí el carácter es texto. Las que persiguen una BANDERA
+--`-e`, `-c`, `--body`, `-m`-- siguen mirando el comando entero: una bandera
+nunca está entrecomillada.
+
+> ⚠ **Y las dos comillas no protegen lo mismo.** Para un `>` da igual. Para un
+> backtick no: dentro de comillas DOBLES sigue expandiendo --que es justo el
+> peligro-- y dentro de simples, no. Así que la regla del `sed` sólo ignora las
+> SIMPLES. Ignorar las dobles la dejaría ciega para `sed -i "s/$x/y/"`.
+
+**Y un caso salió de la lista de bloqueados**, que es lo que hay que decir
+fuerte: `sed -i 's/CLAVES = \[5, 29\]/CLAVES = [5]/' sonda.mjs`. Sus backslashes
+van entre comillas simples, donde el shell no los toca, así que el motivo que la
+regla declara no le aplicaba: lo frenaba por parecerse.
+
+Y la guarda no pierde una protección que tuviera, medido con la regla VIEJA
+sobre el `sed` que de verdad hizo daño --tocó tres reglas de CSS cuando quería
+una--: `sed -i 's/^  margin-top: 16px;$/  margin-top: 12px;/'` **pasaba igual**,
+porque el `[^|;&]*` del patrón no puede cruzar el `;` que tiene adentro. El daño
+real de un `sed -i` nunca estuvo cubierto, y es el límite del punto 1.
 
 ### ⚠ Vive en dos lugares, y eso es a propósito
 
