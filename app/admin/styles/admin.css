@@ -701,6 +701,20 @@ table.piv.adm-tbl th.bp-center {
   font-size: 11.5px;
 }
 /*
+ * La nota de una seccion: dice que lo que se esta mirando NO es un pendiente.
+ *
+ * ⚠ En gris y no en ambar: el ambar de `.bp-notice--warn` es la familia de «hay
+ * algo que hacer», y esta nota existe justamente para decir lo contrario. Un
+ * aviso que se ve como alerta ensena a leerlo como alerta.
+ */
+.mg-seccion__nota {
+  margin: 8px 0 0;
+  color: var(--slate-500);
+  font-size: 11.5px;
+  line-height: 1.55;
+  max-width: 88ch;
+}
+/*
  * ⚠ ACA ESTABA `.mg-pie`, la nota que nombraba a los branches sin fila en el
  * roster. Se fue con la nota: ahora tienen seccion propia. Contada en ESTE
  * arbol --`adm/margins-sin-roster`, sobre `1496b4d`-- y ninguna otra rama viva
