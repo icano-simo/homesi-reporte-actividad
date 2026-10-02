@@ -25,6 +25,7 @@
     "verificar:ventana": "node scripts/verificacion/ventana-de-edicion.test.mjs",
     "verificar:gobierno": "node scripts/verificacion/gobierno-del-total.test.mjs",
     "verificar:margins": "node scripts/verificacion/margins.test.mjs",
+    "verificar:coach-settings": "node scripts/verificacion/coach-settings.test.mjs",
     "guarda:instalar": "node scripts/verificacion/instalar-guardas.mjs"
   },
   "dependencies": {
