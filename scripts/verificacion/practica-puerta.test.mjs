@@ -118,7 +118,17 @@ const archivos = [];
      * con `?change=`-- y no por molestia. Ésa es la diferencia entre eximir y
      * silenciar.
      */
-    { nombre: 'activate_funnel', permitidos: ['app/business-plan/lo/[employeeKey]/funnel/page.tsx'] },
+    /*
+     * ⚠ Y LA RUTA CAMBIÓ EN BP55, y lo dijo esta misma guarda con las DOS
+     * mitades: `de más` el archivo nuevo y `muertos` el viejo. El par importa
+     * -- sólo la primera habría sido compatible con que el catálogo quedara
+     * duplicado en dos pantallas, que es justo lo que BP55 vino a evitar.
+     *
+     * Sigue siendo UN archivo: el catálogo se movió a `components/` para que el
+     * Marketplace monte el mismo componente, y las dos rutas que lo montan
+     * --el perfil y el Marketplace-- no nombran la RPC.
+     */
+    { nombre: 'activate_funnel', permitidos: ['app/business-plan/components/FunnelCatalog.tsx'] },
   ];
   const recorrer = (dir) => {
     for (const e of readdirSync(dir)) {

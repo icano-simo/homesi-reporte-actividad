@@ -95,18 +95,47 @@ export interface EnrollmentState {
   reload: () => void;
 }
 
-export function useEnrollment(employeeKey: number): EnrollmentState {
-  const [state, setState] = useState<Omit<EnrollmentState, 'reload'>>({
+/**
+ * `employeeKey` nulo = TODAVIA NO SE ELIGIO A NADIE -- etapa BP55.
+ *
+ * El Marketplace monta el catalogo sin persona hasta que alguien la elige en el
+ * selector, asi que el hook tiene que tener un estado para eso. Y no puede ser
+ * el mismo que «la persona no tiene plan»: `plan: null` con `isLoading: false`
+ * significa «se leyo y no hay», y acá no se leyó nada. Por eso con `null` se
+ * sale sin consultar y `available` queda en `false`, que es lo que ya significa
+ * «esta pantalla no tiene respuesta sobre eso».
+ */
+export function useEnrollment(employeeKey: number | null): EnrollmentState {
+  /*
+   * ⚠ EL ESTADO DICE DE QUIEN ES — `para`, etapa BP55.
+   *
+   * Antes el `employeeKey` no cambiaba sin desmontar el componente: cada perfil
+   * era una ruta. El Marketplace cambia de persona SIN desmontar --el selector
+   * navega con `replace` y el catalogo sigue montado-- y entre que la clave
+   * cambia y la consulta nueva vuelve, el estado guardado es el de la persona
+   * ANTERIOR, con `isLoading: false`. O sea el plan de otra persona presentado
+   * como el de esta, y con el aviso de «esto borra 5 steps» al lado.
+   *
+   * `undefined` = todavia no se leyo para nadie; un numero = se leyo para esa
+   * persona. Lo expuesto se DERIVA de si coincide con la clave de hoy, en vez
+   * de reescribirse desde el efecto: un `setState` sincronico ahi encadena
+   * renders, y el lint de React lo rechaza con razon.
+   */
+  const [state, setState] = useState<Omit<EnrollmentState, 'reload'> & { para: number | undefined }>({
     plan: null,
     isLoading: true,
     available: false,
     error: null,
+    para: undefined,
   });
   const [tick, setTick] = useState(0);
   const reload = useCallback(() => setTick((t) => t + 1), []);
 
   useEffect(() => {
     let cancelled = false;
+    /* Sin persona no hay a quién leerle el plan: no se consulta, y tampoco se
+       escribe nada -- lo que se expone en ese caso se deriva abajo. */
+    if (employeeKey === null) return;
     (async () => {
       try {
         const supabase = getSupabaseClient();
@@ -129,13 +158,13 @@ export function useEnrollment(employeeKey: number): EnrollmentState {
         if (cancelled) return;
 
         if (enrRes.error) {
-          setState({ plan: null, isLoading: false, available: false, error: null });
+          setState({ plan: null, isLoading: false, available: false, error: null, para: employeeKey });
           return;
         }
         const enr = enrRes.data?.[0] as ActivePlan | undefined;
         if (!enr) {
           // Tablas aplicadas pero la persona no tiene plan: no es un error.
-          setState({ plan: null, isLoading: false, available: true, error: null });
+          setState({ plan: null, isLoading: false, available: true, error: null, para: employeeKey });
           return;
         }
 
@@ -179,6 +208,7 @@ export function useEnrollment(employeeKey: number): EnrollmentState {
           isLoading: false,
           available: true,
           error: null,
+          para: employeeKey,
         });
       } catch (err) {
         if (!cancelled) {
@@ -187,6 +217,7 @@ export function useEnrollment(employeeKey: number): EnrollmentState {
             isLoading: false,
             available: false,
             error: err instanceof Error ? err.message : String(err),
+            para: employeeKey,
           });
         }
       }
@@ -196,5 +227,22 @@ export function useEnrollment(employeeKey: number): EnrollmentState {
     };
   }, [employeeKey, tick]);
 
-  return { ...state, reload };
+  /*
+   * Lo guardado vale sólo para la persona de la que se leyó. Para cualquier
+   * otra --y para «ninguna»-- esta pantalla no tiene respuesta todavía:
+   *
+   *   sin persona      no se lee nada, así que tampoco se está cargando
+   *   otra persona     se está cargando la suya, y el plan de la anterior no
+   *                    se presta mientras tanto
+   */
+  if (state.para !== employeeKey) {
+    return {
+      plan: null,
+      isLoading: employeeKey !== null,
+      available: false,
+      error: null,
+      reload,
+    };
+  }
+  return { plan: state.plan, isLoading: state.isLoading, available: state.available, error: state.error, reload };
 }

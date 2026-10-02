@@ -6698,3 +6698,20 @@ button.bp-metapill--area:disabled {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
+
+/* ── Marketplace ────────────────────────────────────────────────────────── */
+
+/*
+ * La barra del selector de persona — etapa BP55.
+ *
+ * `bp-market-bar` y no `bp-catalog__bar`: `git grep` antes de escribir el
+ * nombre, y `bp-catalog` ya tiene siete reglas en este archivo. Lo de adentro
+ * reusa `.bp-team-picker` y `.bp-hint`, que ya existen y hacen exactamente
+ * esto; lo único propio es el apilado de los dos.
+ */
+.bp-market-bar {
+  margin: 0 0 16px;
+}
+.bp-market-bar .bp-hint {
+  margin-top: 10px;
+}

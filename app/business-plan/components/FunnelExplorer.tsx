@@ -3,10 +3,10 @@
 import { useState } from 'react';
 import { nodeDayRanges, type Funnel, type FunnelNode, type FunnelNodeLink, type NodeMilestone, type NodeOwner } from '@/lib/business-plan/funnels';
 import type { SupportPerson } from '@/lib/business-plan/useFunnelLibrary';
-import Modal from '../../../components/Modal';
-import NotesPanel from '../../../components/NotesPanel';
-import { FunnelGlyph } from '../../../components/funnelIcons';
-import { Avatar } from '../../../components/shared';
+import Modal from './Modal';
+import NotesPanel from './NotesPanel';
+import { FunnelGlyph } from './funnelIcons';
+import { Avatar } from './shared';
 
 /**
  * ============================================================================
