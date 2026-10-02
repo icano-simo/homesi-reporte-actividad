@@ -1534,6 +1534,43 @@ usa no está en la pantalla que se está mirando. Y al medir un cambio de estilo
 medir **la cascada** y no sólo el elemento nuevo: un elemento inyectado con la
 clase ajena dice si le pegaste, sin tener que navegar hasta ahí.
 
+### Y el reverso del choque: la clase que no choca con nada y pierde igual
+
+Las de arriba son clases que PISAN a otra. Ésta es la contraria, y van **tres
+veces en un solo módulo**: una clase nueva, con un nombre que no existía en
+ninguna hoja, cuyo estilo **nunca se aplicó**.
+
+> **En una tabla con clases base, una clase sola no alcanza — y el síntoma es
+> que el estilo está escrito y no se ve.**
+
+El portal escribe sus tablas como `table.piv`, y sus reglas son `table.piv th`
+(0,1,2) y `table.piv td.val` (0,2,2). Una clase propia es (0,1,0) y pierde con
+las dos. Las tres veces en Margins:
+
+| lo que se quiso | lo que se escribió | lo que ganó |
+|---|---|---|
+| separación de la fila | `.ol-year td { padding: 34px }` | `.ol-page table.piv.ol-year td` — **11px** |
+| ancho de la tabla | `.mg-tabla { width: auto }` | `table.piv { width: 100% }` — **1316px** |
+| verde del alta en el historial | `.mg-hist__alta { color: … }` | `table.piv td.val` — el gris de todas |
+
+**Las tres son invisibles de la misma manera**, y es lo que las hace repetibles:
+el elemento está, el texto está, el layout no se rompe. Sólo cambia un color o
+un ancho que nadie tiene con qué comparar. La tercera convivió con una aserción
+en verde que afirmaba sobre el TEXTO del estado --`new 225` contra `434 → 469`--
+que era cierto: los estados SÍ se distinguían, por su texto, y el color era una
+intención muerta.
+
+Las dos reglas operativas:
+
+- **Al escribir una regla para un elemento de `table.piv`, el selector arranca
+  en `table.piv`.** No es ceremonia: es que la regla general ya existe y es más
+  específica que cualquier clase sola.
+- **Y la verificación es `getComputedStyle` sobre el elemento renderizado, nunca
+  la declaración.** Lo que encontró la tercera fue la única aserción que leyó el
+  color computado; las anteriores leían el texto y pasaban. Es la misma regla
+  que la de los 34px — *la declaración dice la intención, la cascada dice el
+  valor* — aplicada en el único lugar donde se puede comprobar.
+
 ### La séptima vez, y la primera que se EVITÓ
 
 `.bp-pill`, `.bp-hint`, `table.piv`, `--ol-text`… van siete choques de nombre en
