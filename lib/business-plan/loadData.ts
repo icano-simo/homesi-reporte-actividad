@@ -1123,7 +1123,26 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
         .schema('org')
         .from('nppm_realtor')
         .select('realtor_code, display_name, branch_code, estado, is_active'),
-      outlook.from('nppm_realtor_owner').select('realtor_code, employee_key'),
+      /*
+       * ⚠ LA COLUMNA SE LLAMA `nppm_realtor_code`, Y ESTO PEDIA `realtor_code`.
+       *
+       * PostgREST contestaba `400 / 42703 column nppm_realtor_owner.realtor_code
+       * does not exist` en CADA carga de Business Plan desde el 2026-09-17, y el
+       * `if (!rosterRes.error && !ownersRes.error)` de abajo se lo tragaba: el
+       * bloque entero del piso no corria, `pisoPorEmpleado` quedaba vacio, y el
+       * `?? 0` de `pisoDelMes` convertia «no se pudo leer» en «estas personas no
+       * tienen piso». Nueve vinculos de cinco personas que nunca llegaron.
+       *
+       * Es «lo que compensa una ausencia hace que la ausencia no se note» en su
+       * forma mas cara: el respaldo no estaba ahi para este caso --es el neutro
+       * de quien de verdad no tiene realtors-- y alcanzo para que el defecto
+       * esperara catorce dias con un 400 visible en la consola del navegador.
+       *
+       * ⚠ Y LAS OTRAS DOS LECTURAS DE ESTA TABLA USAN `select('*')`, asi que
+       * nunca se enteraron: `lib/outlook/loadData.ts` la lee entera. Esta era la
+       * unica que nombraba la columna, y por eso era la unica rota.
+       */
+      outlook.from('nppm_realtor_owner').select('nppm_realtor_code, employee_key'),
       outlook.from('nppm_benchmark').select('realtor_code, effective_from, monthly_benchmark'),
     ]);
     if (!rosterRes.error && !ownersRes.error) {
@@ -1164,15 +1183,48 @@ export async function loadBusinessPlanData(reference: Date = new Date()): Promis
           };
         });
 
-      const duenos = ((ownersRes.data ?? []) as { realtor_code: string; employee_key: number }[])
+      /*
+       * ⚠ EL NOMBRE VA TAMBIEN ACA, Y ES LA MITAD QUE PUEDE FALLAR CALLADA.
+       *
+       * El `as` es una afirmacion sobre datos que `tsc` no puede comprobar: con
+       * el `select` arreglado y este cast diciendo `realtor_code`, cada
+       * `realtorCode` quedaria `undefined`, ningun vinculo emparejaria contra el
+       * roster y el piso volveria a dar cero -- sin 400, sin error y sin una
+       * sola linea roja. O sea el mismo sintoma que el defecto, por la mitad de
+       * abajo del contrato.
+       */
+      const filasDueno = (ownersRes.data ?? []) as { nppm_realtor_code: string; employee_key: number }[];
+      const duenos = filasDueno
         .map((o) => ({
-          realtorCode: o.realtor_code,
+          realtorCode: o.nppm_realtor_code,
           ownerEmployeeKey: o.employee_key,
           /* El branch primario del dueño: el primero de su lista, igual que
              Outlook. Si no coincide con el del realtor, el módulo descarta el
              vínculo -- la regla de OL45. */
           ownerPrimaryBranch: (loBranchCodes.get(o.employee_key) ?? [])[0] ?? '',
         }));
+
+      /*
+       * ⚠ GUARDA REDUNDANTE, A PROPOSITO -- y es la que habria gritado el
+       * 2026-09-17 en vez de dejar catorce dias de ceros.
+       *
+       * Cuando un cambio protege un dato que si no se pierde en silencio, la
+       * comprobacion va aunque «no haga falta»: acá lo que se pierde es el piso
+       * de las personas que tienen realtors a cargo, y su ausencia se ve
+       * exactamente igual que la de quien no tiene ninguno.
+       *
+       * No tira: deja un diagnostico. Esta funcion ya decide no romper la
+       * pantalla cuando las tablas no estan --el `catch` de abajo-- y una
+       * excepcion acá apagaria el modulo entero por un piso.
+       */
+      if (filasDueno.length > 0 && duenos.every((d) => !d.realtorCode)) {
+        console.error(
+          '[business-plan] nppm_realtor_owner trajo ' + filasDueno.length +
+            ' filas y ninguna con codigo de realtor: la columna del `select` no es la de la tabla ' +
+            '(es `nppm_realtor_code`). El piso de NPPM va a quedar en cero sin que nada falle. ' +
+            'Claves leidas: ' + JSON.stringify(Object.keys(filasDueno[0] ?? {}))
+        );
+      }
 
       const aportes = aportesPorPersona({
         realtors: realtorsParaPiso,
