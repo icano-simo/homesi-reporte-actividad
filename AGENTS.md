@@ -1287,6 +1287,38 @@ que falla las tres, borrarlo. Una guarda que sólo se vio dar verde no está
 probada — es el mismo agujero que el arnés que imprimía `SIN FALLAS` sin
 ejecutar una aserción, un nivel más arriba.
 
+#### La forma general: el par rojo-antes y verde-después
+
+La inyección es un caso particular de algo que vale para **cualquier medición**,
+no sólo para una guarda, y conviene tenerlo escrito en general:
+
+> **El par rojo-antes y verde-después prueba que la medición apunta al objeto
+> correcto. Cualquiera de los dos solo es compatible con una sonda que no mira
+> nada.**
+
+Un verde solo no distingue «lo mide y está bien» de «no lo mide». Un rojo solo
+no distingue «está mal» de «la sonda busca donde no es». El par sí: para
+moverse de uno a otro, la sonda tiene que estar leyendo justo lo que cambió.
+
+Los tres de este proyecto, que son el mismo movimiento en tres escalas:
+
+| qué cambió entre las dos corridas | rojo antes | verde después |
+|---|---|---|
+| una violación inyectada en un archivo desechable | la guarda muerde | sin ella, pasa |
+| el commit del defecto, puesto y sacado | `2 FALLAS de 24` | `SIN FALLAS` |
+| **un merge** | la sonda de `fecha-de-ingreso` daba `8 FALLAS de 11` sobre una rama que no tenía la columna | `11 de 11` sobre el árbol mergeado |
+
+El tercero es el que lo generaliza, porque ahí no se inyectó nada: lo que cambió
+fue qué código estaba presente. Antes del merge esa sonda **tenía que fallar**
+—si hubiera pasado, no estaría mirando esa columna— y después **tenía que
+pasar**, o el merge no la habría traído. Ninguna de las dos corridas por
+separado dice eso.
+
+La regla operativa: **cuando una sonda nueva da verde en la primera corrida, hay
+que conseguirle un rojo.** Sacando el código que verifica, inyectando la
+violación, o corriéndola contra el árbol de antes. Si no se puede construir
+ningún rojo, la sonda no está midiendo lo que dice.
+
 #### Y cuando el defecto tuvo un caso REAL, la violación no se inventa: se saca del historial
 
 Una inyección prueba **el patrón que escribiste**; el commit anterior prueba **el
