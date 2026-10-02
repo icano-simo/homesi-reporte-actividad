@@ -1357,12 +1357,119 @@ body:has(.rv-bar) .app {
  * `sticky` y sin un segundo scrollport.
  */
 .rv-otras {
-  min-width: min(420px, calc(100vw - 72px));
+  /* De 420 a 520 en RV34: adentro ya no hay un `<select>` de una línea sino las
+     nueve preguntas con su texto completo. */
+  min-width: min(520px, calc(100vw - 72px));
 }
 .rv-otras__text {
   font-family: inherit;
   line-height: 1.5;
   resize: vertical;
+}
+
+/*
+ * ── Las nueve preguntas, a la vista y expandibles en el lugar — RV34 ────────
+ *
+ * Los seis nombres salieron de un `git grep` previo contra el árbol commiteado:
+ * `rv-otras` tenía dos reglas --el ancho de la ventana y el alto del cuadro-- y
+ * ninguna de éstas existía.
+ *
+ * ⚠ La ventana se ensancha porque ahora muestra nueve preguntas con su texto
+ * completo y no un `<select>` de una línea. Y `max-height` con scroll propio:
+ * sin eso la lista empuja el pie fuera de la pantalla en las alturas chicas, que
+ * es el segundo scrollport que OL23/OL24 ya pagaron.
+ */
+.rv-otras__lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: min(58vh, 520px);
+  overflow-y: auto;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+}
+.rv-otras__item + .rv-otras__item {
+  border-top: 1px solid var(--slate-100);
+}
+.rv-otras__item.is-open {
+  background: var(--slate-50);
+}
+/*
+ * La cabecera es un `button` de ancho completo: lo que se hace clic es la
+ * pregunta entera, no un triangulito. Es la mitad del ahorro de gestos -- un
+ * blanco de 400px de ancho no se falla.
+ *
+ * `display: grid` y no `flex`: la clave y el titulo van en una fila y la
+ * pregunta abajo ocupando las dos columnas. Con `flex` y prosa como hijo
+ * directo, cada nodo de texto se vuelve un item y la frase sale partida en
+ * columnas -- el defecto que este repo ya pago dos veces, con `innerText`
+ * diciendo exactamente lo mismo en los dos casos.
+ */
+.rv-otras__cabeza {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 8px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.rv-otras__cabeza:hover:not(:disabled) {
+  background: var(--slate-100);
+}
+.rv-otras__cabeza:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.rv-otras__clave {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+}
+.rv-otras__titulo {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--navy);
+}
+.rv-otras__aqui {
+  font-weight: 400;
+  color: var(--slate-500);
+}
+/* La pregunta completa: es lo que antes había que abrir el `select` para ver. */
+.rv-otras__prompt {
+  grid-column: 2;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--slate-500);
+}
+.rv-otras__cuerpo {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+/* Las notas que ya existen, en `Other`: se leen, no se editan. */
+.rv-otras__notas {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rv-otras__notas li {
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--canvas);
+  border: 1px solid var(--slate-200);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--slate-600);
 }
 .rv-panel__edit:disabled {
   cursor: default;

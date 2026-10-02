@@ -97,7 +97,7 @@ import { useReview } from './ReviewProvider';
    máscara de la revisión. */
 import Modal from '@/app/business-plan/components/Modal';
 /* `useEffect` queda para el listener de clics, que SÍ es una suscripción. */
-import type { ReviewResponse, ReviewScript, ReviewSession, StepRef } from '@/lib/review/types';
+import type { ReviewNote, ReviewResponse, ReviewScript, ReviewSession, StepRef } from '@/lib/review/types';
 
 export interface ReviewStepPanelProps {
   script: ReviewScript;
@@ -190,6 +190,18 @@ export interface ReviewStepPanelProps {
   onGuardarAdelantado: (paso: StepRef, revision: number, comment: string) => Promise<string | null>;
   /** Guarda el `Other`: la nota de la sesión, que no pertenece a ningún paso. */
   onGuardarNota: (body: string) => Promise<string | null>;
+  /**
+   * Las notas ya escritas en esta sesión — RV34.
+   *
+   * ⚠ LAS NOTAS NO SE EDITAN, SE AGREGAN: `guardarNota` inserta, así que el
+   * panel las MUESTRA y deja el cuadro vacío para una nueva. Precargar una nota
+   * vieja en el cuadro se vería como editarla y guardaría una copia.
+   *
+   * Es lo que la distingue de un paso: ahí la respuesta vigente es la última de
+   * la lista, así que traerla al cuadro y volver a guardar se lee --y se
+   * comporta-- como corregir.
+   */
+  notes: ReviewNote[];
   /** Mueve el cursor. Lo dispara `OK`, en el mismo gesto que el guardado. */
   /**
    * Pone el cursor en un paso y lleva a la pantalla donde ese paso vive.
@@ -296,6 +308,7 @@ export default function ReviewStepPanel({
   onGuardar,
   onGuardarAdelantado,
   onGuardarNota,
+  notes,
   onIrAlPaso,
   onResumen,
 }: ReviewStepPanelProps) {
@@ -483,7 +496,23 @@ export default function ReviewStepPanel({
    */
   const [otrasAbierto, setOtrasAbierto] = useState(false);
   const [otraElegida, setOtraElegida] = useState('');
-  const [otroTexto, setOtroTexto] = useState('');
+  /*
+   * ⚠ TRES ESTADOS, Y EL TERCERO LO ENCONTRÓ EJERCER EL GUARDADO — RV34.
+   *
+   * `null` = la persona no escribió nada todavía, así que el cuadro muestra la
+   * RESPUESTA VIGENTE; una cadena = lo que tipeó, aunque sea vacía.
+   *
+   * Con un `string` solo, el texto se capturaba AL ABRIR. Medido: guardar en el
+   * 1.3 y reabrirlo en el mismo gesto dejaba el cuadro VACÍO, porque la lectura
+   * que trae `responses` todavía no había vuelto cuando se fijó el estado. El
+   * valor correcto llegaba un instante después y ya no lo miraba nadie.
+   *
+   * Es «el estado inicial capturado antes de que el dato llegue», y la salida es
+   * la de siempre: no guardar lo que se puede derivar. Derivado, el cuadro se
+   * actualiza solo cuando la respuesta llega, y deja de hacerlo en cuanto la
+   * persona toca una tecla -- que es exactamente la regla que se quiere.
+   */
+  const [otroTexto, setOtroTexto] = useState<string | null>(null);
   /** El error, que se muestra DENTRO de la ventana: si falla, la ventana queda. */
   const [otroAviso, setOtroAviso] = useState<string | null>(null);
   /** La confirmación, que se muestra EN EL PANEL: al guardar, la ventana se va. */
@@ -496,8 +525,54 @@ export default function ReviewStepPanel({
     return t?.prompt ?? null;
   };
 
+  /*
+   * ══════════════════════════════════════════════════════════════════════════
+   * LO QUE YA ESTABA ESCRITO — etapa RV34
+   * ══════════════════════════════════════════════════════════════════════════
+   *
+   * `otroTexto` arrancaba vacío siempre. Estando en el 1.5 y abriendo el 1.1
+   * --que ya tiene «ok» escrito-- el cuadro salía en blanco: una pantalla que
+   * no muestra lo que hay se lee como una que no tiene nada, y lo siguiente que
+   * hace quien la ve es escribirlo de nuevo.
+   *
+   * Medido antes de tocar nada, sobre la sesión de práctica 107: el paso 1.1
+   * tiene `ok` guardado y el cuadro traía `""`.
+   *
+   * ⚠ Y NO ES UN BORRADOR: es la RESPUESTA VIGENTE, o sea la última fila de ese
+   * paso. `guardarPaso` inserta --no actualiza-- así que volver a guardar deja
+   * una versión nueva y la vigente pasa a ser ésa. Para quien lee es corregir;
+   * para la tabla es historial, que es lo que esa tabla viene siendo desde RV1.
+   */
+  const textoVigenteDe = (clave: string): string => {
+    if (clave === '' || clave === 'other') return '';
+    const [f, p] = clave.split('.').map(Number);
+    return latestResponse(responses, { phase_no: f, step_in_phase: p })?.comment ?? '';
+  };
+
+  /*
+   * Abrir una pregunta: trae lo suyo y limpia el aviso de la anterior.
+   *
+   * Un solo lugar lo hace, y los tres gestos que abren --el clic en el ítem, el
+   * teclado sobre el ítem y el cierre-- pasan por acá. Con la expansión en el
+   * lugar hay más caminos que con el `<select>`, y tres copias de «qué texto
+   * corresponde» divergen con el primer edit.
+   */
+  const abrirOtra = (clave: string) => {
+    setOtraElegida(clave);
+    /* `null` y no el texto: lo que se muestra se DERIVA de `responses`, así que
+       sigue a la lectura hasta que alguien escriba. Ver la nota de `otroTexto`. */
+    setOtroTexto(null);
+    setOtroAviso(null);
+  };
+
+  /** Lo que el cuadro muestra: lo tipeado si lo hay, y si no, lo vigente. */
+  const valorDelCuadro = otroTexto ?? textoVigenteDe(otraElegida);
+
   async function guardarOtra() {
-    const cuerpo = otroTexto.trim();
+    /* Lo que se ve es lo que se guarda: si nadie tipeó, es la respuesta vigente
+       --volver a guardarla deja una versión nueva, que es corregir sin cambiar--
+       y si tipeó, lo suyo. */
+    const cuerpo = valorDelCuadro.trim();
     if (cuerpo === '') return;
     setOcupado(true);
     setOtroAviso(null);
@@ -534,7 +609,9 @@ export default function ReviewStepPanel({
        * se cierra no se lee, así que el texto de confirmación sale por
        * `avisoAlVolver`, que vive en el panel del paso.
        */
-      setOtroTexto('');
+      /* `null` y no `''`: `''` significaría «la persona dejó el cuadro vacío» y
+         congelaría el cuadro en blanco para la próxima que se abra. */
+      setOtroTexto(null);
       setOtraElegida('');
       setOtrasAbierto(false);
     } finally {
@@ -2136,27 +2213,26 @@ export default function ReviewStepPanel({
           onClose={() => {
             setOtrasAbierto(false);
             setOtraElegida('');
-            setOtroTexto('');
+            setOtroTexto(null);
             setOtroAviso(null);
           }}
+          /*
+            ⚠ EL PIE YA NO GUARDA — RV34. El botón de guardar se fue DENTRO de
+            la pregunta abierta: con nueve a la vista el pie queda lejos del
+            cuadro que se está llenando, y el punto de la etapa es el recorrido
+            más corto entre leer la pregunta y guardar lo escrito.
+
+            Queda cerrar, que es lo único que le corresponde a la ventana.
+          */
           footer={
             <div className="bp-form__actions">
-              <button
-                type="button"
-                className="bp-btn bp-btn--primary bp-btn--small"
-                data-review-otro-guardar=""
-                disabled={ocupado || otraElegida === '' || otroTexto.trim() === ''}
-                onClick={guardarOtra}
-              >
-                {ocupado ? 'Saving…' : 'Save'}
-              </button>
               <button
                 type="button"
                 className="bp-linkish"
                 disabled={ocupado}
                 onClick={() => setOtrasAbierto(false)}
               >
-                cancel
+                close
               </button>
             </div>
           }
@@ -2168,67 +2244,136 @@ export default function ReviewStepPanel({
             </p>
 
             {/*
-              Las nueve: los ocho pasos del guion y `Other`. El paso actual se
-              lista y no se ofrece -- su cuadro está en el panel, y dos lugares
-              para lo mismo es lo que RV32 vino a sacar del benchmark.
+              ══════════════════════════════════════════════════════════════
+              LAS NUEVE A LA VISTA, Y SE ABREN EN EL LUGAR — etapa RV34
+              ══════════════════════════════════════════════════════════════
+
+              Era un `<select>`: había que abrirlo para saber qué decía cada
+              opción, y una vez elegida la pregunta su texto aparecía abajo. Con
+              la lista, las nueve se leen enteras --paso, título y la pregunta
+              completa-- sin abrir nada.
+
+              Medido sobre el mismo recorrido: de CUATRO gestos a DOS. El
+              `<select>` costaba dos --abrirlo y elegir-- y el cuadro un tercero
+              porque no enfocaba solo; acá el clic en la pregunta es el único, y
+              el cuadro se enfoca al aparecer.
+
+              ⚠ EL PASO ACTUAL SE LISTA Y NO SE ABRE. Su cuadro está en el panel
+              y dos lugares para lo mismo es lo que RV32 vino a sacar del
+              benchmark. Se dibuja igual para que las nueve estén --y para que
+              no se busque la que falta--, con el motivo escrito.
+
+              ⚠ Y NO ES UN `<details>`: el estado tiene que ser UNO --cuál está
+              abierta-- porque abrir una cierra la otra, y con `<details>`
+              nativos habría nueve estados independientes y dos cuadros con
+              texto distinto a la vez.
             */}
-            <label className="bp-form__field">
-              <span className="bp-form__label">Question</span>
-              <select
-                className="field"
-                data-review-otra-cual=""
-                value={otraElegida}
-                disabled={ocupado}
-                onChange={(e) => {
-                  setOtraElegida(e.target.value);
-                  setOtroTexto('');
-                  setOtroAviso(null);
-                }}
-              >
-                <option value="">Which question?</option>
-                {orderedSteps(script).map((s) => {
-                  const k = s.phase_no + '.' + s.step_in_phase;
-                  const actual = sameStep(s, cursor);
-                  return (
-                    <option key={k} value={k} disabled={actual}>
-                      {k} · {s.label}
-                      {actual ? ' (this step — use the box in the panel)' : ''}
-                    </option>
-                  );
-                })}
-                <option value="other">Other — does not belong to any step</option>
-              </select>
-            </label>
+            <ul className="rv-otras__lista">
+              {[
+                ...orderedSteps(script).map((s) => ({
+                  clave: s.phase_no + '.' + s.step_in_phase,
+                  titulo: s.label,
+                  pregunta: promptDe(s.phase_no + '.' + s.step_in_phase),
+                  actual: sameStep(s, cursor),
+                })),
+                {
+                  clave: 'other',
+                  titulo: 'Other',
+                  pregunta: 'Something that does not belong to any step.',
+                  actual: false,
+                },
+              ].map((q) => {
+                const abierta = otraElegida === q.clave;
+                return (
+                  <li
+                    key={q.clave}
+                    className={'rv-otras__item' + (abierta ? ' is-open' : '')}
+                    data-review-otra-item={q.clave}
+                  >
+                    <button
+                      type="button"
+                      className="rv-otras__cabeza"
+                      disabled={ocupado || q.actual}
+                      aria-expanded={abierta}
+                      onClick={() => (abierta ? abrirOtra('') : abrirOtra(q.clave))}
+                    >
+                      <span className="rv-otras__clave">{q.clave === 'other' ? '—' : q.clave}</span>
+                      <span className="rv-otras__titulo">
+                        {q.titulo}
+                        {q.actual && (
+                          <span className="rv-otras__aqui"> · this step — use the box in the panel</span>
+                        )}
+                      </span>
+                      {q.pregunta && <span className="rv-otras__prompt">{q.pregunta}</span>}
+                    </button>
 
-            {otraElegida !== '' && (
-              <label className="bp-form__field">
-                <span className="bp-form__label">
-                  {otraElegida === 'other' ? 'Note' : 'What they said'}
-                </span>
-                {otraElegida !== 'other' && promptDe(otraElegida) && (
-                  <span className="rv-panel__helper">{promptDe(otraElegida)}</span>
-                )}
-                <textarea
-                  className="field rv-otras__text"
-                  data-review-otro-texto=""
-                  rows={5}
-                  value={otroTexto}
-                  disabled={ocupado}
-                  onChange={(e) => setOtroTexto(e.target.value)}
-                  placeholder={
-                    otraElegida === 'other'
-                      ? 'What came up that does not belong to any step?'
-                      : 'What did they say about this?'
-                  }
-                />
-              </label>
-            )}
-
-            {otroAviso && (
-              <p className="rv-panel__gate" role="status">
-                {otroAviso}
-              </p>
-            )}
+                    {abierta && (
+                      <div className="rv-otras__cuerpo">
+                        {/*
+                          LAS NOTAS QUE YA EXISTEN, en `Other`. No se precargan
+                          en el cuadro: `guardarNota` INSERTA, así que traer una
+                          vieja al cuadro y guardar dejaría una copia en vez de
+                          corregirla. Se muestran, y el cuadro queda para una
+                          nueva.
+                        */}
+                        {q.clave === 'other' && notes.length > 0 && (
+                          <ul className="rv-otras__notas" data-review-otras-notas="">
+                            {notes.map((n) => (
+                              <li key={n.note_key}>{n.body}</li>
+                            ))}
+                          </ul>
+                        )}
+                        <textarea
+                          className="field rv-otras__text"
+                          data-review-otro-texto=""
+                          rows={5}
+                          value={valorDelCuadro}
+                          disabled={ocupado}
+                          /* El foco al aparecer: es el gesto que se ahorra. */
+                          autoFocus
+                          onChange={(e) => setOtroTexto(e.target.value)}
+                          placeholder={
+                            q.clave === 'other'
+                              ? 'What came up that does not belong to any step?'
+                              : 'What did they say about this?'
+                          }
+                        />
+                        {/*
+                          El botón va ACÁ y no en el pie de la ventana: con la
+                          lista abierta el pie puede quedar lejos del cuadro, y
+                          el punto de la etapa es el recorrido más corto entre
+                          leer la pregunta y guardar lo escrito.
+                        */}
+                        <div className="bp-form__actions">
+                          <button
+                            type="button"
+                            className="bp-btn bp-btn--primary bp-btn--small"
+                            data-review-otro-guardar=""
+                            disabled={ocupado || valorDelCuadro.trim() === ''}
+                            onClick={guardarOtra}
+                          >
+                            {ocupado ? 'Saving…' : 'Save'}
+                          </button>
+                          <button
+                            type="button"
+                            className="bp-linkish"
+                            disabled={ocupado}
+                            onClick={() => abrirOtra('')}
+                          >
+                            cancel
+                          </button>
+                        </div>
+                        {otroAviso && (
+                          <p className="rv-panel__gate" role="status">
+                            {otroAviso}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
           </div>
         </Modal>
       )}
