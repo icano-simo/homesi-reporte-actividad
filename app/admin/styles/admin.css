@@ -783,6 +783,75 @@ table.piv.mg-tabla {
   max-width: 100%;
 }
 /*
+ * ============================================================================
+ * LAS DOS TABLAS NO SE PARECEN — etapa ADM6
+ * ============================================================================
+ *
+ * Isabella miraba el historial y no lo distinguia de la tabla de margenes
+ * vigentes: las dos tienen la misma forma --y eso es a proposito, ADM4-- asi que
+ * lo unico que las puede separar es el color.
+ *
+ * ⚠ EL ACENTO VA EN LA VIGENTE, que es la que manda. El historial es lectura, y
+ * queda mas tenue -- el contraste comunica la jerarquia ademas de separarlas.
+ *
+ * ⚠ Y LA BARRA VA CON `::before` Y NO CON UN `border-left`, que es la decision
+ * que Outlook ya tomo para `.ol-card__title` con su motivo escrito: un borde
+ * ocupa el alto completo del texto y lo que se quiere es un rectangulo CHICO y
+ * redondeado. Con `::before` se le puede dar alto propio.
+ *
+ * ⚠ CERO HEXADECIMALES: `--navy` y la escala de `--slate` viven en `tokens.css`.
+ * Un color escrito a mano acá seria una segunda definicion del azul de la marca.
+ */
+.mg-card .tbl-card__head {
+  gap: 10px;
+}
+/* La barra de la vigente: el azul de la marca. */
+.mg-card .mg-branch::before {
+  content: '';
+  display: inline-block;
+  vertical-align: -2px;
+  width: 4px;
+  height: 14px;
+  margin-right: 9px;
+  border-radius: var(--radius-full);
+  background: var(--navy);
+}
+/*
+ * ⚠ `table.piv.mg-tabla thead th` Y NO `.mg-tabla thead th`. La regla general
+ * del portal es `table.piv th` --elemento mas clase-- y una clase sola pierde
+ * por especificidad: la declaracion habria estado puesta y el color seguiria
+ * siendo el de antes. Es el caso de los «34px de padding», y por eso el color se
+ * mide con `getComputedStyle` sobre la celda y no se lee de esta linea.
+ */
+table.piv.mg-tabla thead th {
+  color: var(--navy);
+  border-bottom: 2px solid var(--navy);
+}
+table.piv.mg-tabla thead th.mg-col-ausente {
+  color: var(--slate-300);
+}
+
+/*
+ * El historial: la misma barra y el mismo encabezado, en gris. No es un gris
+ * cualquiera -- es el mismo `--slate-400` que el portal usa para lo que
+ * acompaña y no manda.
+ */
+.mg-hist__sum::before {
+  content: '';
+  display: inline-block;
+  vertical-align: -2px;
+  width: 4px;
+  height: 13px;
+  margin-right: 8px;
+  border-radius: var(--radius-full);
+  background: var(--slate-400);
+}
+table.piv.mg-hist__tabla thead th {
+  color: var(--slate-400);
+  border-bottom: 1px solid var(--slate-200);
+}
+
+/*
  * ⚠ DENTRO DEL MOSAICO LA TABLA OCUPA SU TARJETA — etapa ADM4. Con el ancho
  * propio de arriba, dos tarjetas de la misma fila quedaban con tablas de
  * anchos distintos segun el largo de sus rotulos, y las columnas no alineaban
@@ -924,17 +993,30 @@ table.piv.mg-hist__tabla th,
 table.piv.mg-hist__tabla td {
   padding: 4px 9px;
 }
-.mg-hist__cambio {
+/*
+ * ⚠ `table.piv.mg-hist__tabla td.X` Y NO `.X` A SECAS, y esto lo encontro la
+ * medicion de ADM6 sobre codigo de ADM4.
+ *
+ * `table.piv td.val` es (0,2,2) y una clase sola es (0,1,0): el verde del alta
+ * NUNCA se aplico. Medido, el cambio y el alta salian los dos en
+ * `rgb(30, 41, 59)` --el `--slate-800` de la regla general-- con el color
+ * escrito en la hoja y sin ningun sintoma.
+ *
+ * Lo que SI distinguia los estados era el TEXTO --`new 225` contra
+ * `434 → 469`-- y por eso la asercion de ADM4 pasaba: afirmaba sobre el texto.
+ * El color era una intencion muerta.
+ */
+table.piv.mg-hist__tabla td.mg-hist__cambio {
   color: var(--slate-700);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.mg-hist__alta {
+table.piv.mg-hist__tabla td.mg-hist__alta {
   color: var(--emerald-800);
   font-weight: 600;
   white-space: nowrap;
 }
-.mg-hist__omitida {
+table.piv.mg-hist__tabla td.mg-hist__omitida {
   color: var(--amber-800);
   background: var(--amber-50);
   font-weight: 700;
