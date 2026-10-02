@@ -61,12 +61,28 @@ import {
  * una columna "fecha": esa columna haria que 21 filas se lean como 21 ingresos.
  *
  * ---------------------------------------------------------------------------
- * ⚠ `date_started` NO SE MUESTRA, Y NO ES QUE ESTE VACIA
+ * ⚠ LA FECHA DE INGRESO SE MUESTRA DONDE EXISTE, Y NO SE DEDUCE
  * ---------------------------------------------------------------------------
- * Medido el 2026-09-18: la tienen 45 de las 111 activas -- 41 de Colombia y las
- * 4 de CO/US, y CERO de las 64 de USA. O sea que la columna llega llena desde
- * el archivo de Colombia y vacia desde el de USA. No se muestra por decision de
- * la etapa; si mañana se mostrara, el hueco seria de USA y no del dato.
+ * Medido el 2026-10-02, al rebasar esta rama sobre el Roster movido: la tienen
+ * 45 de las 112 activas, y CERO de las 65 de USA. No es que el sync no la
+ * mapee: el archivo de USA no la trae, porque son dos sistemas de RRHH
+ * distintos.
+ *
+ * ⚠ La nota decía «45 de 111» y «64 de USA», medidos el 2026-09-18. El roster
+ * creció en una persona entre las dos fechas y los números de la nota
+ * envejecieron sin que nadie los tocara. El del PIE de la pantalla no envejece
+ * porque sale del dato en cada carga; éste es prosa y hay que re-medirlo.
+ *
+ * ⚠ Y NO SE RELLENA CON `first_seen_at`. Esa columna dice cuando la persona
+ * aparecio por primera vez en un archivo que subimos NOSOTROS, y el historico
+ * empezo el 2026-08-28: alguien con diez años en la empresa figuraria como
+ * ingresado en agosto de 2026. Es peor que el vacio, porque un vacio se ve y
+ * una fecha falsa no. `verificar:estados` prohibe que `first_seen_at` vuelva a
+ * entrar a esta pantalla.
+ *
+ * ⚠ Y LOS 4 DE `CO/US` VAN A PARECER INCONSISTENTES con el resto de USA: la
+ * tienen completa porque vienen del archivo de Colombia. No es un error de la
+ * pantalla ni de esas cuatro personas -- es de que fuente salio cada fila.
  */
 
 /** Los tipos de cambio, como se leen. */
@@ -240,6 +256,13 @@ export default function RosterPage() {
                   <li className="adm-persona" key={p.person_code} data-adm-persona={p.person_code}>
                     <span className="adm-persona__nombre">{p.display_name}</span>
                     <span className="adm-persona__cargo">{p.position?.trim() || SIN_BRANCH}</span>
+                    {/*
+                      La fecha de ingreso donde existe, y un guion donde no. El
+                      guion no es un aviso ni un mensaje: es el valor ausente.
+                      Ver la nota de la cabecera -- nunca se rellena con
+                      `first_seen_at`.
+                    */}
+                    <span className="adm-persona__ingreso">{shortDate(p.date_started) ?? SIN_BRANCH}</span>
                   </li>
                 ))}
               </ul>
@@ -353,6 +376,15 @@ export default function RosterPage() {
         The branch here is the one in the <b>roster</b> — where HR has the person assigned — not where they produce.
         Loan Officers are counted by who produces, not by job title. The {k.inactivas} inactive people are kept and are
         not listed here.
+      </p>
+      {/*
+        Por qué falta la fecha de ingreso en la mayoría de USA. Va acá, una vez,
+        y no al lado de cada guion: son 64 filas y sería el mismo texto 64 veces.
+      */}
+      <p className="adm-foot">
+        The <b>start date</b> comes from the HR file, and today only the Colombian one carries it: {k.conFechaDeIngreso}{' '}
+        of the {k.activas} active people have it. The four in <b>CO/US</b> have it because they come from that same
+        file, so they look different from the rest of USA.
       </p>
     </div>
   );
