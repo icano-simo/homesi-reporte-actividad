@@ -224,9 +224,24 @@ export default function MarginsPage() {
       {
         clave: 'inactive',
         titulo: 'Inactive branches',
-        que: 'No active producer in the roster, so nothing projects from here.',
+        que: 'In the roster, with people, and no active producer.',
         codigos: (s?.inactivos ?? []).filter((c) => dentro.has(c)),
         total: s?.inactivos.length ?? 0,
+      },
+      {
+        /*
+         * ⚠ ERA UNA LÍNEA EN EL PIE Y PASÓ A SER SECCIÓN. Caía con los de
+         * arriba porque la regla del portal los junta --ninguno tiene
+         * productores-- y la diferencia tiene consecuencia: a una oficina con
+         * gente se le puede fijar un margen esperando producción, y a un branch
+         * donde no hay nadie, no. Nombrarlos juntos en una nota los dejaba
+         * mezclados.
+         */
+        clave: 'no-roster',
+        titulo: 'No one in the roster',
+        que: 'Not a single row in the roster — nobody to produce here.',
+        codigos: (s?.sinRoster ?? []).filter((c) => dentro.has(c)),
+        total: s?.sinRoster.length ?? 0,
       },
       {
         /*
@@ -472,20 +487,11 @@ export default function MarginsPage() {
       )}
 
       {/*
-        ⚠ EL TERCER ESTADO DEL DATO, DICHO Y NO CONVERTIDO EN UNA SECCIÓN.
-        «No está en el roster» y «está y no tiene productores» caen los dos en
-        inactivo por la regla del portal, y son cosas distintas: el 700 tiene 37
-        personas activas y ninguna produce; el 741 no tiene ni una fila. Una
-        tercera sección por eso sería inventar una categoría que nadie pidió;
-        callarlo sería que las dos se lean como lo mismo.
+        ⚠ ACÁ ESTABA LA NOTA DEL PIE que nombraba a los que no tienen fila en el
+        roster. Se fue porque ahora tienen sección propia: nombrarlos en una
+        nota al final los dejaba mezclados con los que sí están en el roster, y
+        la diferencia decide qué se puede hacer con cada uno.
       */}
-      {data.secciones.sinFilaEnRoster.length > 0 && (
-        <p className="mg-pie" data-mg-sin-roster="">
-          {data.secciones.sinFilaEnRoster.length} of the {data.secciones.inactivos.length} inactive branches have no
-          row in the roster at all ({data.secciones.sinFilaEnRoster.join(', ')}). The rest are in the roster with
-          people, but none of them is an active producer.
-        </p>
-      )}
 
       {edicion && (
         <EditorDeMargenes
