@@ -710,6 +710,15 @@ contestar, en ese caso-- porque eso es lo que deja a la sonda correr dos veces
 sin medir el estado que dejó la primera. Eso sí estaba bien, y es lo que hizo
 que el residuo fuera de dos filas y no de diez.
 
+> ⚠ **Y la razón más fuerte para esta regla está abajo, en la tercera.** Cuando
+> el borrado de limpieza contestó un vacío y de ahí salió «eso nunca existió»,
+> lo único que pudo desmentirlo fue el conteo contra la base que la sonda había
+> dejado escrito -- `2 → 3` y `3 → 4`, antes y después, en las dos corridas.
+>
+> **El reporte que dice qué se escribió es lo que permite reconstruir cuando
+> alguien lo niega.** Sin él no queda una discusión: queda la versión del que
+> lee el vacío, porque es la única con evidencia.
+
 #### Un residuo reportado es una afirmación sobre el ESTADO DE AHORA
 
 Reporté «dejó respuestas de prueba en 1.3 y 1.4» en presente. Para cuando el
