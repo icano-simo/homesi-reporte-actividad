@@ -203,6 +203,47 @@ export default function MarginsPage() {
     [branch, data]
   );
 
+  /*
+   * ⚠ LAS SECCIONES SE FILTRAN CONTRA `visibles`, no se recalculan — etapa ADM5.
+   *
+   * El filtro de branch y el reparto en secciones son dos cosas distintas y
+   * tienen que seguir siéndolo: con un branch elegido, se dibuja su sección y
+   * las otras no existen, en vez de perder el encabezado que dice en cuál está.
+   */
+  const secciones = useMemo(() => {
+    const dentro = new Set(visibles);
+    const s = data?.secciones;
+    return [
+      {
+        clave: 'active',
+        titulo: 'Active branches',
+        que: 'At least one active producer in the roster.',
+        codigos: (s?.activos ?? []).filter((c) => dentro.has(c)),
+        total: s?.activos.length ?? 0,
+      },
+      {
+        clave: 'inactive',
+        titulo: 'Inactive branches',
+        que: 'No active producer in the roster, so nothing projects from here.',
+        codigos: (s?.inactivos ?? []).filter((c) => dentro.has(c)),
+        total: s?.inactivos.length ?? 0,
+      },
+      {
+        /*
+         * ⚠ NO SON BRANCHES, y por eso no van en ninguna de las dos. Cumplen la
+         * regla de inactivo y llamarlos «Inactive» sería falso: nunca
+         * estuvieron activos. Es la misma decisión que Outlook tomó en OL21
+         * para su propio marcador, y está escrita en `margins-modelo.ts`.
+         */
+        clave: 'recruitment',
+        titulo: 'Recruitment',
+        que: 'Margins for people who do not have a branch yet — not branches.',
+        codigos: (s?.marcadores ?? []).filter((c) => dentro.has(c)),
+        total: s?.marcadores.length ?? 0,
+      },
+    ];
+  }, [data, visibles]);
+
   if (fallo) {
     return (
       <div className="hub-container mg-page">
@@ -320,8 +361,41 @@ export default function MarginsPage() {
         de 600px en una ventana de 480 arrastra la página entera -- que es el
         mismo mecanismo del `nowrap` sobre contenido variable.
       */}
-      <div className="mg-grid" data-mg-grid="">
-      {visibles.map((codigo) => {
+      {data.rosterError && (
+        <div className="bp-notice bp-notice--warn" data-mg-roster-error="">
+          Could not read <code>org.roster_current</code>, so branches could not be split into active and inactive:{' '}
+          {data.rosterError}
+        </div>
+      )}
+      {!data.rosterError && data.rosterFilas === 0 && (
+        <div className="bp-notice bp-notice--warn" data-mg-roster-vacio="">
+          {/*
+            ⚠ SIN ROSTER, TODOS CAEN EN INACTIVO por la regla --nadie tiene
+            productores-- y la pantalla diría que la división entera dejó de
+            operar. Un cero con `error: null` es una policy que no aplica, no un
+            roster vacío, y la diferencia hay que decirla acá y no deducirla de
+            una sección sospechosamente larga.
+          */}
+          <b>The roster came back empty, so every branch below is listed as inactive.</b>{' '}
+          The read returned no error and zero rows, which is what you see when the table has a <code>GRANT</code> but
+          no RLS policy applies to this session. Active and inactive cannot be told apart until that is fixed.
+        </div>
+      )}
+
+      {secciones.map((s) =>
+        s.codigos.length === 0 ? null : (
+          <section className="mg-seccion" key={s.clave} data-mg-seccion={s.clave}>
+            <div className="mg-seccion__cab">
+              <h2 className="mg-seccion__titulo">{s.titulo}</h2>
+              <span className="mg-seccion__n" data-mg-seccion-n={s.clave}>
+                {s.codigos.length === s.total
+                  ? s.codigos.length
+                  : s.codigos.length + ' of ' + s.total}
+              </span>
+              <span className="mg-seccion__que">{s.que}</span>
+            </div>
+            <div className="mg-grid" data-mg-grid={s.clave}>
+      {s.codigos.map((codigo) => {
         const grilla = grillas.get(codigo);
         if (!grilla) return null;
         const versiones = historial(data.porBranch.get(codigo) ?? []);
@@ -392,7 +466,26 @@ export default function MarginsPage() {
           </section>
         );
       })}
-      </div>
+            </div>
+          </section>
+        )
+      )}
+
+      {/*
+        ⚠ EL TERCER ESTADO DEL DATO, DICHO Y NO CONVERTIDO EN UNA SECCIÓN.
+        «No está en el roster» y «está y no tiene productores» caen los dos en
+        inactivo por la regla del portal, y son cosas distintas: el 700 tiene 37
+        personas activas y ninguna produce; el 741 no tiene ni una fila. Una
+        tercera sección por eso sería inventar una categoría que nadie pidió;
+        callarlo sería que las dos se lean como lo mismo.
+      */}
+      {data.secciones.sinFilaEnRoster.length > 0 && (
+        <p className="mg-pie" data-mg-sin-roster="">
+          {data.secciones.sinFilaEnRoster.length} of the {data.secciones.inactivos.length} inactive branches have no
+          row in the roster at all ({data.secciones.sinFilaEnRoster.join(', ')}). The rest are in the roster with
+          people, but none of them is an active producer.
+        </p>
+      )}
 
       {edicion && (
         <EditorDeMargenes

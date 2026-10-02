@@ -327,6 +327,107 @@ export function historial(filas: MarginRow[]): VersionDeHistorial[] {
   return salida.reverse();
 }
 
+/*
+ * ============================================================================
+ * ACTIVO E INACTIVO — la regla es la del portal, no una nueva (etapa ADM5)
+ * ============================================================================
+ *
+ * ⚠ UN BRANCH ESTÁ ACTIVO SI TIENE AL MENOS UN PRODUCTOR ACTIVO EN EL ROSTER,
+ * que es exactamente `isInactive` de `lib/outlook/loadData.ts`:
+ *
+ *     isInactive: !rosterRows.some((r) => r.branch_code === code && r.is_producer && r.is_active)
+ *
+ * No se inventa una segunda definición de «activo» porque las dos tendrían que
+ * decidir lo mismo y divergirían con el primer cambio. Y la regla es POR DATO:
+ * un branch vuelve a activo el día que le asignan a alguien, sin que nadie se
+ * acuerde de sacarlo de una lista.
+ *
+ * ⚠ Y NO SE PREGUNTA SI EL BRANCH TIENE GENTE, sino si tiene PRODUCTORES. El 700
+ * tiene 38 filas en el roster y 37 personas activas, y cero productores: por la
+ * regla del portal es inactivo. Preguntar por `is_active` a secas lo pondría con
+ * los que operan y la pantalla diría otra cosa que Outlook sobre el mismo
+ * branch.
+ *
+ * ---------------------------------------------------------------------------
+ * ⚠ LOS MARCADORES DE RECLUTAMIENTO NO SON NINGUNO DE LOS DOS
+ * ---------------------------------------------------------------------------
+ * `Recruitment - BM` y `Recruitment - LO Only` cumplen la regla de inactivo
+ * --no tienen ni un productor-- y aun así llamarlos «Inactive» sería FALSO:
+ * nunca estuvieron activos. Son los márgenes que se aplican a quien todavía no
+ * tiene branch.
+ *
+ * Esta decisión no es nueva y no es mía: Outlook la tomó en OL21 para su propio
+ * marcador, con esta razón escrita --«su fila en cero no es un branch que dejó
+ * de producir, es una cola de espera»--. Lo que cambia es la CADENA: allá el
+ * dato trae un solo `Recruitment` y acá el archivo de márgenes trae dos cubos.
+ * Por eso no se comparte la constante: se comparte la decisión, y la diferencia
+ * queda escrita para que la próxima persona pueda comprobar si sigue siendo
+ * cierta.
+ */
+export interface SeccionesDeBranch {
+  /** Con al menos un productor activo en el roster. */
+  activos: string[];
+  /** Sin productores activos. Produjeron o no, pero son branches. */
+  inactivos: string[];
+  /** Los márgenes de quien todavía no tiene branch. No son branches. */
+  marcadores: string[];
+  /**
+   * De los inactivos, los que no tienen NI UNA fila en el roster.
+   *
+   * ⚠ Es un tercer estado del dato que la pantalla no convierte en una tercera
+   * sección: se cuenta y se dice. «No está en el roster» y «está y no tiene
+   * productores» caen los dos en inactivo por la regla del portal, y son cosas
+   * distintas -- el 700 tiene 37 personas activas y el 741 no tiene ninguna.
+   */
+  sinFilaEnRoster: string[];
+}
+
+/** Una fila de `org.roster_current`, con lo único que esto mira. */
+export interface RosterParaBranches {
+  branch_code: string | null;
+  is_producer: boolean | null;
+  is_active: boolean | null;
+}
+
+/** Reconoce los cubos de márgenes que no son branches. Ver la nota de arriba. */
+export function esMarcadorDeReclutamiento(code: string): boolean {
+  return /^recruitment\b/i.test(code.trim());
+}
+
+export function seccionesDeBranch(
+  branches: string[],
+  roster: RosterParaBranches[]
+): SeccionesDeBranch {
+  const conProductor = new Set<string>();
+  const enRoster = new Set<string>();
+  for (const r of roster) {
+    const code = (r.branch_code ?? '').trim();
+    if (code === '') continue;
+    enRoster.add(code);
+    if (r.is_producer === true && r.is_active === true) conProductor.add(code);
+  }
+
+  const activos: string[] = [];
+  const inactivos: string[] = [];
+  const marcadores: string[] = [];
+  const sinFilaEnRoster: string[] = [];
+
+  for (const b of branches) {
+    if (esMarcadorDeReclutamiento(b)) {
+      marcadores.push(b);
+      continue;
+    }
+    if (conProductor.has(b)) {
+      activos.push(b);
+      continue;
+    }
+    inactivos.push(b);
+    if (!enRoster.has(b)) sinFilaEnRoster.push(b);
+  }
+
+  return { activos, inactivos, marcadores, sinFilaEnRoster };
+}
+
 /**
  * ============================================================================
  * LAS FILAS DE UNA VERSIÓN NUEVA

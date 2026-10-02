@@ -6,9 +6,12 @@ import {
   esNivel,
   filasDeLaVersion,
   ordenarBranches,
+  seccionesDeBranch,
   type CambioPedido,
   type Grilla,
   type MarginRow,
+  type RosterParaBranches,
+  type SeccionesDeBranch,
 } from './margins-modelo';
 
 /*
@@ -37,8 +40,12 @@ import {
 
 export {
   NIVELES,
+  esMarcadorDeReclutamiento,
   grillaVigente,
   historial,
+  seccionesDeBranch,
+  type RosterParaBranches,
+  type SeccionesDeBranch,
   type Celda,
   type Grilla,
   type Linea,
@@ -52,6 +59,19 @@ export {
 export interface MarginsData {
   /** Los branches que hay, ordenados. */
   branches: string[];
+  /** Las tres secciones, derivadas del roster. Ver `seccionesDeBranch`. */
+  secciones: SeccionesDeBranch;
+  /**
+   * El error de la lectura del roster, por separado del de los márgenes.
+   *
+   * ⚠ Y SE DISTINGUE DE «el roster vino vacío». Sin roster, TODOS los branches
+   * caen en inactivo por la regla --nadie tiene productores-- y la pantalla
+   * diría que la división entera dejó de operar. Un error que no se dice es una
+   * afirmación falsa con forma de dato.
+   */
+  rosterError: string | null;
+  /** Cuántas filas de roster llegaron. Cero con `error: null` es una policy. */
+  rosterFilas: number;
   /** Todas las filas, por branch, ya saneadas. */
   porBranch: Map<string, MarginRow[]>;
   /** Cuántas filas se descartaron por no tener `version_num`. */
@@ -65,16 +85,29 @@ export interface MarginsData {
 }
 
 export async function loadMargins(): Promise<MarginsData> {
-  const res = await getSupabaseClient()
-    .schema('margins')
-    .from('branch_margin')
-    .select(
-      'margin_key, branch_code, loan_type, tipo_de_margen, version, version_num, ' +
-        'valor_bps, origen, changed_by, changed_at, reason'
-    )
-    .order('branch_code', { ascending: true })
-    .order('loan_type', { ascending: true })
-    .order('version_num', { ascending: true });
+  const supabase = getSupabaseClient();
+  /*
+   * ⚠ LAS DOS LECTURAS VAN EN PARALELO Y CON SU ERROR CADA UNA. El roster no
+   * depende de los márgenes, y mezclar los dos errores haría que una policy que
+   * no aplica en `org.roster_current` se leyera como un problema de márgenes.
+   *
+   * `org.roster_current` tiene policy para `admin` --`roster_v2_admin`--, así
+   * que esta pantalla la lee con el claim que ya tiene. Verificado en el
+   * catálogo, no supuesto.
+   */
+  const [res, rosterRes] = await Promise.all([
+    supabase
+      .schema('margins')
+      .from('branch_margin')
+      .select(
+        'margin_key, branch_code, loan_type, tipo_de_margen, version, version_num, ' +
+          'valor_bps, origen, changed_by, changed_at, reason'
+      )
+      .order('branch_code', { ascending: true })
+      .order('loan_type', { ascending: true })
+      .order('version_num', { ascending: true }),
+    supabase.schema('org').from('roster_current').select('branch_code, is_producer, is_active'),
+  ]);
 
   /*
    * ⚠ LOS TRES CASOS SE DISTINGUEN, igual que en el roster. Con RLS, una policy
@@ -109,8 +142,14 @@ export async function loadMargins(): Promise<MarginsData> {
     porBranch.set(f.branch_code, [...(porBranch.get(f.branch_code) ?? []), f]);
   }
 
+  const roster = (rosterRes.error ? [] : (rosterRes.data ?? [])) as unknown as RosterParaBranches[];
+  const branches = ordenarBranches(codigos);
+
   return {
-    branches: ordenarBranches(codigos),
+    branches,
+    secciones: seccionesDeBranch(branches, roster),
+    rosterError: rosterRes.error ? rosterRes.error.message : null,
+    rosterFilas: roster.length,
     porBranch,
     sinVersion,
     deLaApp,
