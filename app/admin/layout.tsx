@@ -46,13 +46,27 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   return (
     <>
-      <div className="hub-container">
-        <nav className="adm-tabs" aria-label="Admin sections">
+      {/*
+        ⚠ SE REUSA `.seg` DE ANALYTICS, no una clase nueva que se le parezca —
+        etapa ADM7.
+
+        Dos tratamientos de pestaña que hoy se ven igual divergen con el primer
+        `edit`, que es la misma decisión que la de las tres tablas de Margins.
+        `.seg` ya vive en `app/styles/components.css`, que es global, así que no
+        hubo nada que sacar de ninguna pantalla: lo que estaba atado a Analytics
+        no era la clase sino el SELECTOR --`.seg button`-- y ahí se agregó `a`.
+
+        ⚠ Y SIGUEN SIENDO `<Link>` Y NO `<button>`. Son dos rutas: un botón
+        pierde el click del medio, el «abrir en otra pestaña» y el `href` que el
+        navegador muestra abajo. El tratamiento visual es lo que se comparte.
+      */}
+      <div className="hub-container adm-subnav">
+        <nav className="seg" aria-label="Admin sections">
           {SUB_TABS.map((t) => (
             <Link
               key={t.href}
               href={t.href}
-              className={'adm-tab' + (pathname.startsWith(t.href) ? ' is-on' : '')}
+              className={pathname.startsWith(t.href) ? 'on' : ''}
               aria-current={pathname.startsWith(t.href) ? 'page' : undefined}
               data-adm-tab={t.label.toLowerCase()}
             >

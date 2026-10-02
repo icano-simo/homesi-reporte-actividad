@@ -595,27 +595,17 @@ table.piv.adm-tbl th.bp-center {
  * `.seg` son botones de un control y esto son LINKS a dos rutas. Compartir la
  * clase habria obligado a que una de las dos cosas se disfrace de la otra.
  */
-.adm-tabs {
-  display: flex;
-  gap: 2px;
-  margin: 16px 0 0;
-  border-bottom: 1px solid var(--slate-200);
-}
-.adm-tab {
-  padding: 8px 15px;
-  margin-bottom: -1px;
-  border-bottom: 2px solid transparent;
-  color: var(--slate-500);
-  font-size: 12.5px;
-  font-weight: 600;
-  text-decoration: none;
-}
-.adm-tab:hover {
-  color: var(--navy);
-}
-.adm-tab.is-on {
-  color: var(--navy);
-  border-bottom-color: var(--coral);
+/*
+ * ⚠ ACA ESTABAN `.adm-tabs` y `.adm-tab`, las pestañas subrayadas de ADM3. Se
+ * fueron en ADM7: la sub-navegacion pasa a usar `.seg`, que es el tratamiento
+ * que ya tenia Analytics y vive en el CSS global. Lo unico propio que queda es
+ * la separacion de arriba.
+ *
+ * Contadas en ESTE arbol --`adm/margins-vista`, sobre `0091b7d`-- y ninguna
+ * otra rama viva usa esos nombres.
+ */
+.adm-subnav {
+  margin-top: 16px;
 }
 
 /*
@@ -729,16 +719,30 @@ table.piv.adm-tbl th.bp-center {
 }
 /* El codigo del branch es un boton y tiene que seguir leyendose como el titulo
    de la tarjeta: hereda de `.tbl-card__title` y solo saca el crudo del boton. */
+/*
+ * ⚠ NO SE VE COMO UN ENLACE — etapa ADM7. Iba subrayado y parecia un
+ * hipervinculo; es un boton que abre la ventana de edicion del branch.
+ *
+ * ⚠ Y SIGUE SIENDO UN `<button>`: el subrayado se va con CSS, no cambiando el
+ * elemento. Un `div` con `onClick` pierde el foco por teclado, el Enter y el
+ * papel que los lectores de pantalla anuncian -- se veria igual y no se podria
+ * usar sin mouse.
+ *
+ * Por eso `cursor: pointer` y `:focus-visible` se quedan y se miden: sin el
+ * primero nada dice que es clicable, y sin el segundo no se ve donde esta uno
+ * al tabular.
+ */
 .mg-branch {
   border: 0;
   background: none;
-  padding: 0;
+  padding: 2px 7px;
+  margin: -2px -7px;
   font: inherit;
   color: inherit;
   cursor: pointer;
-  text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--coral) 55%, transparent);
-  text-underline-offset: 3px;
+  text-decoration: none;
+  border-radius: var(--radius-sm);
+  transition: background 0.14s ease, color 0.14s ease;
   /*
    * ⚠ MENOS TRACKING QUE `.tbl-card__title`, y lo encontro la captura y no una
    * medicion: con los `0.09em` que hereda, un codigo de tres digitos se lee
@@ -746,10 +750,17 @@ table.piv.adm-tbl th.bp-center {
    * numeros, y aca el titulo es un numero.
    */
   font-size: 13px;
+  font-weight: 800;
   letter-spacing: 0.02em;
 }
+/* Que se ILUMINE, que es lo que reemplaza al subrayado como señal de clicable. */
 .mg-branch:hover {
-  color: var(--coral);
+  background: var(--sky);
+  color: var(--navy);
+}
+.mg-branch:focus-visible {
+  outline: 2px solid var(--sky);
+  outline-offset: 1px;
 }
 .mg-sello {
   margin-left: auto;
