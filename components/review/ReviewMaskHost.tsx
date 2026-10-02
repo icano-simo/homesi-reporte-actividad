@@ -977,6 +977,9 @@ export default function ReviewMaskHost() {
           script={script}
           session={activo.session}
           responses={activo.responses}
+          /* Las notas ya escritas, para que `Other` muestre lo que hay — RV34.
+             Salen de la misma lectura que ya alimenta al resumen. */
+          notes={activo.notes}
           loName={activo.loName}
           funnelActual={funnelActual}
           pasosDelPlan={pasosDelPlan}
