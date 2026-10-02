@@ -646,9 +646,37 @@ table.piv.adm-tbl th.bp-center {
 .mg-filtro__select {
   min-width: 170px;
 }
-.mg-card {
+/*
+ * ⚠ EL MOSAICO, SIN NUMERO DE COLUMNAS — etapa ADM4.
+ *
+ * `auto-fill` decide cuantas entran con el ancho que haya, asi que en una
+ * pantalla angosta queda una sola y se apila sin ningun `@media` que haya que
+ * mantener de acuerdo con el `min-width` de la tabla. Un numero fijo de columnas
+ * se rompe en cuanto cambia el ancho del contenedor, y el sintoma aparece en
+ * otra pantalla.
+ *
+ * El `min(600px, 100%)` es lo que evita el desborde: sin el, una columna de
+ * 600px en una ventana de 480 arrastra la pagina entera -- el mismo mecanismo
+ * que un `nowrap` sobre contenido variable.
+ */
+/*
+ * ⚠ `auto-fit` Y NO `auto-fill`, y la diferencia se ve con UN branch filtrado.
+ *
+ * Las dos crean la misma cantidad de columnas; `auto-fill` las deja aunque
+ * esten vacias y `auto-fit` las colapsa. Con el filtro en un solo branch,
+ * `auto-fill` dejaba la tarjeta en media pantalla y la otra mitad en blanco.
+ * Con los 21 las dos se comportan igual.
+ */
+.mg-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(600px, 100%), 1fr));
+  gap: 16px;
+  align-items: start;
   margin-top: 16px;
+}
+.mg-card {
   padding-bottom: 4px;
+  min-width: 0;
 }
 /* El codigo del branch es un boton y tiene que seguir leyendose como el titulo
    de la tarjeta: hereda de `.tbl-card__title` y solo saca el crudo del boton. */
@@ -704,6 +732,16 @@ table.piv.mg-tabla {
   width: auto;
   min-width: min(560px, 100%);
   max-width: 100%;
+}
+/*
+ * ⚠ DENTRO DEL MOSAICO LA TABLA OCUPA SU TARJETA — etapa ADM4. Con el ancho
+ * propio de arriba, dos tarjetas de la misma fila quedaban con tablas de
+ * anchos distintos segun el largo de sus rotulos, y las columnas no alineaban
+ * de una a otra. En la grilla la tarjeta ya acota el ancho, asi que la tabla se
+ * estira a ella.
+ */
+.mg-grid table.piv.mg-tabla {
+  width: 100%;
 }
 table.piv.mg-tabla th:not(.lbl),
 table.piv.mg-tabla td:not(.lbl) {
@@ -809,31 +847,48 @@ table.piv.mg-tabla td.lbl {
   color: var(--slate-500);
   line-height: 1.5;
 }
-.mg-hist__linea {
-  display: flex;
-  justify-content: space-between;
-  gap: 14px;
-  margin: 0;
-  padding: 3px 0;
-  color: var(--slate-600);
-}
-.mg-hist__linea--alta {
-  color: var(--emerald-800);
-}
 /*
- * El nombre de la linea. Tiene regla propia porque es el hijo que puede crecer:
- * sin `min-width: 0` un tipo largo empuja a los valores fuera de la tarjeta, que
- * es el mismo desborde que `nowrap` sobre contenido variable. Lo encontro
- * `npm run verificar:clases`, que pregunta si existe lo que el JSX pide.
+ * ⚠ ACA ESTABAN `.mg-hist__linea`, `--alta`, `__que` y `__valores`: el renglon
+ * suelto por cambio que ADM4 reemplazo por la tabla de abajo.
+ *
+ * Contadas en ESTE arbol --`adm/margins-tabla`, sobre `3f1c079`-- quedaron sin
+ * un solo consumidor, y ninguna otra rama viva toca `margins`: el conteo de
+ * ramas dio cero archivos. Con dos ramas en vuelo «no tiene usos» es una
+ * propiedad de la rama y no del codigo, asi que el arbol se nombra.
  */
-.mg-hist__que {
-  min-width: 0;
-  overflow-wrap: anywhere;
+/*
+ * ⚠ LA VERSION EN TABLA — etapa ADM4, y los cuatro estados con tres aspectos.
+ *
+ *   cambio    `449 → 455`, en el gris de siempre
+ *   igual     celda VACIA -- es lo que hace que el `⟳ N` de abajo se entienda
+ *             sola: las vacias son esas N
+ *   alta      `new 225` en verde, que no es un cambio desde la nada
+ *   omitida   `—` en ambar. NO puede quedar vacia: «no la escribio» y «la
+ *             escribio igual» significan cosas distintas, y la primera deja a la
+ *             vista sirviendo una version anterior para esa linea
+ */
+table.piv.mg-hist__tabla {
+  margin: 6px 0 4px;
+  font-size: 11.5px;
 }
-.mg-hist__valores {
+table.piv.mg-hist__tabla th,
+table.piv.mg-hist__tabla td {
+  padding: 4px 9px;
+}
+.mg-hist__cambio {
+  color: var(--slate-700);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.mg-hist__alta {
+  color: var(--emerald-800);
   font-weight: 600;
   white-space: nowrap;
+}
+.mg-hist__omitida {
+  color: var(--amber-800);
+  background: var(--amber-50);
+  font-weight: 700;
 }
 .mg-hist__igual {
   margin: 5px 0 0;
@@ -857,33 +912,54 @@ table.piv.mg-tabla td.lbl {
   line-height: 1.5;
 }
 /*
- * Una linea por fila, con el nombre, el valor de hoy y el campo. En columna y
- * no en una sola linea: con el branch entero son 28 o 42, y apretarlas en un
- * renglon es lo que hizo ilegible el panel de la revision en RV32.
+ * ⚠ LA VENTANA EN COLUMNAS — etapa ADM4. Antes eran 28 renglones, uno por
+ * (tipo, nivel), y la ventana quedaba larguisima. Ahora son 14 filas con los
+ * niveles en columnas, con el mismo componente que la tabla de afuera.
+ *
+ * El `max-height` se queda: con 14 filas y tres columnas sigue sin entrar en una
+ * pantalla baja, y el scroll tiene que ser del cuerpo y no de la ventana -- el
+ * pie con el boton de guardar es hermano del cuerpo, no descendiente, asi que
+ * queda visible sin `sticky`.
  */
-.mg-form__lineas {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
+.mg-form__tabla {
   max-height: 46vh;
   overflow-y: auto;
 }
-.mg-form__linea {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto 104px;
-  align-items: center;
-  gap: 10px;
-}
-.mg-form__nombre {
+/*
+ * ⚠ ANCHO DE CONTENIDO Y NO 100%, y lo encontro la captura: con `width: 100%`
+ * la columna del rotulo se quedaba con los ~500px que sobraban y los campos
+ * quedaban apretados contra el borde derecho. La tabla mide lo que necesita y
+ * la ventana ya la acota.
+ */
+table.piv.mg-form__piv {
+  width: auto;
   min-width: 0;
-  color: var(--navy);
-  font-size: 12.5px;
+}
+table.piv.mg-form__piv th.lbl,
+table.piv.mg-form__piv td.lbl {
+  min-width: 140px;
+}
+table.piv.mg-form__piv td {
+  padding: 5px 8px;
+}
+/* El valor de hoy arriba y el campo abajo: en una celda de tabla no entran al
+   lado sin empujar el ancho de la columna. */
+.mg-form__celda {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
 }
 .mg-form__actual {
   color: var(--slate-400);
-  font-size: 11px;
+  font-size: 10.5px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+/* Una celda que esta en la grilla y NO se esta editando: se ve, apagada, para
+   dar contexto -- y no lleva campo, que es lo que dice que no se toca. */
+.mg-form__fija {
+  font-variant-numeric: tabular-nums;
 }
 .mg-form__input {
   text-align: right;

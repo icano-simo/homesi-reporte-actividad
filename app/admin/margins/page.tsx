@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import Modal from '@/app/business-plan/components/Modal';
 import { fmt } from '@/lib/outlook/format';
 import {
@@ -50,6 +50,78 @@ import {
  * en esta pantalla; `guardarVersion` recibe una lista de cambios y siempre
  * reescribe la grilla vigente completa.
  */
+
+/**
+ * ============================================================================
+ * LA TABLA DEL BRANCH, UNA SOLA VEZ — etapa ADM4
+ * ============================================================================
+ *
+ * Las tres superficies de este módulo --la tabla, la ventana de edición y cada
+ * versión del historial-- muestran LA MISMA FORMA: una fila por tipo de
+ * préstamo y una columna por nivel. Lo que cambia es qué va adentro de la celda.
+ *
+ * ⚠ Y NO SE REPITE EL MARCADO TRES VECES, porque las tres tienen que decidir lo
+ * mismo: QUÉ FILAS Y QUÉ COLUMNAS TIENE ESTE BRANCH. Eso no es una coincidencia
+ * visual -- `Region` la tienen 5 de 21 y `Recruitment - BM` tiene sólo `Branch`,
+ * así que tres copias divergirían con el primer `edit` y una mostraría una
+ * columna que las otras dos no. Es la familia de las dos copias de la misma
+ * decisión, con el disparador en el primer cambio y no en el tercer llamador.
+ *
+ * `celda` devuelve `null` para decir «este branch no tiene esa línea», que es lo
+ * que se dibuja rayado y sin contenido. Un cero, en cambio, es un valor.
+ */
+function TablaDeMargenes({
+  tipos,
+  niveles,
+  clase,
+  rotulo,
+  celda,
+}: {
+  tipos: string[];
+  niveles: Nivel[];
+  clase?: string;
+  rotulo: (tipo: string) => ReactNode;
+  celda: (tipo: string, nivel: Nivel) => { contenido: ReactNode; clase?: string; marca?: string } | null;
+}) {
+  return (
+    <table className={'piv mg-tabla' + (clase ? ' ' + clase : '')}>
+      <thead>
+        <tr>
+          <th className="lbl">Loan type</th>
+          {NIVELES.map((n) => (
+            <th key={n} className={niveles.includes(n) ? '' : 'mg-col-ausente'}>
+              {n}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {tipos.map((tipo) => (
+          <tr key={tipo}>
+            <td className="lbl">{rotulo(tipo)}</td>
+            {NIVELES.map((n) => {
+              const c = celda(tipo, n);
+              if (c === null) {
+                return (
+                  <td
+                    key={n}
+                    className="val zero mg-ausente"
+                    data-mg-celda-ausente={tipo + '/' + n}
+                  />
+                );
+              }
+              return (
+                <td key={n} className={'val' + (c.clase ? ' ' + c.clase : '')} data-mg-marca={c.marca}>
+                  {c.contenido}
+                </td>
+              );
+            })}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
 
 /** Lo que está abierto para editar. `null` = nada. */
 type Edicion =
@@ -235,6 +307,20 @@ export default function MarginsPage() {
         </div>
       )}
 
+      {/*
+        ⚠ LAS TARJETAS EN MOSAICO, Y LA GRILLA SIN NÚMERO DE COLUMNAS — etapa ADM4.
+
+        `auto-fill` con `minmax` decide cuántas entran según el ancho que haya:
+        en una pantalla angosta queda una sola y se apila sola, sin un
+        `@media` que haya que mantener de acuerdo con el `min-width` de la
+        tabla. Un número fijo de columnas se rompe en cuanto alguien cambia el
+        ancho del contenedor, y el síntoma aparece en otra pantalla.
+
+        El `min()` del minmax es lo que evita el desborde: sin él, una columna
+        de 600px en una ventana de 480 arrastra la página entera -- que es el
+        mismo mecanismo del `nowrap` sobre contenido variable.
+      */}
+      <div className="mg-grid" data-mg-grid="">
       {visibles.map((codigo) => {
         const grilla = grillas.get(codigo);
         if (!grilla) return null;
@@ -262,70 +348,51 @@ export default function MarginsPage() {
               </span>
             </div>
 
-            <table className="piv mg-tabla">
-              <thead>
-                <tr>
-                  <th className="lbl">Loan type</th>
-                  {NIVELES.map((n) => (
-                    <th key={n} className={grilla.niveles.includes(n) ? '' : 'mg-col-ausente'}>
-                      {n}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {grilla.tipos.map((tipo) => (
-                  <tr key={tipo}>
-                    <td className="lbl">
-                      {/*
-                        El tipo de préstamo abre los tres niveles de esa fila.
-                      */}
-                      <button
-                        type="button"
-                        className="mg-tipo"
-                        data-mg-editar-fila={tipo}
-                        onClick={() => setEdicion({ clase: 'fila', branch: codigo, loanType: tipo })}
-                      >
-                        {tipo}
-                      </button>
-                    </td>
-                    {NIVELES.map((n) => {
-                      const celda = grilla.celda(tipo, n);
-                      /*
-                       * ⚠ ACÁ SE DECIDE LA DISTINCIÓN DEL PUNTO 2 DEL BRIEF.
-                       * `celda === null` es «este branch no tiene ese nivel» y
-                       * NO se dibuja un botón: no hay nada que editar. Un cero
-                       * sí es un valor y sí se puede editar.
-                       */
-                      if (celda === null) {
-                        return (
-                          <td key={n} className="val zero mg-ausente" data-mg-celda-ausente={tipo + '/' + n} />
-                        );
+            <TablaDeMargenes
+              tipos={grilla.tipos}
+              niveles={grilla.niveles}
+              /* El tipo de préstamo abre los niveles de esa fila. */
+              rotulo={(tipo) => (
+                <button
+                  type="button"
+                  className="mg-tipo"
+                  data-mg-editar-fila={tipo}
+                  onClick={() => setEdicion({ clase: 'fila', branch: codigo, loanType: tipo })}
+                >
+                  {tipo}
+                </button>
+              )}
+              celda={(tipo, n) => {
+                const c = grilla.celda(tipo, n);
+                /*
+                 * ⚠ ACÁ SE DECIDE LA DISTINCIÓN DEL CERO Y LA AUSENCIA.
+                 * `null` es «este branch no tiene ese nivel» y NO lleva botón:
+                 * no hay nada que editar. Un cero sí es un valor y sí se edita.
+                 */
+                if (c === null) return null;
+                return {
+                  clase: c.valor === 0 ? 'zero' : undefined,
+                  contenido: (
+                    <button
+                      type="button"
+                      className="mg-valor"
+                      data-mg-celda={tipo + '/' + n}
+                      onClick={() =>
+                        setEdicion({ clase: 'celda', branch: codigo, loanType: tipo, nivel: n })
                       }
-                      return (
-                        <td key={n} className={'val' + (celda.valor === 0 ? ' zero' : '')}>
-                          <button
-                            type="button"
-                            className="mg-valor"
-                            data-mg-celda={tipo + '/' + n}
-                            onClick={() =>
-                              setEdicion({ clase: 'celda', branch: codigo, loanType: tipo, nivel: n })
-                            }
-                          >
-                            {fmt(celda.valor)}
-                          </button>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    >
+                      {fmt(c.valor)}
+                    </button>
+                  ),
+                };
+              }}
+            />
 
-            <Historial versiones={versiones} codigo={codigo} />
+            <Historial versiones={versiones} codigo={codigo} grilla={grilla} />
           </section>
         );
       })}
+      </div>
 
       {edicion && (
         <EditorDeMargenes
@@ -360,9 +427,11 @@ export default function MarginsPage() {
 function Historial({
   versiones,
   codigo,
+  grilla,
 }: {
   versiones: ReturnType<typeof historial>;
   codigo: string;
+  grilla: Grilla;
 }) {
   if (versiones.length === 0) return null;
   return (
@@ -398,32 +467,61 @@ function Historial({
             </p>
           )}
 
-          {v.esPrimera ? (
-            <p className="mg-hist__linea mg-hist__linea--alta">
-              {v.lineas.length} line(s) created — this is the first version of this branch.
-            </p>
-          ) : (
-            <>
-              {v.cambios.map((l) => (
-                <p className="mg-hist__linea" key={l.loanType + l.nivel}>
-                  <span className="mg-hist__que">
-                    {l.loanType} · {l.nivel}
-                  </span>
-                  <span className="mg-hist__valores">
-                    {fmt(l.antes)} → {fmt(l.despues)}
-                  </span>
-                </p>
-              ))}
-              {v.altas.map((l) => (
-                <p className="mg-hist__linea mg-hist__linea--alta" key={l.loanType + l.nivel}>
-                  <span className="mg-hist__que">
-                    {l.loanType} · {l.nivel}
-                  </span>
-                  <span className="mg-hist__valores">new · {fmt(l.despues)}</span>
-                </p>
-              ))}
-            </>
-          )}
+          {/*
+            ⚠ LA VERSIÓN, EN LA MISMA FORMA QUE LA TABLA — etapa ADM4.
+
+            Antes cada línea era un renglón suelto, y una v1 de 26 altas eran 26
+            renglones. Ahora es la grilla del branch con el antes y el después
+            en la celda.
+
+            ⚠ Y HAY QUE DISTINGUIR CUATRO ESTADOS CON TRES ASPECTOS, que es lo
+            único delicado de este cambio:
+
+              cambió      `449 → 455`
+              se copió    celda VACÍA -- es lo que hace que `⟳ N` se entienda
+                          sola: las vacías son esas N
+              alta        `new 225`, que no es un cambio desde la nada
+              ⚠ omitida   `—` en ámbar. NO puede quedar vacía: «no la escribió»
+                          y «la escribió igual» significan cosas distintas, y la
+                          primera deja a la vista sirviendo una versión anterior
+                          para esa línea. Vacías las dos, serían el mismo píxel.
+
+            Y la celda rayada sigue siendo la quinta: el branch no tiene esa
+            línea en ninguna versión.
+          */}
+          <TablaDeMargenes
+            clase="mg-hist__tabla"
+            tipos={grilla.tipos}
+            niveles={grilla.niveles}
+            rotulo={(tipo) => tipo}
+            celda={(tipo, n) => {
+              if (grilla.celda(tipo, n) === null) return null;
+              const k = tipo + '\u0000' + n;
+              const escrita = v.lineas.find((l) => l.loanType + '\u0000' + l.nivel === k);
+              const omitida = v.omitidas.find((l) => l.loanType + '\u0000' + l.nivel === k);
+              if (omitida) {
+                return {
+                  clase: 'mg-hist__omitida',
+                  marca: 'omitida',
+                  contenido: <span title={'Not written by this version. Still ' + fmt(omitida.antes) + '.'}>—</span>,
+                };
+              }
+              if (!escrita) return { contenido: '', marca: 'fuera' };
+              if (escrita.estado === 'igual') return { contenido: '', marca: 'igual' };
+              if (escrita.estado === 'alta') {
+                return {
+                  clase: 'mg-hist__alta',
+                  marca: 'alta',
+                  contenido: 'new ' + fmt(escrita.despues),
+                };
+              }
+              return {
+                clase: 'mg-hist__cambio',
+                marca: 'cambio',
+                contenido: fmt(escrita.antes) + ' → ' + fmt(escrita.despues),
+              };
+            }}
+          />
 
           {v.igualNum > 0 && (
             <p className="mg-hist__igual" data-mg-sin-cambio={v.version}>
@@ -476,6 +574,16 @@ function EditorDeMargenes({
         a.loanType.localeCompare(b.loanType) || NIVELES.indexOf(a.nivel) - NIVELES.indexOf(b.nivel)
     );
   }, [edicion, grilla]);
+
+  /*
+   * Los tipos de préstamo que la ventana dibuja: los de las líneas que se
+   * editan, en el orden de la tabla. Para el branch entero son los 14; para una
+   * fila, uno; para una celda, uno.
+   */
+  const tiposDeLaVentana = useMemo(
+    () => grilla.tipos.filter((t) => lineas.some((l) => l.loanType === t)),
+    [grilla, lineas]
+  );
 
   const [valores, setValores] = useState<Record<string, string>>(() =>
     Object.fromEntries(lineas.map((l) => [l.loanType + '/' + l.nivel, l.valor === null ? '' : String(l.valor)]))
@@ -581,35 +689,67 @@ function EditorDeMargenes({
           </p>
         )}
 
-        <div className="mg-form__lineas">
-          {lineas.map((l) => {
-            const k = l.loanType + '/' + l.nivel;
-            const crudo = (valores[k] ?? '').trim();
-            const n = Number(crudo);
-            const mal = crudo !== '' && (!Number.isFinite(n) || n < 0 || !Number.isInteger(n));
-            return (
-              <label className="mg-form__linea" key={k}>
-                <span className="mg-form__nombre">
-                  {l.loanType} · {l.nivel}
-                </span>
-                <span className="mg-form__actual" data-mg-actual={k}>
-                  now {fmt(l.valor)}
-                </span>
-                <input
-                  className={'field mg-form__input' + (mal ? ' mg-form__input--mal' : '')}
-                  data-mg-input={k}
-                  type="number"
-                  min="0"
-                  step="1"
-                  inputMode="numeric"
-                  value={valores[k] ?? ''}
-                  disabled={ocupado}
-                  onChange={(e) => setValores({ ...valores, [k]: e.target.value })}
-                  placeholder={l.valor === null ? '' : String(l.valor)}
-                />
-              </label>
-            );
-          })}
+        {/*
+          ⚠ EN COLUMNAS Y NO EN LISTA — etapa ADM4, y es el punto 1 del pedido.
+
+          El branch entero eran 28 renglones, uno por (tipo, nivel), y la ventana
+          quedaba larguísima. Ahora son 14 filas con los niveles en columnas: la
+          MISMA forma que la tabla de afuera, con el mismo componente.
+
+          ⚠ Y LAS CELDAS QUE NO SE ESTÁN EDITANDO SE MUESTRAN, apagadas y sin
+          campo. En la ventana de una celda o de una fila eso es el contexto --se
+          ve qué más tiene ese tipo de préstamo-- y en la del branch no cambia
+          nada, porque se editan todas. Dejarlas fuera habría hecho que la
+          ventana de una celda fuera una tabla de una celda, que no es una tabla.
+
+          Lo que NO cambia es qué se guarda: las líneas editables son las de
+          `lineas`, y `cambios` sigue saliendo sólo de ellas.
+        */}
+        <div className="mg-form__tabla">
+          <TablaDeMargenes
+            clase="mg-form__piv"
+            tipos={tiposDeLaVentana}
+            niveles={grilla.niveles}
+            rotulo={(tipo) => tipo}
+            celda={(tipo, n) => {
+              const linea = grilla.celda(tipo, n);
+              if (linea === null) return null;
+              const k = tipo + '/' + n;
+              const editable = lineas.some((l) => l.loanType === tipo && l.nivel === n);
+              if (!editable) {
+                return {
+                  clase: 'zero mg-form__fija',
+                  marca: 'fija',
+                  contenido: fmt(linea.valor),
+                };
+              }
+              const crudo = (valores[k] ?? '').trim();
+              const num = Number(crudo);
+              const mal = crudo !== '' && (!Number.isFinite(num) || num < 0 || !Number.isInteger(num));
+              return {
+                marca: 'editable',
+                contenido: (
+                  <label className="mg-form__celda">
+                    <span className="mg-form__actual" data-mg-actual={k}>
+                      now {fmt(linea.valor)}
+                    </span>
+                    <input
+                      className={'field mg-form__input' + (mal ? ' mg-form__input--mal' : '')}
+                      data-mg-input={k}
+                      type="number"
+                      min="0"
+                      step="1"
+                      inputMode="numeric"
+                      value={valores[k] ?? ''}
+                      disabled={ocupado}
+                      onChange={(e) => setValores({ ...valores, [k]: e.target.value })}
+                      placeholder={linea.valor === null ? '' : String(linea.valor)}
+                    />
+                  </label>
+                ),
+              };
+            }}
+          />
         </div>
 
         <p className="mg-form__nota">Whole basis points only — no decimals. Leave a field untouched to keep it.</p>
