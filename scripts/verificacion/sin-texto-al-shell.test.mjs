@@ -20,6 +20,14 @@ const BLOQUEA = [
   ["python - <<'EOF'\nprint(1)\nEOF", 'heredoc'],
   ['cat archivo <<<"texto"', 'heredoc'],
   ['node -e "console.log(1)"', 'código como argumento'],
+  /*
+   * ⚠ EL CASO REAL, no inventado: este comando CORRIÓ sin rebotar mientras se
+   * medía otra etapa. El patrón perseguía `-e` y `-c`, y `-p` es `--print`, o
+   * sea lo mismo con un `console.log` puesto. Va con su forma larga al lado.
+   */
+  ["node -p \"Object.keys(require('./package.json').scripts).join('\\n')\"", 'código como argumento'],
+  ['node --print "process.version"', 'código como argumento'],
+  ['python -p "x"', 'código como argumento'],
   ['python -c "print(1)"', 'código como argumento'],
   ["bash -c 'ls -la'", 'código como argumento'],
   ['powershell -Command "Get-ChildItem"', 'código como argumento'],
@@ -72,6 +80,23 @@ const DEJA_PASAR = [
   'ls node_modules | wc -l',
   'echo "ruido" > /dev/null',
   'node scripts/verificacion/sin-texto-al-shell.test.mjs',
+  /*
+   * ⚠ `-p` ES UNA BANDERA COMUNÍSIMA, y por eso el patrón exige el intérprete
+   * pegado adelante. Sin eso, la fila de «código como argumento» se llevaría
+   * puesto medio shell -- y una guarda que bloquea lo permitido es la que
+   * alguien desengancha, con lo que se pierde también lo que sí cubría.
+   */
+  /*
+   * ⚠ EL FALSO POSITIVO QUE SE COMIÓ ESTA MISMA ETAPA: buscar la bandera COMO
+   * TEXTO. El comando es prosa sobre la guarda, no código para un intérprete.
+   */
+  'grep -n "node -e`, `python -c" AGENTS.md',
+  "grep -rn 'bash -c' scripts/",
+  'mkdir -p scripts/verificacion/salida',
+  'docker run -p 3000:3000 imagen',
+  'npm run dev -p 3210',
+  'grep -rn "algo" . | head -p 3',
+  'npx next dev -p 3230',
   /*
    * ⚠ EL SEGUNDO FALSO POSITIVO: `--title` con el cuerpo en un archivo.
    *
@@ -135,6 +160,15 @@ const SIGUE_BLOQUEANDO = [
   ['sed -i "s/$viejo/nuevo/" archivo.ts', 'sed -i con escapes'],
   ['sed -i "s/x/`date`/" archivo.ts', 'sed -i con escapes'],
   ["sed -i 's/a/b/' archivo.ts && echo `pwd` > x.txt", 'texto redirigido a un archivo'],
+  /*
+   * ⚠ EL CONTROL DEL `sobre: 'ambas'` DE «código como argumento»: en un `-e` de
+   * verdad la bandera va FUERA de las comillas, así que ignorar lo entrecomillado
+   * no puede perderla. Sin estas tres, «el grep de prosa pasa» seria compatible
+   * con una regla que dejo de mirar la bandera.
+   */
+  ['node -e "console.log(`hola`)"', 'código como argumento'],
+  ["python -c 'print(\"x\")'", 'código como argumento'],
+  ['node -p "require(\'./package.json\').version"', 'código como argumento'],
 ];
 
 /*
