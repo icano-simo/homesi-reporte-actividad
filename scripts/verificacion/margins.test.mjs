@@ -51,6 +51,8 @@ const {
   ordenarBranches,
   cambiosHuerfanos,
   filasDeLaVersion,
+  seccionesDeBranch,
+  esMarcadorDeReclutamiento,
 } = await import(pathToFileURL(resolve(RAIZ, 'lib/admin/margins-modelo.ts')).href);
 
 /** Una fila, con la clave armada igual que la arma el sync. */
@@ -101,7 +103,7 @@ for (const [tipo, b1, b2, d1, d2] of V733) {
 }
 
 /* El numero sale de contar las llamadas con el patron anclado al margen. */
-const a = crearArnes({ minimo: 33 });
+const a = crearArnes({ minimo: 42 });
 try {
   /* ═══ 0. El ancla: el fixture es el que se midio ═══ */
   console.log('\n=== 0. el fixture ===');
@@ -253,6 +255,64 @@ try {
     'de reclutamiento caen en el medio (' + JSON.stringify(orden) + ')');
   a.ck(NIVELES.length === 3 && NIVELES[2] === 'Region',
     'ancla: los tres niveles, con Region al final, que es el orden de las columnas');
+
+  /* ═══ 7. Activo, inactivo y lo que no es un branch — etapa ADM5 ═══ */
+  console.log('\n=== 7. las secciones de branches ===');
+  /*
+   * ⚠ LA REGLA ES LA DE OUTLOOK: hay productor activo o no lo hay. Los casos de
+   * abajo son los que el dato de hoy tiene, armados a mano para que la prueba
+   * no dependa de como este el roster manana.
+   */
+  const roster = [
+    /* 710: dos productores activos -> activo */
+    { branch_code: '710', is_producer: true, is_active: true },
+    { branch_code: '710', is_producer: false, is_active: true },
+    /* 700: gente activa y NINGUN productor -> inactivo, pero esta en el roster */
+    { branch_code: '700', is_producer: false, is_active: true },
+    { branch_code: '700', is_producer: false, is_active: true },
+    /* 716: su unico productor esta de baja -> inactivo */
+    { branch_code: '716', is_producer: true, is_active: false },
+    /* ruido que no tiene que contar */
+    { branch_code: null, is_producer: true, is_active: true },
+    { branch_code: '   ', is_producer: true, is_active: true },
+  ];
+  const sec = seccionesDeBranch(
+    ['700', '710', '716', '741', 'Recruitment - BM', 'Recruitment - LO Only'],
+    roster
+  );
+  console.log('secciones: ' + JSON.stringify(sec));
+  a.ck(JSON.stringify(sec.activos) === JSON.stringify(['710']),
+    '⚠ activo es el que tiene un productor ACTIVO, no el que tiene gente: ' +
+    JSON.stringify(sec.activos));
+  a.ck(sec.inactivos.includes('700'),
+    '⚠ el 700 es INACTIVO con gente activa adentro: la regla pregunta por ' +
+    'productores, y preguntar por `is_active` a secas lo pondria con los que operan');
+  a.ck(sec.inactivos.includes('716'),
+    'y un productor dado de baja no alcanza para estar activo');
+  a.ck(JSON.stringify(sec.marcadores) === JSON.stringify(['Recruitment - BM', 'Recruitment - LO Only']),
+    '⚠ LOS DOS MARCADORES NO SON NINGUNO DE LOS DOS: cumplen la regla de inactivo ' +
+    'y llamarlos asi seria falso -- nunca estuvieron activos');
+  a.ck(!sec.inactivos.includes('Recruitment - BM') && !sec.activos.includes('Recruitment - BM'),
+    'asi que no estan en ninguna de las dos secciones');
+  a.ck(JSON.stringify(sec.sinFilaEnRoster) === JSON.stringify(['741']),
+    '⚠ y el tercer estado se cuenta aparte: el 741 no tiene NI UNA fila en el roster, ' +
+    'que no es lo mismo que el 700 (' + JSON.stringify(sec.sinFilaEnRoster) + ')');
+  a.ck(sec.activos.length + sec.inactivos.length + sec.marcadores.length === 6,
+    'ancla: los seis branches caen en exactamente una seccion, sin perder ni duplicar');
+
+  /* ⚠ El caso donde tiene que decir NO: sin roster, nadie es activo. */
+  const vacio = seccionesDeBranch(['700', '710'], []);
+  a.ck(vacio.activos.length === 0 && vacio.inactivos.length === 2,
+    '⚠ SIN ROSTER TODOS CAEN EN INACTIVO -- por eso la pantalla distingue «el roster ' +
+    'vino vacio» de «estos branches no operan»: sin ese aviso diria que la division ' +
+    'entera dejo de producir');
+
+  a.ck(esMarcadorDeReclutamiento('Recruitment - BM') &&
+       esMarcadorDeReclutamiento('recruitment') &&
+       !esMarcadorDeReclutamiento('Recruiting') &&
+       !esMarcadorDeReclutamiento('700'),
+    '⚠ el marcador se reconoce por la PALABRA y no por un prefijo: `Recruiting` no es ' +
+    'uno, y un prefijo pelado lo habria tomado');
 } finally {
   process.exitCode = a.resumen();
 }

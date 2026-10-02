@@ -667,12 +667,61 @@ table.piv.adm-tbl th.bp-center {
  * `auto-fill` dejaba la tarjeta en media pantalla y la otra mitad en blanco.
  * Con los 21 las dos se comportan igual.
  */
+/*
+ * ── Las secciones de branches — etapa ADM5 ────────────────────────────────
+ *
+ * El encabezado es `flex` con los tres hijos ENVUELTOS en su propio elemento.
+ * Prosa como hijo directo de un flex se parte en items, el `innerText` no
+ * cambia y ninguna asercion de texto lo ve: ya paso dos veces en este repo.
+ */
+.mg-seccion {
+  margin-top: 22px;
+}
+.mg-seccion__cab {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--slate-200);
+}
+.mg-seccion__titulo {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--navy);
+}
+.mg-seccion__n {
+  border-radius: var(--radius-full);
+  background: var(--slate-100);
+  color: var(--slate-600);
+  padding: 1px 9px;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+/* Que mide la seccion, al lado del titulo y no en un tooltip: «inactivo» es una
+   afirmacion sobre un branch y conviene que diga de donde sale. */
+.mg-seccion__que {
+  min-width: 0;
+  color: var(--slate-400);
+  font-size: 11.5px;
+}
+.mg-pie {
+  margin: 20px 0 0;
+  color: var(--slate-500);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
 .mg-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(600px, 100%), 1fr));
   gap: 16px;
   align-items: start;
-  margin-top: 16px;
+  margin-top: 12px;
 }
 .mg-card {
   padding-bottom: 4px;
