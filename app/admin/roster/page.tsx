@@ -1,6 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+/* Las reglas de los dos grupos de prioridad — etapa ADM9. Las mismas que Outlook. */
+import {
+  GROUP_LABEL,
+  DATE_LABEL,
+  priorityDate,
+  willNotProduce,
+} from '@/lib/recruitment/prioridades';
 import {
   acknowledgeChange,
   haceCuanto,
@@ -156,7 +163,15 @@ export default function RosterPage() {
     );
   }
 
-  const { indicadores: k, diagnostics, branches, reclutamiento, actualizado } = data;
+  const { indicadores: k, diagnostics, branches, reclutamiento, prioridades, actualizado } = data;
+
+  /*
+   * El día de hoy en UTC, para marcar las fechas vencidas. Se calcula una vez
+   * acá y se pasa a `priorityDate`: si cada fila leyera el reloj por su cuenta,
+   * una lista larga podría quedar partida por un cambio de día a mitad del
+   * render.
+   */
+  const hoy = new Date().toISOString().slice(0, 10);
   const pendientes = data.changes.filter((c) => !c.acknowledged);
   const revisados = data.changes.filter((c) => c.acknowledged);
   const enProceso = reclutamiento.reduce((a, g) => a + g.gente.length, 0);
@@ -272,6 +287,106 @@ export default function RosterPage() {
       </section>
 
       {/* ── 3. Reclutamiento ──────────────────────────────────────────── */}
+      {/* ── 3a. A quién mirar primero ──────────────────────────────────── */}
+      {/*
+        ⚠ VA ANTES DEL BLOQUE DE ABAJO, y el orden es la mitad del punto: éste
+        contesta "a quién miro hoy" y aquél "cómo está cada caso". Al revés, lo
+        prioritario queda debajo de una grilla de cinco grupos.
+
+        Los dos grupos NO se suman entre sí ni con los de abajo: son las mismas
+        personas vistas con otro criterio. Por eso cada uno lleva su propio
+        conteo y no hay un total.
+      */}
+      <section className="adm-block">
+        <div className="adm-head">
+          <h2 className="adm-h">Who to look at first</h2>
+          <span className="adm-muted">
+            {prioridades.salesforce_high.length + prioridades.hiring_process.length} across 2 groups
+          </span>
+        </div>
+
+        <div className="adm-grid">
+          {(['salesforce_high', 'hiring_process'] as const).map((grupo) => {
+            const filas = prioridades[grupo];
+            return (
+              <div className="tbl-card adm-bcard adm-grupo" key={grupo} data-adm-prioridad={grupo}>
+                <div className="tbl-card__head">
+                  <span className="tbl-card__title adm-grupo__titulo">{GROUP_LABEL[grupo]}</span>
+                  <span className="adm-bcard__n">{filas.length}</span>
+                </div>
+                <p className="adm-grupo__que">{DATE_LABEL[grupo]}</p>
+
+                {/*
+                  ⚠ VACÍO SE DICE, NO SE DESAPARECE. El grupo prioritario puede
+                  quedar sin nadie y eso es correcto: significa que no hay nadie
+                  en negociación con importancia alta. Una sección ausente se lee
+                  como "esto no existe"; una vacía con su motivo, como "hoy no
+                  hay nadie", que es la verdad.
+                */}
+                {filas.length === 0 ? (
+                  <p className="adm-muted">
+                    {grupo === 'salesforce_high'
+                      ? 'Nobody is in a high-importance negotiation right now.'
+                      : 'Nobody is in the hiring process right now.'}
+                  </p>
+                ) : (
+                  <ul className="adm-personas">
+                    {filas.map((r) => {
+                      const f = priorityDate(r, grupo, hoy);
+                      return (
+                        <li className="adm-recluta" key={r.nombre} data-adm-prioridad-fila="">
+                          <span className="adm-persona__nombre">{r.nombre}</span>
+                          <span className="adm-persona__branch">{r.branchCode?.trim() || SIN_BRANCH}</span>
+                          <span className="adm-persona__cargo">{r.recruiter?.trim() || SIN_BRANCH}</span>
+                          <span className="adm-recluta__fecha">
+                            {shortDate(f.date) ?? SIN_BRANCH}
+                            {/*
+                              Una fecha vencida es un DATO, no un error: una
+                              negociación que no avanzó, o alguien que debía
+                              haber entrado y no figura en el roster. Sin
+                              marcarla, las dos se leen como si estuvieran por
+                              pasar.
+                            */}
+                            {f.overdue ? <span className="adm-recluta__hace">overdue</span> : null}
+                          </span>
+                          {/*
+                            Entra a la empresa pero no va a originar. Se rotula
+                            en vez de sacarse: quien sume esta sección esperando
+                            futuros originadores lo contaría de más.
+                          */}
+                          {willNotProduce(r) ? (
+                            <span className="adm-persona__cargo">will not originate</span>
+                          ) : null}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/*
+          ⚠ LOS QUE QUEDAN FUERA, Y POR QUÉ. Sobre todo los que nadie triagó: la
+          respuesta a "¿y por qué no está fulano?" es que falta que un reclutador
+          les fije importancia, NO que se los descartó. Son dos cosas distintas y
+          sólo una es accionable.
+        */}
+        {prioridades.excluded.length > 0 && (
+          <p className="adm-hint">
+            <b>{prioridades.excluded.length} not in either group.</b>{' '}
+            {prioridades.excluded.filter((e) => e.reason === 'no_prioritario').length} triaged as low or medium,{' '}
+            {prioridades.excluded.filter((e) => e.reason === 'fuera_de_negociacion').length} no longer in negotiation,
+            and{' '}
+            <b>
+              {prioridades.excluded.filter((e) => e.reason === 'sin_triage').length} nobody has triaged yet — those are
+              not low priority, they are waiting for a recruiter to set one.
+            </b>
+          </p>
+        )}
+      </section>
+
       <section className="adm-block">
         <div className="adm-head">
           <h2 className="adm-h">Hiring in progress</h2>
