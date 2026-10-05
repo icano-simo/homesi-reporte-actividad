@@ -292,8 +292,21 @@ export default function ReviewSettingsPage() {
         .update({
           reviewer_employee_key: Number(nuevoRevisor),
           due_on: nuevoVence,
-          /* ⚠ OBLIGATORIO, y la policy lo compara contra el email del JWT.
-             Omitirlo no es «un campo menos»: la fila se rechaza. */
+          /*
+           * ⚠ OBLIGATORIO, y la policy lo compara contra el email del JWT.
+           *
+           * Y CUÁNDO rechaza es más fino de lo que parece, medido sobre dos
+           * prácticas: el `with check` se evalúa sobre la FILA RESULTANTE, no
+           * sobre el `SET`. Omitirlo rechaza con `42501` sólo si lo que la fila
+           * YA TENÍA no es el email de quien edita --la 96, con `updated_by` en
+           * `null`, rechazó--; sobre una fila que esa misma persona editó antes
+           * el check PASA, porque la fila nueva conserva su email. Medido: la
+           * 97 guardó sin `updated_by` y dejó `updated_at` viejo.
+           *
+           * O sea que omitirlo no falla siempre: falla la primera vez y después
+           * se vuelve silencioso. Por eso va escrito en el `update` y no
+           * confiado a que la base avise.
+           */
           updated_by: email,
           updated_at: new Date().toISOString(),
         })
