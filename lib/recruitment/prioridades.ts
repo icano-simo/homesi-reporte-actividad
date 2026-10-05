@@ -73,6 +73,17 @@ export const DATE_LABEL: Record<PriorityGroup, string> = {
  *
  * Que no excluya a nadie hoy es la razón por la que conviene que esté escrito --
  * si se omite, nadie va a notar su falta hasta que ya haya pasado.
+ *
+ * ⚠ LA COMPARACIÓN ES EXACTA, Y AHÍ HAY UNA TRAMPA. Verificado byte por byte:
+ * la base guarda 'Maria Guerrero' SIN TILDE. El día que la fuente escriba
+ * 'María Guerrero', la fila deja de ser prioritaria y cae en `otro_reclutador`
+ * -- sin error, sin aviso, con el grupo encogiéndose solo.
+ *
+ * Y el orden de `exclusionReason` lo hace más silencioso todavía: el reclutador
+ * se mira ÚLTIMO, así que una fila `Low` de un reclutador mal escrito igual
+ * reporta `no_prioritario`. Sólo una fila `High` revelaría el problema, y hoy
+ * hay una sola de María -- Otoniel Gomez. De ahí que haya una prueba con su
+ * nombre: es la única que ejercita esta entrada de la lista.
  */
 export const PRIORITY_RECRUITERS = ['Maria Guerrero', 'Juanjo Cabrera'] as const;
 
@@ -167,15 +178,22 @@ export function exclusionReason(row: PriorityRow): ExclusionReason | null {
  * La fecha que le corresponde al grupo, y si quedó en el pasado.
  *
  * ⚠ UNA FECHA VENCIDA ES UN DATO, NO UN ERROR, y por eso se marca en vez de
- * ocultarse. Los dos casos reales al 2026-10-05, y van en direcciones opuestas:
+ * ocultarse. Son CUATRO al 2026-10-05, y van en direcciones opuestas:
  *
  *   Luis Landaverde    cierre esperado 2024-06-14 -- más de un año vencido. Sin
  *                      marcarlo, la fila se lee como si estuviera por cerrarse.
+ *   Otoniel Gomez      cierre esperado 2026-09-30, la semana pasada.
  *   Jorge Betancur     ingreso 2026-08-17, hace casi dos meses. Sin marcarlo,
  *                      se lee como un ingreso próximo.
+ *   Rosario Lopez      ingreso 2026-10-01. Ya debería estar en el roster.
  *
  * Es la misma señal con dos significados: una negociación que no avanzó, y
  * alguien que debería haber entrado y no figura en el roster.
+ *
+ * ⚠ Y HOY LAS DOS FILAS DEL GRUPO 1 ESTÁN VENCIDAS, que es lo que se ve al
+ * mirarlas juntas y no fila por fila: no hay ninguna negociación prioritaria
+ * cuyo cierre esperado siga en el futuro. Eso no lo dice ninguna marca
+ * individual.
  */
 export interface PriorityDate {
   group: PriorityGroup;

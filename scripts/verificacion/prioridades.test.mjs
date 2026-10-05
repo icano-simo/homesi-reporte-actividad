@@ -8,17 +8,35 @@
  * `lib/recruitment/prioridades.ts` es puro: Node importa el `.ts` directo,
  * igual que `ventana-de-edicion.test.mjs`.
  *
- * Los casos salen de las 21 filas reales de `fct_future_loan_officer` medidas
- * el 2026-10-05, y los que importan son los que separan reglas parecidas:
+ * Los casos salen de las 21 filas reales de `activity_report.future_loan_officer`
+ * CONSULTADAS, no transcriptas -- ver abajo--, y los que importan son los que
+ * separan reglas parecidas:
  *
  *   · Victoria Zambrano es `High` y NO entra: está en Closed Won, no en
  *     Negotiation. Si el criterio fuera sólo la importancia, entraría.
  *   · Luis Landaverde entra CON el cierre vencido hace más de un año. Vencido
  *     no es excluido -- es marcado.
+ *   · Otoniel Gomez entra, y es el ÚNICO `High` de María Guerrero: sin él,
+ *     `PRIORITY_RECRUITERS` quedaba probado por una sola de sus dos entradas.
  *   · Jorge Betancur entra al grupo del tablero con fecha de ingreso PASADA, que
  *     es la misma señal en la otra dirección.
  *   · Los tres sin `importance` quedan fuera por `sin_triage` y NO por
  *     `no_prioritario`. Es la distinción que el brief pidió preservar.
+ *
+ * ---------------------------------------------------------------------------
+ * ⚠ UN NOMBRE REAL EN UNA PRUEBA ES UNA AFIRMACIÓN SOBRE EL DATO
+ * ---------------------------------------------------------------------------
+ * Este archivo tuvo a Otoniel Gomez como ejemplo de `Low`, y en la base es
+ * `High`. El valor llegó de una transcripción a mano de las filas, y una vez
+ * escrito acá dejó de parecer una transcripción: una prueba que nombra a una
+ * persona se lee como algo verificado contra ella.
+ *
+ * La regla no estaba mal -- `Low` sigue siendo `no_prioritario`. Lo que estaba
+ * mal era el ejemplo, y por eso el error sobrevivió a que las pruebas pasaran.
+ *
+ * Lo que sale de ahí: un nombre real sólo entra con el valor que la consulta
+ * devolvió. Para probar una regla sin afirmar nada sobre nadie están `sf()` y
+ * `rrhh()`, que no llevan nombre.
  */
 import { strict as assert } from 'node:assert';
 import {
@@ -88,9 +106,37 @@ prueba('Victoria: High pero Closed Won NO entra', () => {
 });
 
 prueba('Low en Negotiation NO entra, y el motivo es no_prioritario', () => {
-  const o = sf({ nombre: 'Otoniel Gomez', importance: 'Low' });
+  /*
+   * ⚠ ACÁ DECÍA 'Otoniel Gomez', Y ERA FALSO. Otoniel es `High` en la base y
+   * ENTRA al grupo -- ver la prueba de abajo. El nombre llegó acá desde una
+   * transcripción a mano que lo puso en `Low`, y una vez escrito en una prueba
+   * con su nombre, el error se lee como un hecho verificado.
+   *
+   * La regla que esta prueba comprueba está bien; lo que estaba mal era el
+   * ejemplo. Eduardo Portella sí es `Low`, medido.
+   */
+  const o = sf({ nombre: 'Eduardo Portella', importance: 'Low' });
   assert.equal(groupOf(o), null);
   assert.equal(exclusionReason(o), 'no_prioritario');
+});
+
+prueba('⚠ Otoniel: High de María Guerrero ENTRA', () => {
+  /*
+   * ⚠ ESTA PRUEBA TAPA UN HUECO, no repite la de arriba.
+   *
+   * La primera prueba del archivo usa a Luis, que es de Juanjo Cabrera. Hasta
+   * acá NINGUNA ejercitaba un `High` del OTRO reclutador de la lista, así que
+   * `PRIORITY_RECRUITERS` sólo estaba probado por una de sus dos entradas --y
+   * por la de afuera, que verifica el rechazo--.
+   *
+   * Importa porque la comparación es por igualdad exacta: el día que la fuente
+   * escriba 'María Guerrero' con tilde, la fila deja de ser prioritaria sin que
+   * nada falle, y cae en `otro_reclutador`. Hoy la base dice 'Maria Guerrero'
+   * sin tilde, verificado byte por byte.
+   */
+  const otoniel = sf({ nombre: 'Otoniel Gomez', importance: 'High', recruiter: 'Maria Guerrero' });
+  assert.equal(groupOf(otoniel), 'salesforce_high');
+  assert.equal(exclusionReason(otoniel), null);
 });
 
 prueba('Medium tampoco: el criterio es estrictamente High', () => {
