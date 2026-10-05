@@ -1,6 +1,8 @@
 'use client';
 
 import { getSupabaseClient } from '@/lib/supabase/client';
+/* Las reglas de los dos grupos de prioridad — etapa ADM9. Compartidas con Outlook. */
+import { buildPriorityGroups, type PriorityGroups } from '@/lib/recruitment/prioridades';
 
 /*
  * ============================================================================
@@ -156,6 +158,14 @@ export interface ReclutaRow {
   /** Solo `salesforce`: la fecha ESPERADA de cierre, no de ingreso. */
   close_date: string | null;
   synced_at: string;
+  /* Las cuatro de ADM9. Ver `lib/recruitment/prioridades.ts`. */
+  /** El `stage` de Salesforce. Nulo en las de `hr_pipeline`. */
+  stage: string | null;
+  /** 'High' | 'Low' | 'Medium' | null. ⚠ Nulo es "nadie lo triagó", no "bajo". */
+  importance: string | null;
+  recruiter: string | null;
+  /** Falso en Business Development y LO Assistant: entran pero no originan. */
+  producira: boolean;
 }
 
 /**
@@ -236,8 +246,17 @@ export interface AdminData {
   /** Solo activas, agrupadas por branch. Las bajas se conservan y no se listan. */
   branches: BranchDelRoster[];
   indicadores: Indicadores;
-  /** Los 21 en proceso, agrupados por fuente y confianza. */
+  /** Los que están en proceso, agrupados por fuente y confianza. */
   reclutamiento: GrupoDeReclutamiento[];
+  /**
+   * Los mismos en proceso, agrupados por A QUIÉN MIRAR PRIMERO — etapa ADM9.
+   *
+   * ⚠ NO REEMPLAZA A `reclutamiento`: son dos preguntas distintas sobre las
+   * mismas filas. Aquél dice cuán firme es cada caso; éste, cuáles son
+   * prioritarios. Un `tentative` de 2024 no es prioritario, y un `Low` que
+   * cierra la semana que viene tampoco -- aunque sea mucho más firme.
+   */
+  prioridades: PriorityGroups;
   changes: RosterChange[];
   /** `max(synced_at)` de cada fuente, que es lo que la pantalla muestra como "actualizado". */
   actualizado: { roster: string | null; reclutamiento: string | null };
@@ -325,7 +344,15 @@ export async function loadAdminData(): Promise<AdminData> {
     supabase
       .schema('activity_report')
       .from('future_loan_officer')
-      .select('nombre, origen, confianza, cargo, branch_code, fecha_inicio, close_date, synced_at')
+      /*
+       * `stage`, `importance`, `recruiter` y `producira` entran por ADM9 -- son
+       * lo que decide los dos grupos de prioridad. No se filtra por `producira`
+       * acá a propósito: los que no van a originar SE MUESTRAN rotulados, y
+       * filtrarlos en la consulta haría imposible rotularlos.
+       */
+      .select(
+        'nombre, origen, confianza, cargo, branch_code, fecha_inicio, close_date, synced_at, stage, importance, recruiter, producira',
+      )
       .order('nombre', { ascending: true }),
     org.from('roster_change_log').select('*').order('detected_at', { ascending: false }),
   ]);
@@ -364,6 +391,40 @@ export async function loadAdminData(): Promise<AdminData> {
     const clave = (r.origen ?? '?') + ' ' + (r.confianza ?? '?');
     porGrupo.set(clave, [...(porGrupo.get(clave) ?? []), r]);
   }
+  /*
+   * ============================================================================
+   * LOS DOS GRUPOS DE PRIORIDAD — etapa ADM9
+   * ============================================================================
+   *
+   * Van AL LADO del bloque de arriba y no lo reemplazan. Son dos preguntas
+   * distintas sobre las mismas filas: aquél agrupa por fuente y confianza --cómo
+   * de firme es cada caso--, éste por a quién hay que mirar primero.
+   *
+   * Las reglas viven en `lib/recruitment/prioridades.ts`, no acá, porque Outlook
+   * consume las mismas: los mismos criterios escritos dos veces divergen.
+   */
+  /*
+   * El día de hoy en UTC, `YYYY-MM-DD`. Entra por parámetro a las reglas --y no
+   * lo lee el módulo del reloj-- para que "la fecha está vencida" se pueda
+   * probar sin esperar a que pase.
+   */
+  const hoy = new Date().toISOString().slice(0, 10);
+
+  const prioridades: PriorityGroups = buildPriorityGroups(
+    reclutas.map((r) => ({
+      nombre: r.nombre,
+      origen: r.origen,
+      stage: r.stage,
+      importance: r.importance,
+      recruiter: r.recruiter,
+      branchCode: r.branch_code,
+      closeDate: r.close_date,
+      startDate: r.fecha_inicio,
+      producira: r.producira,
+    })),
+    hoy,
+  );
+
   const reclutamiento: GrupoDeReclutamiento[] = [...porGrupo.entries()]
     .map(([clave, gente]) => {
       const [origen, confianza] = clave.split(' ');
@@ -395,6 +456,8 @@ export async function loadAdminData(): Promise<AdminData> {
       conFechaDeIngreso: activas.filter((p) => p.date_started !== null).length,
     },
     reclutamiento,
+    /* Los dos grupos de ADM9. Van al lado del anterior, no lo reemplazan. */
+    prioridades,
     changes,
     actualizado: {
       roster: people.reduce<string | null>((max, p) => (max === null || p.synced_at > max ? p.synced_at : max), null),
