@@ -650,6 +650,34 @@ Y del lado del que reporta, la obligación es la simétrica: **decir sobre qué
 objeto se midió** --qué rama, qué clave, qué archivo, qué sesión-- para que la
 pregunta se pueda contestar sin repetir el trabajo.
 
+#### ⚠ Y EL CASO CONTRARIO: cuando el reporte SÍ coincide y los dos están mal
+
+La regla de arriba se dispara con la discrepancia, así que no cubre lo que pasó
+en RV35. Reporté que `2026-09-review-practica-autoservicio.sql` **se había
+aplicado a medias**: conté tres policies en `assignment`, no encontré las dos de
+ese archivo, vi que `review.reiniciar_practica` sí existía, y de ahí salió «el
+archivo quedó parcial».
+
+El usuario contestó encajando perfecto: *«fue decisión mía, apliqué la función
+de reinicio y dejé esa policy afuera»*. Coincidía con mi diagnóstico, así que
+ninguno de los dos volvió a mirar. Y era falso de los dos lados: de ese archivo
+**no se aplicó nada**, y `reiniciar_practica` viene de `2026-09-review-practica.sql`,
+que es otro archivo y se corrió entero.
+
+> **Una explicación que encaja con un diagnóstico falso lo confirma.** La
+> discrepancia dispara una pregunta; la coincidencia no dispara nada, y por eso
+> es el caso que pasa.
+
+Lo que lo delató no fue una sospecha: fue ir a ESCRIBIR la nota y necesitar el
+nombre del archivo de cada objeto. La pregunta mecánica --`git grep` del nombre
+de la función-- contestó en un comando lo que dos personas habían dado por
+sabido.
+
+La regla operativa: **antes de decir que un `.sql` se aplicó a medias, preguntar
+de qué ARCHIVO es cada objeto que se encontró.** Es el mismo movimiento que
+nombrar la rama al afirmar algo del repo, y vale igual cuando el otro te da la
+razón: **una premisa compartida no está verificada por ser compartida.**
+
 Lo que lo delató, las cinco veces, fue lo mismo — y es la regla de la sección
 del `3×`, en la dirección contraria:
 
