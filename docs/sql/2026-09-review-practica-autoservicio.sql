@@ -1,13 +1,49 @@
 -- ============================================================================
--- RV27 — PROPUESTA: que el equipo se asigne su propia práctica
+-- RV27 — EL AUTOSERVICIO DE PRÁCTICAS: PROPUESTO, Y DECIDIDO QUE NO
 -- ============================================================================
 --
--- ⚠ NO APLICAR. Esto NO es parte de la etapa: es la opción B de una decisión
--- que toma Isabella. La etapa entregada funciona sin este archivo -- con
--- `review_admin` alcanza para crear una práctica desde `Coach settings`.
+-- ⚠ NO SE APLICA, Y YA NO ES UNA DECISIÓN PENDIENTE. Isabella decidió no abrir
+-- el autoservicio: las prácticas las asignan ella, Fernando o Ricardo, que son
+-- los tres con `review_admin`. Lo de RV27 que SÍ se aplicó es la función de
+-- reinicio, y vive en otro archivo --`2026-09-review-practica.sql`--.
 --
--- Se escribe ahora, sin aplicar, para que la decisión se pueda tomar mirando lo
--- que costaría y no una descripción de lo que costaría.
+-- Decisión del usuario, 2026-10-05. Lo que la reabriría es que las prácticas
+-- dejen de pasar por esas tres personas; si eso cambia, se aplica ESTE archivo
+-- entero y se escribe la razón al lado, como con cualquier permiso que se
+-- otorga.
+--
+-- ── ⚠ Y LA CONSECUENCIA VIGENTE, QUE NO ES «NO SE PUEDE» SINO EL SILENCIO ───
+--
+-- Sin estas dos policies, quien no tenga `review_admin` e intente dar de baja
+-- su propia práctica con un UPDATE no recibe un error: el `using` de
+-- `assignment_update` --que pide `review.can_assign()`-- filtra la fila y
+-- PostgREST contesta CERO FILAS con `error: null`. Es la primera de las dos
+-- negativas que `2026-09-review-mode.sql` deja escritas al lado de esa policy:
+-- el `using` rechaza sin decirlo, el `with check` llega como `42501`.
+--
+-- Hoy no muerde porque el único formulario vive en `/review/settings`, que
+-- `proxy.ts` cierra con el mismo claim. Es el `Reset` de `/review` el que la
+-- gente usa, y ése pasa por `reiniciar_practica`, que es `security definer`.
+--
+-- ── ⚠ Y UNA CORRECCIÓN DE REGISTRO, porque el error fue mío ─────────────────
+--
+-- Al mirar las policies de `assignment` en RV35 conté tres, no encontré las de
+-- este archivo, vi que `reiniciar_practica` sí existía, y reporté que «el
+-- archivo quedó parcial». Falso: de este archivo no se aplicó NADA. La función
+-- es de otro archivo, y mezclarlas me hizo leer una aplicación a medias donde
+-- había dos archivos con destinos distintos.
+--
+-- La regla que sale: antes de decir que un `.sql` se aplicó a medias, hay que
+-- preguntar de qué ARCHIVO es cada objeto que se encontró. Un `grep` por el
+-- nombre lo contesta, y es el mismo movimiento que nombrar la rama cuando se
+-- afirma algo del repo.
+--
+-- ── Y POR QUÉ EL ARCHIVO SE QUEDA EN EL REPO SIN APLICARSE ──────────────────
+--
+-- Porque la decisión tiene condición de reapertura y el costo ya está medido
+-- acá abajo. Borrarlo obligaría a volver a escribirlo para volver a decidir, y
+-- entonces la decisión se tomaría otra vez sobre una descripción en vez de
+-- sobre lo que cuesta.
 --
 -- ── EL ESTADO DE HOY, MEDIDO (2026-09-30) ───────────────────────────────────
 --
