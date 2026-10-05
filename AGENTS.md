@@ -3239,3 +3239,128 @@ cuatro.
   escribirlos**. Ya salvó un reporte entero -- comprobar un «31 archivos» que yo
   mismo había puesto obligó a medir de nuevo, y la medición trajo el archivo que
   yo decía que no existía.
+
+# Un dato transcripto a mano se vuelve fuente en cuanto alguien lo consulta
+
+> El cuarto de la familia de arriba, y el peor, porque **acá el número mal
+> escrito no se leyó una vez: se consultó dos, y una prueba lo blindó.** La
+> sección anterior trata de un número que se escribe sin medir. Ésta, de qué
+> pasa con ese número **después** de escrito.
+
+## La regla
+
+**Una transcripción a mano es una copia, y deja de parecerlo apenas se guarda.**
+Un `const FILAS = [...]` con los datos tipeados campo por campo tiene la misma
+forma que uno generado, y la siguiente consulta va ahí en vez de ir al origen.
+
+**La regla operativa: las filas van como el JSON que devolvió la consulta,
+pegado verbatim.** Sin reordenar campos, sin reescribir valores, sin convertir a
+llamadas posicionales.
+
+## El caso que la fija (ADM9)
+
+El reporte de los dos grupos de reclutamiento salía de un script con las 21
+filas de `activity_report.future_loan_officer` escritas a mano, una llamada de
+nueve posicionales por persona:
+
+```js
+r('salesforce', 'Otoniel Gomez', 'Negotiation', 'Low', 'Maria Guerrero', …)
+```
+
+En la base Otoniel es **`High`**. Entra al grupo prioritario, que son **dos** y
+no uno. El módulo de reglas estaba bien y `groupOf` lo clasificaba bien: **leyó
+correctamente un dato que yo había escrito mal.**
+
+### Por qué se repitió en dos turnos seguidos
+
+El primer error fue de lectura. **El segundo no fue una lectura nueva: fue mi
+transcripción del primero.** Lo escribí una vez y después me consulté a mí mismo
+en vez de volver al origen. El usuario lo marcó con la frase exacta: «es la
+segunda vez en dos turnos que tu lectura deja a Otoniel afuera, y el dato no
+cambió entre las dos».
+
+### Y lo que lo blindó: una prueba con su nombre
+
+El valor equivocado se había copiado a una prueba:
+
+```js
+const o = sf({ nombre: 'Otoniel Gomez', importance: 'Low' });
+assert.equal(exclusionReason(o), 'no_prioritario');
+```
+
+**La prueba verifica la REGLA, no el DATO.** `Low` sí es `no_prioritario`, así
+que pasó en verde las dos veces. Pero el nombre real convierte un error de
+transcripción en algo que se lee como verificado contra la persona: nadie
+re-mide a Otoniel después de ver una prueba que lo nombra.
+
+> **Una prueba congela lo que afirma, y afirma más de lo que comprueba cuando
+> lleva un nombre propio adentro.**
+
+## Qué hacer
+
+- **Las filas van verbatim, como las devolvió la consulta.** Un bloque JSON
+  pegado es auditable contra el origen; nueve posicionales reescritos a mano no.
+- **El mapeo al tipo del dominio se hace en el script**, con el mismo `.map()`
+  que hacen los loaders. Si el script mapea distinto, no dice nada sobre lo que
+  se ve en pantalla.
+- **Un nombre real en una prueba es una afirmación sobre el dato**, y sólo entra
+  con el valor que devolvió la consulta. Para probar una regla sin afirmar nada
+  sobre nadie están los constructores sin nombre --`sf()`, `rrhh()`--, que es
+  para lo que existen.
+- **Y el reporte imprime invariantes, no sólo conteos** -- ver «Una línea base
+  envejece, y un invariante no». Acá fueron tres: que los grupos y los excluidos
+  particionen las filas leídas, que ninguna fila del tablero de RRHH quede
+  afuera, y que el grupo prioritario sea estrictamente `High`. **La partición
+  habría cazado esto**: el conteo que yo reportaba sumaba 21 igual, pero una
+  invariante sobre el criterio no se satisface con un dato mal tipeado.
+
+# Una entrada de una lista blanca que ninguna prueba ejerce no está probada
+
+> El hermano de «probar una mitad de un contrato», con un agravante: acá **el
+> orden en que se evalúan los motivos esconde el fallo** incluso cuando ocurre.
+
+## La regla
+
+**Una lista de valores permitidos está probada cuando cada entrada tiene un caso
+que la ejerce**, no cuando la lista tiene un caso. Y si la comparación es por
+igualdad exacta contra texto que viene de una fuente externa, **la entrada que no
+se ejerce es una falla silenciosa esperando el día que la grafía cambie.**
+
+## El caso que la fija (ADM9)
+
+`PRIORITY_RECRUITERS` son dos: `Maria Guerrero` y `Juanjo Cabrera`. Las pruebas
+tenían un caso de un `High` que entra --Luis Landaverde, de **Juanjo**-- y uno de
+un reclutador de afuera que se rechaza. **Ninguna ejercía la otra entrada.**
+
+Verificado byte por byte, la base guarda `Maria Guerrero` **sin tilde**
+(`4d6172696120477565727265726f`). El día que la fuente escriba `María Guerrero`,
+esas filas dejan de ser prioritarias: sin error, sin aviso, con el grupo
+encogiéndose solo.
+
+### Y el orden de los motivos lo hace mudo
+
+`exclusionReason` mira el reclutador **último**:
+
+```
+stage → importance nula → importance ≠ High → reclutador fuera de la lista
+```
+
+Así que una fila `Low` con el reclutador mal escrito reporta `no_prioritario`, no
+`otro_reclutador`. **Sólo una fila `High` revelaría el problema**, y hoy hay una
+sola de María. Una cadena ordenada de motivos no es una clasificación: es el
+primer motivo que aplica, y los de más abajo sólo se ven cuando los de arriba no.
+
+## Qué hacer
+
+- **Un caso por entrada de la lista.** Barato, y es la única forma de que la
+  lista esté probada y no sólo presente.
+- **Lo que decide por igualdad exacta sobre texto de una fuente externa se
+  anota**, con el valor medido y con qué pasa si cambia. Acá quedó en el JSDoc
+  de la constante.
+- **No se normaliza para taparlo.** Quitar tildes sería una segunda regla de
+  identidad al lado de la primera, y este repo ya lo pagó con `normName`: dos
+  reglas para lo mismo divergen. La decisión correcta es dejar la comparación
+  estricta y que el caso esté escrito y probado.
+- **Y al leer una cadena ordenada de motivos, acordarse de que el último casi
+  nunca se ejerce.** Si importa distinguirlo, hace falta un caso que llegue hasta
+  él.
