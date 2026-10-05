@@ -5,18 +5,17 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   GROUP_LABEL,
   DATE_LABEL,
+  PERSON_LABEL,
   priorityDate,
   willNotProduce,
 } from '@/lib/recruitment/prioridades';
 import {
   acknowledgeChange,
-  haceCuanto,
   loadAdminData,
   shortDate,
   shortDateTime,
   SIN_BRANCH,
   type AdminData,
-  type GrupoDeReclutamiento,
 } from '@/lib/admin/loadRoster';
 
 /**
@@ -104,21 +103,6 @@ function changeLabel(t: string): string {
   return map[t] ?? t;
 }
 
-/** El nombre de la fuente, como se lee. El dato crudo dice `hr_pipeline`. */
-function fuenteLabel(origen: string): string {
-  return origen === 'hr_pipeline' ? 'HR' : origen === 'salesforce' ? 'Salesforce' : origen;
-}
-
-/**
- * Qué es la fecha de este grupo, dicho en la cabecera.
- *
- * Es la unica forma de que las dos convivan en la pantalla sin que alguien las
- * sume: el rotulo no dice "fecha", dice cuál.
- */
-function fechaLabel(g: GrupoDeReclutamiento): string {
-  return g.fecha === 'inicio' ? 'Start date' : 'Expected close';
-}
-
 export default function RosterPage() {
   const [data, setData] = useState<AdminData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -163,7 +147,9 @@ export default function RosterPage() {
     );
   }
 
-  const { indicadores: k, diagnostics, branches, reclutamiento, prioridades, actualizado } = data;
+  /* `reclutamiento` ya no se desestructura: lo consumía la sección que ADM10
+     sacó. El loader lo sigue trayendo -- ver la nota de abajo. */
+  const { indicadores: k, diagnostics, branches, prioridades, actualizado } = data;
 
   /*
    * El día de hoy en UTC, para marcar las fechas vencidas. Se calcula una vez
@@ -174,7 +160,6 @@ export default function RosterPage() {
   const hoy = new Date().toISOString().slice(0, 10);
   const pendientes = data.changes.filter((c) => !c.acknowledged);
   const revisados = data.changes.filter((c) => c.acknowledged);
-  const enProceso = reclutamiento.reduce((a, g) => a + g.gente.length, 0);
 
   async function marcar(id: number) {
     setSaving(id);
@@ -314,7 +299,14 @@ export default function RosterPage() {
                   <span className="tbl-card__title adm-grupo__titulo">{GROUP_LABEL[grupo]}</span>
                   <span className="adm-bcard__n">{filas.length}</span>
                 </div>
-                <p className="adm-grupo__que">{DATE_LABEL[grupo]}</p>
+                {/*
+                  Las DOS columnas que cambian de significado según el grupo,
+                  dichas juntas: quién es la persona de la derecha y qué fecha
+                  es la de la punta. Ver `PERSON_LABEL` y `DATE_LABEL`.
+                */}
+                <p className="adm-grupo__que">
+                  {PERSON_LABEL[grupo]} · {DATE_LABEL[grupo]}
+                </p>
 
                 {/*
                   ⚠ VACÍO SE DICE, NO SE DESAPARECE. El grupo prioritario puede
@@ -387,64 +379,21 @@ export default function RosterPage() {
         )}
       </section>
 
-      <section className="adm-block">
-        <div className="adm-head">
-          <h2 className="adm-h">Hiring in progress</h2>
-          <span className="adm-muted" data-adm-en-proceso="">
-            {enProceso} in {reclutamiento.length} groups ·{' '}
-            {shortDateTime(actualizado.reclutamiento) ?? 'never'}
-          </span>
-        </div>
+      {/*
+        ADVERTENCIA: ACA HABIA UNA TERCERA SECCION, «Hiring in progress», Y SE
+        FUE EN ADM10.
 
-        {/*
-          Se dice una vez, acá arriba, y no al lado de cada persona: las dos
-          fechas miden cosas distintas y los grupos no se suman entre si.
-        */}
-        <p className="adm-hint">
-          <b>These groups do not add up.</b> The ones from HR have a <b>start date</b>: that is the day the person
-          begins. The ones from Salesforce have an <b>expected close</b>, which is when the opportunity is expected to
-          close — not the day anyone joins.
-        </p>
+        Agrupaba las MISMAS filas por `origen + confianza` --hr confirmado,
+        salesforce ganado, probable, tentative-- o sea las 14 de Salesforce sin
+        filtrar por importancia, mezcladas con las 7 del tablero.
 
-        {reclutamiento.length === 0 && !diagnostics.reclutaError && (
-          <p className="adm-muted">Nobody is being hired right now.</p>
-        )}
+        Eso es CONFIANZA, que es otra pregunta: cuan firme es cada caso. Nadie
+        la pidio, y al lado de los dos grupos de prioridad convertia la pantalla
+        en tres listas de las mismas personas con tres criterios distintos.
 
-        <div className="adm-grid">
-          {reclutamiento.map((g) => (
-            <div
-              className="tbl-card adm-bcard adm-grupo"
-              key={g.origen + g.confianza}
-              data-adm-grupo={g.origen + '/' + g.confianza}
-            >
-              <div className="tbl-card__head">
-                <span className="tbl-card__title adm-grupo__titulo">
-                  {fuenteLabel(g.origen)} · {g.confianza}
-                </span>
-                <span className="adm-bcard__n">{g.gente.length}</span>
-              </div>
-              <p className="adm-grupo__que">{fechaLabel(g)}</p>
-              <ul className="adm-personas">
-                {g.gente.map((r) => {
-                  const fecha = g.fecha === 'inicio' ? r.fecha_inicio : r.close_date;
-                  const hace = g.fecha === 'close' ? haceCuanto(r.close_date) : null;
-                  return (
-                    <li className="adm-recluta" key={r.nombre} data-adm-recluta="">
-                      <span className="adm-persona__nombre">{r.nombre}</span>
-                      <span className="adm-persona__cargo">{r.cargo?.trim() || SIN_BRANCH}</span>
-                      <span className="adm-persona__branch">{r.branch_code?.trim() || SIN_BRANCH}</span>
-                      <span className="adm-recluta__fecha">
-                        {shortDate(fecha) ?? SIN_BRANCH}
-                        {hace ? <span className="adm-recluta__hace">{hace}</span> : null}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          ))}
-        </div>
-      </section>
+        La pantalla contesta UNA pregunta: a quien hay que mirar primero. Las
+        dos reglas de arriba son esa respuesta.
+      */}
 
       {/* ── 4. Los cambios entre cargas ───────────────────────────────── */}
       <section className="adm-block">

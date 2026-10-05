@@ -65,6 +65,30 @@ export const DATE_LABEL: Record<PriorityGroup, string> = {
 };
 
 /**
+ * ⚠ Y LA OTRA COLUMNA TAMPOCO DICE LO MISMO EN LOS DOS GRUPOS — etapa ADM10.
+ *
+ * Las dos dibujan `recruiter`, y ese campo trae personas de oficios distintos
+ * según de dónde salga la fila. Medido el 2026-10-05 contra la base:
+ *
+ *   origen `salesforce`    Maria Guerrero, Juanjo Cabrera   quienes NEGOCIAN
+ *   origen `hr_pipeline`   Jessica Burden, Nancy Hancock    las HR REPS que
+ *                                                           procesan el ingreso
+ *
+ * Sin rótulo, las cuatro se leen como lo mismo. Y pasó: al ver «Jessica Burden»
+ * y «Nancy Hancock» en esa columna se las buscó como CANDIDATAS en
+ * `org.hiring_tracking` y en `activity_report.future_loan_officer` --cero filas
+ * en las dos, porque no son candidatas-- y la conclusión razonable fue que la
+ * pantalla estaba leyendo algo que no corresponde.
+ *
+ * Es la misma familia que `DATE_LABEL`: un valor correcto de una fuente que el
+ * lector no puede adivinar. La columna no cambia de dato, cambia de nombre.
+ */
+export const PERSON_LABEL: Record<PriorityGroup, string> = {
+  salesforce_high: 'Recruiter',
+  hiring_process: 'HR rep',
+};
+
+/**
  * ⚠ LOS DOS RECLUTADORES, COMO GUARDA HACIA ADELANTE.
  *
  * Al 2026-10-05 las 14 filas de Salesforce son de uno de los dos, así que este
@@ -81,9 +105,13 @@ export const DATE_LABEL: Record<PriorityGroup, string> = {
  *
  * Y el orden de `exclusionReason` lo hace más silencioso todavía: el reclutador
  * se mira ÚLTIMO, así que una fila `Low` de un reclutador mal escrito igual
- * reporta `no_prioritario`. Sólo una fila `High` revelaría el problema, y hoy
- * hay una sola de María -- Otoniel Gomez. De ahí que haya una prueba con su
- * nombre: es la única que ejercita esta entrada de la lista.
+ * reporta `no_prioritario`. Sólo una fila `High` revelaría el problema.
+ *
+ * ⚠ Y HOY MARÍA NO TIENE NINGUNA `High`. Medido en ADM10: sus once filas están
+ * en `Negotiation` y las once son `Low`. O sea que esta entrada de la lista
+ * **no la ejerce ningún dato real**, y su prueba la ejerce con una fila sin
+ * nombre -- que es lo correcto, porque una prueba que la ejerciera con un
+ * nombre propio estaría afirmando una importancia que la base no dice.
  */
 export const PRIORITY_RECRUITERS = ['Maria Guerrero', 'Juanjo Cabrera'] as const;
 
@@ -182,7 +210,6 @@ export function exclusionReason(row: PriorityRow): ExclusionReason | null {
  *
  *   Luis Landaverde    cierre esperado 2024-06-14 -- más de un año vencido. Sin
  *                      marcarlo, la fila se lee como si estuviera por cerrarse.
- *   Otoniel Gomez      cierre esperado 2026-09-30, la semana pasada.
  *   Jorge Betancur     ingreso 2026-08-17, hace casi dos meses. Sin marcarlo,
  *                      se lee como un ingreso próximo.
  *   Rosario Lopez      ingreso 2026-10-01. Ya debería estar en el roster.
@@ -190,10 +217,13 @@ export function exclusionReason(row: PriorityRow): ExclusionReason | null {
  * Es la misma señal con dos significados: una negociación que no avanzó, y
  * alguien que debería haber entrado y no figura en el roster.
  *
- * ⚠ Y HOY LAS DOS FILAS DEL GRUPO 1 ESTÁN VENCIDAS, que es lo que se ve al
- * mirarlas juntas y no fila por fila: no hay ninguna negociación prioritaria
- * cuyo cierre esperado siga en el futuro. Eso no lo dice ninguna marca
- * individual.
+ * ⚠ Y HOY EL GRUPO 1 TIENE UNA SOLA FILA, Y ESTÁ VENCIDA. Medido en ADM10:
+ * `Negotiation` + `High` + los dos reclutadores devuelve **Luis Landaverde** y
+ * nadie más. Esta nota decía «las dos filas» y nombraba a Otoniel Gomez, que
+ * contra la base es `Low` -- ver la cabecera de `prioridades.test.mjs`.
+ *
+ * Que el grupo quede en uno, o en cero, es un resultado posible y no un fallo:
+ * significa que no hay más de una negociación prioritaria abierta.
  */
 export interface PriorityDate {
   group: PriorityGroup;
