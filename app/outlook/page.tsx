@@ -4,6 +4,12 @@ import { Fragment, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import OutlookTopBar from '@/app/outlook/components/OutlookTopBar';
 import { RECRUITMENT_BRANCH } from '@/app/outlook/components/RecruitEditor';
+/*
+ * Las reglas de los dos grupos de prioridad — etapa ADM9. El MISMO módulo que
+ * usa la pantalla de Admin: los rótulos, el criterio de fecha vencida y el de
+ * quién no origina salen de un solo lugar.
+ */
+import { GROUP_LABEL, DATE_LABEL, priorityDate, willNotProduce } from '@/lib/recruitment/prioridades';
 import { composeYear, currentMonthByBranch, projectBranch, type OutlookData } from '@/lib/outlook/loadData';
 import { remainingMonthsFor } from '@/lib/outlook/horizon';
 import { fmt, sumOfShown } from '@/lib/outlook/format';
@@ -625,6 +631,119 @@ export default function OutlookPage() {
           </tbody>
         </table>
       </div>
+
+      {/*
+        ══════════════════════════════════════════════════════════════════════
+        A QUIÉN MIRAR PRIMERO — etapa ADM9
+        ══════════════════════════════════════════════════════════════════════
+
+        Los MISMOS dos grupos, los mismos criterios y los mismos nombres que la
+        pantalla de Admin, porque los arma el mismo módulo de reglas
+        (`lib/recruitment/prioridades.ts`). Que coincidan no depende de que nadie
+        se olvide de actualizar una de las dos.
+
+        ⚠ VA DEBAJO DE LA TABLA Y NO ENCIMA. En Admin esta sección va primero
+        porque aquella pantalla ES el reclutamiento; acá la pantalla es el
+        presupuesto de la división, y lo primero que tiene que contestar es
+        cuánto proyecta cada branch. Estas son contrataciones potenciales: a
+        quién mirar, no cuánto suma.
+
+        ⚠ Y SUS NÚMEROS NO EXPLICAN NINGUNA CELDA DE ARRIBA. La tabla proyecta
+        con `BranchStrategy.recruits`, que es la MISMA tabla leída con otros dos
+        filtros --`producira` y `es_nppm`-- y repartida por branch. Sumar los de
+        acá con los de allá contaría gente dos veces; ver el JSDoc de
+        `OutlookData.prioridades`.
+      */}
+      <section className="ol-prio-sec" data-ol-prioridades="">
+        <div className="ol-card__head">
+          <h2 className="ol-card__title">Who to look at first</h2>
+          <span className="ol-card__badge">
+            {data.prioridades.salesforce_high.length + data.prioridades.hiring_process.length} potential hires across 2
+            groups — not part of the table above
+          </span>
+        </div>
+
+        <div className="ol-prio">
+          {(['salesforce_high', 'hiring_process'] as const).map((grupo) => {
+            const filas = data.prioridades[grupo];
+            return (
+              <div className="tbl-card ol-prio__card" key={grupo} data-ol-prioridad={grupo}>
+                <div className="tbl-card__head">
+                  <span className="tbl-card__title">{GROUP_LABEL[grupo]}</span>
+                  <span className="ol-prio__n">{filas.length}</span>
+                </div>
+                {/* El rótulo de la fecha, en la tarjeta: las dos no se comparan. */}
+                <p className="ol-prio__que">Date shown is the {DATE_LABEL[grupo].toLowerCase()}</p>
+
+                {/*
+                  ⚠ VACÍO SE DICE, NO SE DESAPARECE. El grupo prioritario puede
+                  quedar sin nadie y eso es correcto -- el criterio es
+                  estrictamente `High`. Una sección ausente se lee como "esto no
+                  existe"; una vacía con su motivo, como "hoy no hay nadie".
+                */}
+                {filas.length === 0 ? (
+                  <p className="ol-prio__nadie">
+                    {grupo === 'salesforce_high'
+                      ? 'Nobody is in a high-importance negotiation right now.'
+                      : 'Nobody is in the hiring process right now.'}
+                  </p>
+                ) : (
+                  <ul className="ol-prio__lista">
+                    {filas.map((r) => {
+                      const f = priorityDate(r, grupo, data.today);
+                      return (
+                        <li className="ol-prio__fila" key={r.nombre} data-ol-prioridad-fila="">
+                          <span className="ol-prio__nombre">{r.nombre}</span>
+                          <span className="ol-prio__branch">{r.branchCode?.trim() || '—'}</span>
+                          <span className="ol-prio__quien">{r.recruiter?.trim() || '—'}</span>
+                          <span className="ol-prio__fecha">
+                            {f.date ?? '—'}
+                            {/*
+                              Una fecha vencida es un DATO: una negociación que no
+                              avanzó, o alguien que debía haber entrado y no
+                              figura en el roster. Sin marcarla, las dos se leen
+                              como si estuvieran por pasar.
+                            */}
+                            {f.overdue ? <span className="ol-prio__vencida">overdue</span> : null}
+                          </span>
+                          {/*
+                            Entra a la empresa y no va a originar. Rotulado y no
+                            quitado: la sección habla del proceso de contratación
+                            y ellos están en él, pero quien la sume esperando
+                            futuros originadores los contaría de más.
+                          */}
+                          {willNotProduce(r) ? (
+                            <span className="ol-prio__no-origina">will not originate</span>
+                          ) : null}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/*
+          ⚠ LOS QUE QUEDAN FUERA, Y POR QUÉ. Sobre todo los que nadie triagó: la
+          respuesta a "¿y por qué no está fulano?" es que falta que un reclutador
+          les fije importancia, NO que se los descartó. Son dos cosas distintas y
+          sólo una es accionable.
+        */}
+        {data.prioridades.excluded.length > 0 && (
+          <p className="bp-hint">
+            <b>{data.prioridades.excluded.length} not in either group.</b>{' '}
+            {data.prioridades.excluded.filter((e) => e.reason === 'no_prioritario').length} triaged as low or medium,{' '}
+            {data.prioridades.excluded.filter((e) => e.reason === 'fuera_de_negociacion').length} no longer in
+            negotiation, and{' '}
+            <b>
+              {data.prioridades.excluded.filter((e) => e.reason === 'sin_triage').length} nobody has triaged yet — those
+              are not low priority, they are waiting for a recruiter to set one.
+            </b>
+          </p>
+        )}
+      </section>
 
       {/*
         ══════════════════════════════════════════════════════════════════════

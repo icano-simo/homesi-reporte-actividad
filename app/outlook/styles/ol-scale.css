@@ -371,3 +371,127 @@ table.piv.ol-year tr.metric.drow td.lbl,
   flex-wrap: wrap;
   gap: 8px;
 }
+
+/*
+ * ============================================================================
+ * LOS DOS GRUPOS DE PRIORIDAD — etapa ADM9
+ * ============================================================================
+ *
+ * ⚠ CLASES PROPIAS Y NO LAS DE ADMIN, aunque la sección sea la misma. Las
+ * `adm-*` viven en `app/admin/styles/admin.css`, que lo importa el layout de
+ * Admin y NO el de Outlook: reusar sus nombres acá dejaría la sección sin
+ * estilo, que es peor que no tener ninguno -- se vería rota, no simple.
+ *
+ * Lo que las dos pantallas comparten es el MÓDULO DE REGLAS, que es donde
+ * importa que no diverjan. Dos hojas de estilo parecidas no producen números
+ * distintos; dos copias de un criterio sí.
+ *
+ * Todo con tokens y NINGUNO CON RESPALDO. Un `var(--token, <color literal>)`
+ * esconde un token mal escrito detrás de un color que igual se ve bien: la regla
+ * falla en silencio y la pantalla no lo dice. Sin respaldo, el token que no
+ * existe se ve.
+ */
+/*
+ * La sección entera. `.ol-card` NO sirve de envoltorio acá: es `width:
+ * max-content`, pensada para que una tarjeta mida lo que mide su tabla, y esto
+ * es una grilla que tiene que ocupar el ancho disponible.
+ */
+.ol-prio-sec {
+  margin-top: 40px;
+}
+.ol-prio {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+.ol-prio__card {
+  display: flex;
+  flex-direction: column;
+}
+/* El conteo del grupo. Es SUYO: los dos grupos no se suman entre sí. */
+.ol-prio__n {
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+}
+/*
+ * QUÉ fecha trae la última columna. Va en la tarjeta y no en un encabezado
+ * común: un cierre esperado y una fecha de ingreso no se comparan entre sí.
+ */
+.ol-prio__que {
+  margin: 0;
+  padding: 8px 16px 0;
+  font-size: var(--ol-text);
+  color: var(--slate-500);
+}
+.ol-prio__lista {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+/* Nombre · branch · reclutador · fecha. */
+.ol-prio__fila {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) 56px minmax(0, 1fr) 120px;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 16px;
+  border-bottom: 1px solid var(--slate-100);
+  font-size: var(--ol-text);
+}
+.ol-prio__fila:last-child {
+  border-bottom: 0;
+}
+.ol-prio__nombre {
+  color: var(--slate-800);
+  overflow-wrap: anywhere;
+}
+.ol-prio__branch {
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--navy);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.ol-prio__quien {
+  color: var(--slate-500);
+  overflow-wrap: anywhere;
+}
+/* `tabular-nums` para que una columna de fechas no se lea torcida. */
+.ol-prio__fecha {
+  color: var(--slate-600);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+/*
+ * ⚠ UNA FECHA VENCIDA ES UN DATO, NO UN ERROR -- ver `priorityDate`. Ámbar y no
+ * rojo: no hay nada roto, hay algo que mirar.
+ */
+.ol-prio__vencida {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: var(--radius-sm);
+  background: var(--amber-50);
+  color: var(--amber-800);
+  font-weight: 700;
+}
+/*
+ * Entra a la empresa y no va a originar. Rotulado y no quitado: quien sume esta
+ * sección esperando futuros originadores lo contaría de más.
+ */
+.ol-prio__no-origina {
+  grid-column: 1 / -1;
+  color: var(--slate-500);
+  font-style: italic;
+}
+/* ⚠ Vacío SE DICE. Ver el comentario de la sección en la vista. */
+.ol-prio__nadie {
+  margin: 0;
+  padding: 12px 16px;
+  font-size: var(--ol-text);
+  color: var(--slate-500);
+}

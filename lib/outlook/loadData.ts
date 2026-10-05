@@ -17,6 +17,12 @@ import { pisoDeRealtors, presupuestoDePersona, totalesVigentes } from '@/lib/out
    Business Plan — etapa BP54. Ver el JSDoc de `nppmPiso.ts` para el ciclo de
    imports que lo hizo necesario. */
 import { aportesPorPersona, benchmarkDeRealtor, proyeccionPorRealtor, type AporteDeRealtor } from '@/lib/outlook/nppmPiso';
+/*
+ * Las reglas de los dos grupos de prioridad — etapa ADM9. El MISMO módulo que
+ * consume la pantalla de Admin. Ver su cabecera: no se solapa con
+ * `lib/outlook/recruitment.ts`, que clasifica para proyectar dinero.
+ */
+import { buildPriorityGroups, type PriorityGroups, type PriorityRow } from '@/lib/recruitment/prioridades';
 import { classifyBranch } from '@/lib/domain/classifyBranch';
 import { classifyStrategy } from '@/lib/pipeline/strategy';
 import { apportionByWeight } from '@/lib/pipeline/aggregate';
@@ -787,6 +793,23 @@ export interface BranchOwner {
   isPerson: boolean;
 }
 
+/**
+ * Lo que la consulta de ADM9 lee de `activity_report.future_loan_officer` —
+ * nombres de columna, no los del dominio. `PriorityRow` es el tipo del módulo de
+ * reglas y usa camelCase; esto es lo que vuelve de PostgREST.
+ */
+interface PriorityFuenteRow {
+  nombre: string;
+  origen: string;
+  stage: string | null;
+  importance: string | null;
+  recruiter: string | null;
+  branch_code: string | null;
+  close_date: string | null;
+  fecha_inicio: string | null;
+  producira: boolean;
+}
+
 /** Una fila de `activity_report.future_loan_officer`, tal como llega. */
 interface FutureLoRow {
   nombre: string;
@@ -1100,6 +1123,26 @@ export interface OutlookData {
    * pantalla no hay fila, y sin fila no hay dónde asignarles un dueño.
    */
   nppmSinBranch: { realtorCode: string; displayName: string; branchCode: string | null }[];
+  /**
+   * ============================================================================
+   * LOS DOS GRUPOS DE PRIORIDAD — etapa ADM9
+   * ============================================================================
+   *
+   * Los mismos criterios y los mismos nombres que la pantalla de Admin, porque
+   * es el mismo módulo de reglas el que los arma.
+   *
+   * ⚠ NO SE CRUZA CON `BranchStrategy.recruits` Y NO SE PUEDE SUMAR CON ÉL. Son
+   * dos lecturas de la misma tabla con filtros distintos y propósitos distintos:
+   *
+   *   `recruits`      quién PROYECTA DINERO. Filtrado por `producira` y por
+   *                   `es_nppm`, repartido por branch, con rampa y benchmark.
+   *   `prioridades`   a quién MIRAR. Sin esos filtros, con los que no originan
+   *                   rotulados en vez de quitados.
+   *
+   * Un número de esta sección no explica ninguna celda de la tabla de arriba, y
+   * sumarlos daría gente dos veces.
+   */
+  prioridades: PriorityGroups;
   /** El mes desde el que rige cualquier benchmark editado hoy. */
   effectiveFrom: string;
   /**
@@ -1517,6 +1560,55 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
     return { fuente, editado };
   })();
 
+  /*
+   * ==========================================================================
+   * ⚠ LOS DOS GRUPOS DE PRIORIDAD, EN SU PROPIA CONSULTA — etapa ADM9
+   * ==========================================================================
+   *
+   * Las mismas filas que `recruitPromise`, SIN sus dos filtros. No es una
+   * duplicación por descuido: los filtros de arriba son correctos para lo que
+   * hace aquella consulta y equivocados para ésta.
+   *
+   *   `.eq('producira', true)`   aquélla PROYECTA DINERO, y quien no origina no
+   *                              aporta nada que presupuestar. Acá los dos que
+   *                              no originan --Jorge Betancur y Maria "Cris"
+   *                              Oviedo Clavijo al 2026-10-05-- SE MUESTRAN
+   *                              ROTULADOS: están en el proceso de contratación,
+   *                              que es de lo que habla la sección. Filtrarlos
+   *                              en la consulta haría imposible rotularlos.
+   *   `.eq('es_nppm', false)`    aquélla arma personas con presupuesto propio y
+   *                              un NPPM no es una de ésas. Acá la pregunta es a
+   *                              quién mirar, y un NPPM en proceso también se
+   *                              mira.
+   *
+   * ⚠ POR QUÉ UNA CONSULTA APARTE Y NO UNA SOLA ANCHA. Ensanchar la de arriba y
+   * filtrar después en memoria haría que la ruta que arma el presupuesto pasara
+   * a leer filas que hoy no lee, y esa ruta mueve números que ya están
+   * verificados. Una lectura de más cuesta una ida a la base; un doble conteo en
+   * el presupuesto cuesta encontrarlo.
+   *
+   * Las reglas NO están acá sino en `lib/recruitment/prioridades.ts`, que es el
+   * mismo módulo que usa la pantalla de Admin -- los mismos criterios escritos
+   * en dos lugares divergen.
+   */
+  const prioridadesPromise = (async (): Promise<PriorityRow[]> => {
+    const { data, error } = await supabase
+      .from('future_loan_officer')
+      .select('nombre, origen, stage, importance, recruiter, branch_code, close_date, fecha_inicio, producira');
+    if (error) return [];
+    return ((data ?? []) as PriorityFuenteRow[]).map((r) => ({
+      nombre: r.nombre,
+      origen: r.origen,
+      stage: r.stage,
+      importance: r.importance,
+      recruiter: r.recruiter,
+      branchCode: r.branch_code,
+      closeDate: r.close_date,
+      startDate: r.fecha_inicio,
+      producira: r.producira,
+    }));
+  })();
+
   const orgPromise = Promise.all([
     supabase.schema('org').from('employee_alias').select('*'),
     supabase.schema('org').from('source_name_excluded').select('source_system, name_raw'),
@@ -1543,15 +1635,17 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
     supabase.schema('org').from('branch_group').select('branch_code, group_code'),
   ]);
 
-  const [bp, rows, outlookTables, orgTables, recruitTables, nppmOwners, nppmRoster] = await Promise.all([
-    loadBusinessPlanData(reference) as Promise<BusinessPlanData>,
-    activityPromise,
-    outlookPromise,
-    orgPromise,
-    recruitPromise,
-    nppmOwnerPromise,
-    nppmRosterPromise,
-  ]);
+  const [bp, rows, outlookTables, orgTables, recruitTables, nppmOwners, nppmRoster, prioridadesFilas] =
+    await Promise.all([
+      loadBusinessPlanData(reference) as Promise<BusinessPlanData>,
+      activityPromise,
+      outlookPromise,
+      orgPromise,
+      recruitPromise,
+      nppmOwnerPromise,
+      nppmRosterPromise,
+      prioridadesPromise,
+    ]);
 
   const currentMonth = bp.diagnostics.pipelineMonths.current;
   const remainingMonths = remainingMonthsOf(currentMonth);
@@ -3530,6 +3624,13 @@ export async function loadOutlookData(reference: Date = new Date()): Promise<Out
       displayName: r.display_name,
       branchCode: r.branch_code === null ? null : grupoDe(r.branch_code),
     })),
+    /*
+     * Los dos grupos de ADM9, armados con la MISMA fecha de servidor que ya usa
+     * el resto del loader -- `shouldShowRecruit` la expone por el mismo motivo:
+     * "la fecha está vencida" no puede depender del reloj del navegador de quien
+     * mira.
+     */
+    prioridades: buildPriorityGroups(prioridadesFilas, hoyISO),
     effectiveFrom: addMonths(currentMonth, 1) + '-01',
     recruitRamp: rampa,
     history,
