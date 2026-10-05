@@ -595,10 +595,43 @@ create policy assignment_update on review.assignment
   using (review.can_assign())
   with check (review.can_assign() and updated_by = coalesce(auth.jwt() ->> 'email', ''));
 /*
+ * ⚠ EL `with check` MIRA LA FILA RESULTANTE, NO EL `SET` — medido en RV35.
+ *
+ * Se lee como «todo UPDATE tiene que mandar `updated_by`», y eso es cierto sólo
+ * la PRIMERA vez. Ejercido sobre dos asignaciones de práctica, con el mismo
+ * `PATCH` sin `updated_by`:
+ *
+ *     96, con `updated_by` en null      ->  403 / 42501, no toca la fila
+ *     97, ya editada por esa persona    ->  200, GUARDA
+ *
+ * Porque un UPDATE que no toca la columna deja en la fila nueva el valor que ya
+ * estaba; si ese valor ES el email de quien edita, la comparación se cumple
+ * sola. O sea que omitirlo falla la primera vez y después se vuelve silencioso.
+ *
+ * ⚠ Y EL DAÑO CONCRETO NO ES EL RECHAZO, ES LO QUE PASA CUANDO NO RECHAZA:
+ * `updated_at` deja de moverse mientras el resto de la fila cambia. Una
+ * asignación editada hoy puede quedar con `updated_at` del mes pasado, y ese
+ * campo es lo único que dice cuándo se la tocó.
+ *
+ * No se cambia la policy: exigir el campo en el `SET` no se puede expresar en
+ * un `with check` --RLS ve filas, no sentencias-- y un trigger que lo escriba
+ * solo sería otro lugar decidiendo lo mismo. La defensa está en quien escribe:
+ * el `update` de `app/review/settings/page.tsx` manda `updated_by` y
+ * `updated_at` siempre, con esta razón al lado.
+ *
+ * Si algún día hace falta que la base lo garantice, el lugar es un
+ * `before update` que fije las dos columnas, y entonces esta nota cambia.
+ *
+ * ---------------------------------------------------------------------------
  * Sin policy de DELETE. Una asignación se desactiva. El intento no falla: RLS
  * filtra y devuelve cero filas, así que la app tiene que mirar las filas
  * afectadas -- es el silencio que BP42 documentó, y el `.select()` de
  * `patchMilestone` es el patrón a repetir.
+ *
+ * ⚠ Y LAS DOS NEGATIVAS NO SE PARECEN, que es lo que esta sección deja escrito
+ * de una vez: `cero filas con error null` es el `using` --no tenés permiso para
+ * esa fila-- y `42501` es el `with check` --la fila que queda no cumple--. La
+ * primera se mira contando lo devuelto; la segunda llega como error.
  */
 
 /*

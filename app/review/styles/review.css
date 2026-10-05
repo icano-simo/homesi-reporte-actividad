@@ -410,6 +410,108 @@ body:has(.rv-bar) .app {
   color: var(--white);
 }
 
+/*
+ * ── Coach settings, con 42 asignaciones — etapa RV35 ────────────────────────
+ *
+ * Los seis nombres salieron de un `git grep` previo contra el árbol commiteado:
+ * ninguno existía. `rv-done` es hermano de `rv-due` --mismo tamaño y forma-- y
+ * no una variante suya, porque no dice lo mismo: una tiene fecha de
+ * vencimiento y la otra NO VENCE, y una variante `rv-due--done` diría que sí.
+ *
+ * Verde y no ámbar ni navy: `rv-state--done` ya usa navy para el estado de la
+ * sesión, y las dos píldoras conviven en la misma fila. Dos navys seguidos se
+ * leen como un bloque.
+ */
+.rv-done {
+  padding: 2px 9px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--emerald-200);
+  background: var(--emerald-50);
+  color: var(--emerald-800);
+  font-weight: 600;
+}
+
+/* Los tres filtros, en una fila que envuelve en pantallas angostas. */
+.rv-filtros {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 14px;
+  margin: 18px 0 6px;
+}
+.rv-filtros__campo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 170px;
+}
+/* El campo de búsqueda, un poco más ancho: un nombre no entra en 170px. */
+.rv-filtros__campo:first-child {
+  min-width: 230px;
+}
+
+/*
+ * El grupo de un branch. Sangría a la izquierda y no una caja: lo que agrupa es
+ * el encabezado, y una caja por branch con doce branches convierte la lista en
+ * doce tarjetas que compiten entre sí.
+ */
+.rv-branchgroup {
+  margin: 14px 0 0;
+}
+.rv-branchgroup__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  font-family: var(--font-display);
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--slate-500);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.rv-branchgroup__n {
+  padding: 0 7px;
+  border-radius: var(--radius-full);
+  background: var(--slate-100);
+  color: var(--slate-600);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Las secciones que no son la principal, más apagadas: lo que no opera no
+   compite por la vista. Mismo criterio que `.rv-row--practica`. */
+.rv-sectionhead--tenue .rv-sectionhead__name {
+  color: var(--slate-500);
+  font-weight: 600;
+}
+
+/* El editor de una asignación, dentro de su fila. */
+.rv-edit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 14px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--slate-200);
+  border-radius: var(--radius-md);
+  background: var(--canvas);
+}
+.rv-edit .bp-form__field {
+  min-width: 160px;
+}
+
+/*
+ * Cuando los filtros no dejan nada. Dice que es por los filtros y no que no
+ * haya asignaciones: una lista vacía sin motivo se lee como una pantalla rota.
+ */
+.rv-vacio {
+  margin: 10px 0;
+  font-size: 12px;
+  color: var(--slate-500);
+}
+
 /* Las migas, propias. Ver la nota del TSX: `Breadcrumbs` no pinta fuera del
    shell de Business Plan, asi que estas pantallas dibujan las suyas. */
 .rv-crumbs {
