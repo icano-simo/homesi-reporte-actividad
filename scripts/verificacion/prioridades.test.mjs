@@ -16,8 +16,10 @@
  *     Negotiation. Si el criterio fuera sólo la importancia, entraría.
  *   · Luis Landaverde entra CON el cierre vencido hace más de un año. Vencido
  *     no es excluido -- es marcado.
- *   · Otoniel Gomez entra, y es el ÚNICO `High` de María Guerrero: sin él,
- *     `PRIORITY_RECRUITERS` quedaba probado por una sola de sus dos entradas.
+ *   · La segunda entrada de `PRIORITY_RECRUITERS` --María Guerrero-- se ejerce
+ *     con una fila SIN NOMBRE: sin ella la lista quedaba probada por una sola
+ *     de sus dos entradas. Ver la nota de esa prueba: ahí estuvo Otoniel Gomez
+ *     y es justamente lo que no hay que hacer.
  *   · Jorge Betancur entra al grupo del tablero con fecha de ingreso PASADA, que
  *     es la misma señal en la otra dirección.
  *   · Los tres sin `importance` quedan fuera por `sin_triage` y NO por
@@ -26,17 +28,30 @@
  * ---------------------------------------------------------------------------
  * ⚠ UN NOMBRE REAL EN UNA PRUEBA ES UNA AFIRMACIÓN SOBRE EL DATO
  * ---------------------------------------------------------------------------
- * Este archivo tuvo a Otoniel Gomez como ejemplo de `Low`, y en la base es
- * `High`. El valor llegó de una transcripción a mano de las filas, y una vez
- * escrito acá dejó de parecer una transcripción: una prueba que nombra a una
- * persona se lee como algo verificado contra ella.
+ * Este archivo tuvo a Otoniel Gomez como ejemplo de `Low`. En ADM9 se lo pasó
+ * a `High` y se anotó como un error de transcripción mío.
  *
- * La regla no estaba mal -- `Low` sigue siendo `no_prioritario`. Lo que estaba
- * mal era el ejemplo, y por eso el error sobrevivió a que las pruebas pasaran.
+ * ⚠ Y EN ADM10, MEDIDO CONTRA LA BASE, OTONIEL ES `Low`:
  *
- * Lo que sale de ahí: un nombre real sólo entra con el valor que la consulta
- * devolvió. Para probar una regla sin afirmar nada sobre nadie están `sf()` y
- * `rrhh()`, que no llevan nombre.
+ *     {"nombre":"Otoniel Gomez","stage":"Negotiation","importance":"Low",
+ *      "recruiter":"Maria Guerrero","producira":true,"branch_code":"710",
+ *      "synced_at":"2026-10-05 20:45:39.112+00"}
+ *
+ * O sea que el valor se escribió, se corrigió EN LA DIRECCIÓN CONTRARIA, y las
+ * dos veces quedó blindado por una prueba que lo nombraba. No se puede saber
+ * cuál de las dos lecturas era la de ese día: la tabla la reescribe el sync y
+ * no guarda historia.
+ *
+ * La regla nunca estuvo mal --`Low` es `no_prioritario` y `High` entra--, y por
+ * eso el ejemplo equivocado sobrevivió dos veces a que las pruebas pasaran.
+ *
+ * Lo que sale de ahí, y ahora está aplicado en las dos pruebas de abajo:
+ *
+ *   · un nombre real sólo entra CON EL JSON de la consulta al lado;
+ *   · y lo que prueba una REGLA va sin nombre, con `sf()` y `rrhh()`.
+ *
+ * Un nombre propio no agrega poder de prueba: sólo agrega una afirmación sobre
+ * una persona que nadie va a volver a medir.
  */
 import { strict as assert } from 'node:assert';
 import {
@@ -120,23 +135,46 @@ prueba('Low en Negotiation NO entra, y el motivo es no_prioritario', () => {
   assert.equal(exclusionReason(o), 'no_prioritario');
 });
 
-prueba('⚠ Otoniel: High de María Guerrero ENTRA', () => {
+prueba('⚠ la segunda entrada de PRIORITY_RECRUITERS, ejercida SIN nombre propio', () => {
   /*
    * ⚠ ESTA PRUEBA TAPA UN HUECO, no repite la de arriba.
    *
-   * La primera prueba del archivo usa a Luis, que es de Juanjo Cabrera. Hasta
-   * acá NINGUNA ejercitaba un `High` del OTRO reclutador de la lista, así que
-   * `PRIORITY_RECRUITERS` sólo estaba probado por una de sus dos entradas --y
-   * por la de afuera, que verifica el rechazo--.
+   * La primera prueba del archivo usa a Luis, que es de Juanjo Cabrera. Sin
+   * ésta, `PRIORITY_RECRUITERS` quedaría probado por una sola de sus dos
+   * entradas --y por la de afuera, que verifica el rechazo--.
    *
    * Importa porque la comparación es por igualdad exacta: el día que la fuente
    * escriba 'María Guerrero' con tilde, la fila deja de ser prioritaria sin que
    * nada falle, y cae en `otro_reclutador`. Hoy la base dice 'Maria Guerrero'
    * sin tilde, verificado byte por byte.
+   *
+   * ⚠ Y VA SIN NOMBRE DE PERSONA, que es la corrección de ADM10. Acá estuvo
+   * Otoniel Gomez con `importance: 'High'`, y medido contra la base el
+   * 2026-10-05 --con el sync de ese día-- Otoniel es `Low`:
+   *
+   *     {"nombre":"Otoniel Gomez","stage":"Negotiation","importance":"Low",
+   *      "recruiter":"Maria Guerrero","producira":true,"branch_code":"710"}
+   *
+   * O sea que el valor se escribió mal, se "corrigió" al revés, y las dos veces
+   * quedó blindado por una prueba que lo nombraba. Lo que esta prueba tiene que
+   * comprobar es la REGLA --que la segunda entrada de la lista entra-- y para
+   * eso el nombre no hace falta. Sin nombre no puede volver a afirmar de más.
    */
-  const otoniel = sf({ nombre: 'Otoniel Gomez', importance: 'High', recruiter: 'Maria Guerrero' });
-  assert.equal(groupOf(otoniel), 'salesforce_high');
-  assert.equal(exclusionReason(otoniel), null);
+  const deMaria = sf({ importance: 'High', recruiter: 'Maria Guerrero' });
+  assert.equal(groupOf(deMaria), 'salesforce_high');
+  assert.equal(exclusionReason(deMaria), null);
+});
+
+prueba('⚠ Otoniel Gomez, con el valor MEDIDO: Low, y por eso NO entra', () => {
+  /*
+   * El único lugar del archivo donde su nombre aparece, y con el JSON de la
+   * base al lado --ver la prueba de arriba--. Si mañana la fuente lo pasa a
+   * `High`, esta prueba se pone roja y obliga a volver a mirar; hoy afirma lo
+   * que la base dice.
+   */
+  const otoniel = sf({ nombre: 'Otoniel Gomez', importance: 'Low', recruiter: 'Maria Guerrero' });
+  assert.equal(groupOf(otoniel), null);
+  assert.equal(exclusionReason(otoniel), 'no_prioritario');
 });
 
 prueba('Medium tampoco: el criterio es estrictamente High', () => {
