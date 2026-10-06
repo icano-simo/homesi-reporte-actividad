@@ -3267,21 +3267,25 @@ nueve posicionales por persona:
 r('salesforce', 'Otoniel Gomez', 'Negotiation', 'Low', 'Maria Guerrero', …)
 ```
 
-En la base Otoniel es **`High`**. Entra al grupo prioritario, que son **dos** y
-no uno. El módulo de reglas estaba bien y `groupOf` lo clasificaba bien: **leyó
-correctamente un dato que yo había escrito mal.**
+Nueve posicionales reescritos a mano no se pueden auditar contra el origen: hay
+que confiar en que quien los tipeó no se equivocó en ninguno de los 189 campos.
+Un bloque JSON pegado sí, y cuesta lo mismo.
 
-### Por qué se repitió en dos turnos seguidos
+### ⚠ Y EL EJEMPLO QUE ESTABA ACÁ ERA FALSO — corregido en ADM10
 
-El primer error fue de lectura. **El segundo no fue una lectura nueva: fue mi
-transcripción del primero.** Lo escribí una vez y después me consulté a mí mismo
-en vez de volver al origen. El usuario lo marcó con la frase exacta: «es la
-segunda vez en dos turnos que tu lectura deja a Otoniel afuera, y el dato no
-cambió entre las dos».
+Esta sección decía que Otoniel Gomez es `High` en la base y que mi transcripción
+lo había puesto mal en `Low`. **Medido en ADM10, Otoniel es `Low`.** La
+transcripción original coincidía con la base; lo que estaba mal era la
+corrección, y la escribí acá como si fuera mi error.
 
-### Y lo que lo blindó: una prueba con su nombre
+La regla no cambia --las filas van verbatim, y sigue siendo lo correcto-- pero
+**este caso no la ilustra**, y una sección que enseña con un ejemplo falso
+enseña dos cosas, una de ellas mal. Lo que de verdad pasó está abajo, en su
+propia sección: el dato se movió entre las dos lecturas.
 
-El valor equivocado se había copiado a una prueba:
+### Y lo que sí vale de acá: la prueba con su nombre
+
+El valor se había copiado a una prueba:
 
 ```js
 const o = sf({ nombre: 'Otoniel Gomez', importance: 'Low' });
@@ -3289,12 +3293,17 @@ assert.equal(exclusionReason(o), 'no_prioritario');
 ```
 
 **La prueba verifica la REGLA, no el DATO.** `Low` sí es `no_prioritario`, así
-que pasó en verde las dos veces. Pero el nombre real convierte un error de
-transcripción en algo que se lee como verificado contra la persona: nadie
-re-mide a Otoniel después de ver una prueba que lo nombra.
+que pasó en verde con los dos valores -- y habría pasado igual con cualquiera.
+El nombre real no agrega poder de prueba: agrega una afirmación sobre una
+persona que nadie va a volver a medir.
 
 > **Una prueba congela lo que afirma, y afirma más de lo que comprueba cuando
 > lleva un nombre propio adentro.**
+
+Eso se sostiene con independencia de cuál de los dos valores era el correcto, y
+por eso sobrevive a la corrección de arriba: la prueba nombraba a alguien para
+comprobar algo que no necesitaba su nombre, y eso convirtió un valor discutible
+en un hecho que nadie volvió a mirar durante dos turnos.
 
 ## Qué hacer
 
@@ -3313,6 +3322,72 @@ re-mide a Otoniel después de ver una prueba que lo nombra.
   afuera, y que el grupo prioritario sea estrictamente `High`. **La partición
   habría cazado esto**: el conteo que yo reportaba sumaba 21 igual, pero una
   invariante sobre el criterio no se satisface con un dato mal tipeado.
+
+# Un dato que alguien edita, en una tabla sin historia, cambia la respuesta sola
+
+> Ésta es la sección que el caso de Otoniel sí ilustra, y tardó dos turnos en
+> escribirse porque las dos veces lo leímos como un error de transcripción --
+> primero mío, después de la corrección--. El mecanismo es otro, y es el de
+> «Una línea base envejece, y un invariante no» con un agravante: **acá el dato
+> puede VOLVER ATRÁS**, así que ni siquiera se mueve en una sola dirección.
+
+## La regla
+
+**Cuando un campo lo edita una persona y la tabla no guarda historia, dos
+lecturas correctas del mismo criterio pueden dar conjuntos distintos — y no hay
+forma de reconstruir cuál valía en qué momento.**
+
+No es que una de las dos esté mal. Las dos miden bien, en instantes distintos de
+un dato que alguien movió en el medio.
+
+## El caso, con los dos valores y sus horas
+
+`activity_report.future_loan_officer.importance` la fija un reclutador en
+Salesforce. La tabla de Supabase la **reescribe el sync** y no conserva
+versiones: `synced_at` dice cuándo se copió, no qué decía antes.
+
+| cuándo | quién midió | `importance` de Otoniel Gomez |
+|---|---|---|
+| 14:30 del 2026-10-05, hora del usuario | el usuario, con la misma consulta | **`High`** |
+| `synced_at = 2026-10-05 20:45:39.112+00` | --- | el sync reescribe la tabla |
+| después de ese sync | yo, en ADM10 | **`Low`** |
+
+La hora del `synced_at` está **medida**; la de las 14:30 la **reporta el
+usuario** y se anota como lo que es, un dato de entrada. Las dos lecturas son
+correctas.
+
+Y la consecuencia es directa sobre lo que la pantalla contesta: con `High`,
+`Priority negotiation` tiene dos filas; con `Low`, una. **El criterio no cambió
+ni una letra.**
+
+## Por qué es peor que una línea base que envejece
+
+Una línea base envejece en una dirección: el dato avanza y la comparación queda
+vieja. Acá `importance` es un juicio que alguien revisa, así que **puede ir y
+volver** -- `High` hoy, `Low` mañana, `High` la semana que viene. Dos mediciones
+separadas por horas pueden coincidir, diferir, o volver a coincidir, sin que
+nadie haya tocado el código.
+
+> **Un campo que una persona edita no es un hecho del sistema: es su opinión en
+> un momento, y la tabla sólo guarda la última.**
+
+## Qué hacer
+
+- **Al reportar un conjunto que depende de un campo editable, poner la hora de
+  la lectura al lado del conteo.** «Priority negotiation = 1» envejece; «= 1,
+  leído después del sync de las 20:45 UTC» se puede comparar con otra lectura.
+- **Y cuando dos lecturas del mismo criterio difieren, mirar primero si el campo
+  es editable antes de buscar el error en quien midió.** Las dos veces acá se
+  buscó --y se encontró-- una explicación sobre la persona que leyó: una
+  transcripción mal hecha, y después una corrección mal aceptada. Ninguna era.
+- **Lo que no envejece es el criterio.** `Negotiation` + `High` + los dos
+  reclutadores se puede escribir, probar y dejar fijo; la lista que produce, no.
+  Por eso la prueba ejerce la regla con filas sin nombre y el nombre propio sólo
+  aparece con el JSON de su lectura al lado.
+- Y si alguna vez hace falta saber qué decía antes, **eso no se deduce: se
+  agrega**. Una tabla de versiones, o un `updated_at` que venga de la fuente.
+  Hoy no existe, y por eso esta sección dice «no se puede reconstruir» en vez de
+  prometer una investigación que no tiene con qué hacerse.
 
 # Una entrada de una lista blanca que ninguna prueba ejerce no está probada
 

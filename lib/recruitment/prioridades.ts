@@ -219,9 +219,17 @@ export function exclusionReason(row: PriorityRow): ExclusionReason | null {
  *
  * ⚠ Y HOY EL GRUPO 1 TIENE UNA SOLA FILA, Y ESTÁ VENCIDA. Medido en ADM10:
  * `Negotiation` + `High` + los dos reclutadores devuelve **Luis Landaverde** y
- * nadie más. Esta nota decía «las dos filas» y nombraba a Otoniel Gomez, que
- * contra la base es `Low` -- ver la cabecera de `prioridades.test.mjs`.
+ * nadie más. Esta nota decía «las dos filas» y nombraba a Otoniel Gomez.
  *
+ * ⚠ Y «HOY» ES LITERAL: `importance` LA EDITA UN RECLUTADOR Y ESTA TABLA NO
+ * GUARDA HISTORIA. Otoniel se midió `High` a las 14:30 y `Low` después del
+ * sync de las 20:45:39+00 del 2026-10-05 -- las dos lecturas correctas, el
+ * dato movido entre ellas. Así que la pertenencia al grupo cambia sola, puede
+ * volver atrás, y un conteo de este grupo es una foto con hora. Ver «Un dato
+ * que alguien edita, en una tabla sin historia, cambia la respuesta sola» en
+ * AGENTS.md.
+ *
+ * Decisión de Isabella (2026-10-05): el criterio se queda en `High` estricto.
  * Que el grupo quede en uno, o en cero, es un resultado posible y no un fallo:
  * significa que no hay más de una negociación prioritaria abierta.
  */

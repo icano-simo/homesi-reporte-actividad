@@ -28,30 +28,30 @@
  * ---------------------------------------------------------------------------
  * ⚠ UN NOMBRE REAL EN UNA PRUEBA ES UNA AFIRMACIÓN SOBRE EL DATO
  * ---------------------------------------------------------------------------
- * Este archivo tuvo a Otoniel Gomez como ejemplo de `Low`. En ADM9 se lo pasó
- * a `High` y se anotó como un error de transcripción mío.
+ * ⚠ Y EL EJEMPLO DE OTONIEL NO ERA UN ERROR DE TRANSCRIPCIÓN. Esto decía que sí
+ * --dos veces, en direcciones opuestas-- y las dos eran falsas. Lo que pasó:
  *
- * ⚠ Y EN ADM10, MEDIDO CONTRA LA BASE, OTONIEL ES `Low`:
+ *     14:30 (hora del usuario)    medido por él:   importance = High
+ *     20:45:39+00 (`synced_at`)   el sync reescribe la tabla
+ *     después                     medido en ADM10: importance = Low
  *
  *     {"nombre":"Otoniel Gomez","stage":"Negotiation","importance":"Low",
  *      "recruiter":"Maria Guerrero","producira":true,"branch_code":"710",
  *      "synced_at":"2026-10-05 20:45:39.112+00"}
  *
- * O sea que el valor se escribió, se corrigió EN LA DIRECCIÓN CONTRARIA, y las
- * dos veces quedó blindado por una prueba que lo nombraba. No se puede saber
- * cuál de las dos lecturas era la de ese día: la tabla la reescribe el sync y
- * no guarda historia.
+ * `importance` la edita un reclutador en Salesforce y esta tabla NO guarda
+ * historia, así que las dos lecturas eran correctas y el dato se movió entre
+ * ellas. Ver «Un dato que alguien edita, en una tabla sin historia, cambia la
+ * respuesta sola» en AGENTS.md.
  *
- * La regla nunca estuvo mal --`Low` es `no_prioritario` y `High` entra--, y por
- * eso el ejemplo equivocado sobrevivió dos veces a que las pruebas pasaran.
+ * Lo que sí sobrevive, con independencia de cuál valor era el de ese día:
  *
- * Lo que sale de ahí, y ahora está aplicado en las dos pruebas de abajo:
- *
- *   · un nombre real sólo entra CON EL JSON de la consulta al lado;
+ *   · un nombre real sólo entra CON EL JSON de su lectura al lado;
  *   · y lo que prueba una REGLA va sin nombre, con `sf()` y `rrhh()`.
  *
- * Un nombre propio no agrega poder de prueba: sólo agrega una afirmación sobre
- * una persona que nadie va a volver a medir.
+ * Un nombre propio no agrega poder de prueba: agrega una afirmación sobre una
+ * persona que nadie va a volver a medir -- y acá convirtió un valor que se
+ * MUEVE en un hecho que sobrevivió dos turnos.
  */
 import { strict as assert } from 'node:assert';
 import {
